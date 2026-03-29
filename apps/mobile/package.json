@@ -1,0 +1,37 @@
+{
+  "name": "@biztrack/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "set EXPO_NO_DEVTOOLS=1 && expo start -c",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "build:android": "eas build --platform android",
+    "build:ios": "eas build --platform ios",
+    "lint": "eslint . --max-warnings 0",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@biztrack/types": "workspace:*",
+    "@biztrack/utils": "workspace:*",
+    "@biztrack/validators": "workspace:*",
+    "@react-native-async-storage/async-storage": "^2.1.0",
+    "axios": "^1.7.9",
+    "expo": "~55.0.6",
+    "expo-router": "~55.0.5",
+    "expo-splash-screen": "^55.0.10",
+    "expo-status-bar": "~55.0.4",
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@biztrack/eslint-config": "workspace:*",
+    "@biztrack/typescript-config": "workspace:*",
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.2.10",
+    "eslint": "^9.32.0",
+    "typescript": "^5.3.3"
+  }
+}

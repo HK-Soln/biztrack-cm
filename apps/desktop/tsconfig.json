@@ -1,0 +1,28 @@
+{
+  "extends": "@biztrack/typescript-config/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@biztrack/types": [
+        "../../packages/types/src"
+      ],
+      "@biztrack/utils": [
+        "../../packages/utils/src"
+      ],
+      "@biztrack/ui": [
+        "../../packages/ui/src"
+      ]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*",
+    "dist/next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

@@ -1,0 +1,6 @@
+// Shared UI components — consumed by web (Next.js) and desktop (Electron renderer)
+// Components are added here as they are built
+export * from './components/Button'
+export * from './components/Input'
+export * from './components/Badge'
+export * from './components/Spinner'

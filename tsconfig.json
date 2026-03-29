@@ -1,0 +1,3 @@
+{
+  "extends": "@biztrack/typescript-config/base.json"
+}

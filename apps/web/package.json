@@ -1,0 +1,29 @@
+{
+  "name": "@biztrack/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "set NEXT_DISABLE_SWC=1 && next dev -p 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^15.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@biztrack/types": "workspace:*",
+    "@biztrack/utils": "workspace:*",
+    "@biztrack/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@biztrack/eslint-config": "workspace:*",
+    "@biztrack/typescript-config": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "eslint": "^9.32.0",
+    "typescript": "^5.7.2"
+  }
+}
