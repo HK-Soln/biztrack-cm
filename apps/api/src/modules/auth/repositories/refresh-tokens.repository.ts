@@ -9,4 +9,16 @@ export class RefreshTokensRepository extends ImmutableBaseRepository<RefreshToke
   constructor(@InjectRepository(RefreshToken) repo: Repository<RefreshToken>) {
     super(repo)
   }
+
+  updateByFamilyId(familyId: string, data: Partial<Omit<RefreshToken, 'user'>>) {
+    return this.repo.update({ familyId }, data)
+  }
+
+  updateByTokenId(tokenId: string, data: Partial<Omit<RefreshToken, 'user'>>) {
+    return this.repo.update({ tokenId }, data)
+  }
+
+  updateByUserId(userId: string, data: Partial<Omit<RefreshToken, 'user'>>) {
+    return this.repo.update({ userId }, data)
+  }
 }

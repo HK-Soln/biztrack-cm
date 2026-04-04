@@ -1,0 +1,22 @@
+{
+  "not_found": "Resource not found.",
+  "unauthorized": "Unauthorized.",
+  "forbidden": "Access denied.",
+  "plan_upgrade_required": "This feature requires the {plan} plan.",
+  "wrong_onboarding_step": "Please complete the previous steps.",
+  "select_business_required": "Please select a business to continue.",
+  "user_not_found": "User not found.",
+  "business_not_found": "Business not found.",
+  "business_forbidden": "Not allowed to update business.",
+  "business_already_exists": "You already own a business.",
+  "invite_invalid": "Invitation not found or expired.",
+  "invite_contact_required": "Provide a phone or email for the invite.",
+  "invite_already_member": "This user is already a member of the business.",
+  "invite_already_pending": "An invite is already pending for this user.",
+  "barcode_in_use": "Barcode already in use.",
+  "product_not_found": "Product not found.",
+  "category_not_found": "Category not found.",
+  "validation_failed": "Invalid data.",
+  "server_error": "An error occurred. Please try again.",
+  "rate_limited": "Too many requests. Try again in {seconds} seconds."
+}

@@ -1,0 +1,9 @@
+{
+  "selected": "{plan} plan activated — {days} days free.",
+  "free_selected": "Free plan activated.",
+  "upgraded": "Plan upgraded to {plan}.",
+  "downgraded": "Downgrade to {plan} plan at end of current period.",
+  "cancelled": "Subscription cancelled. Active until {date}.",
+  "trial_ending_soon": "Your trial expires in {days} days.",
+  "trial_ended": "Your trial has expired. Upgrade to continue."
+}

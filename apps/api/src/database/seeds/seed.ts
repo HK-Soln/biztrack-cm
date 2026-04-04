@@ -1,10 +1,13 @@
 import 'reflect-metadata'
 import { AppDataSource } from '../data-source'
-import { User, UserRole } from '../../entities/user.entity'
-import { Business } from '../../entities/business.entity'
+import { User } from '../../entities/user.entity'
+import { Business, BusinessType, SubscriptionStatus } from '../../entities/business.entity'
+import { BusinessMember } from '../../entities/business-member.entity'
 import { ProductCategory } from '../../entities/product-category.entity'
 import { Product } from '../../entities/product.entity'
 import * as bcrypt from 'bcryptjs'
+import { SubscriptionPlan, UserRole, BusinessMemberRole, BusinessMemberStatus } from '@biztrack/types'
+import { Locale } from '@/common/enums/locale.enum'
 
 async function seed() {
   await AppDataSource.initialize()
@@ -14,6 +17,7 @@ async function seed() {
   const businessRepo = AppDataSource.getRepository(Business)
   const categoriesRepo = AppDataSource.getRepository(ProductCategory)
   const productsRepo = AppDataSource.getRepository(Product)
+  const membersRepo = AppDataSource.getRepository(BusinessMember)
 
   const passwordHash = await bcrypt.hash('password123', 12)
 
@@ -25,7 +29,7 @@ async function seed() {
       email: 'demo@biztrack.cm',
       passwordHash,
       role: UserRole.OWNER,
-      language: 'fr',
+      language: Locale.FR,
       isEmailVerified: true,
     })
     await usersRepo.save(owner)
@@ -41,13 +45,23 @@ async function seed() {
       country: 'CM',
       currency: 'XAF',
       ownerId: owner.id,
-      subscriptionPlan: 'FREE',
-      subscriptionStatus: 'TRIAL',
+      plan: SubscriptionPlan.FREE,
+      subscriptionStatus: SubscriptionStatus.TRIAL,
+      type: BusinessType.BOUTIQUE,
     })
     await businessRepo.save(business)
+  }
 
-    // Link user to business
-    await usersRepo.update(owner.id, { businessId: business.id })
+  const existingMember = await membersRepo.findOne({ where: { businessId: business.id, userId: owner.id } })
+  if (!existingMember) {
+    await membersRepo.save(
+      membersRepo.create({
+        businessId: business.id,
+        userId: owner.id,
+        role: BusinessMemberRole.OWNER,
+        status: BusinessMemberStatus.ACTIVE,
+      }),
+    )
   }
 
   // Create demo categories

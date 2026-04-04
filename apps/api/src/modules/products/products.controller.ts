@@ -7,13 +7,13 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { ProductsService } from './products.service'
 import { CreateProductDto } from './dto/create-product.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
+import { Phase2Guard } from '../auth/guards/phase2.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import type { JwtPayload } from '@biztrack/types'
 
 @ApiTags('Products')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(Phase2Guard)
 @Controller('products')
 export class ProductsController {
   constructor(private productsService: ProductsService) {}

@@ -2,13 +2,13 @@ import { Controller, Post, Body, UseGuards } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { SyncService } from './sync.service'
 import { SyncPayloadDto } from './dto/sync-payload.dto'
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
+import { Phase2Guard } from '../auth/guards/phase2.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import type { ChangeSet, JwtPayload } from '@biztrack/types'
 
 @ApiTags('Sync')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(Phase2Guard)
 @Controller('sync')
 export class SyncController {
   constructor(private syncService: SyncService) {}

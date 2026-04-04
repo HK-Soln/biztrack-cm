@@ -6,7 +6,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiProperty } from '@nestjs/swagger'
 import { IsString, MinLength } from 'class-validator'
 import { ProductsService } from './products.service'
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
+import { Phase2Guard } from '../auth/guards/phase2.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import type { JwtPayload } from '@biztrack/types'
 
@@ -19,7 +19,7 @@ class CreateCategoryDto {
 
 @ApiTags('Product Categories')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(Phase2Guard)
 @Controller('product-categories')
 export class CategoriesController {
   constructor(private productsService: ProductsService) {}

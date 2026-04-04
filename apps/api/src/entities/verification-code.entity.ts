@@ -31,6 +31,9 @@ export class VerificationCode extends BaseEntity {
   @Column({ name: 'code_hash' })
   codeHash!: string
 
+  @Column({ type: 'int', default: 0 })
+  attempts!: number
+
   @Column({ name: 'expires_at', type: 'timestamptz', transformer: dateTransformer })
   expiresAt!: Date
 

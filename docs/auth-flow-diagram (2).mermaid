@@ -1,0 +1,193 @@
+flowchart TD
+  Start(["🚀 Start"]) --> RegOrLogin{"New user?"}
+
+  %% ═══════════════════════════════════════
+  %% REGISTRATION BRANCH
+  %% ═══════════════════════════════════════
+  RegOrLogin -->|"Yes"| Reg(["POST /auth/register\n{ name, phone, password,\nemail?, locale?,\npreferredOtpChannel?,\ninviteToken? }"])
+
+  Reg --> RegValidate{"Validation\npass?"}
+  RegValidate -->|"No"| RegError(["422 Validation Error\nnextStep: REGISTER"])
+  RegValidate -->|"Yes"| PhoneExists{"Phone\nalready exists?"}
+  PhoneExists -->|"Yes"| ConflictPhone(["409 PHONE_EXISTS\nnextStep: LOGIN"])
+  PhoneExists -->|"No"| EmailExists{"Email provided\n& already exists?"}
+  EmailExists -->|"Yes"| ConflictEmail(["409 EMAIL_EXISTS\nnextStep: REGISTER"])
+  EmailExists -->|"No"| SaveUser(["Hash password bcrypt-12\nSave User status=PENDING\nCache inviteToken in Redis\nSend Phone OTP TTL=10min"])
+  SaveUser --> RegResp(["200 OK\nnextStep: VERIFY_PHONE\ncontext: maskedPhone,\notpExpiresIn: 600"])
+
+  %% ── Verify Phone (registration) ──
+  RegResp --> VPReg(["POST /auth/verify-phone\n{ phone, otp, inviteToken? }"])
+  VPReg --> OTPCheckReg{"OTP valid\n& not expired?"}
+  OTPCheckReg -->|"No — attempts < 5"| OTPFail(["400 INVALID_OTP\nattemptsLeft: N\nnextStep: VERIFY_PHONE"])
+  OTPCheckReg -->|"No — attempts ≥ 5"| OTPLocked(["429 OTP_MAX_ATTEMPTS\nnextStep: REQUEST_NEW_OTP"])
+  OTPCheckReg -->|"Yes"| PhoneVerifiedReg(["Mark phoneVerified=true"])
+
+  PhoneVerifiedReg --> EmailProvidedReg{"Email\nprovided?"}
+  EmailProvidedReg -->|"Yes"| SendEmailOTPReg(["Set status=PHONE_VERIFIED\nonboardingStep=VERIFY_EMAIL\nSend Email OTP TTL=10min"])
+  SendEmailOTPReg --> VERespReg(["200 OK\nnextStep: VERIFY_EMAIL\ncontext: maskedEmail"])
+
+  %% ── Verify Email (registration) ──
+  VERespReg --> VEReg(["POST /auth/verify-email\n{ email, otp, inviteToken? }"])
+  VEReg --> EmailOTPReg{"OTP valid\n& not expired?"}
+  EmailOTPReg -->|"No"| EmailOTPFail(["400 INVALID_OTP\nnextStep: VERIFY_EMAIL"])
+  EmailOTPReg -->|"Yes"| MarkEmailReg(["Mark emailVerified=true\nstatus=ACTIVE"])
+  MarkEmailReg --> CompleteReg
+
+  EmailProvidedReg -->|"No"| SetActiveReg(["Set status=ACTIVE"])
+  SetActiveReg --> CompleteReg
+
+  %% ── completeRegistration() ──
+  CompleteReg{"inviteToken\nvalid & matches\nuser phone/email?"}
+  CompleteReg -->|"Yes"| InvitePath(["Link user to invited Business\nCreate BusinessMember\nrole=invite.role\nMark invite acceptedAt=now\nonboardingStep=COMPLETE"])
+  CompleteReg -->|"No / absent / expired"| DefaultPath(["Create default Business\nstatus=ONBOARDING\nCreate BusinessMember\nrole=OWNER\nonboardingStep=SETUP_BUSINESS"])
+
+  InvitePath --> IssueP2Invite(["Issue Phase 2 Tokens\n{ sub, type:phase2,\nbusinessId, role }"])
+  DefaultPath --> IssueP2Default(["Issue Phase 2 Tokens\n{ sub, type:phase2,\nbusinessId, role:OWNER }"])
+
+  IssueP2Invite --> InviteResp(["200 OK\nnextStep: DASHBOARD\ntokens + authPermissions\ncontext: joinedBusiness"])
+  IssueP2Default --> DefaultResp(["200 OK\nnextStep: SETUP_BUSINESS\ntokens + authPermissions"])
+
+  %% ── Onboarding continuation ──
+  DefaultResp --> SetupBiz(["POST /businesses/setup\n{ name, type, city }"])
+  SetupBiz --> SetupDone(["Update Business\nstatus=PLAN_PENDING\nonboardingStep=SELECT_PLAN"])
+  SetupDone --> SetupResp(["200 OK\nnextStep: SELECT_PLAN"])
+  SetupResp --> SelectPlan(["POST /plans/select\n{ plan }"])
+  SelectPlan --> PlanDone(["Update Business plan\nStart trial if paid\nonboardingStep=ADD_FIRST_PRODUCT"])
+  PlanDone --> PlanResp(["200 OK\nnextStep: ADD_FIRST_PRODUCT\nfresh authPermissions"])
+  PlanResp --> FirstProduct(["POST /businesses/first-product\nskippable"])
+  FirstProduct --> Dashboard(["200 OK\nnextStep: DASHBOARD"])
+
+  %% ═══════════════════════════════════════
+  %% LOGIN BRANCH
+  %% ═══════════════════════════════════════
+  RegOrLogin -->|"No"| ReqLogin(["POST /auth/request-login\n{ identifier, preferredOtpChannel? }"])
+
+  ReqLogin --> UserExists{"User\nexists?"}
+  UserExists -->|"No"| LoginNotFound(["404 INVALID_CREDENTIALS\nnextStep: REGISTER"])
+  UserExists -->|"Yes"| PhoneVerifiedLogin{"Phone\nverified?"}
+
+  PhoneVerifiedLogin -->|"No"| SendPhoneLogin(["Send Phone OTP"])
+  SendPhoneLogin --> PhoneLoginResp(["200 OK\nnextStep: VERIFY_PHONE"])
+  PhoneLoginResp --> VPLogin(["POST /auth/verify-phone\n{ phone, otp }"])
+  VPLogin --> PhoneOTPLogin{"OTP valid?"}
+  PhoneOTPLogin -->|"No"| OTPFail
+  PhoneOTPLogin -->|"Yes"| EmailExistsLogin
+
+  PhoneVerifiedLogin -->|"Yes"| EmailExistsLogin{"Email on\naccount?"}
+  EmailExistsLogin -->|"No"| LoginMethodCheck
+  EmailExistsLogin -->|"Yes"| EmailVerifiedLogin{"Email\nverified?"}
+
+  EmailVerifiedLogin -->|"No"| SendEmailLogin(["Send Email OTP"])
+  SendEmailLogin --> EmailLoginResp(["200 OK\nnextStep: VERIFY_EMAIL"])
+  EmailLoginResp --> VELogin(["POST /auth/verify-email\n{ email, otp }"])
+  VELogin --> EmailOTPLogin{"OTP valid?"}
+  EmailOTPLogin -->|"No"| EmailOTPFail
+  EmailOTPLogin -->|"Yes"| IssueP1FromEmail(["Issue Phase 1 Tokens\nOTP = proof of identity\nNo password step needed"])
+  IssueP1FromEmail --> P1Resp
+
+  EmailVerifiedLogin -->|"Yes"| LoginMethodCheck{"Password\nconfigured?"}
+  LoginMethodCheck -->|"Yes"| PwLoginResp(["200 OK\nnextStep: PASSWORD_LOGIN"])
+  LoginMethodCheck -->|"No"| SendLoginOTP(["Send Login OTP"])
+  SendLoginOTP --> OTPLoginResp(["200 OK\nnextStep: OTP_LOGIN"])
+
+  %% ── Password Login ──
+  PwLoginResp --> PwLogin(["POST /auth/login\n{ identifier, password }"])
+  PwLogin --> Locked{"Account\nlocked?"}
+  Locked -->|"Yes"| AccountLocked(["429 ACCOUNT_LOCKED\nlockUntil: timestamp"])
+  Locked -->|"No"| PwMatch{"bcrypt\nmatch?"}
+  PwMatch -->|"No — attempts < 10"| PwFail(["401 INVALID_CREDENTIALS\nattemptsLeft: N"])
+  PwMatch -->|"No — attempts ≥ 10"| LockAcct(["Lock 1hr\n429 ACCOUNT_LOCKED"])
+  PwMatch -->|"Yes"| ResetAttempts(["Reset failedLoginAttempts\nClear lockedUntil"])
+  ResetAttempts --> IssueP1
+
+  %% ── OTP Login ──
+  OTPLoginResp --> OTPLogin(["POST /auth/login-otp\n{ identifier, otp }"])
+  OTPLogin --> LoginOTPValid{"OTP valid?"}
+  LoginOTPValid -->|"No"| OTPFail
+  LoginOTPValid -->|"Yes"| IssueP1
+
+  %% ── Issue Phase 1 ──
+  IssueP1(["Issue Phase 1 Tokens\n{ sub, type:phase1,\nbusinessId:null, role:null }"])
+  IssueP1 --> P1Resp(["200 OK\nnextStep: SELECT_BUSINESS\ntokens — no authPermissions yet"])
+
+  %% ── Select Business ──
+  P1Resp --> GetBiz(["GET /businesses/mine\nReturns all businesses\nuser belongs to with roles"])
+  GetBiz --> SelBiz(["POST /auth/select-business\n{ businessId }"])
+  SelBiz --> IsMember{"User is active\nmember?"}
+  IsMember -->|"No"| ForbiddenBiz(["403 NOT_A_MEMBER"])
+  IsMember -->|"Yes"| CheckRole{"Member\nrole?"}
+
+  CheckRole -->|"OWNER"| CheckBizStatus{"Business\nstatus?"}
+  CheckBizStatus -->|"ONBOARDING"| P2Setup(["Issue Phase 2 Tokens\nnextStep: SETUP_BUSINESS"])
+  CheckBizStatus -->|"PLAN_PENDING"| P2Plan(["Issue Phase 2 Tokens\nnextStep: SELECT_PLAN"])
+  CheckBizStatus -->|"ACTIVE"| P2Dashboard(["Issue Phase 2 Tokens\nnextStep: DASHBOARD\nfull plan authPermissions"])
+  CheckBizStatus -->|"SUSPENDED"| P2Suspended(["Issue Phase 2 Tokens\nnextStep: DASHBOARD\nshow suspended state"])
+
+  CheckRole -->|"MANAGER / CASHIER / ACCOUNTANT"| P2Staff(["Issue Phase 2 Tokens\nnextStep: DASHBOARD\nrole-limited authPermissions"])
+
+  %% ═══════════════════════════════════════
+  %% TOKEN MANAGEMENT
+  %% ═══════════════════════════════════════
+  P2Dashboard --> Refresh
+  InviteResp --> Refresh
+  P2Staff --> Refresh
+
+  Refresh(["POST /auth/refresh\n{ refreshToken }"])
+  Refresh --> RefreshValid{"Token valid\n& not revoked?"}
+  RefreshValid -->|"No"| RefreshFail(["401 INVALID_REFRESH_TOKEN\nnextStep: LOGIN"])
+  RefreshValid -->|"Reused"| FamilyRevoke(["Revoke entire token family\n401 TOKEN_REUSE_DETECTED\nnextStep: LOGIN"])
+  RefreshValid -->|"Yes — businessId null"| RotateP1(["Rotate → new Phase 1 tokens\nsame familyId"])
+  RefreshValid -->|"Yes — businessId set"| RotateP2(["Re-query MemberRole from DB\nRotate → new Phase 2 tokens\nsame familyId"])
+  RotateP1 --> RefreshResp(["200 OK\nnew tokens"])
+  RotateP2 --> RefreshResp
+
+  Refresh --> Logout(["POST /auth/logout\n{ refreshToken }"])
+  Logout --> Revoke(["Revoke refresh token\nrevokedAt=now"])
+  Revoke --> LogoutResp(["200 OK\nnextStep: LOGIN"])
+
+  %% ═══════════════════════════════════════
+  %% INVITE PREVIEW (unauthenticated)
+  %% ═══════════════════════════════════════
+  Start --> InviteLink(["GET /invites/:token\nUser opens invite link"])
+  InviteLink --> InviteValid{"Token valid\n& not expired?"}
+  InviteValid -->|"No"| InviteInvalid(["404 INVITE_INVALID"])
+  InviteValid -->|"Yes"| InviteInfo(["200 OK\nbusinessName, role,\ninvitedByName, expiresAt,\nsentTo: masked contact"])
+  InviteInfo --> RegOrLogin
+
+  %% ═══════════════════════════════════════
+  %% STYLES
+  %% ═══════════════════════════════════════
+  style Start fill:#042C53,color:#fff,stroke:#042C53
+  style CompleteReg fill:#534AB7,color:#fff,stroke:#534AB7
+  style InvitePath fill:#534AB7,color:#fff,stroke:#534AB7
+  style DefaultPath fill:#534AB7,color:#fff,stroke:#534AB7
+  style IssueP2Invite fill:#185FA5,color:#fff,stroke:#185FA5
+  style IssueP2Default fill:#185FA5,color:#fff,stroke:#185FA5
+  style IssueP1 fill:#BA7517,color:#fff,stroke:#BA7517
+  style IssueP1FromEmail fill:#BA7517,color:#fff,stroke:#BA7517
+  style InviteResp fill:#185FA5,color:#fff,stroke:#185FA5
+  style DefaultResp fill:#185FA5,color:#fff,stroke:#185FA5
+  style P1Resp fill:#BA7517,color:#fff,stroke:#BA7517
+  style P2Setup fill:#185FA5,color:#fff,stroke:#185FA5
+  style P2Plan fill:#185FA5,color:#fff,stroke:#185FA5
+  style P2Dashboard fill:#185FA5,color:#fff,stroke:#185FA5
+  style P2Suspended fill:#185FA5,color:#fff,stroke:#185FA5
+  style P2Staff fill:#185FA5,color:#fff,stroke:#185FA5
+  style Dashboard fill:#185FA5,color:#fff,stroke:#185FA5
+  style RefreshResp fill:#185FA5,color:#fff,stroke:#185FA5
+  style LogoutResp fill:#444441,color:#fff,stroke:#444441
+  style InviteInfo fill:#3B6D11,color:#fff,stroke:#3B6D11
+  style RegError fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style ConflictPhone fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style ConflictEmail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style OTPFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style OTPLocked fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style EmailOTPFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style LoginNotFound fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style PwFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style LockAcct fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style AccountLocked fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style RefreshFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style FamilyRevoke fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style ForbiddenBiz fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style InviteInvalid fill:#E24B4A,color:#fff,stroke:#E24B4A

@@ -1,0 +1,8 @@
+{
+  "otp_sms": "BizTrack CM: Votre code est {code}. Valide 10 minutes.",
+  "otp_whatsapp": "Votre code de vérification BizTrack CM est *{code}*. Valide 10 minutes. Ne le partagez pas.",
+  "trial_ending_soon": "Bonjour {name}, votre essai BizTrack CM expire dans {days} jours. Configurez votre paiement pour continuer.",
+  "trial_ended": "Bonjour {name}, votre essai BizTrack CM a expiré. Votre compte est maintenant sur le plan gratuit.",
+  "payment_failed": "BizTrack CM: Échec du paiement pour le plan {plan}. Veuillez mettre à jour votre moyen de paiement.",
+  "welcome": "Bienvenue sur BizTrack CM, {name}! Votre compte est prêt. Notre équipe est disponible sur WhatsApp: {support_number}"
+}

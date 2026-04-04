@@ -1,0 +1,114 @@
+flowchart TD
+  Start(["🚀 Start"]) --> RegOrLogin{"New user?"}
+
+  %% ─── REGISTRATION BRANCH ───
+  RegOrLogin -->|"Yes — Register"| Reg(["POST /auth/register\nphone + password + name\n+ optional email"])
+  Reg --> RegValidate{"Validation\npass?"}
+  RegValidate -->|"No"| RegError(["422 Validation Error\nnextStep: REGISTER"])
+  RegValidate -->|"Yes"| PhoneExists{"Phone already\nexists?"}
+  PhoneExists -->|"Yes"| ConflictError(["409 Conflict\nnextStep: LOGIN"])
+  PhoneExists -->|"No"| HashPw(["Hash password\nbcrypt cost=12"])
+  HashPw --> SaveUser(["Save user\nstatus=PENDING"])
+  SaveUser --> SendPhoneOTP(["Send Phone OTP\nSMS + WhatsApp\nTTL=10min"])
+  SendPhoneOTP --> RegResponse(["200 OK\nnextStep: VERIFY_PHONE\ncontext: maskedPhone\notpExpiresIn: 600"])
+
+  %% ─── VERIFY PHONE ───
+  RegResponse --> VerifyPhone(["POST /auth/verify-phone\n{ phone, otp }"])
+  VerifyPhone --> OTPValid{"OTP valid\n& not expired?"}
+  OTPValid -->|"No — attempts < 5"| OTPFail(["400 Invalid OTP\nattemptsLeft: N\nnextStep: VERIFY_PHONE"])
+  OTPValid -->|"No — attempts = 5"| OTPLocked(["429 Too Many Attempts\nnextStep: REQUEST_NEW_OTP\nlockUntil: timestamp"])
+  OTPValid -->|"Yes"| MarkPhoneVerified(["Mark phone verified\nstatus=PHONE_VERIFIED"])
+  MarkPhoneVerified --> EmailProvided{"Email in\nregistration?"}
+  EmailProvided -->|"No"| IssueTokens
+  EmailProvided -->|"Yes"| SendEmailOTP(["Send Email OTP\nTTL=10min"])
+  SendEmailOTP --> EmailOTPResponse(["200 OK\nnextStep: VERIFY_EMAIL\ncontext: maskedEmail"])
+
+  %% ─── VERIFY EMAIL ───
+  EmailOTPResponse --> VerifyEmail(["POST /auth/verify-email\n{ email, otp }"])
+  VerifyEmail --> EmailOTPValid{"OTP valid\n& not expired?"}
+  EmailOTPValid -->|"No"| EmailOTPFail(["400 Invalid OTP\nnextStep: VERIFY_EMAIL"])
+  EmailOTPValid -->|"Yes"| MarkEmailVerified(["Mark email verified\nstatus=ACTIVE"])
+  MarkEmailVerified --> IssueTokens
+
+  %% ─── ISSUE TOKENS ───
+  IssueTokens(["Issue tokens\naccessToken: JWT 15min\nrefreshToken: 30 days\nStore refresh hash in DB"]) --> AuthComplete
+  AuthComplete(["200 OK\nnextStep: SELECT_PLAN\ntokens: { accessToken, refreshToken }\nauthPermissions: { plan: null,\neffectivePermissions: [],\nspecialPermissions: [] }"])
+
+  %% ─── LOGIN BRANCH ───
+  RegOrLogin -->|"No — Login"| RequestLogin(["POST /auth/request-login\n{ identifier: phone or email }"])
+  RequestLogin --> FindUser{"User\nexists?"}
+  FindUser -->|"No"| NotFound(["404 Not Found\nnextStep: REGISTER"])
+  FindUser -->|"Yes"| PhoneVerifiedCheck{"Phone\nverified?"}
+  PhoneVerifiedCheck -->|"No"| SendPhoneOTPLogin(["Send Phone OTP"])
+  SendPhoneOTPLogin --> LoginPhoneOTPResponse(["200 OK\nnextStep: VERIFY_PHONE"])
+  LoginPhoneOTPResponse --> VerifyPhoneLogin(["POST /auth/verify-phone"])
+  VerifyPhoneLogin --> PhoneVerifiedNow{"Verified?"}
+  PhoneVerifiedNow -->|"No"| OTPFail
+  PhoneVerifiedNow -->|"Yes"| EmailExistsCheck
+
+  PhoneVerifiedCheck -->|"Yes"| EmailExistsCheck{"Email\non account?"}
+  EmailExistsCheck -->|"No"| LoginMethodCheck
+  EmailExistsCheck -->|"Yes"| EmailVerifiedCheck{"Email\nverified?"}
+  EmailVerifiedCheck -->|"No"| SendEmailOTPLogin(["Send Email OTP"])
+  SendEmailOTPLogin --> EmailOTPLoginResponse(["200 OK\nnextStep: VERIFY_EMAIL"])
+  EmailOTPLoginResponse --> VerifyEmailLogin(["POST /auth/verify-email"])
+  VerifyEmailLogin --> EmailVerifiedNow{"Verified?"}
+  EmailVerifiedNow -->|"No"| EmailOTPFail
+  EmailVerifiedNow -->|"Yes"| IssueTokensLogin(["Issue tokens immediately\nOTP = proof of identity"])
+  IssueTokensLogin --> LoginSuccess
+
+  EmailVerifiedCheck -->|"Yes"| LoginMethodCheck
+
+  LoginMethodCheck{"Password\nconfigured?"}
+  LoginMethodCheck -->|"Yes"| PasswordLoginResponse(["200 OK\nnextStep: PASSWORD_LOGIN"])
+  LoginMethodCheck -->|"No"| SendLoginOTP(["Send Login OTP"])
+  SendLoginOTP --> LoginOTPResponse(["200 OK\nnextStep: OTP_LOGIN"])
+
+  %% ─── PASSWORD LOGIN ───
+  PasswordLoginResponse --> PasswordLogin(["POST /auth/login\n{ identifier, password }"])
+  PasswordLogin --> BruteForceCheck{"Account\nlocked?"}
+  BruteForceCheck -->|"Yes"| AccountLocked(["429 Account Locked\nlockUntil: timestamp"])
+  BruteForceCheck -->|"No"| PwMatch{"bcrypt\nmatch?"}
+  PwMatch -->|"No — attempts < 10"| PwFail(["401 Invalid Password\nattemptsLeft: N"])
+  PwMatch -->|"No — attempts = 10"| LockAccount(["Lock account 1hr\n429 Account Locked"])
+  PwMatch -->|"Yes"| ResetAttempts(["Reset failed attempts\nIssue tokens"])
+  ResetAttempts --> LoginSuccess
+
+  %% ─── OTP LOGIN ───
+  LoginOTPResponse --> OTPLogin(["POST /auth/login-otp\n{ identifier, otp }"])
+  OTPLogin --> LoginOTPValid{"OTP valid?"}
+  LoginOTPValid -->|"No"| OTPFail
+  LoginOTPValid -->|"Yes"| LoginSuccess
+
+  LoginSuccess(["200 OK\nnextStep: based on\nonboarding status\ntokens: { accessToken, refreshToken }\nauthPermissions: { plan, effectivePermissions,\nspecialPermissions }"])
+
+  %% ─── TOKEN REFRESH ───
+  AuthComplete --> RefreshFlow
+  LoginSuccess --> RefreshFlow
+  RefreshFlow(["POST /auth/refresh\n{ refreshToken }"]) --> RefreshValid{"Token valid\n& not revoked?"}
+  RefreshValid -->|"No"| RefreshFail(["401 Unauthorized\nnextStep: LOGIN"])
+  RefreshValid -->|"Yes"| RotateToken(["Rotate refresh token\nInvalidate old token\nIssue new pair"])
+  RotateToken --> RefreshSuccess(["200 OK\ntokens: { accessToken, refreshToken }"])
+
+  %% ─── LOGOUT ───
+  LoginSuccess --> Logout(["POST /auth/logout\n{ refreshToken }"])
+  Logout --> RevokeToken(["Revoke refresh token\nfrom DB"])
+  RevokeToken --> LogoutSuccess(["200 OK\nnextStep: LOGIN"])
+
+  %% ─── STYLES ───
+  style Start fill:#042C53,color:#fff,stroke:#042C53
+  style IssueTokens fill:#185FA5,color:#fff,stroke:#185FA5
+  style AuthComplete fill:#185FA5,color:#fff,stroke:#185FA5
+  style LoginSuccess fill:#185FA5,color:#fff,stroke:#185FA5
+  style RefreshSuccess fill:#185FA5,color:#fff,stroke:#185FA5
+  style LogoutSuccess fill:#444441,color:#fff,stroke:#444441
+  style RegError fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style ConflictError fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style OTPFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style OTPLocked fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style NotFound fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style PwFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style LockAccount fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style AccountLocked fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style RefreshFail fill:#E24B4A,color:#fff,stroke:#E24B4A
+  style EmailOTPFail fill:#E24B4A,color:#fff,stroke:#E24B4A

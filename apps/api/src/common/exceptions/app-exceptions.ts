@@ -36,3 +36,9 @@ export class AppInternalServerException extends AppException {
     super(message, HttpStatus.INTERNAL_SERVER_ERROR, code, details)
   }
 }
+
+export class AppTooManyRequestsException extends AppException {
+  constructor(message = 'Too many requests', code = 'TOO_MANY_REQUESTS', details?: unknown) {
+    super(message, HttpStatus.TOO_MANY_REQUESTS, code, details)
+  }
+}

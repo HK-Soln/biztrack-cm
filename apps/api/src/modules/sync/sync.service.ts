@@ -9,6 +9,8 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
 import { AppInternalServerException } from '@/common/exceptions/app-exceptions'
+import { I18nService } from 'nestjs-i18n'
+import type { I18nTranslations } from '@/i18n/i18n.types'
 
 @Injectable()
 export class SyncService {
@@ -16,6 +18,7 @@ export class SyncService {
     private productsRepo: SyncProductsRepository,
     private categoriesRepo: SyncProductCategoriesRepository,
     private syncLogsRepo: SyncLogsRepository,
+    private i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private logger: Logger,
   ) {
     this.logger.setContext('SyncService')
@@ -59,7 +62,7 @@ export class SyncService {
         conflicts,
       }
     } catch (error) {
-      this.handleServiceError('sync', error, {
+      return this.handleServiceError('sync', error, {
         businessId,
         deviceId: payload.deviceId,
       })
@@ -202,7 +205,7 @@ export class SyncService {
     return Object.values(changes).reduce((sum, arr) => sum + (arr?.length ?? 0), 0)
   }
 
-  private handleServiceError(action: string, error: unknown, metadata?: LogMetadata): never {
+  private async handleServiceError(action: string, error: unknown, metadata?: LogMetadata): Promise<never> {
     if (error instanceof AppException) {
       this.logger.warn('SyncService error', 'SyncService', {
         action,
@@ -220,8 +223,10 @@ export class SyncService {
       ...(metadata ?? {}),
     })
 
-    throw new AppInternalServerException('Something went wrong', 'SYNC_SERVICE_ERROR', {
-      action,
-    })
+    throw new AppInternalServerException(
+      await this.i18n.translate('errors.server_error'),
+      'SYNC_SERVICE_ERROR',
+      { action },
+    )
   }
 }

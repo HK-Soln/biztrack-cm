@@ -9,4 +9,8 @@ export class VerificationCodesRepository extends BaseRepository<VerificationCode
   constructor(@InjectRepository(VerificationCode) repo: Repository<VerificationCode>) {
     super(repo)
   }
+
+  incrementAttempts(id: string) {
+    return this.repo.increment({ id }, 'attempts', 1)
+  }
 }

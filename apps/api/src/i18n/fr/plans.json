@@ -1,0 +1,9 @@
+{
+  "selected": "Plan {plan} activé — {days} jours gratuits.",
+  "free_selected": "Plan gratuit activé.",
+  "upgraded": "Plan mis à jour vers {plan}.",
+  "downgraded": "Passage au plan {plan} à la fin de la période.",
+  "cancelled": "Abonnement annulé. Actif jusqu'au {date}.",
+  "trial_ending_soon": "Votre essai expire dans {days} jours.",
+  "trial_ended": "Votre essai a expiré. Passez à un plan payant pour continuer."
+}

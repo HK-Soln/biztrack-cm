@@ -45,7 +45,7 @@ export abstract class ImmutableBaseRepository<T extends ImmutableBaseEntity> {
     return this.repo.update(id, data)
   }
 
-  delete(criteria: FindOptionsWhere<T> | FindOptionsWhere<T>[]) {
+  delete(criteria: FindOptionsWhere<T> | FindOptionsWhere<T>[] | string | string[]) {
     return this.repo.delete(criteria)
   }
 
