@@ -21,6 +21,8 @@ const envSchema = z.object({
   PASSWORD_SALT_ROUNDS: z.preprocess((value) => (value === undefined ? undefined : Number(value)), z.number().int().positive()).default(12),
   PASSWORD_PEPPER: z.string().optional(),
   OTP_TTL_MINUTES: z.preprocess((value) => Number(value), z.number().int().positive()).default(10),
+  REDIS_URL: z.string().min(1),
+  INVITE_TTL_DAYS: z.preprocess((value) => Number(value), z.number().int().positive()).default(7),
 })
 
 export type AppConfig = z.infer<typeof envSchema>

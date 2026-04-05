@@ -3,13 +3,13 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { BusinessService } from './business.service'
 import { CreateBusinessDto } from './dto/create-business.dto'
 import { UpdateBusinessDto } from './dto/update-business.dto'
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
+import { Phase2Guard } from '../auth/guards/phase2.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import type { JwtPayload } from '@biztrack/types'
 
 @ApiTags('Business')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(Phase2Guard)
 @Controller('business')
 export class BusinessController {
   constructor(private businessService: BusinessService) {}
@@ -23,7 +23,7 @@ export class BusinessController {
   @Get('me')
   @ApiOperation({ summary: 'Get my business' })
   getMyBusiness(@CurrentUser() user: JwtPayload) {
-    return this.businessService.findByOwner(user.sub)
+    return this.businessService.findById(user.businessId as string)
   }
 
   @Patch('me')

@@ -1,8 +1,8 @@
 /// <reference types="jest" />
-import { AppBadRequestException, AppConflictException, AppUnauthorizedException } from '@/common/exceptions/app-exceptions'
+import { AppUnauthorizedException } from '@/common/exceptions/app-exceptions'
 import { VerificationPurpose } from '@/entities/verification-code.entity'
-import { User, UserRole } from '@/entities/user.entity'
-import { AuthNextStep, PrefferedPhoneChannel, VerificationChannel } from '@biztrack/types'
+import { OnboardingStep, User, UserStatus } from '@/entities/user.entity'
+import { AuthNextStep, PrefferedPhoneChannel, UserRole, VerificationChannel } from '@biztrack/types'
 import { NodeEnv } from '@/config/configuration'
 import { AuthService } from '../auth.service'
 
@@ -18,6 +18,10 @@ const makeUser = (overrides: Partial<User> = {}): User =>
     language: 'en',
     isEmailVerified: false,
     isPhoneVerified: false,
+    status: UserStatus.PENDING,
+    onboardingStep: OnboardingStep.VERIFY_PHONE,
+    failedLoginAttempts: 0,
+    lockedUntil: null,
     preferredPhoneChannel: PrefferedPhoneChannel.SMS,
     isActive: true,
     businessId: null,
@@ -29,6 +33,7 @@ const makeUser = (overrides: Partial<User> = {}): User =>
 const makeVerificationRecord = () => ({
   id: 'verif-1',
   codeHash: 'hash',
+  attempts: 0,
   expiresAt: new Date(Date.now() + 10 * 60 * 1000),
 })
 
@@ -38,12 +43,18 @@ const makeService = () => {
     update: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
+    existsBy: jest.fn(),
+    incrementFailedLoginAttempts: jest.fn(),
   }
   const refreshTokensRepo = {
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
     delete: jest.fn(),
+    update: jest.fn(),
+    updateByFamilyId: jest.fn(),
+    updateByTokenId: jest.fn(),
+    updateByUserId: jest.fn(),
   }
   const verificationCodesRepo = {
     delete: jest.fn(),
@@ -51,6 +62,26 @@ const makeService = () => {
     save: jest.fn(),
     findOne: jest.fn(),
     update: jest.fn(),
+    incrementAttempts: jest.fn(),
+  }
+  const businessMembersRepo = {
+    findOne: jest.fn(),
+    create: jest.fn((input) => input),
+    save: jest.fn(),
+    update: jest.fn(),
+  }
+  const pendingInvitesRepo = {
+    findOne: jest.fn(),
+    update: jest.fn(),
+  }
+  const businessesRepo = {
+    findOne: jest.fn(),
+    create: jest.fn((input) => input),
+    save: jest.fn(),
+  }
+  const redis = {
+    setex: jest.fn(),
+    get: jest.fn(),
   }
   const jwt = { signAsync: jest.fn() }
   const config = {
@@ -65,6 +96,8 @@ const makeService = () => {
     verifyPassword: jest.fn(),
     hashOtp: jest.fn().mockResolvedValue('hash'),
     verifyOtp: jest.fn().mockResolvedValue(true),
+    hashToken: jest.fn().mockResolvedValue('hash'),
+    verifyToken: jest.fn().mockResolvedValue(true),
   }
   const logger = {
     setContext: jest.fn(),
@@ -73,14 +106,27 @@ const makeService = () => {
     warn: jest.fn(),
     error: jest.fn(),
   }
+  const permissionsService = {
+    invalidateCache: jest.fn(),
+    buildAuthPermissions: jest.fn().mockResolvedValue({ permissions: [] }),
+  };
+  const i18n = {
+    translate: jest.fn(async (key: string) => key),
+  }
 
   const service = new AuthService(
     usersRepo as any,
     refreshTokensRepo as any,
     verificationCodesRepo as any,
+    businessMembersRepo as any,
+    pendingInvitesRepo as any,
+    businessesRepo as any,
+    redis as any,
     jwt as any,
     config as any,
     passwordManager as any,
+    permissionsService as any,
+    i18n as any,
     logger as any,
   )
 
@@ -105,7 +151,7 @@ describe('AuthService flow', () => {
       const user = makeUser({ isPhoneVerified: false })
       usersRepo.findOne.mockResolvedValue(user)
 
-      const result = await service.requestLogin({ phone: user.phone })
+      const result = await service.requestLogin({ identifier: user.phone })
 
       expect(result.nextStep).toBe(AuthNextStep.VERIFY_PHONE)
       expect(result?.verification?.channel).toBe(VerificationChannel.PHONE)
@@ -119,50 +165,6 @@ describe('AuthService flow', () => {
       )
     })
 
-    it('attaches provided email and requires email verification', async () => {
-      const { service, usersRepo } = makeService()
-      const user = makeUser({ email: null, isPhoneVerified: true })
-      const requestedEmail = 'new@example.com'
-
-      usersRepo.findOne.mockImplementation(({ where }) => {
-        if (where?.phone) return Promise.resolve(user)
-        if (where?.email) return Promise.resolve(null)
-        return Promise.resolve(null)
-      })
-
-      const result = await service.requestLogin({ phone: user.phone, email: requestedEmail })
-
-      expect(usersRepo.update).toHaveBeenCalledWith(user.id, { email: requestedEmail, isEmailVerified: false })
-      expect(result.nextStep).toBe(AuthNextStep.VERIFY_EMAIL)
-      expect(result?.verification?.channel).toBe(VerificationChannel.EMAIL)
-    })
-
-    it('rejects email mismatch for existing account', async () => {
-      const { service, usersRepo } = makeService()
-      const user = makeUser({ email: 'owner@example.com', isPhoneVerified: true })
-      usersRepo.findOne.mockResolvedValue(user)
-
-      await expect(
-        service.requestLogin({ phone: user.phone, email: 'other@example.com' }),
-      ).rejects.toMatchObject<AppBadRequestException>({ code: 'EMAIL_MISMATCH' } as any)
-    })
-
-    it('rejects email already in use when attaching', async () => {
-      const { service, usersRepo } = makeService()
-      const user = makeUser({ email: null, isPhoneVerified: true })
-      const existingEmailUser = makeUser({ id: 'user-2', email: 'taken@example.com' })
-
-      usersRepo.findOne.mockImplementation(({ where }) => {
-        if (where?.phone) return Promise.resolve(user)
-        if (where?.email) return Promise.resolve(existingEmailUser)
-        return Promise.resolve(null)
-      })
-
-      await expect(
-        service.requestLogin({ phone: user.phone, email: 'taken@example.com' }),
-      ).rejects.toMatchObject<AppConflictException>({ code: 'EMAIL_IN_USE' } as any)
-    })
-
     it('returns password_required when password exists and checks are satisfied', async () => {
       const { service, usersRepo } = makeService()
       const user = makeUser({
@@ -172,7 +174,7 @@ describe('AuthService flow', () => {
       })
       usersRepo.findOne.mockResolvedValue(user)
 
-      const result = await service.requestLogin({ phone: user.phone })
+      const result = await service.requestLogin({ identifier: user.phone })
 
       expect(result).toEqual({ nextStep: AuthNextStep.PASSWORD_REQUIRED })
     })
@@ -182,7 +184,7 @@ describe('AuthService flow', () => {
       const user = makeUser({ isPhoneVerified: true, isEmailVerified: true, passwordHash: null })
       usersRepo.findOne.mockResolvedValue(user)
 
-      const result = await service.requestLogin({ phone: user.phone })
+      const result = await service.requestLogin({ identifier: user.phone })
 
       expect(result.nextStep).toBe(AuthNextStep.CONFIRM_LOGIN)
       if (result.nextStep === AuthNextStep.CONFIRM_LOGIN) {
@@ -201,43 +203,52 @@ describe('AuthService flow', () => {
 
       const result = await service.verifyPhone(user.phone, '123456')
 
-      expect(usersRepo.update).toHaveBeenCalledWith(user.id, { isPhoneVerified: true })
+      expect(usersRepo.update).toHaveBeenCalledWith(
+        user.id,
+        expect.objectContaining({ isPhoneVerified: true, onboardingStep: OnboardingStep.VERIFY_EMAIL }),
+      )
       expect(result.nextStep).toBe(AuthNextStep.VERIFY_EMAIL)
-      expect(result?.verification?.channel).toBe(VerificationChannel.EMAIL)
+      expect((result as any)?.verification?.channel).toBe(VerificationChannel.EMAIL)
     })
 
-    it('returns password_required when password exists and email is verified', async () => {
+    it('returns onboarding next step when email is verified', async () => {
       const { service, usersRepo, verificationCodesRepo } = makeService()
       const user = makeUser({
         isPhoneVerified: false,
         isEmailVerified: true,
         passwordHash: 'hash',
+        onboardingStep: OnboardingStep.SELECT_PLAN,
       })
       usersRepo.findOne.mockResolvedValue(user)
       verificationCodesRepo.findOne.mockResolvedValue(makeVerificationRecord())
 
       const result = await service.verifyPhone(user.phone, '123456')
 
-      expect(result).toEqual({ nextStep: AuthNextStep.PASSWORD_REQUIRED })
+      expect(result.nextStep).toBe(AuthNextStep.SETUP_BUSINESS)
+      expect((result as any).tokens).toEqual({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      })
     })
 
-    it('sends login OTP when no password is configured', async () => {
+    it('returns onboarding next step when no password is configured', async () => {
       const { service, usersRepo, verificationCodesRepo } = makeService()
       const user = makeUser({
         isPhoneVerified: false,
         isEmailVerified: true,
         passwordHash: null,
+        onboardingStep: OnboardingStep.SELECT_PLAN,
       })
       usersRepo.findOne.mockResolvedValue(user)
       verificationCodesRepo.findOne.mockResolvedValue(makeVerificationRecord())
 
       const result = await service.verifyPhone(user.phone, '123456')
 
-      expect(result.nextStep).toBe(AuthNextStep.CONFIRM_LOGIN)
-      if (result.nextStep === AuthNextStep.CONFIRM_LOGIN) {
-        expect((result as any).verification.channel).toBe(VerificationChannel.PHONE)
-        expect((result as any).verification.delivery).toBe(user.preferredPhoneChannel)
-      }
+      expect(result.nextStep).toBe(AuthNextStep.SETUP_BUSINESS)
+      expect((result as any).tokens).toEqual({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      })
     })
   })
 
@@ -253,38 +264,44 @@ describe('AuthService flow', () => {
       } as any)
     })
 
-    it('returns password_required when password exists', async () => {
+    it('returns onboarding next step after verification', async () => {
       const { service, usersRepo, verificationCodesRepo } = makeService()
       const user = makeUser({
         email: 'user@example.com',
         isPhoneVerified: true,
         passwordHash: 'hash',
+        onboardingStep: OnboardingStep.SELECT_PLAN,
       })
       usersRepo.findOne.mockResolvedValue(user)
       verificationCodesRepo.findOne.mockResolvedValue(makeVerificationRecord())
 
       const result = await service.verifyEmail(user.email!, '123456')
 
-      expect(result).toEqual({ nextStep: AuthNextStep.PASSWORD_REQUIRED })
+      expect(result.nextStep).toBe(AuthNextStep.SETUP_BUSINESS)
+      expect((result as any).tokens).toEqual({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      })
     })
 
-    it('sends login OTP when no password is configured', async () => {
+    it('returns onboarding next step after verification when no password is configured', async () => {
       const { service, usersRepo, verificationCodesRepo } = makeService()
       const user = makeUser({
         email: 'user@example.com',
         isPhoneVerified: true,
         passwordHash: null,
+        onboardingStep: OnboardingStep.SELECT_PLAN,
       })
       usersRepo.findOne.mockResolvedValue(user)
       verificationCodesRepo.findOne.mockResolvedValue(makeVerificationRecord())
 
       const result = await service.verifyEmail(user.email!, '123456')
 
-      expect(result.nextStep).toBe(AuthNextStep.CONFIRM_LOGIN)
-      if (result.nextStep === AuthNextStep.CONFIRM_LOGIN) {
-        expect((result as any).verification.channel).toBe(VerificationChannel.PHONE)
-        expect((result as any).verification.delivery).toBe(user.preferredPhoneChannel)
-      }
+      expect(result.nextStep).toBe(AuthNextStep.SETUP_BUSINESS)
+      expect((result as any).tokens).toEqual({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      })
     })
   })
 })

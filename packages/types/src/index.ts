@@ -1,4 +1,5 @@
 export * from './auth.types'
+export * from './permissions.types'
 export * from './business.types'
 export * from './product.types'
 export * from './sale.types'

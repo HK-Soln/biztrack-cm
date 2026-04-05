@@ -1,14 +1,16 @@
-import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsEmail, IsOptional, Matches } from 'class-validator'
+import { ApiProperty } from '@nestjs/swagger'
+import { IsEnum, IsOptional, IsString } from 'class-validator'
+import { PrefferedPhoneChannel } from '@biztrack/types'
+import { Transform } from 'class-transformer'
 
 export class RequestLoginDto {
-  @ApiPropertyOptional({ example: '+237612345678' })
-  @IsOptional()
-  @Matches(/^(\+237)?6[5-9]\d{7}$/, { message: 'Invalid Cameroonian phone number' })
-  phone?: string
+  @ApiProperty({ example: '+237612345678 OR jean@example.com' })
+  @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  identifier!: string
 
-  @ApiPropertyOptional({ example: 'jean@example.com' })
+  @ApiProperty({ enum: PrefferedPhoneChannel, required: false })
   @IsOptional()
-  @IsEmail()
-  email?: string
+  @IsEnum(PrefferedPhoneChannel)
+  preferredOtpChannel?: PrefferedPhoneChannel
 }

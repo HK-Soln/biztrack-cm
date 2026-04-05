@@ -1,11 +1,4 @@
-import {
-  Entity,
-  Column,
-  OneToMany,
-  OneToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm'
+import { Entity, Column, OneToMany, OneToOne, JoinColumn, Index } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer } from '@/common/entities/transformers'
 import { User } from './user.entity'
@@ -15,10 +8,32 @@ import { Sale } from './sale.entity'
 import { Expense } from './expense.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
+import { SubscriptionPlan, BusinessStatus } from '@biztrack/types'
+import { BusinessOverride } from './business-override.entity'
+import { SubscriptionEvent } from './subscription-event.entity'
+import { BusinessMember } from './business-member.entity'
+
+export enum SubscriptionStatus {
+  TRIAL = 'TRIAL',
+  ACTIVE = 'ACTIVE',
+  PAST_DUE = 'PAST_DUE',
+  CANCELLED = 'CANCELLED',
+  SUSPENDED = 'SUSPENDED',
+}
+
+export enum BusinessType {
+  EPICERIE = 'EPICERIE',
+  BOUTIQUE = 'BOUTIQUE',
+  RESTAURANT = 'RESTAURANT',
+  PHARMACIE = 'PHARMACIE',
+  SALON = 'SALON',
+  ELECTRONIQUE = 'ELECTRONIQUE',
+  AUTRE = 'AUTRE',
+}
 
 @Entity('businesses')
 @Index('unq_businesses_slug', ['slug'], { unique: true })
-@Index('unq_businesses_owner_id', ['ownerId'], { unique: true })
+@Index('idx_businesses_owner_id', ['ownerId'])
 export class Business extends BaseEntity {
   @Column()
   name!: string
@@ -27,28 +42,31 @@ export class Business extends BaseEntity {
   slug!: string
 
   @Column({ nullable: true })
-  description!: string 
+  description?: string
 
   @Column({ nullable: true })
-  phone!: string 
+  phone?: string
 
   @Column({ nullable: true })
-  email!: string 
+  email?: string
 
   @Column({ nullable: true })
-  address!: string 
+  address?: string
 
   @Column({ nullable: true })
-  city?: string 
+  city?: string
 
   @Column({ default: 'CM' })
   country!: string
+
+  @Column({ type: 'enum', enum: BusinessType, default: BusinessType.AUTRE })
+  type!: BusinessType
 
   @Column({ default: 'XAF' })
   currency!: string
 
   @Column({ name: 'logo_url', nullable: true })
-  logoUrl!: string 
+  logoUrl?: string
 
   @Column({ name: 'owner_id' })
   ownerId!: string
@@ -60,14 +78,32 @@ export class Business extends BaseEntity {
   @OneToMany(() => User, (user) => user.business)
   members?: User[]
 
-  @Column({ name: 'subscription_plan', default: 'FREE' })
-  subscriptionPlan!: string
+  @OneToMany(() => BusinessMember, (member) => member.business)
+  businessMembers?: BusinessMember[]
 
-  @Column({ name: 'subscription_status', default: 'TRIAL' })
-  subscriptionStatus!: string
+  @Column({ type: 'enum', enum: SubscriptionPlan, default: SubscriptionPlan.FREE })
+  plan!: SubscriptionPlan
 
-  @Column({ name: 'subscription_expires_at', nullable: true, transformer: dateTransformer })
-  subscriptionExpiresAt?: Date 
+  @Column({ name: 'subscription_status', type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIAL })
+  subscriptionStatus!: SubscriptionStatus
+
+  @Column({ name: 'business_status', type: 'enum', enum: BusinessStatus, default: BusinessStatus.ONBOARDING })
+  businessStatus!: BusinessStatus
+
+  @Column({ name: 'trial_started_at', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  trialStartedAt?: Date | null
+
+  @Column({ name: 'trial_ends_at', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  trialEndsAt?: Date | null
+
+  @Column({ name: 'current_period_start', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  currentPeriodStart?: Date | null
+
+  @Column({ name: 'current_period_end', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  currentPeriodEnd?: Date | null
+
+  @Column({ name: 'cancel_at_period_end', default: false })
+  cancelAtPeriodEnd!: boolean
 
   @OneToMany(() => Product, (product) => product.business)
   products?: Product[]
@@ -86,4 +122,10 @@ export class Business extends BaseEntity {
 
   @OneToMany(() => SyncLog, (log) => log.business)
   syncLogs?: SyncLog[]
+
+  @OneToMany(() => BusinessOverride, (override) => override.business)
+  overrides?: BusinessOverride[]
+
+  @OneToMany(() => SubscriptionEvent, (event) => event.business)
+  subscriptionHistory?: SubscriptionEvent[]
 }

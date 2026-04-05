@@ -39,6 +39,25 @@ export enum SubscriptionStatus {
   CANCELLED = 'CANCELLED',
 }
 
+export enum BusinessMemberRole {
+  OWNER = 'OWNER',
+  MANAGER = 'MANAGER',
+  CASHIER = 'CASHIER',
+  ACCOUNTANT = 'ACCOUNTANT',
+}
+
+export enum BusinessMemberStatus {
+  ACTIVE = 'ACTIVE',
+  PENDING = 'PENDING',
+  REMOVED = 'REMOVED',
+}
+
+export enum BusinessStatus {
+  ONBOARDING = 'ONBOARDING',
+  PLAN_PENDING = 'PLAN_PENDING',
+  ACTIVE = 'ACTIVE',
+}
+
 export const SUBSCRIPTION_LIMITS: Record<SubscriptionPlan, {
   maxProducts: number
   maxUsers: number

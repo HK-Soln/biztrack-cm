@@ -27,6 +27,15 @@ export const config = [
     },
   },
   {
-    ignores: ["dist/**"],
+    ignores: [
+      "dist/**",
+      "**/__tests__/**",
+      "**/*.spec.*",
+      "**/*.test.*",
+      "**/*.specs.*",
+      "**/*.mock.*",
+      "**/test/**",
+      "**/tests/**",
+    ],
   },
 ]

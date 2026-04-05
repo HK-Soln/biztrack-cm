@@ -3,6 +3,8 @@ import { PassportStrategy } from '@nestjs/passport'
 import { ExtractJwt, Strategy } from 'passport-jwt'
 import { ConfigService } from '@nestjs/config'
 import { JwtPayload } from '@biztrack/types'
+import type { OnboardingStep } from '@/entities/user.entity'
+import type { Locale } from '@/common/enums/locale.enum'
 import { AuthUsersRepository } from '../repositories/auth-users.repository'
 import type { AppConfig } from '@/config/configuration'
 
@@ -21,6 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload) {
     const user = await this.usersRepo.findOne({ where: { id: payload.sub } })
     if (!user || !user.isActive) throw new UnauthorizedException()
-    return payload
+    return {
+      ...payload,
+      onboardingStep: user.onboardingStep as OnboardingStep,
+      language: user.language as Locale,
+    }
   }
 }

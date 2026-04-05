@@ -1,0 +1,8 @@
+{
+  "phone_format": "Format requis: +237 6XXXXXXXX ou +237 9XXXXXXXX",
+  "password_strength": "Minimum 8 caractères avec au moins une majuscule, une minuscule et un chiffre.",
+  "required": "Ce champ est requis.",
+  "invalid_email": "Adresse email invalide.",
+  "otp_format": "Le code doit contenir 6 chiffres.",
+  "invalid_enum": "Valeur invalide pour ce champ."
+}

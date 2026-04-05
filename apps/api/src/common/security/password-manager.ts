@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import * as bcrypt from 'bcryptjs'
+import { createHash, timingSafeEqual } from 'crypto'
 import { ConfigService } from '@nestjs/config'
 import type { AppConfig } from '@/config/configuration'
 
@@ -18,13 +19,24 @@ export class PasswordManager {
   }
 
   async hashOtp(code: string): Promise<string> {
-    const rounds = Math.min(this.getSaltRounds(), 10)
-    const salt = await bcrypt.genSalt(rounds)
-    return bcrypt.hash(this.applyPepper(code), salt)
+    const value = this.applyPepper(code)
+    return createHash('sha256').update(value).digest('hex')
   }
 
   async verifyOtp(code: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(this.applyPepper(code), hash)
+    const value = this.applyPepper(code)
+    const computed = createHash('sha256').update(value).digest('hex')
+    return timingSafeEqual(Buffer.from(computed), Buffer.from(hash))
+  }
+
+  async hashToken(token: string): Promise<string> {
+    const rounds = Math.min(this.getSaltRounds(), 10)
+    const salt = await bcrypt.genSalt(rounds)
+    return bcrypt.hash(this.applyPepper(token), salt)
+  }
+
+  async verifyToken(token: string, hash: string): Promise<boolean> {
+    return bcrypt.compare(this.applyPepper(token), hash)
   }
 
   private getSaltRounds(): number {

@@ -1,17 +1,28 @@
 import { Entity, Column, OneToMany, ManyToOne, OneToOne, JoinColumn, Index } from 'typeorm'
-import { PrefferedPhoneChannel } from '@biztrack/types'
+import { PrefferedPhoneChannel, UserRole } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
+import { dateTransformer } from '@/common/entities/transformers'
 import { RefreshToken } from './refresh-token.entity'
 import { Business } from './business.entity'
 import { Sale } from './sale.entity'
 import { Expense } from './expense.entity'
 import { StockMovement } from './stock-movement.entity'
+import { Locale } from '@/common/enums/locale.enum'
+import { BusinessMember } from './business-member.entity'
 
-export enum UserRole {
-  OWNER = 'OWNER',
-  MANAGER = 'MANAGER',
-  CASHIER = 'CASHIER',
-  ADMIN = 'ADMIN',
+export enum UserStatus {
+  PENDING = 'PENDING',
+  PHONE_VERIFIED = 'PHONE_VERIFIED',
+  ACTIVE = 'ACTIVE',
+}
+
+export enum OnboardingStep {
+  VERIFY_PHONE = 'VERIFY_PHONE',
+  VERIFY_EMAIL = 'VERIFY_EMAIL',
+  SELECT_PLAN = 'SELECT_PLAN',
+  SETUP_BUSINESS = 'SETUP_BUSINESS',
+  ADD_FIRST_PRODUCT = 'ADD_FIRST_PRODUCT',
+  COMPLETE = 'COMPLETE',
 }
 
 @Entity('users')
@@ -36,14 +47,26 @@ export class User extends BaseEntity {
   @Column({ type: 'enum', enum: UserRole, default: UserRole.OWNER })
   role!: UserRole
 
-  @Column({ default: 'fr' })
-  language!: string
+  @Column({ default: Locale.FR })
+  language!: Locale
 
   @Column({ name: 'is_email_verified', default: false })
   isEmailVerified!: boolean
 
   @Column({ name: 'is_phone_verified', default: false })
   isPhoneVerified!: boolean
+
+  @Column({ type: 'enum', enum: UserStatus, default: UserStatus.PENDING })
+  status!: UserStatus
+
+  @Column({ name: 'onboarding_step', type: 'enum', enum: OnboardingStep, default: OnboardingStep.VERIFY_PHONE })
+  onboardingStep!: OnboardingStep
+
+  @Column({ name: 'failed_login_attempts', type: 'int', default: 0 })
+  failedLoginAttempts!: number
+
+  @Column({ name: 'locked_until', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  lockedUntil?: Date | null
 
   @Column({
     name: 'preferred_phone_channel',
@@ -68,6 +91,9 @@ export class User extends BaseEntity {
 
   @OneToMany(() => RefreshToken, (token) => token.user)
   refreshTokens?: RefreshToken[]
+
+  @OneToMany(() => BusinessMember, (member) => member.user)
+  memberships?: BusinessMember[]
 
   @OneToMany(() => Sale, (sale) => sale.cashier)
   sales?: Sale[]

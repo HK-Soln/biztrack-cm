@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { BusinessesRepository } from './repositories/businesses.repository'
-import { BusinessUsersRepository } from './repositories/business-users.repository'
+import { BusinessMembersRepository } from './repositories/business-members.repository'
 import { CreateBusinessDto } from './dto/create-business.dto'
 import { UpdateBusinessDto } from './dto/update-business.dto'
 import { generateSlug } from '@biztrack/utils'
@@ -8,17 +8,20 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
-  AppConflictException,
   AppForbiddenException,
   AppInternalServerException,
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
+import { I18nService } from 'nestjs-i18n'
+import type { I18nTranslations } from '@/i18n/i18n.types'
+import { BusinessMemberRole, BusinessMemberStatus, BusinessStatus } from '@biztrack/types'
 
 @Injectable()
 export class BusinessService {
   constructor(
     private businessRepo: BusinessesRepository,
-    private usersRepo: BusinessUsersRepository,
+    private membersRepo: BusinessMembersRepository,
+    private i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private logger: Logger,
   ) {
     this.logger.setContext('BusinessService')
@@ -28,24 +31,29 @@ export class BusinessService {
     this.logger.debug('Create business', 'BusinessService', { ownerId, name: dto.name })
 
     try {
-      const existing = await this.businessRepo.findOne({ where: { ownerId } })
-      if (existing) {
-        throw new AppConflictException('You already own a business', 'BUSINESS_ALREADY_EXISTS')
-      }
-
       const baseSlug = generateSlug(dto.name)
       const slug = await this.generateUniqueSlug(baseSlug)
 
-      const business = this.businessRepo.create({ ...dto, slug, ownerId })
+      const business = this.businessRepo.create({
+        ...dto,
+        slug,
+        ownerId,
+        businessStatus: BusinessStatus.ONBOARDING,
+      })
       await this.businessRepo.save(business)
 
-      // Link user to business
-      await this.usersRepo.update(ownerId, { businessId: business.id })
+      const member = this.membersRepo.create({
+        businessId: business.id,
+        userId: ownerId,
+        role: BusinessMemberRole.OWNER,
+        status: BusinessMemberStatus.ACTIVE,
+      })
+      await this.membersRepo.save(member)
 
       this.logger.log('Business created', 'BusinessService', { businessId: business.id, ownerId })
       return business
     } catch (error) {
-      this.handleServiceError('create', error, { ownerId, name: dto.name })
+      return this.handleServiceError('create', error, { ownerId, name: dto.name })
     }
   }
 
@@ -57,10 +65,15 @@ export class BusinessService {
         where: { ownerId },
         relations: ['members'],
       })
-      if (!business) throw new AppNotFoundException('Business not found', 'BUSINESS_NOT_FOUND')
+      if (!business) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.business_not_found'),
+          'BUSINESS_NOT_FOUND',
+        )
+      }
       return business
     } catch (error) {
-      this.handleServiceError('findByOwner', error, { ownerId })
+      return this.handleServiceError('findByOwner', error, { ownerId })
     }
   }
 
@@ -69,10 +82,15 @@ export class BusinessService {
 
     try {
       const business = await this.businessRepo.findOne({ where: { id } })
-      if (!business) throw new AppNotFoundException('Business not found', 'BUSINESS_NOT_FOUND')
+      if (!business) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.business_not_found'),
+          'BUSINESS_NOT_FOUND',
+        )
+      }
       return business
     } catch (error) {
-      this.handleServiceError('findById', error, { id })
+      return this.handleServiceError('findById', error, { id })
     }
   }
 
@@ -81,15 +99,28 @@ export class BusinessService {
 
     try {
       const business = await this.businessRepo.findOne({ where: { id } })
-      if (!business) throw new AppNotFoundException('Business not found', 'BUSINESS_NOT_FOUND')
-      if (business.ownerId !== ownerId) {
-        throw new AppForbiddenException('Not allowed to update business', 'BUSINESS_FORBIDDEN')
+      if (!business) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.business_not_found'),
+          'BUSINESS_NOT_FOUND',
+        )
+      }
+      const member = await this.membersRepo.findOne({ where: { businessId: id, userId: ownerId } })
+      if (!member || member.role !== BusinessMemberRole.OWNER) {
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.business_forbidden'),
+          'BUSINESS_FORBIDDEN',
+        )
       }
 
-      await this.businessRepo.update(id, dto)
+      const nextStatus =
+        business.businessStatus === BusinessStatus.ONBOARDING
+          ? BusinessStatus.PLAN_PENDING
+          : business.businessStatus
+      await this.businessRepo.update(id, { ...dto, businessStatus: nextStatus })
       return this.businessRepo.findOne({ where: { id } })
     } catch (error) {
-      this.handleServiceError('update', error, { id, ownerId })
+      return this.handleServiceError('update', error, { id, ownerId })
     }
   }
 
@@ -102,7 +133,7 @@ export class BusinessService {
     return slug
   }
 
-  private handleServiceError(action: string, error: unknown, metadata?: LogMetadata): never {
+  private async handleServiceError(action: string, error: unknown, metadata?: LogMetadata): Promise<never> {
     if (error instanceof AppException) {
       this.logger.warn('BusinessService error', 'BusinessService', {
         action,
@@ -120,8 +151,10 @@ export class BusinessService {
       ...(metadata ?? {}),
     })
 
-    throw new AppInternalServerException('Something went wrong', 'BUSINESS_SERVICE_ERROR', {
-      action,
-    })
+    throw new AppInternalServerException(
+      await this.i18n.translate('errors.server_error'),
+      'BUSINESS_SERVICE_ERROR',
+      { action },
+    )
   }
 }

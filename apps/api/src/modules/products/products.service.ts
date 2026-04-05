@@ -12,12 +12,15 @@ import {
   AppInternalServerException,
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
+import { I18nService } from 'nestjs-i18n'
+import type { I18nTranslations } from '@/i18n/i18n.types'
 
 @Injectable()
 export class ProductsService {
   constructor(
     private productsRepo: ProductsRepository,
     private categoriesRepo: ProductCategoriesRepository,
+    private i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private logger: Logger,
   ) {
     this.logger.setContext('ProductsService')
@@ -33,14 +36,17 @@ export class ProductsService {
           withDeleted: true,
         })
         if (existing && !existing.deletedAt) {
-          throw new AppConflictException('Barcode already in use', 'BARCODE_IN_USE')
+          throw new AppConflictException(
+            await this.i18n.translate('errors.barcode_in_use'),
+            'BARCODE_IN_USE',
+          )
         }
       }
 
       const product = this.productsRepo.create({ ...dto, businessId })
       return this.productsRepo.save(product)
     } catch (error) {
-      this.handleServiceError('create', error, { businessId, name: dto.name })
+      return this.handleServiceError('create', error, { businessId, name: dto.name })
     }
   }
 
@@ -63,7 +69,7 @@ export class ProductsService {
         withDeleted: options?.includeDeleted ?? false,
       })
     } catch (error) {
-      this.handleServiceError('findAll', error, { businessId })
+      return this.handleServiceError('findAll', error, { businessId })
     }
   }
 
@@ -75,10 +81,15 @@ export class ProductsService {
         where: { id, businessId },
         relations: ['category'],
       })
-      if (!product) throw new AppNotFoundException('Product not found', 'PRODUCT_NOT_FOUND')
+      if (!product) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.product_not_found'),
+          'PRODUCT_NOT_FOUND',
+        )
+      }
       return product
     } catch (error) {
-      this.handleServiceError('findById', error, { id, businessId })
+      return this.handleServiceError('findById', error, { id, businessId })
     }
   }
 
@@ -89,10 +100,15 @@ export class ProductsService {
       const product = await this.productsRepo.findOne({
         where: { businessId, barcode },
       })
-      if (!product) throw new AppNotFoundException('Product not found', 'PRODUCT_NOT_FOUND')
+      if (!product) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.product_not_found'),
+          'PRODUCT_NOT_FOUND',
+        )
+      }
       return product
     } catch (error) {
-      this.handleServiceError('findByBarcode', error, { barcode, businessId })
+      return this.handleServiceError('findByBarcode', error, { barcode, businessId })
     }
   }
 
@@ -104,7 +120,7 @@ export class ProductsService {
       await this.productsRepo.update(id, { ...dto, updatedAt: new Date() })
       return this.findById(id, businessId)
     } catch (error) {
-      this.handleServiceError('update', error, { id, businessId })
+      return this.handleServiceError('update', error, { id, businessId })
     }
   }
 
@@ -115,7 +131,7 @@ export class ProductsService {
       await this.findById(id, businessId)
       await this.productsRepo.update(id, { deletedAt: new Date(), updatedAt: new Date() })
     } catch (error) {
-      this.handleServiceError('softDelete', error, { id, businessId })
+      return this.handleServiceError('softDelete', error, { id, businessId })
     }
   }
 
@@ -132,7 +148,7 @@ export class ProductsService {
         .orderBy('p.stockQuantity', 'ASC')
         .getMany()
     } catch (error) {
-      this.handleServiceError('getLowStockProducts', error, { businessId })
+      return this.handleServiceError('getLowStockProducts', error, { businessId })
     }
   }
 
@@ -144,7 +160,7 @@ export class ProductsService {
       const category = this.categoriesRepo.create({ businessId, name })
       return this.categoriesRepo.save(category)
     } catch (error) {
-      this.handleServiceError('createCategory', error, { businessId, name })
+      return this.handleServiceError('createCategory', error, { businessId, name })
     }
   }
 
@@ -157,7 +173,7 @@ export class ProductsService {
         order: { name: 'ASC' },
       })
     } catch (error) {
-      this.handleServiceError('findCategories', error, { businessId })
+      return this.handleServiceError('findCategories', error, { businessId })
     }
   }
 
@@ -166,14 +182,19 @@ export class ProductsService {
 
     try {
       const category = await this.categoriesRepo.findOne({ where: { id, businessId } })
-      if (!category) throw new AppNotFoundException('Category not found', 'CATEGORY_NOT_FOUND')
+      if (!category) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.category_not_found'),
+          'CATEGORY_NOT_FOUND',
+        )
+      }
       await this.categoriesRepo.update(id, { deletedAt: new Date(), updatedAt: new Date() })
     } catch (error) {
-      this.handleServiceError('deleteCategory', error, { id, businessId })
+      return this.handleServiceError('deleteCategory', error, { id, businessId })
     }
   }
 
-  private handleServiceError(action: string, error: unknown, metadata?: LogMetadata): never {
+  private async handleServiceError(action: string, error: unknown, metadata?: LogMetadata): Promise<never> {
     if (error instanceof AppException) {
       this.logger.warn('ProductsService error', 'ProductsService', {
         action,
@@ -191,8 +212,10 @@ export class ProductsService {
       ...(metadata ?? {}),
     })
 
-    throw new AppInternalServerException('Something went wrong', 'PRODUCTS_SERVICE_ERROR', {
-      action,
-    })
+    throw new AppInternalServerException(
+      await this.i18n.translate('errors.server_error'),
+      'PRODUCTS_SERVICE_ERROR',
+      { action },
+    )
   }
 }
