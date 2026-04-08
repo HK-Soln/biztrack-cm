@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev --filter=!@biztrack/desktop --filter=!@biztrack/web",
+    "dev": "turbo dev",
     "dev:all": "turbo dev",
     "dev:web": "pnpm -C apps/web dev",
     "dev:desktop": "pnpm -C apps/desktop dev",
@@ -18,6 +18,12 @@
     "@types/node": "^22.10.2",
     "@biztrack/eslint-config": "workspace:*",
     "@biztrack/typescript-config": "workspace:*"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "19.2.4",
+      "react-dom": "19.2.4"
+    }
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {
