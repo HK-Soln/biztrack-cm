@@ -1,6 +1,5 @@
 const path = require('path')
 const { getDefaultConfig } = require('expo/metro-config')
-const { withNativewind } = require('nativewind/metro')
 
 const projectRoot = __dirname
 const workspaceRoot = path.resolve(projectRoot, '../..')
@@ -20,4 +19,4 @@ config.resolver.extraNodeModules = {
   '@biztrack/validators': path.resolve(workspaceRoot, 'packages/validators/src'),
 }
 
-module.exports = withNativewind(config, { input: './global.css' })
+module.exports = config
