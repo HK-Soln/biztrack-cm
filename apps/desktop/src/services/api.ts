@@ -1,11 +1,9 @@
 'use client'
 
-import {
-  createHttpClient,
-  type HttpError,
-  type RequestConfig,
-} from '@biztrack/http-client/browser'
+import { createHttpClient, type RequestConfig } from '@biztrack/http-client/browser'
+import type { TokensResponse } from '@biztrack/types'
 import { useAuthStore } from '@/stores/auth.store'
+import { type ApiEnvelope, unwrapApiResponse } from './api-response'
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
 
@@ -26,14 +24,6 @@ api.interceptors.request.use((config) => {
   }
   return config
 })
-
-type ApiEnvelope<T> = {
-  success: boolean
-  data?: T
-  message?: string
-  requestId?: string
-  timestamp?: string
-}
 
 let isRefreshing = false
 let pendingQueue: Array<(token: string | null) => void> = []
@@ -69,15 +59,12 @@ api.interceptors.response.use(
       isRefreshing = true
       try {
         const refreshPayload = refreshToken ? { refreshToken } : {}
-        const { data } = await api.post(
+        const { data } = await api.post<ApiEnvelope<TokensResponse>>(
           '/auth/refresh',
           refreshPayload,
           { headers: { 'x-skip-auth-refresh': '1' } },
         )
-        const envelope = data as ApiEnvelope<unknown>
-        const tokens = (envelope && typeof envelope === 'object' && 'success' in envelope
-          ? (envelope as ApiEnvelope<any>).data?.tokens
-          : (data as any)?.tokens)
+        const tokens = unwrapApiResponse<TokensResponse>(data).tokens
         if (tokens) {
           await useAuthStore.getState().setTokens(tokens)
           resolveQueue(tokens.accessToken)

@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import type { AuthTokens, JwtPayload } from '@biztrack/types'
+import type { AuthTokens, BusinessMemberRole, JwtPayload } from '@biztrack/types'
 import { decodeJwtPayload } from '@/lib/jwt'
 import { secureStore } from '@/services/secure-store'
 
@@ -30,11 +30,11 @@ type AuthState = {
   refreshToken: string | null
   tokenType: TokenType | null
   businessId: string | null
-  role: string | null
+  role: BusinessMemberRole | null
   pending: PendingAuth
   setPending: (pending: PendingAuth) => void
   setTokens: (tokens: AuthTokens) => Promise<void>
-  setOfflineSession: (businessId: string | null, role?: string | null) => void
+  setOfflineSession: (businessId: string | null, role?: BusinessMemberRole | null) => void
   clearSession: () => Promise<void>
   hydrate: () => Promise<void>
   storePasswordHash: (hash: string) => Promise<void>
@@ -55,7 +55,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const payload = decodeJwtPayload<JwtPayload>(tokens.accessToken)
     const tokenType = (payload?.type ?? null) as TokenType | null
     const businessId = (payload?.businessId ?? null) as string | null
-    const role = (payload?.role ?? null) as string | null
+    const role = (payload?.role ?? null) as BusinessMemberRole | null
     const canPersist = await secureStore.isAvailable()
     if (canPersist) {
       await secureStore.set(TOKENS_KEY, JSON.stringify(tokens))
@@ -104,7 +104,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           refreshToken: tokens.refreshToken,
           tokenType: (payload?.type ?? null) as TokenType | null,
           businessId: (payload?.businessId ?? null) as string | null,
-          role: (payload?.role ?? null) as string | null,
+          role: (payload?.role ?? null) as BusinessMemberRole | null,
         })
       } catch {
         await secureStore.delete(TOKENS_KEY)
@@ -125,5 +125,5 @@ export async function getLastBusinessContext() {
     secureStore.get(LAST_BUSINESS_KEY),
     secureStore.get(LAST_ROLE_KEY),
   ])
-  return { businessId, role }
+  return { businessId, role: role as BusinessMemberRole | null }
 }

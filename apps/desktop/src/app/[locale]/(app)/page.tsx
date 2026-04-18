@@ -18,7 +18,7 @@ export default function DashboardPage() {
   const handleLogout = async () => {
     setLoading(true)
     try {
-      await logout(refreshToken ?? undefined)
+      await logout(refreshToken ? { refreshToken } : undefined)
     } finally {
       await clearSession()
       router.replace(`/${locale}/login`)

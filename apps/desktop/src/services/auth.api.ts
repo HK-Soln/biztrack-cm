@@ -4,193 +4,156 @@ import { api } from './api'
 import type {
   AuthNextStepResponse,
   AuthTokens,
-  PrefferedPhoneChannel,
-  SubscriptionPlan,
+  Business,
+  BusinessMembershipSummary,
+  InvitePreviewResponse,
+  ListPlansResponse,
+  LoginOtpRequest,
+  LoginRequest,
+  LogoutRequest,
+  LogoutResponse,
+  RefreshTokenRequest,
+  RegisterRequest,
+  RequestLoginRequest,
+  ResendOtpRequest,
+  SelectBusinessRequest,
+  SelectPlanRequest,
+  SelectPlanResponse,
+  TokensResponse,
+  UpdateBusinessRequest,
+  VerifyEmailRequest,
+  VerifyPhoneRequest,
 } from '@biztrack/types'
+import { ApiEnvelope, unwrapApiResponse } from './api-response'
 
-export type RegisterPayload = {
-  name: string
-  phone: string
-  password: string
-  email?: string
-  preferredPhoneChannel?: PrefferedPhoneChannel
-  inviteToken?: string
-  locale?: string
-  language?: string
+const publicAuthHeaders = {
+  'x-skip-auth': '1',
+  'x-skip-auth-refresh': '1',
+} as const
+
+export async function register(payload: RegisterRequest): Promise<AuthNextStepResponse> {
+  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>('/auth/register', payload, {
+    headers: publicAuthHeaders,
+  })
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-type ApiEnvelope<T> = {
-  success: boolean
-  data?: T
-  message?: string
-  requestId?: string
-  timestamp?: string
-}
-
-function unwrap<T>(payload: ApiEnvelope<T> | T): T {
-  if (payload && typeof payload === 'object' && 'success' in (payload as object)) {
-    return (payload as ApiEnvelope<T>).data as T
-  }
-  return payload as T
-}
-
-export async function register(payload: RegisterPayload): Promise<AuthNextStepResponse> {
-  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
-    '/auth/register',
-    payload,
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
-  )
-  return unwrap<AuthNextStepResponse>(data)
-}
-
-export async function requestLogin(identifier: string, preferredOtpChannel?: PrefferedPhoneChannel) {
+export async function requestLogin(payload: RequestLoginRequest): Promise<AuthNextStepResponse> {
   const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
     '/auth/request-login',
-    { identifier, preferredOtpChannel },
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
+    payload,
+    { headers: publicAuthHeaders },
   )
-  return unwrap<AuthNextStepResponse>(data)
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function login(identifier: string, password: string) {
-  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
-    '/auth/login',
-    { identifier, password },
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
-  )
-  return unwrap<AuthNextStepResponse>(data)
+export async function login(payload: LoginRequest): Promise<AuthNextStepResponse> {
+  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>('/auth/login', payload, {
+    headers: publicAuthHeaders,
+  })
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function loginWithOtp(identifier: string, code: string) {
-  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
-    '/auth/login-otp',
-    { identifier, code },
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
-  )
-  return unwrap<AuthNextStepResponse>(data)
+export async function loginWithOtp(payload: LoginOtpRequest): Promise<AuthNextStepResponse> {
+  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>('/auth/login-otp', payload, {
+    headers: publicAuthHeaders,
+  })
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function verifyPhone(phone: string, code: string, inviteToken?: string | null) {
+export async function verifyPhone(payload: VerifyPhoneRequest): Promise<AuthNextStepResponse> {
   const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
     '/auth/verify-phone',
-    { phone, code, inviteToken },
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
+    payload,
+    { headers: publicAuthHeaders },
   )
-  return unwrap<AuthNextStepResponse>(data)
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function verifyEmail(email: string, code: string, inviteToken?: string | null) {
+export async function verifyEmail(payload: VerifyEmailRequest): Promise<AuthNextStepResponse> {
   const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
     '/auth/verify-email',
-    { email, code, inviteToken },
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
+    payload,
+    { headers: publicAuthHeaders },
   )
-  return unwrap<AuthNextStepResponse>(data)
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function resendOtp(identifier: string, type: 'VERIFY_PHONE' | 'VERIFY_EMAIL' | 'LOGIN') {
-  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
-    '/auth/resend-otp',
-    { identifier, type },
-    { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } },
-  )
-  return unwrap<AuthNextStepResponse>(data)
-}
-
-export async function selectBusiness(businessId: string) {
-  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>('/auth/select-business', { businessId })
-  return unwrap<AuthNextStepResponse>(data)
-}
-
-export async function getInvitePreview(token: string) {
-  const { data } = await api.get<ApiEnvelope<any>>(`/invites/${token}`, {
-    headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' },
+export async function resendOtp(payload: ResendOtpRequest): Promise<AuthNextStepResponse> {
+  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>('/auth/resend-otp', payload, {
+    headers: publicAuthHeaders,
   })
-  return unwrap<any>(data)
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function acceptInvite(token: string) {
+export async function selectBusiness(
+  payload: SelectBusinessRequest,
+): Promise<AuthNextStepResponse> {
+  const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(
+    '/auth/select-business',
+    payload,
+  )
+  return unwrapApiResponse<AuthNextStepResponse>(data)
+}
+
+export async function getInvitePreview(token: string): Promise<InvitePreviewResponse> {
+  const { data } = await api.get<ApiEnvelope<InvitePreviewResponse>>(`/invites/${token}`, {
+    headers: publicAuthHeaders,
+  })
+  return unwrapApiResponse<InvitePreviewResponse>(data)
+}
+
+export async function acceptInvite(token: string): Promise<AuthNextStepResponse> {
   const { data } = await api.post<ApiEnvelope<AuthNextStepResponse>>(`/invites/${token}/accept`)
-  return unwrap<AuthNextStepResponse>(data)
+  return unwrapApiResponse<AuthNextStepResponse>(data)
 }
 
-export async function getBusinesses() {
-  const { data } = await api.get<ApiEnvelope<Array<{
-    businessId: string
-    role: string
-    status: string
-    business: {
-      id: string
-      name: string
-      slug: string
-      city?: string | null
-      type?: string | null
-      plan?: SubscriptionPlan | null
-      businessStatus?: string | null
-    } | null
-  }>>>('/businesses/mine')
-  return unwrap<
-    Array<{
-      businessId: string
-      role: string
-      status: string
-      business: {
-        id: string
-        name: string
-        slug: string
-        city?: string | null
-        type?: string | null
-        plan?: SubscriptionPlan | null
-        businessStatus?: string | null
-      } | null
-    }>
-  >(data)
+export async function getBusinesses(): Promise<BusinessMembershipSummary[]> {
+  const { data } = await api.get<ApiEnvelope<BusinessMembershipSummary[]>>('/businesses/mine')
+  return unwrapApiResponse<BusinessMembershipSummary[]>(data)
 }
 
-export async function setupBusiness(payload: {
-  name: string
-  city?: string
-  address?: string
-}) {
-  const { data } = await api.post<ApiEnvelope<any>>('/businesses/setup', payload)
-  return unwrap<any>(data)
+export async function setupBusiness(payload: UpdateBusinessRequest): Promise<Business> {
+  const { data } = await api.post<ApiEnvelope<Business>>('/businesses/setup', payload)
+  return unwrapApiResponse<Business>(data)
 }
 
-export async function listPlans() {
-  const { data } = await api.get<ApiEnvelope<any>>('/plans')
-  return unwrap<{
-    plans: Array<{
-      name: SubscriptionPlan
-      displayName: string
-      priceXAF: number
-      trialDays: number
-      resources: string[]
-    }>
-    currentPlan: SubscriptionPlan | null
-  }>(data)
+export async function listPlans(): Promise<ListPlansResponse> {
+  const { data } = await api.get<ApiEnvelope<ListPlansResponse>>('/plans')
+  return unwrapApiResponse<ListPlansResponse>(data)
 }
 
-export async function selectPlan(plan: SubscriptionPlan) {
-  const { data } = await api.post<ApiEnvelope<{ nextStep?: string; authPermissions?: unknown }>>('/plans/select', { plan })
-  return unwrap<{ nextStep?: string; authPermissions?: unknown }>(data)
+export async function selectPlan(payload: SelectPlanRequest): Promise<SelectPlanResponse> {
+  const { data } = await api.post<ApiEnvelope<SelectPlanResponse>>('/plans/select', payload)
+  return unwrapApiResponse<SelectPlanResponse>(data)
 }
 
-export async function refreshTokens(refreshToken?: string): Promise<{ tokens: AuthTokens }> {
-  const payload = refreshToken ? { refreshToken } : {}
-  const { data } = await api.post<ApiEnvelope<{ tokens: AuthTokens }>>(
-    '/auth/refresh',
-    payload,
-    { headers: { 'x-skip-auth-refresh': '1' } },
-  )
-  return unwrap<{ tokens: AuthTokens }>(data)
+export async function refreshTokens(payload?: RefreshTokenRequest): Promise<TokensResponse> {
+  const { data } = await api.post<ApiEnvelope<TokensResponse>>('/auth/refresh', payload ?? {}, {
+    headers: { 'x-skip-auth-refresh': '1' },
+  })
+  return unwrapApiResponse<TokensResponse>(data)
 }
 
-export async function logout(refreshToken?: string) {
-  const payload = refreshToken ? { refreshToken } : {}
-  const { data } = await api.post<ApiEnvelope<any>>(
-    '/auth/logout',
-    payload,
-    { headers: { 'x-skip-auth-refresh': '1' } },
-  )
-  return unwrap<any>(data)
+export async function logout(payload?: LogoutRequest): Promise<LogoutResponse> {
+  const { data } = await api.post<ApiEnvelope<LogoutResponse>>('/auth/logout', payload ?? {}, {
+    headers: { 'x-skip-auth-refresh': '1' },
+  })
+  return unwrapApiResponse<LogoutResponse>(data)
+}
+
+export function getAuthTokens(response: AuthNextStepResponse): AuthTokens | undefined {
+  return 'tokens' in response ? response.tokens : undefined
+}
+
+export function getAuthMaskedPhone(response: AuthNextStepResponse): string | null {
+  return 'context' in response ? (response.context?.maskedPhone ?? null) : null
+}
+
+export function getAuthMaskedEmail(response: AuthNextStepResponse): string | null {
+  return 'context' in response ? (response.context?.maskedEmail ?? null) : null
+}
+
+export function getAuthOtpExpiresIn(response: AuthNextStepResponse): number | null {
+  return 'context' in response ? (response.context?.otpExpiresIn ?? null) : null
 }

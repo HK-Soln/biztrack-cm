@@ -3,18 +3,19 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import type { BusinessMembershipSummary } from '@biztrack/types'
 import { Button } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
-import { getBusinesses, selectBusiness } from '@/services/auth.api'
+import { getBusinesses, getAuthTokens, selectBusiness } from '@/services/auth.api'
+import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
-import { AuthNextStep } from '@biztrack/types'
 import { routeForNextStep } from '@/lib/auth-routing'
 
 export default function SelectBusinessPage() {
   const locale = useLocale()
   const t = useTranslations('auth')
   const router = useRouter()
-  const [businesses, setBusinesses] = useState<Array<any>>([])
+  const [businesses, setBusinesses] = useState<BusinessMembershipSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,19 +40,14 @@ export default function SelectBusinessPage() {
   const handleSelect = async (businessId: string) => {
     setError(null)
     try {
-      const response = await selectBusiness(businessId)
-      if ('tokens' in response && response.tokens) {
-        await setTokens(response.tokens)
+      const response = await selectBusiness({ businessId })
+      const tokens = getAuthTokens(response)
+      if (tokens) {
+        await setTokens(tokens)
       }
-      if (response.nextStep === AuthNextStep.SETUP_BUSINESS) {
-        return goTo(routeForNextStep(AuthNextStep.SETUP_BUSINESS))
-      }
-      if (response.nextStep === AuthNextStep.SELECT_PLAN) {
-        return goTo(routeForNextStep(AuthNextStep.SELECT_PLAN))
-      }
-      return goTo(routeForNextStep(AuthNextStep.DASHBOARD))
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t('select_business.select_error'))
+      return goTo(routeForNextStep(response.nextStep))
+    } catch (error) {
+      setError(getApiErrorMessage(error, t('select_business.select_error')))
     }
   }
 

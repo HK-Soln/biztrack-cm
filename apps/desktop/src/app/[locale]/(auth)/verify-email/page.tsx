@@ -3,11 +3,18 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { OtpType } from '@biztrack/types'
 import { Button, InputOTP, InputOTPGroup, InputOTPSlot } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
-import { verifyEmail, resendOtp } from '@/services/auth.api'
+import {
+  getAuthMaskedEmail,
+  getAuthOtpExpiresIn,
+  getAuthTokens,
+  resendOtp,
+  verifyEmail,
+} from '@/services/auth.api'
+import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
-import { AuthNextStep } from '@biztrack/types'
 import { routeForNextStep } from '@/lib/auth-routing'
 
 export default function VerifyEmailPage() {
@@ -33,25 +40,14 @@ export default function VerifyEmailPage() {
     setError(null)
     setLoading(true)
     try {
-      const response = await verifyEmail(email, code, inviteToken)
-      if ('tokens' in response && response.tokens) {
-        await setTokens(response.tokens)
+      const response = await verifyEmail({ email, code, inviteToken: inviteToken ?? undefined })
+      const tokens = getAuthTokens(response)
+      if (tokens) {
+        await setTokens(tokens)
       }
-      if (response.nextStep === AuthNextStep.SELECT_BUSINESS) {
-        return goTo(routeForNextStep(AuthNextStep.SELECT_BUSINESS))
-      }
-      if (response.nextStep === AuthNextStep.SETUP_BUSINESS) {
-        return goTo(routeForNextStep(AuthNextStep.SETUP_BUSINESS))
-      }
-      if (response.nextStep === AuthNextStep.SELECT_PLAN) {
-        return goTo(routeForNextStep(AuthNextStep.SELECT_PLAN))
-      }
-      if (response.nextStep === AuthNextStep.DASHBOARD) {
-        return goTo(routeForNextStep(AuthNextStep.DASHBOARD))
-      }
-      return goTo('/login')
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t('otp.invalid'))
+      return goTo(routeForNextStep(response.nextStep))
+    } catch (error) {
+      setError(getApiErrorMessage(error, t('otp.invalid')))
     } finally {
       setLoading(false)
     }
@@ -73,11 +69,11 @@ export default function VerifyEmailPage() {
     if (!email) return
     setResending(true)
     try {
-      const response = await resendOtp(email, 'VERIFY_EMAIL')
+      const response = await resendOtp({ identifier: email, type: OtpType.VERIFY_EMAIL })
       setPending({
-        otpMessage: (response as any)?.message ?? null,
-        maskedEmail: (response as any)?.context?.maskedEmail ?? null,
-        otpExpiresIn: (response as any)?.context?.otpExpiresIn ?? null,
+        otpMessage: null,
+        maskedEmail: getAuthMaskedEmail(response),
+        otpExpiresIn: getAuthOtpExpiresIn(response),
       })
     } finally {
       setResending(false)
@@ -117,7 +113,3 @@ export default function VerifyEmailPage() {
     </AuthCard>
   )
 }
-
-
-
-

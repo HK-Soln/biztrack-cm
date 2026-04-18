@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { AuthNextStep } from '@biztrack/types'
 import { Input, Button } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
-import { acceptInvite, login } from '@/services/auth.api'
+import { acceptInvite, getAuthTokens, login } from '@/services/auth.api'
+import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
-import { AuthNextStep } from '@biztrack/types'
 import { routeForNextStep } from '@/lib/auth-routing'
 import bcrypt from 'bcryptjs'
 
@@ -35,37 +36,33 @@ export default function PasswordLoginPage() {
     setError(null)
     setLoading(true)
     try {
-      const response = await login(pendingIdentifier, password)
-      if ('tokens' in response && response.tokens) {
-        await setTokens(response.tokens)
+      const response = await login({ identifier: pendingIdentifier, password })
+      const tokens = getAuthTokens(response)
+      if (tokens) {
+        await setTokens(tokens)
       }
       const hash = await bcrypt.hash(password, 10)
       await storePasswordHash(hash)
 
       if (inviteToken) {
         const inviteResponse = await acceptInvite(inviteToken)
-        if ('tokens' in inviteResponse && inviteResponse.tokens) {
-          await setTokens(inviteResponse.tokens)
+        const inviteTokens = getAuthTokens(inviteResponse)
+        if (inviteTokens) {
+          await setTokens(inviteTokens)
         }
         setPending({ inviteToken: null })
-        if (inviteResponse.nextStep === AuthNextStep.SETUP_BUSINESS) {
-          return goTo(routeForNextStep(AuthNextStep.SETUP_BUSINESS))
-        }
-        if (inviteResponse.nextStep === AuthNextStep.SELECT_PLAN) {
-          return goTo(routeForNextStep(AuthNextStep.SELECT_PLAN))
-        }
-        return goTo(routeForNextStep(AuthNextStep.DASHBOARD))
+        return goTo(routeForNextStep(inviteResponse.nextStep))
       }
 
-      if (response.nextStep === AuthNextStep.SELECT_BUSINESS) {
-        return goTo(routeForNextStep(AuthNextStep.SELECT_BUSINESS))
+      if (
+        response.nextStep === AuthNextStep.SELECT_BUSINESS ||
+        response.nextStep === AuthNextStep.DASHBOARD
+      ) {
+        return goTo(routeForNextStep(response.nextStep))
       }
-      if (response.nextStep === AuthNextStep.DASHBOARD) {
-        return goTo(routeForNextStep(AuthNextStep.DASHBOARD))
-      }
-      return goTo('/login')
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t('password.error_default'))
+      return goTo(routeForNextStep(response.nextStep))
+    } catch (error) {
+      setError(getApiErrorMessage(error, t('password.error_default')))
     } finally {
       setLoading(false)
     }
@@ -92,7 +89,3 @@ export default function PasswordLoginPage() {
     </AuthCard>
   )
 }
-
-
-
-

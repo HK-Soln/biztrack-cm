@@ -4,11 +4,17 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { PrefferedPhoneChannel, type RegisterRequest } from '@biztrack/types'
 import { Input, Button, PhoneInput } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
-import { register } from '@/services/auth.api'
+import {
+  getAuthMaskedEmail,
+  getAuthMaskedPhone,
+  getAuthOtpExpiresIn,
+  register,
+} from '@/services/auth.api'
+import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
-import { AuthNextStep, PrefferedPhoneChannel } from '@biztrack/types'
 import { normalizeAuthNextStep, routeForNextStep } from '@/lib/auth-routing'
 import bcrypt from 'bcryptjs'
 
@@ -16,12 +22,12 @@ export default function RegisterPage() {
   const locale = useLocale()
   const t = useTranslations('auth')
   const router = useRouter()
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<RegisterRequest>({
     name: '',
     phone: '',
     email: '',
     password: '',
-    preferredPhoneChannel: PrefferedPhoneChannel.WHATSAPP as PrefferedPhoneChannel,
+    preferredPhoneChannel: PrefferedPhoneChannel.WHATSAPP,
   })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,7 +38,7 @@ export default function RegisterPage() {
 
   const goTo = (path: string) => router.push(`/${locale}${path}`)
 
-  const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const handleChange = (field: keyof RegisterRequest) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }))
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -53,18 +59,18 @@ export default function RegisterPage() {
         phone: form.phone,
         email: form.email || undefined,
         inviteToken: pendingInviteToken ?? null,
-        otpMessage: (response as any)?.message ?? null,
-        maskedPhone: (response as any)?.context?.maskedPhone ?? null,
-        maskedEmail: (response as any)?.context?.maskedEmail ?? null,
-        otpExpiresIn: (response as any)?.context?.otpExpiresIn ?? null,
+        otpMessage: null,
+        maskedPhone: getAuthMaskedPhone(response),
+        maskedEmail: getAuthMaskedEmail(response),
+        otpExpiresIn: getAuthOtpExpiresIn(response),
       })
       const hash = await bcrypt.hash(form.password, 10)
       await storePasswordHash(hash)
 
       const nextStep = normalizeAuthNextStep(response.nextStep)
       return goTo(routeForNextStep(nextStep))
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t('register.error_default'))
+    } catch (error) {
+      setError(getApiErrorMessage(error, t('register.error_default')))
     } finally {
       setLoading(false)
     }
@@ -79,15 +85,30 @@ export default function RegisterPage() {
         </div>
         <div>
           <label className="text-sm font-medium text-foreground">{t('register.phone_label')}</label>
-          <PhoneInput value={form.phone} onChange={(value) => setForm((p) => ({ ...p, phone: value }))} required />
+          <PhoneInput
+            value={form.phone}
+            onChange={(value) => setForm((p) => ({ ...p, phone: value || '' }))}
+            required
+          />
         </div>
         <div>
           <label className="text-sm font-medium text-foreground">{t('register.email_label')}</label>
-          <Input value={form.email} onChange={handleChange('email')} placeholder={t('register.email_placeholder')} />
+          <Input
+            value={form.email}
+            onChange={handleChange('email')}
+            placeholder={t('register.email_placeholder')}
+          />
         </div>
         <div>
-          <label className="text-sm font-medium text-foreground">{t('register.password_label')}</label>
-          <Input type="password" value={form.password} onChange={handleChange('password')} required />
+          <label className="text-sm font-medium text-foreground">
+            {t('register.password_label')}
+          </label>
+          <Input
+            type="password"
+            value={form.password}
+            onChange={handleChange('password')}
+            required
+          />
         </div>
         {error && <div className="text-sm text-destructive">{error}</div>}
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>
@@ -103,7 +124,3 @@ export default function RegisterPage() {
     </AuthCard>
   )
 }
-
-
-
-

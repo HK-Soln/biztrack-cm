@@ -4,15 +4,17 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { Button } from '@biztrack/ui'
+import type { PlanResourceSummary, SubscriptionPlan } from '@biztrack/types'
 import { AuthCard } from '@/components/auth/AuthCard'
 import { listPlans, selectPlan } from '@/services/auth.api'
-import type { SubscriptionPlan } from '@biztrack/types'
+import { getApiErrorMessage } from '@/services/api-response'
+import { routeForNextStep } from '@/lib/auth-routing'
 
 export default function SelectPlanPage() {
   const locale = useLocale()
   const t = useTranslations('auth')
   const router = useRouter()
-  const [plans, setPlans] = useState<Array<any>>([])
+  const [plans, setPlans] = useState<PlanResourceSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -28,13 +30,10 @@ export default function SelectPlanPage() {
   const handleSelect = async (plan: SubscriptionPlan) => {
     setError(null)
     try {
-      const response = await selectPlan(plan)
-      if (response?.nextStep === 'dashboard') {
-        return goTo('/')
-      }
-      return goTo('/')
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t('select_plan.select_error'))
+      const response = await selectPlan({ plan })
+      return goTo(routeForNextStep(response.nextStep))
+    } catch (error) {
+      setError(getApiErrorMessage(error, t('select_plan.select_error')))
     }
   }
 
@@ -63,7 +62,3 @@ export default function SelectPlanPage() {
     </AuthCard>
   )
 }
-
-
-
-
