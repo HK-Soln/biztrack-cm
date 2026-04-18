@@ -1,4 +1,14 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, UseGuards, Res, Req } from '@nestjs/common'
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  Get,
+  UseGuards,
+  Res,
+  Req,
+} from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { AuthService } from './auth.service'
 import { RegisterDto } from './dto/register.dto'
@@ -11,15 +21,29 @@ import { VerifyPhoneDto } from './dto/verify-phone.dto'
 import { VerifyEmailDto } from './dto/verify-email.dto'
 import { ResendOtpDto } from './dto/resend-otp.dto'
 import { SelectBusinessDto } from './dto/select-business.dto'
+import { LogoutDto } from './dto/logout.dto'
 import { JwtAuthGuard } from './guards/jwt-auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
-import type { JwtPayload } from '@biztrack/types'
+import type {
+  AuthMeResponse,
+  AuthNextStepResponse,
+  JwtPayload,
+  LogoutResponse,
+  TokensResponse,
+} from '@biztrack/types'
 import { AuthRateLimitGuard } from '@/common/guards/auth-rate-limit.guard'
 import type { Request, Response } from 'express'
 import { ConfigService } from '@nestjs/config'
 import type { AppConfig } from '@/config/configuration'
 import { NodeEnv } from '@/config/configuration'
 import { AppUnauthorizedException } from '@/common/exceptions/app-exceptions'
+import { serializeDto } from '@/common/http/serialization'
+import {
+  AuthNextStepResponseDto,
+  CurrentUserDto,
+  LogoutResponseDto,
+  TokensResponseDto,
+} from './dto/auth-response.dto'
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -28,6 +52,14 @@ export class AuthController {
     private authService: AuthService,
     private config: ConfigService<AppConfig>,
   ) {}
+
+  private getRefreshToken(result: unknown) {
+    if (!result || typeof result !== 'object' || !('tokens' in result)) {
+      return undefined
+    }
+
+    return (result as { tokens?: { refreshToken?: string } }).tokens?.refreshToken
+  }
 
   private setRefreshCookie(res: Response, refreshToken?: string) {
     if (!refreshToken) return
@@ -51,72 +83,94 @@ export class AuthController {
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Register a new user' })
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto)
+  async register(@Body() dto: RegisterDto): Promise<AuthNextStepResponse> {
+    return serializeDto(AuthNextStepResponseDto.fromResult(await this.authService.register(dto)))
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Login with phone/email + password' })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthNextStepResponse> {
     const result = await this.authService.login(dto)
-    if ((result as any)?.tokens?.refreshToken) {
-      this.setRefreshCookie(res, (result as any).tokens.refreshToken)
+    const refreshToken = this.getRefreshToken(result)
+    if (refreshToken) {
+      this.setRefreshCookie(res, refreshToken)
     }
-    return result
+    return serializeDto(AuthNextStepResponseDto.fromResult(result))
   }
 
   @Post('request-login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Request login (phone or email)' })
-  requestLogin(@Body() dto: RequestLoginDto) {
-    return this.authService.requestLogin(dto)
+  async requestLogin(@Body() dto: RequestLoginDto): Promise<AuthNextStepResponse> {
+    return serializeDto(
+      AuthNextStepResponseDto.fromResult(await this.authService.requestLogin(dto)),
+    )
   }
 
   @Post('request-login-otp')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Request a login OTP via phone' })
-  requestLoginOtp(@Body() dto: RequestLoginOtpDto) {
-    return this.authService.requestLogin({ identifier: dto.phone })
+  async requestLoginOtp(@Body() dto: RequestLoginOtpDto): Promise<AuthNextStepResponse> {
+    return serializeDto(
+      AuthNextStepResponseDto.fromResult(
+        await this.authService.requestLogin({ identifier: dto.phone }),
+      ),
+    )
   }
 
   @Post('login-otp')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Login with phone + OTP' })
-  async loginWithOtp(@Body() dto: LoginOtpDto, @Res({ passthrough: true }) res: Response) {
+  async loginWithOtp(
+    @Body() dto: LoginOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthNextStepResponse> {
     const result = await this.authService.loginWithOtp(dto.identifier, dto.code)
-    if ((result as any)?.tokens?.refreshToken) {
-      this.setRefreshCookie(res, (result as any).tokens.refreshToken)
+    const refreshToken = this.getRefreshToken(result)
+    if (refreshToken) {
+      this.setRefreshCookie(res, refreshToken)
     }
-    return result
+    return serializeDto(AuthNextStepResponseDto.fromResult(result))
   }
 
   @Post('verify-phone')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Verify phone number with OTP' })
-  async verifyPhone(@Body() dto: VerifyPhoneDto, @Res({ passthrough: true }) res: Response) {
+  async verifyPhone(
+    @Body() dto: VerifyPhoneDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthNextStepResponse> {
     const result = await this.authService.verifyPhone(dto.phone, dto.code, dto.inviteToken)
-    if ((result as any)?.tokens?.refreshToken) {
-      this.setRefreshCookie(res, (result as any).tokens.refreshToken)
+    const refreshToken = this.getRefreshToken(result)
+    if (refreshToken) {
+      this.setRefreshCookie(res, refreshToken)
     }
-    return result
+    return serializeDto(AuthNextStepResponseDto.fromResult(result))
   }
 
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Verify email address with OTP' })
-  async verifyEmail(@Body() dto: VerifyEmailDto, @Res({ passthrough: true }) res: Response) {
+  async verifyEmail(
+    @Body() dto: VerifyEmailDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthNextStepResponse> {
     const result = await this.authService.verifyEmail(dto.email, dto.code, dto.inviteToken)
-    if ((result as any)?.tokens?.refreshToken) {
-      this.setRefreshCookie(res, (result as any).tokens.refreshToken)
+    const refreshToken = this.getRefreshToken(result)
+    if (refreshToken) {
+      this.setRefreshCookie(res, refreshToken)
     }
-    return result
+    return serializeDto(AuthNextStepResponseDto.fromResult(result))
   }
 
   @Post('refresh')
@@ -127,17 +181,18 @@ export class AuthController {
     @Body() dto: RefreshTokenDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ) {
+  ): Promise<TokensResponse> {
     const cookieName = this.config.get('REFRESH_COOKIE_NAME', { infer: true }) ?? 'refresh_token'
     const refreshToken = dto.refreshToken ?? req.cookies?.[cookieName]
     if (!refreshToken) {
       throw new AppUnauthorizedException('auth.token.invalid', 'INVALID_REFRESH_TOKEN')
     }
     const result = await this.authService.refreshTokens(refreshToken)
-    if ((result as any)?.tokens?.refreshToken) {
-      this.setRefreshCookie(res, (result as any).tokens.refreshToken)
+    const nextRefreshToken = this.getRefreshToken(result)
+    if (nextRefreshToken) {
+      this.setRefreshCookie(res, nextRefreshToken)
     }
-    return result
+    return serializeDto(TokensResponseDto.fromModel(result))
   }
 
   @Post('select-business')
@@ -149,20 +204,21 @@ export class AuthController {
     @CurrentUser() user: JwtPayload,
     @Body() dto: SelectBusinessDto,
     @Res({ passthrough: true }) res: Response,
-  ) {
+  ): Promise<AuthNextStepResponse> {
     const result = await this.authService.selectBusiness(user.sub, dto.businessId)
-    if ((result as any)?.tokens?.refreshToken) {
-      this.setRefreshCookie(res, (result as any).tokens.refreshToken)
+    const refreshToken = this.getRefreshToken(result)
+    if (refreshToken) {
+      this.setRefreshCookie(res, refreshToken)
     }
-    return result
+    return serializeDto(AuthNextStepResponseDto.fromResult(result))
   }
 
   @Post('resend-otp')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Resend OTP (phone/email/login)' })
-  resendOtp(@Body() dto: ResendOtpDto) {
-    return this.authService.resendOtp(dto)
+  async resendOtp(@Body() dto: ResendOtpDto): Promise<AuthNextStepResponse> {
+    return serializeDto(AuthNextStepResponseDto.fromResult(await this.authService.resendOtp(dto)))
   }
 
   @Post('logout')
@@ -170,26 +226,28 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout (revoke refresh token)' })
-  logout(
+  async logout(
     @CurrentUser() user: JwtPayload,
-    @Body() body: { refreshToken?: string },
+    @Body() dto: LogoutDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ) {
+  ): Promise<LogoutResponse> {
     const cookieName = this.config.get('REFRESH_COOKIE_NAME', { infer: true }) ?? 'refresh_token'
-    const refreshToken = body.refreshToken ?? req.cookies?.[cookieName]
+    const refreshToken = dto.refreshToken ?? req.cookies?.[cookieName]
     res.clearCookie(cookieName, { path: '/api' })
     if (!refreshToken) {
       throw new AppUnauthorizedException('auth.token.invalid', 'INVALID_REFRESH_TOKEN')
     }
-    return this.authService.logout(user.sub, refreshToken)
+    return serializeDto(
+      LogoutResponseDto.fromModel(await this.authService.logout(user.sub, refreshToken)),
+    )
   }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user from JWT payload' })
-  me(@CurrentUser() user: JwtPayload) {
-    return user
+  me(@CurrentUser() user: JwtPayload): AuthMeResponse {
+    return serializeDto(CurrentUserDto.fromPayload(user))
   }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import type { InvitePreviewResponse } from '@biztrack/types'
 import { Button } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
 import { getInvitePreview } from '@/services/auth.api'
@@ -12,7 +13,7 @@ export default function InvitePreviewPage({ params }: { params: { token: string 
   const locale = useLocale()
   const t = useTranslations('auth')
   const router = useRouter()
-  const [invite, setInvite] = useState<any>(null)
+  const [invite, setInvite] = useState<InvitePreviewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const setPending = useAuthStore((s) => s.setPending)
@@ -53,7 +54,3 @@ export default function InvitePreviewPage({ params }: { params: { token: string 
     </AuthCard>
   )
 }
-
-
-
-

@@ -1,20 +1,21 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import Redis from 'ioredis';
+import Redis from 'ioredis'
+import type { RedisOptions } from 'ioredis'
 import type { AppConfig } from '@/config/configuration'
-import { type Logger } from '@biztrack/logger';
-import { LOGGER } from '@/logger/logger.module';
+import { type Logger } from '@biztrack/logger'
+import { LOGGER } from '@/logger/logger.module'
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client?: Redis
-  private redisUrl: string | undefined;
+  private redisUrl: string | undefined
 
   constructor(private config: ConfigService<AppConfig>, @Inject(LOGGER) private logger: Logger) {
     const url = this.config.get('REDIS_URL', { infer: true })
 
     if (!url) {
-      logger.warn('REDIS_URL is not configured. RedisService will not be available.');
+      logger.warn('REDIS_URL is not configured. RedisService will not be available.')
     }
 
     this.redisUrl = url
@@ -22,10 +23,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (!this.redisUrl) {
-      this.logger.warn('REDIS_URL is not configured. RedisService will not be initialized.');
-      return;
+      this.logger.warn('REDIS_URL is not configured. RedisService will not be initialized.')
+      return
     }
-    this.client = new Redis(this.redisUrl)
+    this.client = new Redis(this.getClientOptions())
   }
 
   onModuleDestroy() {
@@ -62,13 +63,40 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.getClient().del(key)
   }
 
+  getBullConnectionOptions(): RedisOptions {
+    return {
+      ...this.getClientOptions(),
+      maxRetriesPerRequest: null,
+    }
+  }
+
   private getClient(): Redis {
     if (!this.client) {
-      if (!this.redisUrl) {
-        throw new Error('REDIS_URL is not configured. Cannot create Redis client.');
-      }
-      this.client = new Redis(this.redisUrl)
+      this.client = new Redis(this.getClientOptions())
     }
     return this.client
+  }
+
+  private getClientOptions(): RedisOptions {
+    const redisUrl = this.getRedisUrl()
+    const parsed = new URL(redisUrl)
+    const database = parsed.pathname.replace(/^\//, '')
+
+    return {
+      host: parsed.hostname,
+      port: parsed.port ? Number(parsed.port) : 6379,
+      username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+      db: database ? Number(database) : undefined,
+      tls: parsed.protocol === 'rediss:' ? {} : undefined,
+    }
+  }
+
+  private getRedisUrl(): string {
+    if (!this.redisUrl) {
+      throw new Error('REDIS_URL is not configured. Cannot create Redis client.')
+    }
+
+    return this.redisUrl
   }
 }

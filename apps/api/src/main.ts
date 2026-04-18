@@ -3,6 +3,7 @@ import { VersioningType } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { logger } from '@biztrack/logger'
 import { AppModule } from './app.module'
+import { mountBullBoard } from './common/queues/bull-board'
 import { NodeEnv, type AppConfig } from './config/configuration'
 import { createI18nValidationPipe } from './common/pipes/i18n-validation.pipe'
 import cookieParser from 'cookie-parser'
@@ -50,6 +51,11 @@ async function bootstrap() {
 
   app.useGlobalPipes(createI18nValidationPipe())
   app.use(cookieParser())
+
+  if (nodeEnv !== NodeEnv.PRODUCTION) {
+    const bullBoardPath = mountBullBoard(app)
+    logger.log(`Bull Board is available at ${bullBoardPath}`, 'Bootstrap')
+  }
 
   const port = config.get('API_PORT', { infer: true }) ?? 3001
 

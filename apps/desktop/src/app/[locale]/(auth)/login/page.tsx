@@ -6,11 +6,18 @@ import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { Input, Button, PhoneInput } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
-import { requestLogin } from '@/services/auth.api'
+import {
+  getAuthMaskedEmail,
+  getAuthMaskedPhone,
+  getAuthOtpExpiresIn,
+  requestLogin,
+} from '@/services/auth.api'
+import { getApiErrorDetails, getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
 import { normalizeAuthNextStep, routeForNextStep } from '@/lib/auth-routing'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { getLastBusinessContext } from '@/stores/auth.store'
+import type { AuthNextStep } from '@biztrack/types'
 import bcrypt from 'bcryptjs'
 
 export default function LoginPage() {
@@ -37,25 +44,25 @@ export default function LoginPage() {
     try {
       const trimmed = identifier.trim()
       const isEmail = mode === 'email'
-      const response = await requestLogin(trimmed)
+      const response = await requestLogin({ identifier: trimmed })
       setPending({
         identifier: trimmed,
         email: isEmail ? trimmed : undefined,
         phone: !isEmail ? trimmed : undefined,
-        otpMessage: (response as any)?.message ?? null,
-        maskedPhone: (response as any)?.context?.maskedPhone ?? null,
-        maskedEmail: (response as any)?.context?.maskedEmail ?? null,
-        otpExpiresIn: (response as any)?.context?.otpExpiresIn ?? null,
+        otpMessage: null,
+        maskedPhone: getAuthMaskedPhone(response),
+        maskedEmail: getAuthMaskedEmail(response),
+        otpExpiresIn: getAuthOtpExpiresIn(response),
       })
 
       const nextStep = normalizeAuthNextStep(response.nextStep)
       return goTo(routeForNextStep(nextStep))
-    } catch (err: any) {
-      const apiNextStep = err?.response?.data?.nextStep
+    } catch (error) {
+      const apiNextStep = getApiErrorDetails<{ nextStep?: AuthNextStep }>(error)?.nextStep
       if (apiNextStep) {
         return goTo(routeForNextStep(normalizeAuthNextStep(apiNextStep)))
       }
-      setError(err?.response?.data?.message ?? t('login.error_default'))
+      setError(getApiErrorMessage(error, t('login.error_default')))
     } finally {
       setLoading(false)
     }
@@ -95,7 +102,9 @@ export default function LoginPage() {
         {online && mode === 'phone' && (
           <div>
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-foreground">{t('login.phone_label')}</label>
+              <label className="text-sm font-medium text-foreground">
+                {t('login.phone_label')}
+              </label>
               <button
                 type="button"
                 className="text-xs text-muted-foreground hover:text-foreground"
@@ -118,7 +127,9 @@ export default function LoginPage() {
         {online && mode === 'email' && (
           <div>
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-foreground">{t('login.email_label')}</label>
+              <label className="text-sm font-medium text-foreground">
+                {t('login.email_label')}
+              </label>
               <button
                 type="button"
                 className="text-xs text-muted-foreground hover:text-foreground"
@@ -141,7 +152,9 @@ export default function LoginPage() {
         )}
         {!online && (
           <div>
-            <label className="text-sm font-medium text-foreground">{t('login.password_label')}</label>
+            <label className="text-sm font-medium text-foreground">
+              {t('login.password_label')}
+            </label>
             <Input
               type="password"
               value={password}
@@ -153,11 +166,7 @@ export default function LoginPage() {
         )}
         {error && <div className="text-sm text-destructive">{error}</div>}
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>
-          {loading
-            ? t('login.loading')
-            : online
-              ? t('login.continue')
-              : t('login.offline_submit')}
+          {loading ? t('login.loading') : online ? t('login.continue') : t('login.offline_submit')}
         </Button>
       </form>
       <div className="mt-6 text-sm text-muted-foreground">

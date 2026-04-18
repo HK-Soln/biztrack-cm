@@ -3,11 +3,19 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { OtpType } from '@biztrack/types'
 import { Button, InputOTP, InputOTPGroup, InputOTPSlot } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
-import { acceptInvite, loginWithOtp, resendOtp } from '@/services/auth.api'
+import {
+  acceptInvite,
+  getAuthMaskedPhone,
+  getAuthOtpExpiresIn,
+  getAuthTokens,
+  loginWithOtp,
+  resendOtp,
+} from '@/services/auth.api'
+import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
-import { AuthNextStep } from '@biztrack/types'
 import { routeForNextStep } from '@/lib/auth-routing'
 
 export default function LoginOtpPage() {
@@ -33,33 +41,23 @@ export default function LoginOtpPage() {
     setError(null)
     setLoading(true)
     try {
-      const response = await loginWithOtp(pendingIdentifier, code)
-      if ('tokens' in response && response.tokens) {
-        await setTokens(response.tokens)
+      const response = await loginWithOtp({ identifier: pendingIdentifier, code })
+      const tokens = getAuthTokens(response)
+      if (tokens) {
+        await setTokens(tokens)
       }
       if (inviteToken) {
         const inviteResponse = await acceptInvite(inviteToken)
-        if ('tokens' in inviteResponse && inviteResponse.tokens) {
-          await setTokens(inviteResponse.tokens)
+        const inviteTokens = getAuthTokens(inviteResponse)
+        if (inviteTokens) {
+          await setTokens(inviteTokens)
         }
         setPending({ inviteToken: null })
-        if (inviteResponse.nextStep === AuthNextStep.SETUP_BUSINESS) {
-          return goTo(routeForNextStep(AuthNextStep.SETUP_BUSINESS))
-        }
-        if (inviteResponse.nextStep === AuthNextStep.SELECT_PLAN) {
-          return goTo(routeForNextStep(AuthNextStep.SELECT_PLAN))
-        }
-        return goTo(routeForNextStep(AuthNextStep.DASHBOARD))
+        return goTo(routeForNextStep(inviteResponse.nextStep))
       }
-      if (response.nextStep === AuthNextStep.SELECT_BUSINESS) {
-        return goTo(routeForNextStep(AuthNextStep.SELECT_BUSINESS))
-      }
-      if (response.nextStep === AuthNextStep.DASHBOARD) {
-        return goTo(routeForNextStep(AuthNextStep.DASHBOARD))
-      }
-      return goTo('/login')
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? t('otp.invalid'))
+      return goTo(routeForNextStep(response.nextStep))
+    } catch (error) {
+      setError(getApiErrorMessage(error, t('otp.invalid')))
     } finally {
       setLoading(false)
     }
@@ -81,11 +79,11 @@ export default function LoginOtpPage() {
     if (!pendingIdentifier) return
     setResending(true)
     try {
-      const response = await resendOtp(pendingIdentifier, 'LOGIN')
+      const response = await resendOtp({ identifier: pendingIdentifier, type: OtpType.LOGIN })
       setPending({
-        otpMessage: (response as any)?.message ?? null,
-        maskedPhone: (response as any)?.context?.maskedPhone ?? null,
-        otpExpiresIn: (response as any)?.context?.otpExpiresIn ?? null,
+        otpMessage: null,
+        maskedPhone: getAuthMaskedPhone(response),
+        otpExpiresIn: getAuthOtpExpiresIn(response),
       })
     } finally {
       setResending(false)
@@ -125,7 +123,3 @@ export default function LoginOtpPage() {
     </AuthCard>
   )
 }
-
-
-
-
