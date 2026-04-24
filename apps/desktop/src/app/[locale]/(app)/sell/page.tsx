@@ -83,6 +83,10 @@ type CompletedSaleSummary = {
   receiptText: string
 }
 
+const THERMAL_RECEIPT_PAPER_WIDTH_MM = 58
+const THERMAL_RECEIPT_PRINTABLE_WIDTH_MM = 48
+const THERMAL_RECEIPT_TEXT_COLUMNS = 27
+
 type SellCopy = {
   localeTag: string
   pos: string
@@ -101,6 +105,7 @@ type SellCopy = {
   catalogueSubtitle: string
   currentSale: string
   saleNo: string
+  saleNumberPending: string
   walkIn: string
   noCustomer: string
   changeCustomer: string
@@ -140,6 +145,8 @@ type SellCopy = {
   paidWith: string
   print: string
   shareReceipt: string
+  printingReceipt: string
+  sharingReceipt: string
   newSale: string
   heldSales: string
   seeHeldSales: string
@@ -304,15 +311,28 @@ function toPdfLiteralString(value: string) {
   return `(${normalized.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')})`
 }
 
-function buildReceiptPdfBlob(receiptText: string) {
+function buildReceiptPdfBlob(
+  receiptText: string,
+  paperWidthMm = THERMAL_RECEIPT_PAPER_WIDTH_MM,
+) {
   const lines = receiptText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
-  const pageWidth = 226.77
-  const paddingX = 14
-  const paddingY = 18
-  const fontSize = 8.5
-  const lineHeight = 11.5
-  const pageHeight = Math.max(320, paddingY * 2 + lines.length * lineHeight)
-  const topY = pageHeight - paddingY - fontSize
+  const isCompactRoll = paperWidthMm <= THERMAL_RECEIPT_PAPER_WIDTH_MM
+  const pageWidth = (paperWidthMm / 25.4) * 72
+  const printableWidthMm = isCompactRoll
+    ? THERMAL_RECEIPT_PRINTABLE_WIDTH_MM
+    : Math.max(paperWidthMm - 12, THERMAL_RECEIPT_PRINTABLE_WIDTH_MM)
+  const printableWidth = (printableWidthMm / 25.4) * 72
+  const baseHorizontalInset = Math.max((pageWidth - printableWidth) / 2, 0)
+  const paddingX = isCompactRoll ? Math.max(baseHorizontalInset + 4, 18) : 14
+  const topPaddingY = isCompactRoll ? 24 : 18
+  const bottomPaddingY = isCompactRoll ? 34 : 22
+  const fontSize = isCompactRoll ? 7.15 : 8.5
+  const lineHeight = isCompactRoll ? 9.25 : 11.5
+  const pageHeight = Math.max(
+    isCompactRoll ? 260 : 320,
+    topPaddingY + bottomPaddingY + lines.length * lineHeight,
+  )
+  const topY = pageHeight - topPaddingY - fontSize
   const streamLines = [
     'BT',
     `/F1 ${fontSize} Tf`,
@@ -329,7 +349,7 @@ function buildReceiptPdfBlob(receiptText: string) {
     `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight.toFixed(
       2,
     )}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
-    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>\nendobj\n',
+    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>\nendobj\n',
     `5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`,
   ]
   const offsets: number[] = []
@@ -368,20 +388,34 @@ function isShareCancelled(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+function isPrintCancelled(error: unknown) {
+  return (
+    error instanceof Error &&
+    /cancelled|canceled|cancel/i.test(error.message)
+  )
+}
+
 function buildReceiptText({
   businessName,
   copy,
   sale,
   paymentOption,
   momoNumber,
+  paperWidthMm = THERMAL_RECEIPT_PAPER_WIDTH_MM,
 }: {
   businessName: string
   copy: SellCopy
   sale: LocalSaleRecord
   paymentOption: PaymentOption
   momoNumber: string
+  paperWidthMm?: number
 }) {
-  const cols = 32
+  const cols =
+    paperWidthMm <= THERMAL_RECEIPT_PRINTABLE_WIDTH_MM
+      ? THERMAL_RECEIPT_TEXT_COLUMNS
+      : paperWidthMm <= THERMAL_RECEIPT_PAPER_WIDTH_MM
+        ? 32
+        : 42
   const divider = '-'.repeat(cols)
   const heavyDivider = '='.repeat(cols)
   const amount = (value: number) => formatAmount(value, copy.localeTag)
@@ -411,7 +445,7 @@ function buildReceiptText({
 
   for (const item of sale.items) {
     const itemTotal = amount(item.totalPrice)
-    lines.push(padLine(item.productName.slice(0, 22), itemTotal, cols))
+    lines.push(padLine(item.productName, itemTotal, cols))
     lines.push(`  ${formatQuantity(item.quantity)} x ${amount(item.unitPrice)} XAF`)
   }
 
@@ -755,6 +789,8 @@ export default function SellPage() {
   const [momoNumber, setMomoNumber] = useState('')
   const [momoReference, setMomoReference] = useState('')
   const [processingSale, setProcessingSale] = useState(false)
+  const [isPrintingReceipt, setIsPrintingReceipt] = useState(false)
+  const [isSharingReceipt, setIsSharingReceipt] = useState(false)
   const [draftId, setDraftId] = useState(draftSaleId())
   const [completedSale, setCompletedSale] = useState<CompletedSaleSummary | null>(null)
   const [showPaymentSummaryToast, setShowPaymentSummaryToast] = useState(false)
@@ -791,6 +827,7 @@ export default function SellPage() {
       catalogueSubtitle: t('catalogue_subtitle'),
       currentSale: t('current_sale'),
       saleNo: t('sale_no'),
+      saleNumberPending: t('sale_number_pending'),
       walkIn: t('walk_in'),
       noCustomer: t('no_customer'),
       changeCustomer: t('change_customer'),
@@ -830,6 +867,8 @@ export default function SellPage() {
       paidWith: t('paid_with'),
       print: t('print'),
       shareReceipt: t('share_receipt'),
+      printingReceipt: t('printing_receipt'),
+      sharingReceipt: t('sharing_receipt'),
       newSale: t('new_sale'),
       heldSales: t('held_sales'),
       seeHeldSales: t('see_held_sales'),
@@ -1180,6 +1219,8 @@ export default function SellPage() {
     setAmountReceived('')
     setMomoNumber('')
     setMomoReference('')
+    setIsPrintingReceipt(false)
+    setIsSharingReceipt(false)
     setDraftId(draftSaleId())
   }
 
@@ -1504,6 +1545,7 @@ export default function SellPage() {
         sale,
         paymentOption,
         momoNumber,
+        paperWidthMm: THERMAL_RECEIPT_PRINTABLE_WIDTH_MM,
       })
 
       setCompletedSale({
@@ -1537,10 +1579,15 @@ export default function SellPage() {
   }
 
   const shareReceipt = async () => {
-    if (!completedSale) return
+    if (!completedSale || processingSale || isPrintingReceipt || isSharingReceipt) return
+
+    setIsSharingReceipt(true)
 
     const receiptNumber = completedSale.sale.receiptNumber || completedSale.sale.saleNumber
-    const pdfBlob = buildReceiptPdfBlob(completedSale.receiptText)
+    const pdfBlob = buildReceiptPdfBlob(
+      completedSale.receiptText,
+      THERMAL_RECEIPT_PAPER_WIDTH_MM,
+    )
     const receiptFile = new File([pdfBlob], sanitizeReceiptFileName(receiptNumber), {
       type: 'application/pdf',
       lastModified: Date.now(),
@@ -1587,36 +1634,54 @@ export default function SellPage() {
       } catch {
         toast.error(copy.loadError)
       }
+    } finally {
+      setIsSharingReceipt(false)
     }
   }
 
   const printReceipt = async () => {
-    if (!completedSale) return
+    if (!completedSale || processingSale || isPrintingReceipt || isSharingReceipt) return
+
+    setIsPrintingReceipt(true)
 
     const receiptNumber = completedSale.sale.receiptNumber || completedSale.sale.saleNumber
-    const pdfBlob = buildReceiptPdfBlob(completedSale.receiptText)
     const receiptFileName = sanitizeReceiptFileName(receiptNumber)
 
     if (!hasDesktopIpc()) {
+      const pdfBlob = buildReceiptPdfBlob(
+        completedSale.receiptText,
+        THERMAL_RECEIPT_PAPER_WIDTH_MM,
+      )
       const receiptFile = new File([pdfBlob], receiptFileName, {
         type: 'application/pdf',
         lastModified: Date.now(),
       })
       downloadReceiptFile(receiptFile)
       toast(copy.receiptPrintUnavailable)
+      setIsPrintingReceipt(false)
       return
     }
 
     try {
+      const pdfBlob = buildReceiptPdfBlob(
+        completedSale.receiptText,
+        THERMAL_RECEIPT_PAPER_WIDTH_MM,
+      )
       const pdfBytes = Array.from(new Uint8Array(await pdfBlob.arrayBuffer()))
+
       await ipc.print.receipt({
         buffer: pdfBytes,
         filename: receiptFileName,
-        paperWidthMm: 80,
+        paperWidthMm: THERMAL_RECEIPT_PAPER_WIDTH_MM,
+        silent: true,
       })
       toast.success(copy.receiptPrinted)
     } catch (error) {
+      if (isPrintCancelled(error)) return
+
       toast.error(error instanceof Error ? error.message : copy.receiptPrintFailed)
+    } finally {
+      setIsPrintingReceipt(false)
     }
   }
 
@@ -1706,6 +1771,8 @@ export default function SellPage() {
       </div>
     )
   }
+
+  const receiptActionBusy = processingSale || isPrintingReceipt || isSharingReceipt
 
   return (
     <>
@@ -2056,9 +2123,11 @@ export default function SellPage() {
                       <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                         {copy.thermalReceipt}
                       </div>
-                      <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-2xl bg-card p-4 font-mono text-[12px] leading-6 text-foreground">
-                        {completedSale.receiptText}
-                      </pre>
+                      <div className="mt-4 flex justify-center overflow-x-auto">
+                        <pre className="inline-block whitespace-pre rounded-2xl bg-card p-4 font-mono text-[11px] leading-5 text-foreground shadow-sm">
+                          {completedSale.receiptText}
+                        </pre>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2068,18 +2137,30 @@ export default function SellPage() {
                     <button
                       type="button"
                       onClick={() => void shareReceipt()}
-                      className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-accent"
+                      disabled={receiptActionBusy}
+                      aria-busy={isSharingReceipt}
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <Icon name="share" className="h-4 w-4" />
-                      {copy.shareReceipt}
+                      {isSharingReceipt ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <Icon name="share" className="h-4 w-4" />
+                      )}
+                      {isSharingReceipt ? copy.sharingReceipt : copy.shareReceipt}
                     </button>
                     <button
                       type="button"
-                      onClick={printReceipt}
-                      className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-accent"
+                      onClick={() => void printReceipt()}
+                      disabled={receiptActionBusy}
+                      aria-busy={isPrintingReceipt}
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <Icon name="print" className="h-4 w-4" />
-                      {copy.print}
+                      {isPrintingReceipt ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <Icon name="print" className="h-4 w-4" />
+                      )}
+                      {isPrintingReceipt ? copy.printingReceipt : copy.print}
                     </button>
                   </div>
                   <button
@@ -2099,7 +2180,7 @@ export default function SellPage() {
                     <div>
                       <div className="text-sm font-semibold">{copy.currentSale}</div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {copy.saleNo} #{draftId}
+                        {copy.saleNumberPending}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

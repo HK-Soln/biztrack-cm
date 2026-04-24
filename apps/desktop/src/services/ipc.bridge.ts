@@ -31,7 +31,8 @@ declare global {
       }
       print: {
         receipt: (data: {
-          buffer: number[]
+          buffer?: number[]
+          html?: string
           filename?: string
           printerName?: string
           paperWidthMm?: number

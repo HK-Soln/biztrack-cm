@@ -156,13 +156,13 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-4 border-t border-brand-800 px-3 pt-4">
+      <div className="mt-4 border-t border-brand-800 ">
         <button
           type="button"
           aria-label={t('profile')}
-          className="flex w-full items-center gap-3 rounded-[18px] border border-white/25 bg-white/[0.04] px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          className="flex w-full  items-center gap-3  bg-white/[0.04] px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
         >
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,#f472b6_0%,#a855f7_38%,#2563eb_100%)] text-sm font-semibold text-white shadow-[0_0_0_2px_rgba(255,255,255,0.08)]">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,#f472b6_0%,#a855f7_38%,#2563eb_100%)] text-sm font-semibold text-white shadow-[0_0_0_2px_rgba(255,255,255,0.08)]">
             {profileInitials}
           </div>
           <div className="min-w-0 flex-1">
