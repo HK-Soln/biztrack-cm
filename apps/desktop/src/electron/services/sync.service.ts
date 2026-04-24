@@ -902,6 +902,10 @@ export class SyncService extends EventEmitter {
     }
 
     for (const record of serverSales) {
+      const saleSequenceOperation = this.buildSaleNumberSequenceUpsertOperation(record)
+      if (saleSequenceOperation) {
+        operations.push(saleSequenceOperation)
+      }
       operations.push(this.buildSaleUpsertOperation(record))
     }
 
@@ -1315,6 +1319,7 @@ export class SyncService extends EventEmitter {
           subtotal,
           total_amount,
           discount_amount,
+          charges_amount,
           tax_amount,
           net_amount,
           amount_paid,
@@ -1336,7 +1341,9 @@ export class SyncService extends EventEmitter {
           is_deleted,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
           client_id = excluded.client_id,
@@ -1347,6 +1354,7 @@ export class SyncService extends EventEmitter {
           subtotal = excluded.subtotal,
           total_amount = excluded.total_amount,
           discount_amount = excluded.discount_amount,
+          charges_amount = excluded.charges_amount,
           tax_amount = excluded.tax_amount,
           net_amount = excluded.net_amount,
           amount_paid = excluded.amount_paid,
@@ -1379,6 +1387,7 @@ export class SyncService extends EventEmitter {
         record.subtotal,
         record.totalAmount,
         record.discountAmount,
+        record.chargesAmount ?? 0,
         record.taxAmount,
         record.totalAmount,
         record.amountPaid,
@@ -1401,6 +1410,31 @@ export class SyncService extends EventEmitter {
         createdAt,
         record.updatedAt,
       ],
+    }
+  }
+
+  private buildSaleNumberSequenceUpsertOperation(record: SaleSyncRecord) {
+    const sequence = this.extractSaleNumberSequence(record.saleNumber, record.saleDate)
+
+    if (sequence === null) {
+      return null
+    }
+
+    return {
+      sql: `
+        INSERT INTO sale_number_sequences (
+          business_id,
+          sale_date,
+          last_sequence
+        ) VALUES (?, ?, ?)
+        ON CONFLICT(business_id, sale_date) DO UPDATE SET
+          last_sequence = CASE
+            WHEN excluded.last_sequence > sale_number_sequences.last_sequence
+              THEN excluded.last_sequence
+            ELSE sale_number_sequences.last_sequence
+          END
+      `,
+      params: [record.businessId, record.saleDate, sequence],
     }
   }
 
@@ -1492,6 +1526,20 @@ export class SyncService extends EventEmitter {
         record.createdAt,
       ],
     }
+  }
+
+  private extractSaleNumberSequence(saleNumber: string | null | undefined, saleDate: string | null | undefined) {
+    if (!saleNumber || !saleDate) {
+      return null
+    }
+
+    const prefix = `VTE-${saleDate.replace(/-/g, '')}-`
+    if (!saleNumber.startsWith(prefix)) {
+      return null
+    }
+
+    const rawSequence = Number.parseInt(saleNumber.slice(prefix.length), 10)
+    return Number.isFinite(rawSequence) && rawSequence > 0 ? rawSequence : null
   }
 
   private buildInventoryLevelUpsertOperations(record: InventoryLevelSyncRecord) {

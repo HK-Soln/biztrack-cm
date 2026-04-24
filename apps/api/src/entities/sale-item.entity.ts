@@ -78,6 +78,15 @@ export class SaleItem extends BaseEntity {
   lineTotal!: number
 
   @Column({
+    name: 'total_price',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    transformer: decimalTransformer,
+  })
+  totalPrice!: number
+
+  @Column({
     name: 'cost_price',
     type: 'decimal',
     precision: 12,

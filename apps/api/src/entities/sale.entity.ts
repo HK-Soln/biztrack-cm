@@ -63,6 +63,16 @@ export class Sale extends BaseEntity {
   discountAmount!: number
 
   @Column({
+    name: 'charges_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  chargesAmount!: number
+
+  @Column({
     name: 'tax_amount',
     type: 'decimal',
     precision: 12,
@@ -89,6 +99,12 @@ export class Sale extends BaseEntity {
     transformer: decimalTransformer,
   })
   amountPaid!: number
+
+  @Column({ name: 'payment_method', type: 'varchar' })
+  paymentMethod!: string
+
+  @Column({ name: 'momo_reference', nullable: true, type: 'varchar' })
+  momoReference?: string | null
 
   @Column({
     name: 'change_given',

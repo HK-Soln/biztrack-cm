@@ -1862,6 +1862,7 @@ export class SyncService {
       status: record.status,
       subtotal: record.subtotal,
       discountAmount: record.discountAmount,
+      chargesAmount: record.chargesAmount,
       taxAmount: record.taxAmount,
       totalAmount: record.totalAmount,
       amountPaid: record.amountPaid,

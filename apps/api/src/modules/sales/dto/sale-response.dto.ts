@@ -123,6 +123,7 @@ export class SaleResponseDto implements Sale {
   status!: Sale['status']
   subtotal!: number
   discountAmount!: number
+  chargesAmount!: number
   taxAmount!: number
   totalAmount!: number
   amountPaid!: number
@@ -160,6 +161,7 @@ export class SaleResponseDto implements Sale {
     dto.status = entity.status
     dto.subtotal = entity.subtotal
     dto.discountAmount = entity.discountAmount
+    dto.chargesAmount = entity.chargesAmount
     dto.taxAmount = entity.taxAmount
     dto.totalAmount = entity.totalAmount
     dto.amountPaid = entity.amountPaid
@@ -197,6 +199,7 @@ export class SaleListItemDto implements SaleListItem {
   status!: SaleListItem['status']
   subtotal!: number
   discountAmount!: number
+  chargesAmount!: number
   taxAmount!: number
   totalAmount!: number
   amountPaid!: number
@@ -233,6 +236,7 @@ export class SaleListItemDto implements SaleListItem {
     dto.status = entity.status
     dto.subtotal = entity.subtotal
     dto.discountAmount = entity.discountAmount
+    dto.chargesAmount = entity.chargesAmount
     dto.taxAmount = entity.taxAmount
     dto.totalAmount = entity.totalAmount
     dto.amountPaid = entity.amountPaid
@@ -309,6 +313,7 @@ export class SaleReceiptDto implements SaleReceipt {
   items!: SaleReceipt['items']
   subtotal!: number
   discountAmount!: number
+  chargesAmount!: number
   totalAmount!: number
   amountPaid!: number
   changeGiven!: number
@@ -336,6 +341,7 @@ export class SaleReceiptDto implements SaleReceipt {
     }))
     dto.subtotal = entity.subtotal
     dto.discountAmount = entity.discountAmount
+    dto.chargesAmount = entity.chargesAmount
     dto.totalAmount = entity.totalAmount
     dto.amountPaid = entity.amountPaid
     dto.changeGiven = entity.changeGiven

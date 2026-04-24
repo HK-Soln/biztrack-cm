@@ -94,6 +94,8 @@ export class SalesService {
         const amountPaid = this.roundMoney(
           dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
+        const paymentMethod = this.deriveStoredPaymentMethod(dto.payments)
+        const momoReference = this.firstMobileMoneyReference(dto.payments)
 
         if (amountPaid < computed.totalAmount) {
           throw new AppBadRequestException(
@@ -124,9 +126,12 @@ export class SalesService {
             status: SaleStatus.COMPLETED,
             subtotal: computed.subtotal,
             discountAmount: computed.saleDiscountAmount,
+            chargesAmount: computed.saleChargesAmount,
             taxAmount: 0,
             totalAmount: computed.totalAmount,
             amountPaid,
+            paymentMethod,
+            momoReference,
             changeGiven,
             customerName: dto.customerName?.trim() || null,
             customerPhone: dto.customerPhone?.trim() || null,
@@ -152,6 +157,7 @@ export class SalesService {
               unitPrice: item.unitPrice,
               discountAmount: item.discountAmount,
               lineTotal: item.lineTotal,
+              totalPrice: item.lineTotal,
               costPrice: item.costPrice,
             }),
           ),
@@ -250,6 +256,8 @@ export class SalesService {
         const amountPaid = this.roundMoney(
           payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
+        const paymentMethod = this.deriveStoredPaymentMethod(payload.payments)
+        const momoReference = this.firstMobileMoneyReference(payload.payments)
 
         if (amountPaid < computed.totalAmount) {
           throw new AppBadRequestException(
@@ -298,9 +306,12 @@ export class SalesService {
             status: SaleStatus.COMPLETED,
             subtotal: computed.subtotal,
             discountAmount: computed.saleDiscountAmount,
+            chargesAmount: computed.saleChargesAmount,
             taxAmount: 0,
             totalAmount: computed.totalAmount,
             amountPaid,
+            paymentMethod,
+            momoReference,
             changeGiven,
             customerName: payload.customerName?.trim() || null,
             customerPhone: payload.customerPhone?.trim() || null,
@@ -327,6 +338,7 @@ export class SalesService {
               unitPrice: item.unitPrice,
               discountAmount: item.discountAmount,
               lineTotal: item.lineTotal,
+              totalPrice: item.lineTotal,
               costPrice: item.costPrice,
             }),
           ),
@@ -715,12 +727,14 @@ export class SalesService {
     }
 
     const saleDiscountAmount = Math.min(this.roundMoney(dto.discountAmount ?? 0), subtotal)
-    const totalAmount = Math.max(0, this.roundMoney(subtotal - saleDiscountAmount))
+    const saleChargesAmount = this.roundMoney(Math.max(0, dto.chargesAmount ?? 0))
+    const totalAmount = Math.max(0, this.roundMoney(subtotal - saleDiscountAmount + saleChargesAmount))
 
     return {
       items,
       subtotal,
       saleDiscountAmount,
+      saleChargesAmount,
       totalAmount,
       priceDriftWarning,
     }
@@ -796,6 +810,28 @@ export class SalesService {
     }
 
     throw new AppBadRequestException('Sale cashier is required.', 'SALE_CASHIER_REQUIRED')
+  }
+
+  private deriveStoredPaymentMethod(
+    payments: Array<{ method: PaymentMethod }>,
+  ): PaymentMethod {
+    const methods = [...new Set(payments.map((payment) => payment.method))]
+
+    if (methods.length === 0) {
+      throw new AppBadRequestException('Sale payment is required.', 'SALE_PAYMENT_REQUIRED')
+    }
+
+    if (methods.length === 1) {
+      return methods[0]!
+    }
+
+    return PaymentMethod.MIXED
+  }
+
+  private firstMobileMoneyReference(
+    payments: Array<{ mobileMoneyReference?: string | null }>,
+  ): string | null {
+    return payments.find((payment) => payment.mobileMoneyReference?.trim())?.mobileMoneyReference?.trim() ?? null
   }
 
   private isUniqueConstraintViolation(error: unknown, constraint: string) {

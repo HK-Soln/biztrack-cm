@@ -175,6 +175,7 @@ export interface SaleSyncRecord extends SyncRecord {
   status: SaleStatus
   subtotal: number
   discountAmount: number
+  chargesAmount: number
   taxAmount: number
   totalAmount: number
   amountPaid: number
@@ -283,6 +284,7 @@ export interface SaleSyncPayload {
   customerPhone?: string
   notes?: string
   discountAmount?: number
+  chargesAmount?: number
   payments: SaleSyncPaymentPayload[]
   items: SaleSyncItemPayload[]
 }
