@@ -106,6 +106,13 @@ export class CreateSaleDto implements CreateSaleRequest {
   @Min(0)
   discountAmount?: number
 
+  @ApiPropertyOptional({ example: 250 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  chargesAmount?: number
+
   @ApiProperty({ type: [CreateSalePaymentDto] })
   @IsArray()
   @ArrayMinSize(1)

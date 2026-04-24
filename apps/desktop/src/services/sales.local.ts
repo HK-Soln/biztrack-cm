@@ -38,6 +38,7 @@ type SaleRow = {
   total_amount: number | null
   net_amount: number | null
   discount_amount: number | null
+  charges_amount: number | null
   tax_amount: number | null
   amount_paid: number | null
   change_given: number | null
@@ -118,6 +119,7 @@ export class SaleLocalError extends Error {
       | 'SALE_UNIT_PRICE_INVALID'
       | 'SALE_ITEM_DISCOUNT_INVALID'
       | 'SALE_DISCOUNT_INVALID'
+      | 'SALE_CHARGES_INVALID'
       | 'SALE_UNDERPAID'
       | 'SALE_PRODUCT_NOT_FOUND'
       | 'SALE_PRODUCT_INACTIVE'
@@ -321,8 +323,11 @@ export async function createSaleLocal(
   }
 
   const saleDiscountAmount = Math.min(roundMoney(payload.discountAmount ?? 0), subtotal)
+  const saleChargesAmount = roundMoney(Math.max(0, payload.chargesAmount ?? 0))
   const taxAmount = 0
-  const totalAmount = roundMoney(Math.max(0, subtotal - saleDiscountAmount + taxAmount))
+  const totalAmount = roundMoney(
+    Math.max(0, subtotal - saleDiscountAmount + saleChargesAmount + taxAmount),
+  )
 
   for (const payment of payload.payments) {
     const paymentId = crypto.randomUUID()
@@ -383,6 +388,7 @@ export async function createSaleLocal(
           subtotal,
           total_amount,
           discount_amount,
+          charges_amount,
           tax_amount,
           net_amount,
           amount_paid,
@@ -404,7 +410,10 @@ export async function createSaleLocal(
           is_deleted,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 0, ?, ?)
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          NULL, NULL, NULL, NULL, ?, 0, ?, ?
+        )
       `,
       params: [
         saleId,
@@ -417,6 +426,7 @@ export async function createSaleLocal(
         subtotal,
         totalAmount,
         saleDiscountAmount,
+        saleChargesAmount,
         taxAmount,
         totalAmount,
         amountPaid,
@@ -446,6 +456,7 @@ export async function createSaleLocal(
       customerPhone: customerPhone ?? undefined,
       notes: saleNotes ?? undefined,
       discountAmount: saleDiscountAmount,
+      chargesAmount: saleChargesAmount,
       payments: salePayments.map((payment) => ({
         id: payment.id,
         method: payment.method,
@@ -480,6 +491,7 @@ export async function createSaleLocal(
     subtotal,
     subtotalAmount: subtotal,
     discountAmount: saleDiscountAmount,
+    chargesAmount: saleChargesAmount,
     taxAmount,
     totalAmount,
     amountPaid,
@@ -526,6 +538,7 @@ export async function listSalesLocal(
         total_amount,
         net_amount,
         discount_amount,
+        charges_amount,
         tax_amount,
         amount_paid,
         change_given,
@@ -631,6 +644,7 @@ export async function getSaleLocal(
         total_amount,
         net_amount,
         discount_amount,
+        charges_amount,
         tax_amount,
         amount_paid,
         change_given,
@@ -684,6 +698,7 @@ export async function getSaleByNumberLocal(
         total_amount,
         net_amount,
         discount_amount,
+        charges_amount,
         tax_amount,
         amount_paid,
         change_given,
@@ -738,6 +753,7 @@ export async function getDailySalesSummaryLocal(
         total_amount,
         net_amount,
         discount_amount,
+        charges_amount,
         tax_amount,
         amount_paid,
         change_given,
@@ -887,6 +903,7 @@ export async function buildSaleReceiptLocal(
     })),
     subtotal: sale.subtotal,
     discountAmount: sale.discountAmount,
+    chargesAmount: sale.chargesAmount,
     totalAmount: sale.totalAmount,
     amountPaid: sale.amountPaid,
     changeGiven: sale.changeGiven,
@@ -916,6 +933,7 @@ async function getSaleByClientIdLocal(businessId: string, clientId: string) {
         total_amount,
         net_amount,
         discount_amount,
+        charges_amount,
         tax_amount,
         amount_paid,
         change_given,
@@ -1016,6 +1034,7 @@ async function hydrateSaleRecord(row: SaleRow): Promise<LocalSaleRecord> {
     subtotal,
     subtotalAmount: subtotal,
     discountAmount: roundMoney(row.discount_amount ?? 0),
+    chargesAmount: roundMoney(row.charges_amount ?? 0),
     taxAmount: roundMoney(row.tax_amount ?? 0),
     totalAmount,
     amountPaid: roundMoney(row.amount_paid ?? totalAmount),
@@ -1056,6 +1075,7 @@ function mapSaleListItem(row: SaleRow, itemCount: number): SaleListItem {
     status: normalizeSaleStatus(row.status),
     subtotal: roundMoney(row.subtotal ?? totalAmount),
     discountAmount: roundMoney(row.discount_amount ?? 0),
+    chargesAmount: roundMoney(row.charges_amount ?? 0),
     taxAmount: roundMoney(row.tax_amount ?? 0),
     totalAmount,
     amountPaid: roundMoney(row.amount_paid ?? totalAmount),
@@ -1174,24 +1194,23 @@ async function querySalePaymentsBySaleIds(saleIds: string[]) {
 async function buildSaleNumber(businessId: string, saleDate: string) {
   const dateToken = saleDate.replace(/-/g, '')
   const prefix = `VTE-${dateToken}-`
-  const [lastSale] = await dbQuery<{ sale_number: string | null; receipt_number: string | null }>(
+  const [row] = await dbQuery<{ last_sequence: number }>(
     `
-      SELECT sale_number, receipt_number
-      FROM sales
-      WHERE business_id = ?
-        AND (sale_number LIKE ? OR receipt_number LIKE ?)
-      ORDER BY COALESCE(NULLIF(sale_number, ''), receipt_number) DESC
-      LIMIT 1
+      INSERT INTO sale_number_sequences (
+        business_id,
+        sale_date,
+        last_sequence
+      )
+      VALUES (?, ?, 1)
+      ON CONFLICT(business_id, sale_date)
+      DO UPDATE SET last_sequence = sale_number_sequences.last_sequence + 1
+      RETURNING last_sequence
     `,
-    [businessId, `${prefix}%`, `${prefix}%`],
+    [businessId, saleDate],
   )
 
-  const currentNumber = lastSale?.sale_number?.trim() || lastSale?.receipt_number?.trim() || null
-  const nextSequence = currentNumber
-    ? Number.parseInt(currentNumber.slice(prefix.length), 10) + 1
-    : 1
-
-  return `${prefix}${String(Number.isFinite(nextSequence) ? nextSequence : 1).padStart(4, '0')}`
+  const nextSequence = Number(row?.last_sequence)
+  return `${prefix}${String(Number.isFinite(nextSequence) && nextSequence > 0 ? nextSequence : 1).padStart(4, '0')}`
 }
 
 async function ensureInventoryLevel(businessId: string, row: ProductRow, now: string) {
@@ -1258,6 +1277,10 @@ function validateSalePayload(payload: CreateLocalSaleInput) {
 
   if (!Number.isFinite(payload.discountAmount ?? 0) || (payload.discountAmount ?? 0) < 0) {
     throw new SaleLocalError('SALE_DISCOUNT_INVALID')
+  }
+
+  if (!Number.isFinite(payload.chargesAmount ?? 0) || (payload.chargesAmount ?? 0) < 0) {
+    throw new SaleLocalError('SALE_CHARGES_INVALID')
   }
 
   for (const payment of payload.payments) {

@@ -6,11 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
+  type FocusEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { Badge, Button, Spinner } from '@biztrack/ui'
+import { Badge, Button, NumberInput, Spinner } from '@biztrack/ui'
 import {
   PaymentMethod,
   type JwtPayload,
@@ -69,6 +71,7 @@ type HeldSale = {
     type: DiscountType
     value: number
   }
+  chargesAmount: number
   createdAt: string
 }
 
@@ -108,8 +111,13 @@ type SellCopy = {
   items: string
   subtotal: string
   discount: string
+  charges: string
   addDiscount: string
+  addCharges: string
   removeDiscount: string
+  removeCharges: string
+  hideSummary: string
+  showSummary: string
   total: string
   clear: string
   hold: string
@@ -145,6 +153,8 @@ type SellCopy = {
   cancel: string
   discountTitle: string
   discountBy: string
+  chargesTitle: string
+  chargesHint: string
   percent: string
   amount: string
   customValue: string
@@ -187,6 +197,14 @@ function formatAmount(value: number, localeTag: string) {
   return new Intl.NumberFormat(localeTag, {
     maximumFractionDigits: 0,
   }).format(Math.round(value))
+}
+
+function formatEditableQuantity(value: number) {
+  if (Number.isInteger(value)) {
+    return String(value)
+  }
+
+  return value.toFixed(3).replace(/\.?0+$/, '')
 }
 
 function translatePayment(copy: SellCopy, option: PaymentOption) {
@@ -399,9 +417,14 @@ function buildReceiptText({
 
   lines.push(divider)
 
-  if (sale.discountAmount > 0) {
+  if (sale.discountAmount > 0 || sale.chargesAmount > 0) {
     lines.push(padLine(copy.subtotal, `${amount(sale.subtotalAmount)} XAF`, cols))
-    lines.push(padLine(copy.discount, `-${amount(sale.discountAmount)} XAF`, cols))
+    if (sale.discountAmount > 0) {
+      lines.push(padLine(copy.discount, `-${amount(sale.discountAmount)} XAF`, cols))
+    }
+    if (sale.chargesAmount > 0) {
+      lines.push(padLine(copy.charges, `+${amount(sale.chargesAmount)} XAF`, cols))
+    }
   }
 
   lines.push(heavyDivider)
@@ -452,6 +475,7 @@ function Icon({
     | 'share'
     | 'print'
     | 'discount'
+    | 'panel-open'
     | 'package'
   className?: string
 }) {
@@ -671,6 +695,16 @@ function Icon({
     )
   }
 
+  if (name === 'panel-open') {
+    return (
+      <svg {...common}>
+        <path d="M4 4v12" />
+        <path d="m8 7 3 3-3 3" />
+        <path d="m11 7 3 3-3 3" />
+      </svg>
+    )
+  }
+
   return (
     <svg {...common}>
       <path d="M4 6h12v10H4z" />
@@ -702,13 +736,18 @@ export default function SellPage() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [stage, setStage] = useState<Stage>('cart')
   const [cart, setCart] = useState<SellCartItem[]>([])
+  const [cartQuantityInputs, setCartQuantityInputs] = useState<Record<string, string>>({})
   const [discount, setDiscount] = useState<{ type: DiscountType; value: number }>({
     type: 'percent',
     value: 0,
   })
+  const [chargesAmount, setChargesAmount] = useState(0)
   const [discountOpen, setDiscountOpen] = useState(false)
   const [discountDraftType, setDiscountDraftType] = useState<DiscountType>('percent')
   const [discountDraftValue, setDiscountDraftValue] = useState('')
+  const [chargesOpen, setChargesOpen] = useState(false)
+  const [chargesDraftValue, setChargesDraftValue] = useState('')
+  const [isCartSummaryHidden, setIsCartSummaryHidden] = useState(false)
   const [holds, setHolds] = useState<HeldSale[]>([])
   const [holdsOpen, setHoldsOpen] = useState(false)
   const [paymentOption, setPaymentOption] = useState<PaymentOption>('cash')
@@ -762,8 +801,13 @@ export default function SellPage() {
       items: t('items'),
       subtotal: t('subtotal'),
       discount: t('discount'),
+      charges: t('charges'),
       addDiscount: t('add_discount'),
+      addCharges: t('add_charges'),
       removeDiscount: t('remove_discount'),
+      removeCharges: t('remove_charges'),
+      hideSummary: t('hide_summary'),
+      showSummary: t('show_summary'),
       total: t('total'),
       clear: t('clear'),
       hold: t('hold'),
@@ -799,6 +843,8 @@ export default function SellPage() {
       cancel: t('cancel'),
       discountTitle: t('discount_title'),
       discountBy: t('discount_by'),
+      chargesTitle: t('charges_title'),
+      chargesHint: t('charges_hint'),
       percent: t('percent'),
       amount: t('amount'),
       customValue: t('custom_value'),
@@ -831,6 +877,7 @@ export default function SellPage() {
         SALE_QUANTITY_INVALID: t('errors.SALE_QUANTITY_INVALID'),
         SALE_UNIT_PRICE_INVALID: t('errors.SALE_UNIT_PRICE_INVALID'),
         SALE_DISCOUNT_INVALID: t('errors.SALE_DISCOUNT_INVALID'),
+        SALE_CHARGES_INVALID: t('errors.SALE_CHARGES_INVALID'),
         SALE_UNDERPAID: t('errors.SALE_UNDERPAID'),
         SALE_PRODUCT_NOT_FOUND: t('errors.SALE_PRODUCT_NOT_FOUND'),
         SALE_PRODUCT_INACTIVE: t('errors.SALE_PRODUCT_INACTIVE'),
@@ -849,7 +896,15 @@ export default function SellPage() {
       try {
         const parsed = JSON.parse(storedHolds) as HeldSale[]
         if (Array.isArray(parsed)) {
-          setHolds(parsed)
+          setHolds(
+            parsed.map((hold) => ({
+              ...hold,
+              chargesAmount:
+                typeof hold?.chargesAmount === 'number' && Number.isFinite(hold.chargesAmount)
+                  ? hold.chargesAmount
+                  : 0,
+            })),
+          )
         }
       } catch {
         setHolds([])
@@ -1022,6 +1077,27 @@ export default function SellPage() {
     [pendingScannedBarcode],
   )
 
+  useEffect(() => {
+    setCartQuantityInputs((current) => {
+      const next: Record<string, string> = {}
+
+      for (const item of cart) {
+        next[item.productId] = formatEditableQuantity(item.qty)
+      }
+
+      const currentKeys = Object.keys(current)
+      const nextKeys = Object.keys(next)
+      if (
+        currentKeys.length === nextKeys.length &&
+        nextKeys.every((key) => current[key] === next[key])
+      ) {
+        return current
+      }
+
+      return next
+    })
+  }, [cart])
+
   const subtotalAmount = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
     [cart],
@@ -1036,8 +1112,8 @@ export default function SellPage() {
   }, [discount, subtotalAmount])
 
   const totalAmount = useMemo(
-    () => Math.max(0, subtotalAmount - discountAmount),
-    [discountAmount, subtotalAmount],
+    () => Math.max(0, subtotalAmount - discountAmount + chargesAmount),
+    [chargesAmount, discountAmount, subtotalAmount],
   )
 
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.qty, 0), [cart])
@@ -1094,6 +1170,9 @@ export default function SellPage() {
   const resetDraftSale = () => {
     setCart([])
     setDiscount({ type: 'percent', value: 0 })
+    setChargesAmount(0)
+    setChargesOpen(false)
+    setChargesDraftValue('')
     setStage('cart')
     setCompletedSale(null)
     setShowPaymentSummaryToast(false)
@@ -1238,17 +1317,87 @@ export default function SellPage() {
     setPendingScannedBarcode(null)
   }
 
-  const updateItemQuantity = (productId: string, delta: number) => {
+  const setItemQuantity = (productId: string, nextQty: number) => {
     setCart((current) =>
       current.flatMap((item) => {
         if (item.productId !== productId) return item
 
-        const nextQty = item.qty + delta
         if (nextQty <= 0) return []
         if (item.stock !== null && nextQty > item.stock) return item
         return { ...item, qty: nextQty }
       }),
     )
+  }
+
+  const handleItemQuantityInputChange = (productId: string, value: string) => {
+    setCartQuantityInputs((current) => ({
+      ...current,
+      [productId]: value,
+    }))
+  }
+
+  const commitItemQuantityInput = (productId: string) => {
+    const item = cart.find((cartItem) => cartItem.productId === productId)
+    if (!item) {
+      return
+    }
+
+    const rawValue = cartQuantityInputs[productId] ?? ''
+    const trimmedValue = rawValue.trim()
+
+    if (!trimmedValue) {
+      setCartQuantityInputs((current) => ({
+        ...current,
+        [productId]: formatEditableQuantity(item.qty),
+      }))
+      return
+    }
+
+    const parsedValue = Number(trimmedValue)
+    if (!Number.isFinite(parsedValue)) {
+      setCartQuantityInputs((current) => ({
+        ...current,
+        [productId]: formatEditableQuantity(item.qty),
+      }))
+      return
+    }
+
+    const normalizedQty = Number(parsedValue.toFixed(3))
+
+    if (normalizedQty <= 0) {
+      removeItem(productId)
+      return
+    }
+
+    if (item.stock !== null && normalizedQty > item.stock) {
+      toast.error(copy.errors.SALE_INSUFFICIENT_STOCK)
+      setItemQuantity(productId, item.stock)
+      return
+    }
+
+    setItemQuantity(productId, normalizedQty)
+  }
+
+  const handleItemQuantityKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    productId: string,
+    fallbackQty: number,
+  ) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      commitItemQuantityInput(productId)
+      event.currentTarget.blur()
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setCartQuantityInputs((current) => ({
+        ...current,
+        [productId]: formatEditableQuantity(fallbackQty),
+      }))
+      event.currentTarget.blur()
+    }
   }
 
   const removeItem = (productId: string) => {
@@ -1265,6 +1414,12 @@ export default function SellPage() {
     setDiscountOpen(false)
   }
 
+  const applyCharges = (event: FormEvent) => {
+    event.preventDefault()
+    setChargesAmount(Math.max(0, parseOptionalNumber(chargesDraftValue)))
+    setChargesOpen(false)
+  }
+
   const holdCurrentSale = () => {
     if (cart.length === 0) return
 
@@ -1274,6 +1429,7 @@ export default function SellPage() {
         saleId: draftId,
         items: cart,
         discount,
+        chargesAmount,
         createdAt: new Date().toISOString(),
       },
       ...current,
@@ -1286,6 +1442,7 @@ export default function SellPage() {
   const resumeHold = (hold: HeldSale) => {
     setCart(hold.items)
     setDiscount(hold.discount)
+    setChargesAmount(hold.chargesAmount ?? 0)
     setStage('cart')
     setCompletedSale(null)
     setDraftId(hold.saleId)
@@ -1296,6 +1453,7 @@ export default function SellPage() {
   const clearCurrentSale = () => {
     setCart([])
     setDiscount({ type: 'percent', value: 0 })
+    setChargesAmount(0)
     setDraftId(draftSaleId())
   }
 
@@ -1316,6 +1474,7 @@ export default function SellPage() {
         cashierId,
         cashierName,
         discountAmount,
+        chargesAmount,
         notes:
           paymentOption === 'mtn' || paymentOption === 'orange'
             ? `${translatePayment(copy, paymentOption)} ${momoNumber.trim()}`
@@ -1357,6 +1516,7 @@ export default function SellPage() {
       setProcessingSale(false)
       setCart([])
       setDiscount({ type: 'percent', value: 0 })
+      setChargesAmount(0)
       setStage('success')
       setPaymentOption('cash')
       setAmountReceived('')
@@ -1549,7 +1709,7 @@ export default function SellPage() {
 
   return (
     <>
-      <div className="-m-6 flex min-h-[calc(100vh-52px)] flex-col bg-background text-foreground lg:h-[calc(100vh-52px)] lg:overflow-hidden">
+      <div className="-m-6 flex min-h-[calc(100vh-70px)] flex-col bg-background text-foreground lg:h-[calc(100vh-70px)] lg:overflow-hidden">
         <div className="flex flex-1 flex-col lg:min-h-0 lg:flex-row">
           <section className="flex min-h-0 min-w-0 flex-1 flex-col lg:border-r lg:border-border">
             <div className="border-b border-border bg-card">
@@ -1933,7 +2093,7 @@ export default function SellPage() {
                 </div>
               </>
             ) : (
-              <div>
+              <div className="flex min-h-0 flex-1 flex-col">
                 <div className="border-b border-border px-5 py-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1992,7 +2152,7 @@ export default function SellPage() {
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                   {cart.length === 0 ? (
                     <div className="flex h-full min-h-[280px] flex-col items-center justify-center px-8 text-center">
                       <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
@@ -2003,7 +2163,7 @@ export default function SellPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="space-y-3 px-5 py-4">
+                      <div className="space-y-3">
                         {cart.map((item) => (
                           <div
                             key={item.productId}
@@ -2040,17 +2200,33 @@ export default function SellPage() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => updateItemQuantity(item.productId, -1)}
+                                      onClick={() => setItemQuantity(item.productId, item.qty - 1)}
                                       className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background transition hover:bg-secondary"
                                     >
                                       <Icon name="minus" className="h-4 w-4" />
                                     </button>
-                                    <span className="min-w-[2rem] text-center text-sm font-semibold">
-                                      {formatQuantity(item.qty)}
-                                    </span>
+                                    <div className="w-[72px]">
+                                      <NumberInput
+                                        value={cartQuantityInputs[item.productId] ?? formatEditableQuantity(item.qty)}
+                                        min="0"
+                                        step="0.001"
+                                        inputMode="decimal"
+                                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                          handleItemQuantityInputChange(item.productId, event.target.value)
+                                        }
+                                        onBlur={() => commitItemQuantityInput(item.productId)}
+                                        onFocus={(event: FocusEvent<HTMLInputElement>) =>
+                                          event.currentTarget.select()
+                                        }
+                                        onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) =>
+                                          handleItemQuantityKeyDown(event, item.productId, item.qty)
+                                        }
+                                        className="h-8 rounded-lg px-2 text-center text-sm font-semibold"
+                                      />
+                                    </div>
                                     <button
                                       type="button"
-                                      onClick={() => updateItemQuantity(item.productId, 1)}
+                                      onClick={() => setItemQuantity(item.productId, item.qty + 1)}
                                       className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background transition hover:bg-secondary"
                                     >
                                       <Icon name="plus" className="h-4 w-4" />
@@ -2070,30 +2246,72 @@ export default function SellPage() {
                         ))}
                       </div>
 
-                      <div className="border-t border-border px-5 py-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDiscountDraftType(discount.type)
-                            setDiscountDraftValue(discount.value > 0 ? String(discount.value) : '')
-                            setDiscountOpen(true)
-                          }}
-                          className={cn(
-                            'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition',
-                            discount.value > 0
-                              ? 'bg-accent text-primary'
-                              : 'text-foreground/80 hover:bg-background',
-                          )}
-                        >
-                          <Icon name="discount" className="h-4 w-4" />
-                          <span>
-                            {discount.value > 0
-                              ? `${copy.discount} · ${discount.type === 'percent' ? `${discount.value}%` : `${formatAmount(discount.value, copy.localeTag)} FCFA`}`
-                              : copy.addDiscount}
-                          </span>
-                        </button>
+                      <div
+                        className={cn(
+                          'sticky bottom-0 z-10 -mx-5 border-t border-border bg-card transition-all duration-200 ease-out origin-left',
+                          isCartSummaryHidden
+                            ? 'mt-0 max-h-0 -translate-x-4 overflow-hidden border-transparent py-0 opacity-0 shadow-none'
+                            : 'mt-4 max-h-[18rem] translate-x-0 py-4 opacity-100 shadow-[0_-10px_24px_rgba(15,23,42,0.08)]',
+                        )}
+                        aria-hidden={isCartSummaryHidden}
+                      >
+                        <div className="mb-3 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setIsCartSummaryHidden(true)}
+                            aria-label={copy.hideSummary}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-background hover:text-foreground"
+                          >
+                            <Icon name="close" className="h-4 w-4" />
+                          </button>
+                        </div>
 
-                        <div className="mt-4 space-y-2 text-sm text-foreground/80">
+                        <div className="flex items-stretch gap-2 px-5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountDraftType(discount.type)
+                              setDiscountDraftValue(discount.value > 0 ? String(discount.value) : '')
+                              setDiscountOpen(true)
+                            }}
+                            className={cn(
+                              'flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition',
+                              discount.value > 0
+                                ? 'bg-accent text-primary'
+                                : 'text-foreground/80 hover:bg-background',
+                            )}
+                          >
+                            <Icon name="discount" className="h-4 w-4 shrink-0" />
+                            <span className="truncate">
+                              {discount.value > 0
+                                ? `${copy.discount} · ${discount.type === 'percent' ? `${discount.value}%` : `${formatAmount(discount.value, copy.localeTag)} FCFA`}`
+                                : copy.addDiscount}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setChargesDraftValue(chargesAmount > 0 ? String(chargesAmount) : '')
+                              setChargesOpen(true)
+                            }}
+                            className={cn(
+                              'flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition',
+                              chargesAmount > 0
+                                ? 'bg-accent text-primary'
+                                : 'text-foreground/80 hover:bg-background',
+                            )}
+                          >
+                            <Icon name="cash" className="h-4 w-4 shrink-0" />
+                            <span className="truncate">
+                              {chargesAmount > 0
+                                ? `${copy.charges} · ${formatAmount(chargesAmount, copy.localeTag)} FCFA`
+                                : copy.addCharges}
+                            </span>
+                          </button>
+                        </div>
+
+                        <div className="mt-4 space-y-2 text-sm text-foreground/80 px-5">
                           <div className="flex items-center justify-between">
                             <span>{copy.subtotal}</span>
                             <span className="font-semibold text-foreground">
@@ -2105,6 +2323,14 @@ export default function SellPage() {
                               <span>{copy.discount}</span>
                               <span className="font-semibold">
                                 -{formatAmount(discountAmount, copy.localeTag)} FCFA
+                              </span>
+                            </div>
+                          ) : null}
+                          {chargesAmount > 0 ? (
+                            <div className="flex items-center justify-between text-[#0C447C]">
+                              <span>{copy.charges}</span>
+                              <span className="font-semibold">
+                                +{formatAmount(chargesAmount, copy.localeTag)} FCFA
                               </span>
                             </div>
                           ) : null}
@@ -2123,11 +2349,24 @@ export default function SellPage() {
                           </div>
                         </div>
                       </div>
+
+                      {isCartSummaryHidden ? (
+                        <div className="sticky bottom-0 -left-5 z-20 border-t border-border bg-card p-0 rounded-xl w-max">
+                          <button
+                            type="button"
+                            onClick={() => setIsCartSummaryHidden(false)}
+                            aria-label={copy.showSummary}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background text-foreground/80 transition hover:bg-accent hover:text-primary"
+                          >
+                            <Icon name="panel-open" className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : null}
                     </>
                   )}
                 </div>
 
-                <div className="border-t border-border p-5">
+                <div className="shrink-0 border-t border-border bg-card p-5">
                   <div className="flex gap-3">
                     <button
                       type="button"
@@ -2246,6 +2485,65 @@ export default function SellPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={chargesOpen} onOpenChange={setChargesOpen}>
+        <DialogContent className="max-w-md" closeLabel={copy.cancel}>
+          <DialogHeader>
+            <DialogTitle>{copy.chargesTitle}</DialogTitle>
+            <DialogDescription>{copy.chargesHint}</DialogDescription>
+          </DialogHeader>
+
+          <form id="charges-form" onSubmit={applyCharges} className="space-y-4 px-6 py-5">
+            <div className="flex flex-wrap gap-2">
+              {[100, 250, 500, 1000].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setChargesDraftValue(String(value))}
+                  className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-ring hover:bg-accent"
+                >
+                  {formatAmount(value, copy.localeTag)} FCFA
+                </button>
+              ))}
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-foreground">{copy.amount}</span>
+              <NumberInput
+                value={chargesDraftValue}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setChargesDraftValue(event.target.value)
+                }
+                min="0"
+                step="0.01"
+                className="h-11 rounded-xl px-3 text-sm"
+                placeholder="500"
+              />
+            </label>
+          </form>
+
+          <DialogFooter>
+            {chargesAmount > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setChargesAmount(0)
+                  setChargesOpen(false)
+                }}
+              >
+                {copy.removeCharges}
+              </Button>
+            ) : null}
+            <Button type="button" variant="secondary" onClick={() => setChargesOpen(false)}>
+              {copy.cancel}
+            </Button>
+            <Button type="submit" form="charges-form" variant="primary">
+              {copy.apply}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={barcodePromptOpen}
         onOpenChange={setBarcodePromptOpen}
@@ -2334,7 +2632,7 @@ export default function SellPage() {
                       hold.discount.type === 'percent'
                         ? holdSubtotal * (hold.discount.value / 100)
                         : hold.discount.value
-                    const holdTotal = Math.max(0, holdSubtotal - holdDiscount)
+                    const holdTotal = Math.max(0, holdSubtotal - holdDiscount + (hold.chargesAmount ?? 0))
 
                     return (
                       <div

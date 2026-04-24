@@ -59,6 +59,7 @@ export interface Sale {
   status: SaleStatus
   subtotal: number
   discountAmount: number
+  chargesAmount: number
   taxAmount: number
   totalAmount: number
   amountPaid: number
@@ -114,6 +115,7 @@ export interface CreateSaleRequest {
   customerPhone?: string
   notes?: string
   discountAmount?: number
+  chargesAmount?: number
   payments: CreateSalePaymentRequest[]
   items: CreateSaleItemRequest[]
 }
@@ -172,6 +174,7 @@ export interface SaleReceipt {
   items: SaleReceiptItem[]
   subtotal: number
   discountAmount: number
+  chargesAmount: number
   totalAmount: number
   amountPaid: number
   changeGiven: number

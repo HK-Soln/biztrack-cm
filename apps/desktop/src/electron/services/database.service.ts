@@ -60,6 +60,7 @@ export class DatabaseService {
         subtotal REAL NOT NULL,
         total_amount REAL NOT NULL,
         discount_amount REAL NOT NULL DEFAULT 0,
+        charges_amount REAL NOT NULL DEFAULT 0,
         tax_amount REAL NOT NULL DEFAULT 0,
         net_amount REAL NOT NULL,
         amount_paid REAL NOT NULL,
@@ -112,6 +113,13 @@ export class DatabaseService {
         mobile_money_reference TEXT,
         created_at TEXT NOT NULL,
         FOREIGN KEY (sale_id) REFERENCES sales(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS sale_number_sequences (
+        business_id TEXT NOT NULL,
+        sale_date TEXT NOT NULL,
+        last_sequence INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (business_id, sale_date)
       );
 
       CREATE TABLE IF NOT EXISTS expenses (
@@ -302,6 +310,7 @@ export class DatabaseService {
     this.ensureColumn('sales', 'cashier_name', 'cashier_name TEXT')
     this.ensureColumn('sales', 'sale_number', 'sale_number TEXT')
     this.ensureColumn('sales', 'subtotal', 'subtotal REAL')
+    this.ensureColumn('sales', 'charges_amount', 'charges_amount REAL NOT NULL DEFAULT 0')
     this.ensureColumn('sales', 'sale_date', 'sale_date TEXT')
     this.ensureColumn('sales', 'sold_at', 'sold_at TEXT')
     this.ensureColumn('sales', 'amount_paid', 'amount_paid REAL')
@@ -333,6 +342,7 @@ export class DatabaseService {
         sale_number = COALESCE(NULLIF(sale_number, ''), NULLIF(receipt_number, ''), id),
         receipt_number = COALESCE(NULLIF(receipt_number, ''), NULLIF(sale_number, ''), id),
         subtotal = COALESCE(subtotal, total_amount, 0),
+        charges_amount = COALESCE(charges_amount, 0),
         amount_paid = COALESCE(amount_paid, net_amount, total_amount, 0),
         change_given = COALESCE(change_given, 0),
         sale_date = COALESCE(NULLIF(sale_date, ''), substr(COALESCE(sold_at, created_at), 1, 10)),
@@ -372,6 +382,35 @@ export class DatabaseService {
         FROM sale_payments sp
         WHERE sp.sale_id = s.id
       );
+
+      INSERT INTO sale_number_sequences (
+        business_id,
+        sale_date,
+        last_sequence
+      )
+      SELECT
+        s.business_id,
+        s.sale_date,
+        COALESCE(
+          MAX(
+            CASE
+              WHEN COALESCE(NULLIF(s.sale_number, ''), NULLIF(s.receipt_number, '')) LIKE 'VTE-' || replace(s.sale_date, '-', '') || '-%'
+                THEN CAST(substr(COALESCE(NULLIF(s.sale_number, ''), NULLIF(s.receipt_number, '')), 14) AS INTEGER)
+              ELSE 0
+            END
+          ),
+          0
+        ) AS last_sequence
+      FROM sales s
+      WHERE s.business_id IS NOT NULL
+        AND s.sale_date IS NOT NULL
+      GROUP BY s.business_id, s.sale_date
+      ON CONFLICT(business_id, sale_date) DO UPDATE SET
+        last_sequence = CASE
+          WHEN excluded.last_sequence > sale_number_sequences.last_sequence
+            THEN excluded.last_sequence
+          ELSE sale_number_sequences.last_sequence
+        END;
     `)
   }
 
