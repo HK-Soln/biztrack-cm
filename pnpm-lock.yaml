@@ -411,6 +411,9 @@ importers:
       next-themes:
         specifier: ^0.3.0
         version: 0.3.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      pdf-to-printer:
+        specifier: ^5.7.0
+        version: 5.7.0
       react:
         specifier: 19.2.4
         version: 19.2.4
@@ -6686,6 +6689,9 @@ packages:
 
   pause@0.0.1:
     resolution: {integrity: sha512-KG8UEiEVkR3wGEb4m5yZkVCzigAD+cVEJck2CzYZO37ZGJfctvVptVO192MwrtPhzONn6go8ylnOdMhKqi4nfg==}
+
+  pdf-to-printer@5.7.0:
+    resolution: {integrity: sha512-CBZKTdKXjZ+ENiF6GcDUQVFq0pJOiM4LhP88XXN1rJ2lo5rEo6uPPYm8l010QYSapNEy33WYcJ+5lDy6d8mTEw==}
 
   pe-library@0.4.1:
     resolution: {integrity: sha512-eRWB5LBz7PpDu4PUlwT0PhnQfTQJlDDdPa35urV4Osrm0t0AqQFGn+UIkU3klZvwJ8KPO3VbBFsXquA6p6kqZw==}
@@ -15728,6 +15734,8 @@ snapshots:
   path-type@4.0.0: {}
 
   pause@0.0.1: {}
+
+  pdf-to-printer@5.7.0: {}
 
   pe-library@0.4.1: {}
 
