@@ -5,7 +5,9 @@ module.exports = function (api) {
       ['babel-preset-expo', { jsxImportSource: 'nativewind' }],
     ],
     plugins: [
-      ['inline-import', { extensions: ['.sql'] }]
+      ['inline-import', { extensions: ['.sql'] }],
+      // Must be listed last — transforms worklet functions for Reanimated
+      'react-native-reanimated/plugin',
     ]
   };
 };

@@ -7,6 +7,7 @@ dist/
 .next/
 out/
 build/
+coverage/
 
 # Environment
 .env
@@ -36,3 +37,24 @@ release/
 
 # Prisma
 prisma/migrations/dev/
+
+# AI assisted dev template
+smithdesign.md
+theme.pdf
+
+# Expo
+.expo/
+
+# pnpm lock backups (auto-generated merge artifacts)
+pnpm-lock.yaml.*
+
+# Redis local data
+dump.rdb
+redis-local/
+redis.zip
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Test / scratch scripts
+test_conn.js
