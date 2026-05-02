@@ -105,8 +105,14 @@ export class SyncService {
           deletedAt,
         })
         await this.productsRepo.save(product)
-      } catch {
-        this.logger.warn('Sync product insert race condition', 'SyncService', { id, businessId })
+      } catch (error) {
+        // Postgres duplicate-key (23505) = concurrent insert race — safe to ignore.
+        // Any other error is unexpected and must propagate.
+        if ((error as { code?: string })?.code === '23505') {
+          this.logger.warn('Sync product insert race condition (duplicate key)', 'SyncService', { id, businessId })
+        } else {
+          throw error
+        }
       }
       return null
     }
@@ -150,8 +156,14 @@ export class SyncService {
           deletedAt,
         })
         await this.categoriesRepo.save(category)
-      } catch {
-        this.logger.warn('Sync category insert race condition', 'SyncService', { id, businessId })
+      } catch (error) {
+        // Postgres duplicate-key (23505) = concurrent insert race — safe to ignore.
+        // Any other error is unexpected and must propagate.
+        if ((error as { code?: string })?.code === '23505') {
+          this.logger.warn('Sync category insert race condition (duplicate key)', 'SyncService', { id, businessId })
+        } else {
+          throw error
+        }
       }
       return null
     }
@@ -202,7 +214,7 @@ export class SyncService {
   }
 
   private countChanges(changes: ChangeSet): number {
-    return Object.values(changes).reduce((sum, arr) => sum + (arr?.length ?? 0), 0)
+    return Object.values(changes).reduce((sum: number, arr: unknown) => sum + (Array.isArray(arr) ? arr.length : 0), 0)
   }
 
   private async handleServiceError(action: string, error: unknown, metadata?: LogMetadata): Promise<never> {
