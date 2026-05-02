@@ -15,7 +15,7 @@ export class BusinessesController {
   constructor(
     private membersRepo: BusinessMembersRepository,
     private businessService: BusinessService,
-  ) {}
+  ) { }
 
   @Get('mine')
   @UseGuards(JwtAuthGuard)
@@ -27,22 +27,15 @@ export class BusinessesController {
       order: { createdAt: 'ASC' },
     })
 
-    return memberships.map((m) => ({
-      businessId: m.businessId,
+    const businesses = memberships.map((m) => ({
+      id: m.businessId,
+      name: m.business?.name ?? 'Unknown Business',
       role: m.role,
       status: m.status,
-      business: m.business
-        ? {
-            id: m.business.id,
-            name: m.business.name,
-            slug: m.business.slug,
-            city: m.business.city ?? null,
-            type: m.business.type,
-            plan: m.business.plan,
-            businessStatus: m.business.businessStatus,
-          }
-        : null,
-      }))
+      plan: m.business?.plan ?? 'FREE',
+    }))
+
+    return { businesses }
   }
 
   @Post('setup')
