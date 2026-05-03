@@ -11,13 +11,17 @@ import {
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 enum SyncEntityDto {
+  CONTACT = 'contact',
   PRODUCT = 'product',
   PRODUCT_CATEGORY = 'product_category',
+  EXPENSE_CATEGORY = 'expense_category',
   UNIT_OF_MEASURE = 'unit_of_measure',
   INVENTORY_THRESHOLD = 'inventory_threshold',
   INVENTORY_ADJUSTMENT = 'inventory_adjustment',
   INVENTORY_RESTOCK = 'inventory_restock',
+  DEBT = 'debt',
   SALE = 'sale',
+  EXPENSE = 'expense',
 }
 
 enum SyncActionDto {
@@ -39,7 +43,7 @@ export class SyncPushOperationDto {
   action!: SyncActionDto
 
   @ApiProperty()
-  @IsUUID()
+  @IsString()
   recordId!: string
 
   @ApiProperty()

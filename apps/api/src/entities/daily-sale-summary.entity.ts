@@ -110,6 +110,19 @@ export class DailySaleSummary extends TypeOrmBaseEntity {
   })
   cardCollected!: number
 
+  @Column({
+    name: 'credit_issued',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  creditIssued!: number
+
+  @Column({ name: 'credit_sales', type: 'int', default: 0 })
+  creditSales!: number
+
   @Column({ name: 'voided_sales', type: 'int', default: 0 })
   voidedSales!: number
 

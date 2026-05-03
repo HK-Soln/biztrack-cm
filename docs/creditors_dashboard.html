@@ -1,0 +1,210 @@
+
+<h2 class="sr-only">Creditors dashboard — payables to suppliers showing amounts owed, upcoming due dates, payment scheduling and write-off actions.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.pg-title{font-size:18px;font-weight:500}
+.pg-sub{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.25rem}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem}
+.mc-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:6px}
+.mc-value{font-size:22px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.mc-sub{font-size:11px;margin-top:4px}
+.sub-warn{color:#BA7517}.sub-ok{color:#0F6E56}.sub-muted{color:var(--color-text-secondary)}.sub-danger{color:#A32D2D}
+.mc-bar{height:3px;border-radius:2px;margin-top:10px;background:var(--color-border-tertiary);overflow:hidden}
+.mc-bar-fill{height:100%;border-radius:2px}
+.mid{display:grid;grid-template-columns:1fr 220px;gap:1rem;margin-bottom:1rem}
+.surface{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.s-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.s-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:1rem}
+.due-item{display:flex;align-items:center;justify-content:space-between;padding:.625rem 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.due-item:last-child{border-bottom:none}
+.due-name{font-size:13px;font-weight:500}
+.due-ref{font-size:11px;color:var(--color-text-secondary);margin-top:1px}
+.due-right{text-align:right}
+.due-amt{font-size:13px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+.due-date{font-size:11px;color:var(--color-text-secondary);margin-top:1px}
+.urgent-dot{width:6px;height:6px;border-radius:50%;background:#E24B4A;display:inline-block;margin-right:5px}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.filters input{font-size:13px;min-width:180px;flex:1}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.tbl th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.625rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.tbl td{padding:.75rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--color-background-secondary);cursor:pointer}
+.avatar{width:30px;height:30px;border-radius:50%;background:#E6F1FB;color:#0C447C;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.nc{display:flex;align-items:center;gap:8px}
+.n1{font-weight:500;font-size:13px}
+.n2{font-size:11px;color:var(--color-text-secondary)}
+.status-pill{display:inline-flex;font-size:10px;font-weight:500;padding:2px 8px;border-radius:20px}
+.sp-out{background:#FAEEDA;color:#633806}
+.sp-part{background:#E6F1FB;color:#0C447C}
+.sp-set{background:#E1F5EE;color:#085041}
+.amt{font-family:var(--font-mono);font-size:13px;font-weight:500}
+.amt-out{color:#A32D2D}
+.amt-orig{color:var(--color-text-secondary);font-size:11px}
+.date-col{font-size:12px;color:var(--color-text-secondary);font-family:var(--font-mono)}
+.overdue-tag{display:inline-flex;font-size:10px;font-weight:500;padding:1px 6px;border-radius:20px;background:#FCEBEB;color:#791F1F;margin-left:4px}
+.soon-tag{display:inline-flex;font-size:10px;font-weight:500;padding:1px 6px;border-radius:20px;background:#FAEEDA;color:#633806;margin-left:4px}
+.action-row{display:flex;gap:5px}
+.act-btn{font-size:11px;padding:3px 9px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer;white-space:nowrap}
+.act-btn:hover{background:var(--color-background-secondary)}
+.act-btn.primary{border-color:#378ADD;color:#0C447C;background:#E6F1FB}
+.act-btn.primary:hover{background:#B5D4F4}
+.foot{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-top:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary)}
+.pg-btns{display:flex;gap:4px}
+.pg-btn{font-size:12px;padding:4px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.pg-btn.on{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500}
+.supplier-bar-wrap{margin-bottom:.625rem}
+.supplier-bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-secondary);margin-bottom:3px}
+.supplier-bar-track{height:5px;background:var(--color-background-secondary);border-radius:3px;overflow:hidden}
+.supplier-bar-fill{height:100%;border-radius:3px;background:#378ADD}
+</style>
+
+<div class="pg">
+<div class="topbar">
+  <div>
+    <p class="pg-title">Creditors</p>
+    <p class="pg-sub">Money your business owes to suppliers</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <select style="font-size:12px">
+      <option>This month</option>
+      <option>Last 3 months</option>
+      <option>All time</option>
+    </select>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="mc">
+    <p class="mc-label">Total payable</p>
+    <p class="mc-value">485,000</p>
+    <p class="mc-sub sub-danger">XAF across 5 suppliers</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:85%;background:#E24B4A"></div></div>
+  </div>
+  <div class="mc">
+    <p class="mc-label">Due within 7 days</p>
+    <p class="mc-value">205,000</p>
+    <p class="mc-sub sub-warn">2 payments due soon</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:42%;background:#EF9F27"></div></div>
+  </div>
+  <div class="mc">
+    <p class="mc-label">Paid this month</p>
+    <p class="mc-value">220,000</p>
+    <p class="mc-sub sub-ok">3 debts settled</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:45%;background:#1D9E75"></div></div>
+  </div>
+  <div class="mc">
+    <p class="mc-label">Overdue</p>
+    <p class="mc-value">85,000</p>
+    <p class="mc-sub sub-danger">1 debt past due date</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:18%;background:#E24B4A"></div></div>
+  </div>
+</div>
+
+<div class="mid">
+  <div class="surface">
+    <p class="s-title">By supplier</p>
+    <p class="s-desc">Outstanding balance per supplier</p>
+    <div id="supplier-bars"></div>
+  </div>
+  <div class="surface">
+    <p class="s-title">Due soon</p>
+    <p class="s-desc">Next 14 days</p>
+    <div id="due-list"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="filters">
+      <input type="text" id="cr-search" placeholder="Search supplier or restock reference..." oninput="renderCredits()" />
+      <select id="cr-status" onchange="renderCredits()" style="font-size:12px">
+        <option value="">All statuses</option>
+        <option value="OUTSTANDING">Outstanding</option>
+        <option value="PARTIALLY_PAID">Partially paid</option>
+        <option value="SETTLED">Settled</option>
+      </select>
+    </div>
+  </div>
+  <table class="tbl">
+    <colgroup><col style="width:22%"><col style="width:14%"><col style="width:12%"><col style="width:16%"><col style="width:13%"><col style="width:23%"></colgroup>
+    <thead><tr><th>Supplier</th><th>Reference</th><th>Status</th><th>Outstanding</th><th>Due date</th><th>Actions</th></tr></thead>
+    <tbody id="cr-tbody"></tbody>
+  </table>
+  <div class="foot">
+    <span id="cr-info">Showing 1–5 of 5</span>
+    <div class="pg-btns"><button class="pg-btn on">1</button></div>
+  </div>
+</div>
+</div>
+
+<script>
+const CREDITS=[
+  {id:'cr1',contact:'Nguia SARL',ref:'RST-20250408-003',status:'PARTIALLY_PAID',original:185000,paid:65000,due:'20 Apr 2025',overdue:false,soon:true},
+  {id:'cr2',contact:'PEDAG Cameroun',ref:'RST-20250401-001',status:'OUTSTANDING',original:120000,paid:0,due:'15 Apr 2025',overdue:false,soon:true},
+  {id:'cr3',contact:'Fokou Distributions',ref:'RST-20250328-002',status:'OUTSTANDING',original:85000,paid:0,due:'10 Apr 2025',overdue:true,soon:false},
+  {id:'cr4',contact:'Boissons Express',ref:'RST-20250410-004',status:'PARTIALLY_PAID',original:62000,paid:32000,due:'30 Apr 2025',overdue:false,soon:false},
+  {id:'cr5',contact:'Céréales du Nord',ref:'RST-20250405-002',status:'SETTLED',original:45000,paid:45000,due:'22 Apr 2025',overdue:false,soon:false},
+];
+
+const SUPPLIERS=[
+  {name:'Nguia SARL',amt:120000,total:185000},
+  {name:'PEDAG Cameroun',amt:120000,total:120000},
+  {name:'Fokou Distributions',amt:85000,total:85000},
+  {name:'Boissons Express',amt:30000,total:62000},
+];
+
+const DUE=[
+  {name:'PEDAG Cameroun',ref:'RST-20250401-001',amt:120000,date:'15 Apr',urgent:true},
+  {name:'Nguia SARL',ref:'RST-20250408-003',amt:120000,date:'20 Apr',urgent:false},
+];
+
+const maxAmt=Math.max(...SUPPLIERS.map(s=>s.amt));
+document.getElementById('supplier-bars').innerHTML=SUPPLIERS.map(s=>`
+  <div class="supplier-bar-wrap">
+    <div class="supplier-bar-label"><span>${s.name}</span><span style="font-family:var(--font-mono);font-weight:500">XAF ${Math.round(s.amt).toLocaleString('fr-FR')}</span></div>
+    <div class="supplier-bar-track"><div class="supplier-bar-fill" style="width:${Math.round(s.amt/maxAmt*100)}%"></div></div>
+  </div>`).join('');
+
+document.getElementById('due-list').innerHTML=DUE.map(d=>`
+  <div class="due-item">
+    <div><p class="due-name">${d.urgent?`<span class="urgent-dot"></span>`:' '}${d.name}</p><p class="due-ref">${d.ref}</p></div>
+    <div class="due-right"><p class="due-amt">XAF ${Math.round(d.amt).toLocaleString('fr-FR')}</p><p class="due-date">${d.date}</p></div>
+  </div>`).join('');
+
+function spCls(s){return s==='OUTSTANDING'?'sp-out':s==='PARTIALLY_PAID'?'sp-part':'sp-set'}
+function spLbl(s){return s==='OUTSTANDING'?'Outstanding':s==='PARTIALLY_PAID'?'Partial':'Settled'}
+function initials(n){return n.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+
+function renderCredits(){
+  const q=document.getElementById('cr-search').value.toLowerCase();
+  const st=document.getElementById('cr-status').value;
+  const f=CREDITS.filter(c=>{
+    if(q&&!c.contact.toLowerCase().includes(q)&&!c.ref.toLowerCase().includes(q))return false;
+    if(st&&c.status!==st)return false;
+    return true;
+  });
+  document.getElementById('cr-info').textContent=`Showing 1–${f.length} of ${f.length}`;
+  document.getElementById('cr-tbody').innerHTML=f.map(c=>{
+    const out=c.original-c.paid;
+    const actions=c.status!=='SETTLED'
+      ?`<button class="act-btn primary">Record payment</button><button class="act-btn">Write off</button>`
+      :`<span style="font-size:11px;color:var(--color-text-secondary)">Settled</span>`;
+    const dateTag=c.overdue?'<span class="overdue-tag">Overdue</span>':c.soon?'<span class="soon-tag">Due soon</span>':'';
+    return`<tr>
+      <td><div class="nc"><div class="avatar">${initials(c.contact)}</div><div><p class="n1">${c.contact}</p></div></div></td>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary)">${c.ref}</td>
+      <td><span class="status-pill ${spCls(c.status)}">${spLbl(c.status)}</span></td>
+      <td><p class="amt amt-out">XAF ${Math.round(out).toLocaleString('fr-FR')}</p><p class="amt-orig">of XAF ${Math.round(c.original).toLocaleString('fr-FR')}</p></td>
+      <td><span class="date-col">${c.due}</span>${dateTag}</td>
+      <td><div class="action-row">${actions}</div></td>
+    </tr>`;
+  }).join('');
+}
+renderCredits();
+</script>

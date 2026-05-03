@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, shell } from 'electron'
 import { basename, join, parse } from 'path'
 import { promisify } from 'util'
 import { copyFile, mkdir, writeFile } from 'fs/promises'
@@ -14,11 +14,157 @@ type ShareFileResult = {
   success: boolean
   shared: boolean
   path?: string
-  fallback?: 'downloads'
+  fallback?: 'downloads' | 'downloads-revealed'
   error?: string
 }
 
 const execFileAsync = promisify(execFile)
+const WINDOWS_SHARE_HELPER_SOURCE = `
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Windows.Forms;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
+using Windows.Storage;
+
+[ComImport]
+[Guid("3A3DCD6C-3EAB-43DC-BCDE-45671CE800C8")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IDataTransferManagerInterop
+{
+    IntPtr GetForWindow(IntPtr appWindow, ref Guid riid);
+    void ShowShareUIForWindow(IntPtr appWindow);
+}
+
+public sealed class ShareBridgeForm : Form
+{
+    private static readonly Guid DataTransferManagerIid =
+        new Guid(0xa5caee9b, 0x8708, 0x49d1, 0x8d, 0x36, 0x67, 0xd2, 0x5a, 0x8d, 0xa0, 0x0c);
+
+    private readonly string _filePath;
+    private readonly string _title;
+    private readonly Timer _fallbackCloseTimer;
+
+    private DataTransferManager _dataTransferManager;
+    private TypedEventHandler<DataTransferManager, DataRequestedEventArgs> _dataRequestedHandler;
+
+    public string FailureMessage { get; private set; }
+
+    public ShareBridgeForm(string filePath, string title)
+    {
+        _filePath = filePath;
+        _title = title;
+
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        Size = new Size(1, 1);
+        Opacity = 0;
+
+        _fallbackCloseTimer = new Timer();
+        _fallbackCloseTimer.Interval = 10000;
+        _fallbackCloseTimer.Tick += (sender, args) =>
+        {
+            _fallbackCloseTimer.Stop();
+            Close();
+        };
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        BeginInvoke((Action)ShowShareUi);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _fallbackCloseTimer.Stop();
+        _fallbackCloseTimer.Dispose();
+
+        if (_dataTransferManager != null && _dataRequestedHandler != null)
+        {
+            _dataTransferManager.DataRequested -= _dataRequestedHandler;
+        }
+
+        base.OnFormClosed(e);
+    }
+
+    private void ShowShareUi()
+    {
+        try
+        {
+            var interop = (IDataTransferManagerInterop)WindowsRuntimeMarshal.GetActivationFactory(typeof(DataTransferManager));
+            var managerPointer = interop.GetForWindow(Handle, ref DataTransferManagerIid);
+            if (managerPointer == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("Unable to access the Windows share manager.");
+            }
+
+            _dataTransferManager = MarshalInterface<DataTransferManager>.FromAbi(managerPointer);
+            var file = StorageFile.GetFileFromPathAsync(_filePath).AsTask().GetAwaiter().GetResult();
+
+            _dataRequestedHandler = (sender, args) =>
+            {
+                var request = args.Request;
+                request.Data.Properties.Title = string.IsNullOrWhiteSpace(_title) ? file.Name : _title;
+                request.Data.Properties.Description = file.Name;
+                request.Data.SetStorageItems(new[] { file });
+                request.Data.RequestedOperation = DataPackageOperation.Copy;
+                StartCloseTimer(1200);
+            };
+
+            _dataTransferManager.DataRequested += _dataRequestedHandler;
+            _fallbackCloseTimer.Start();
+            interop.ShowShareUIForWindow(Handle);
+        }
+        catch (Exception ex)
+        {
+            FailureMessage = ex.Message;
+            Close();
+        }
+    }
+
+    private void StartCloseTimer(int intervalMilliseconds)
+    {
+        var closeTimer = new Timer();
+        closeTimer.Interval = intervalMilliseconds;
+        closeTimer.Tick += (sender, args) =>
+        {
+            closeTimer.Stop();
+            closeTimer.Dispose();
+            Close();
+        };
+        closeTimer.Start();
+    }
+}
+
+public static class WindowsShareLauncher
+{
+    public static void ShowFileShare(string filePath, string title)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new ArgumentException("File path is required.", "filePath");
+        }
+
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+
+        using (var form = new ShareBridgeForm(filePath, title))
+        {
+            Application.Run(form);
+
+            if (!string.IsNullOrWhiteSpace(form.FailureMessage))
+            {
+                throw new InvalidOperationException(form.FailureMessage);
+            }
+        }
+    }
+}
+`
 
 export function registerShareIpc() {
   ipcMain.handle('share:file', async (_event, payload: ShareFilePayload): Promise<ShareFileResult> => {
@@ -27,7 +173,8 @@ export function registerShareIpc() {
 
     if (process.platform !== 'darwin' && process.platform !== 'win32') {
       const downloadPath = await saveToDownloads(tempPath, filename)
-      return { success: true, shared: false, fallback: 'downloads', path: downloadPath }
+      await revealSavedFile(downloadPath)
+      return { success: true, shared: false, fallback: 'downloads-revealed', path: downloadPath }
     }
 
     try {
@@ -39,12 +186,18 @@ export function registerShareIpc() {
 
       return { success: true, shared: true, path: tempPath }
     } catch (error) {
+      console.warn('[share:file] native share unavailable, falling back to downloads', {
+        platform: process.platform,
+        error: error instanceof Error ? error.message : String(error),
+      })
+
       const downloadPath = await saveToDownloads(tempPath, filename)
+      await revealSavedFile(downloadPath)
 
       return {
         success: true,
         shared: false,
-        fallback: 'downloads',
+        fallback: 'downloads-revealed',
         path: downloadPath,
         error: error instanceof Error ? error.message : String(error),
       }
@@ -99,6 +252,14 @@ async function saveToDownloads(sourcePath: string, filename: string) {
   return downloadPath
 }
 
+async function revealSavedFile(filePath: string) {
+  try {
+    shell.showItemInFolder(filePath)
+  } catch {
+    await shell.openPath(filePath)
+  }
+}
+
 async function uniqueFilePath(directory: string, filename: string) {
   const parsed = parse(filename)
   const extension = parsed.ext || '.pdf'
@@ -149,32 +310,47 @@ $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(2)
 }
 
 async function shareWithWindows(filePath: string, filename: string) {
-  const script = `
-$filePath = ${toPowerShellString(filePath)}
-$title = ${toPowerShellString(filename)}
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-[Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
-[Windows.ApplicationModel.DataTransfer.DataTransferManager, Windows.ApplicationModel.DataTransfer, ContentType = WindowsRuntime] | Out-Null
-$file = [Windows.Storage.StorageFile]::GetFileFromPathAsync($filePath).GetAwaiter().GetResult()
-$manager = [Windows.ApplicationModel.DataTransfer.DataTransferManager]::GetForCurrentView()
-$registration = $manager.add_DataRequested({
-  param($sender, $args)
-  $args.Request.Data.Properties.Title = $title
-  $args.Request.Data.SetStorageItems(@($file))
-})
-[Windows.ApplicationModel.DataTransfer.DataTransferManager]::ShowShareUI()
-Start-Sleep -Milliseconds 750
-$manager.remove_DataRequested($registration)
-`
+  const script = buildWindowsShareScript(filePath, filename)
 
   await execFileAsync(
     'powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    ['-NoProfile', '-Sta', '-ExecutionPolicy', 'Bypass', '-Command', script],
     {
-      timeout: 6_000,
+      timeout: 20_000,
       windowsHide: true,
     },
   )
+}
+
+function buildWindowsShareScript(filePath: string, filename: string) {
+  return `
+$filePath = ${toPowerShellString(filePath)}
+$title = ${toPowerShellString(filename)}
+$windowsMetadataCandidates = @(
+  (Join-Path ${'$'}{env:ProgramFiles(x86)} 'Windows Kits\\10\\UnionMetadata\\Facade\\Windows.winmd'),
+  (Join-Path ${'$'}env:ProgramFiles 'Windows Kits\\10\\UnionMetadata\\Facade\\Windows.winmd')
+) | Where-Object { ${'$'}_ -and (Test-Path ${'$'}_) }
+
+$windowsWinMd = ${'$'}windowsMetadataCandidates | Select-Object -First 1
+if (-not ${'$'}windowsWinMd) {
+  throw 'Windows metadata not found for native share.'
+}
+
+$source = @"
+${WINDOWS_SHARE_HELPER_SOURCE}
+"@
+
+if (-not ('WindowsShareLauncher' -as [type])) {
+  Add-Type -TypeDefinition ${'$'}source -ReferencedAssemblies @(
+    'System.Runtime.WindowsRuntime',
+    'System.Windows.Forms',
+    'System.Drawing',
+    ${'$'}windowsWinMd
+  )
+}
+
+[WindowsShareLauncher]::ShowFileShare(${'$'}filePath, ${'$'}title)
+`
 }
 
 function toPowerShellString(value: string) {

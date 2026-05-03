@@ -23,6 +23,13 @@ import {
   type ProductCategory,
   type UnitOfMeasure,
 } from '@biztrack/types'
+import { RestockPaymentEditor } from '@/components/inventory/RestockPaymentEditor'
+import { SupplierContactSelect } from '@/components/inventory/SupplierContactSelect'
+import {
+  mapRestockPaymentDrafts,
+  sumRestockPaymentDrafts,
+  type RestockPaymentDraft,
+} from '@/components/inventory/restock-shared'
 import { PaginationControls } from '@/components/catalog/PaginationControls'
 import { ProductCreateDialog } from '@/components/products/ProductCreateDialog'
 import { ResourceActionMenu } from '@/components/products/ResourceActionMenu'
@@ -46,8 +53,10 @@ import {
   restockInventoryLocal,
   setInventoryThresholdLocal,
 } from '@/services/inventory.local'
+import { type LocalContactRecord } from '@/services/contacts.local'
 import { listCategoriesLocal, listProductsLocal, listUnitOfMeasuresLocal } from '@/services/products.local'
 import { useAuthStore } from '@/stores/auth.store'
+import Link from 'next/link'
 
 type InventoryStatus = 'healthy' | 'low' | 'out' | 'reorder'
 type InventoryTab = 'all' | 'low' | 'out' | 'reorder'
@@ -60,16 +69,22 @@ type AdjustFormState = {
 }
 
 type RestockFormState = {
-  supplierName: string
+  supplierId: string
   referenceNumber: string
+  totalAmount: string
   notes: string
+  payments: RestockPaymentDraft[]
   items: RestockLineState[]
 }
+
+type RestockCostMode = 'unit' | 'total'
 
 type RestockProductPickerState = {
   draftProductId: string
   draftQuantity: string
   draftUnitCost: string
+  draftLineTotal: string
+  draftCostMode: RestockCostMode
   items: RestockLineState[]
 }
 
@@ -84,6 +99,8 @@ type RestockLineState = {
   productId: string
   quantity: string
   unitCost: string
+  lineTotal: string
+  costMode: RestockCostMode
 }
 
 const PAGE_SIZE = 10
@@ -139,9 +156,11 @@ function cloneRestockItems(items: RestockLineState[]) {
 
 function createEmptyRestockForm(): RestockFormState {
   return {
-    supplierName: '',
+    supplierId: '',
     referenceNumber: '',
+    totalAmount: '',
     notes: '',
+    payments: [],
     items: [],
   }
 }
@@ -153,24 +172,105 @@ function createEmptyRestockProductPicker(
     draftProductId: '',
     draftQuantity: '',
     draftUnitCost: '',
+    draftLineTotal: '',
+    draftCostMode: 'unit',
     items: cloneRestockItems(items),
   }
 }
 
-function computeRestockSubtotal(quantity: string, unitCost: string) {
+function formatMoneyInput(value: number) {
+  const rounded = Math.round((Number(value) + Number.EPSILON) * 100) / 100
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function computeRestockSubtotal(quantity: string, unitCost: string, lineTotal?: string) {
   const quantityInput = parseRequiredNumberInput(quantity)
+  const lineTotalInput = parseOptionalNumberInput(lineTotal ?? '')
   const unitCostInput = parseOptionalNumberInput(unitCost)
 
   if (
     quantityInput.kind !== 'value' ||
     quantityInput.value < 0.001 ||
-    unitCostInput.kind !== 'value' ||
-    unitCostInput.value < 0
+    (
+      (lineTotalInput.kind !== 'value' || lineTotalInput.value < 0) &&
+      (unitCostInput.kind !== 'value' || unitCostInput.value < 0)
+    )
   ) {
     return null
   }
 
-  return quantityInput.value * unitCostInput.value
+  if (lineTotalInput.kind === 'value' && lineTotalInput.value >= 0) {
+    return lineTotalInput.value
+  }
+
+  return quantityInput.value * (unitCostInput.value || 0)
+}
+
+function syncRestockCostFields(input: {
+  quantity: string
+  unitCost: string
+  lineTotal: string
+  costMode: RestockCostMode
+}) {
+  const quantityInput = parseRequiredNumberInput(input.quantity)
+  if (quantityInput.kind !== 'value' || quantityInput.value < 0.001) {
+    return {
+      unitCost: input.unitCost,
+      lineTotal: input.lineTotal,
+    }
+  }
+
+  if (input.costMode === 'total') {
+    const totalInput = parseOptionalNumberInput(input.lineTotal)
+    if (totalInput.kind === 'value' && totalInput.value >= 0) {
+      return {
+        unitCost: formatMoneyInput(totalInput.value / quantityInput.value),
+        lineTotal: input.lineTotal,
+      }
+    }
+  }
+
+  const unitCostInput = parseOptionalNumberInput(input.unitCost)
+  if (unitCostInput.kind === 'value' && unitCostInput.value >= 0) {
+    return {
+      unitCost: input.unitCost,
+      lineTotal: formatMoneyInput(quantityInput.value * unitCostInput.value),
+    }
+  }
+
+  const totalInput = parseOptionalNumberInput(input.lineTotal)
+  if (totalInput.kind === 'value' && totalInput.value >= 0) {
+    return {
+      unitCost: formatMoneyInput(totalInput.value / quantityInput.value),
+      lineTotal: input.lineTotal,
+    }
+  }
+
+  return {
+    unitCost: input.unitCost,
+    lineTotal: input.lineTotal,
+  }
+}
+
+function resolveRestockLineUnitCostValue(quantity: string, unitCost: string, lineTotal: string) {
+  const quantityInput = parseRequiredNumberInput(quantity)
+  if (quantityInput.kind !== 'value' || quantityInput.value < 0.001) {
+    return null
+  }
+
+  const unitCostInput = parseOptionalNumberInput(unitCost)
+  if (unitCostInput.kind === 'value' && unitCostInput.value >= 0) {
+    return unitCostInput.value
+  }
+
+  const lineTotalInput = parseOptionalNumberInput(lineTotal)
+  if (lineTotalInput.kind === 'value' && lineTotalInput.value >= 0) {
+    return Math.round(((lineTotalInput.value / quantityInput.value) + Number.EPSILON) * 100) / 100
+  }
+
+  return null
 }
 
 function computeRestockTotalFromItems(items: RestockLineState[]) {
@@ -178,7 +278,7 @@ function computeRestockTotalFromItems(items: RestockLineState[]) {
   let hasAnySubtotal = false
 
   for (const item of items) {
-    const subtotal = computeRestockSubtotal(item.quantity, item.unitCost)
+    const subtotal = computeRestockSubtotal(item.quantity, item.unitCost, item.lineTotal)
     if (subtotal === null) {
       continue
     }
@@ -526,6 +626,7 @@ export default function InventoryPage() {
   const [savingRestock, setSavingRestock] = useState(false)
   const [savingThresholds, setSavingThresholds] = useState(false)
   const [restockInvoiceFile, setRestockInvoiceFile] = useState<File | null>(null)
+  const [restockSupplier, setRestockSupplier] = useState<LocalContactRecord | null>(null)
   const [cachedProductOptions, setCachedProductOptions] = useState<CommandSelectOption[]>([])
   const [adjustForm, setAdjustForm] = useState<AdjustFormState>({
     productId: '',
@@ -568,6 +669,24 @@ export default function InventoryPage() {
           return t('errors.restock_unit_cost_invalid')
         case 'INVENTORY_RESTOCK_TOTAL_COST_INVALID':
           return t('errors.restock_total_cost_invalid')
+        case 'INVENTORY_RESTOCK_TOTAL_AMOUNT_INVALID':
+          return t('errors.restock_total_amount_invalid')
+        case 'INVENTORY_RESTOCK_TOTAL_AMOUNT_REQUIRED':
+          return t('errors.restock_total_amount_required')
+        case 'INVENTORY_RESTOCK_TOTAL_AMOUNT_MISMATCH':
+          return t('errors.restock_total_amount_mismatch')
+        case 'INVENTORY_RESTOCK_PAYMENT_AMOUNT_INVALID':
+          return t('errors.restock_payment_amount_invalid')
+        case 'INVENTORY_RESTOCK_PAYMENT_EXCEEDS_TOTAL':
+          return t('errors.restock_payment_exceeds_total')
+        case 'INVENTORY_RESTOCK_SUPPLIER_REQUIRED_FOR_CREDIT':
+          return t('errors.restock_supplier_required_for_credit')
+        case 'INVENTORY_RESTOCK_SUPPLIER_NOT_FOUND':
+          return t('errors.restock_supplier_not_found')
+        case 'INVENTORY_RESTOCK_SUPPLIER_INACTIVE':
+          return t('errors.restock_supplier_inactive')
+        case 'INVENTORY_RESTOCK_SUPPLIER_TYPE_INVALID':
+          return t('errors.restock_supplier_type_invalid')
         default:
           break
       }
@@ -847,6 +966,7 @@ export default function InventoryPage() {
       setSelectedProductId(preferredProductId)
     }
     setRestockForm(createEmptyRestockForm())
+    setRestockSupplier(null)
     setRestockProductPicker(createEmptyRestockProductPicker())
     if (preferredProductId) {
       setRestockProductPicker((current) => ({
@@ -884,15 +1004,30 @@ export default function InventoryPage() {
 
   const categoryFilterValue = categoryId || ALL_CATEGORIES_VALUE
 
-  const draftRestockSubtotal = useMemo(
-    () => computeRestockSubtotal(restockProductPicker.draftQuantity, restockProductPicker.draftUnitCost),
-    [restockProductPicker.draftQuantity, restockProductPicker.draftUnitCost],
-  )
-
   const restockTotalCost = useMemo(
     () => computeRestockTotalFromItems(restockForm.items),
     [restockForm.items],
   )
+  const restockExplicitTotal = useMemo(() => {
+    const parsed = parseOptionalNumberInput(restockForm.totalAmount)
+    if (parsed.kind !== 'value' || parsed.value < 0) {
+      return null
+    }
+
+    return parsed.value
+  }, [restockForm.totalAmount])
+  const restockEffectiveTotal = restockExplicitTotal ?? restockTotalCost
+  const restockAmountPaid = useMemo(
+    () => sumRestockPaymentDrafts(restockForm.payments),
+    [restockForm.payments],
+  )
+  const restockCreditAmount = useMemo(() => {
+    if (restockEffectiveTotal === null) {
+      return null
+    }
+
+    return Math.max(0, restockEffectiveTotal - restockAmountPaid)
+  }, [restockAmountPaid, restockEffectiveTotal])
 
   const restockPickerTotalCost = useMemo(
     () => computeRestockTotalFromItems(restockProductPicker.items),
@@ -919,6 +1054,8 @@ export default function InventoryPage() {
         nextState.draftProductId = current.draftProductId
         nextState.draftQuantity = current.draftQuantity
         nextState.draftUnitCost = current.draftUnitCost
+        nextState.draftLineTotal = current.draftLineTotal
+        nextState.draftCostMode = current.draftCostMode
       }
 
       return nextState
@@ -969,6 +1106,32 @@ export default function InventoryPage() {
       return
     }
 
+    const lineTotalInput = parseOptionalNumberInput(restockProductPicker.draftLineTotal)
+    if (
+      lineTotalInput.kind === 'invalid' ||
+      (lineTotalInput.kind === 'value' && lineTotalInput.value < 0)
+    ) {
+      toast.error(t('errors.restock_total_amount_invalid'))
+      return
+    }
+
+    const resolvedUnitCost = resolveRestockLineUnitCostValue(
+      restockProductPicker.draftQuantity,
+      restockProductPicker.draftUnitCost,
+      restockProductPicker.draftLineTotal,
+    )
+    if (resolvedUnitCost === null) {
+      toast.error(t('errors.restock_line_cost_required'))
+      return
+    }
+
+    const syncedDraft = syncRestockCostFields({
+      quantity: restockProductPicker.draftQuantity,
+      unitCost: restockProductPicker.draftUnitCost,
+      lineTotal: restockProductPicker.draftLineTotal,
+      costMode: restockProductPicker.draftCostMode,
+    })
+
     const existingLine = restockProductPicker.items.find(
       (item) => item.productId === restockProductPicker.draftProductId,
     )
@@ -984,13 +1147,17 @@ export default function InventoryPage() {
             ? {
                 ...item,
                 quantity: current.draftQuantity,
-                unitCost: current.draftUnitCost,
+                unitCost: syncedDraft.unitCost || formatMoneyInput(resolvedUnitCost),
+                lineTotal: syncedDraft.lineTotal,
+                costMode: current.draftCostMode,
               }
             : item,
         ),
         draftProductId: '',
         draftQuantity: '',
         draftUnitCost: '',
+        draftLineTotal: '',
+        draftCostMode: 'unit',
       }))
 
       return
@@ -1003,25 +1170,49 @@ export default function InventoryPage() {
           id: crypto.randomUUID(),
           productId: current.draftProductId,
           quantity: current.draftQuantity,
-          unitCost: current.draftUnitCost,
+          unitCost: syncedDraft.unitCost || formatMoneyInput(resolvedUnitCost),
+          lineTotal: syncedDraft.lineTotal,
+          costMode: current.draftCostMode,
         },
         ...current.items,
       ],
       draftProductId: '',
       draftQuantity: '',
       draftUnitCost: '',
+      draftLineTotal: '',
+      draftCostMode: 'unit',
     }))
   }
 
   const updateRestockLine = (
     lineId: string,
-    field: keyof Pick<RestockLineState, 'quantity' | 'unitCost'>,
+    field: 'quantity' | 'unitCost' | 'lineTotal',
     value: string,
   ) => {
     setRestockProductPicker((current) => ({
       ...current,
       items: current.items.map((item) =>
-        item.id === lineId ? { ...item, [field]: value } : item
+        item.id === lineId
+          ? (() => {
+              const nextItem = {
+                ...item,
+                [field]: value,
+                costMode: field === 'lineTotal' ? 'total' : field === 'unitCost' ? 'unit' : item.costMode,
+              }
+              const synced = syncRestockCostFields({
+                quantity: nextItem.quantity,
+                unitCost: nextItem.unitCost,
+                lineTotal: nextItem.lineTotal,
+                costMode: nextItem.costMode,
+              })
+
+              return {
+                ...nextItem,
+                unitCost: synced.unitCost,
+                lineTotal: synced.lineTotal,
+              }
+            })()
+          : item
       ),
     }))
   }
@@ -1082,6 +1273,15 @@ export default function InventoryPage() {
         current.draftUnitCost || (product.costPrice !== null && product.costPrice !== undefined
           ? String(product.costPrice)
           : ''),
+      draftLineTotal:
+        current.draftLineTotal ||
+        (current.draftQuantity &&
+        product.costPrice !== null &&
+        product.costPrice !== undefined &&
+        Number(current.draftQuantity) > 0
+          ? formatMoneyInput(Number(current.draftQuantity) * product.costPrice)
+          : ''),
+      draftCostMode: current.draftUnitCost ? current.draftCostMode : 'unit',
     }))
     setRefreshKey((current) => current + 1)
   }
@@ -1090,9 +1290,26 @@ export default function InventoryPage() {
     setRestockOpen(false)
     setRestockProductsOpen(false)
     setRestockCreateProductOpen(false)
+    setRestockSupplier(null)
     setRestockForm(createEmptyRestockForm())
     setRestockProductPicker(createEmptyRestockProductPicker())
     setRestockInvoiceFile(null)
+  }
+
+  const handleSelectRestockSupplier = (supplier: LocalContactRecord) => {
+    setRestockSupplier(supplier)
+    setRestockForm((current) => ({
+      ...current,
+      supplierId: supplier.id,
+    }))
+  }
+
+  const clearRestockSupplier = () => {
+    setRestockSupplier(null)
+    setRestockForm((current) => ({
+      ...current,
+      supplierId: '',
+    }))
   }
 
   const handleQuickAdjust = async (productId: string, delta: 1 | -1) => {
@@ -1168,9 +1385,6 @@ export default function InventoryPage() {
 
     setSavingRestock(true)
     try {
-      let computedTotalCost = 0
-      let hasAnyCost = false
-
       const items = restockForm.items.map((item) => {
         if (!item.productId) {
           throw new InventoryLocalError('INVENTORY_RESTOCK_PRODUCT_INVALID')
@@ -1189,24 +1403,53 @@ export default function InventoryPage() {
           throw new InventoryLocalError('INVENTORY_RESTOCK_UNIT_COST_INVALID')
         }
 
-        const unitCost = unitCostInput.kind === 'value' ? unitCostInput.value : undefined
-        if (unitCost !== undefined) {
-          computedTotalCost += unitCost * quantityInput.value
-          hasAnyCost = true
+        const lineTotalInput = parseOptionalNumberInput(item.lineTotal)
+        if (
+          lineTotalInput.kind === 'invalid' ||
+          (lineTotalInput.kind === 'value' && lineTotalInput.value < 0)
+        ) {
+          throw new InventoryLocalError('INVENTORY_RESTOCK_TOTAL_AMOUNT_INVALID')
+        }
+
+        const resolvedUnitCost = resolveRestockLineUnitCostValue(
+          item.quantity,
+          item.unitCost,
+          item.lineTotal,
+        )
+        if (resolvedUnitCost === null) {
+          throw new InventoryLocalError('INVENTORY_RESTOCK_TOTAL_AMOUNT_REQUIRED')
         }
 
         return {
           productId: item.productId,
           quantity: quantityInput.value,
-          unitCost,
+          unitCost: resolvedUnitCost,
         }
       })
 
+      const totalAmountInput = parseOptionalNumberInput(restockForm.totalAmount)
+      if (
+        totalAmountInput.kind === 'invalid' ||
+        (totalAmountInput.kind === 'value' && totalAmountInput.value < 0)
+      ) {
+        throw new InventoryLocalError('INVENTORY_RESTOCK_TOTAL_AMOUNT_INVALID')
+      }
+
+      const payments = mapRestockPaymentDrafts(restockForm.payments)
+      if (payments.some((payment) => !Number.isFinite(payment.amount) || payment.amount <= 0)) {
+        throw new InventoryLocalError('INVENTORY_RESTOCK_PAYMENT_AMOUNT_INVALID')
+      }
+
       await restockInventoryLocal(businessId, {
         referenceNumber: restockForm.referenceNumber.trim() || undefined,
-        supplierName: restockForm.supplierName.trim() || undefined,
+        supplierId: restockSupplier?.id || restockForm.supplierId || undefined,
+        supplierName: restockSupplier?.name || undefined,
         notes: restockForm.notes.trim() || undefined,
-        totalCost: hasAnyCost ? Number(computedTotalCost.toFixed(2)) : undefined,
+        totalAmount:
+          totalAmountInput.kind === 'value' ? totalAmountInput.value : undefined,
+        totalCost:
+          totalAmountInput.kind === 'value' ? totalAmountInput.value : undefined,
+        payments,
         items,
       })
 
@@ -1437,20 +1680,22 @@ export default function InventoryPage() {
                           onClick={() => setSelectedProductId(item.productId)}
                         >
                           <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <ProductAvatar
-                                item={item}
-                                categoryColor={categoryColorMap.get(item.categoryName || '')}
-                              />
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-foreground">
-                                  {item.productName || '-'}
-                                </p>
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {item.sku || item.barcode || t('table.no_identifier')}
-                                </p>
+                            <Link href={`/${locale}/products/detail?productId=${item.productId}`}>
+                              <div className="flex items-center gap-3">
+                                <ProductAvatar
+                                  item={item}
+                                  categoryColor={categoryColorMap.get(item.categoryName || '')}
+                                />
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-foreground">
+                                    {item.productName || '-'}
+                                  </p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {item.sku || item.barcode || t('table.no_identifier')}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
+                            </Link>
                           </td>
                           <td className="px-4 py-4 text-sm text-muted-foreground">
                             {item.categoryName || t('stock.uncategorized')}
@@ -1711,29 +1956,18 @@ export default function InventoryPage() {
                   {t('restock.sections.purchase_details')}
                 </p>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input
-                    label={t('restock.supplier')}
-                    value={restockForm.supplierName}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      setRestockForm((current) => ({
-                        ...current,
-                        supplierName: event.target.value,
-                      }))
-                    }
-                    className="h-10 rounded-xl"
-                  />
+                <div className="space-y-4 rounded-2xl border border-border bg-background/60 p-4">
+                  <SupplierContactSelect
+                    businessId={businessId}
+                    supplier={restockSupplier}
+                    onSelect={(supplier) => {
+                      if (supplier) {
+                        handleSelectRestockSupplier(supplier)
+                        return
+                      }
 
-                  <Input
-                    label={t('restock.reference')}
-                    value={restockForm.referenceNumber}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      setRestockForm((current) => ({
-                        ...current,
-                        referenceNumber: event.target.value,
-                      }))
-                    }
-                    className="h-10 rounded-xl"
+                      clearRestockSupplier()
+                    }}
                   />
                 </div>
               </section>
@@ -1777,7 +2011,7 @@ export default function InventoryPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                          {t('restock.total_cost')}
+                          {t('restock.computed_total')}
                         </p>
                         <p className="mt-1 text-sm font-semibold text-foreground">
                           {restockTotalCost === null ? '-' : formatXafCurrency(restockTotalCost, locale)}
@@ -1786,6 +2020,101 @@ export default function InventoryPage() {
                     </div>
                   </div>
                 ) : null}
+              </section>
+
+              <section className="space-y-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('restock.sections.invoice')}
+                </p>
+
+                <div className="grid gap-3 rounded-2xl border border-border bg-background/60 p-4 sm:grid-cols-3">
+                  <Input
+                    label={t('restock.reference')}
+                    value={restockForm.referenceNumber}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setRestockForm((current) => ({
+                        ...current,
+                        referenceNumber: event.target.value,
+                      }))
+                    }
+                    className="h-10 rounded-xl"
+                  />
+
+                  <NumberInput
+                    label={t('restock.total_amount')}
+                    min="0"
+                    step="0.01"
+                    value={restockForm.totalAmount}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setRestockForm((current) => ({
+                        ...current,
+                        totalAmount: event.target.value,
+                      }))
+                    }
+                    placeholder={t('restock.total_amount_optional')}
+                  />
+
+                  <Input
+                    label={t('restock.computed_total')}
+                    value={
+                      restockTotalCost === null
+                        ? '-'
+                        : formatXafCurrency(restockTotalCost, locale)
+                    }
+                    readOnly
+                    disabled
+                    className="h-10 rounded-xl"
+                  />
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  {t('restock.total_amount_hint')}
+                </p>
+              </section>
+
+              <section className="space-y-3">
+                <RestockPaymentEditor
+                  payments={restockForm.payments}
+                  onChange={(payments) =>
+                    setRestockForm((current) => ({
+                      ...current,
+                      payments,
+                    }))
+                  }
+                />
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border bg-background/60 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {t('restock.total_amount')}
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">
+                      {restockEffectiveTotal === null
+                        ? '-'
+                        : formatXafCurrency(restockEffectiveTotal, locale)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background/60 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {t('restock.amount_paid')}
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">
+                      {formatXafCurrency(restockAmountPaid, locale)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background/60 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {t('restock.balance_on_credit')}
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">
+                      {restockCreditAmount === null
+                        ? '-'
+                        : formatXafCurrency(restockCreditAmount, locale)}
+                    </p>
+                  </div>
+                </div>
               </section>
 
               <section className="space-y-3">
@@ -1857,10 +2186,12 @@ export default function InventoryPage() {
               <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t('restock.total_cost')}
+                    {t('restock.total_amount')}
                   </p>
                   <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-                    {restockTotalCost === null ? '-' : formatXafCurrency(restockTotalCost, locale)}
+                    {restockEffectiveTotal === null
+                      ? '-'
+                      : formatXafCurrency(restockEffectiveTotal, locale)}
                   </p>
                 </div>
                 {restockInvoiceFile ? (
@@ -1948,10 +2279,23 @@ export default function InventoryPage() {
                 step="0.001"
                 value={restockProductPicker.draftQuantity}
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setRestockProductPicker((current) => ({
-                    ...current,
-                    draftQuantity: event.target.value,
-                  }))
+                  setRestockProductPicker((current) => {
+                    const nextState = {
+                      ...current,
+                      draftQuantity: event.target.value,
+                    }
+                    const synced = syncRestockCostFields({
+                      quantity: nextState.draftQuantity,
+                      unitCost: nextState.draftUnitCost,
+                      lineTotal: nextState.draftLineTotal,
+                      costMode: nextState.draftCostMode,
+                    })
+                    return {
+                      ...nextState,
+                      draftUnitCost: synced.unitCost,
+                      draftLineTotal: synced.lineTotal,
+                    }
+                  })
                 }
                 placeholder="0"
                 className="h-10 rounded-xl"
@@ -1963,18 +2307,55 @@ export default function InventoryPage() {
                 step="0.01"
                 value={restockProductPicker.draftUnitCost}
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setRestockProductPicker((current) => ({
-                    ...current,
-                    draftUnitCost: event.target.value,
-                  }))
+                  setRestockProductPicker((current) => {
+                    const nextState = {
+                      ...current,
+                      draftUnitCost: event.target.value,
+                      draftCostMode: 'unit' as const,
+                    }
+                    const synced = syncRestockCostFields({
+                      quantity: nextState.draftQuantity,
+                      unitCost: nextState.draftUnitCost,
+                      lineTotal: nextState.draftLineTotal,
+                      costMode: nextState.draftCostMode,
+                    })
+                    return {
+                      ...nextState,
+                      draftLineTotal: synced.lineTotal,
+                    }
+                  })
                 }
                 placeholder={t('restock.unit_cost_optional')}
                 className="h-10 rounded-xl"
               />
 
-              <div className="flex h-10 items-center justify-end rounded-xl border border-border bg-card px-4 text-sm font-semibold text-emerald-700">
-                {draftRestockSubtotal === null ? '-' : formatXafCurrency(draftRestockSubtotal, locale)}
-              </div>
+              <NumberInput
+                label={t('restock.line_total')}
+                min="0"
+                step="0.01"
+                value={restockProductPicker.draftLineTotal}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setRestockProductPicker((current) => {
+                    const nextState = {
+                      ...current,
+                      draftLineTotal: event.target.value,
+                      draftCostMode: 'total' as const,
+                    }
+                    const synced = syncRestockCostFields({
+                      quantity: nextState.draftQuantity,
+                      unitCost: nextState.draftUnitCost,
+                      lineTotal: nextState.draftLineTotal,
+                      costMode: nextState.draftCostMode,
+                    })
+                    return {
+                      ...nextState,
+                      draftUnitCost: synced.unitCost,
+                    }
+                  })
+                }
+                placeholder={t('restock.total_amount_optional')}
+                className="h-10 rounded-xl"
+              />
 
               <Button type="button" variant="primary" onClick={addRestockLine}>
                 {t('restock.add_to_list')}
@@ -1990,11 +2371,9 @@ export default function InventoryPage() {
             ) : (
               <div className="min-h-0 h-full space-y-3 overflow-y-auto pr-1">
                 {restockProductPicker.items.map((item) => {
-                  const subtotal = computeRestockSubtotal(item.quantity, item.unitCost)
-
                   return (
                     <div key={item.id} className="rounded-2xl border border-border bg-secondary/30 p-3">
-                      <div className="grid gap-3 min-[500px]:grid-cols-[minmax(0,1.8fr)_minmax(84px,0.75fr)_minmax(104px,0.9fr)_auto_auto] min-[500px]:items-end">
+                      <div className="grid gap-3 min-[500px]:grid-cols-[minmax(0,1.5fr)_minmax(84px,0.7fr)_minmax(104px,0.85fr)_minmax(110px,0.85fr)_auto] min-[500px]:items-end">
                         <label className="space-y-1.5">
                           <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                             {t('form.product')}
@@ -2037,9 +2416,17 @@ export default function InventoryPage() {
                           className="h-10 rounded-xl"
                         />
 
-                        <div className="flex h-10 items-center justify-end rounded-xl border border-border bg-card px-4 text-sm font-semibold text-emerald-700">
-                          {subtotal === null ? '-' : formatXafCurrency(subtotal, locale)}
-                        </div>
+                        <NumberInput
+                          label={t('restock.line_total')}
+                          min="0"
+                          step="0.01"
+                          value={item.lineTotal}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            updateRestockLine(item.id, 'lineTotal', event.target.value)
+                          }
+                          placeholder={t('restock.total_amount_optional')}
+                          className="h-10 rounded-xl"
+                        />
 
                         <button
                           type="button"
@@ -2050,6 +2437,7 @@ export default function InventoryPage() {
                           x
                         </button>
                       </div>
+
                     </div>
                   )
                 })}
@@ -2061,7 +2449,7 @@ export default function InventoryPage() {
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  {t('restock.total_cost')}
+                  {t('restock.computed_total')}
                 </p>
                 <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
                   {restockPickerTotalCost === null

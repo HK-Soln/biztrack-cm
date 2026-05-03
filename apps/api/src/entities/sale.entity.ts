@@ -10,6 +10,7 @@ import { SaleStatus } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
+import { Contact } from './contact.entity'
 import { SaleItem } from './sale-item.entity'
 import { SalePayment } from './sale-payment.entity'
 import { User } from './user.entity'
@@ -99,6 +100,23 @@ export class Sale extends BaseEntity {
     transformer: decimalTransformer,
   })
   amountPaid!: number
+
+  @Column({
+    name: 'credit_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  creditAmount!: number
+
+  @Column({ name: 'customer_id', nullable: true, type: 'uuid' })
+  customerId?: string | null
+
+  @ManyToOne(() => Contact, { nullable: true, onDelete: 'NO ACTION' })
+  @JoinColumn({ name: 'customer_id', foreignKeyConstraintName: 'fk_sales_customer_id' })
+  customer?: Contact | null
 
   @Column({ name: 'payment_method', type: 'varchar' })
   paymentMethod!: string

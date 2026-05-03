@@ -3,14 +3,18 @@ import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
   AdjustInventoryRequest,
+  InventoryBinSummary,
+  InventoryRestockSyncPayload,
   InventoryAlert,
   InventoryAlertsQuery,
+  InventoryMovementTrendPoint,
   InventoryMovementsQuery,
   InventoryQuery,
   RestockRequest,
+  RestockPaymentRequest,
   SetInventoryThresholdRequest,
 } from '@biztrack/types'
-import { StockAdjustmentType } from '@biztrack/types'
+import { DebtDirection, DebtSource, StockAdjustmentType } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -25,9 +29,12 @@ import { InventoryMovement, MovementType } from '@/entities/inventory-movement.e
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
+import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { Sale } from '@/entities/sale.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { DebtsService } from '@/modules/debts/services/debts.service'
 import type { InventoryLowStockAlertDigest } from '../constants/inventory.constants'
 
 type SaleInventoryItemInput = {
@@ -35,6 +42,35 @@ type SaleInventoryItemInput = {
   productName: string
   quantity: number
   movementId?: string | null
+}
+
+type RestockInputItem = {
+  id?: string
+  productId: string
+  quantity: number
+  unitCost?: number | null
+  movementId?: string | null
+}
+
+type RestockCreationInput = {
+  businessId: string
+  recordId?: string
+  referenceNumber?: string | null
+  supplierId?: string | null
+  supplierName?: string | null
+  totalAmount?: number | null
+  totalCost?: number | null
+  notes?: string | null
+  performedById?: string | null
+  createdAt: Date
+  updatedAt?: Date | null
+  payments?: RestockPaymentRequest[]
+  items: RestockInputItem[]
+}
+
+type InventoryMovementReferenceInfo = {
+  label: string | null
+  sourceName: string | null
 }
 
 @Injectable()
@@ -51,6 +87,7 @@ export class InventoryService {
     private readonly inventoryMovementsRepo: Repository<InventoryMovement>,
     @InjectRepository(ProductImage)
     private readonly productImagesRepo: Repository<ProductImage>,
+    private readonly debtsService: DebtsService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -137,12 +174,19 @@ export class InventoryService {
         where: { businessId, productId },
         relations: ['performedBy'],
         order: { createdAt: 'DESC' },
-        take: 10,
       })
+      const referenceInfo = await this.loadMovementReferenceInfo(businessId, movements)
 
       return {
         ...level,
-        movements,
+        movements: movements.slice(0, 10).map((movement) => ({
+          ...movement,
+          referenceLabel:
+            referenceInfo.get(
+              this.getMovementReferenceLookupKey(movement.referenceType, movement.referenceId),
+            )?.label ?? null,
+        })),
+        binSummary: this.buildInventoryBinSummary(level.quantity, movements, referenceInfo),
       }
     } catch (error) {
       return this.handleServiceError('findOne', error, { productId, businessId })
@@ -225,107 +269,70 @@ export class InventoryService {
   async restock(businessId: string, userId: string, dto: RestockRequest) {
     try {
       return this.dataSource.transaction(async (manager) => {
-        const productRepo = manager.getRepository(Product)
-        const inventoryRepo = manager.getRepository(InventoryLevel)
-        const movementRepo = manager.getRepository(InventoryMovement)
-        const recordRepo = manager.getRepository(RestockRecord)
-        const itemRepo = manager.getRepository(RestockItem)
-
-        const record = await recordRepo.save(
-          recordRepo.create({
-            businessId,
-            referenceNumber: dto.referenceNumber?.trim() ?? null,
-            supplierName: dto.supplierName?.trim() ?? null,
-            totalCost: dto.totalCost ?? null,
-            notes: dto.notes?.trim() ?? null,
-            performedById: userId,
-          }),
-        )
-
-        const processedItems: Array<{ productId: string; quantity: number; newQuantity: number }> =
-          []
-
-        for (const item of dto.items) {
-          const lastRestockAt = new Date()
-          const product = await productRepo.findOne({
-            where: { id: item.productId, businessId, deletedAt: IsNull() },
-          })
-
-          if (!product) {
-            throw new AppNotFoundException(
-              await this.i18n.translate('errors.product_not_found'),
-              'PRODUCT_NOT_FOUND',
-            )
-          }
-
-          if (!product.trackInventory) {
-            this.logger.warn('Skipping restock for untracked product', 'InventoryService', {
-              businessId,
-              productId: item.productId,
-            })
-            continue
-          }
-
-          const level = await inventoryRepo.findOne({
-            where: { businessId, productId: product.id },
-          })
-          const quantityBefore = Number(level?.quantity ?? 0)
-          const quantityAfter = quantityBefore + item.quantity
-
-          if (!level) {
-            await inventoryRepo.save(
-              inventoryRepo.create({
-                businessId,
-                productId: product.id,
-                quantity: quantityAfter,
-                lastRestockAt,
-              }),
-            )
-          } else {
-            await inventoryRepo.update(level.id, {
-              quantity: quantityAfter,
-              lastRestockAt,
-            })
-          }
-
-          await itemRepo.save(
-            itemRepo.create({
-              restockRecordId: record.id,
-              productId: product.id,
-              quantity: item.quantity,
-              unitCost: item.unitCost ?? null,
-            }),
-          )
-
-          await movementRepo.save(
-            movementRepo.create({
-              businessId,
-              productId: product.id,
-              type: MovementType.RESTOCK_IN,
-              quantityChange: item.quantity,
-              quantityBefore,
-              quantityAfter,
-              referenceType: 'restock',
-              referenceId: record.id,
-              notes: dto.notes?.trim() ?? null,
-              performedById: userId,
-            }),
-          )
-
-          processedItems.push({
-            productId: product.id,
+        return this.createRestockRecord(manager, {
+          businessId,
+          referenceNumber: dto.referenceNumber?.trim() ?? null,
+          supplierId: this.normalizeOptionalUuid(dto.supplierId),
+          supplierName: dto.supplierName?.trim() ?? null,
+          totalAmount: dto.totalAmount ?? null,
+          totalCost: dto.totalCost ?? null,
+          notes: dto.notes?.trim() ?? null,
+          performedById: userId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          payments: dto.payments,
+          items: dto.items.map((item) => ({
+            productId: item.productId,
             quantity: item.quantity,
-            newQuantity: quantityAfter,
-          })
-        }
-
-        return {
-          ...record,
-          items: processedItems,
-        }
+            unitCost: item.unitCost ?? null,
+          })),
+        })
       })
     } catch (error) {
       return this.handleServiceError('restock', error, { businessId, userId })
+    }
+  }
+
+  async restockFromSync(
+    businessId: string,
+    recordId: string,
+    payload: InventoryRestockSyncPayload,
+    recordUpdatedAt: Date,
+  ) {
+    try {
+      const existing = await this.dataSource.getRepository(RestockRecord).findOne({
+        where: { id: recordId, businessId },
+      })
+
+      if (existing) {
+        return existing
+      }
+
+      return this.dataSource.transaction(async (manager) => {
+        return this.createRestockRecord(manager, {
+          businessId,
+          recordId,
+          referenceNumber: payload.referenceNumber?.trim() ?? null,
+          supplierId: this.normalizeOptionalUuid(payload.supplierId),
+          supplierName: payload.supplierName?.trim() ?? null,
+          totalAmount: payload.totalAmount ?? null,
+          totalCost: payload.totalCost ?? null,
+          notes: payload.notes?.trim() ?? null,
+          performedById: null,
+          createdAt: this.parseOptionalDate(payload.createdAt) ?? recordUpdatedAt,
+          updatedAt: recordUpdatedAt,
+          payments: payload.payments,
+          items: payload.items.map((item) => ({
+            id: item.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitCost: item.unitCost ?? null,
+            movementId: item.movementId,
+          })),
+        })
+      })
+    } catch (error) {
+      return this.handleServiceError('restockFromSync', error, { businessId, recordId })
     }
   }
 
@@ -607,9 +614,16 @@ export class InventoryService {
     const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
     const skip = (page - 1) * limit
     const [data, total] = await qb.orderBy(sort, sortOrder).skip(skip).take(limit).getManyAndCount()
+    const referenceInfo = await this.loadMovementReferenceInfo(businessId, data)
 
     return {
-      data,
+      data: data.map((movement) => ({
+        ...movement,
+        referenceLabel:
+          referenceInfo.get(
+            this.getMovementReferenceLookupKey(movement.referenceType, movement.referenceId),
+          )?.label ?? null,
+      })),
       total,
       page,
       limit,
@@ -726,6 +740,257 @@ export class InventoryService {
     return manager?.getRepository(Product) ?? this.productsRepo
   }
 
+  private async createRestockRecord(
+    manager: EntityManager,
+    input: RestockCreationInput,
+  ) {
+    const productRepo = manager.getRepository(Product)
+    const inventoryRepo = manager.getRepository(InventoryLevel)
+    const movementRepo = manager.getRepository(InventoryMovement)
+    const recordRepo = manager.getRepository(RestockRecord)
+    const itemRepo = manager.getRepository(RestockItem)
+    const paymentRepo = manager.getRepository(RestockPayment)
+
+    const normalizedItems = input.items.map((item) => ({
+      ...item,
+      quantity: this.roundQuantity(item.quantity),
+      unitCost:
+        item.unitCost === undefined || item.unitCost === null
+          ? null
+          : this.roundMoney(item.unitCost),
+    }))
+    const normalizedPayments = (input.payments ?? []).map((payment) => ({
+      method: payment.method,
+      amount: this.roundMoney(payment.amount),
+      mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
+    }))
+
+    const totalComputation = await this.resolveRestockTotal({
+      explicitTotalAmount: input.totalAmount,
+      explicitTotalCost: input.totalCost,
+      items: normalizedItems,
+    })
+
+    const amountPaid =
+      input.payments === undefined
+        ? totalComputation.totalAmount
+        : this.roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
+
+    if (amountPaid > totalComputation.totalAmount) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.restock_payment_exceeds_total' as never),
+        'RESTOCK_PAYMENT_EXCEEDS_TOTAL',
+        {
+          amountPaid,
+          totalAmount: totalComputation.totalAmount,
+        },
+      )
+    }
+
+    const creditAmount = this.roundMoney(totalComputation.totalAmount - amountPaid)
+    if (creditAmount > 0 && !input.supplierId) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.supplier_contact_required_for_credit' as never),
+        'SUPPLIER_CONTACT_REQUIRED_FOR_CREDIT',
+        {
+          totalAmount: totalComputation.totalAmount,
+          amountPaid,
+          creditAmount,
+        },
+      )
+    }
+
+    if (input.supplierId) {
+      await this.debtsService.requireCreditContact(
+        input.supplierId,
+        input.businessId,
+        DebtDirection.PAYABLE,
+        manager,
+      )
+    }
+
+    const record = await recordRepo.save(
+      recordRepo.create({
+        id: input.recordId,
+        businessId: input.businessId,
+        referenceNumber: input.referenceNumber ?? null,
+        supplierId: input.supplierId ?? null,
+        supplierName: input.supplierName ?? null,
+        totalAmount: totalComputation.totalAmount,
+        totalCost: totalComputation.totalAmount,
+        amountPaid,
+        creditAmount,
+        notes: input.notes ?? null,
+        performedById: input.performedById ?? null,
+        createdAt: input.createdAt,
+      }),
+    )
+
+    const processedItems: Array<{ productId: string; quantity: number; newQuantity: number }> = []
+
+    for (const item of normalizedItems) {
+      const product = await productRepo.findOne({
+        where: { id: item.productId, businessId: input.businessId, deletedAt: IsNull() },
+      })
+
+      if (!product) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.product_not_found'),
+          'PRODUCT_NOT_FOUND',
+        )
+      }
+
+      if (!product.trackInventory) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.product_inventory_tracking_required' as never),
+          'PRODUCT_INVENTORY_TRACKING_REQUIRED',
+          { productId: item.productId, productName: product.name },
+        )
+      }
+
+      const level = await inventoryRepo.findOne({
+        where: { businessId: input.businessId, productId: product.id },
+      })
+      const quantityBefore = Number(level?.quantity ?? 0)
+      const quantityAfter = this.roundQuantity(quantityBefore + item.quantity)
+
+      if (!level) {
+        await inventoryRepo.save(
+          inventoryRepo.create({
+            businessId: input.businessId,
+            productId: product.id,
+            quantity: quantityAfter,
+            lastRestockAt: input.createdAt,
+            createdAt: input.createdAt,
+            updatedAt: input.updatedAt ?? input.createdAt,
+          }),
+        )
+      } else {
+        await inventoryRepo.update(level.id, {
+          quantity: quantityAfter,
+          lastRestockAt: input.createdAt,
+          updatedAt: input.updatedAt ?? input.createdAt,
+        })
+      }
+
+      await itemRepo.save(
+        itemRepo.create({
+          id: item.id,
+          restockRecordId: record.id,
+          productId: product.id,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          createdAt: input.createdAt,
+        }),
+      )
+
+      await movementRepo.save(
+        movementRepo.create({
+          id: item.movementId ?? undefined,
+          businessId: input.businessId,
+          productId: product.id,
+          type: MovementType.RESTOCK_IN,
+          quantityChange: item.quantity,
+          quantityBefore,
+          quantityAfter,
+          referenceType: 'restock',
+          referenceId: record.id,
+          notes: input.notes ?? null,
+          performedById: input.performedById ?? null,
+          createdAt: input.createdAt,
+        }),
+      )
+
+      processedItems.push({
+        productId: product.id,
+        quantity: item.quantity,
+        newQuantity: quantityAfter,
+      })
+    }
+
+    if (normalizedPayments.length > 0) {
+      await paymentRepo.save(
+        normalizedPayments.map((payment) =>
+          paymentRepo.create({
+            restockRecordId: record.id,
+            businessId: input.businessId,
+            method: payment.method,
+            amount: payment.amount,
+            mobileMoneyReference: payment.mobileMoneyReference,
+          }),
+        ),
+      )
+    }
+
+    if (creditAmount > 0 && input.supplierId) {
+      await this.debtsService.createSourceDebt(manager, {
+        businessId: input.businessId,
+        contactId: input.supplierId,
+        direction: DebtDirection.PAYABLE,
+        sourceType: DebtSource.RESTOCK,
+        sourceId: record.id,
+        sourceReference: input.referenceNumber ?? record.id,
+        originalAmount: creditAmount,
+        notes: input.notes ?? null,
+        createdAt: input.createdAt,
+      })
+    }
+
+    return {
+      ...record,
+      items: processedItems,
+      payments: normalizedPayments,
+    }
+  }
+
+  private async resolveRestockTotal(input: {
+    explicitTotalAmount?: number | null
+    explicitTotalCost?: number | null
+    items: Array<{ quantity: number; unitCost?: number | null }>
+  }) {
+    const explicitTotal =
+      input.explicitTotalAmount ?? input.explicitTotalCost ?? null
+    const normalizedExplicitTotal =
+      explicitTotal === null || explicitTotal === undefined ? null : this.roundMoney(explicitTotal)
+    const allUnitCostsPresent = input.items.every(
+      (item) => item.unitCost !== null && item.unitCost !== undefined,
+    )
+    const computedTotal = allUnitCostsPresent
+      ? this.roundMoney(
+          input.items.reduce(
+            (sum, item) => sum + item.quantity * (item.unitCost ?? 0),
+            0,
+          ),
+        )
+      : null
+
+    if (computedTotal === null && normalizedExplicitTotal === null) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.restock_total_amount_required' as never),
+        'RESTOCK_TOTAL_AMOUNT_REQUIRED',
+      )
+    }
+
+    if (
+      computedTotal !== null &&
+      normalizedExplicitTotal !== null &&
+      computedTotal !== normalizedExplicitTotal
+    ) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.restock_total_amount_mismatch' as never),
+        'RESTOCK_TOTAL_AMOUNT_MISMATCH',
+        {
+          computedTotal,
+          explicitTotal: normalizedExplicitTotal,
+        },
+      )
+    }
+
+    return {
+      totalAmount: normalizedExplicitTotal ?? computedTotal ?? 0,
+    }
+  }
+
   private async findInventoryLevelForUpdate(
     inventoryRepo: Repository<InventoryLevel>,
     businessId: string,
@@ -741,6 +1006,207 @@ export class InventoryService {
     }
 
     return qb.getOne()
+  }
+
+  private async loadMovementReferenceInfo(
+    businessId: string,
+    movements: Array<{ referenceType?: string | null; referenceId?: string | null }>,
+  ): Promise<Map<string, InventoryMovementReferenceInfo>> {
+    const result = new Map<string, InventoryMovementReferenceInfo>()
+    const saleIds = [
+      ...new Set(
+        movements
+          .filter(
+            (movement) =>
+              movement.referenceId &&
+              (movement.referenceType === 'sale' || movement.referenceType === 'sale_void'),
+          )
+          .map((movement) => movement.referenceId as string),
+      ),
+    ]
+    const restockIds = [
+      ...new Set(
+        movements
+          .filter((movement) => movement.referenceId && movement.referenceType === 'restock')
+          .map((movement) => movement.referenceId as string),
+      ),
+    ]
+
+    if (saleIds.length > 0) {
+      const sales = await this.dataSource
+        .getRepository(Sale)
+        .createQueryBuilder('sale')
+        .select('sale.id', 'id')
+        .addSelect('sale.sale_number', 'sale_number')
+        .addSelect('sale.customer_name', 'customer_name')
+        .where('sale.business_id = :businessId', { businessId })
+        .andWhere('sale.id IN (:...ids)', { ids: saleIds })
+        .getRawMany<{ id: string; sale_number: string | null; customer_name: string | null }>()
+
+      for (const sale of sales) {
+        const info = {
+          label: sale.sale_number?.trim() || sale.id,
+          sourceName: sale.customer_name?.trim() || null,
+        }
+        result.set(this.getMovementReferenceLookupKey('sale', sale.id), info)
+        result.set(this.getMovementReferenceLookupKey('sale_void', sale.id), info)
+      }
+    }
+
+    if (restockIds.length > 0) {
+      const restocks = await this.dataSource
+        .getRepository(RestockRecord)
+        .createQueryBuilder('restock')
+        .select('restock.id', 'id')
+        .addSelect('restock.reference_number', 'reference_number')
+        .addSelect('restock.supplier_name', 'supplier_name')
+        .where('restock.business_id = :businessId', { businessId })
+        .andWhere('restock.id IN (:...ids)', { ids: restockIds })
+        .getRawMany<{ id: string; reference_number: string | null; supplier_name: string | null }>()
+
+      for (const restock of restocks) {
+        result.set(this.getMovementReferenceLookupKey('restock', restock.id), {
+          label: restock.reference_number?.trim() || restock.id,
+          sourceName: restock.supplier_name?.trim() || null,
+        })
+      }
+    }
+
+    return result
+  }
+
+  private buildInventoryBinSummary(
+    currentBalance: number,
+    movements: InventoryMovement[],
+    referenceInfo: Map<string, InventoryMovementReferenceInfo>,
+  ): InventoryBinSummary {
+    let totalChange = 0
+    let totalRestocked = 0
+    let totalSold = 0
+    let totalAdjusted = 0
+
+    for (const movement of movements) {
+      totalChange += movement.quantityChange
+
+      if (movement.type === MovementType.RESTOCK_IN) {
+        totalRestocked += Math.abs(movement.quantityChange)
+        continue
+      }
+
+      if (movement.type === MovementType.SALE) {
+        totalSold += Math.abs(movement.quantityChange)
+        continue
+      }
+
+      if (movement.type === MovementType.OPENING_STOCK) {
+        continue
+      }
+
+      totalAdjusted += movement.quantityChange
+    }
+
+    const lastRestock =
+      movements.find((movement) => movement.type === MovementType.RESTOCK_IN) ?? null
+    const lastRestockInfo =
+      lastRestock === null
+        ? null
+        : referenceInfo.get(
+            this.getMovementReferenceLookupKey(lastRestock.referenceType, lastRestock.referenceId),
+          ) ?? null
+
+    return {
+      openingStock: this.roundQuantity(currentBalance - totalChange),
+      totalRestocked: this.roundQuantity(totalRestocked),
+      totalSold: this.roundQuantity(totalSold),
+      totalAdjusted: this.roundQuantity(totalAdjusted),
+      currentBalance: this.roundQuantity(currentBalance),
+      lastRestockAt: lastRestock?.createdAt?.toISOString?.() ?? null,
+      lastRestockQuantity:
+        lastRestock === null ? null : this.roundQuantity(Math.abs(lastRestock.quantityChange)),
+      lastRestockReferenceLabel: lastRestockInfo?.label ?? null,
+      lastRestockSourceName: lastRestockInfo?.sourceName ?? null,
+      movementWindowDays: 30,
+      trend: this.buildMovementTrend(movements, 30),
+    }
+  }
+
+  private buildMovementTrend(
+    movements: InventoryMovement[],
+    movementWindowDays: number,
+  ): InventoryMovementTrendPoint[] {
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    const points = new Map<string, InventoryMovementTrendPoint>()
+
+    for (let index = movementWindowDays - 1; index >= 0; index -= 1) {
+      const date = new Date(today)
+      date.setUTCDate(today.getUTCDate() - index)
+      const key = date.toISOString().slice(0, 10)
+      points.set(key, {
+        date: key,
+        stockIn: 0,
+        stockOut: 0,
+      })
+    }
+
+    for (const movement of movements) {
+      const key = movement.createdAt.toISOString().slice(0, 10)
+      const point = points.get(key)
+      if (!point) {
+        continue
+      }
+
+      if (movement.quantityChange > 0) {
+        point.stockIn = this.roundQuantity(point.stockIn + movement.quantityChange)
+      } else if (movement.quantityChange < 0) {
+        point.stockOut = this.roundQuantity(point.stockOut + Math.abs(movement.quantityChange))
+      }
+    }
+
+    return Array.from(points.values())
+  }
+
+  private getMovementReferenceLookupKey(referenceType?: string | null, referenceId?: string | null) {
+    return `${referenceType ?? 'none'}:${referenceId ?? 'none'}`
+  }
+
+  private parseOptionalDate(value?: string | null) {
+    if (!value) {
+      return null
+    }
+
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  private roundMoney(value: number) {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
+  }
+
+  private roundQuantity(value: number) {
+    return Math.round((Number(value) + Number.EPSILON) * 1000) / 1000
+  }
+
+  private normalizeOptionalUuid(value: string | null | undefined) {
+    const trimmed = value?.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    if (!this.isUuid(trimmed)) {
+      throw new AppBadRequestException('Restock supplier id is invalid.', 'INVALID_RESTOCK_SUPPLIER_ID')
+    }
+
+    return trimmed
+  }
+
+  private isUuid(value: string | null | undefined): value is string {
+    return Boolean(
+      value &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          value,
+        ),
+    )
   }
 
   private async handleServiceError(

@@ -11,6 +11,7 @@ import { registerNetworkIpc } from './ipc/network.ipc'
 import { registerSecureStoreIpc } from './ipc/secure-store.ipc'
 import { registerShareIpc } from './ipc/share.ipc'
 import { registerPrintIpc } from './ipc/print.ipc'
+import { registerDocumentIpc } from './ipc/document.ipc'
 
 const isDev = !app.isPackaged
 
@@ -72,6 +73,7 @@ app.whenReady().then(async () => {
   registerSecureStoreIpc(secureStoreService)
   registerShareIpc()
   registerPrintIpc()
+  registerDocumentIpc()
 
   ipcMain.on('set-theme', (_event, theme: 'light' | 'dark' | 'system') => {
     nativeTheme.themeSource = theme

@@ -3,6 +3,7 @@ import { Type } from 'class-transformer'
 import {
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,7 +11,14 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator'
-import type { RestockItemRequest, RestockRequest } from '@biztrack/types'
+import { PaymentMethod, type RestockItemRequest, type RestockPaymentRequest, type RestockRequest } from '@biztrack/types'
+
+const RESTOCK_PAYMENT_METHODS = [
+  PaymentMethod.CASH,
+  PaymentMethod.MTN_MOMO,
+  PaymentMethod.ORANGE_MONEY,
+  PaymentMethod.CARD,
+] as const
 
 export class RestockItemDto implements RestockItemRequest {
   @ApiProperty()
@@ -31,6 +39,23 @@ export class RestockItemDto implements RestockItemRequest {
   unitCost?: number
 }
 
+export class RestockPaymentDto implements RestockPaymentRequest {
+  @ApiProperty({ enum: RESTOCK_PAYMENT_METHODS })
+  @IsIn(RESTOCK_PAYMENT_METHODS)
+  method!: PaymentMethod
+
+  @ApiProperty({ example: 5000 })
+  @IsNumber()
+  @Min(0.01)
+  @Type(() => Number)
+  amount!: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  mobileMoneyReference?: string
+}
+
 export class RestockDto implements RestockRequest {
   @ApiPropertyOptional()
   @IsOptional()
@@ -39,8 +64,20 @@ export class RestockDto implements RestockRequest {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsUUID()
+  supplierId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   supplierName?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  totalAmount?: number
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -53,6 +90,13 @@ export class RestockDto implements RestockRequest {
   @IsOptional()
   @IsString()
   notes?: string
+
+  @ApiPropertyOptional({ type: [RestockPaymentDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RestockPaymentDto)
+  payments?: RestockPaymentDto[]
 
   @ApiProperty({ type: [RestockItemDto] })
   @IsArray()

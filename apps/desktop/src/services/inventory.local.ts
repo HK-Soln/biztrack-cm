@@ -1,15 +1,20 @@
 'use client'
 
 import {
+  ContactType,
+  DebtDirection,
+  DebtStatus,
   InventoryMovementType,
   StockAdjustmentType,
   UnitOfMeasureType,
   type AdjustInventoryRequest,
   type InventoryAlert,
   type InventoryAlertsQuery,
+  type InventoryBinSummary,
   type InventoryDetail,
   type InventoryListItem,
   type InventoryMovement,
+  type InventoryMovementTrendPoint,
   type InventoryMovementsQuery,
   type InventoryQuery,
   type InventoryProductSummary,
@@ -21,6 +26,8 @@ import {
   type InventoryRestockSyncPayload,
   type InventoryThresholdSyncPayload,
 } from '@biztrack/types'
+import { getContactByIdLocal } from './contacts.local'
+import { listAllDebtsByDirectionLocal } from './debts.local'
 import { compareValues, dbBatch, dbQuery, paginateResult, normalizeSortOrder } from './local-db'
 import { assertBusinessId, fetchProductRowsForBusiness, type ProductRow } from './products.local'
 import {
@@ -42,7 +49,16 @@ export class InventoryLocalError extends Error {
       | 'INVENTORY_RESTOCK_PRODUCT_INVALID'
       | 'INVENTORY_RESTOCK_QUANTITY_INVALID'
       | 'INVENTORY_RESTOCK_UNIT_COST_INVALID'
-      | 'INVENTORY_RESTOCK_TOTAL_COST_INVALID',
+      | 'INVENTORY_RESTOCK_TOTAL_COST_INVALID'
+      | 'INVENTORY_RESTOCK_TOTAL_AMOUNT_INVALID'
+      | 'INVENTORY_RESTOCK_TOTAL_AMOUNT_REQUIRED'
+      | 'INVENTORY_RESTOCK_TOTAL_AMOUNT_MISMATCH'
+      | 'INVENTORY_RESTOCK_PAYMENT_AMOUNT_INVALID'
+      | 'INVENTORY_RESTOCK_PAYMENT_EXCEEDS_TOTAL'
+      | 'INVENTORY_RESTOCK_SUPPLIER_REQUIRED_FOR_CREDIT'
+      | 'INVENTORY_RESTOCK_SUPPLIER_NOT_FOUND'
+      | 'INVENTORY_RESTOCK_SUPPLIER_INACTIVE'
+      | 'INVENTORY_RESTOCK_SUPPLIER_TYPE_INVALID',
     message?: string,
   ) {
     super(message ?? code)
@@ -76,6 +92,39 @@ type MovementRow = {
   performed_by_id: string | null
   performed_by_name: string | null
   created_at: string
+}
+
+type MovementReferenceInfo = {
+  label: string | null
+  sourceName: string | null
+}
+
+type SaleReferenceRow = {
+  id: string
+  sale_number: string | null
+  receipt_number: string | null
+  customer_name: string | null
+}
+
+type RestockReferenceRow = {
+  id: string
+  reference_number: string | null
+  supplier_name: string | null
+}
+
+export type LocalSupplierPayable = {
+  id: string
+  businessId: string
+  reference: string
+  supplierId: string | null
+  supplierName: string
+  supplierPhone: string | null
+  status: DebtStatus
+  totalAmount: number
+  amountPaid: number
+  outstandingAmount: number
+  notes: string | null
+  createdAt: string
 }
 
 export async function listInventoryLocal(
@@ -173,10 +222,10 @@ export async function getInventoryDetailLocal(
       WHERE business_id = ?
         AND product_id = ?
       ORDER BY created_at DESC
-      LIMIT 12
     `,
     [normalizedBusinessId, productId],
   )
+  const referenceInfo = await loadMovementReferenceInfoLocal(normalizedBusinessId, movementRows)
 
   return {
     id: level.id,
@@ -189,7 +238,17 @@ export async function getInventoryDetailLocal(
     createdAt: level.created_at,
     updatedAt: level.updated_at,
     product: mapInventoryProductSummary(row),
-    movements: movementRows.map(mapMovementRow),
+    movements: movementRows.slice(0, 10).map((movement) =>
+      mapMovementRow(
+        movement,
+        referenceInfo.get(getMovementReferenceLookupKey(movement.reference_type, movement.reference_id)),
+      ),
+    ),
+    binSummary: buildInventoryBinSummary(
+      movementRows,
+      level.quantity,
+      referenceInfo,
+    ),
   }
 }
 
@@ -356,6 +415,33 @@ export async function restockInventoryLocal(
   const rows = await fetchProductRowsForBusiness(normalizedBusinessId)
   const now = new Date().toISOString()
   const restockId = crypto.randomUUID()
+  const normalizedReferenceNumber = payload.referenceNumber?.trim() || null
+  const normalizedNotes = payload.notes?.trim() || null
+  const normalizedSupplierId = payload.supplierId?.trim() || null
+  const normalizedManualSupplierName = payload.supplierName?.trim() || null
+  const normalizedPayments =
+    payload.payments?.map((payment) => ({
+      method: payment.method,
+      amount: roundMoney(payment.amount),
+      mobileMoneyReference: payment.mobileMoneyReference?.trim() || undefined,
+    })) ?? undefined
+  const totalAmount = roundMoney(resolveRestockTotal(payload))
+  const amountPaid =
+    normalizedPayments === undefined
+      ? totalAmount
+      : roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
+
+  if (amountPaid > totalAmount) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_PAYMENT_EXCEEDS_TOTAL')
+  }
+
+  const creditAmount = roundMoney(totalAmount - amountPaid)
+  const supplierContact = await resolveRestockSupplier(
+    normalizedBusinessId,
+    normalizedSupplierId,
+    creditAmount,
+  )
+  const supplierName = normalizedManualSupplierName || supplierContact?.name || null
   const operations: Array<{ sql: string; params?: unknown[] }> = [
     {
       sql: `
@@ -363,20 +449,28 @@ export async function restockInventoryLocal(
           id,
           business_id,
           reference_number,
+          supplier_id,
           supplier_name,
+          total_amount,
           total_cost,
+          amount_paid,
+          credit_amount,
           notes,
           performed_by_id,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         restockId,
         normalizedBusinessId,
-        payload.referenceNumber?.trim() || null,
-        payload.supplierName?.trim() || null,
-        payload.totalCost ?? null,
-        payload.notes?.trim() || null,
+        normalizedReferenceNumber,
+        normalizedSupplierId,
+        supplierName,
+        totalAmount,
+        totalAmount,
+        amountPaid,
+        creditAmount,
+        normalizedNotes,
         null,
         now,
       ],
@@ -399,7 +493,7 @@ export async function restockInventoryLocal(
       id: itemId,
       productId: row.id,
       quantity: item.quantity,
-      unitCost: item.unitCost,
+      unitCost: item.unitCost ?? undefined,
       movementId,
     })
 
@@ -481,7 +575,7 @@ export async function restockInventoryLocal(
           quantityAfter,
           'restock',
           restockId,
-          payload.notes?.trim() || null,
+          normalizedNotes,
           null,
           'Local user',
           now,
@@ -496,12 +590,46 @@ export async function restockInventoryLocal(
     })
   }
 
+  for (const payment of normalizedPayments ?? []) {
+    operations.push({
+      sql: `
+        INSERT INTO restock_payments (
+          id,
+          restock_record_id,
+          business_id,
+          method,
+          amount,
+          mobile_money_reference,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      params: [
+        crypto.randomUUID(),
+        restockId,
+        normalizedBusinessId,
+        payment.method,
+        payment.amount,
+        payment.mobileMoneyReference ?? null,
+        now,
+      ],
+    })
+  }
+
   const syncPayload: InventoryRestockSyncPayload = {
-    referenceNumber: payload.referenceNumber?.trim() || null,
-    supplierName: payload.supplierName?.trim() || null,
-    totalCost: payload.totalCost ?? null,
-    notes: payload.notes?.trim() || null,
+    referenceNumber: normalizedReferenceNumber,
+    supplierId: normalizedSupplierId,
+    supplierName,
+    totalAmount,
+    totalCost: totalAmount,
+    notes: normalizedNotes,
     createdAt: now,
+    payments: normalizedPayments?.map((payment) => ({
+      method: payment.method,
+      amount: payment.amount,
+      ...(payment.mobileMoneyReference
+        ? { mobileMoneyReference: payment.mobileMoneyReference }
+        : {}),
+    })),
     items: syncItems,
   }
 
@@ -513,14 +641,41 @@ export async function restockInventoryLocal(
   return {
     id: restockId,
     businessId: normalizedBusinessId,
-    referenceNumber: payload.referenceNumber?.trim() || null,
-    supplierName: payload.supplierName?.trim() || null,
-    totalCost: payload.totalCost ?? null,
-    notes: payload.notes?.trim() || null,
+    referenceNumber: normalizedReferenceNumber,
+    supplierId: normalizedSupplierId,
+    supplierName,
+    totalAmount,
+    amountPaid,
+    creditAmount,
+    totalCost: totalAmount,
+    notes: normalizedNotes,
     performedById: null,
     createdAt: now,
+    payments: normalizedPayments,
     items: processedItems,
   }
+}
+
+export async function listSupplierPayablesLocal(
+  businessId: string,
+): Promise<LocalSupplierPayable[]> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const debts = await listAllDebtsByDirectionLocal(normalizedBusinessId, DebtDirection.PAYABLE)
+
+  return debts.map((debt) => ({
+    id: debt.id,
+    businessId: debt.businessId,
+    reference: debt.sourceReference || debt.id,
+    supplierId: debt.contactId || null,
+    supplierName: debt.contact?.name || debt.sourceReference || debt.id,
+    supplierPhone: debt.contact?.phone ?? null,
+    status: debt.status,
+    totalAmount: roundMoney(debt.originalAmount),
+    amountPaid: roundMoney(debt.paidAmount),
+    outstandingAmount: roundMoney(debt.outstandingAmount),
+    notes: debt.notes ?? null,
+    createdAt: debt.createdAt,
+  }))
 }
 
 export async function listInventoryMovementsLocal(
@@ -566,7 +721,13 @@ export async function listInventoryMovementsLocal(
     rows = rows.filter((row) => row.created_at <= dateTo)
   }
 
-  const movements = rows.map(mapMovementRow)
+  const referenceInfo = await loadMovementReferenceInfoLocal(assertBusinessId(businessId), rows)
+  const movements = rows.map((row) =>
+    mapMovementRow(
+      row,
+      referenceInfo.get(getMovementReferenceLookupKey(row.reference_type, row.reference_id)),
+    ),
+  )
   movements.sort((left, right) => {
     switch (query.sortBy) {
       case 'type':
@@ -656,7 +817,10 @@ function mapInventoryProductSummary(row: ProductRow): InventoryProductSummary {
   }
 }
 
-function mapMovementRow(row: MovementRow): InventoryMovement {
+function mapMovementRow(
+  row: MovementRow,
+  referenceInfo?: MovementReferenceInfo | null,
+): InventoryMovement {
   return {
     id: row.id,
     businessId: row.business_id,
@@ -675,8 +839,180 @@ function mapMovementRow(row: MovementRow): InventoryMovement {
         }
       : null,
     performedById: row.performed_by_id ?? null,
+    referenceLabel: referenceInfo?.label ?? null,
     createdAt: row.created_at,
   }
+}
+
+async function loadMovementReferenceInfoLocal(
+  businessId: string,
+  rows: MovementRow[],
+): Promise<Map<string, MovementReferenceInfo>> {
+  const info = new Map<string, MovementReferenceInfo>()
+  const saleIds = [...new Set(rows
+    .filter((row) => row.reference_id && (row.reference_type === 'sale' || row.reference_type === 'sale_void'))
+    .map((row) => row.reference_id!)
+  )]
+  const restockIds = [...new Set(rows
+    .filter((row) => row.reference_id && row.reference_type === 'restock')
+    .map((row) => row.reference_id!)
+  )]
+
+  if (saleIds.length > 0) {
+    const placeholders = buildSqlPlaceholders(saleIds.length)
+    const saleRows = await dbQuery<SaleReferenceRow>(
+      `
+        SELECT
+          id,
+          sale_number,
+          receipt_number,
+          customer_name
+        FROM sales
+        WHERE business_id = ?
+          AND id IN (${placeholders})
+      `,
+      [businessId, ...saleIds],
+    )
+
+    for (const sale of saleRows) {
+      const label = sale.sale_number?.trim() || sale.receipt_number?.trim() || sale.id
+      const sourceName = sale.customer_name?.trim() || null
+      info.set(getMovementReferenceLookupKey('sale', sale.id), { label, sourceName })
+      info.set(getMovementReferenceLookupKey('sale_void', sale.id), { label, sourceName })
+    }
+  }
+
+  if (restockIds.length > 0) {
+    const placeholders = buildSqlPlaceholders(restockIds.length)
+    const restockRows = await dbQuery<RestockReferenceRow>(
+      `
+        SELECT
+          id,
+          reference_number,
+          supplier_name
+        FROM restock_records
+        WHERE business_id = ?
+          AND id IN (${placeholders})
+      `,
+      [businessId, ...restockIds],
+    )
+
+    for (const record of restockRows) {
+      const label = record.reference_number?.trim() || record.id
+      info.set(getMovementReferenceLookupKey('restock', record.id), {
+        label,
+        sourceName: record.supplier_name?.trim() || null,
+      })
+    }
+  }
+
+  return info
+}
+
+function buildInventoryBinSummary(
+  rows: MovementRow[],
+  currentBalance: number,
+  referenceInfo: Map<string, MovementReferenceInfo>,
+): InventoryBinSummary {
+  let totalChange = 0
+  let totalRestocked = 0
+  let totalSold = 0
+  let totalAdjusted = 0
+
+  for (const row of rows) {
+    totalChange += row.quantity_change
+
+    if (row.type === InventoryMovementType.RESTOCK_IN) {
+      totalRestocked += Math.abs(row.quantity_change)
+      continue
+    }
+
+    if (row.type === InventoryMovementType.SALE) {
+      totalSold += Math.abs(row.quantity_change)
+      continue
+    }
+
+    if (row.type === InventoryMovementType.OPENING_STOCK) {
+      continue
+    }
+
+    totalAdjusted += row.quantity_change
+  }
+
+  const lastRestock = rows.find((row) => row.type === InventoryMovementType.RESTOCK_IN) ?? null
+  const lastRestockInfo =
+    lastRestock === null
+      ? null
+      : referenceInfo.get(
+          getMovementReferenceLookupKey(lastRestock.reference_type, lastRestock.reference_id),
+        ) ?? null
+
+  return {
+    openingStock: roundQuantityValue(currentBalance - totalChange),
+    totalRestocked: roundQuantityValue(totalRestocked),
+    totalSold: roundQuantityValue(totalSold),
+    totalAdjusted: roundQuantityValue(totalAdjusted),
+    currentBalance: roundQuantityValue(currentBalance),
+    lastRestockAt: lastRestock?.created_at ?? null,
+    lastRestockQuantity:
+      lastRestock === null ? null : roundQuantityValue(Math.abs(lastRestock.quantity_change)),
+    lastRestockReferenceLabel: lastRestockInfo?.label ?? null,
+    lastRestockSourceName: lastRestockInfo?.sourceName ?? null,
+    movementWindowDays: 30,
+    trend: buildMovementTrend(rows, 30),
+  }
+}
+
+function buildMovementTrend(rows: MovementRow[], movementWindowDays: number): InventoryMovementTrendPoint[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const points = new Map<string, InventoryMovementTrendPoint>()
+
+  for (let index = movementWindowDays - 1; index >= 0; index -= 1) {
+    const date = new Date(today)
+    date.setDate(today.getDate() - index)
+    const key = toLocalDateKey(date)
+    points.set(key, {
+      date: key,
+      stockIn: 0,
+      stockOut: 0,
+    })
+  }
+
+  for (const row of rows) {
+    const key = toLocalDateKey(new Date(row.created_at))
+    const point = points.get(key)
+    if (!point) {
+      continue
+    }
+
+    if (row.quantity_change > 0) {
+      point.stockIn = roundQuantityValue(point.stockIn + row.quantity_change)
+    } else if (row.quantity_change < 0) {
+      point.stockOut = roundQuantityValue(point.stockOut + Math.abs(row.quantity_change))
+    }
+  }
+
+  return Array.from(points.values())
+}
+
+function getMovementReferenceLookupKey(referenceType?: string | null, referenceId?: string | null) {
+  return `${referenceType ?? 'none'}:${referenceId ?? 'none'}`
+}
+
+function buildSqlPlaceholders(count: number) {
+  return Array.from({ length: count }, () => '?').join(', ')
+}
+
+function toLocalDateKey(value: Date) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function roundQuantityValue(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 1000) / 1000
 }
 
 async function ensureInventoryLevel(businessId: string, row: ProductRow) {
@@ -804,6 +1140,13 @@ function validateRestock(payload: RestockRequest) {
   }
 
   if (
+    payload.totalAmount !== undefined &&
+    (!Number.isFinite(payload.totalAmount) || payload.totalAmount < 0)
+  ) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_TOTAL_AMOUNT_INVALID')
+  }
+
+  if (
     payload.totalCost !== undefined &&
     (!Number.isFinite(payload.totalCost) || payload.totalCost < 0)
   ) {
@@ -826,4 +1169,75 @@ function validateRestock(payload: RestockRequest) {
       throw new InventoryLocalError('INVENTORY_RESTOCK_UNIT_COST_INVALID')
     }
   }
+
+  for (const payment of payload.payments ?? []) {
+    if (!Number.isFinite(payment.amount) || payment.amount <= 0) {
+      throw new InventoryLocalError('INVENTORY_RESTOCK_PAYMENT_AMOUNT_INVALID')
+    }
+  }
+}
+
+function resolveRestockTotal(payload: RestockRequest) {
+  const explicitTotal =
+    payload.totalAmount !== undefined ? payload.totalAmount : payload.totalCost
+  const normalizedExplicitTotal =
+    explicitTotal === undefined ? null : roundMoney(explicitTotal)
+  const allUnitCostsPresent = payload.items.every(
+    (item) => item.unitCost !== undefined && item.unitCost !== null,
+  )
+  const computedTotal = allUnitCostsPresent
+    ? roundMoney(
+        payload.items.reduce(
+          (sum, item) => sum + item.quantity * (item.unitCost ?? 0),
+          0,
+        ),
+      )
+    : null
+
+  if (computedTotal === null && normalizedExplicitTotal === null) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_TOTAL_AMOUNT_REQUIRED')
+  }
+
+  if (
+    computedTotal !== null &&
+    normalizedExplicitTotal !== null &&
+    computedTotal !== normalizedExplicitTotal
+  ) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_TOTAL_AMOUNT_MISMATCH')
+  }
+
+  return normalizedExplicitTotal ?? computedTotal ?? 0
+}
+
+async function resolveRestockSupplier(
+  businessId: string,
+  supplierId: string | null,
+  creditAmount: number,
+) {
+  if (!supplierId) {
+    if (creditAmount > 0) {
+      throw new InventoryLocalError('INVENTORY_RESTOCK_SUPPLIER_REQUIRED_FOR_CREDIT')
+    }
+
+    return null
+  }
+
+  const supplier = await getContactByIdLocal(businessId, supplierId)
+  if (!supplier) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_SUPPLIER_NOT_FOUND')
+  }
+
+  if (!supplier.isActive) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_SUPPLIER_INACTIVE')
+  }
+
+  if (supplier.type !== ContactType.SUPPLIER && supplier.type !== ContactType.BOTH) {
+    throw new InventoryLocalError('INVENTORY_RESTOCK_SUPPLIER_TYPE_INVALID')
+  }
+
+  return supplier
+}
+
+function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100
 }

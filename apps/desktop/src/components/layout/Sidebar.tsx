@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from 'next-intl'
 import type { JwtPayload } from '@biztrack/types'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { decodeJwtPayload } from '@/lib/jwt'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -11,6 +11,10 @@ type NavItem = {
   to: string
   label: string
   children?: NavItem[]
+  activeSearchParam?: {
+    key: string
+    value: string
+  }
 }
 
 function initials(value: string) {
@@ -48,6 +52,7 @@ function resolveProfileName(payload: JwtPayload | null, fallback: string) {
 
 export function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const locale = useLocale()
   const t = useTranslations('nav')
   const accessToken = useAuthStore((state) => state.accessToken)
@@ -65,6 +70,21 @@ export function Sidebar() {
       ],
     },
     { to: '/inventory', label: t('inventory') },
+    { to: '/sales', label: t('sales') },
+    {
+      to: '/contacts',
+      label: t('contacts'),
+      children: [
+        {
+          to: '/contacts/debtors',
+          label: t('debtors'),
+        },
+        {
+          to: '/contacts/creditors',
+          label: t('creditors'),
+        },
+      ],
+    },
     { to: '/expenses', label: t('expenses') },
     { to: '/reports', label: t('reports') },
     { to: '/settings', label: t('settings') },
@@ -72,10 +92,19 @@ export function Sidebar() {
 
   const localizedPath = (to: string) => (to === '/' ? `/${locale}` : `/${locale}${to}`)
 
-  const isItemActive = (to: string) => {
-    const currentPath = localizedPath(to)
+  const getPathnameFromTarget = (to: string) => to.split('?')[0] || '/'
 
-    return pathname === currentPath || (to !== '/' && pathname.startsWith(`${currentPath}/`))
+  const isItemActive = (item: NavItem) => {
+    const currentPath = localizedPath(getPathnameFromTarget(item.to))
+
+    if (item.activeSearchParam) {
+      return (
+        pathname === currentPath &&
+        searchParams.get(item.activeSearchParam.key) === item.activeSearchParam.value
+      )
+    }
+
+    return pathname === currentPath || (currentPath !== `/${locale}` && pathname.startsWith(`${currentPath}/`))
   }
 
   const profileName = resolveProfileName(payload, t('profile'))
@@ -90,7 +119,7 @@ export function Sidebar() {
       <nav className="mt-4 flex-1 space-y-1">
         {navItems.map((item) => {
           const itemPath = localizedPath(item.to)
-          const isActive = isItemActive(item.to)
+          const isActive = isItemActive(item)
 
           return (
             <div key={itemPath} className="space-y-1">
@@ -126,7 +155,7 @@ export function Sidebar() {
                 <div className="space-y-1 pb-1">
                   {item.children.map((child) => {
                     const childPath = localizedPath(child.to)
-                    const childActive = isItemActive(child.to)
+                    const childActive = isItemActive(child)
 
                     return (
                       <Link

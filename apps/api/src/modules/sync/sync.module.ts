@@ -4,6 +4,11 @@ import { JwtModule } from '@nestjs/jwt'
 import { ConfigService } from '@nestjs/config'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { Business } from '@/entities/business.entity'
+import { Contact } from '@/entities/contact.entity'
+import { Debt } from '@/entities/debt.entity'
+import { DebtPayment } from '@/entities/debt-payment.entity'
+import { ExpenseCategory } from '@/entities/expense-category.entity'
+import { Expense } from '@/entities/expense.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
@@ -24,6 +29,8 @@ import { ProductsRepository } from '@/modules/products/repositories/products.rep
 import { BarcodeService } from '@/modules/products/services/barcode.service'
 import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
+import { ExpensesModule } from '@/modules/expenses/expenses.module'
+import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import type { AppConfig } from '@/config/configuration'
 import { SYNC_BATCHES_QUEUE } from './constants/sync.constants'
@@ -40,6 +47,8 @@ import { SyncService } from './sync.service'
     }),
     RedisModule,
     SalesModule,
+    ExpensesModule,
+    InventoryModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig>) => ({
@@ -48,6 +57,11 @@ import { SyncService } from './sync.service'
     }),
     TypeOrmModule.forFeature([
       Business,
+      Contact,
+      Debt,
+      DebtPayment,
+      Expense,
+      ExpenseCategory,
       InventoryLevel,
       InventoryMovement,
       Product,

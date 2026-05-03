@@ -5,6 +5,7 @@ import { InventoryMovement, MovementType } from '@/entities/inventory-movement.e
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
+import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
 import {
   InventoryMovementType,
@@ -37,6 +38,10 @@ const makeService = () => {
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => input),
   }
+  const transactionRestockPaymentRepo = {
+    create: jest.fn((input) => input),
+    save: jest.fn(async (input) => input),
+  }
   const manager = {
     getRepository: jest.fn((entity) => {
       if (entity === Product) return transactionProductRepo
@@ -44,6 +49,7 @@ const makeService = () => {
       if (entity === InventoryMovement) return transactionMovementRepo
       if (entity === RestockRecord) return transactionRestockRecordRepo
       if (entity === RestockItem) return transactionRestockItemRepo
+      if (entity === RestockPayment) return transactionRestockPaymentRepo
       throw new Error(`Unexpected repository request: ${entity}`)
     }),
   }
@@ -91,6 +97,10 @@ const makeService = () => {
     createQueryBuilder: jest.fn(() => productImagesQb),
   }
   const i18n = { translate: jest.fn(async (key: string) => key) }
+  const debtsService = {
+    requireCreditContact: jest.fn(),
+    createSourceDebt: jest.fn(),
+  }
   const logger = {
     setContext: jest.fn(),
     warn: jest.fn(),
@@ -104,6 +114,7 @@ const makeService = () => {
     inventoryLevelsRepo as any,
     inventoryMovementsRepo as any,
     productImagesRepo as any,
+    debtsService as any,
     i18n as any,
     logger as any,
   )

@@ -1,5 +1,6 @@
 import type { IsoDateString, ListQuery } from './http.types'
 import type { ProductCategory, ProductUserSummary, UnitOfMeasure } from './product.types'
+import type { PaymentMethod } from './sale.types'
 
 export enum InventoryMovementType {
   SALE = 'SALE',
@@ -60,6 +61,7 @@ export interface InventoryMovement {
   performedBy?: InventoryMovementPerformer | null
   /** @deprecated Prefer `performedBy` */
   performedById?: string | null
+  referenceLabel?: string | null
   createdAt: IsoDateString
 }
 
@@ -74,6 +76,26 @@ export interface InventoryProductSummary {
   unitOfMeasure?: UnitOfMeasure | null
 }
 
+export interface InventoryMovementTrendPoint {
+  date: string
+  stockIn: number
+  stockOut: number
+}
+
+export interface InventoryBinSummary {
+  openingStock: number
+  totalRestocked: number
+  totalSold: number
+  totalAdjusted: number
+  currentBalance: number
+  lastRestockAt: IsoDateString | null
+  lastRestockQuantity: number | null
+  lastRestockReferenceLabel?: string | null
+  lastRestockSourceName?: string | null
+  movementWindowDays: number
+  trend: InventoryMovementTrendPoint[]
+}
+
 export interface InventoryDetail {
   id: string
   businessId: string
@@ -86,6 +108,7 @@ export interface InventoryDetail {
   updatedAt: IsoDateString
   product: InventoryProductSummary
   movements: InventoryMovement[]
+  binSummary?: InventoryBinSummary | null
 }
 
 export interface InventoryQuery extends ListQuery {
@@ -119,11 +142,20 @@ export interface RestockItemRequest {
   unitCost?: number
 }
 
+export interface RestockPaymentRequest {
+  method: PaymentMethod
+  amount: number
+  mobileMoneyReference?: string | null
+}
+
 export interface RestockRequest {
   referenceNumber?: string
+  supplierId?: string
   supplierName?: string
+  totalAmount?: number
   totalCost?: number
   notes?: string
+  payments?: RestockPaymentRequest[]
   items: RestockItemRequest[]
 }
 
@@ -137,10 +169,15 @@ export interface RestockResponse {
   id: string
   businessId: string
   referenceNumber?: string | null
+  supplierId?: string | null
   supplierName?: string | null
+  totalAmount: number
+  amountPaid: number
+  creditAmount: number
   totalCost?: number | null
   notes?: string | null
   performedById?: string | null
   createdAt: IsoDateString
+  payments?: RestockPaymentRequest[]
   items: RestockProcessedItem[]
 }

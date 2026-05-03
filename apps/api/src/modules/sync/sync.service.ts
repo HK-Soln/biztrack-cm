@@ -5,6 +5,15 @@ import { plainToInstance } from 'class-transformer'
 import { validate, type ValidationError } from 'class-validator'
 import type {
   ChangeSet,
+  ContactSyncPayload,
+  ContactSyncRecord,
+  DebtPaymentSyncPayload,
+  DebtSyncPayload,
+  DebtSyncRecord,
+  ExpenseCategorySyncPayload,
+  ExpenseCategorySyncRecord,
+  ExpenseSyncPayload,
+  ExpenseSyncRecord,
   InventoryAdjustmentSyncPayload,
   InventoryLevelSyncRecord,
   InventoryMovementSyncRecord,
@@ -26,6 +35,9 @@ import type {
   JwtPayload,
 } from '@biztrack/types'
 import {
+  ContactType,
+  DebtSource,
+  DebtStatus,
   getSyncEntityDependencyTier,
   getSyncEntityStableOrder,
   PaymentMethod,
@@ -43,6 +55,11 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
+import { Contact } from '@/entities/contact.entity'
+import { Debt } from '@/entities/debt.entity'
+import { DebtPayment } from '@/entities/debt-payment.entity'
+import { ExpenseCategory } from '@/entities/expense-category.entity'
+import { Expense } from '@/entities/expense.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
@@ -57,13 +74,15 @@ import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
-import { RestockDto } from '@/modules/inventory/dto/restock.dto'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
 import { CreateProductDto } from '@/modules/products/dto/create-product.dto'
 import { CreateUnitOfMeasureDto } from '@/modules/products/dto/create-unit-of-measure.dto'
+import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
 import { ProductsRepository } from '@/modules/products/repositories/products.repository'
 import { BarcodeService } from '@/modules/products/services/barcode.service'
+import { ExpenseCategoriesService } from '@/modules/expenses/services/expense-categories.service'
+import { ExpensesService } from '@/modules/expenses/services/expenses.service'
 import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
@@ -93,6 +112,19 @@ type CategorySyncPayload = {
   updatedAt?: string
   deletedAt?: string | null
   isDeleted?: boolean
+}
+
+type ContactPayload = {
+  type?: ContactType
+  name?: string
+  phone?: string | null
+  phoneAlt?: string | null
+  address?: string | null
+  notes?: string | null
+  isActive?: boolean
+  createdById?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 type UnitSyncPayload = {
@@ -241,6 +273,14 @@ export class SyncService {
     private readonly categoriesRepo: ProductCategoriesRepository,
     @InjectRepository(Business)
     private readonly businessesRepo: Repository<Business>,
+    @InjectRepository(Contact)
+    private readonly contactsRepo: Repository<Contact>,
+    @InjectRepository(Debt)
+    private readonly debtsRepo: Repository<Debt>,
+    @InjectRepository(ExpenseCategory)
+    private readonly expenseCategoriesRepo: Repository<ExpenseCategory>,
+    @InjectRepository(Expense)
+    private readonly expensesRepo: Repository<Expense>,
     @InjectRepository(InventoryLevel)
     private readonly inventoryLevelsRepo: Repository<InventoryLevel>,
     @InjectRepository(InventoryMovement)
@@ -261,6 +301,9 @@ export class SyncService {
     private readonly syncOperationsRepo: Repository<SyncOperation>,
     @InjectRepository(UnitOfMeasure)
     private readonly unitsRepo: Repository<UnitOfMeasure>,
+    private readonly expenseCategoriesService: ExpenseCategoriesService,
+    private readonly expensesService: ExpensesService,
+    private readonly inventoryService: InventoryService,
     private readonly salesService: SalesService,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
@@ -395,8 +438,10 @@ export class SyncService {
       const pulledAt = new Date()
 
       const [
+        contacts,
         products,
         productCategories,
+        expenseCategories,
         unitOfMeasures,
         inventoryLevels,
         inventoryMovements,
@@ -405,7 +450,16 @@ export class SyncService {
         sales,
         saleItems,
         salePayments,
+        debts,
+        expenses,
       ] = await Promise.all([
+        this.contactsRepo
+          .createQueryBuilder('contact')
+          .where('contact.business_id = :businessId', { businessId })
+          .andWhere('contact.updated_at > :since', { since })
+          .andWhere('contact.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('contact.updated_at', 'ASC')
+          .getMany(),
         this.productsRepo
           .createQueryBuilder('product')
           .withDeleted()
@@ -418,6 +472,14 @@ export class SyncService {
           .createQueryBuilder('category')
           .withDeleted()
           .where('category.business_id = :businessId', { businessId })
+          .andWhere('category.updated_at > :since', { since })
+          .andWhere('category.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('category.updated_at', 'ASC')
+          .getMany(),
+        this.expenseCategoriesRepo
+          .createQueryBuilder('category')
+          .withDeleted()
+          .where('(category.business_id IS NULL OR category.business_id = :businessId)', { businessId })
           .andWhere('category.updated_at > :since', { since })
           .andWhere('category.updated_at <= :pulledAt', { pulledAt })
           .orderBy('category.updated_at', 'ASC')
@@ -483,6 +545,24 @@ export class SyncService {
           .andWhere('salePayment.created_at <= :pulledAt', { pulledAt })
           .orderBy('salePayment.created_at', 'ASC')
           .getMany(),
+        this.debtsRepo
+          .createQueryBuilder('debt')
+          .leftJoinAndSelect('debt.payments', 'payment')
+          .where('debt.business_id = :businessId', { businessId })
+          .andWhere('debt.updated_at > :since', { since })
+          .andWhere('debt.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('debt.updated_at', 'ASC')
+          .addOrderBy('payment.payment_date', 'ASC')
+          .addOrderBy('payment.created_at', 'ASC')
+          .getMany(),
+        this.expensesRepo
+          .createQueryBuilder('expense')
+          .withDeleted()
+          .where('expense.business_id = :businessId', { businessId })
+          .andWhere('expense.updated_at > :since', { since })
+          .andWhere('expense.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('expense.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const restockQuantityMap = new Map(
@@ -492,8 +572,10 @@ export class SyncService {
       )
 
       const changes: ChangeSet = {
+        contacts: contacts.map((record) => this.toContactSyncRecord(record)),
         products: products.map((record) => this.toProductSyncRecord(record)),
         productCategories: productCategories.map((record) => this.toCategorySyncRecord(record)),
+        expenseCategories: expenseCategories.map((record) => this.toExpenseCategorySyncRecord(record)),
         unitOfMeasures: unitOfMeasures.map((record) => this.toUnitSyncRecord(record)),
         inventoryLevels: inventoryLevels.map((record) => this.toInventoryLevelSyncRecord(record)),
         inventoryMovements: inventoryMovements.map((record) =>
@@ -509,6 +591,8 @@ export class SyncService {
         sales: sales.map((record) => this.toSaleSyncRecord(record)),
         saleItems: saleItems.map((record) => this.toSaleItemSyncRecord(record)),
         salePayments: salePayments.map((record) => this.toSalePaymentSyncRecord(record)),
+        debts: debts.map((record) => this.toDebtSyncRecord(record)),
+        expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
       }
 
       return {
@@ -653,8 +737,16 @@ export class SyncService {
         return this.applyCategoryOperation(businessId, operation)
       }
 
+      if (operation.entity === 'contact') {
+        return this.applyContactOperation(businessId, operation)
+      }
+
       if (operation.entity === 'product') {
         return this.applyProductOperation(businessId, operation)
+      }
+
+      if (operation.entity === 'expense_category') {
+        return this.applyExpenseCategoryOperation(businessId, operation)
       }
 
       if (operation.entity === 'unit_of_measure') {
@@ -675,6 +767,14 @@ export class SyncService {
 
       if (operation.entity === 'sale') {
         return this.applySaleOperation(businessId, operation)
+      }
+
+      if (operation.entity === 'debt') {
+        return this.applyDebtOperation(businessId, operation)
+      }
+
+      if (operation.entity === 'expense') {
+        return this.applyExpenseOperation(businessId, operation)
       }
 
       return {
@@ -769,6 +869,121 @@ export class SyncService {
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
+    )
+
+    return { status: 'applied' }
+  }
+
+  private async applyContactOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.contactsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return {
+        status: 'conflict',
+        resolution: 'server_wins',
+      }
+    }
+
+    if (operation.action === 'DELETE') {
+      if (existing) {
+        await this.contactsRepo.update(operation.recordId, {
+          isActive: false,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+
+      return { status: 'applied' }
+    }
+
+    const payload = this.readContactPayload(operation.payload)
+    const normalizedName = payload.name?.trim() || ''
+    if (!normalizedName) {
+      throw new AppBadRequestException('Contact name is required.', 'CONTACT_NAME_REQUIRED')
+    }
+
+    const createdById = await this.resolveContactCreatedById(businessId, payload.createdById)
+
+    if (existing) {
+      await this.contactsRepo.update(operation.recordId, {
+        type: payload.type ?? existing.type,
+        name: normalizedName,
+        phone: this.normalizeOptionalString(payload.phone),
+        phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        address: this.normalizeOptionalString(payload.address),
+        notes: this.normalizeOptionalString(payload.notes),
+        isActive: payload.isActive ?? existing.isActive,
+        updatedAt: operation.recordUpdatedAt,
+      })
+
+      return { status: 'applied' }
+    }
+
+    await this.contactsRepo.save(
+      this.contactsRepo.create({
+        id: operation.recordId,
+        businessId,
+        type: payload.type ?? ContactType.CUSTOMER,
+        name: normalizedName,
+        phone: this.normalizeOptionalString(payload.phone),
+        phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        address: this.normalizeOptionalString(payload.address),
+        notes: this.normalizeOptionalString(payload.notes),
+        isActive: payload.isActive ?? true,
+        createdById,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+
+    return { status: 'applied' }
+  }
+
+  private async applyExpenseCategoryOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.expenseCategoriesRepo.findOne({
+      where: { id: operation.recordId },
+      withDeleted: true,
+    })
+
+    if (existing?.businessId === null) {
+      return {
+        status: 'failed',
+        errorMessage: 'System expense categories are pull-only.',
+      }
+    }
+
+    if (existing?.businessId && existing.businessId !== businessId) {
+      return {
+        status: 'failed',
+        errorMessage: 'Expense category belongs to another business.',
+      }
+    }
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return {
+        status: 'conflict',
+        resolution: 'server_wins',
+      }
+    }
+
+    const payload =
+      operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)
+        ? ((operation.payload ?? {}) as unknown as ExpenseCategorySyncPayload)
+        : this.readExpenseCategoryPayload(operation.payload)
+
+    await this.expenseCategoriesService.upsertFromSync(
+      operation.recordId,
+      businessId,
+      payload,
+      operation.action as 'UPSERT' | 'DELETE',
+      operation.recordUpdatedAt,
     )
 
     return { status: 'applied' }
@@ -1154,107 +1369,13 @@ export class SyncService {
     operation: SyncOperation,
   ): Promise<BatchProcessingResult> {
     const payload = this.readInventoryRestockPayload(operation.payload)
-    const dto = plainToInstance(RestockDto, payload)
-    await this.ensureValidDto(dto)
-    const existingRecord = await this.restockRecordsRepo.findOne({
-      where: { id: operation.recordId, businessId },
-    })
-
-    if (existingRecord) {
-      return { status: 'applied' }
-    }
-
-    return this.dataSource.transaction(async (manager) => {
-      const productRepo = manager.getRepository(Product)
-      const inventoryRepo = manager.getRepository(InventoryLevel)
-      const movementRepo = manager.getRepository(InventoryMovement)
-      const recordRepo = manager.getRepository(RestockRecord)
-      const itemRepo = manager.getRepository(RestockItem)
-      const createdAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
-
-      await recordRepo.save(
-        recordRepo.create({
-          id: operation.recordId,
-          businessId,
-          referenceNumber: payload.referenceNumber?.trim() ?? null,
-          supplierName: payload.supplierName?.trim() ?? null,
-          totalCost: payload.totalCost ?? null,
-          notes: payload.notes?.trim() ?? null,
-          performedById: null,
-          createdAt,
-        }),
-      )
-
-      for (const item of payload.items) {
-        const product = await productRepo.findOne({
-          where: { id: item.productId, businessId, deletedAt: IsNull() },
-        })
-
-        if (!product) {
-          throw new AppNotFoundException(
-            await this.i18n.translate('errors.product_not_found'),
-            'PRODUCT_NOT_FOUND',
-          )
-        }
-
-        if (!product.trackInventory) {
-          continue
-        }
-
-        const level =
-          (await inventoryRepo.findOne({
-            where: { businessId, productId: item.productId },
-          })) ??
-          (await inventoryRepo.save(
-            inventoryRepo.create({
-              businessId,
-              productId: item.productId,
-              quantity: 0,
-              createdAt,
-              updatedAt: createdAt,
-            }),
-          ))
-
-        const quantityBefore = Number(level.quantity)
-        const quantityAfter = quantityBefore + item.quantity
-
-        await inventoryRepo.update(level.id, {
-          quantity: quantityAfter,
-          lastRestockAt: createdAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
-
-        await itemRepo.save(
-          itemRepo.create({
-            id: item.id,
-            restockRecordId: operation.recordId,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitCost: item.unitCost ?? null,
-            createdAt,
-          }),
-        )
-
-        await movementRepo.save(
-          movementRepo.create({
-            id: item.movementId,
-            businessId,
-            productId: item.productId,
-            type: MovementType.RESTOCK_IN,
-            quantityChange: item.quantity,
-            quantityBefore,
-            quantityAfter,
-            referenceType: 'restock',
-            referenceId: operation.recordId,
-            notes: payload.notes?.trim() ?? null,
-            performedById: null,
-            createdAt,
-          }),
-        )
-      }
-
-      return { status: 'applied' }
-    })
+    await this.inventoryService.restockFromSync(
+      businessId,
+      operation.recordId,
+      payload,
+      operation.recordUpdatedAt,
+    )
+    return { status: 'applied' }
   }
 
   private async applySaleOperation(
@@ -1269,18 +1390,178 @@ export class SyncService {
     }
 
     const payload = this.readSalePayload(operation.payload)
-    const existing = await this.salesRepo.findOne({
-      where: [
-        { id: payload.saleId, businessId },
-        { businessId, clientId: payload.clientId },
-      ],
-    })
+    await this.salesService.createFromSync(businessId, payload)
+    return { status: 'applied' }
+  }
 
-    if (existing) {
-      return { status: 'applied' }
+  private async applyDebtOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced debts is not supported.',
+      }
     }
 
-    await this.salesService.createFromSync(businessId, payload)
+    const payload = this.readDebtPayload(operation.payload)
+    const contact = await this.contactsRepo.findOne({
+      where: {
+        id: payload.contactId,
+        businessId,
+      },
+      select: ['id', 'businessId'],
+    })
+
+    if (!contact) {
+      return {
+        status: 'failed',
+        errorMessage: 'Debt contact could not be resolved.',
+      }
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const debtsRepo = manager.getRepository(Debt)
+      const paymentsRepo = manager.getRepository(DebtPayment)
+      const fallbackUserId = await this.resolveContactCreatedById(businessId, null)
+      const existing = await debtsRepo.findOne({
+        where: {
+          businessId,
+          sourceType: payload.sourceType,
+          sourceId: payload.sourceId,
+          direction: payload.direction,
+        },
+        relations: {
+          payments: true,
+        },
+      })
+
+      if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+        return {
+          status: 'conflict' as const,
+          resolution: 'server_wins' as const,
+        }
+      }
+
+      const totalPaid = this.normalizeMoney(
+        (payload.payments ?? []).reduce((sum, payment) => sum + this.normalizeMoney(payment.amount), 0),
+      )
+      const normalizedOriginalAmount = this.normalizeMoney(payload.originalAmount)
+      const isWrittenOff = payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
+      const status = isWrittenOff
+        ? DebtStatus.WRITTEN_OFF
+        : totalPaid >= normalizedOriginalAmount
+          ? DebtStatus.SETTLED
+          : totalPaid > 0
+            ? DebtStatus.PARTIALLY_PAID
+            : DebtStatus.OUTSTANDING
+      const settledAt =
+        status === DebtStatus.SETTLED
+          ? this.parseOptionalDate(payload.settledAt) ?? operation.recordUpdatedAt
+          : null
+      const writtenOffAt =
+        status === DebtStatus.WRITTEN_OFF
+          ? this.parseOptionalDate(payload.writtenOffAt) ?? operation.recordUpdatedAt
+          : null
+      const writtenOffById =
+        status === DebtStatus.WRITTEN_OFF
+          ? this.normalizeOptionalString(payload.writtenOffById) ?? fallbackUserId
+          : null
+      const writtenOffReason =
+        status === DebtStatus.WRITTEN_OFF
+          ? this.normalizeOptionalString(payload.writtenOffReason)
+          : null
+
+      const debt = await debtsRepo.save(
+        debtsRepo.create({
+          id: existing?.id,
+          businessId,
+          contactId: payload.contactId,
+          direction: payload.direction,
+          sourceType: payload.sourceType,
+          sourceId: payload.sourceId,
+          sourceReference: payload.sourceReference.trim(),
+          originalAmount: normalizedOriginalAmount,
+          status,
+          dueDate: payload.dueDate ?? null,
+          notes: this.normalizeOptionalString(payload.notes),
+          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+          settledAt,
+          writtenOffAt,
+          writtenOffById,
+          writtenOffReason,
+        }),
+      )
+
+      const existingPayments = existing?.payments ?? []
+      const nextPaymentIds = new Set((payload.payments ?? []).map((payment) => payment.id))
+      const stalePaymentIds = existingPayments
+        .filter((payment) => !nextPaymentIds.has(payment.id))
+        .map((payment) => payment.id)
+
+      if (stalePaymentIds.length > 0) {
+        await paymentsRepo.delete(stalePaymentIds)
+      }
+
+      for (const payment of payload.payments ?? []) {
+        await paymentsRepo.save(
+          paymentsRepo.create({
+            id: payment.id,
+            businessId,
+            debtId: debt.id,
+            amount: this.normalizeMoney(payment.amount),
+            method: payment.method,
+            mobileMoneyReference: this.normalizeOptionalString(payment.mobileMoneyReference),
+            paymentDate: payment.paymentDate,
+            notes: this.normalizeOptionalString(payment.notes),
+            recordedById: this.normalizeOptionalString(payment.recordedById) ?? fallbackUserId,
+            createdAt: this.parseOptionalDate(payment.createdAt) ?? operation.recordUpdatedAt,
+          }),
+        )
+      }
+
+      return { status: 'applied' as const }
+    })
+  }
+
+  private async applyExpenseOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.expensesRepo.findOne({
+      where: { id: operation.recordId },
+      withDeleted: true,
+    })
+
+    if (existing?.businessId && existing.businessId !== businessId) {
+      return {
+        status: 'failed',
+        errorMessage: 'Expense belongs to another business.',
+      }
+    }
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return {
+        status: 'conflict',
+        resolution: 'server_wins',
+      }
+    }
+
+    const payload =
+      operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)
+        ? ((operation.payload ?? {}) as unknown as ExpenseSyncPayload)
+        : this.readExpensePayload(operation.payload)
+
+    await this.expensesService.upsertFromSync(
+      businessId,
+      operation.recordId,
+      payload,
+      operation.action as 'UPSERT' | 'DELETE',
+      operation.recordUpdatedAt,
+    )
+
     return { status: 'applied' }
   }
 
@@ -1740,6 +2021,24 @@ export class SyncService {
     }
   }
 
+  private toContactSyncRecord(record: Contact): ContactSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      type: record.type as ContactType,
+      name: record.name,
+      phone: record.phone ?? null,
+      phoneAlt: record.phoneAlt ?? null,
+      address: record.address ?? null,
+      notes: record.notes ?? null,
+      isActive: record.isActive,
+      createdById: record.createdById ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      isDeleted: false,
+    }
+  }
+
   private toCategorySyncRecord(record: ProductCategory): SyncRecord {
     return {
       id: record.id,
@@ -1767,6 +2066,23 @@ export class SyncService {
       type: record.type,
       isDefault: record.isDefault,
       isActive: record.isActive,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: Boolean(record.deletedAt),
+    }
+  }
+
+  private toExpenseCategorySyncRecord(record: ExpenseCategory): ExpenseCategorySyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId ?? null,
+      name: record.name,
+      slug: record.slug,
+      color: record.color,
+      icon: record.icon ?? null,
+      sortOrder: record.sortOrder,
+      isSystem: !record.businessId,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -1816,7 +2132,11 @@ export class SyncService {
       id: record.id,
       businessId: record.businessId,
       referenceNumber: record.referenceNumber ?? null,
+      supplierId: record.supplierId ?? null,
       supplierName: record.supplierName ?? null,
+      totalAmount: record.totalAmount,
+      amountPaid: record.amountPaid,
+      creditAmount: record.creditAmount,
       totalCost: record.totalCost ?? null,
       notes: record.notes ?? null,
       performedById: record.performedById ?? null,
@@ -1850,7 +2170,7 @@ export class SyncService {
     const paymentMethod =
       paymentMethods.length > 1
         ? PaymentMethod.MIXED
-        : (paymentMethods[0] ?? null)
+        : (paymentMethods[0] ?? (record.paymentMethod as PaymentMethod | null))
 
     return {
       id: record.id,
@@ -1866,7 +2186,9 @@ export class SyncService {
       taxAmount: record.taxAmount,
       totalAmount: record.totalAmount,
       amountPaid: record.amountPaid,
+      creditAmount: record.creditAmount,
       changeGiven: record.changeGiven,
+      customerId: record.customerId ?? null,
       customerName: record.customerName ?? null,
       customerPhone: record.customerPhone ?? null,
       notes: record.notes ?? null,
@@ -1922,6 +2244,75 @@ export class SyncService {
     }
   }
 
+  private toDebtSyncRecord(record: Debt): DebtSyncRecord {
+    const payments = [...(record.payments ?? [])].sort((left, right) => {
+      const dateCompare = left.paymentDate.localeCompare(right.paymentDate)
+      if (dateCompare !== 0) {
+        return dateCompare
+      }
+
+      return left.createdAt.getTime() - right.createdAt.getTime()
+    })
+
+    return {
+      id: this.buildDebtSyncRecordId(record.sourceType, record.sourceId),
+      businessId: record.businessId,
+      contactId: record.contactId,
+      direction: record.direction,
+      sourceType: record.sourceType,
+      sourceId: record.sourceId,
+      sourceReference: record.sourceReference,
+      originalAmount: record.originalAmount,
+      status: record.status,
+      dueDate: record.dueDate ?? null,
+      notes: record.notes ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      settledAt: record.settledAt?.toISOString() ?? null,
+      writtenOffAt: record.writtenOffAt?.toISOString() ?? null,
+      writtenOffById: record.writtenOffById ?? null,
+      writtenOffReason: record.writtenOffReason ?? null,
+      payments: payments.map((payment) => this.toDebtPaymentSyncPayload(payment)),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toDebtPaymentSyncPayload(payment: DebtPayment): DebtPaymentSyncPayload {
+    return {
+      id: payment.id,
+      amount: payment.amount,
+      method: payment.method,
+      mobileMoneyReference: payment.mobileMoneyReference ?? null,
+      paymentDate: payment.paymentDate,
+      notes: payment.notes ?? null,
+      recordedById: payment.recordedById,
+      createdAt: payment.createdAt.toISOString(),
+    }
+  }
+
+  private toExpenseSyncRecord(record: Expense): ExpenseSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      categoryId: record.categoryId,
+      recordedById: record.recordedById,
+      description: record.description,
+      amount: record.amount,
+      currency: record.currency ?? null,
+      expenseDate: record.date.toISOString().slice(0, 10),
+      vendor: record.vendor ?? null,
+      notes: record.notes ?? null,
+      isRecurring: record.isRecurring,
+      paymentMethod: record.paymentMethod ?? null,
+      receiptUrl: record.receiptUrl ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: Boolean(record.deletedAt),
+    }
+  }
+
   private resolveBatchStatus(
     processedCount: number,
     appliedCount: number,
@@ -1948,6 +2339,14 @@ export class SyncService {
     }
 
     return payload as CategorySyncPayload
+  }
+
+  private readContactPayload(payload: Record<string, unknown> | null): ContactPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Contact sync payload is required.', 'SYNC_CONTACT_PAYLOAD_REQUIRED')
+    }
+
+    return payload as ContactPayload
   }
 
   private readUnitPayload(payload: Record<string, unknown> | null): UnitSyncPayload {
@@ -2019,27 +2418,139 @@ export class SyncService {
     return payload as unknown as SaleSyncPayload
   }
 
+  private readDebtPayload(payload: Record<string, unknown> | null): DebtSyncPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Debt sync payload is required.',
+        'SYNC_DEBT_PAYLOAD_REQUIRED',
+      )
+    }
+
+    return payload as unknown as DebtSyncPayload
+  }
+
+  private readExpenseCategoryPayload(
+    payload: Record<string, unknown> | null,
+  ): ExpenseCategorySyncPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Expense category sync payload is required.',
+        'SYNC_EXPENSE_CATEGORY_PAYLOAD_REQUIRED',
+      )
+    }
+
+    return payload as unknown as ExpenseCategorySyncPayload
+  }
+
+  private readExpensePayload(payload: Record<string, unknown> | null): ExpenseSyncPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Expense sync payload is required.',
+        'SYNC_EXPENSE_PAYLOAD_REQUIRED',
+      )
+    }
+
+    return payload as unknown as ExpenseSyncPayload
+  }
+
   private prepareOperationPayload(
     entity: string,
     payload: Record<string, unknown> | null,
     user: JwtPayload,
   ) {
-    if (entity !== 'sale' || !payload || typeof payload !== 'object') {
+    if (!payload || typeof payload !== 'object') {
       return payload
     }
 
-    return {
-      ...payload,
-      fallbackCashierId:
-        typeof payload.fallbackCashierId === 'string' && payload.fallbackCashierId.trim()
-          ? payload.fallbackCashierId
-          : user.sub,
+    if (entity === 'sale') {
+      return {
+        ...payload,
+        fallbackCashierId:
+          typeof payload.fallbackCashierId === 'string' && payload.fallbackCashierId.trim()
+            ? payload.fallbackCashierId
+            : user.sub,
+      }
     }
+
+    if (entity === 'expense') {
+      return {
+        ...payload,
+        fallbackRecordedById:
+          typeof payload.fallbackRecordedById === 'string' && payload.fallbackRecordedById.trim()
+            ? payload.fallbackRecordedById
+            : user.sub,
+      }
+    }
+
+    if (entity === 'debt') {
+      const payments = Array.isArray(payload.payments)
+        ? payload.payments.map((payment) => {
+            if (!payment || typeof payment !== 'object') {
+              return payment
+            }
+
+            const candidate = payment as Record<string, unknown>
+            return {
+              ...candidate,
+              recordedById:
+                typeof candidate.recordedById === 'string' && UUID_REGEX.test(candidate.recordedById)
+                  ? candidate.recordedById
+                  : user.sub,
+            }
+          })
+        : payload.payments
+
+      return {
+        ...payload,
+        writtenOffById:
+          typeof payload.writtenOffById === 'string' && UUID_REGEX.test(payload.writtenOffById)
+            ? payload.writtenOffById
+            : payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
+              ? user.sub
+              : null,
+        payments,
+      }
+    }
+
+    return payload
+  }
+
+  private buildDebtSyncRecordId(sourceType: DebtSource, sourceId: string) {
+    return `debt:${String(sourceType).toLowerCase()}:${sourceId}`
   }
 
   private normalizeOptionalString(value: string | null | undefined) {
     const trimmed = value?.trim()
     return trimmed ? trimmed : null
+  }
+
+  private normalizeMoney(value: number | string | null | undefined) {
+    const numeric = Number(value ?? 0)
+    if (!Number.isFinite(numeric)) {
+      return 0
+    }
+
+    return Math.round((numeric + Number.EPSILON) * 100) / 100
+  }
+
+  private async resolveContactCreatedById(businessId: string, createdById?: string | null) {
+    if (createdById && UUID_REGEX.test(createdById)) {
+      return createdById
+    }
+
+    const business = await this.businessesRepo.findOne({
+      where: { id: businessId },
+      select: ['id', 'ownerId'],
+    })
+
+    if (!business?.ownerId) {
+      throw new AppBadRequestException(
+        'Contact creator could not be resolved for sync.',
+        'CONTACT_CREATED_BY_REQUIRED',
+      )
+    }
+
+    return business.ownerId
   }
 
   private normalizeUnitNameCandidate(value: string) {

@@ -55,6 +55,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     file: (data: { buffer: number[]; filename: string; mimeType?: string }) =>
       ipcRenderer.invoke('share:file', data),
   },
+  documents: {
+    exportPdf: (data: { html?: string; filename?: string }) =>
+      ipcRenderer.invoke('document:export-pdf', data),
+    exportFile: (data: {
+      content?: string
+      filename?: string
+      filters?: Array<{ name: string; extensions: string[] }>
+    }) => ipcRenderer.invoke('document:export-file', data),
+  },
   // App info
   app: {
     version: () => ipcRenderer.invoke('app:version'),

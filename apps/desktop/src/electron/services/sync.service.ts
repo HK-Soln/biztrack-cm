@@ -1,6 +1,13 @@
 import { EventEmitter } from 'events'
 import type {
   ChangeSet,
+  ContactSyncPayload,
+  ContactSyncRecord,
+  DebtPaymentSyncPayload,
+  DebtSyncPayload,
+  DebtSyncRecord,
+  ExpenseCategorySyncRecord,
+  ExpenseSyncRecord,
   InventoryAdjustmentSyncPayload,
   InventoryLevelSyncRecord,
   InventoryMovementSyncRecord,
@@ -10,6 +17,8 @@ import type {
   SalePaymentSyncRecord,
   SaleSyncPayload,
   SaleSyncRecord,
+  ExpenseCategorySyncPayload,
+  ExpenseSyncPayload,
   NetworkQuality,
   NetworkSnapshot,
   RestockItemSyncRecord,
@@ -44,13 +53,17 @@ import { SecureStoreService } from './secure-store.service'
 type OutboxRow = {
   id: string
   entity:
+    | 'contacts'
     | 'products'
     | 'productCategories'
+    | 'expenseCategories'
     | 'unitOfMeasures'
     | 'inventoryThresholds'
     | 'inventoryAdjustments'
     | 'inventoryRestocks'
+    | 'debts'
     | 'sales'
+    | 'expenses'
   record_id: string
   payload: string | null
   status: 'pending' | 'failed'
@@ -87,6 +100,11 @@ type LocalProductRow = {
   low_stock_threshold: number | null
   inventory_quantity: number | null
   inventory_low_stock_threshold: number | null
+  unit_name: string | null
+  unit_abbreviation: string | null
+  unit_business_id: string | null
+  unit_type: string | null
+  unit_is_default: number | null
 }
 
 type LocalCategoryRow = {
@@ -99,6 +117,39 @@ type LocalCategoryRow = {
   icon: string | null
   image_url: string | null
   sort_order: number | null
+  is_deleted: number
+  created_at: string
+  updated_at: string
+}
+
+type LocalExpenseCategoryRow = {
+  id: string
+  business_id: string | null
+  name: string
+  slug: string | null
+  color: string | null
+  icon: string | null
+  sort_order: number | null
+  is_active: number
+  is_deleted: number
+  created_at: string
+  updated_at: string
+}
+
+type LocalExpenseRow = {
+  id: string
+  business_id: string
+  recorded_by_id: string
+  category_id: string | null
+  description: string
+  amount: number
+  currency: string | null
+  payment_method: string | null
+  receipt_url: string | null
+  vendor: string | null
+  notes: string | null
+  is_recurring: number
+  date: string
   is_deleted: number
   created_at: string
   updated_at: string
@@ -172,14 +223,26 @@ const QUALITY_RANK: Record<NetworkQuality, number> = {
 // selection order here decides which dependencies are shipped before their
 // dependents when a device comes back online with a large backlog.
 const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<OutboxRow['entity'], SyncEntity> = {
+  contacts: 'contact',
   unitOfMeasures: 'unit_of_measure',
   productCategories: 'product_category',
+  expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
   inventoryRestocks: 'inventory_restock',
   inventoryAdjustments: 'inventory_adjustment',
+  debts: 'debt',
   sales: 'sale',
+  expenses: 'expense',
 }
+
+const DEFAULT_UNIT_SYNC_ALIASES = {
+  piece: 'uom-piece',
+  kilogram: 'uom-kilogram',
+  liter: 'uom-liter',
+  meter: 'uom-meter',
+  service: 'uom-service',
+} as const
 
 export class SyncService extends EventEmitter {
   private isSyncing = false
@@ -543,6 +606,18 @@ export class SyncService extends EventEmitter {
         })
       }
 
+      if (row.entity === 'expenseCategories') {
+        const category = this.loadExpenseCategorySyncRecord(row.record_id)
+        operations.push({
+          operationId: row.id,
+          entity: 'expense_category',
+          action: !category || category.isDeleted ? 'DELETE' : 'UPSERT',
+          recordId: row.record_id,
+          updatedAt: category?.updatedAt ?? row.updated_at,
+          payload: category,
+        })
+      }
+
       if (row.entity === 'unitOfMeasures') {
         const unit = this.loadUnitSyncRecord(row.record_id)
         operations.push({
@@ -552,6 +627,22 @@ export class SyncService extends EventEmitter {
           recordId: row.record_id,
           updatedAt: unit?.updatedAt ?? row.updated_at,
           payload: unit,
+        })
+      }
+
+      if (row.entity === 'contacts') {
+        const payload = this.parseOutboxPayload<ContactSyncPayload>(row.payload)
+        if (!payload) {
+          continue
+        }
+
+        operations.push({
+          operationId: row.id,
+          entity: 'contact',
+          action: 'UPSERT',
+          recordId: row.record_id,
+          updatedAt: row.updated_at,
+          payload,
         })
       }
 
@@ -604,6 +695,34 @@ export class SyncService extends EventEmitter {
           recordId: row.record_id,
           updatedAt: row.updated_at,
           payload,
+        })
+      }
+
+      if (row.entity === 'debts') {
+        const payload = this.parseOutboxPayload<DebtSyncPayload>(row.payload)
+        if (!payload) {
+          continue
+        }
+
+        operations.push({
+          operationId: row.id,
+          entity: 'debt',
+          action: 'UPSERT',
+          recordId: row.record_id,
+          updatedAt: payload.updatedAt ?? row.updated_at,
+          payload,
+        })
+      }
+
+      if (row.entity === 'expenses') {
+        const expense = this.loadExpenseSyncRecord(row.record_id)
+        operations.push({
+          operationId: row.id,
+          entity: 'expense',
+          action: !expense || expense.isDeleted ? 'DELETE' : 'UPSERT',
+          recordId: row.record_id,
+          updatedAt: expense?.updatedAt ?? row.updated_at,
+          payload: expense,
         })
       }
     }
@@ -664,10 +783,17 @@ export class SyncService extends EventEmitter {
           p.stock_quantity,
           p.low_stock_threshold,
           il.quantity AS inventory_quantity,
-          il.low_stock_threshold AS inventory_low_stock_threshold
+          il.low_stock_threshold AS inventory_low_stock_threshold,
+          u.name AS unit_name,
+          u.abbreviation AS unit_abbreviation,
+          u.business_id AS unit_business_id,
+          u.type AS unit_type,
+          u.is_default AS unit_is_default
         FROM products p
         LEFT JOIN inventory_levels il
           ON il.product_id = p.id
+        LEFT JOIN unit_of_measures u
+          ON u.id = p.unit_of_measure_id
         WHERE p.id = ?
         LIMIT 1
       `,
@@ -702,7 +828,7 @@ export class SyncService extends EventEmitter {
       isService: Boolean(row.is_service),
       trackInventory: Boolean(row.track_inventory),
       categoryId: row.category_id,
-      unitOfMeasureId: row.unit_of_measure_id,
+      unitOfMeasureId: this.normalizeUnitOfMeasureIdForSync(row),
       imageUrl: row.image_url,
       createdById: row.created_by_id,
       isActive: Boolean(row.is_active),
@@ -760,6 +886,115 @@ export class SyncService extends EventEmitter {
     }
   }
 
+  private normalizeUnitOfMeasureIdForSync(row: LocalProductRow) {
+    const rawId = row.unit_of_measure_id
+
+    if (!rawId) {
+      return rawId
+    }
+
+    const normalizedRawId = rawId.trim().toLowerCase()
+
+    if (normalizedRawId in DEFAULT_UNIT_SYNC_ALIASES) {
+      return DEFAULT_UNIT_SYNC_ALIASES[normalizedRawId as keyof typeof DEFAULT_UNIT_SYNC_ALIASES]
+    }
+
+    if (row.unit_business_id) {
+      return rawId
+    }
+
+    const normalizedName = row.unit_name?.trim().toLowerCase() ?? ''
+    const normalizedAbbreviation = row.unit_abbreviation?.trim().toLowerCase() ?? ''
+    const normalizedType = row.unit_type?.trim().toLowerCase() ?? ''
+
+    if (
+      normalizedType === 'quantity' &&
+      ['piece', 'qty', 'quantity'].includes(normalizedName)
+    ) {
+      return DEFAULT_UNIT_SYNC_ALIASES.piece
+    }
+
+    if (
+      normalizedType === 'quantity' &&
+      ['pcs', 'qty', 'pc'].includes(normalizedAbbreviation)
+    ) {
+      return DEFAULT_UNIT_SYNC_ALIASES.piece
+    }
+
+    if (
+      normalizedType === 'weight' &&
+      (normalizedName === 'kilogram' || normalizedAbbreviation === 'kg')
+    ) {
+      return DEFAULT_UNIT_SYNC_ALIASES.kilogram
+    }
+
+    if (
+      normalizedType === 'volume' &&
+      (normalizedName === 'liter' || normalizedName === 'litre' || normalizedAbbreviation === 'l')
+    ) {
+      return DEFAULT_UNIT_SYNC_ALIASES.liter
+    }
+
+    if (
+      normalizedType === 'length' &&
+      (normalizedName === 'meter' || normalizedName === 'metre' || normalizedAbbreviation === 'm')
+    ) {
+      return DEFAULT_UNIT_SYNC_ALIASES.meter
+    }
+
+    if (
+      normalizedName === 'service' ||
+      normalizedAbbreviation === 'svc' ||
+      normalizedRawId === 'uom-service'
+    ) {
+      return DEFAULT_UNIT_SYNC_ALIASES.service
+    }
+
+    return rawId
+  }
+
+  private loadExpenseCategorySyncRecord(recordId: string): ExpenseCategorySyncRecord | null {
+    const [row] = this.db.query(
+      `
+        SELECT
+          id,
+          business_id,
+          name,
+          slug,
+          color,
+          icon,
+          sort_order,
+          is_active,
+          is_deleted,
+          created_at,
+          updated_at
+        FROM expense_categories
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [recordId],
+    ) as LocalExpenseCategoryRow[]
+
+    if (!row) {
+      return null
+    }
+
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      name: row.name,
+      slug: row.slug ?? row.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      color: row.color ?? '#888780',
+      icon: row.icon,
+      sortOrder: row.sort_order ?? 0,
+      isSystem: !row.business_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deletedAt: row.is_deleted ? row.updated_at : null,
+      isDeleted: Boolean(row.is_deleted),
+    }
+  }
+
   private loadUnitSyncRecord(recordId: string): SyncRecord | null {
     const [row] = this.db.query(
       `
@@ -793,6 +1028,58 @@ export class SyncService extends EventEmitter {
       type: row.type,
       isDefault: Boolean(row.is_default),
       isActive: Boolean(row.is_active),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deletedAt: row.is_deleted ? row.updated_at : null,
+      isDeleted: Boolean(row.is_deleted),
+    }
+  }
+
+  private loadExpenseSyncRecord(recordId: string): ExpenseSyncRecord | null {
+    const [row] = this.db.query(
+      `
+        SELECT
+          id,
+          business_id,
+          recorded_by_id,
+          category_id,
+          description,
+          amount,
+          currency,
+          payment_method,
+          receipt_url,
+          vendor,
+          notes,
+          is_recurring,
+          date,
+          is_deleted,
+          created_at,
+          updated_at
+        FROM expenses
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [recordId],
+    ) as LocalExpenseRow[]
+
+    if (!row || !row.category_id) {
+      return null
+    }
+
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      categoryId: row.category_id,
+      recordedById: row.recorded_by_id,
+      description: row.description,
+      amount: row.amount,
+      currency: row.currency ?? 'XAF',
+      expenseDate: row.date,
+      vendor: row.vendor,
+      notes: row.notes,
+      isRecurring: Boolean(row.is_recurring),
+      paymentMethod: row.payment_method ?? 'CASH',
+      receiptUrl: row.receipt_url,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       deletedAt: row.is_deleted ? row.updated_at : null,
@@ -878,8 +1165,10 @@ export class SyncService extends EventEmitter {
 
   private async applyPulledChanges(response: SyncPullResponse) {
     const operations: Array<{ sql: string; params?: unknown[] }> = []
+    const serverContacts = response.changes.contacts ?? []
     const serverUnits = response.changes.unitOfMeasures ?? []
     const serverProductCategories = response.changes.productCategories ?? []
+    const serverExpenseCategories = response.changes.expenseCategories ?? []
     const serverProducts = response.changes.products ?? []
     const serverInventoryLevels = response.changes.inventoryLevels ?? []
     const serverInventoryMovements = response.changes.inventoryMovements ?? []
@@ -888,13 +1177,23 @@ export class SyncService extends EventEmitter {
     const serverSales = response.changes.sales ?? []
     const serverSaleItems = response.changes.saleItems ?? []
     const serverSalePayments = response.changes.salePayments ?? []
+    const serverDebts = response.changes.debts ?? []
+    const serverExpenses = response.changes.expenses ?? []
 
     if (serverUnits.length > 0) {
       this.applyUnitOfMeasureChanges(serverUnits)
     }
 
+    for (const record of serverContacts) {
+      operations.push(this.buildContactUpsertOperation(record))
+    }
+
     for (const record of serverProductCategories) {
       operations.push(this.buildCategoryUpsertOperation(record))
+    }
+
+    for (const record of serverExpenseCategories) {
+      operations.push(this.buildExpenseCategoryUpsertOperation(record))
     }
 
     for (const record of serverProducts) {
@@ -915,6 +1214,18 @@ export class SyncService extends EventEmitter {
 
     for (const record of serverSalePayments) {
       operations.push(this.buildSalePaymentUpsertOperation(record))
+    }
+
+    for (const record of serverDebts) {
+      operations.push(this.buildDebtUpsertOperation(record))
+      operations.push(this.buildDebtPaymentsDeleteOperation(record.id))
+      for (const payment of record.payments ?? []) {
+        operations.push(this.buildDebtPaymentUpsertOperation(record.id, record.businessId, payment))
+      }
+    }
+
+    for (const record of serverExpenses) {
+      operations.push(this.buildExpenseUpsertOperation(record))
     }
 
     for (const record of serverInventoryLevels) {
@@ -1124,6 +1435,11 @@ export class SyncService extends EventEmitter {
       }
 
       operations.push({
+        sql: `DELETE FROM restock_payments WHERE restock_record_id = ?`,
+        params: [row.record_id],
+      })
+
+      operations.push({
         sql: `DELETE FROM restock_records WHERE id = ?`,
         params: [row.record_id],
       })
@@ -1242,6 +1558,52 @@ export class SyncService extends EventEmitter {
     }
   }
 
+  private buildContactUpsertOperation(record: ContactSyncRecord) {
+    return {
+      sql: `
+        INSERT INTO contacts (
+          id,
+          business_id,
+          type,
+          name,
+          phone,
+          phone_alt,
+          address,
+          notes,
+          is_active,
+          created_by_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          type = excluded.type,
+          name = excluded.name,
+          phone = excluded.phone,
+          phone_alt = excluded.phone_alt,
+          address = excluded.address,
+          notes = excluded.notes,
+          is_active = excluded.is_active,
+          created_by_id = excluded.created_by_id,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        record.id,
+        record.businessId,
+        record.type,
+        record.name,
+        record.phone ?? null,
+        record.phoneAlt ?? null,
+        record.address ?? null,
+        record.notes ?? null,
+        record.isActive ? 1 : 0,
+        record.createdById ?? null,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    }
+  }
+
   private buildCategoryUpsertOperation(record: SyncRecord) {
     const data = record as SyncRecord & {
       businessId?: string
@@ -1302,6 +1664,51 @@ export class SyncService extends EventEmitter {
     }
   }
 
+  private buildExpenseCategoryUpsertOperation(record: ExpenseCategorySyncRecord) {
+    const deleted = Boolean(record.isDeleted)
+
+    return {
+      sql: `
+        INSERT INTO expense_categories (
+          id,
+          business_id,
+          name,
+          slug,
+          color,
+          icon,
+          sort_order,
+          is_active,
+          is_deleted,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          name = excluded.name,
+          slug = excluded.slug,
+          color = excluded.color,
+          icon = excluded.icon,
+          sort_order = excluded.sort_order,
+          is_active = excluded.is_active,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        record.id,
+        record.businessId ?? null,
+        record.name,
+        record.slug,
+        record.color,
+        record.icon ?? null,
+        record.sortOrder ?? 0,
+        deleted ? 0 : 1,
+        deleted ? 1 : 0,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    }
+  }
+
   private buildSaleUpsertOperation(record: SaleSyncRecord) {
     const saleNumber = record.saleNumber?.trim() || record.id
     const createdAt = record.createdAt ?? record.updatedAt
@@ -1323,9 +1730,11 @@ export class SyncService extends EventEmitter {
           tax_amount,
           net_amount,
           amount_paid,
+          credit_amount,
           change_given,
           payment_method,
           momo_reference,
+          customer_id,
           customer_name,
           customer_phone,
           notes,
@@ -1342,7 +1751,7 @@ export class SyncService extends EventEmitter {
           created_at,
           updated_at
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
@@ -1358,9 +1767,11 @@ export class SyncService extends EventEmitter {
           tax_amount = excluded.tax_amount,
           net_amount = excluded.net_amount,
           amount_paid = excluded.amount_paid,
+          credit_amount = excluded.credit_amount,
           change_given = excluded.change_given,
           payment_method = excluded.payment_method,
           momo_reference = excluded.momo_reference,
+          customer_id = excluded.customer_id,
           customer_name = excluded.customer_name,
           customer_phone = excluded.customer_phone,
           notes = excluded.notes,
@@ -1391,9 +1802,11 @@ export class SyncService extends EventEmitter {
         record.taxAmount,
         record.totalAmount,
         record.amountPaid,
+        record.creditAmount ?? 0,
         record.changeGiven,
         record.paymentMethod ?? null,
         null,
+        record.customerId ?? null,
         record.customerName ?? null,
         record.customerPhone ?? null,
         record.notes ?? null,
@@ -1528,6 +1941,179 @@ export class SyncService extends EventEmitter {
     }
   }
 
+  private buildDebtUpsertOperation(record: DebtSyncRecord) {
+    return {
+      sql: `
+        INSERT INTO debts (
+          id,
+          business_id,
+          contact_id,
+          direction,
+          source_type,
+          source_id,
+          source_reference,
+          original_amount,
+          status,
+          due_date,
+          notes,
+          created_at,
+          settled_at,
+          written_off_at,
+          written_off_by,
+          written_off_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          contact_id = excluded.contact_id,
+          direction = excluded.direction,
+          source_type = excluded.source_type,
+          source_id = excluded.source_id,
+          source_reference = excluded.source_reference,
+          original_amount = excluded.original_amount,
+          status = excluded.status,
+          due_date = excluded.due_date,
+          notes = excluded.notes,
+          created_at = excluded.created_at,
+          settled_at = excluded.settled_at,
+          written_off_at = excluded.written_off_at,
+          written_off_by = excluded.written_off_by,
+          written_off_reason = excluded.written_off_reason
+      `,
+      params: [
+        record.id,
+        record.businessId,
+        record.contactId,
+        record.direction,
+        record.sourceType,
+        record.sourceId,
+        record.sourceReference,
+        record.originalAmount,
+        record.status,
+        record.dueDate ?? null,
+        record.notes ?? null,
+        record.createdAt,
+        record.settledAt ?? null,
+        record.writtenOffAt ?? null,
+        record.writtenOffById ?? null,
+        record.writtenOffReason ?? null,
+      ],
+    }
+  }
+
+  private buildDebtPaymentsDeleteOperation(debtId: string) {
+    return {
+      sql: `
+        DELETE FROM debt_payments
+        WHERE debt_id = ?
+      `,
+      params: [debtId],
+    }
+  }
+
+  private buildDebtPaymentUpsertOperation(
+    debtId: string,
+    businessId: string,
+    payment: DebtPaymentSyncPayload,
+  ) {
+    return {
+      sql: `
+        INSERT INTO debt_payments (
+          id,
+          business_id,
+          debt_id,
+          amount,
+          method,
+          mobile_money_reference,
+          payment_date,
+          notes,
+          recorded_by,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          debt_id = excluded.debt_id,
+          amount = excluded.amount,
+          method = excluded.method,
+          mobile_money_reference = excluded.mobile_money_reference,
+          payment_date = excluded.payment_date,
+          notes = excluded.notes,
+          recorded_by = excluded.recorded_by,
+          created_at = excluded.created_at
+      `,
+      params: [
+        payment.id,
+        businessId,
+        debtId,
+        payment.amount,
+        payment.method,
+        payment.mobileMoneyReference ?? null,
+        payment.paymentDate,
+        payment.notes ?? null,
+        payment.recordedById ?? 'sync-user',
+        payment.createdAt,
+      ],
+    }
+  }
+
+  private buildExpenseUpsertOperation(record: ExpenseSyncRecord) {
+    return {
+      sql: `
+        INSERT INTO expenses (
+          id,
+          business_id,
+          recorded_by_id,
+          category_id,
+          category,
+          description,
+          amount,
+          currency,
+          payment_method,
+          receipt_url,
+          vendor,
+          notes,
+          is_recurring,
+          date,
+          is_deleted,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          recorded_by_id = excluded.recorded_by_id,
+          category_id = excluded.category_id,
+          description = excluded.description,
+          amount = excluded.amount,
+          currency = excluded.currency,
+          payment_method = excluded.payment_method,
+          receipt_url = excluded.receipt_url,
+          vendor = excluded.vendor,
+          notes = excluded.notes,
+          is_recurring = excluded.is_recurring,
+          date = excluded.date,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        record.id,
+        record.businessId,
+        record.recordedById,
+        record.categoryId,
+        record.description,
+        record.amount,
+        record.currency ?? 'XAF',
+        record.paymentMethod ?? 'CASH',
+        record.receiptUrl ?? null,
+        record.vendor ?? null,
+        record.notes ?? null,
+        record.isRecurring ? 1 : 0,
+        record.expenseDate,
+        record.isDeleted ? 1 : 0,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    }
+  }
+
   private extractSaleNumberSequence(saleNumber: string | null | undefined, saleDate: string | null | undefined) {
     if (!saleNumber || !saleDate) {
       return null
@@ -1653,17 +2239,25 @@ export class SyncService extends EventEmitter {
           id,
           business_id,
           reference_number,
+          supplier_id,
           supplier_name,
+          total_amount,
           total_cost,
+          amount_paid,
+          credit_amount,
           notes,
           performed_by_id,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
           reference_number = excluded.reference_number,
+          supplier_id = excluded.supplier_id,
           supplier_name = excluded.supplier_name,
+          total_amount = excluded.total_amount,
           total_cost = excluded.total_cost,
+          amount_paid = excluded.amount_paid,
+          credit_amount = excluded.credit_amount,
           notes = excluded.notes,
           performed_by_id = excluded.performed_by_id,
           created_at = excluded.created_at
@@ -1672,8 +2266,12 @@ export class SyncService extends EventEmitter {
         record.id,
         record.businessId,
         record.referenceNumber ?? null,
+        record.supplierId ?? null,
         record.supplierName ?? null,
+        record.totalAmount ?? record.totalCost ?? null,
         record.totalCost ?? null,
+        record.amountPaid ?? record.totalAmount ?? record.totalCost ?? null,
+        record.creditAmount ?? 0,
         record.notes ?? null,
         record.performedById ?? null,
         record.createdAt,

@@ -63,7 +63,9 @@ export interface Sale {
   taxAmount: number
   totalAmount: number
   amountPaid: number
+  creditAmount: number
   changeGiven: number
+  customerId?: string | null
   customerName?: string | null
   customerPhone?: string | null
   notes?: string | null
@@ -111,6 +113,7 @@ export interface CreateSaleItemRequest {
 export interface CreateSaleRequest {
   clientId: string
   soldAt: IsoDateString
+  customerId?: string
   customerName?: string
   customerPhone?: string
   notes?: string
@@ -144,6 +147,8 @@ export interface DailySalesSummary {
   mtnMomoCollected: number
   orangeMoneyCollected: number
   cardCollected: number
+  creditIssued: number
+  creditSales: number
   voidedSales: number
   voidedAmount: number
 }
@@ -177,6 +182,7 @@ export interface SaleReceipt {
   chargesAmount: number
   totalAmount: number
   amountPaid: number
+  creditAmount: number
   changeGiven: number
   currency?: Currency | string | null
   payments: SaleReceiptPayment[]

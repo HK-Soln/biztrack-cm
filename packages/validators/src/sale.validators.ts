@@ -19,11 +19,13 @@ export const CreateSalePaymentSchema = z.object({
 export const CreateSaleSchema = z.object({
   clientId: z.string().uuid(),
   soldAt: z.string().datetime(),
+  customerId: z.string().uuid().optional(),
   customerName: z.string().max(200).optional(),
   customerPhone: z.string().max(30).optional(),
   notes: z.string().max(1000).optional(),
   discountAmount: z.number().min(0).default(0),
-  payments: z.array(CreateSalePaymentSchema).min(1),
+  chargesAmount: z.number().min(0).default(0),
+  payments: z.array(CreateSalePaymentSchema),
   items: z.array(CreateSaleItemSchema).min(1),
 })
 
