@@ -4,4 +4,32 @@
 
 expo-env.d.ts
 # @end expo-cli
-.expo
+
+# Expo generated cache & web assets
+.expo/
+
+# Android build artifacts
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+
+# iOS build artifacts
+ios/Pods/
+ios/build/
+*.xcworkspace/
+*.xcodeproj/
+
+# Metro bundler cache
+.metro-health-check*
+
+# NativeWind / Tailwind generated
+nativewind-env.d.ts
+
+# EAS local credentials
+eas-local/
+
+# Environment variables
+.env
+.env.local
+.env.*.local

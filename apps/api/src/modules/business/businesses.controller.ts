@@ -18,11 +18,14 @@ export class BusinessesController {
   @Get('mine')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'List businesses for current user' })
-  async mine(@CurrentUser() user: JwtPayload): Promise<BusinessMembershipSummary[]> {
-    const memberships = await this.businessService.listMembershipsForUser(user.sub)
-    return serializeDtos(memberships, (membership) =>
-      BusinessMembershipSummaryDto.fromEntity(membership),
-    )
+  async mine(@CurrentUser() user: JwtPayload) {
+  const memberships = await this.businessService.listMembershipsForUser(user.sub)
+  const businesses = serializeDtos(memberships, (membership) =>
+    BusinessMembershipSummaryDto.fromEntity(membership),
+  )
+  return { businesses }
+
+
   }
 
   @Post('setup')
