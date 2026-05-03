@@ -9,7 +9,7 @@
     "dev:renderer": "set NEXT_DISABLE_SWC=1 && next dev -p 3004",
     "dev:full": "node scripts/dev-full.js",
     "dev:full:compat": "node scripts/dev-full.js",
-    "build": "next build && next export -o dist/renderer && tsc -p tsconfig.electron.json",
+    "build": "next build && node scripts/copy-renderer-output.js && tsc -p tsconfig.electron.json",
     "build:dist": "npm run build && electron-builder",
     "lint": "eslint . --max-warnings 0",
     "type-check": "tsc --noEmit"

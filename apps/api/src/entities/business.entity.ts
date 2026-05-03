@@ -5,7 +5,9 @@ import { User } from './user.entity'
 import { Product } from './product.entity'
 import { ProductCategory } from './product-category.entity'
 import { Sale } from './sale.entity'
+import { ExpenseCategory } from './expense-category.entity'
 import { Expense } from './expense.entity'
+import { MonthlyExpenseSummary } from './monthly-expense-summary.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
 import { SubscriptionPlan, BusinessStatus } from '@biztrack/types'
@@ -116,6 +118,12 @@ export class Business extends BaseEntity {
 
   @OneToMany(() => Expense, (expense) => expense.business)
   expenses?: Expense[]
+
+  @OneToMany(() => ExpenseCategory, (category) => category.business)
+  expenseCategories?: ExpenseCategory[]
+
+  @OneToMany(() => MonthlyExpenseSummary, (summary) => summary.business)
+  monthlyExpenseSummaries?: MonthlyExpenseSummary[]
 
   @OneToMany(() => StockMovement, (movement) => movement.business)
   stockMovements?: StockMovement[]

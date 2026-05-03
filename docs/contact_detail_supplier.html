@@ -1,0 +1,215 @@
+
+<h2 class="sr-only">Contact detail page for Nguia SARL — supplier type, showing profile, payable debt summary, payment recording form, and full account statement ledger.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.back-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary);background:none;border:none;cursor:pointer;padding:0}
+.back-btn:hover{color:var(--color-text-primary)}
+.action-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:6px 13px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer}
+.action-pill:hover{border-color:var(--color-border-primary)}
+.hero{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:#378ADD}
+.hero-inner{display:flex;gap:1.25rem;align-items:flex-start}
+.contact-avatar{width:56px;height:56px;border-radius:14px;background:#E6F1FB;color:#0C447C;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:500;flex-shrink:0;border:0.5px solid rgba(55,138,221,.2)}
+.hero-body{flex:1;min-width:0}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#378ADD;margin-bottom:5px}
+.contact-name{font-size:22px;font-weight:500;margin-bottom:4px}
+.contact-meta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px}
+.meta-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary)}
+.meta-item svg{width:12px;height:12px;flex-shrink:0}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px}
+.b-supp{background:#E6F1FB;color:#0C447C}
+.b-active{background:#E1F5EE;color:#085041}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1rem}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem}
+.mc-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:5px}
+.mc-value{font-size:20px;font-weight:500;font-family:var(--font-mono)}
+.mc-sub{font-size:11px;margin-top:3px}
+.sub-warn{color:#BA7517}.sub-ok{color:#0F6E56}.sub-muted{color:var(--color-text-secondary)}.sub-danger{color:#A32D2D}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.surface{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.s-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.s-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:.875rem}
+.field{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .875rem;margin-bottom:6px}
+.f-label{font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px}
+.f-value{font-size:13px;font-weight:500}
+.form-row{margin-bottom:10px}
+.form-label{font-size:12px;font-weight:500;display:block;margin-bottom:4px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.form-input{width:100%;font-size:13px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.form-input:focus{outline:none;box-shadow:0 0 0 2px rgba(55,138,221,.2);border-color:#378ADD}
+.form-select{width:100%;font-size:13px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.debt-select{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .875rem;margin-bottom:8px}
+.debt-opt{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer}
+.debt-opt:last-child{border-bottom:none}
+.debt-ref{font-size:12px;font-weight:500;font-family:var(--font-mono)}
+.debt-amt{font-size:12px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+.save-btn{width:100%;font-size:13px;font-weight:500;padding:8px;border-radius:var(--border-radius-md);background:#378ADD;color:#fff;border:none;cursor:pointer}
+.save-btn:hover{background:#185FA5}
+.stmt-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin-bottom:1rem}
+.stmt-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.25rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.stmt-title{font-size:13px;font-weight:500}
+.balance-chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:4px 12px;border-radius:var(--border-radius-md);background:#FCEBEB;color:#791F1F;font-family:var(--font-mono)}
+.ledger{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.ledger th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.5rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.ledger td{padding:.75rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger tr:last-child td{border-bottom:none}
+.ledger tr:hover td{background:var(--color-background-secondary)}
+.entry-type{display:inline-flex;font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
+.et-debt{background:#FAEEDA;color:#633806}
+.et-pay{background:#E1F5EE;color:#085041}
+.mono{font-family:var(--font-mono);font-size:12px}
+.debit{color:#A32D2D;font-weight:500;font-family:var(--font-mono)}
+.credit{color:#0F6E56;font-weight:500;font-family:var(--font-mono)}
+.balance{font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.stmt-foot{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1.25rem;border-top:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary)}
+.closing{font-size:13px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+.restock-chip{display:inline-flex;font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;background:#E6F1FB;color:#0C447C}
+</style>
+
+<div class="pg">
+<div class="topbar">
+  <button class="back-btn">
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3-5 5 5 5"/><path d="M2 8h12"/></svg>
+    Contacts
+  </button>
+  <div style="display:flex;gap:8px">
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 1v5l3 2"/><circle cx="6" cy="6" r="5"/></svg>
+      Payment history
+    </button>
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="10" height="10" rx="2"/><path d="M4 6h4M6 4v4"/></svg>
+      Edit contact
+    </button>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="contact-avatar">NS</div>
+    <div class="hero-body">
+      <p class="eyebrow">Contacts / Supplier</p>
+      <h1 class="contact-name">Nguia SARL</h1>
+      <div class="contact-meta">
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3a1 1 0 011-1h1.5l1 2.5-1.5 1a6 6 0 002.5 2.5l1-1.5L9 7.5V9a1 1 0 01-1 1A7 7 0 012 3z"/></svg>
+          +237 699 541 200
+        </span>
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4H2a1 1 0 00-1 1v4a1 1 0 001 1h8a1 1 0 001-1V5a1 1 0 00-1-1z"/><path d="M8 4V3a1 1 0 00-1-1H5a1 1 0 00-1 1v1"/></svg>
+          Bonaberi, Douala
+        </span>
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="10" height="8" rx="1"/><path d="M1 5h10"/></svg>
+          Supplier since 15 Dec 2024
+        </span>
+      </div>
+      <div class="badges">
+        <span class="badge b-supp">Supplier</span>
+        <span class="badge b-active">Active</span>
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <p style="font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px">We owe</p>
+      <p style="font-size:28px;font-weight:500;font-family:var(--font-mono);color:#A32D2D;line-height:1">120,000</p>
+      <p style="font-size:12px;color:var(--color-text-secondary)">XAF payable</p>
+      <p style="font-size:11px;color:#BA7517;margin-top:6px;font-weight:500">Due 20 Apr 2025</p>
+    </div>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="mc"><p class="mc-label">Total restocked</p><p class="mc-value">405,000</p><p class="mc-sub sub-muted">3 restock records</p></div>
+  <div class="mc"><p class="mc-label">Total paid</p><p class="mc-value">285,000</p><p class="mc-sub sub-ok">70.4% settled</p></div>
+  <div class="mc"><p class="mc-label">Outstanding</p><p class="mc-value" style="color:#A32D2D">120,000</p><p class="mc-sub sub-danger">1 open payable</p></div>
+  <div class="mc"><p class="mc-label">Last payment</p><p class="mc-value" style="font-size:15px">08 Apr</p><p class="mc-sub sub-muted">XAF 65,000 MoMo</p></div>
+</div>
+
+<div class="two-col">
+  <div class="surface">
+    <p class="s-title">Supplier information</p>
+    <p class="s-desc">Profile and trading terms</p>
+    <div class="field"><p class="f-label">Business name</p><p class="f-value">Nguia SARL</p></div>
+    <div class="field"><p class="f-label">Primary phone</p><p class="f-value">+237 699 541 200</p></div>
+    <div class="field"><p class="f-label">Address</p><p class="f-value">Zone Industrielle Bonaberi, Douala</p></div>
+    <div class="field"><p class="f-label">Products supplied</p><p class="f-value">Boissons, Eau minérale, Sodas</p></div>
+    <div class="field"><p class="f-label">Notes</p><p class="f-value">Delivers Tuesdays. 30-day credit terms. Minimum order XAF 100,000.</p></div>
+  </div>
+  <div class="surface">
+    <p class="s-title">Record a payment</p>
+    <p class="s-desc">Mark a payment made to this supplier</p>
+    <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px">Select debt</p>
+    <div class="debt-select">
+      <div class="debt-opt">
+        <div><p class="debt-ref">RST-20250408-003</p><p style="font-size:11px;color:var(--color-text-secondary)">08 Apr · Partial — XAF 65,000 paid</p></div>
+        <span class="debt-amt">XAF 120,000</span>
+      </div>
+    </div>
+    <div class="form-grid">
+      <label><span class="form-label">Amount (XAF)</span><input type="number" class="form-input" placeholder="0" /></label>
+      <label><span class="form-label">Date</span><input type="date" class="form-input" value="2025-04-13" /></label>
+    </div>
+    <div class="form-row">
+      <span class="form-label" style="display:block;margin-bottom:4px">Payment method</span>
+      <select class="form-select"><option>Cash</option><option selected>MTN Mobile Money</option><option>Orange Money</option></select>
+    </div>
+    <div class="form-row">
+      <label><span class="form-label">MoMo reference (optional)</span><input type="text" class="form-input" placeholder="e.g. TXN-123456" /></label>
+    </div>
+    <button class="save-btn">Record payment to supplier</button>
+  </div>
+</div>
+
+<div class="stmt-card">
+  <div class="stmt-header">
+    <div>
+      <p class="stmt-title">Account statement</p>
+      <p style="font-size:11px;color:var(--color-text-secondary);margin-top:2px">All restock credit events and payments made to supplier</p>
+    </div>
+    <span class="balance-chip">We owe: XAF 120,000</span>
+  </div>
+  <table class="ledger">
+    <colgroup><col style="width:11%"><col style="width:17%"><col style="width:13%"><col style="width:26%"><col style="width:11%"><col style="width:11%"><col style="width:11%"></colgroup>
+    <thead>
+      <tr>
+        <th>Date</th><th>Reference</th><th>Type</th><th>Description</th>
+        <th style="text-align:right">Payable</th>
+        <th style="text-align:right">Paid</th>
+        <th style="text-align:right">Balance</th>
+      </tr>
+    </thead>
+    <tbody id="supp-stmt"></tbody>
+  </table>
+  <div class="stmt-foot">
+    <span>Opening balance: XAF 0 · 5 entries · Douala timezone</span>
+    <span class="closing">Balance owed: XAF 120,000</span>
+  </div>
+</div>
+</div>
+
+<script>
+const SUPP_STMT=[
+  {date:'08 Apr',ref:'RST-20250408-003',type:'DEBT_CREATED',desc:'Restock — 120 bottles eau min.',payable:185000,paid:0,bal:185000},
+  {date:'08 Apr',ref:'PMT-20250408-001',type:'PAYMENT',desc:'MTN MoMo — partial at delivery',payable:0,paid:65000,bal:120000},
+  {date:'01 Mar',ref:'RST-20250301-002',type:'DEBT_CREATED',desc:'Restock — sodas & boissons',payable:145000,paid:0,bal:145000},
+  {date:'15 Mar',ref:'PMT-20250315-001',type:'PAYMENT',desc:'Cash — full settlement',payable:0,paid:145000,bal:0},
+  {date:'10 Jan',ref:'RST-20250110-001',type:'DEBT_CREATED',desc:'Opening restock — eau & sodas',payable:75000,paid:0,bal:75000},
+  {date:'25 Jan',ref:'PMT-20250125-001',type:'PAYMENT',desc:'Cash — full settlement',payable:0,paid:75000,bal:0},
+];
+function typeCls(t){return t==='DEBT_CREATED'?'et-debt':'et-pay'}
+function typeLbl(t){return t==='DEBT_CREATED'?'Credit taken':'Payment made'}
+function fmtAmt(n){return n?'XAF '+Math.round(n).toLocaleString('fr-FR'):'—'}
+document.getElementById('supp-stmt').innerHTML=SUPP_STMT.map(e=>`
+  <tr>
+    <td class="mono" style="color:var(--color-text-secondary)">${e.date}</td>
+    <td class="mono" style="color:var(--color-text-secondary);font-size:11px">${e.ref}</td>
+    <td><span class="entry-type ${typeCls(e.type)}">${typeLbl(e.type)}</span></td>
+    <td style="font-size:12px;color:var(--color-text-secondary)">${e.desc}</td>
+    <td class="debit" style="text-align:right">${fmtAmt(e.payable)}</td>
+    <td class="credit" style="text-align:right">${fmtAmt(e.paid)}</td>
+    <td class="balance" style="text-align:right">${fmtAmt(e.bal)}</td>
+  </tr>`).join('');
+</script>

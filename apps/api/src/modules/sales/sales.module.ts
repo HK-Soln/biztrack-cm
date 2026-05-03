@@ -6,6 +6,7 @@ import { Product } from '@/entities/product.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
 import { Sale } from '@/entities/sale.entity'
+import { DebtsModule } from '@/modules/debts/debts.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SalesController } from './controllers/sales.controller'
@@ -16,6 +17,7 @@ import { SalesService } from './services/sales.service'
 @Module({
   imports: [
     PermissionsModule,
+    DebtsModule,
     InventoryModule,
     TypeOrmModule.forFeature([
       Business,

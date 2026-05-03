@@ -12,7 +12,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { Badge, Button, NumberInput, Spinner } from '@biztrack/ui'
+import { Badge, Button, NumberInput, PhoneInput, Spinner } from '@biztrack/ui'
 import {
   PaymentMethod,
   type JwtPayload,
@@ -21,7 +21,9 @@ import {
   type UnitOfMeasure,
 } from '@biztrack/types'
 import { toast } from 'sonner'
+import { CustomerContactDialog } from '@/components/contacts/CustomerContactDialog'
 import { ProductCreateDialog } from '@/components/products/ProductCreateDialog'
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import {
   Dialog,
   DialogContent,
@@ -35,6 +37,9 @@ import { decodeJwtPayload } from '@/lib/jwt'
 import { cn } from '@/lib/utils'
 import { hasDesktopIpc, ipc } from '@/services/ipc.bridge'
 import {
+  type LocalContactRecord,
+} from '@/services/contacts.local'
+import {
   getProductByBarcodeLocal,
   listCategoriesLocal,
   listProductsLocal,
@@ -47,6 +52,12 @@ type ViewMode = 'grid' | 'list'
 type Stage = 'cart' | 'payment' | 'success'
 type DiscountType = 'percent' | 'amount'
 type PaymentOption = 'cash' | 'mtn' | 'orange' | 'card'
+
+type SellCustomer = {
+  id: string
+  name: string
+  phone: string | null
+}
 
 type SellCartItem = {
   productId: string
@@ -67,6 +78,7 @@ type HeldSale = {
   id: string
   saleId: string
   items: SellCartItem[]
+  customer: SellCustomer | null
   discount: {
     type: DiscountType
     value: number
@@ -108,8 +120,22 @@ type SellCopy = {
   saleNumberPending: string
   walkIn: string
   noCustomer: string
+  addCustomer: string
   changeCustomer: string
-  customerComingSoon: string
+  remove: string
+  customerDialogTitle: string
+  customerDialogDescription: string
+  searchCustomer: string
+  searchTab: string
+  createTab: string
+  noCustomersFound: string
+  fullName: string
+  phone: string
+  save: string
+  balanceDue: string
+  customerRequiredForCredit: string
+  customerSaved: string
+  customerLoadError: string
   emptyCartTitle: string
   emptyCartHint: string
   item: string
@@ -177,6 +203,7 @@ type SellCopy = {
   receiptTotalLabel: string
   receiptPhoneLabel: string
   receiptReferenceLabel: string
+  receiptBalanceLabel: string
   receiptThanks: string
   receiptPrinted: string
   receiptPrintUnavailable: string
@@ -237,23 +264,23 @@ function pickEmoji(product: Product) {
   const haystack = `${product.name} ${product.category?.name ?? ''}`.toLowerCase()
 
   if (haystack.includes('drink') || haystack.includes('boisson') || haystack.includes('juice')) {
-    return '🥤'
+    return 'Ã°Å¸Â¥Â¤'
   }
-  if (haystack.includes('water') || haystack.includes('eau')) return '💧'
-  if (haystack.includes('beer') || haystack.includes('biere')) return '🍺'
-  if (haystack.includes('rice') || haystack.includes('riz')) return '🍚'
-  if (haystack.includes('oil') || haystack.includes('huile')) return '🫒'
-  if (haystack.includes('soap') || haystack.includes('savon')) return '🧼'
-  if (haystack.includes('toilet') || haystack.includes('papier')) return '🧻'
-  if (haystack.includes('tooth') || haystack.includes('dentifrice')) return '🪥'
-  if (haystack.includes('lotion')) return '🧴'
-  if (haystack.includes('battery') || haystack.includes('pile')) return '🔋'
-  if (haystack.includes('service')) return '🛠️'
+  if (haystack.includes('water') || haystack.includes('eau')) return 'Ã°Å¸â€™Â§'
+  if (haystack.includes('beer') || haystack.includes('biere')) return 'Ã°Å¸ÂÂº'
+  if (haystack.includes('rice') || haystack.includes('riz')) return 'Ã°Å¸ÂÅ¡'
+  if (haystack.includes('oil') || haystack.includes('huile')) return 'Ã°Å¸Â«â€™'
+  if (haystack.includes('soap') || haystack.includes('savon')) return 'Ã°Å¸Â§Â¼'
+  if (haystack.includes('toilet') || haystack.includes('papier')) return 'Ã°Å¸Â§Â»'
+  if (haystack.includes('tooth') || haystack.includes('dentifrice')) return 'Ã°Å¸ÂªÂ¥'
+  if (haystack.includes('lotion')) return 'Ã°Å¸Â§Â´'
+  if (haystack.includes('battery') || haystack.includes('pile')) return 'Ã°Å¸â€â€¹'
+  if (haystack.includes('service')) return 'Ã°Å¸â€ºÂ Ã¯Â¸Â'
   if (haystack.includes('phone') || haystack.includes('credit') || haystack.includes('airtime')) {
-    return '📱'
+    return 'Ã°Å¸â€œÂ±'
   }
 
-  return '📦'
+  return 'Ã°Å¸â€œÂ¦'
 }
 
 function isTrackedOut(product: Product) {
@@ -394,6 +421,25 @@ function isPrintCancelled(error: unknown) {
     /cancelled|canceled|cancel/i.test(error.message)
   )
 }
+function canAttemptNativeFileShare(files: File[]) {
+  if (hasDesktopIpc()) {
+    return false
+  }
+
+  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+    return false
+  }
+
+  if (typeof navigator.canShare !== 'function') {
+    return true
+  }
+
+  try {
+    return navigator.canShare({ files })
+  } catch {
+    return false
+  }
+}
 
 function buildReceiptText({
   businessName,
@@ -465,6 +511,9 @@ function buildReceiptText({
   lines.push(padLine(copy.total, `${amount(sale.totalAmount)} XAF`, cols))
   lines.push(heavyDivider)
   lines.push(padLine(translatePayment(copy, paymentOption), `${amount(sale.amountPaid)} XAF`, cols))
+  if (sale.creditAmount > 0) {
+    lines.push(padLine(copy.receiptBalanceLabel, `${amount(sale.creditAmount)} XAF`, cols))
+  }
 
   if (sale.changeGiven > 0) {
     lines.push(padLine(copy.changeDue, `${amount(sale.changeGiven)} XAF`, cols))
@@ -770,6 +819,7 @@ export default function SellPage() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [stage, setStage] = useState<Stage>('cart')
   const [cart, setCart] = useState<SellCartItem[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState<SellCustomer | null>(null)
   const [cartQuantityInputs, setCartQuantityInputs] = useState<Record<string, string>>({})
   const [discount, setDiscount] = useState<{ type: DiscountType; value: number }>({
     type: 'percent',
@@ -791,6 +841,7 @@ export default function SellPage() {
   const [processingSale, setProcessingSale] = useState(false)
   const [isPrintingReceipt, setIsPrintingReceipt] = useState(false)
   const [isSharingReceipt, setIsSharingReceipt] = useState(false)
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false)
   const [draftId, setDraftId] = useState(draftSaleId())
   const [completedSale, setCompletedSale] = useState<CompletedSaleSummary | null>(null)
   const [showPaymentSummaryToast, setShowPaymentSummaryToast] = useState(false)
@@ -807,6 +858,15 @@ export default function SellPage() {
   const cashierId = cashierPayload?.sub ?? null
   const cashierName = role ? role.toLowerCase() : t('local_user')
   const receiptBusinessName = businessName?.trim() || t('business_fallback')
+  const scannerEnabled =
+    stage === 'cart' &&
+    !customerDialogOpen &&
+    !discountOpen &&
+    !chargesOpen &&
+    !holdsOpen &&
+    !barcodePromptOpen &&
+    !isAddScannedProductOpen &&
+    !scanResolving
 
   const copy = useMemo<SellCopy>(
     () => ({
@@ -830,8 +890,22 @@ export default function SellPage() {
       saleNumberPending: t('sale_number_pending'),
       walkIn: t('walk_in'),
       noCustomer: t('no_customer'),
+      addCustomer: t('add_customer'),
       changeCustomer: t('change_customer'),
-      customerComingSoon: t('customer_coming_soon'),
+      remove: t('remove'),
+      customerDialogTitle: t('customer_dialog_title'),
+      customerDialogDescription: t('customer_dialog_desc'),
+      searchCustomer: t('search_customer'),
+      searchTab: t('search_tab'),
+      createTab: t('create_tab'),
+      noCustomersFound: t('no_customers_found'),
+      fullName: t('full_name'),
+      phone: t('phone'),
+      save: t('save'),
+      balanceDue: t('balance_due'),
+      customerRequiredForCredit: t('customer_required_for_credit'),
+      customerSaved: t('customer_saved'),
+      customerLoadError: t('customer_load_error'),
       emptyCartTitle: t('empty_cart_title'),
       emptyCartHint: t('empty_cart_hint'),
       item: t('item'),
@@ -899,6 +973,7 @@ export default function SellPage() {
       receiptTotalLabel: t('receipt.total'),
       receiptPhoneLabel: t('receipt.phone'),
       receiptReferenceLabel: t('receipt.reference'),
+      receiptBalanceLabel: t('receipt.balance_due'),
       receiptThanks: t('receipt.thanks'),
       receiptPrinted: t('receipt_printed'),
       receiptPrintUnavailable: t('receipt_print_unavailable'),
@@ -922,6 +997,10 @@ export default function SellPage() {
         SALE_PRODUCT_INACTIVE: t('errors.SALE_PRODUCT_INACTIVE'),
         SALE_INSUFFICIENT_STOCK: t('errors.SALE_INSUFFICIENT_STOCK'),
         SALE_PAYMENT_METHOD_INVALID: t('errors.SALE_PAYMENT_METHOD_INVALID'),
+        SALE_CUSTOMER_REQUIRED_FOR_CREDIT: t('errors.SALE_CUSTOMER_REQUIRED_FOR_CREDIT'),
+        SALE_CUSTOMER_NOT_FOUND: t('errors.SALE_CUSTOMER_NOT_FOUND'),
+        SALE_CUSTOMER_INACTIVE: t('errors.SALE_CUSTOMER_INACTIVE'),
+        SALE_CUSTOMER_TYPE_INVALID: t('errors.SALE_CUSTOMER_TYPE_INVALID'),
       },
     }),
     [locale, t],
@@ -938,6 +1017,14 @@ export default function SellPage() {
           setHolds(
             parsed.map((hold) => ({
               ...hold,
+              customer:
+                hold && typeof hold === 'object' && 'customer' in hold && hold.customer
+                  ? {
+                      id: hold.customer.id,
+                      name: hold.customer.name,
+                      phone: hold.customer.phone ?? null,
+                    }
+                  : null,
               chargesAmount:
                 typeof hold?.chargesAmount === 'number' && Number.isFinite(hold.chargesAmount)
                   ? hold.chargesAmount
@@ -1156,11 +1243,27 @@ export default function SellPage() {
   )
 
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.qty, 0), [cart])
+  const enteredAmountReceived = useMemo(
+    () => Math.max(0, parseOptionalNumber(amountReceived)),
+    [amountReceived],
+  )
+
+  const paymentAmountReceived = useMemo(() => {
+    if (paymentOption === 'cash') {
+      return enteredAmountReceived
+    }
+
+    return Math.min(totalAmount, enteredAmountReceived)
+  }, [enteredAmountReceived, paymentOption, totalAmount])
+
   const changeDue = useMemo(() => {
-    const received = parseOptionalNumber(amountReceived)
     if (paymentOption !== 'cash') return 0
-    return Math.max(0, received - totalAmount)
-  }, [amountReceived, paymentOption, totalAmount])
+    return Math.max(0, paymentAmountReceived - totalAmount)
+  }, [paymentAmountReceived, paymentOption, totalAmount])
+
+  const balanceDue = useMemo(() => {
+    return Math.max(0, totalAmount - paymentAmountReceived)
+  }, [paymentAmountReceived, totalAmount])
 
   const quickAmounts = useMemo(() => {
     if (totalAmount <= 0) return []
@@ -1183,8 +1286,12 @@ export default function SellPage() {
   const canConfirmPayment = useMemo(() => {
     if (cart.length === 0 || totalAmount <= 0) return false
 
-    if (paymentOption === 'cash') {
-      return parseOptionalNumber(amountReceived) >= totalAmount
+    if (balanceDue > 0) {
+      return Boolean(selectedCustomer)
+    }
+
+    if (paymentAmountReceived <= 0) {
+      return Boolean(selectedCustomer)
     }
 
     if (paymentOption === 'mtn' || paymentOption === 'orange') {
@@ -1192,7 +1299,16 @@ export default function SellPage() {
     }
 
     return true
-  }, [amountReceived, cart.length, momoNumber, momoReference, paymentOption, totalAmount])
+  }, [
+    balanceDue,
+    cart.length,
+    momoNumber,
+    momoReference,
+    paymentAmountReceived,
+    paymentOption,
+    selectedCustomer,
+    totalAmount,
+  ])
 
   useEffect(() => {
     if (stage !== 'success' || !completedSale) {
@@ -1208,6 +1324,7 @@ export default function SellPage() {
 
   const resetDraftSale = () => {
     setCart([])
+    setSelectedCustomer(null)
     setDiscount({ type: 'percent', value: 0 })
     setChargesAmount(0)
     setChargesOpen(false)
@@ -1221,6 +1338,7 @@ export default function SellPage() {
     setMomoReference('')
     setIsPrintingReceipt(false)
     setIsSharingReceipt(false)
+    setCustomerDialogOpen(false)
     setDraftId(draftSaleId())
   }
 
@@ -1335,12 +1453,17 @@ export default function SellPage() {
     }
   }
 
-  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter') return
-
-    event.preventDefault()
-    void handleBarcodeScan(search)
-  }
+  useBarcodeScanner(
+    (barcode) => {
+      void handleBarcodeScan(barcode)
+    },
+    {
+      enabled: scannerEnabled,
+      minLength: 4,
+      maxIntervalMs: 30,
+      endKey: 'Enter',
+    },
+  )
 
   const openScannedProductDialog = () => {
     setBarcodePromptOpen(false)
@@ -1469,6 +1592,7 @@ export default function SellPage() {
         id: holdId(),
         saleId: draftId,
         items: cart,
+        customer: selectedCustomer,
         discount,
         chargesAmount,
         createdAt: new Date().toISOString(),
@@ -1482,6 +1606,7 @@ export default function SellPage() {
 
   const resumeHold = (hold: HeldSale) => {
     setCart(hold.items)
+    setSelectedCustomer(hold.customer ?? null)
     setDiscount(hold.discount)
     setChargesAmount(hold.chargesAmount ?? 0)
     setStage('cart')
@@ -1493,12 +1618,28 @@ export default function SellPage() {
 
   const clearCurrentSale = () => {
     setCart([])
+    setSelectedCustomer(null)
     setDiscount({ type: 'percent', value: 0 })
     setChargesAmount(0)
     setDraftId(draftSaleId())
   }
 
-  const notifyCustomerComingSoon = () => toast.message(copy.customerComingSoon)
+  const openCustomerDialog = () => {
+    setCustomerDialogOpen(true)
+  }
+
+  const closeCustomerDialog = () => {
+    setCustomerDialogOpen(false)
+  }
+
+  const handleSelectCustomer = (customer: LocalContactRecord) => {
+    setSelectedCustomer({
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone ?? null,
+    })
+    closeCustomerDialog()
+  }
 
   const handleConfirmPayment = async () => {
     if (!businessId || !canConfirmPayment || processingSale || cart.length === 0) {
@@ -1508,28 +1649,34 @@ export default function SellPage() {
     setProcessingSale(true)
 
     try {
-      const amountPaid =
-        paymentOption === 'cash' ? parseOptionalNumber(amountReceived) : totalAmount
+      const amountPaid = paymentAmountReceived
+      const payments =
+        amountPaid > 0
+          ? [
+              {
+                method: toPaymentMethod(paymentOption),
+                amount: amountPaid,
+                mobileMoneyReference:
+                  paymentOption === 'mtn' || paymentOption === 'orange'
+                    ? momoReference.trim()
+                    : undefined,
+              },
+            ]
+          : []
       const sale = await createSaleLocal(businessId, {
         soldAt: new Date().toISOString(),
         cashierId,
         cashierName,
+        customerId: selectedCustomer?.id,
+        customerName: selectedCustomer?.name,
+        customerPhone: selectedCustomer?.phone ?? undefined,
         discountAmount,
         chargesAmount,
         notes:
           paymentOption === 'mtn' || paymentOption === 'orange'
             ? `${translatePayment(copy, paymentOption)} ${momoNumber.trim()}`
             : undefined,
-        payments: [
-          {
-            method: toPaymentMethod(paymentOption),
-            amount: amountPaid,
-            mobileMoneyReference:
-              paymentOption === 'mtn' || paymentOption === 'orange'
-                ? momoReference.trim()
-                : undefined,
-          },
-        ],
+        payments,
         items: cart.map((item) => ({
           productId: item.productId,
           quantity: item.qty,
@@ -1564,6 +1711,7 @@ export default function SellPage() {
       setAmountReceived('')
       setMomoNumber('')
       setMomoReference('')
+      setSelectedCustomer(null)
       setDraftId(draftSaleId())
       setReloadKey((current) => current + 1)
       toast.success(copy.saleSaved)
@@ -1600,12 +1748,6 @@ export default function SellPage() {
     }
 
     try {
-      if (navigator.canShare?.({ files }) && navigator.share) {
-        await navigator.share(shareData)
-        toast.success(copy.receiptShared)
-        return
-      }
-
       if (hasDesktopIpc()) {
         const pdfBytes = Array.from(new Uint8Array(await pdfBlob.arrayBuffer()))
         const result = await ipc.share.file({
@@ -1620,6 +1762,12 @@ export default function SellPage() {
         }
 
         toast(copy.receiptShareSaved)
+        return
+      }
+
+      if (canAttemptNativeFileShare(files)) {
+        await navigator.share(shareData)
+        toast.success(copy.receiptShared)
         return
       }
 
@@ -1686,10 +1834,71 @@ export default function SellPage() {
   }
 
   const renderPaymentHelper = () => {
+    const amountField = (
+      <label className="block space-y-1">
+        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {copy.amountReceived}
+        </span>
+        <NumberInput
+          value={amountReceived}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => setAmountReceived(event.target.value)}
+          min="0"
+          step="0.01"
+          className="h-11 rounded-xl px-3 text-sm"
+          placeholder={formatAmount(totalAmount, copy.localeTag)}
+        />
+      </label>
+    )
+
+    const balanceSummary = (
+      <div className="rounded-2xl border border-border bg-background px-4 py-3">
+        <div className="flex items-center justify-between text-sm text-foreground/80">
+          <span>{copy.amountReceived}</span>
+          <span className="font-semibold text-foreground">
+            {formatAmount(paymentAmountReceived, copy.localeTag)} FCFA
+          </span>
+        </div>
+        {paymentOption === 'cash' ? (
+          <div className="mt-2 flex items-center justify-between text-sm text-foreground/80">
+            <span>{copy.changeDue}</span>
+            <span className="font-semibold text-foreground">
+              {formatAmount(changeDue, copy.localeTag)} FCFA
+            </span>
+          </div>
+        ) : null}
+        <div className="mt-2 flex items-center justify-between text-sm text-foreground/80">
+          <span>{copy.balanceDue}</span>
+          <span className="font-semibold text-foreground">
+            {formatAmount(balanceDue, copy.localeTag)} FCFA
+          </span>
+        </div>
+      </div>
+    )
+
+    const quickAmountButtons = (
+      <div className="flex flex-wrap gap-2">
+        {quickAmounts.map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setAmountReceived(String(value))}
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-ring hover:bg-accent"
+          >
+            {formatAmount(value, copy.localeTag)}
+          </button>
+        ))}
+      </div>
+    )
+
     if (paymentOption === 'card') {
       return (
-        <div className="rounded-2xl border border-border bg-secondary px-4 py-3 text-sm text-foreground/80">
-          {copy.cardHint}
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-border bg-secondary px-4 py-3 text-sm text-foreground/80">
+            {copy.cardHint}
+          </div>
+          {amountField}
+          {balanceSummary}
+          {quickAmountButtons}
         </div>
       )
     }
@@ -1698,17 +1907,17 @@ export default function SellPage() {
       return (
         <div className="space-y-3">
           <div className="rounded-2xl border border-border bg-secondary px-4 py-3 text-sm text-foreground/80">
-            {translatePayment(copy, paymentOption)} · {formatAmount(totalAmount, copy.localeTag)}{' '}
-            FCFA
+            {translatePayment(copy, paymentOption)} . {formatAmount(totalAmount, copy.localeTag)} FCFA
           </div>
+          {amountField}
           <label className="block space-y-1">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {copy.momoNumber}
             </span>
-            <input
+            <PhoneInput
               value={momoNumber}
-              onChange={(event) => setMomoNumber(event.target.value)}
-              className="block h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/20"
+              onChange={(value?: string) => setMomoNumber(value ?? '')}
+              className="rounded-xl"
               placeholder="+237 6XX XXX XXX"
             />
           </label>
@@ -1723,47 +1932,20 @@ export default function SellPage() {
               placeholder="TXN-240422-1234"
             />
           </label>
+          {balanceSummary}
+          {quickAmountButtons}
         </div>
       )
     }
 
     return (
       <div className="space-y-3">
-        <label className="block space-y-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {copy.amountReceived}
-          </span>
-          <input
-            value={amountReceived}
-            onChange={(event) => setAmountReceived(event.target.value)}
-            className="block h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/20"
-            placeholder={formatAmount(totalAmount, copy.localeTag)}
-          />
-        </label>
-        <div className="rounded-2xl border border-border bg-background px-4 py-3">
-          <div className="flex items-center justify-between text-sm text-foreground/80">
-            <span>{copy.changeDue}</span>
-            <span className="font-semibold text-foreground">
-              {formatAmount(changeDue, copy.localeTag)} FCFA
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {quickAmounts.map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setAmountReceived(String(value))}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-ring hover:bg-accent"
-            >
-              {formatAmount(value, copy.localeTag)}
-            </button>
-          ))}
-        </div>
+        {amountField}
+        {balanceSummary}
+        {quickAmountButtons}
       </div>
     )
   }
-
   if (loading && !loadedOnce) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -1789,7 +1971,6 @@ export default function SellPage() {
                     ref={searchRef}
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    onKeyDown={handleSearchKeyDown}
                     className="block h-11 w-full rounded-xl border border-input bg-background pl-10 pr-14 text-sm text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/20"
                     placeholder={copy.searchPlaceholder}
                   />
@@ -1797,24 +1978,6 @@ export default function SellPage() {
                     /
                   </span>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (search.trim()) {
-                      void handleBarcodeScan(search)
-                      return
-                    }
-
-                    searchRef.current?.focus()
-                    toast.message(copy.scanHint)
-                  }}
-                  disabled={scanResolving}
-                  className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#185FA5] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0C447C] disabled:cursor-not-allowed disabled:bg-[#C2BFB7]"
-                >
-                  {scanResolving ? <Spinner size="sm" /> : <Icon name="scan" className="h-4 w-4" />}
-                  <span>{copy.scan}</span>
-                </button>
 
                 <div className="flex h-11 overflow-hidden rounded-xl border border-border">
                   <button
@@ -2035,6 +2198,34 @@ export default function SellPage() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-5 py-5">
+                  <div className="rounded-2xl border border-border bg-background px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {selectedCustomer?.name || copy.walkIn}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {selectedCustomer?.phone || copy.noCustomer}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={openCustomerDialog}
+                        className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-primary transition hover:bg-accent"
+                      >
+                        <Icon name="user-plus" className="h-4 w-4" />
+                        {selectedCustomer ? copy.changeCustomer : copy.addCustomer}
+                      </button>
+                    </div>
+                    {balanceDue > 0 ? (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
+                        {selectedCustomer
+                          ? `${copy.balanceDue}: ${formatAmount(balanceDue, copy.localeTag)} FCFA`
+                          : copy.customerRequiredForCredit}
+                      </div>
+                    ) : null}
+                  </div>
+
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     {copy.selectPayment}
                   </div>
@@ -2087,7 +2278,7 @@ export default function SellPage() {
                     ) : (
                       <>
                         <Icon name="check" className="h-4 w-4" />
-                        {copy.confirmPayment} · {formatAmount(totalAmount, copy.localeTag)} FCFA
+                        {copy.confirmPayment} Ã‚Â· {formatAmount(totalAmount, copy.localeTag)} FCFA
                       </>
                     )}
                   </button>
@@ -2217,19 +2408,33 @@ export default function SellPage() {
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold">
-                          {copy.walkIn}
+                          {selectedCustomer?.name || copy.walkIn}
                         </div>
-                        <div className="truncate text-xs text-muted-foreground">{copy.noCustomer}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {selectedCustomer?.phone || copy.noCustomer}
                         </div>
                       </div>
-                    <button
-                      type="button"
-                      onClick={notifyCustomerComingSoon}
-                      className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-primary transition hover:bg-accent"
-                    >
-                      <Icon name="user-plus" className="h-4 w-4" />
-                      {copy.changeCustomer}
-                    </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedCustomer ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCustomer(null)}
+                          className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-foreground transition hover:bg-accent"
+                        >
+                          <Icon name="close" className="h-4 w-4" />
+                          {copy.remove}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={openCustomerDialog}
+                        className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-primary transition hover:bg-accent"
+                      >
+                        <Icon name="user-plus" className="h-4 w-4" />
+                        {selectedCustomer ? copy.changeCustomer : copy.addCustomer}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2365,7 +2570,7 @@ export default function SellPage() {
                             <Icon name="discount" className="h-4 w-4 shrink-0" />
                             <span className="truncate">
                               {discount.value > 0
-                                ? `${copy.discount} · ${discount.type === 'percent' ? `${discount.value}%` : `${formatAmount(discount.value, copy.localeTag)} FCFA`}`
+                                ? `${copy.discount} Ã‚Â· ${discount.type === 'percent' ? `${discount.value}%` : `${formatAmount(discount.value, copy.localeTag)} FCFA`}`
                                 : copy.addDiscount}
                             </span>
                           </button>
@@ -2386,7 +2591,7 @@ export default function SellPage() {
                             <Icon name="cash" className="h-4 w-4 shrink-0" />
                             <span className="truncate">
                               {chargesAmount > 0
-                                ? `${copy.charges} · ${formatAmount(chargesAmount, copy.localeTag)} FCFA`
+                                ? `${copy.charges} Ã‚Â· ${formatAmount(chargesAmount, copy.localeTag)} FCFA`
                                 : copy.addCharges}
                             </span>
                           </button>
@@ -2625,6 +2830,15 @@ export default function SellPage() {
         </DialogContent>
       </Dialog>
 
+        <CustomerContactDialog
+          businessId={businessId}
+          open={customerDialogOpen}
+          onOpenChange={setCustomerDialogOpen}
+          selectedCustomerId={selectedCustomer?.id ?? null}
+          createdById={cashierId}
+          onSelect={handleSelectCustomer}
+        />
+
       <Dialog
         open={barcodePromptOpen}
         onOpenChange={setBarcodePromptOpen}
@@ -2730,7 +2944,7 @@ export default function SellPage() {
                             </div>
                             <div className="mt-1 text-sm text-muted-foreground">
                               {hold.items.length} {hold.items.length === 1 ? copy.item : copy.items}
-                              {/* {hold.customer ? ` · ${hold.customer.name}` : ''} */}
+                              {hold.customer ? ` Ã¯Â¿Â½ ${hold.customer.name}` : ''}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               {formatDateLabel(hold.createdAt, copy.localeTag)}

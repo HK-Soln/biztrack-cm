@@ -53,11 +53,13 @@ export class DailySalesSummaryService {
           mtn_momo_collected,
           orange_money_collected,
           card_collected,
+          credit_issued,
+          credit_sales,
           voided_sales,
           voided_amount,
           updated_at
         )
-        VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, 0, 0, now())
+        VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 0, now())
         ON CONFLICT (business_id, summary_date)
         DO UPDATE SET
           total_sales = daily_sale_summaries.total_sales + 1,
@@ -69,6 +71,8 @@ export class DailySalesSummaryService {
           mtn_momo_collected = daily_sale_summaries.mtn_momo_collected + $8,
           orange_money_collected = daily_sale_summaries.orange_money_collected + $9,
           card_collected = daily_sale_summaries.card_collected + $10,
+          credit_issued = daily_sale_summaries.credit_issued + $11,
+          credit_sales = daily_sale_summaries.credit_sales + $12,
           updated_at = now()
       `,
       [
@@ -82,6 +86,8 @@ export class DailySalesSummaryService {
         totals.mtnMomoCollected,
         totals.orangeMoneyCollected,
         totals.cardCollected,
+        sale.creditAmount,
+        sale.creditAmount > 0 ? 1 : 0,
       ],
     )
   }
@@ -109,11 +115,13 @@ export class DailySalesSummaryService {
           mtn_momo_collected,
           orange_money_collected,
           card_collected,
+          credit_issued,
+          credit_sales,
           voided_sales,
           voided_amount,
           updated_at
         )
-        VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, $3, now())
+        VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, $3, now())
         ON CONFLICT (business_id, summary_date)
         DO UPDATE SET
           total_sales = GREATEST(daily_sale_summaries.total_sales - 1, 0),
@@ -125,6 +133,8 @@ export class DailySalesSummaryService {
           mtn_momo_collected = GREATEST(daily_sale_summaries.mtn_momo_collected - $8, 0),
           orange_money_collected = GREATEST(daily_sale_summaries.orange_money_collected - $9, 0),
           card_collected = GREATEST(daily_sale_summaries.card_collected - $10, 0),
+          credit_issued = GREATEST(daily_sale_summaries.credit_issued - $11, 0),
+          credit_sales = GREATEST(daily_sale_summaries.credit_sales - $12, 0),
           voided_sales = daily_sale_summaries.voided_sales + 1,
           voided_amount = daily_sale_summaries.voided_amount + $3,
           updated_at = now()
@@ -140,6 +150,8 @@ export class DailySalesSummaryService {
         totals.mtnMomoCollected,
         totals.orangeMoneyCollected,
         totals.cardCollected,
+        sale.creditAmount,
+        sale.creditAmount > 0 ? 1 : 0,
       ],
     )
   }

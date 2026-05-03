@@ -1,0 +1,147 @@
+
+<h2 class="sr-only">Contacts dashboard — master directory of all customers and suppliers with search, type filter, debt summary badges, and add contact form.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.pg-title{font-size:18px;font-weight:500}
+.pg-sub{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+.add-btn{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:7px 14px;border-radius:var(--border-radius-md);background:#1D9E75;color:#fff;border:none;cursor:pointer}
+.add-btn:hover{background:#0F6E56}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.25rem}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem}
+.mc-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:6px}
+.mc-value{font-size:22px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.mc-sub{font-size:11px;color:var(--color-text-secondary);margin-top:4px}
+.mc-sub.warn{color:#BA7517}
+.mc-sub.ok{color:#0F6E56}
+.filters{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;align-items:center}
+.filters input{flex:1;min-width:160px;font-size:13px}
+.filters select{font-size:12px}
+.type-pill{font-size:11px;font-weight:500;padding:5px 12px;border-radius:20px;border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.type-pill.active{background:#1D9E75;color:#fff;border-color:#1D9E75}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.tbl th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.625rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.tbl td{padding:.75rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--color-background-secondary);cursor:pointer}
+.avatar{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0}
+.av-cust{background:#E1F5EE;color:#085041}
+.av-supp{background:#E6F1FB;color:#0C447C}
+.av-both{background:#FAEEDA;color:#633806}
+.name-cell{display:flex;align-items:center;gap:10px}
+.contact-name{font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.contact-phone{font-size:11px;color:var(--color-text-secondary);margin-top:1px}
+.type-badge{display:inline-flex;font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
+.tb-cust{background:#E1F5EE;color:#085041}
+.tb-supp{background:#E6F1FB;color:#0C447C}
+.tb-both{background:#FAEEDA;color:#633806}
+.debt-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;font-family:var(--font-mono)}
+.dc-recv{background:#E1F5EE;color:#085041}
+.dc-pay{background:#FCEBEB;color:#791F1F}
+.dc-clear{background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.ellipsis-btn{background:none;border:none;cursor:pointer;color:var(--color-text-secondary);font-size:16px;padding:2px 6px;border-radius:var(--border-radius-md)}
+.ellipsis-btn:hover{background:var(--color-background-secondary);color:var(--color-text-primary)}
+.foot{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-top:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary)}
+.pg-btns{display:flex;gap:4px}
+.pg-btn{font-size:12px;padding:4px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.pg-btn.on{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500}
+.last-col{font-size:12px;color:var(--color-text-secondary);font-family:var(--font-mono)}
+</style>
+
+<div class="pg">
+<div class="topbar">
+  <div>
+    <p class="pg-title">Contacts</p>
+    <p class="pg-sub">Customers, suppliers and everyone in between</p>
+  </div>
+  <button class="add-btn">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+    Add contact
+  </button>
+</div>
+
+<div class="metrics">
+  <div class="mc"><p class="mc-label">Total contacts</p><p class="mc-value">24</p><p class="mc-sub">12 customers · 9 suppliers · 3 both</p></div>
+  <div class="mc"><p class="mc-label">Active debtors</p><p class="mc-value">8</p><p class="mc-sub warn">XAF 312,000 outstanding</p></div>
+  <div class="mc"><p class="mc-label">Active creditors</p><p class="mc-value">5</p><p class="mc-sub warn">XAF 485,000 owed</p></div>
+  <div class="mc"><p class="mc-label">Settled this month</p><p class="mc-value">6</p><p class="mc-sub ok">XAF 148,000 collected</p></div>
+</div>
+
+<div class="filters">
+  <input type="text" id="c-search" placeholder="Search by name or phone..." oninput="renderContacts()" />
+  <select id="c-type" onchange="renderContacts()" style="font-size:12px">
+    <option value="">All types</option>
+    <option value="CUSTOMER">Customers</option>
+    <option value="SUPPLIER">Suppliers</option>
+    <option value="BOTH">Both</option>
+  </select>
+  <select id="c-debt" onchange="renderContacts()" style="font-size:12px">
+    <option value="">All statuses</option>
+    <option value="receivable">Has receivable</option>
+    <option value="payable">Has payable</option>
+    <option value="clear">No open debts</option>
+  </select>
+</div>
+
+<div class="card">
+  <table class="tbl">
+    <colgroup><col style="width:28%"><col style="width:12%"><col style="width:18%"><col style="width:18%"><col style="width:14%"><col style="width:10%"></colgroup>
+    <thead><tr><th>Contact</th><th>Type</th><th>Receivable</th><th>Payable</th><th>Last activity</th><th></th></tr></thead>
+    <tbody id="c-tbody"></tbody>
+  </table>
+  <div class="foot">
+    <span id="c-info">Showing 1–8 of 24</span>
+    <div class="pg-btns">
+      <button class="pg-btn on">1</button>
+      <button class="pg-btn">2</button>
+      <button class="pg-btn">3</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const CONTACTS=[
+  {id:'c1',name:'Marie Ekotto',phone:'+237 677 234 512',type:'CUSTOMER',recv:24000,pay:0,last:'13 Apr 2025',active:true},
+  {id:'c2',name:'Nguia SARL',phone:'+237 699 541 200',type:'SUPPLIER',recv:0,pay:185000,last:'10 Apr 2025',active:true},
+  {id:'c3',name:'Paul Njock',phone:'+237 655 012 344',type:'CUSTOMER',recv:8500,pay:0,last:'12 Apr 2025',active:true},
+  {id:'c4',name:'Amina Bello',phone:'+237 690 123 456',type:'CUSTOMER',recv:0,pay:0,last:'11 Apr 2025',active:true},
+  {id:'c5',name:'Fokou Distributions',phone:'+237 677 890 123',type:'BOTH',recv:15000,pay:95000,last:'08 Apr 2025',active:true},
+  {id:'c6',name:'Chantal Oyono',phone:'+237 655 234 567',type:'CUSTOMER',recv:45000,pay:0,last:'09 Apr 2025',active:true},
+  {id:'c7',name:'PEDAG Cameroun',phone:'+237 699 789 012',type:'SUPPLIER',recv:0,pay:120000,last:'05 Apr 2025',active:true},
+  {id:'c8',name:'Bertrand Mfoula',phone:'+237 677 456 789',type:'CUSTOMER',recv:0,pay:0,last:'13 Apr 2025',active:true},
+];
+
+function fmtXAF(n){if(!n)return'—';return'XAF '+Math.round(n).toLocaleString('fr-FR')}
+function initials(name){return name.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+function avCls(t){return t==='CUSTOMER'?'av-cust':t==='SUPPLIER'?'av-supp':'av-both'}
+function tbCls(t){return t==='CUSTOMER'?'tb-cust':t==='SUPPLIER'?'tb-supp':'tb-both'}
+function typeLbl(t){return t==='BOTH'?'Customer & supplier':t==='CUSTOMER'?'Customer':'Supplier'}
+
+function renderContacts(){
+  const q=document.getElementById('c-search').value.toLowerCase();
+  const tp=document.getElementById('c-type').value;
+  const dt=document.getElementById('c-debt').value;
+  const filtered=CONTACTS.filter(c=>{
+    if(q&&!c.name.toLowerCase().includes(q)&&!c.phone.includes(q))return false;
+    if(tp&&c.type!==tp)return false;
+    if(dt==='receivable'&&!c.recv)return false;
+    if(dt==='payable'&&!c.pay)return false;
+    if(dt==='clear'&&(c.recv||c.pay))return false;
+    return true;
+  });
+  document.getElementById('c-info').textContent=`Showing 1–${filtered.length} of ${filtered.length}`;
+  document.getElementById('c-tbody').innerHTML=filtered.map(c=>`
+    <tr>
+      <td><div class="name-cell"><div class="avatar ${avCls(c.type)}">${initials(c.name)}</div><div><p class="contact-name">${c.name}</p><p class="contact-phone">${c.phone}</p></div></div></td>
+      <td><span class="type-badge ${tbCls(c.type)}">${typeLbl(c.type)}</span></td>
+      <td>${c.recv?`<span class="debt-chip dc-recv">${fmtXAF(c.recv)}</span>`:`<span class="debt-chip dc-clear">Settled</span>`}</td>
+      <td>${c.pay?`<span class="debt-chip dc-pay">${fmtXAF(c.pay)}</span>`:`<span class="debt-chip dc-clear">Settled</span>`}</td>
+      <td class="last-col">${c.last}</td>
+      <td><button class="ellipsis-btn">&#8942;</button></td>
+    </tr>`).join('');
+}
+renderContacts();
+</script>

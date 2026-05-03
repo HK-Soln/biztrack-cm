@@ -1,0 +1,328 @@
+
+<h2 class="sr-only">Contact detail page for Fokou Distributions — both customer and supplier type, showing separate receivable and payable summaries, two payment forms, and two account statement ledgers.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.back-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary);background:none;border:none;cursor:pointer;padding:0}
+.back-btn:hover{color:var(--color-text-primary)}
+.action-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:6px 13px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer}
+.action-pill:hover{border-color:var(--color-border-primary)}
+.hero{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:#EF9F27}
+.hero-inner{display:flex;gap:1.25rem;align-items:flex-start}
+.contact-avatar{width:56px;height:56px;border-radius:14px;background:#FAEEDA;color:#633806;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:500;flex-shrink:0;border:0.5px solid rgba(239,159,39,.25)}
+.hero-body{flex:1;min-width:0}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#BA7517;margin-bottom:5px}
+.contact-name{font-size:22px;font-weight:500;margin-bottom:4px}
+.contact-meta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px}
+.meta-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary)}
+.meta-item svg{width:12px;height:12px;flex-shrink:0}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px}
+.b-both{background:#FAEEDA;color:#633806}
+.b-supp{background:#E6F1FB;color:#0C447C}
+.b-cust{background:#E1F5EE;color:#085041}
+.b-active{background:#EAF3DE;color:#27500A}
+
+.net-block{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 12px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary)}
+.net-label{font-size:12px;color:var(--color-text-secondary)}
+.net-value{font-size:15px;font-weight:500;font-family:var(--font-mono)}
+.net-pos{color:#085041}.net-neg{color:#A32D2D}
+.net-sep{font-size:12px;color:var(--color-text-secondary);margin:0 2px}
+
+.metrics-dual{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.metrics-panel{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.panel-header{padding:.625rem 1rem;display:flex;align-items:center;justify-content:space-between}
+.panel-header.recv{background:#E1F5EE}
+.panel-header.pay{background:#FCEBEB}
+.ph-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em}
+.ph-label.recv{color:#085041}
+.ph-label.pay{color:#791F1F}
+.ph-value{font-size:16px;font-weight:500;font-family:var(--font-mono)}
+.ph-value.recv{color:#0F6E56}
+.ph-value.pay{color:#A32D2D}
+.panel-body{padding:.75rem 1rem;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mc-sm{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .75rem}
+.mc-sm-label{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:3px}
+.mc-sm-value{font-size:14px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.mc-sm-sub{font-size:10px;margin-top:2px}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.surface{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.s-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.s-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:.875rem}
+.field{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .875rem;margin-bottom:6px}
+.f-label{font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px}
+.f-value{font-size:13px;font-weight:500}
+.form-row{margin-bottom:10px}
+.form-label{font-size:12px;font-weight:500;display:block;margin-bottom:4px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.form-input{width:100%;font-size:13px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.form-input:focus{outline:none;box-shadow:0 0 0 2px rgba(239,159,39,.2);border-color:#EF9F27}
+.form-select{width:100%;font-size:13px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.debt-select{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .875rem;margin-bottom:8px}
+.debt-opt{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer}
+.debt-opt:last-child{border-bottom:none}
+.debt-ref{font-size:12px;font-weight:500;font-family:var(--font-mono)}
+.debt-amt{font-size:12px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+.save-btn-recv{width:100%;font-size:13px;font-weight:500;padding:8px;border-radius:var(--border-radius-md);background:#1D9E75;color:#fff;border:none;cursor:pointer}
+.save-btn-recv:hover{background:#0F6E56}
+.save-btn-pay{width:100%;font-size:13px;font-weight:500;padding:8px;border-radius:var(--border-radius-md);background:#378ADD;color:#fff;border:none;cursor:pointer}
+.save-btn-pay:hover{background:#185FA5}
+
+.stmt-divider{display:flex;align-items:center;gap:12px;margin:1.5rem 0 1rem}
+.stmt-divider-line{flex:1;height:0.5px;background:var(--color-border-tertiary)}
+.stmt-divider-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.12em;color:var(--color-text-secondary);white-space:nowrap;padding:4px 12px;border:0.5px solid var(--color-border-tertiary);border-radius:20px}
+
+.stmt-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin-bottom:1rem}
+.stmt-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.25rem;border-bottom:0.5px solid var(--color-border-tertiary)}
+.stmt-header.recv-hdr{background:#E1F5EE}
+.stmt-header.pay-hdr{background:#E6F1FB}
+.stmt-title{font-size:13px;font-weight:500}
+.balance-chip-recv{display:inline-flex;font-size:13px;font-weight:500;padding:4px 12px;border-radius:var(--border-radius-md);background:#FCEBEB;color:#791F1F;font-family:var(--font-mono)}
+.balance-chip-pay{display:inline-flex;font-size:13px;font-weight:500;padding:4px 12px;border-radius:var(--border-radius-md);background:#FCEBEB;color:#791F1F;font-family:var(--font-mono)}
+.ledger{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.ledger th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.5rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.ledger td{padding:.7rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger tr:last-child td{border-bottom:none}
+.ledger tr:hover td{background:var(--color-background-secondary)}
+.entry-type{display:inline-flex;font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
+.et-debt{background:#FAEEDA;color:#633806}
+.et-pay{background:#E1F5EE;color:#085041}
+.mono{font-family:var(--font-mono);font-size:12px}
+.debit{color:#A32D2D;font-weight:500;font-family:var(--font-mono)}
+.credit{color:#0F6E56;font-weight:500;font-family:var(--font-mono)}
+.balance-cell{font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.stmt-foot{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1.25rem;border-top:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary)}
+.closing-recv{font-size:13px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+.closing-pay{font-size:13px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+</style>
+
+<div class="pg">
+<div class="topbar">
+  <button class="back-btn">
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3-5 5 5 5"/><path d="M2 8h12"/></svg>
+    Contacts
+  </button>
+  <div style="display:flex;gap:8px">
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 1v5l3 2"/><circle cx="6" cy="6" r="5"/></svg>
+      Payment history
+    </button>
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="10" height="10" rx="2"/><path d="M4 6h4M6 4v4"/></svg>
+      Edit contact
+    </button>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="contact-avatar">FD</div>
+    <div class="hero-body">
+      <p class="eyebrow">Contacts / Customer & supplier</p>
+      <h1 class="contact-name">Fokou Distributions</h1>
+      <div class="contact-meta">
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3a1 1 0 011-1h1.5l1 2.5-1.5 1a6 6 0 002.5 2.5l1-1.5L9 7.5V9a1 1 0 01-1 1A7 7 0 012 3z"/></svg>
+          +237 677 890 123
+        </span>
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4H2a1 1 0 00-1 1v4a1 1 0 001 1h8a1 1 0 001-1V5a1 1 0 00-1-1z"/><path d="M8 4V3a1 1 0 00-1-1H5a1 1 0 00-1 1v1"/></svg>
+          Deido, Douala
+        </span>
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="10" height="8" rx="1"/><path d="M1 5h10"/></svg>
+          Contact since 02 Feb 2025
+        </span>
+      </div>
+      <div class="badges">
+        <span class="badge b-both">Customer &amp; supplier</span>
+        <span class="badge b-cust">Buys from you</span>
+        <span class="badge b-supp">Sells to you</span>
+        <span class="badge b-active">Active</span>
+      </div>
+      <div class="net-block">
+        <span class="net-label">Net position:</span>
+        <span class="net-value net-neg" style="font-size:13px">They owe you XAF 15,000</span>
+        <span class="net-sep">·</span>
+        <span class="net-value net-neg" style="font-size:13px">You owe them XAF 95,000</span>
+        <span class="net-sep">·</span>
+        <span style="font-size:12px;color:#A32D2D;font-weight:500">Net: you owe XAF 80,000</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="metrics-dual">
+  <div class="metrics-panel">
+    <div class="panel-header recv">
+      <span class="ph-label recv">They owe you (receivable)</span>
+      <span class="ph-value recv">XAF 15,000</span>
+    </div>
+    <div class="panel-body">
+      <div class="mc-sm"><p class="mc-sm-label">Total credit given</p><p class="mc-sm-value">38,000</p><p class="mc-sm-sub sub-muted">2 sales on credit</p></div>
+      <div class="mc-sm"><p class="mc-sm-label">Collected</p><p class="mc-sm-value">23,000</p><p class="mc-sm-sub sub-ok">60.5% collected</p></div>
+      <div class="mc-sm"><p class="mc-sm-label">Outstanding</p><p class="mc-sm-value" style="color:#A32D2D">15,000</p><p class="mc-sm-sub sub-danger">1 open debt</p></div>
+      <div class="mc-sm"><p class="mc-sm-label">Last received</p><p class="mc-sm-value" style="font-size:13px">01 Apr</p><p class="mc-sm-sub sub-muted">XAF 23,000</p></div>
+    </div>
+  </div>
+  <div class="metrics-panel">
+    <div class="panel-header pay">
+      <span class="ph-label pay">You owe them (payable)</span>
+      <span class="ph-value pay">XAF 95,000</span>
+    </div>
+    <div class="panel-body">
+      <div class="mc-sm"><p class="mc-sm-label">Total restocked</p><p class="mc-sm-value">215,000</p><p class="mc-sm-sub sub-muted">2 restock records</p></div>
+      <div class="mc-sm"><p class="mc-sm-label">Paid</p><p class="mc-sm-value">120,000</p><p class="mc-sm-sub sub-ok">55.8% paid</p></div>
+      <div class="mc-sm"><p class="mc-sm-label">Outstanding</p><p class="mc-sm-value" style="color:#A32D2D">95,000</p><p class="mc-sm-sub sub-danger">1 open debt</p></div>
+      <div class="mc-sm"><p class="mc-sm-label">Next due</p><p class="mc-sm-value" style="font-size:13px">25 Apr</p><p class="mc-sm-sub sub-warn">XAF 95,000 due</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="surface">
+    <p class="s-title">Contact information</p>
+    <p class="s-desc">Profile and trading notes</p>
+    <div class="field"><p class="f-label">Business name</p><p class="f-value">Fokou Distributions</p></div>
+    <div class="field"><p class="f-label">Primary phone</p><p class="f-value">+237 677 890 123</p></div>
+    <div class="field"><p class="f-label">Address</p><p class="f-value">Deido, Douala</p></div>
+    <div class="field"><p class="f-label">What they supply</p><p class="f-value">Farine de blé, Céréales, Condiments</p></div>
+    <div class="field"><p class="f-label">What they buy</p><p class="f-value">Boissons, Savons (bulk resale)</p></div>
+    <div class="field"><p class="f-label">Notes</p><p class="f-value">Mutual credit arrangement. Settle net at end of month. Trusted partner.</p></div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:1rem">
+    <div class="surface">
+      <p class="s-title" style="color:#085041">Record customer payment</p>
+      <p class="s-desc">Payment received from them for a sale</p>
+      <div class="debt-select">
+        <div class="debt-opt">
+          <div><p class="debt-ref">VTE-20250408-0015</p><p style="font-size:11px;color:var(--color-text-secondary)">08 Apr · Outstanding</p></div>
+          <span class="debt-amt">XAF 15,000</span>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label><span class="form-label">Amount (XAF)</span><input type="number" class="form-input" placeholder="0" /></label>
+        <label><span class="form-label">Date</span><input type="date" class="form-input" value="2025-04-13" /></label>
+      </div>
+      <div class="form-row">
+        <span class="form-label" style="display:block;margin-bottom:4px">Method</span>
+        <select class="form-select"><option>Cash</option><option>MTN Mobile Money</option><option>Orange Money</option></select>
+      </div>
+      <button class="save-btn-recv">Record payment received</button>
+    </div>
+
+    <div class="surface">
+      <p class="s-title" style="color:#0C447C">Record supplier payment</p>
+      <p class="s-desc">Payment made to them for a restock</p>
+      <div class="debt-select">
+        <div class="debt-opt">
+          <div><p class="debt-ref">RST-20250328-002</p><p style="font-size:11px;color:var(--color-text-secondary)">28 Mar · Partial — XAF 120,000 paid</p></div>
+          <span class="debt-amt">XAF 95,000</span>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label><span class="form-label">Amount (XAF)</span><input type="number" class="form-input" placeholder="0" /></label>
+        <label><span class="form-label">Date</span><input type="date" class="form-input" value="2025-04-13" /></label>
+      </div>
+      <div class="form-row">
+        <span class="form-label" style="display:block;margin-bottom:4px">Method</span>
+        <select class="form-select"><option>Cash</option><option>MTN Mobile Money</option><option>Orange Money</option></select>
+      </div>
+      <button class="save-btn-pay">Record payment made</button>
+    </div>
+  </div>
+</div>
+
+<div class="stmt-divider">
+  <div class="stmt-divider-line"></div>
+  <span class="stmt-divider-label">Receivable statement — they owe you</span>
+  <div class="stmt-divider-line"></div>
+</div>
+
+<div class="stmt-card">
+  <div class="stmt-header recv-hdr">
+    <div>
+      <p class="stmt-title" style="color:#085041">Sales on credit</p>
+      <p style="font-size:11px;color:#0F6E56;margin-top:2px">Credit given to Fokou Distributions as a customer</p>
+    </div>
+    <span class="balance-chip-recv">They owe: XAF 15,000</span>
+  </div>
+  <table class="ledger">
+    <colgroup><col style="width:11%"><col style="width:18%"><col style="width:13%"><col style="width:26%"><col style="width:11%"><col style="width:10%"><col style="width:11%"></colgroup>
+    <thead><tr><th>Date</th><th>Reference</th><th>Type</th><th>Description</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th style="text-align:right">Balance</th></tr></thead>
+    <tbody id="recv-stmt"></tbody>
+  </table>
+  <div class="stmt-foot">
+    <span>3 entries · Debit = credit issued · Credit = payment received</span>
+    <span class="closing-recv">Balance owed to you: XAF 15,000</span>
+  </div>
+</div>
+
+<div class="stmt-divider">
+  <div class="stmt-divider-line"></div>
+  <span class="stmt-divider-label">Payable statement — you owe them</span>
+  <div class="stmt-divider-line"></div>
+</div>
+
+<div class="stmt-card">
+  <div class="stmt-header pay-hdr">
+    <div>
+      <p class="stmt-title" style="color:#0C447C">Restock credit</p>
+      <p style="font-size:11px;color:#185FA5;margin-top:2px">Credit received from Fokou Distributions as a supplier</p>
+    </div>
+    <span class="balance-chip-pay">You owe: XAF 95,000</span>
+  </div>
+  <table class="ledger">
+    <colgroup><col style="width:11%"><col style="width:18%"><col style="width:13%"><col style="width:26%"><col style="width:11%"><col style="width:10%"><col style="width:11%"></colgroup>
+    <thead><tr><th>Date</th><th>Reference</th><th>Type</th><th>Description</th><th style="text-align:right">Payable</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th></tr></thead>
+    <tbody id="pay-stmt"></tbody>
+  </table>
+  <div class="stmt-foot">
+    <span>4 entries · Payable = credit taken · Paid = payment made</span>
+    <span class="closing-pay">Balance you owe: XAF 95,000</span>
+  </div>
+</div>
+
+</div>
+
+<script>
+const RECV=[
+  {date:'08 Apr',ref:'VTE-20250408-0015',type:'DEBT_CREATED',desc:'Sale on credit — bulk savons',debit:15000,credit:0,bal:15000},
+  {date:'01 Apr',ref:'PMT-20250401-001',type:'PAYMENT',desc:'Cash payment — full settlement',debit:0,credit:23000,bal:0},
+  {date:'20 Mar',ref:'VTE-20250320-0022',type:'DEBT_CREATED',desc:'Sale on credit — boissons',debit:23000,credit:0,bal:23000},
+];
+const PAY=[
+  {date:'28 Mar',ref:'RST-20250328-002',type:'DEBT_CREATED',desc:'Restock — farine & céréales',payable:155000,paid:0,bal:155000},
+  {date:'05 Apr',ref:'PMT-20250405-002',type:'PAYMENT',desc:'MTN MoMo — partial',payable:0,paid:60000,bal:95000},
+  {date:'10 Feb',ref:'RST-20250210-001',type:'DEBT_CREATED',desc:'First restock — condiments',payable:60000,paid:0,bal:60000},
+  {date:'25 Feb',ref:'PMT-20250225-001',type:'PAYMENT',desc:'Cash — full settlement',payable:0,paid:60000,bal:0},
+];
+function typeCls(t){return t==='DEBT_CREATED'?'et-debt':'et-pay'}
+function typeLbl(t){return t==='DEBT_CREATED'?'Credit issued':'Payment'}
+function suppTypeLbl(t){return t==='DEBT_CREATED'?'Credit taken':'Payment made'}
+function fmtAmt(n){return n?'XAF '+Math.round(n).toLocaleString('fr-FR'):'—'}
+document.getElementById('recv-stmt').innerHTML=RECV.map(e=>`
+  <tr>
+    <td class="mono" style="color:var(--color-text-secondary)">${e.date}</td>
+    <td class="mono" style="color:var(--color-text-secondary);font-size:11px">${e.ref}</td>
+    <td><span class="entry-type ${typeCls(e.type)}">${typeLbl(e.type)}</span></td>
+    <td style="font-size:12px;color:var(--color-text-secondary)">${e.desc}</td>
+    <td class="debit" style="text-align:right">${fmtAmt(e.debit)}</td>
+    <td class="credit" style="text-align:right">${fmtAmt(e.credit)}</td>
+    <td class="balance-cell" style="text-align:right">${fmtAmt(e.bal)}</td>
+  </tr>`).join('');
+document.getElementById('pay-stmt').innerHTML=PAY.map(e=>`
+  <tr>
+    <td class="mono" style="color:var(--color-text-secondary)">${e.date}</td>
+    <td class="mono" style="color:var(--color-text-secondary);font-size:11px">${e.ref}</td>
+    <td><span class="entry-type ${typeCls(e.type)}">${suppTypeLbl(e.type)}</span></td>
+    <td style="font-size:12px;color:var(--color-text-secondary)">${e.desc}</td>
+    <td class="debit" style="text-align:right">${fmtAmt(e.payable)}</td>
+    <td class="credit" style="text-align:right">${fmtAmt(e.paid)}</td>
+    <td class="balance-cell" style="text-align:right">${fmtAmt(e.bal)}</td>
+  </tr>`).join('');
+</script>

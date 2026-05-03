@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   BusinessMemberRole,
+  DebtDirection,
+  DebtSource,
   PaymentMethod,
   SaleStatus,
   type DailySalesSummary,
@@ -26,6 +28,7 @@ import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { DebtsService } from '@/modules/debts/services/debts.service'
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import type { CreateSaleDto } from '../dto/create-sale.dto'
 import type { VoidSaleDto } from '../dto/void-sale.dto'
@@ -41,6 +44,18 @@ type ComputedSaleItem = {
   costPrice: number | null
 }
 
+type SaleComputationInput = {
+  discountAmount?: number
+  chargesAmount?: number
+  items: Array<{
+    productId: string
+    quantity: number
+    unitPrice: number
+    discountAmount?: number
+    costPrice?: number
+  }>
+}
+
 @Injectable()
 export class SalesService {
   constructor(
@@ -49,6 +64,7 @@ export class SalesService {
     private readonly businessesRepo: Repository<Business>,
     @InjectRepository(Sale)
     private readonly salesRepo: Repository<Sale>,
+    private readonly debtsService: DebtsService,
     private readonly inventoryService: InventoryService,
     private readonly saleNumberService: SaleNumberService,
     private readonly dailySummaryService: DailySalesSummaryService,
@@ -94,24 +110,15 @@ export class SalesService {
         const amountPaid = this.roundMoney(
           dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
+        const { customerId, creditAmount } = await this.resolveSaleCreditContext(
+          manager,
+          businessId,
+          dto.customerId,
+          computed.totalAmount,
+          amountPaid,
+        )
         const paymentMethod = this.deriveStoredPaymentMethod(dto.payments)
         const momoReference = this.firstMobileMoneyReference(dto.payments)
-
-        if (amountPaid < computed.totalAmount) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.underpayment', {
-              args: {
-                paid: amountPaid,
-                total: computed.totalAmount,
-              },
-            }),
-            'UNDERPAYMENT',
-            {
-              paid: amountPaid,
-              total: computed.totalAmount,
-            },
-          )
-        }
 
         const changeGiven = this.roundMoney(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
@@ -130,9 +137,11 @@ export class SalesService {
             taxAmount: 0,
             totalAmount: computed.totalAmount,
             amountPaid,
+            creditAmount,
             paymentMethod,
             momoReference,
             changeGiven,
+            customerId,
             customerName: dto.customerName?.trim() || null,
             customerPhone: dto.customerPhone?.trim() || null,
             notes: dto.notes?.trim() || null,
@@ -190,6 +199,20 @@ export class SalesService {
         )
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
+
+        if (creditAmount > 0 && customerId) {
+          await this.debtsService.createSourceDebt(manager, {
+            businessId,
+            contactId: customerId,
+            direction: DebtDirection.RECEIVABLE,
+            sourceType: DebtSource.SALE,
+            sourceId: sale.id,
+            sourceReference: sale.saleNumber,
+            originalAmount: creditAmount,
+            notes: dto.notes?.trim() || null,
+            createdAt: soldAt,
+          })
+        }
         saleId = sale.id
       })
 
@@ -222,21 +245,11 @@ export class SalesService {
 
   async createFromSync(businessId: string, payload: SaleSyncPayload) {
     try {
-      const existing = await this.salesRepo.findOne({
-        where: {
-          businessId,
-          clientId: payload.clientId,
-        },
-      })
-
-      if (existing) {
-        return this.findById(existing.id, businessId)
-      }
-
       let saleId: string | null = null
 
       await this.dataSource.transaction(async (manager) => {
         const saleRepo = manager.getRepository(Sale)
+        const targetStatus = this.normalizeSyncSaleStatus(payload.status)
         const existingInTransaction = await saleRepo.findOne({
           where: {
             businessId,
@@ -246,6 +259,14 @@ export class SalesService {
 
         if (existingInTransaction) {
           saleId = existingInTransaction.id
+
+          if (
+            targetStatus === SaleStatus.VOIDED &&
+            existingInTransaction.status !== SaleStatus.VOIDED
+          ) {
+            await this.applyVoidFromSync(manager, businessId, existingInTransaction.id, payload)
+          }
+
           return
         }
 
@@ -256,24 +277,16 @@ export class SalesService {
         const amountPaid = this.roundMoney(
           payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
+        const { customerId, creditAmount } = await this.resolveSaleCreditContext(
+          manager,
+          businessId,
+          payload.customerId,
+          computed.totalAmount,
+          amountPaid,
+          payload.creditAmount,
+        )
         const paymentMethod = this.deriveStoredPaymentMethod(payload.payments)
         const momoReference = this.firstMobileMoneyReference(payload.payments)
-
-        if (amountPaid < computed.totalAmount) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.underpayment', {
-              args: {
-                paid: amountPaid,
-                total: computed.totalAmount,
-              },
-            }),
-            'UNDERPAYMENT',
-            {
-              paid: amountPaid,
-              total: computed.totalAmount,
-            },
-          )
-        }
 
         const cashierId = this.resolveSyncCashierId(payload)
         const changeGiven = this.roundMoney(amountPaid - computed.totalAmount)
@@ -310,9 +323,11 @@ export class SalesService {
             taxAmount: 0,
             totalAmount: computed.totalAmount,
             amountPaid,
+            creditAmount,
             paymentMethod,
             momoReference,
             changeGiven,
+            customerId,
             customerName: payload.customerName?.trim() || null,
             customerPhone: payload.customerPhone?.trim() || null,
             notes: payload.notes?.trim() || null,
@@ -320,6 +335,9 @@ export class SalesService {
             saleDate,
             soldAt,
             syncedAt: now,
+            voidedAt: null,
+            voidedById: null,
+            voidReason: null,
           }),
         )
 
@@ -373,6 +391,24 @@ export class SalesService {
         )
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
+
+        if (creditAmount > 0 && customerId) {
+          await this.debtsService.createSourceDebt(manager, {
+            businessId,
+            contactId: customerId,
+            direction: DebtDirection.RECEIVABLE,
+            sourceType: DebtSource.SALE,
+            sourceId: sale.id,
+            sourceReference: sale.saleNumber,
+            originalAmount: creditAmount,
+            notes: payload.notes?.trim() || null,
+            createdAt: soldAt,
+          })
+        }
+
+        if (targetStatus === SaleStatus.VOIDED) {
+          await this.applyVoidFromSync(manager, businessId, sale.id, payload)
+        }
         saleId = sale.id
       })
 
@@ -439,21 +475,28 @@ export class SalesService {
 
       if (query.paymentMethod) {
         if (query.paymentMethod === PaymentMethod.MIXED) {
-          qb.andWhere(`
-            sale.id IN (
-              SELECT sp.sale_id
-              FROM sale_payments sp
-              GROUP BY sp.sale_id
-              HAVING COUNT(DISTINCT sp.method) > 1
-            )
-          `)
+          qb.andWhere(
+            `(
+              sale.payment_method = :mixedPaymentMethod
+              OR sale.id IN (
+                SELECT sp.sale_id
+                FROM sale_payments sp
+                GROUP BY sp.sale_id
+                HAVING COUNT(DISTINCT sp.method) > 1
+              )
+            )`,
+            { mixedPaymentMethod: PaymentMethod.MIXED },
+          )
         } else {
           qb.andWhere(`
-            EXISTS (
-              SELECT 1
-              FROM sale_payments sp
-              WHERE sp.sale_id = sale.id
-                AND sp.method = :paymentMethod
+            (
+              sale.payment_method = :paymentMethod
+              OR EXISTS (
+                SELECT 1
+                FROM sale_payments sp
+                WHERE sp.sale_id = sale.id
+                  AND sp.method = :paymentMethod
+              )
             )
           `, { paymentMethod: query.paymentMethod })
         }
@@ -574,6 +617,15 @@ export class SalesService {
           sale.payments ?? [],
           manager,
         )
+
+        await this.debtsService.writeOffSourceDebt(manager, {
+          businessId,
+          sourceType: DebtSource.SALE,
+          sourceId: sale.id,
+          reason: `Sale ${sale.saleNumber} was voided: ${dto.reason.trim()}`,
+          writtenOffAt: new Date(),
+          writtenOffById: user.sub,
+        })
       })
 
       return this.findById(id, businessId)
@@ -600,6 +652,8 @@ export class SalesService {
           mtnMomoCollected: 0,
           orangeMoneyCollected: 0,
           cardCollected: 0,
+          creditIssued: 0,
+          creditSales: 0,
           voidedSales: 0,
           voidedAmount: 0,
         }
@@ -620,6 +674,8 @@ export class SalesService {
         mtnMomoCollected: summary.mtnMomoCollected,
         orangeMoneyCollected: summary.orangeMoneyCollected,
         cardCollected: summary.cardCollected,
+        creditIssued: summary.creditIssued,
+        creditSales: summary.creditSales,
         voidedSales: summary.voidedSales,
         voidedAmount: summary.voidedAmount,
       }
@@ -654,7 +710,7 @@ export class SalesService {
   private async loadProductsForSale(
     manager: EntityManager,
     businessId: string,
-    dto: CreateSaleDto,
+    dto: Pick<SaleComputationInput, 'items'>,
   ) {
     const ids = [...new Set(dto.items.map((item) => item.productId))]
     const products = await manager.getRepository(Product).find({
@@ -687,7 +743,7 @@ export class SalesService {
     return products
   }
 
-  private computeSale(products: Product[], dto: CreateSaleDto) {
+  private computeSale(products: Product[], dto: SaleComputationInput) {
     const productsById = new Map(products.map((product) => [product.id, product]))
     const items: ComputedSaleItem[] = []
     let subtotal = 0
@@ -768,6 +824,65 @@ export class SalesService {
       .getOne()
   }
 
+  private async applyVoidFromSync(
+    manager: EntityManager,
+    businessId: string,
+    saleId: string,
+    payload: SaleSyncPayload,
+  ) {
+    const sale = await this.findSaleDetailBy(
+      'sale.id = :id',
+      { id: saleId, businessId },
+      manager,
+    )
+
+    if (!sale || sale.status === SaleStatus.VOIDED) {
+      return
+    }
+
+    const voidedAt = this.parseOptionalDate(payload.voidedAt) ?? new Date()
+    const voidedById = this.isUuid(payload.voidedById) ? payload.voidedById : null
+    const voidReason = this.normalizeOptionalString(payload.voidReason) ?? 'Voided from sync'
+    const saleRepo = manager.getRepository(Sale)
+
+    await saleRepo.update(sale.id, {
+      status: SaleStatus.VOIDED,
+      syncedAt: new Date(),
+      voidedAt,
+      voidedById,
+      voidReason,
+    })
+
+    await this.inventoryService.reverseForVoidedSale(
+      businessId,
+      sale.id,
+      sale.saleNumber,
+      voidedById ?? sale.cashierId,
+      (sale.items ?? []).map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+      })),
+      manager,
+    )
+
+    await this.dailySummaryService.decrementForVoid(
+      sale,
+      sale.items ?? [],
+      sale.payments ?? [],
+      manager,
+    )
+
+    await this.debtsService.writeOffSourceDebt(manager, {
+      businessId,
+      sourceType: DebtSource.SALE,
+      sourceId: sale.id,
+      reason: `Sale ${sale.saleNumber} was voided from sync.`,
+      writtenOffAt: voidedAt,
+      writtenOffById: voidedById,
+    })
+  }
+
   private resolveSortField(sortBy?: string) {
     const sortMap: Record<string, string> = {
       saleDate: 'sale.sale_date',
@@ -790,6 +905,73 @@ export class SalesService {
     }
 
     return date
+  }
+
+  private parseOptionalDate(value?: string | null) {
+    if (!value) {
+      return null
+    }
+
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  private normalizeOptionalString(value?: string | null) {
+    const trimmed = value?.trim()
+    return trimmed ? trimmed : null
+  }
+
+  private async resolveSaleCreditContext(
+    manager: EntityManager,
+    businessId: string,
+    rawCustomerId: string | null | undefined,
+    totalAmount: number,
+    amountPaid: number,
+    expectedCreditAmount?: number | null,
+  ) {
+    const customerId = this.normalizeOptionalUuid(rawCustomerId)
+    const creditAmount = this.roundMoney(Math.max(0, totalAmount - amountPaid))
+
+    if (
+      expectedCreditAmount !== undefined &&
+      expectedCreditAmount !== null &&
+      this.roundMoney(expectedCreditAmount) !== creditAmount
+    ) {
+      throw new AppBadRequestException(
+        'Sale credit amount does not match the unpaid balance.',
+        'SALE_CREDIT_AMOUNT_MISMATCH',
+        {
+          expectedCreditAmount,
+          computedCreditAmount: creditAmount,
+        },
+      )
+    }
+
+    if (creditAmount > 0 && !customerId) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.customer_contact_required_for_credit' as never),
+        'CUSTOMER_CONTACT_REQUIRED_FOR_CREDIT',
+        { totalAmount, amountPaid, creditAmount },
+      )
+    }
+
+    if (customerId) {
+      await this.debtsService.requireCreditContact(
+        customerId,
+        businessId,
+        DebtDirection.RECEIVABLE,
+        manager,
+      )
+    }
+
+    return {
+      customerId,
+      creditAmount,
+    }
+  }
+
+  private normalizeSyncSaleStatus(value?: SaleStatus | null) {
+    return value === SaleStatus.VOIDED ? SaleStatus.VOIDED : SaleStatus.COMPLETED
   }
 
   private roundMoney(value: number) {
@@ -818,7 +1000,7 @@ export class SalesService {
     const methods = [...new Set(payments.map((payment) => payment.method))]
 
     if (methods.length === 0) {
-      throw new AppBadRequestException('Sale payment is required.', 'SALE_PAYMENT_REQUIRED')
+      return PaymentMethod.MIXED
     }
 
     if (methods.length === 1) {
@@ -852,6 +1034,19 @@ export class SalesService {
         value,
       ),
     )
+  }
+
+  private normalizeOptionalUuid(value: string | null | undefined) {
+    const trimmed = value?.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    if (!this.isUuid(trimmed)) {
+      throw new AppBadRequestException('Sale customer id is invalid.', 'INVALID_SALE_CUSTOMER_ID')
+    }
+
+    return trimmed
   }
 
   private async handleServiceError(

@@ -51,7 +51,28 @@ declare global {
           success: boolean
           shared: boolean
           path?: string
-          fallback?: 'downloads'
+          fallback?: 'downloads' | 'downloads-revealed'
+          error?: string
+        }>
+      }
+      documents: {
+        exportPdf: (data: {
+          html?: string
+          filename?: string
+        }) => Promise<{
+          success: boolean
+          path?: string
+          canceled?: boolean
+          error?: string
+        }>
+        exportFile: (data: {
+          content?: string
+          filename?: string
+          filters?: Array<{ name: string; extensions: string[] }>
+        }) => Promise<{
+          success: boolean
+          path?: string
+          canceled?: boolean
           error?: string
         }>
       }
@@ -167,6 +188,16 @@ const fallbackIpc: Window['electronAPI'] = {
     file: async () => ({
       success: false,
       shared: false,
+    }),
+  },
+  documents: {
+    exportPdf: async () => ({
+      success: false,
+      canceled: true,
+    }),
+    exportFile: async () => ({
+      success: false,
+      canceled: true,
     }),
   },
   app: {

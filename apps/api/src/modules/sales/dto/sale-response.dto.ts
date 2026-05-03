@@ -20,17 +20,22 @@ type SaleDetailModel = SaleEntity & {
   items?: SaleItemEntity[]
   payments?: SalePaymentEntity[]
   cashier?: { id: string; name: string } | null
+  business?: Business | null
 }
 
 type SaleListModel = SaleEntity & {
   payments?: SalePaymentEntity[]
   cashier?: { id: string; name: string } | null
+  business?: Business | null
   itemCount?: number
 }
 
-function derivePaymentMethod(payments: Array<{ method: PaymentMethod }> = []) {
+function derivePaymentMethod(
+  payments: Array<{ method: PaymentMethod }> = [],
+  storedMethod?: PaymentMethod | string | null,
+) {
   const methods = [...new Set(payments.map((payment) => payment.method))]
-  if (methods.length === 0) return null
+  if (methods.length === 0) return (storedMethod as PaymentMethod | null | undefined) ?? null
   if (methods.length === 1) return methods[0]
   return PaymentMethodEnum.MIXED
 }
@@ -127,7 +132,9 @@ export class SaleResponseDto implements Sale {
   taxAmount!: number
   totalAmount!: number
   amountPaid!: number
+  creditAmount!: number
   changeGiven!: number
+  customerId?: string | null
   customerName?: string | null
   customerPhone?: string | null
   notes?: string | null
@@ -165,7 +172,9 @@ export class SaleResponseDto implements Sale {
     dto.taxAmount = entity.taxAmount
     dto.totalAmount = entity.totalAmount
     dto.amountPaid = entity.amountPaid
+    dto.creditAmount = entity.creditAmount
     dto.changeGiven = entity.changeGiven
+    dto.customerId = entity.customerId ?? null
     dto.customerName = entity.customerName ?? null
     dto.customerPhone = entity.customerPhone ?? null
     dto.notes = entity.notes ?? null
@@ -179,7 +188,7 @@ export class SaleResponseDto implements Sale {
     dto.voidedById = entity.voidedById ?? null
     dto.voidReason = entity.voidReason ?? null
     dto.currency = entity.business?.currency ?? null
-    dto.paymentMethod = derivePaymentMethod(payments)
+    dto.paymentMethod = derivePaymentMethod(payments, entity.paymentMethod)
     dto.payments = payments
     dto.items = (entity.items ?? []).map((item) => SaleItemDto.fromEntity(item))
     dto.receiptNumber = entity.saleNumber
@@ -203,7 +212,9 @@ export class SaleListItemDto implements SaleListItem {
   taxAmount!: number
   totalAmount!: number
   amountPaid!: number
+  creditAmount!: number
   changeGiven!: number
+  customerId?: string | null
   customerName?: string | null
   customerPhone?: string | null
   notes?: string | null
@@ -240,7 +251,9 @@ export class SaleListItemDto implements SaleListItem {
     dto.taxAmount = entity.taxAmount
     dto.totalAmount = entity.totalAmount
     dto.amountPaid = entity.amountPaid
+    dto.creditAmount = entity.creditAmount
     dto.changeGiven = entity.changeGiven
+    dto.customerId = entity.customerId ?? null
     dto.customerName = entity.customerName ?? null
     dto.customerPhone = entity.customerPhone ?? null
     dto.notes = entity.notes ?? null
@@ -254,7 +267,7 @@ export class SaleListItemDto implements SaleListItem {
     dto.voidedById = entity.voidedById ?? null
     dto.voidReason = entity.voidReason ?? null
     dto.currency = entity.business?.currency ?? null
-    dto.paymentMethod = derivePaymentMethod(payments)
+    dto.paymentMethod = derivePaymentMethod(payments, entity.paymentMethod)
     dto.receiptNumber = entity.saleNumber
     dto.netAmount = entity.totalAmount
     dto.momoReference = firstMobileMoneyReference(payments)
@@ -275,6 +288,8 @@ export class DailySalesSummaryDto implements DailySalesSummary {
   mtnMomoCollected!: number
   orangeMoneyCollected!: number
   cardCollected!: number
+  creditIssued!: number
+  creditSales!: number
   voidedSales!: number
   voidedAmount!: number
 
@@ -295,6 +310,8 @@ export class DailySalesSummaryDto implements DailySalesSummary {
     dto.mtnMomoCollected = entity.mtnMomoCollected
     dto.orangeMoneyCollected = entity.orangeMoneyCollected
     dto.cardCollected = entity.cardCollected
+    dto.creditIssued = entity.creditIssued
+    dto.creditSales = entity.creditSales
     dto.voidedSales = entity.voidedSales
     dto.voidedAmount = entity.voidedAmount
     return dto
@@ -316,6 +333,7 @@ export class SaleReceiptDto implements SaleReceipt {
   chargesAmount!: number
   totalAmount!: number
   amountPaid!: number
+  creditAmount!: number
   changeGiven!: number
   currency?: string | null
   payments!: SaleReceipt['payments']
@@ -344,6 +362,7 @@ export class SaleReceiptDto implements SaleReceipt {
     dto.chargesAmount = entity.chargesAmount
     dto.totalAmount = entity.totalAmount
     dto.amountPaid = entity.amountPaid
+    dto.creditAmount = entity.creditAmount
     dto.changeGiven = entity.changeGiven
     dto.currency = business.currency
     dto.payments = (entity.payments ?? []).map((payment) => ({

@@ -1,4 +1,5 @@
 import type { InventoryMovementType, StockAdjustmentType } from './inventory.types'
+import type { ContactType, DebtDirection, DebtSource, DebtStatus } from './credit.types'
 import type {
   CreateSaleItemRequest,
   CreateSalePaymentRequest,
@@ -7,13 +8,17 @@ import type {
 } from './sale.types'
 
 export type SyncEntity =
+  | 'contact'
   | 'product'
   | 'product_category'
+  | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
   | 'inventory_adjustment'
   | 'inventory_restock'
+  | 'debt'
   | 'sale'
+  | 'expense'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -29,13 +34,17 @@ export type SyncEntity =
  * - Entities in the same dependency tier must be safe to process in timestamp order.
  *
  * Current dependency graph:
+ * - `contact`: root lookup for credit sales and supplier/customer attribution
  * - `unit_of_measure`: root lookup for products
  * - `product_category`: root lookup for products
+ * - `expense_category`: root lookup for expenses
  * - `product`: depends on `unit_of_measure`, optionally `product_category`
  * - `inventory_threshold`: depends on `product`
  * - `inventory_restock`: depends on `product`
  * - `inventory_adjustment`: depends on `product`
  * - `sale`: depends on `product`
+ * - `debt`: depends on `contact`, and is typically derived from synced sales/restocks
+ * - `expense`: depends on `expense_category`
  *
  * Pull-only child records such as sale items, sale payments, inventory levels,
  * inventory movements, and restock items are not part of the push entity plan.
@@ -48,23 +57,31 @@ export type SyncEntity =
  * - every backend entity handler switch
  */
 export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
+  contact: 0,
   unit_of_measure: 0,
   product_category: 0,
+  expense_category: 0,
   product: 1,
   inventory_threshold: 2,
   inventory_restock: 2,
   inventory_adjustment: 2,
   sale: 2,
+  expense: 2,
+  debt: 3,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
-  unit_of_measure: 0,
-  product_category: 1,
-  product: 2,
-  inventory_threshold: 3,
-  inventory_restock: 4,
-  inventory_adjustment: 5,
-  sale: 6,
+  contact: 0,
+  unit_of_measure: 1,
+  product_category: 2,
+  expense_category: 3,
+  product: 4,
+  inventory_threshold: 5,
+  inventory_restock: 6,
+  inventory_adjustment: 7,
+  sale: 8,
+  expense: 9,
+  debt: 10,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -147,10 +164,27 @@ export interface InventoryMovementSyncRecord extends SyncRecord {
   createdAt: string
 }
 
+export interface ContactSyncRecord extends SyncRecord {
+  businessId: string
+  type: ContactType
+  name: string
+  phone?: string | null
+  phoneAlt?: string | null
+  address?: string | null
+  notes?: string | null
+  isActive: boolean
+  createdById?: string | null
+  createdAt: string
+}
+
 export interface RestockRecordSyncRecord extends SyncRecord {
   businessId: string
   referenceNumber?: string | null
+  supplierId?: string | null
   supplierName?: string | null
+  totalAmount?: number | null
+  amountPaid?: number | null
+  creditAmount?: number | null
   totalCost?: number | null
   notes?: string | null
   performedById?: string | null
@@ -179,7 +213,9 @@ export interface SaleSyncRecord extends SyncRecord {
   taxAmount: number
   totalAmount: number
   amountPaid: number
+  creditAmount: number
   changeGiven: number
+  customerId?: string | null
   customerName?: string | null
   customerPhone?: string | null
   notes?: string | null
@@ -219,9 +255,72 @@ export interface SalePaymentSyncRecord extends SyncRecord {
   createdAt: string
 }
 
+export interface DebtPaymentSyncPayload {
+  id: string
+  amount: number
+  method: PaymentMethod
+  mobileMoneyReference?: string | null
+  paymentDate: string
+  notes?: string | null
+  recordedById?: string | null
+  createdAt: string
+}
+
+export interface DebtSyncPayload {
+  contactId: string
+  direction: DebtDirection
+  sourceType: DebtSource
+  sourceId: string
+  sourceReference: string
+  originalAmount: number
+  status: DebtStatus
+  dueDate?: string | null
+  notes?: string | null
+  createdAt: string
+  updatedAt: string
+  settledAt?: string | null
+  writtenOffAt?: string | null
+  writtenOffById?: string | null
+  writtenOffReason?: string | null
+  payments?: DebtPaymentSyncPayload[]
+}
+
+export interface DebtSyncRecord extends SyncRecord, DebtSyncPayload {
+  businessId: string
+}
+
+export interface ExpenseCategorySyncRecord extends SyncRecord {
+  businessId?: string | null
+  name: string
+  slug: string
+  color: string
+  icon?: string | null
+  sortOrder: number
+  isSystem: boolean
+  createdAt: string
+}
+
+export interface ExpenseSyncRecord extends SyncRecord {
+  businessId: string
+  categoryId: string
+  recordedById: string
+  description: string
+  amount: number
+  currency?: string | null
+  expenseDate: string
+  vendor?: string | null
+  notes?: string | null
+  isRecurring: boolean
+  paymentMethod?: PaymentMethod | string | null
+  receiptUrl?: string | null
+  createdAt: string
+}
+
 export interface ChangeSet {
+  contacts?: ContactSyncRecord[]
   products?: SyncRecord[]
   productCategories?: SyncRecord[]
+  expenseCategories?: ExpenseCategorySyncRecord[]
   unitOfMeasures?: SyncRecord[]
   inventoryLevels?: InventoryLevelSyncRecord[]
   inventoryMovements?: InventoryMovementSyncRecord[]
@@ -230,12 +329,26 @@ export interface ChangeSet {
   sales?: SaleSyncRecord[]
   saleItems?: SaleItemSyncRecord[]
   salePayments?: SalePaymentSyncRecord[]
+  debts?: DebtSyncRecord[]
+  expenses?: ExpenseSyncRecord[]
 }
 
 export interface InventoryThresholdSyncPayload {
   productId: string
   lowStockThreshold?: number | null
   reorderPoint?: number | null
+}
+
+export interface ContactSyncPayload {
+  type: ContactType
+  name: string
+  phone?: string | null
+  phoneAlt?: string | null
+  address?: string | null
+  notes?: string | null
+  isActive?: boolean
+  createdById?: string | null
+  createdAt: string
 }
 
 export interface InventoryAdjustmentSyncPayload {
@@ -254,12 +367,21 @@ export interface InventoryRestockSyncItemPayload {
   movementId: string
 }
 
+export interface InventoryRestockSyncPaymentPayload {
+  method: PaymentMethod
+  amount: number
+  mobileMoneyReference?: string
+}
+
 export interface InventoryRestockSyncPayload {
   referenceNumber?: string | null
+  supplierId?: string | null
   supplierName?: string | null
+  totalAmount?: number | null
   totalCost?: number | null
   notes?: string | null
   createdAt: string
+  payments?: InventoryRestockSyncPaymentPayload[]
   items: InventoryRestockSyncItemPayload[]
 }
 
@@ -280,21 +402,58 @@ export interface SaleSyncPayload {
   cashierId?: string | null
   cashierName?: string | null
   fallbackCashierId?: string | null
+  customerId?: string | null
   customerName?: string
   customerPhone?: string
   notes?: string
   discountAmount?: number
   chargesAmount?: number
+  creditAmount?: number | null
+  status?: SaleStatus
+  voidedAt?: string | null
+  voidedById?: string | null
+  voidReason?: string
   payments: SaleSyncPaymentPayload[]
   items: SaleSyncItemPayload[]
 }
 
+export interface ExpenseCategorySyncPayload {
+  name: string
+  color: string
+  icon?: string | null
+  sortOrder?: number | null
+  createdAt: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface ExpenseSyncPayload {
+  description: string
+  amount: number
+  expenseDate: string
+  categoryId: string
+  recordedById?: string | null
+  fallbackRecordedById?: string | null
+  vendor?: string | null
+  notes?: string | null
+  isRecurring?: boolean
+  paymentMethod?: PaymentMethod | string | null
+  receiptUrl?: string | null
+  currency?: string | null
+  createdAt: string
+}
+
 export type SyncPushPayload =
   | SyncRecord
+  | ContactSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload
   | InventoryRestockSyncPayload
+  | DebtSyncPayload
   | SaleSyncPayload
+  | ExpenseCategorySyncPayload
+  | ExpenseSyncPayload
   | null
 
 export interface SyncPushOperation {

@@ -9,7 +9,9 @@ import {
 import { ImmutableBaseEntity } from '@/common/entities/immutable-base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
+import { Contact } from './contact.entity'
 import { RestockItem } from './restock-item.entity'
+import { RestockPayment } from './restock-payment.entity'
 import { User } from './user.entity'
 
 @Entity('restock_records')
@@ -38,6 +40,43 @@ export class RestockRecord extends ImmutableBaseEntity {
   })
   totalCost?: number | null
 
+  @Column({
+    name: 'total_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  totalAmount!: number
+
+  @Column({
+    name: 'amount_paid',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  amountPaid!: number
+
+  @Column({
+    name: 'credit_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  creditAmount!: number
+
+  @Column({ name: 'supplier_id', nullable: true, type: 'uuid' })
+  supplierId?: string | null
+
+  @ManyToOne(() => Contact, { nullable: true, onDelete: 'NO ACTION' })
+  @JoinColumn({ name: 'supplier_id', foreignKeyConstraintName: 'fk_restock_records_supplier_id' })
+  supplier?: Contact | null
+
   @Column({ nullable: true, type: 'text' })
   notes?: string | null
 
@@ -50,4 +89,7 @@ export class RestockRecord extends ImmutableBaseEntity {
 
   @OneToMany(() => RestockItem, (item) => item.restockRecord, { cascade: false })
   items?: RestockItem[]
+
+  @OneToMany(() => RestockPayment, (payment) => payment.restockRecord, { cascade: false })
+  payments?: RestockPayment[]
 }

@@ -8,6 +8,7 @@ import {
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
+import { ExpenseCategory } from './expense-category.entity'
 import { User } from './user.entity'
 
 @Entity('expenses')
@@ -28,8 +29,12 @@ export class Expense extends BaseEntity {
   @JoinColumn({ name: 'recorded_by_id', foreignKeyConstraintName: 'fk_expenses_recorded_by_id' })
   recordedBy?: User
 
-  @Column()
-  category!: string
+  @Column({ name: 'category_id' })
+  categoryId!: string
+
+  @ManyToOne(() => ExpenseCategory, (category) => category.expenses)
+  @JoinColumn({ name: 'category_id', foreignKeyConstraintName: 'fk_expenses_category_id' })
+  category?: ExpenseCategory
 
   @Column()
   description!: string
@@ -37,12 +42,24 @@ export class Expense extends BaseEntity {
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: decimalTransformer })
   amount!: number
 
+  @Column({ default: 'XAF' })
+  currency!: string
+
   @Column({ name: 'payment_method' })
   paymentMethod!: string
 
-  @Column({ name: 'receipt_url', nullable: true })
-  receiptUrl?: string 
+  @Column({ name: 'receipt_url', nullable: true, type: 'varchar' })
+  receiptUrl?: string | null
 
-  @Column({ type: 'timestamptz', transformer: dateTransformer })
+  @Column({ length: 200, nullable: true, type: 'varchar' })
+  vendor?: string | null
+
+  @Column({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Column({ name: 'is_recurring', default: false })
+  isRecurring!: boolean
+
+  @Column({ name: 'date', type: 'date', transformer: dateTransformer })
   date!: Date
 }

@@ -4,13 +4,17 @@ import type { DbOperation } from './local-db'
 import { hasDesktopIpc, ipc } from './ipc.bridge'
 
 export type SyncEntity =
+  | 'contacts'
   | 'products'
   | 'productCategories'
+  | 'expenseCategories'
   | 'unitOfMeasures'
   | 'inventoryThresholds'
   | 'inventoryAdjustments'
   | 'inventoryRestocks'
+  | 'debts'
   | 'sales'
+  | 'expenses'
 
 export function buildOutboxUpsertOperation(
   entity: SyncEntity,
@@ -52,7 +56,10 @@ export function buildOutboxUpsertOperation(
 }
 
 export function buildOutboxEventOperation(
-  entity: Extract<SyncEntity, 'inventoryAdjustments' | 'inventoryRestocks' | 'sales'>,
+  entity: Extract<
+    SyncEntity,
+    'contacts' | 'inventoryAdjustments' | 'inventoryRestocks' | 'debts' | 'sales'
+  >,
   recordId: string,
   payload: unknown,
 ): DbOperation {

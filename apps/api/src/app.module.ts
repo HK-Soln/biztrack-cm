@@ -11,6 +11,8 @@ import { PlansModule } from '@/modules/plans/plans.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
+import { ExpensesModule } from '@/modules/expenses/expenses.module'
+import { DebtsModule } from '@/modules/debts/debts.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { LoggerModule } from './logger/logger.module'
 import { join, resolve } from 'path'
@@ -77,6 +79,8 @@ const migrationsPath = join(__dirname, 'database', 'migrations', '*{.ts,.js}').r
     QueuesModule,
     ProductsModule,
     InventoryModule,
+    ExpensesModule,
+    DebtsModule,
     SalesModule,
     SyncModule,
     PermissionsModule,

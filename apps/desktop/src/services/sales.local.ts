@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  ContactType,
   InventoryMovementType,
   PaymentMethod,
   SaleStatus,
@@ -17,6 +18,7 @@ import {
   type SaleSyncPayload,
 } from '@biztrack/types'
 import { compareValues, dbBatch, dbQuery, normalizeSortOrder, paginateResult } from './local-db'
+import { getContactByIdLocal } from './contacts.local'
 import { assertBusinessId, fetchProductRowsForBusiness, type ProductRow } from './products.local'
 import { buildOutboxEventOperation, requestBackgroundSync } from './sync.local'
 
@@ -41,9 +43,11 @@ type SaleRow = {
   charges_amount: number | null
   tax_amount: number | null
   amount_paid: number | null
+  credit_amount: number | null
   change_given: number | null
   payment_method: string | null
   momo_reference: string | null
+  customer_id: string | null
   customer_name: string | null
   customer_phone: string | null
   notes: string | null
@@ -114,6 +118,7 @@ export class SaleLocalError extends Error {
   constructor(
     public readonly code:
       | 'SALE_NOT_FOUND'
+      | 'SALE_ALREADY_VOIDED'
       | 'SALE_EMPTY'
       | 'SALE_QUANTITY_INVALID'
       | 'SALE_UNIT_PRICE_INVALID'
@@ -126,7 +131,12 @@ export class SaleLocalError extends Error {
       | 'SALE_INSUFFICIENT_STOCK'
       | 'SALE_PAYMENT_REQUIRED'
       | 'SALE_PAYMENT_AMOUNT_INVALID'
-      | 'SALE_PAYMENT_METHOD_INVALID',
+      | 'SALE_PAYMENT_METHOD_INVALID'
+      | 'SALE_CUSTOMER_REQUIRED_FOR_CREDIT'
+      | 'SALE_CUSTOMER_NOT_FOUND'
+      | 'SALE_CUSTOMER_INACTIVE'
+      | 'SALE_CUSTOMER_TYPE_INVALID'
+      | 'SALE_VOID_REASON_INVALID',
     message?: string,
   ) {
     super(message ?? code)
@@ -152,11 +162,10 @@ export async function createSaleLocal(
   const soldAt = Number.isNaN(soldAtDate.getTime()) ? now : soldAtDate
   const soldAtIso = soldAt.toISOString()
   const createdAt = now.toISOString()
-  const saleDate = soldAtIso.slice(0, 10)
+  const saleDate = toLocalSaleDateKey(soldAt)
   const cashierId = payload.cashierId?.trim() || 'local-user'
   const cashierName = payload.cashierName?.trim() || null
-  const customerName = payload.customerName?.trim() || null
-  const customerPhone = payload.customerPhone?.trim() || null
+  const requestedCustomerId = payload.customerId?.trim() || null
   const saleNotes = payload.notes?.trim() || null
   const rows = await fetchProductRowsForBusiness(normalizedBusinessId)
   const productMap = new Map(rows.map((row) => [row.id, row]))
@@ -366,8 +375,31 @@ export async function createSaleLocal(
   }
 
   const amountPaid = roundMoney(salePayments.reduce((sum, payment) => sum + payment.amount, 0))
-  if (amountPaid < totalAmount) {
-    throw new SaleLocalError('SALE_UNDERPAID')
+  const creditAmount = roundMoney(Math.max(0, totalAmount - amountPaid))
+  let customerId: string | null = requestedCustomerId
+  let customerName = payload.customerName?.trim() || null
+  let customerPhone = payload.customerPhone?.trim() || null
+
+  if (customerId) {
+    const customer = await getContactByIdLocal(normalizedBusinessId, customerId)
+    if (!customer) {
+      throw new SaleLocalError('SALE_CUSTOMER_NOT_FOUND')
+    }
+
+    if (!customer.isActive) {
+      throw new SaleLocalError('SALE_CUSTOMER_INACTIVE')
+    }
+
+    if (customer.type !== ContactType.CUSTOMER && customer.type !== ContactType.BOTH) {
+      throw new SaleLocalError('SALE_CUSTOMER_TYPE_INVALID')
+    }
+
+    customerName = customerName || customer.name
+    customerPhone = customerPhone || customer.phone || null
+  }
+
+  if (creditAmount > 0 && !customerId) {
+    throw new SaleLocalError('SALE_CUSTOMER_REQUIRED_FOR_CREDIT')
   }
 
   const changeGiven = roundMoney(amountPaid - totalAmount)
@@ -392,9 +424,11 @@ export async function createSaleLocal(
           tax_amount,
           net_amount,
           amount_paid,
+          credit_amount,
           change_given,
           payment_method,
           momo_reference,
+          customer_id,
           customer_name,
           customer_phone,
           notes,
@@ -411,7 +445,7 @@ export async function createSaleLocal(
           created_at,
           updated_at
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           NULL, NULL, NULL, NULL, ?, 0, ?, ?
         )
       `,
@@ -430,9 +464,11 @@ export async function createSaleLocal(
         taxAmount,
         totalAmount,
         amountPaid,
+        creditAmount,
         changeGiven,
         paymentMethod,
         momoReference,
+        customerId,
         customerName,
         customerPhone,
         saleNotes,
@@ -452,6 +488,8 @@ export async function createSaleLocal(
       soldAt: soldAtIso,
       cashierId: isUuid(cashierId) ? cashierId : null,
       cashierName: cashierName ?? undefined,
+      customerId,
+      creditAmount,
       customerName: customerName ?? undefined,
       customerPhone: customerPhone ?? undefined,
       notes: saleNotes ?? undefined,
@@ -495,7 +533,9 @@ export async function createSaleLocal(
     taxAmount,
     totalAmount,
     amountPaid,
+    creditAmount,
     changeGiven,
+    customerId,
     customerName,
     customerPhone,
     notes: saleNotes,
@@ -541,9 +581,11 @@ export async function listSalesLocal(
         charges_amount,
         tax_amount,
         amount_paid,
+        credit_amount,
         change_given,
         payment_method,
         momo_reference,
+        customer_id,
         customer_name,
         customer_phone,
         notes,
@@ -578,8 +620,10 @@ export async function listSalesLocal(
 
   const filtered = sales
     .filter((sale) => {
-      if (query.dateFrom && (sale.sale_date ?? '') < query.dateFrom) return false
-      if (query.dateTo && (sale.sale_date ?? '') > query.dateTo) return false
+      const effectiveSaleDate = resolveSaleDateKey(sale)
+
+      if (query.dateFrom && effectiveSaleDate < query.dateFrom) return false
+      if (query.dateTo && effectiveSaleDate > query.dateTo) return false
       if (query.cashierId && sale.cashier_id !== query.cashierId) return false
       if (query.status && normalizeSaleStatus(sale.status) !== query.status) return false
       if (query.paymentMethod && normalizePaymentMethod(sale.payment_method) !== query.paymentMethod) {
@@ -647,9 +691,11 @@ export async function getSaleLocal(
         charges_amount,
         tax_amount,
         amount_paid,
+        credit_amount,
         change_given,
         payment_method,
         momo_reference,
+        customer_id,
         customer_name,
         customer_phone,
         notes,
@@ -678,6 +724,200 @@ export async function getSaleLocal(
   return hydrateSaleRecord(row)
 }
 
+export async function voidSaleLocal(
+  businessId: string,
+  saleId: string,
+  reason: string,
+  options?: {
+    actorId?: string | null
+    actorName?: string | null
+  },
+): Promise<LocalSaleRecord> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const trimmedReason = reason.trim()
+
+  if (trimmedReason.length < 10 || trimmedReason.length > 1000) {
+    throw new SaleLocalError('SALE_VOID_REASON_INVALID')
+  }
+
+  const [row] = await dbQuery<SaleRow>(
+    `
+      SELECT
+        id,
+        business_id,
+        client_id,
+        cashier_id,
+        cashier_name,
+        sale_number,
+        receipt_number,
+        status,
+        subtotal,
+        total_amount,
+        net_amount,
+        discount_amount,
+        charges_amount,
+        tax_amount,
+        amount_paid,
+        credit_amount,
+        change_given,
+        payment_method,
+        momo_reference,
+        customer_id,
+        customer_name,
+        customer_phone,
+        notes,
+        price_drift_warning,
+        currency,
+        sale_date,
+        sold_at,
+        synced_at,
+        voided_at,
+        voided_by,
+        void_reason,
+        created_at,
+        updated_at
+      FROM sales
+      WHERE business_id = ?
+        AND id = ?
+      LIMIT 1
+    `,
+    [normalizedBusinessId, saleId],
+  )
+
+  if (!row) {
+    throw new SaleLocalError('SALE_NOT_FOUND')
+  }
+
+  if (normalizeSaleStatus(row.status) === SaleStatus.VOIDED) {
+    throw new SaleLocalError('SALE_ALREADY_VOIDED')
+  }
+
+  const [itemRows, paymentRows, productRows] = await Promise.all([
+    querySaleItemsBySaleIds([saleId]),
+    querySalePaymentsBySaleIds([saleId]),
+    fetchProductRowsForBusiness(normalizedBusinessId),
+  ])
+
+  const productsById = new Map(productRows.map((product) => [product.id, product]))
+  const nowIso = new Date().toISOString()
+  const actorId = options?.actorId?.trim() || 'local-user'
+  const actorName = options?.actorName?.trim() || 'Local user'
+  const saleNumber = row.sale_number?.trim() || row.receipt_number?.trim() || row.id
+  const operations: Array<{ sql: string; params?: unknown[] }> = [
+    {
+      sql: `
+        UPDATE sales
+        SET status = ?,
+            voided_at = ?,
+            voided_by = ?,
+            void_reason = ?,
+            synced_at = NULL,
+            updated_at = ?
+        WHERE id = ?
+          AND business_id = ?
+      `,
+      params: [
+        SaleStatus.VOIDED,
+        nowIso,
+        isUuid(actorId) ? actorId : null,
+        trimmedReason,
+        nowIso,
+        saleId,
+        normalizedBusinessId,
+      ],
+    },
+  ]
+
+  for (const item of itemRows) {
+    const product = productsById.get(item.product_id)
+    if (!product) {
+      throw new SaleLocalError('SALE_PRODUCT_NOT_FOUND')
+    }
+
+    if (!product.track_inventory) {
+      continue
+    }
+
+    const level = await ensureInventoryLevel(normalizedBusinessId, product, nowIso)
+    const quantityBefore = roundQuantity(level.quantity)
+    const quantityAfter = roundQuantity(quantityBefore + item.quantity)
+    const movementId = crypto.randomUUID()
+
+    operations.push(
+      {
+        sql: `
+          UPDATE inventory_levels
+          SET quantity = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+        params: [quantityAfter, nowIso, level.id],
+      },
+      {
+        sql: `
+          UPDATE products
+          SET stock_quantity = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+        params: [quantityAfter, nowIso, product.id],
+      },
+      {
+        sql: `
+          INSERT INTO inventory_movements (
+            id,
+            business_id,
+            product_id,
+            type,
+            quantity_change,
+            quantity_before,
+            quantity_after,
+            reference_type,
+            reference_id,
+            notes,
+            performed_by_id,
+            performed_by_name,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        params: [
+          movementId,
+          normalizedBusinessId,
+          product.id,
+          InventoryMovementType.VOID_REVERSAL,
+          item.quantity,
+          quantityBefore,
+          quantityAfter,
+          'sale_void',
+          saleId,
+          `Void ${saleNumber}`,
+          actorId,
+          actorName,
+          nowIso,
+        ],
+      },
+    )
+  }
+
+  operations.push(
+    buildOutboxEventOperation(
+      'sales',
+      saleId,
+      buildSaleSyncPayload(row, itemRows, paymentRows, {
+        status: SaleStatus.VOIDED,
+        voidedAt: nowIso,
+        voidedById: isUuid(actorId) ? actorId : null,
+        voidReason: trimmedReason,
+      }),
+    ),
+  )
+
+  await dbBatch(operations)
+  requestBackgroundSync()
+
+  return getSaleLocal(normalizedBusinessId, saleId)
+}
+
 export async function getSaleByNumberLocal(
   businessId: string,
   saleNumber: string,
@@ -701,9 +941,11 @@ export async function getSaleByNumberLocal(
         charges_amount,
         tax_amount,
         amount_paid,
+        credit_amount,
         change_given,
         payment_method,
         momo_reference,
+        customer_id,
         customer_name,
         customer_phone,
         notes,
@@ -737,8 +979,8 @@ export async function getDailySalesSummaryLocal(
   date?: string,
 ): Promise<DailySalesSummary> {
   const normalizedBusinessId = assertBusinessId(businessId)
-  const targetDate = date ?? new Date().toISOString().slice(0, 10)
-  const sales = await dbQuery<SaleRow>(
+  const targetDate = date ?? toLocalSaleDateKey(new Date())
+  const allSales = await dbQuery<SaleRow>(
     `
       SELECT
         id,
@@ -756,9 +998,11 @@ export async function getDailySalesSummaryLocal(
         charges_amount,
         tax_amount,
         amount_paid,
+        credit_amount,
         change_given,
         payment_method,
         momo_reference,
+        customer_id,
         customer_name,
         customer_phone,
         notes,
@@ -774,10 +1018,10 @@ export async function getDailySalesSummaryLocal(
         updated_at
       FROM sales
       WHERE business_id = ?
-        AND sale_date = ?
     `,
-    [normalizedBusinessId, targetDate],
+    [normalizedBusinessId],
   )
+  const sales = allSales.filter((sale) => resolveSaleDateKey(sale) === targetDate)
 
   if (sales.length === 0) {
     return {
@@ -792,6 +1036,8 @@ export async function getDailySalesSummaryLocal(
       mtnMomoCollected: 0,
       orangeMoneyCollected: 0,
       cardCollected: 0,
+      creditIssued: 0,
+      creditSales: 0,
       voidedSales: 0,
       voidedAmount: 0,
     }
@@ -812,6 +1058,8 @@ export async function getDailySalesSummaryLocal(
   let mtnMomoCollected = 0
   let orangeMoneyCollected = 0
   let cardCollected = 0
+  let creditIssued = 0
+  let creditSales = 0
   let voidedSales = 0
   let voidedAmount = 0
 
@@ -839,6 +1087,13 @@ export async function getDailySalesSummaryLocal(
     totalSales += 1
     totalRevenue = roundMoney(totalRevenue + saleTotal)
     totalDiscounts = roundMoney(totalDiscounts + saleDiscount + lineDiscounts)
+    const saleCreditAmount = roundMoney(
+      sale.credit_amount ?? Math.max(0, saleTotal - roundMoney(sale.amount_paid ?? saleTotal)),
+    )
+    creditIssued = roundMoney(creditIssued + saleCreditAmount)
+    if (saleCreditAmount > 0) {
+      creditSales += 1
+    }
 
     const itemCost = saleItems.reduce((sum, item) => {
       const costPrice = item.cost_price ?? 0
@@ -873,6 +1128,8 @@ export async function getDailySalesSummaryLocal(
     mtnMomoCollected,
     orangeMoneyCollected,
     cardCollected,
+    creditIssued,
+    creditSales,
     voidedSales,
     voidedAmount,
   }
@@ -906,6 +1163,7 @@ export async function buildSaleReceiptLocal(
     chargesAmount: sale.chargesAmount,
     totalAmount: sale.totalAmount,
     amountPaid: sale.amountPaid,
+    creditAmount: sale.creditAmount,
     changeGiven: sale.changeGiven,
     currency: sale.currency ?? 'XAF',
     payments: sale.payments.map((payment) => ({
@@ -936,9 +1194,11 @@ async function getSaleByClientIdLocal(businessId: string, clientId: string) {
         charges_amount,
         tax_amount,
         amount_paid,
+        credit_amount,
         change_given,
         payment_method,
         momo_reference,
+        customer_id,
         customer_name,
         customer_phone,
         notes,
@@ -961,6 +1221,58 @@ async function getSaleByClientIdLocal(businessId: string, clientId: string) {
   )
 
   return row ? hydrateSaleRecord(row) : null
+}
+
+function buildSaleSyncPayload(
+  row: SaleRow,
+  items: SaleItemRow[],
+  payments: SalePaymentRow[],
+  overrides?: Partial<
+    Pick<SaleSyncPayload, 'status' | 'voidedAt' | 'voidedById' | 'voidReason'>
+  >,
+): SaleSyncPayload {
+  const saleNumber = row.sale_number?.trim() || row.receipt_number?.trim() || row.id
+
+  return {
+    saleId: row.id,
+    clientId: row.client_id?.trim() || row.id,
+    saleNumber,
+    soldAt: row.sold_at ?? row.created_at,
+    cashierId: isUuid(row.cashier_id) ? row.cashier_id : null,
+    cashierName: row.cashier_name ?? undefined,
+    customerId: row.customer_id ?? null,
+    creditAmount: roundMoney(
+      row.credit_amount ??
+        Math.max(
+          0,
+          roundMoney(row.total_amount ?? row.net_amount ?? 0) -
+            roundMoney(row.amount_paid ?? row.total_amount ?? row.net_amount ?? 0),
+        ),
+    ),
+    customerName: row.customer_name ?? undefined,
+    customerPhone: row.customer_phone ?? undefined,
+    notes: row.notes ?? undefined,
+    discountAmount: roundMoney(row.discount_amount ?? 0),
+    chargesAmount: roundMoney(row.charges_amount ?? 0),
+    status: overrides?.status ?? normalizeSaleStatus(row.status),
+    voidedAt: overrides?.voidedAt ?? row.voided_at ?? null,
+    voidedById: overrides?.voidedById ?? (isUuid(row.voided_by) ? row.voided_by : null),
+    voidReason: overrides?.voidReason ?? row.void_reason ?? undefined,
+    payments: payments.map((payment) => ({
+      id: payment.id,
+      method: normalizePaymentMethod(payment.method) ?? PaymentMethod.CASH,
+      amount: roundMoney(payment.amount),
+      mobileMoneyReference: payment.mobile_money_reference ?? undefined,
+    })),
+    items: items.map((item) => ({
+      id: item.id,
+      productId: item.product_id,
+      quantity: roundQuantity(item.quantity),
+      unitPrice: roundMoney(item.unit_price),
+      discountAmount: roundMoney(item.discount_amount ?? 0),
+      costPrice: item.cost_price ?? undefined,
+    })),
+  }
 }
 
 async function hydrateSaleRecord(row: SaleRow): Promise<LocalSaleRecord> {
@@ -1038,12 +1350,16 @@ async function hydrateSaleRecord(row: SaleRow): Promise<LocalSaleRecord> {
     taxAmount: roundMoney(row.tax_amount ?? 0),
     totalAmount,
     amountPaid: roundMoney(row.amount_paid ?? totalAmount),
+    creditAmount: roundMoney(
+      row.credit_amount ?? Math.max(0, totalAmount - roundMoney(row.amount_paid ?? totalAmount)),
+    ),
     changeGiven: roundMoney(row.change_given ?? 0),
+    customerId: row.customer_id ?? null,
     customerName: row.customer_name ?? null,
     customerPhone: row.customer_phone ?? null,
     notes: row.notes ?? null,
     priceDriftWarning: Boolean(row.price_drift_warning),
-    saleDate: row.sale_date ?? (row.sold_at ?? row.created_at).slice(0, 10),
+    saleDate: resolveSaleDateKey(row),
     soldAt: row.sold_at ?? row.created_at,
     syncedAt: row.synced_at ?? null,
     createdAt: row.created_at,
@@ -1079,12 +1395,16 @@ function mapSaleListItem(row: SaleRow, itemCount: number): SaleListItem {
     taxAmount: roundMoney(row.tax_amount ?? 0),
     totalAmount,
     amountPaid: roundMoney(row.amount_paid ?? totalAmount),
+    creditAmount: roundMoney(
+      row.credit_amount ?? Math.max(0, totalAmount - roundMoney(row.amount_paid ?? totalAmount)),
+    ),
     changeGiven: roundMoney(row.change_given ?? 0),
+    customerId: row.customer_id ?? null,
     customerName: row.customer_name ?? null,
     customerPhone: row.customer_phone ?? null,
     notes: row.notes ?? null,
     priceDriftWarning: Boolean(row.price_drift_warning),
-    saleDate: row.sale_date ?? (row.sold_at ?? row.created_at).slice(0, 10),
+    saleDate: resolveSaleDateKey(row),
     soldAt: row.sold_at ?? row.created_at,
     syncedAt: row.synced_at ?? null,
     createdAt: row.created_at,
@@ -1099,6 +1419,33 @@ function mapSaleListItem(row: SaleRow, itemCount: number): SaleListItem {
     netAmount: totalAmount,
     momoReference: row.momo_reference ?? null,
   }
+}
+
+function resolveSaleDateKey(row: Pick<SaleRow, 'sold_at' | 'created_at' | 'sale_date'>) {
+  if (row.sold_at) {
+    return toLocalSaleDateKey(row.sold_at)
+  }
+
+  if (row.created_at) {
+    return toLocalSaleDateKey(row.created_at)
+  }
+
+  return row.sale_date ?? toLocalSaleDateKey(new Date())
+}
+
+function toLocalSaleDateKey(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    const fallback = new Date()
+    return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, '0')}-${String(
+      fallback.getDate(),
+    ).padStart(2, '0')}`
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`
 }
 
 function mapSaleItemRow(row: SaleItemRow): SaleItem {
@@ -1271,7 +1618,7 @@ function validateSalePayload(payload: CreateLocalSaleInput) {
     throw new SaleLocalError('SALE_EMPTY')
   }
 
-  if (!Array.isArray(payload.payments) || payload.payments.length === 0) {
+  if (!Array.isArray(payload.payments)) {
     throw new SaleLocalError('SALE_PAYMENT_REQUIRED')
   }
 
@@ -1320,7 +1667,7 @@ function derivePaymentMethod(payments: Array<Pick<SalePayment, 'method'>>): Paym
   const methods = [...new Set(payments.map((payment) => payment.method))]
 
   if (methods.length === 0) {
-    return null
+    return PaymentMethod.MIXED
   }
 
   if (methods.length > 1) {

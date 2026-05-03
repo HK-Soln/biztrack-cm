@@ -83,6 +83,11 @@ export class CreateSaleDto implements CreateSaleRequest {
 
   @ApiPropertyOptional({ maxLength: 200 })
   @IsOptional()
+  @IsUUID()
+  customerId?: string
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  @IsOptional()
   @IsString()
   @MaxLength(200)
   customerName?: string
@@ -115,7 +120,6 @@ export class CreateSaleDto implements CreateSaleRequest {
 
   @ApiProperty({ type: [CreateSalePaymentDto] })
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => CreateSalePaymentDto)
   payments!: CreateSalePaymentDto[]
