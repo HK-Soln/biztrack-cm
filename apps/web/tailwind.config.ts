@@ -5,10 +5,12 @@ const config: Config = {
   darkMode: ['class'],
   content: [
     './src/**/*.{ts,tsx}',
+    '../../packages/ui/src/**/*.{ts,tsx}',
   ],
   theme: {
     extend: {
       colors: {
+        // Brand
         brand: {
           50: colors.brand[50],
           100: colors.brand[100],
@@ -18,6 +20,7 @@ const config: Config = {
           800: colors.brand[800],
           900: colors.brand[900],
         },
+        // Neutral (warm gray)
         neutral: {
           50: colors.neutral[50],
           100: colors.neutral[100],
@@ -31,6 +34,7 @@ const config: Config = {
           900: colors.neutral[900],
           950: colors.neutral[950],
         },
+        // Semantic
         success: {
           50: colors.success[50],
           100: colors.success[100],
@@ -100,21 +104,13 @@ const config: Config = {
           4: 'rgb(var(--chart-4) / <alpha-value>)',
           5: 'rgb(var(--chart-5) / <alpha-value>)',
         },
-        sidebar: {
-          DEFAULT: 'rgb(var(--sidebar-background) / <alpha-value>)',
-          foreground: 'rgb(var(--sidebar-foreground) / <alpha-value>)',
-          primary: 'rgb(var(--sidebar-primary) / <alpha-value>)',
-          'primary-foreground': 'rgb(var(--sidebar-primary-foreground) / <alpha-value>)',
-          accent: 'rgb(var(--sidebar-accent) / <alpha-value>)',
-          'accent-foreground': 'rgb(var(--sidebar-accent-foreground) / <alpha-value>)',
-          border: 'rgb(var(--sidebar-border) / <alpha-value>)',
-          ring: 'rgb(var(--sidebar-ring) / <alpha-value>)',
-        },
       },
+
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
+
       fontSize: {
         'display-lg': ['2rem', { lineHeight: '1.2', fontWeight: '600' }],
         'display-sm': ['1.5rem', { lineHeight: '1.25', fontWeight: '600' }],
@@ -128,11 +124,13 @@ const config: Config = {
         'label-md': ['0.75rem', { lineHeight: '1.4', fontWeight: '500' }],
         'label-sm': ['0.6875rem', { lineHeight: '1.4', fontWeight: '500' }],
       },
+
       spacing: {
         '4.5': '1.125rem',
         '18': '4.5rem',
         '22': '5.5rem',
       },
+
       borderRadius: {
         sm: '4px',
         md: '8px',
@@ -140,12 +138,14 @@ const config: Config = {
         xl: '16px',
         '2xl': '20px',
       },
+
       boxShadow: {
         sm: '0 1px 2px rgba(4, 44, 83, 0.06)',
         md: '0 2px 8px rgba(4, 44, 83, 0.08), 0 1px 2px rgba(4, 44, 83, 0.04)',
         lg: '0 8px 24px rgba(4, 44, 83, 0.10), 0 2px 6px rgba(4, 44, 83, 0.06)',
         xl: '0 16px 48px rgba(4, 44, 83, 0.12), 0 4px 12px rgba(4, 44, 83, 0.08)',
       },
+
       keyframes: {
         'fade-in': {
           from: { opacity: '0', transform: 'translateY(4px)' },

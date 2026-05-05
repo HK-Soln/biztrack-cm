@@ -1,3 +1,8 @@
+// BizTrack CM — Design System Tokens
+// Single source of truth for all color values across the monorepo
+// Web/Desktop apps consume these via tailwind.config.ts
+// Mobile app consumes these via ThemeProvider (React Native)
+
 export const colors = {
   brand: {
     50: '#E6F1FB',
@@ -51,7 +56,49 @@ export const colors = {
   },
 } as const
 
-export const light = {
+// --- Semantic token sets for React Native (mobile) ---
+
+export type Theme = {
+  bg: Record<
+    | 'base'
+    | 'surface'
+    | 'elevated'
+    | 'subtle'
+    | 'inverse'
+    | 'brand'
+    | 'brandHover'
+    | 'brandMuted'
+    | 'success'
+    | 'warning'
+    | 'danger'
+    | 'info',
+    string
+  >
+  text: Record<
+    | 'primary'
+    | 'secondary'
+    | 'muted'
+    | 'disabled'
+    | 'inverse'
+    | 'brand'
+    | 'brandMuted'
+    | 'success'
+    | 'warning'
+    | 'danger'
+    | 'info',
+    string
+  >
+  border: Record<
+    'default' | 'subtle' | 'strong' | 'brand' | 'success' | 'warning' | 'danger' | 'info',
+    string
+  >
+  icon: Record<
+    'default' | 'muted' | 'brand' | 'inverse' | 'success' | 'warning' | 'danger',
+    string
+  >
+}
+
+export const light: Theme = {
   bg: {
     base: colors.neutral[50],
     surface: '#FFFFFF',
@@ -98,9 +145,9 @@ export const light = {
     warning: colors.warning[600],
     danger: colors.danger[600],
   },
-} as const
+}
 
-export const dark: typeof light = {
+export const dark: Theme = {
   bg: {
     base: colors.neutral[950],
     surface: '#1C1C1B',
@@ -147,6 +194,5 @@ export const dark: typeof light = {
     warning: '#FAC775',
     danger: '#F09595',
   },
-} as unknown as typeof light;
+}
 
-export type Theme = typeof light

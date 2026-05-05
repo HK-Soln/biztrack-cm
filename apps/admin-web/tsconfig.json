@@ -1,6 +1,7 @@
 {
   "extends": "@biztrack/typescript-config/nextjs.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "module": "esnext",
@@ -8,16 +9,12 @@
     "jsx": "preserve",
     "allowJs": true,
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
       "@biztrack/types": ["../../packages/types/src"],
       "@biztrack/utils": ["../../packages/utils/src"],
-      "@biztrack/ui": ["../../packages/ui/src"]
+      "@biztrack/validators": ["../../packages/validators/src"]
     },
     "noEmit": true,
     "isolatedModules": true
