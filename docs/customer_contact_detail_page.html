@@ -1,0 +1,230 @@
+
+<h2 class="sr-only">Contact detail page for Marie Ekotto showing profile, debt summary, full transaction statement ledger, and debt payment recording form.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.back-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary);background:none;border:none;cursor:pointer;padding:0}
+.back-btn:hover{color:var(--color-text-primary)}
+.action-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:6px 13px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer}
+.action-pill:hover{border-color:var(--color-border-primary)}
+
+.hero{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:#378ADD}
+.hero-inner{display:flex;gap:1.25rem;align-items:flex-start}
+.contact-avatar{width:56px;height:56px;border-radius:50%;background:#E1F5EE;color:#085041;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:500;flex-shrink:0;border:0.5px solid rgba(29,158,117,.2)}
+.hero-body{flex:1;min-width:0}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#378ADD;margin-bottom:5px}
+.contact-name{font-size:22px;font-weight:500;margin-bottom:4px}
+.contact-meta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px}
+.meta-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary)}
+.meta-item svg{width:12px;height:12px;flex-shrink:0}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px}
+.b-cust{background:#E1F5EE;color:#085041}
+.b-active{background:#E6F1FB;color:#0C447C}
+
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1rem}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem}
+.mc-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:5px}
+.mc-value{font-size:20px;font-weight:500;font-family:var(--font-mono)}
+.mc-sub{font-size:11px;margin-top:3px}
+.sub-warn{color:#BA7517}.sub-ok{color:#0F6E56}.sub-muted{color:var(--color-text-secondary)}.sub-danger{color:#A32D2D}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.surface{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.s-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.s-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:.875rem}
+.field{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .875rem;margin-bottom:6px}
+.f-label{font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px}
+.f-value{font-size:13px;font-weight:500}
+
+.form-row{margin-bottom:10px}
+.form-label{font-size:12px;font-weight:500;display:block;margin-bottom:4px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.form-input{width:100%;font-size:13px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.form-input:focus{outline:none;box-shadow:0 0 0 2px rgba(55,138,221,.2);border-color:#378ADD}
+.form-select{width:100%;font-size:13px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.debt-select{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.5rem .875rem;margin-bottom:8px}
+.debt-opt{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer}
+.debt-opt:last-child{border-bottom:none}
+.debt-opt:hover .debt-opt-inner{background:var(--color-background-secondary)}
+.debt-ref{font-size:12px;font-weight:500;font-family:var(--font-mono)}
+.debt-amt{font-size:12px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+.save-btn{width:100%;font-size:13px;font-weight:500;padding:8px;border-radius:var(--border-radius-md);background:#378ADD;color:#fff;border:none;cursor:pointer}
+.save-btn:hover{background:#185FA5}
+
+.stmt-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin-bottom:1rem}
+.stmt-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.25rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.stmt-title{font-size:13px;font-weight:500}
+.balance-chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:4px 12px;border-radius:var(--border-radius-md);background:#FCEBEB;color:#791F1F;font-family:var(--font-mono)}
+
+.ledger{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.ledger th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.5rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.ledger th:last-child,.ledger td:last-child{text-align:right}
+.ledger th:nth-child(5),.ledger td:nth-child(5){text-align:right}
+.ledger th:nth-child(6),.ledger td:nth-child(6){text-align:right}
+.ledger td{padding:.75rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger tr:last-child td{border-bottom:none}
+.ledger tr:hover td{background:var(--color-background-secondary)}
+.entry-type{display:inline-flex;font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
+.et-debt{background:#FAEEDA;color:#633806}
+.et-pay{background:#E1F5EE;color:#085041}
+.et-woff{background:#F1EFE8;color:#444441}
+.mono{font-family:var(--font-mono);font-size:12px}
+.debit{color:#A32D2D;font-weight:500;font-family:var(--font-mono)}
+.credit{color:#0F6E56;font-weight:500;font-family:var(--font-mono)}
+.balance{font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.stmt-foot{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1.25rem;border-top:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary)}
+.closing{font-size:13px;font-weight:500;font-family:var(--font-mono);color:#A32D2D}
+</style>
+
+<div class="pg">
+
+<div class="topbar">
+  <button class="back-btn">
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3-5 5 5 5"/><path d="M2 8h12"/></svg>
+    Contacts
+  </button>
+  <div style="display:flex;gap:8px">
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 1v5l3 2"/><circle cx="6" cy="6" r="5"/></svg>
+      Payment history
+    </button>
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="10" height="10" rx="2"/><path d="M4 6h4M6 4v4"/></svg>
+      Edit contact
+    </button>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="contact-avatar">ME</div>
+    <div class="hero-body">
+      <p class="eyebrow">Contacts / Customer</p>
+      <h1 class="contact-name">Marie Ekotto</h1>
+      <div class="contact-meta">
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3a1 1 0 011-1h1.5l1 2.5-1.5 1a6 6 0 002.5 2.5l1-1.5L9 7.5V9a1 1 0 01-1 1A7 7 0 012 3z"/></svg>
+          +237 677 234 512
+        </span>
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4H2a1 1 0 00-1 1v4a1 1 0 001 1h8a1 1 0 001-1V5a1 1 0 00-1-1z"/><path d="M8 4V3a1 1 0 00-1-1H5a1 1 0 00-1 1v1"/></svg>
+          Akwa, Douala
+        </span>
+        <span class="meta-item">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="10" height="8" rx="1"/><path d="M1 5h10"/></svg>
+          Customer since 01 Jan 2025
+        </span>
+      </div>
+      <div class="badges">
+        <span class="badge b-cust">Customer</span>
+        <span class="badge b-active">Active</span>
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <p style="font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px">Balance owed</p>
+      <p style="font-size:28px;font-weight:500;font-family:var(--font-mono);color:#A32D2D;line-height:1">24,000</p>
+      <p style="font-size:12px;color:var(--color-text-secondary)">XAF outstanding</p>
+    </div>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="mc"><p class="mc-label">Total credit given</p><p class="mc-value">58,000</p><p class="mc-sub sub-muted">Across 4 sales</p></div>
+  <div class="mc"><p class="mc-label">Total collected</p><p class="mc-value">34,000</p><p class="mc-sub sub-ok">58.6% collected</p></div>
+  <div class="mc"><p class="mc-label">Outstanding</p><p class="mc-value" style="color:#A32D2D">24,000</p><p class="mc-sub sub-danger">2 open debts</p></div>
+  <div class="mc"><p class="mc-label">Last payment</p><p class="mc-value" style="font-size:15px">05 Apr</p><p class="mc-sub sub-muted">XAF 8,000 cash</p></div>
+</div>
+
+<div class="two-col">
+  <div class="surface">
+    <p class="s-title">Contact information</p>
+    <p class="s-desc">Profile and notes</p>
+    <div class="field"><p class="f-label">Full name</p><p class="f-value">Marie Ekotto</p></div>
+    <div class="field"><p class="f-label">Primary phone</p><p class="f-value">+237 677 234 512</p></div>
+    <div class="field"><p class="f-label">Alt. phone</p><p class="f-value" style="color:var(--color-text-secondary)">Not set</p></div>
+    <div class="field"><p class="f-label">Address</p><p class="f-value">Akwa, Douala</p></div>
+    <div class="field"><p class="f-label">Notes</p><p class="f-value">Regular customer. Pays reliably by end of month. Prefers cash.</p></div>
+  </div>
+  <div class="surface">
+    <p class="s-title">Record a payment</p>
+    <p class="s-desc">Apply a payment against an open debt</p>
+    <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px">Select debt</p>
+    <div class="debt-select">
+      <div class="debt-opt">
+        <div><p class="debt-ref">VTE-20250413-0038</p><p style="font-size:11px;color:var(--color-text-secondary)">13 Apr · Partial — XAF 8,000 paid</p></div>
+        <span class="debt-amt">XAF 16,000</span>
+      </div>
+      <div class="debt-opt">
+        <div><p class="debt-ref">VTE-20250401-0003</p><p style="font-size:11px;color:var(--color-text-secondary)">01 Apr · Outstanding</p></div>
+        <span class="debt-amt">XAF 8,000</span>
+      </div>
+    </div>
+    <div class="form-grid">
+      <label><span class="form-label">Amount (XAF)</span><input type="number" class="form-input" placeholder="0" /></label>
+      <label><span class="form-label">Date</span><input type="date" class="form-input" value="2025-04-13" /></label>
+    </div>
+    <div class="form-row">
+      <span class="form-label" style="display:block;margin-bottom:4px">Payment method</span>
+      <select class="form-select">
+        <option>Cash</option>
+        <option>MTN Mobile Money</option>
+        <option>Orange Money</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label><span class="form-label">Notes (optional)</span><input type="text" class="form-input" placeholder="e.g. Partial, more to follow..." /></label>
+    </div>
+    <button class="save-btn">Record payment</button>
+  </div>
+</div>
+
+<div class="stmt-card">
+  <div class="stmt-header">
+    <div>
+      <p class="stmt-title">Account statement</p>
+      <p style="font-size:11px;color:var(--color-text-secondary);margin-top:2px">All credit transactions and payments in chronological order</p>
+    </div>
+    <span class="balance-chip">Balance: XAF 24,000</span>
+  </div>
+  <table class="ledger">
+    <colgroup><col style="width:12%"><col style="width:18%"><col style="width:13%"><col style="width:25%"><col style="width:12%"><col style="width:10%"><col style="width:10%"></colgroup>
+    <thead><tr><th>Date</th><th>Reference</th><th>Type</th><th>Description</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th style="text-align:right">Balance</th></tr></thead>
+    <tbody id="stmt-tbody"></tbody>
+  </table>
+  <div class="stmt-foot">
+    <span style="font-size:11px;color:var(--color-text-secondary)">Opening balance: XAF 0 · 4 entries · Douala timezone</span>
+    <span class="closing">Closing balance: XAF 24,000</span>
+  </div>
+</div>
+
+</div>
+
+<script>
+const STMT=[
+  {date:'13 Apr',ref:'VTE-20250413-0038',type:'DEBT_CREATED',desc:'Sale on credit',debit:24000,credit:0,bal:24000},
+  {date:'05 Apr',ref:'PMT-20250405-001',type:'PAYMENT',desc:'Cash payment — partial',debit:0,credit:8000,bal:16000},
+  {date:'01 Apr',ref:'VTE-20250401-0003',type:'DEBT_CREATED',desc:'Sale on credit',debit:8000,credit:0,bal:24000},
+  {date:'15 Mar',ref:'PMT-20250315-001',type:'PAYMENT',desc:'MTN MoMo payment',debit:0,credit:26000,bal:16000},
+  {date:'10 Mar',ref:'VTE-20250310-0019',type:'DEBT_CREATED',desc:'Sale on credit',debit:26000,credit:0,bal:42000},
+  {date:'28 Feb',ref:'PMT-20250228-001',type:'PAYMENT',desc:'Cash — full settlement',debit:0,credit:16000,bal:16000},
+  {date:'20 Feb',ref:'VTE-20250220-0008',type:'DEBT_CREATED',desc:'Sale on credit',debit:16000,credit:0,bal:16000},
+];
+
+function typeCls(t){return t==='DEBT_CREATED'?'et-debt':t==='PAYMENT'?'et-pay':'et-woff'}
+function typeLbl(t){return t==='DEBT_CREATED'?'Credit issued':t==='PAYMENT'?'Payment':'Written off'}
+function fmtAmt(n){return n?'XAF '+Math.round(n).toLocaleString('fr-FR'):'—'}
+
+document.getElementById('stmt-tbody').innerHTML=STMT.map((e,i)=>`
+  <tr>
+    <td class="mono" style="color:var(--color-text-secondary)">${e.date}</td>
+    <td class="mono" style="color:var(--color-text-secondary);font-size:11px">${e.ref}</td>
+    <td><span class="entry-type ${typeCls(e.type)}">${typeLbl(e.type)}</span></td>
+    <td style="font-size:12px;color:var(--color-text-secondary)">${e.desc}</td>
+    <td class="debit" style="text-align:right">${fmtAmt(e.debit)}</td>
+    <td class="credit" style="text-align:right">${fmtAmt(e.credit)}</td>
+    <td class="balance" style="text-align:right">${fmtAmt(e.bal)}</td>
+  </tr>`).join('');
+</script>

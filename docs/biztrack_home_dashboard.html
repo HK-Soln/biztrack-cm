@@ -1,0 +1,324 @@
+
+<h2 class="sr-only">BizTrack CM home dashboard — today's revenue, gross profit, expenses, net position, credit summary, low stock alerts, payment breakdown, hourly sales chart, and recent transactions.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.morning-bar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.5rem;gap:12px;flex-wrap:wrap}
+.morning-left h1{font-size:20px;font-weight:500;margin-bottom:3px}
+.morning-left p{font-size:13px;color:var(--color-text-secondary)}
+.morning-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sync-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:4px 10px;border-radius:20px;background:#E1F5EE;color:#085041;border:0.5px solid #9FE1CB}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:#1D9E75}
+.date-pill{font-size:12px;color:var(--color-text-secondary);padding:4px 10px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary)}
+.tab-row{display:flex;gap:4px;margin-bottom:1.25rem}
+.tab{font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.tab.on{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500;border-color:var(--color-border-secondary)}
+.kpi-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1rem}
+.kpi{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem;position:relative;overflow:hidden}
+.kpi::before{content:'';position:absolute;top:0;left:0;bottom:0;width:3px}
+.kpi.teal::before{background:#1D9E75}
+.kpi.blue::before{background:#378ADD}
+.kpi.amber::before{background:#EF9F27}
+.kpi.red::before{background:#E24B4A}
+.kpi.purple::before{background:#7F77DD}
+.kpi.green::before{background:#639922}
+.kpi-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:5px;padding-left:8px}
+.kpi-value{font-size:22px;font-weight:500;font-family:var(--font-mono);padding-left:8px}
+.kpi-sub{font-size:11px;margin-top:3px;padding-left:8px}
+.sub-ok{color:#0F6E56}.sub-warn{color:#BA7517}.sub-danger{color:#A32D2D}.sub-muted{color:var(--color-text-secondary)}.sub-info{color:#185FA5}
+.kpi-badge{display:inline-flex;font-size:10px;font-weight:500;padding:1px 6px;border-radius:20px;margin-top:4px;margin-left:8px}
+.badge-up{background:#E1F5EE;color:#085041}
+.badge-dn{background:#FCEBEB;color:#791F1F}
+.body-grid{display:grid;grid-template-columns:1fr 220px;gap:1rem;margin-bottom:1rem}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.card-title{font-size:13px;font-weight:500;margin-bottom:3px}
+.card-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:.875rem}
+.pnl-row{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.pnl-row:last-child{border-bottom:none}
+.pnl-label{font-size:13px;color:var(--color-text-secondary)}
+.pnl-value{font-size:13px;font-weight:500;font-family:var(--font-mono)}
+.pnl-value.pos{color:#085041}.pnl-value.neg{color:#A32D2D}.pnl-value.neutral{color:var(--color-text-primary)}
+.pnl-sep{height:0.5px;background:var(--color-border-secondary);margin:.375rem 0}
+.pnl-total-label{font-size:14px;font-weight:500;color:var(--color-text-primary)}
+.pnl-total-value{font-size:16px;font-weight:500;font-family:var(--font-mono)}
+.pay-item{margin-bottom:10px}
+.pay-top{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+.pay-label{color:var(--color-text-secondary)}
+.pay-val{font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.pay-track{height:5px;background:var(--color-background-secondary);border-radius:3px;overflow:hidden}
+.pay-fill{height:100%;border-radius:3px}
+.second-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-bottom:1rem}
+.alert-item{display:flex;align-items:center;gap:10px;padding:.625rem 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.alert-item:last-child{border-bottom:none}
+.alert-avatar{width:32px;height:32px;border-radius:var(--border-radius-md);background:#FAEEDA;color:#633806;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.alert-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alert-stock{font-size:11px;color:#A32D2D;margin-top:1px}
+.alert-threshold{font-size:11px;color:var(--color-text-secondary);margin-top:1px}
+.credit-item{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.credit-item:last-child{border-bottom:none}
+.credit-name{font-size:13px;font-weight:500}
+.credit-type{font-size:10px;font-weight:500;padding:1px 6px;border-radius:20px;margin-top:2px;display:inline-flex}
+.ct-recv{background:#E1F5EE;color:#085041}
+.ct-pay{background:#FCEBEB;color:#791F1F}
+.credit-amt{font-size:13px;font-weight:500;font-family:var(--font-mono)}
+.recv-amt{color:#0F6E56}.pay-amt{color:#A32D2D}
+.recent-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin-bottom:1rem}
+.recent-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.25rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.recent-title{font-size:13px;font-weight:500}
+.view-all{font-size:12px;font-weight:500;color:#1D9E75;background:none;border:none;cursor:pointer}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.tbl th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.5rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.tbl td{padding:.7rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--color-background-secondary)}
+.s-pill{display:inline-flex;font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
+.sp-ok{background:#E1F5EE;color:#085041}
+.sp-void{background:#FCEBEB;color:#791F1F}
+.m-pill{display:inline-flex;font-size:10px;font-weight:500;padding:2px 6px;border-radius:20px;background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary)}
+.sync-circle{width:8px;height:8px;border-radius:50%;display:inline-block}
+.sc-ok{background:#1D9E75}.sc-pend{background:#EF9F27}
+</style>
+
+<div class="pg">
+
+<div class="morning-bar">
+  <div class="morning-left">
+    <h1>Good morning, Akwa Boutique</h1>
+    <p>Dimanche, 13 Avril 2025 &mdash; here is your business at a glance</p>
+  </div>
+  <div class="morning-right">
+    <span class="sync-pill"><span class="sync-dot"></span>Synced 2 min ago</span>
+    <span class="date-pill">Today</span>
+    <span class="date-pill" id="tab-week" style="cursor:pointer">This week</span>
+    <span class="date-pill" id="tab-month" style="cursor:pointer">This month</span>
+  </div>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi teal">
+    <p class="kpi-label">Revenue</p>
+    <p class="kpi-value">245,000</p>
+    <p class="kpi-sub sub-muted">XAF &mdash; 38 sales</p>
+    <span class="kpi-badge badge-up">+12% vs yesterday</span>
+  </div>
+  <div class="kpi blue">
+    <p class="kpi-label">Gross profit</p>
+    <p class="kpi-value">97,000</p>
+    <p class="kpi-sub sub-ok">39.6% margin</p>
+    <span class="kpi-badge badge-up">+4%</span>
+  </div>
+  <div class="kpi amber">
+    <p class="kpi-label">Expenses today</p>
+    <p class="kpi-value">0</p>
+    <p class="kpi-sub sub-muted">XAF recorded today</p>
+    <p class="kpi-sub sub-info" style="margin-top:2px">Month total: 227,500</p>
+  </div>
+  <div class="kpi green">
+    <p class="kpi-label">Net position</p>
+    <p class="kpi-value" style="color:#A32D2D">-130,500</p>
+    <p class="kpi-sub sub-danger">Month net loss</p>
+    <span class="kpi-badge badge-dn">Expenses exceed profit</span>
+  </div>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi red">
+    <p class="kpi-label">Credit issued today</p>
+    <p class="kpi-value">18,000</p>
+    <p class="kpi-sub sub-warn">3 sales on credit</p>
+  </div>
+  <div class="kpi teal">
+    <p class="kpi-label">Credit collected</p>
+    <p class="kpi-value">8,000</p>
+    <p class="kpi-sub sub-ok">1 payment received</p>
+  </div>
+  <div class="kpi amber">
+    <p class="kpi-label">Total receivable</p>
+    <p class="kpi-value">312,000</p>
+    <p class="kpi-sub sub-danger">8 customers owe you</p>
+  </div>
+  <div class="kpi red">
+    <p class="kpi-label">Total payable</p>
+    <p class="kpi-value">485,000</p>
+    <p class="kpi-sub sub-danger">5 suppliers owe</p>
+  </div>
+</div>
+
+<div class="body-grid">
+  <div class="card">
+    <p class="card-title">Today's revenue &mdash; hourly</p>
+    <p class="card-desc">Sales by hour vs yesterday average</p>
+    <div style="display:flex;gap:14px;margin-bottom:8px;font-size:11px;color:var(--color-text-secondary)">
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>Today</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#B4B2A9;border:1px dashed #888780;display:inline-block"></span>Yesterday avg.</span>
+    </div>
+    <div style="position:relative;height:180px">
+      <canvas id="hourChart" role="img" aria-label="Bar chart showing today's hourly revenue compared to yesterday's average by hour.">Hourly revenue today: peak at 16h with 35,000 XAF.</canvas>
+    </div>
+  </div>
+  <div class="card">
+    <p class="card-title">Payment breakdown</p>
+    <p class="card-desc">How customers paid today</p>
+    <div id="pay-list" style="margin-top:.5rem"></div>
+    <div style="border-top:0.5px solid var(--color-border-tertiary);margin-top:.75rem;padding-top:.75rem">
+      <p class="card-title" style="margin-bottom:.75rem">Month P&amp;L snapshot</p>
+      <div class="pnl-row"><span class="pnl-label">Revenue</span><span class="pnl-value neutral">XAF 245,000</span></div>
+      <div class="pnl-row"><span class="pnl-label">Cost of goods</span><span class="pnl-value neg">-XAF 148,000</span></div>
+      <div class="pnl-row"><span class="pnl-label">Gross profit</span><span class="pnl-value pos">XAF 97,000</span></div>
+      <div class="pnl-row"><span class="pnl-label">Expenses</span><span class="pnl-value neg">-XAF 227,500</span></div>
+      <div class="pnl-sep"></div>
+      <div class="pnl-row">
+        <span class="pnl-total-label">Net profit</span>
+        <span class="pnl-total-value neg">-XAF 130,500</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="second-row">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div><p class="card-title">Low stock alerts</p><p class="card-desc" style="margin-bottom:0">5 products below threshold</p></div>
+      <span style="font-size:10px;font-weight:500;padding:2px 8px;border-radius:20px;background:#FAEEDA;color:#633806">5 alerts</span>
+    </div>
+    <div id="alert-list"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div><p class="card-title">Top debtors</p><p class="card-desc" style="margin-bottom:0">Customers who owe you most</p></div>
+      <button class="view-all">View all</button>
+    </div>
+    <div id="debtor-list"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem">
+      <div><p class="card-title">Top creditors</p><p class="card-desc" style="margin-bottom:0">Suppliers you owe most</p></div>
+      <button class="view-all">View all</button>
+    </div>
+    <div id="creditor-list"></div>
+  </div>
+</div>
+
+<div class="recent-card">
+  <div class="recent-header">
+    <span class="recent-title">Recent transactions</span>
+    <button class="view-all">View all sales</button>
+  </div>
+  <table class="tbl">
+    <colgroup><col style="width:18%"><col style="width:12%"><col style="width:16%"><col style="width:13%"><col style="width:14%"><col style="width:13%"><col style="width:7%"><col style="width:7%"></colgroup>
+    <thead><tr><th>Sale no.</th><th>Time</th><th>Customer</th><th>Payment</th><th style="text-align:right">Total (XAF)</th><th>Status</th><th>Credit</th><th>Sync</th></tr></thead>
+    <tbody id="recent-tbody"></tbody>
+  </table>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const fmtXAF=n=>'XAF '+Math.round(n).toLocaleString('fr-FR');
+
+const PAYMENTS=[
+  {label:'Cash',amt:180000,pct:73,color:'#1D9E75'},
+  {label:'MTN MoMo',amt:45000,pct:18,color:'#EF9F27'},
+  {label:'Orange Money',amt:20000,pct:8,color:'#D85A30'},
+  {label:'Credit (unpaid)',amt:18000,pct:7,color:'#E24B4A'},
+];
+document.getElementById('pay-list').innerHTML=PAYMENTS.map(p=>`
+  <div class="pay-item">
+    <div class="pay-top">
+      <span class="pay-label" style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:50%;background:${p.color};display:inline-block"></span>${p.label}</span>
+      <span class="pay-val">${p.pct}%</span>
+    </div>
+    <div class="pay-track"><div class="pay-fill" style="width:${p.pct}%;background:${p.color}"></div></div>
+    <p style="font-size:11px;color:var(--color-text-secondary);margin-top:2px">${fmtXAF(p.amt)}</p>
+  </div>`).join('');
+
+const ALERTS=[
+  {name:'Eau Min. 75cl',stock:18,threshold:25},
+  {name:'Coca-Cola 35cl',stock:6,threshold:24},
+  {name:'Riz 5kg',stock:3,threshold:10},
+  {name:'Huile Végétale 1L',stock:2,threshold:12},
+  {name:'Sucre 1kg',stock:4,threshold:15},
+];
+document.getElementById('alert-list').innerHTML=ALERTS.map(a=>`
+  <div class="alert-item">
+    <div class="alert-avatar">${a.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
+    <div style="min-width:0;flex:1">
+      <p class="alert-name">${a.name}</p>
+      <p class="alert-stock">${a.stock} units left</p>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <p style="font-size:11px;color:var(--color-text-secondary)">threshold</p>
+      <p style="font-size:12px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)">${a.threshold}</p>
+    </div>
+  </div>`).join('');
+
+const DEBTORS=[
+  {name:'Chantal Oyono',amt:45000},
+  {name:'Ngono Grace',amt:27500},
+  {name:'Marie Ekotto',amt:24000},
+  {name:'Fokou Dist.',amt:15000},
+];
+document.getElementById('debtor-list').innerHTML=DEBTORS.map(d=>`
+  <div class="credit-item">
+    <div>
+      <p class="credit-name">${d.name}</p>
+      <span class="credit-type ct-recv">Receivable</span>
+    </div>
+    <span class="credit-amt recv-amt">${fmtXAF(d.amt)}</span>
+  </div>`).join('');
+
+const CREDITORS=[
+  {name:'Nguia SARL',amt:120000},
+  {name:'Fokou Dist.',amt:95000},
+  {name:'PEDAG Cam.',amt:120000},
+  {name:'Boissons Exp.',amt:30000},
+];
+document.getElementById('creditor-list').innerHTML=CREDITORS.map(c=>`
+  <div class="credit-item">
+    <div>
+      <p class="credit-name">${c.name}</p>
+      <span class="credit-type ct-pay">Payable</span>
+    </div>
+    <span class="credit-amt pay-amt">${fmtXAF(c.amt)}</span>
+  </div>`).join('');
+
+const RECENT=[
+  {num:'VTE-20250413-0038',time:'17:52',customer:'Marie Ekotto',method:'CASH',total:5900,status:'COMPLETED',credit:0,synced:true},
+  {num:'VTE-20250413-0037',time:'17:41',customer:null,method:'MTN',total:5000,status:'COMPLETED',credit:0,synced:true},
+  {num:'VTE-20250413-0036',time:'17:28',customer:'Paul Njock',method:'CASH',total:2000,status:'COMPLETED',credit:0,synced:true},
+  {num:'VTE-20250413-0035',time:'17:05',customer:'Ngono Grace',method:'MIXED',total:6900,status:'COMPLETED',credit:4000,synced:true},
+  {num:'VTE-20250413-0034',time:'16:50',customer:null,method:'Orange',total:5000,status:'VOIDED',credit:0,synced:true},
+  {num:'VTE-20250413-0033',time:'16:33',customer:'Amina Bello',method:'CASH',total:4000,status:'COMPLETED',credit:0,synced:false},
+];
+document.getElementById('recent-tbody').innerHTML=RECENT.map(s=>`
+  <tr>
+    <td style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary)">${s.num}</td>
+    <td style="font-family:var(--font-mono);font-size:12px">${s.time}</td>
+    <td style="color:var(--color-text-${s.customer?'primary':'secondary'})">${s.customer||'—'}</td>
+    <td><span class="m-pill">${s.method}</span></td>
+    <td style="text-align:right;font-weight:500;font-family:var(--font-mono)">${Math.round(s.total).toLocaleString('fr-FR')}</td>
+    <td><span class="s-pill ${s.status==='COMPLETED'?'sp-ok':'sp-void'}">${s.status==='COMPLETED'?'Completed':'Voided'}</span></td>
+    <td style="text-align:center">${s.credit?`<span style="font-size:10px;font-family:var(--font-mono);color:#A32D2D">${Math.round(s.credit/1000)}k</span>`:'<span style="color:var(--color-text-secondary)">—</span>'}</td>
+    <td style="text-align:center"><span class="sync-circle ${s.synced?'sc-ok':'sc-pend'}"></span></td>
+  </tr>`).join('');
+
+new Chart(document.getElementById('hourChart'),{
+  type:'bar',
+  data:{
+    labels:['08h','09h','10h','11h','12h','13h','14h','15h','16h','17h'],
+    datasets:[
+      {label:'Today',data:[8200,14500,19000,11000,22000,18000,31000,28000,35000,18300],backgroundColor:'#1D9E75',borderRadius:3},
+      {label:'Yesterday',data:[7500,12000,16000,9500,20000,15000,28000,25000,32000,16000],backgroundColor:'#B4B2A9',borderRadius:3},
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmtXAF(ctx.raw)}}},
+    scales:{
+      x:{grid:{display:false},ticks:{font:{size:10},color:'#888780'}},
+      y:{grid:{color:'rgba(136,135,128,.12)'},ticks:{font:{size:10},color:'#888780',callback:v=>'XAF '+Math.round(v/1000)+'k'}}
+    }
+  }
+});
+</script>

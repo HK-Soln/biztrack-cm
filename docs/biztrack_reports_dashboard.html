@@ -1,0 +1,245 @@
+
+<h2 class="sr-only">BizTrack CM reports dashboard — report launcher with date range picker, report catalogue by module, and live P&L waterfall preview for the selected period.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.5rem;gap:12px;flex-wrap:wrap}
+.pg-title{font-size:18px;font-weight:500;margin-bottom:3px}
+.pg-sub{font-size:12px;color:var(--color-text-secondary)}
+.range-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.range-label{font-size:12px;color:var(--color-text-secondary)}
+.range-quick{display:flex;gap:4px}
+.rq{font-size:11px;padding:4px 10px;border-radius:20px;border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.rq.on{background:#1D9E75;color:#fff;border-color:#1D9E75}
+.date-input{font-size:12px;padding:5px 8px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.run-btn{font-size:12px;font-weight:500;padding:6px 14px;border-radius:var(--border-radius-md);background:#1D9E75;color:#fff;border:none;cursor:pointer}
+.run-btn:hover{background:#0F6E56}
+
+.pnl-waterfall{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem;margin-bottom:1.25rem;position:relative;overflow:hidden}
+.pnl-waterfall::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:#1D9E75}
+.pnl-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.pnl-title{font-size:13px;font-weight:500}
+.pnl-period{font-size:11px;color:var(--color-text-secondary)}
+.waterfall-row{display:grid;grid-template-columns:160px 1fr 120px;align-items:center;gap:12px;margin-bottom:8px}
+.wf-label{font-size:12px;color:var(--color-text-secondary);text-align:right}
+.wf-bar-wrap{height:22px;position:relative}
+.wf-bar{height:100%;border-radius:3px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;min-width:8px}
+.wf-bar-label{font-size:11px;font-weight:500;color:#fff}
+.wf-value{font-size:12px;font-weight:500;font-family:var(--font-mono);text-align:right}
+.wf-value.pos{color:#085041}.wf-value.neg{color:#A32D2D}.wf-value.neutral{color:var(--color-text-primary)}
+.wf-sep{grid-column:1/-1;height:0.5px;background:var(--color-border-secondary);margin:.25rem 0}
+.wf-total-label{font-size:13px;font-weight:500;text-align:right}
+.wf-total-value{font-size:14px;font-weight:500;font-family:var(--font-mono)}
+
+.section-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.12em;color:var(--color-text-secondary);margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:0.5px solid var(--color-border-tertiary)}
+
+.report-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:1.25rem}
+.report-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem;cursor:pointer;transition:border-color .15s}
+.report-card:hover{border-color:var(--color-border-secondary)}
+.report-card.active{border-color:#1D9E75;border-width:1.5px}
+.rc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem}
+.rc-icon{width:32px;height:32px;border-radius:var(--border-radius-md);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.rc-icon svg{width:16px;height:16px}
+.rc-badge{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
+.rc-name{font-size:13px;font-weight:500;margin-bottom:3px}
+.rc-desc{font-size:11px;color:var(--color-text-secondary);line-height:1.4}
+.rc-foot{display:flex;align-items:center;justify-content:space-between;margin-top:.75rem;padding-top:.625rem;border-top:0.5px solid var(--color-border-tertiary)}
+.rc-source{font-size:10px;color:var(--color-text-secondary)}
+.rc-arrow{font-size:13px;color:#1D9E75;font-weight:500}
+
+.preview-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem;margin-bottom:1.25rem}
+.preview-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.preview-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:1rem}
+
+.export-bar{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.25rem;background:var(--color-background-secondary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary)}
+.export-label{font-size:13px;font-weight:500}
+.export-sub{font-size:11px;color:var(--color-text-secondary);margin-top:2px}
+.export-btns{display:flex;gap:8px}
+.exp-btn{font-size:12px;font-weight:500;padding:6px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);cursor:pointer;display:flex;align-items:center;gap:5px}
+.exp-btn:hover{background:var(--color-background-secondary)}
+</style>
+
+<div class="pg">
+
+<div class="topbar">
+  <div>
+    <p class="pg-title">Reports</p>
+    <p class="pg-sub">Generate, preview and export any report for any period</p>
+  </div>
+  <div class="range-bar">
+    <span class="range-label">Period:</span>
+    <div class="range-quick">
+      <button class="rq">Today</button>
+      <button class="rq">7 days</button>
+      <button class="rq on">This month</button>
+      <button class="rq">Last month</button>
+      <button class="rq">Quarter</button>
+      <button class="rq">Year</button>
+    </div>
+    <input type="date" class="date-input" value="2025-04-01" />
+    <span style="font-size:12px;color:var(--color-text-secondary)">to</span>
+    <input type="date" class="date-input" value="2025-04-30" />
+    <button class="run-btn">Run report</button>
+  </div>
+</div>
+
+<div class="pnl-waterfall">
+  <div class="pnl-header">
+    <p class="pnl-title">Profit &amp; loss summary</p>
+    <p class="pnl-period">Avril 2025 &mdash; from <code>GET /expenses/summary/pnl</code></p>
+  </div>
+  <div id="wf-rows"></div>
+</div>
+
+<p class="section-label">Sales &amp; revenue reports</p>
+<div class="report-grid" id="sales-reports"></div>
+
+<p class="section-label">Inventory &amp; product reports</p>
+<div class="report-grid" id="inv-reports"></div>
+
+<p class="section-label">Financial reports</p>
+<div class="report-grid" id="fin-reports"></div>
+
+<p class="section-label">Credit &amp; contact reports</p>
+<div class="report-grid" id="credit-reports"></div>
+
+<div class="preview-card">
+  <p class="preview-title">Revenue trend &mdash; Avril 2025</p>
+  <p class="preview-desc">Daily revenue and transaction count — from <code>GET /sales/summary/range?groupBy=DAY</code></p>
+  <div style="display:flex;gap:14px;margin-bottom:8px;font-size:11px;color:var(--color-text-secondary)">
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>Revenue (XAF)</span>
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#B4B2A9;border:1px dashed #888780;display:inline-block"></span>Transactions</span>
+  </div>
+  <div style="position:relative;height:200px">
+    <canvas id="revChart" role="img" aria-label="Line chart showing daily revenue and transaction counts for April 2025.">Daily revenue April 2025 with peak on day 13 at 245,000 XAF.</canvas>
+  </div>
+</div>
+
+<div class="export-bar">
+  <div>
+    <p class="export-label">Export current report</p>
+    <p class="export-sub">Profit &amp; loss · Avril 2025 · All modules</p>
+  </div>
+  <div class="export-btns">
+    <button class="exp-btn">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 9v2a1 1 0 001 1h7a1 1 0 001-1V9"/><path d="M6.5 2v6M4 6l2.5 3 2.5-3"/></svg>
+      PDF
+    </button>
+    <button class="exp-btn">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 9v2a1 1 0 001 1h7a1 1 0 001-1V9"/><path d="M6.5 2v6M4 6l2.5 3 2.5-3"/></svg>
+      Excel
+    </button>
+    <button class="exp-btn">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6.5 1l1 3H11l-2.5 2 1 3L7 7.5 4.5 9l1-3L3 4h3.5z"/></svg>
+      Share via WhatsApp
+    </button>
+  </div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const fmtXAF=n=>(n<0?'-':'')+' XAF '+Math.abs(Math.round(n)).toLocaleString('fr-FR');
+
+const WF=[
+  {label:'Revenue',value:245000,bar:100,color:'#1D9E75',cls:'neutral',sign:''},
+  {label:'Cost of goods sold',value:-148000,bar:60,color:'#E24B4A',cls:'neg',sign:'-'},
+  {label:'Gross profit',value:97000,bar:39,color:'#1D9E75',cls:'pos',sign:'',total:true},
+  {label:'Loyer',value:-85000,bar:35,color:'#E24B4A',cls:'neg',sign:'-'},
+  {label:'Salaires',value:-90000,bar:37,color:'#E24B4A',cls:'neg',sign:'-'},
+  {label:'Électricité & eau',value:-24700,bar:10,color:'#EF9F27',cls:'neg',sign:'-'},
+  {label:'Transport',value:-6000,bar:2,color:'#EF9F27',cls:'neg',sign:'-'},
+  {label:'Entretien',value:-17000,bar:7,color:'#EF9F27',cls:'neg',sign:'-'},
+  {label:'Divers',value:-4800,bar:2,color:'#EF9F27',cls:'neg',sign:'-'},
+  {label:'Total expenses',value:-227500,bar:93,color:'#E24B4A',cls:'neg',sign:'-',total:true},
+];
+
+document.getElementById('wf-rows').innerHTML=WF.map(r=>{
+  const isSep=r.total;
+  const netRow=r.label==='Total expenses';
+  return`${isSep?'<div class="wf-sep"></div>':''}
+  <div class="waterfall-row">
+    <span class="wf-label ${r.total?'wf-total-label':''}">${r.label}</span>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="width:${r.bar}%;background:${r.color}">
+        <span class="wf-bar-label" style="font-size:10px">${r.bar}%</span>
+      </div>
+    </div>
+    <span class="wf-value ${r.cls} ${r.total?'wf-total-value':''}">${r.sign}XAF ${Math.abs(r.value).toLocaleString('fr-FR')}</span>
+  </div>${netRow?`<div class="waterfall-row"><span class="wf-total-label">Net profit</span><div class="wf-bar-wrap"><div class="wf-bar" style="width:53%;background:#E24B4A"><span class="wf-bar-label" style="font-size:10px">-53%</span></div></div><span class="wf-value neg wf-total-value">-XAF 130,500</span></div>`:''}`
+}).join('');
+
+const mkIcon=(color,bg,path)=>`<div class="rc-icon" style="background:${bg}"><svg viewBox="0 0 16 16" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round">${path}</svg></div>`;
+const mkBadge=(label,bg,txt)=>`<span class="rc-badge" style="background:${bg};color:${txt}">${label}</span>`;
+
+const SALES_RPTS=[
+  {icon:mkIcon('#085041','#E1F5EE','<path d="M2 12V4h12v8H2z"/><path d="M5 8h6M5 10h4"/>'),badge:mkBadge('Daily','#E1F5EE','#085041'),name:'Daily sales report',desc:'All sales for a single day with totals, cashier breakdown and void list.',source:'daily_sale_summaries + sales'},
+  {icon:mkIcon('#0C447C','#E6F1FB','<polyline points="2,11 6,7 9,9 14,4"/><path d="M2 14h12"/>'),badge:mkBadge('Range','#E6F1FB','#0C447C'),name:'Revenue trend report',desc:'Revenue, gross profit and transaction count over any date range. Groupable by day, week or month.',source:'sales/summary/range'},
+  {icon:mkIcon('#633806','#FAEEDA','<rect x="2" y="2" width="4" height="12" rx="1"/><rect x="8" y="6" width="4" height="8" rx="1"/>'),badge:mkBadge('Ranking','#FAEEDA','#633806'),name:'Top products report',desc:'Best-selling products ranked by revenue, units sold and contribution to gross margin.',source:'sale_items aggregated'},
+  {icon:mkIcon('#085041','#E1F5EE','<circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 2"/>'),badge:mkBadge('Period','#EAF3DE','#27500A'),name:'Cashier performance',desc:'Sales per cashier: transaction count, revenue, average basket size, void rate.',source:'sales grouped by cashier_id'},
+  {icon:mkIcon('#0C447C','#E6F1FB','<path d="M2 8h3l2-5 3 10 2-5h2"/>'),badge:mkBadge('Analysis','#E6F1FB','#0C447C'),name:'Payment method breakdown',desc:'Revenue split by Cash, MTN MoMo and Orange Money. Credit issued vs collected.',source:'sale_payments + debts'},
+  {icon:mkIcon('#791F1F','#FCEBEB','<circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 2"/><line x1="5" y1="5" x2="11" y2="11"/>'),badge:mkBadge('Audit','#FCEBEB','#791F1F'),name:'Voided sales report',desc:'All voided sales with void reason, cashier, and inventory reversal confirmation.',source:'sales WHERE status=VOIDED'},
+];
+
+const INV_RPTS=[
+  {icon:mkIcon('#633806','#FAEEDA','<path d="M2 12V6l6-4 6 4v6l-6 4-6-4z"/><path d="M8 2v10M2 6l6 4 6-4"/>'),badge:mkBadge('Snapshot','#FAEEDA','#633806'),name:'Stock levels report',desc:'Current quantity, low stock threshold and reorder point for every tracked product.',source:'inventory_levels + products'},
+  {icon:mkIcon('#085041','#E1F5EE','<path d="M2 10l4-6 3 4 2-3 3 5H2z"/>'),badge:mkBadge('Movements','#E1F5EE','#085041'),name:'Stock movement report',desc:'Every stock in/out event over the period: sales deductions, restocks, adjustments and voids.',source:'inventory_movements'},
+  {icon:mkIcon('#791F1F','#FCEBEB','<path d="M8 3v5l3 3"/><circle cx="8" cy="8" r="6"/>'),badge:mkBadge('Alert','#FCEBEB','#791F1F'),name:'Low stock alert report',desc:'Products currently below their low stock threshold, sorted by urgency (shortfall from threshold).',source:'inventory_levels filtered'},
+  {icon:mkIcon('#0C447C','#E6F1FB','<rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 7h6M5 10h4"/>'),badge:mkBadge('Cost','#E6F1FB','#0C447C'),name:'Restock cost report',desc:'All restock operations over the period with supplier, quantity, unit cost and total cost.',source:'restock_records + restock_items'},
+];
+
+const FIN_RPTS=[
+  {icon:mkIcon('#085041','#E1F5EE','<path d="M2 13L6 9l3 3 5-7"/><line x1="2" y1="13" x2="14" y2="13"/>'),badge:mkBadge('P&L','#E1F5EE','#085041'),name:'Profit & loss statement',desc:'Full monthly P&L: revenue, COGS, gross profit, all expense categories, and net profit.',source:'expenses/summary/pnl'},
+  {icon:mkIcon('#633806','#FAEEDA','<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 8h6"/>'),badge:mkBadge('Expenses','#FAEEDA','#633806'),name:'Expense breakdown report',desc:'All expenses for the period grouped by category with totals, recurring vs one-off split.',source:'monthly_expense_summaries'},
+  {icon:mkIcon('#0C447C','#E6F1FB','<polyline points="2,11 6,7 9,9 14,4"/><path d="M2 14h12"/>'),badge:mkBadge('Trend','#E6F1FB','#0C447C'),name:'Revenue vs expenses trend',desc:'Monthly view overlaying revenue, gross profit and total expenses for up to 12 months.',source:'daily_sale_summaries + monthly_expense_summaries'},
+];
+
+const CREDIT_RPTS=[
+  {icon:mkIcon('#791F1F','#FCEBEB','<path d="M3 8l5-5 5 5"/><path d="M8 3v10M5 13h6"/>'),badge:mkBadge('Debtors','#FCEBEB','#791F1F'),name:'Debtors ageing report',desc:'All outstanding receivables grouped by age: 0–7, 8–15, 16–30, 30+ days. Overdue highlighted.',source:'debts WHERE direction=RECEIVABLE'},
+  {icon:mkIcon('#0C447C','#E6F1FB','<path d="M3 5l5 5 5-5"/><path d="M8 10V0M5 0h6"/>'),badge:mkBadge('Creditors','#E6F1FB','#0C447C'),name:'Creditors ageing report',desc:'All outstanding payables to suppliers grouped by age and due date urgency.',source:'debts WHERE direction=PAYABLE'},
+  {icon:mkIcon('#27500A','#EAF3DE','<rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 7h12M6 3v4"/>'),badge:mkBadge('Statement','#EAF3DE','#27500A'),name:'Contact statement',desc:'Full running ledger for a single contact: all debts and payments, opening and closing balance.',source:'debts + debt_payments for contact'},
+  {icon:mkIcon('#633806','#FAEEDA','<path d="M2 8h12M8 2v12"/><circle cx="8" cy="8" r="6"/>'),badge:mkBadge('Summary','#FAEEDA','#633806'),name:'Credit activity summary',desc:'Total credit issued, collected and written off over the period. Collection rate and average days to settle.',source:'debts + debt_payments aggregated'},
+];
+
+function mkReports(list,containerId){
+  document.getElementById(containerId).innerHTML=list.map(r=>`
+    <div class="report-card">
+      <div class="rc-top">${r.icon}${r.badge}</div>
+      <p class="rc-name">${r.name}</p>
+      <p class="rc-desc">${r.desc}</p>
+      <div class="rc-foot">
+        <span class="rc-source">${r.source}</span>
+        <span class="rc-arrow">Generate →</span>
+      </div>
+    </div>`).join('');
+}
+mkReports(SALES_RPTS,'sales-reports');
+mkReports(INV_RPTS,'inv-reports');
+mkReports(FIN_RPTS,'fin-reports');
+mkReports(CREDIT_RPTS,'credit-reports');
+
+const days=Array.from({length:13},(_,i)=>i+1+'');
+const rev=[18000,22000,19000,31000,28000,25000,35000,42000,38000,29000,45000,41000,245000];
+const txns=[8,10,9,14,12,11,16,19,17,13,20,18,38];
+
+new Chart(document.getElementById('revChart'),{
+  type:'bar',
+  data:{
+    labels:days,
+    datasets:[
+      {label:'Revenue',data:rev,backgroundColor:'#1D9E75',borderRadius:3,yAxisID:'y'},
+      {label:'Transactions',data:txns,type:'line',borderColor:'#B4B2A9',borderDash:[4,4],borderWidth:1.5,pointRadius:3,pointBackgroundColor:'#B4B2A9',fill:false,yAxisID:'y1'},
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.dataset.yAxisID==='y'?'XAF '+Math.round(ctx.raw).toLocaleString('fr-FR'):ctx.raw+' sales'}}},
+    scales:{
+      x:{grid:{display:false},ticks:{font:{size:10},color:'#888780',autoSkip:false,maxRotation:0}},
+      y:{position:'left',grid:{color:'rgba(136,135,128,.12)'},ticks:{font:{size:10},color:'#888780',callback:v=>'XAF '+Math.round(v/1000)+'k'}},
+      y1:{position:'right',grid:{drawOnChartArea:false},ticks:{font:{size:10},color:'#888780'}}
+    }
+  }
+});
+</script>

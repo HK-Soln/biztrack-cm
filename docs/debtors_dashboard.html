@@ -1,0 +1,220 @@
+
+<h2 class="sr-only">Debtors dashboard — receivables from customers showing outstanding balances, overdue debts, payment recording and write-off actions.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{font-family:var(--font-sans);color:var(--color-text-primary);padding-bottom:2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.pg-title{font-size:18px;font-weight:500}
+.pg-sub{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.25rem}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem;position:relative}
+.mc-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:6px}
+.mc-value{font-size:22px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)}
+.mc-sub{font-size:11px;margin-top:4px}
+.sub-warn{color:#BA7517}.sub-ok{color:#0F6E56}.sub-muted{color:var(--color-text-secondary)}.sub-danger{color:#A32D2D}
+.mc-bar{height:3px;border-radius:2px;margin-top:10px;background:var(--color-border-tertiary);overflow:hidden}
+.mc-bar-fill{height:100%;border-radius:2px}
+.mid{display:grid;grid-template-columns:1fr 220px;gap:1rem;margin-bottom:1rem}
+.surface{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.s-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.s-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:1rem}
+.aging-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.aging-label{font-size:12px;color:var(--color-text-secondary);width:80px;flex-shrink:0}
+.aging-track{flex:1;height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden}
+.aging-fill{height:100%;border-radius:4px}
+.aging-amt{font-size:12px;font-weight:500;font-family:var(--font-mono);min-width:80px;text-align:right;color:var(--color-text-primary)}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.filters input{font-size:13px;min-width:180px;flex:1}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.tbl th{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);padding:.625rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);text-align:left}
+.tbl td{padding:.75rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--color-background-secondary);cursor:pointer}
+.avatar{width:30px;height:30px;border-radius:50%;background:#E1F5EE;color:#085041;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.nc{display:flex;align-items:center;gap:8px}
+.n1{font-weight:500;font-size:13px}
+.n2{font-size:11px;color:var(--color-text-secondary)}
+.status-pill{display:inline-flex;font-size:10px;font-weight:500;padding:2px 8px;border-radius:20px}
+.sp-out{background:#FAEEDA;color:#633806}
+.sp-part{background:#E6F1FB;color:#0C447C}
+.sp-set{background:#E1F5EE;color:#085041}
+.sp-woff{background:#F1EFE8;color:#444441}
+.amt{font-family:var(--font-mono);font-size:13px;font-weight:500}
+.amt-out{color:#A32D2D}
+.amt-orig{color:var(--color-text-secondary);font-size:11px}
+.date-col{font-size:12px;color:var(--color-text-secondary);font-family:var(--font-mono)}
+.overdue-tag{display:inline-flex;font-size:10px;font-weight:500;padding:1px 6px;border-radius:20px;background:#FCEBEB;color:#791F1F;margin-left:4px}
+.action-row{display:flex;gap:5px}
+.act-btn{font-size:11px;padding:3px 9px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer;white-space:nowrap}
+.act-btn:hover{background:var(--color-background-secondary);color:var(--color-text-primary)}
+.act-btn.primary{border-color:#1D9E75;color:#085041;background:#E1F5EE}
+.act-btn.primary:hover{background:#9FE1CB}
+.foot{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-top:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-secondary)}
+.pg-btns{display:flex;gap:4px}
+.pg-btn{font-size:12px;padding:4px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.pg-btn.on{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500}
+.top-bar-accent{height:3px;background:#1D9E75;border-radius:var(--border-radius-lg) var(--border-radius-lg) 0 0}
+</style>
+
+<div class="pg">
+<div class="topbar">
+  <div>
+    <p class="pg-title">Debtors</p>
+    <p class="pg-sub">Money owed to your business by customers</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <select style="font-size:12px">
+      <option>This month</option>
+      <option>Last 3 months</option>
+      <option>All time</option>
+    </select>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="mc">
+    <p class="mc-label">Total outstanding</p>
+    <p class="mc-value">312,000</p>
+    <p class="mc-sub sub-danger">XAF across 8 debtors</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:78%;background:#E24B4A"></div></div>
+  </div>
+  <div class="mc">
+    <p class="mc-label">Overdue</p>
+    <p class="mc-value">87,500</p>
+    <p class="mc-sub sub-warn">3 debts past due date</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:28%;background:#EF9F27"></div></div>
+  </div>
+  <div class="mc">
+    <p class="mc-label">Collected this month</p>
+    <p class="mc-value">148,000</p>
+    <p class="mc-sub sub-ok">From 6 settlements</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:62%;background:#1D9E75"></div></div>
+  </div>
+  <div class="mc">
+    <p class="mc-label">Written off</p>
+    <p class="mc-value">12,000</p>
+    <p class="mc-sub sub-muted">1 debt this month</p>
+    <div class="mc-bar"><div class="mc-bar-fill" style="width:5%;background:#B4B2A9"></div></div>
+  </div>
+</div>
+
+<div class="mid">
+  <div class="surface">
+    <p class="s-title">Aging breakdown</p>
+    <p class="s-desc">Outstanding debts grouped by how long they have been open</p>
+    <div id="aging-list"></div>
+  </div>
+  <div class="surface">
+    <p class="s-title">Collection rate</p>
+    <p class="s-desc">This month vs last month</p>
+    <div style="position:relative;height:160px">
+      <canvas id="coll-chart" role="img" aria-label="Bar chart comparing debt collection amounts this month vs last month">Collection: this month 148000, last month 112000 XAF.</canvas>
+    </div>
+    <div style="display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--color-text-secondary)">
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>This month</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#9FE1CB;display:inline-block"></span>Last month</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="filters">
+      <input type="text" id="d-search" placeholder="Search debtor or sale reference..." oninput="renderDebts()" />
+      <select id="d-status" onchange="renderDebts()" style="font-size:12px">
+        <option value="">All statuses</option>
+        <option value="OUTSTANDING">Outstanding</option>
+        <option value="PARTIALLY_PAID">Partially paid</option>
+        <option value="SETTLED">Settled</option>
+      </select>
+    </div>
+  </div>
+  <table class="tbl">
+    <colgroup><col style="width:22%"><col style="width:14%"><col style="width:14%"><col style="width:16%"><col style="width:13%"><col style="width:21%"></colgroup>
+    <thead><tr><th>Customer</th><th>Reference</th><th>Status</th><th>Outstanding</th><th>Due date</th><th>Actions</th></tr></thead>
+    <tbody id="d-tbody"></tbody>
+  </table>
+  <div class="foot">
+    <span id="d-info">Showing 1–7 of 7</span>
+    <div class="pg-btns"><button class="pg-btn on">1</button></div>
+  </div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const DEBTS=[
+  {id:'d1',contact:'Marie Ekotto',ref:'VTE-20250413-0038',status:'PARTIALLY_PAID',original:24000,paid:8000,due:'20 Apr 2025',overdue:false},
+  {id:'d2',contact:'Chantal Oyono',ref:'VTE-20250409-0021',status:'OUTSTANDING',original:45000,paid:0,due:'15 Apr 2025',overdue:true},
+  {id:'d3',contact:'Paul Njock',ref:'VTE-20250412-0029',status:'PARTIALLY_PAID',original:8500,paid:4000,due:'25 Apr 2025',overdue:false},
+  {id:'d4',contact:'Fokou Distributions',ref:'VTE-20250408-0015',status:'OUTSTANDING',original:15000,paid:0,due:'10 Apr 2025',overdue:true},
+  {id:'d5',contact:'Ngono Grace',ref:'VTE-20250401-0003',status:'OUTSTANDING',original:27500,paid:0,due:'05 Apr 2025',overdue:true},
+  {id:'d6',contact:'Alain Kouam',ref:'VTE-20250405-0008',status:'SETTLED',original:18000,paid:18000,due:'18 Apr 2025',overdue:false},
+  {id:'d7',contact:'Fatou Diallo',ref:'VTE-20250410-0033',status:'OUTSTANDING',original:22000,paid:0,due:'28 Apr 2025',overdue:false},
+];
+
+const AGING=[
+  {label:'0–7 days',amt:49000,color:'#1D9E75',pct:16},
+  {label:'8–15 days',amt:62000,color:'#EF9F27',pct:20},
+  {label:'16–30 days',amt:114000,color:'#D85A30',pct:37},
+  {label:'30+ days',amt:87000,color:'#E24B4A',pct:28},
+];
+
+document.getElementById('aging-list').innerHTML=AGING.map(a=>`
+  <div class="aging-row">
+    <span class="aging-label">${a.label}</span>
+    <div class="aging-track"><div class="aging-fill" style="width:${a.pct}%;background:${a.color}"></div></div>
+    <span class="aging-amt">XAF ${Math.round(a.amt).toLocaleString('fr-FR')}</span>
+  </div>`).join('');
+
+function spCls(s){return s==='OUTSTANDING'?'sp-out':s==='PARTIALLY_PAID'?'sp-part':s==='SETTLED'?'sp-set':'sp-woff'}
+function spLbl(s){return s==='OUTSTANDING'?'Outstanding':s==='PARTIALLY_PAID'?'Partial':s==='SETTLED'?'Settled':'Written off'}
+function initials(n){return n.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+
+function renderDebts(){
+  const q=document.getElementById('d-search').value.toLowerCase();
+  const st=document.getElementById('d-status').value;
+  const f=DEBTS.filter(d=>{
+    if(q&&!d.contact.toLowerCase().includes(q)&&!d.ref.toLowerCase().includes(q))return false;
+    if(st&&d.status!==st)return false;
+    return true;
+  });
+  document.getElementById('d-info').textContent=`Showing 1–${f.length} of ${f.length}`;
+  document.getElementById('d-tbody').innerHTML=f.map(d=>{
+    const out=d.original-d.paid;
+    const actions=d.status!=='SETTLED'
+      ?`<button class="act-btn primary">Record payment</button><button class="act-btn">Write off</button>`
+      :`<span style="font-size:11px;color:var(--color-text-secondary)">Settled</span>`;
+    return`<tr>
+      <td><div class="nc"><div class="avatar">${initials(d.contact)}</div><div><p class="n1">${d.contact}</p></div></div></td>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary)">${d.ref}</td>
+      <td><span class="status-pill ${spCls(d.status)}">${spLbl(d.status)}</span></td>
+      <td><p class="amt amt-out">XAF ${Math.round(out).toLocaleString('fr-FR')}</p><p class="amt-orig">of XAF ${Math.round(d.original).toLocaleString('fr-FR')}</p></td>
+      <td><span class="date-col">${d.due}</span>${d.overdue?'<span class="overdue-tag">Overdue</span>':''}</td>
+      <td><div class="action-row">${actions}</div></td>
+    </tr>`;
+  }).join('');
+}
+renderDebts();
+
+new Chart(document.getElementById('coll-chart'),{
+  type:'bar',
+  data:{
+    labels:['Week 1','Week 2','Week 3','Week 4'],
+    datasets:[
+      {label:'This month',data:[28000,45000,52000,23000],backgroundColor:'#1D9E75',borderRadius:3},
+      {label:'Last month',data:[18000,32000,41000,21000],backgroundColor:'#9FE1CB',borderRadius:3},
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'XAF '+Math.round(ctx.raw).toLocaleString('fr-FR')}}},
+    scales:{
+      x:{grid:{display:false},ticks:{font:{size:10},color:'#888780'}},
+      y:{grid:{color:'rgba(136,135,128,.12)'},ticks:{font:{size:10},color:'#888780',callback:v=>'XAF '+Math.round(v/1000)+'k'}}
+    }
+  }
+});
+</script>

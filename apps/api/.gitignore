@@ -1,1 +1,15 @@
-coverage
+coverage/
+
+# Build output
+dist/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Test / scratch scripts
+test_conn.js
+
+# Environment variables
+.env
+.env.local
+.env.*.local

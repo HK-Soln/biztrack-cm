@@ -1,0 +1,343 @@
+
+<h2 class="sr-only">BizTrack CM product detail page redesign — shows product header, inventory metrics, full stock bin card with movement history, and threshold controls.</h2>
+<style>
+:root{--brand:#1D9E75;--brand-dim:#0F6E56;--brand-faint:#E1F5EE;--amber:#EF9F27;--amber-faint:#FAEEDA;--red:#E24B4A;--red-faint:#FCEBEB;--mono:var(--font-mono,'Courier New',monospace)}
+*{box-sizing:border-box;margin:0;padding:0}
+.pg{padding:0 0 2rem;font-family:var(--font-sans);color:var(--color-text-primary)}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.back-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary);background:none;border:none;cursor:pointer;padding:0}
+.back-btn:hover{color:var(--color-text-primary)}
+.back-btn svg{width:14px;height:14px}
+.action-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:6px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer}
+.action-pill:hover{border-color:var(--color-border-primary)}
+
+.hero{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--brand)}
+.hero-inner{display:flex;gap:1.25rem;align-items:flex-start}
+.product-avatar{width:64px;height:64px;border-radius:16px;background:var(--brand-faint);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:500;color:var(--brand);flex-shrink:0;border:0.5px solid rgba(29,158,117,.2)}
+.hero-body{flex:1;min-width:0}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);margin-bottom:6px}
+.product-name{font-size:22px;font-weight:500;line-height:1.2;margin-bottom:6px;color:var(--color-text-primary)}
+.product-desc{font-size:13px;color:var(--color-text-secondary);margin-bottom:12px;line-height:1.5}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px}
+.badge-success{background:#E1F5EE;color:#085041}
+.badge-info{background:#E6F1FB;color:#0C447C}
+.badge-warn{background:#FAEEDA;color:#633806}
+.badge-neutral{background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary)}
+.badge-danger{background:#FCEBEB;color:#791F1F}
+
+.metrics-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1rem}
+.metric-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.875rem 1rem}
+.metric-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--color-text-secondary);margin-bottom:6px}
+.metric-value{font-size:20px;font-weight:500;color:var(--color-text-primary);font-family:var(--mono)}
+.metric-value.warn{color:var(--amber)}
+.metric-value.ok{color:var(--brand)}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.surface{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem}
+.surface-title{font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:4px}
+.surface-desc{font-size:12px;color:var(--color-text-secondary);margin-bottom:1rem}
+.fields-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.field{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.625rem .875rem}
+.field-label{font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:4px}
+.field-value{font-size:13px;font-weight:500;color:var(--color-text-primary)}
+.field-value.mono{font-family:var(--mono);font-size:12px}
+
+.bin-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);margin-bottom:1rem;overflow:hidden}
+.bin-header{background:var(--brand);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between}
+.bin-header-left h3{font-size:14px;font-weight:500;color:#fff;margin-bottom:2px}
+.bin-header-left p{font-size:11px;color:rgba(255,255,255,.7)}
+.bin-header-right{text-align:right}
+.bin-stock-label{font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.65);margin-bottom:2px}
+.bin-stock-value{font-size:28px;font-weight:500;color:#fff;font-family:var(--mono);line-height:1}
+.bin-stock-unit{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px}
+
+.bin-meta{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--color-border-tertiary)}
+.bin-meta-cell{padding:.75rem 1rem;border-right:0.5px solid var(--color-border-tertiary)}
+.bin-meta-cell:last-child{border-right:none}
+.bin-meta-label{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px}
+.bin-meta-value{font-size:13px;font-weight:500;color:var(--color-text-primary);font-family:var(--mono)}
+
+.bin-table-wrap{overflow-x:auto}
+.bin-table{width:100%;border-collapse:collapse;font-size:12px}
+.bin-table thead tr{border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.bin-table th{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--color-text-secondary);padding:.625rem 1rem;text-align:left;white-space:nowrap}
+.bin-table th:last-child,.bin-table td:last-child{text-align:right}
+.bin-table td{padding:.75rem 1rem;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;color:var(--color-text-primary)}
+.bin-table tr:last-child td{border-bottom:none}
+.bin-table tr:hover td{background:var(--color-background-secondary)}
+.mv-type{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px}
+.mv-in{background:#E1F5EE;color:#085041}
+.mv-out{background:#FCEBEB;color:#791F1F}
+.mv-adj{background:#E6F1FB;color:#0C447C}
+.qty-change{font-family:var(--mono);font-size:13px;font-weight:500}
+.qty-pos{color:var(--brand)}
+.qty-neg{color:var(--red)}
+.qty-bal{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--color-text-primary)}
+
+.bin-footer{padding:.75rem 1.25rem;background:var(--color-background-secondary);border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between}
+.bin-footer-note{font-size:11px;color:var(--color-text-secondary)}
+.view-all-btn{font-size:12px;font-weight:500;color:var(--brand);background:none;border:none;cursor:pointer}
+.view-all-btn:hover{color:var(--brand-dim)}
+
+.threshold-form{margin-bottom:1rem}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.form-label{font-size:12px;font-weight:500;color:var(--color-text-primary);display:block;margin-bottom:5px}
+.form-input{width:100%;font-size:13px;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);font-family:var(--mono)}
+.form-input:focus{outline:none;box-shadow:0 0 0 2px rgba(29,158,117,.25);border-color:var(--brand)}
+.form-footer{display:flex;justify-content:flex-end}
+.save-btn{font-size:13px;font-weight:500;padding:7px 18px;border-radius:var(--border-radius-md);background:var(--brand);color:#fff;border:none;cursor:pointer}
+.save-btn:hover{background:var(--brand-dim)}
+
+.margin-bar-wrap{margin-top:.875rem;padding-top:.875rem;border-top:0.5px solid var(--color-border-tertiary)}
+.margin-bar-label{font-size:11px;color:var(--color-text-secondary);margin-bottom:5px;display:flex;justify-content:space-between}
+.margin-bar-track{height:6px;background:var(--color-background-secondary);border-radius:3px;overflow:hidden}
+.margin-bar-fill{height:100%;border-radius:3px;background:var(--brand)}
+
+.chart-wrap{height:140px;position:relative;margin-top:.5rem}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
+</style>
+
+<div class="pg">
+
+<div class="topbar">
+  <button class="back-btn">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 3-5 5 5 5"/><path d="M2 8h12"/></svg>
+    Products
+  </button>
+  <div style="display:flex;gap:8px">
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="10" height="10" rx="2"/><path d="M4 6h4M6 4v4"/></svg>
+      Restock
+    </button>
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="5"/><path d="M4 6h4M6 4v4"/></svg>
+      Adjust stock
+    </button>
+    <button class="action-pill">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 1H3a1 1 0 00-1 1v8a1 1 0 001 1h6a1 1 0 001-1V4L8 1z"/><path d="M8 1v3h3"/></svg>
+      Edit
+    </button>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="product-avatar">EU</div>
+    <div class="hero-body">
+      <p class="eyebrow">Products / Detail</p>
+      <h1 class="product-name">Eau Minérale 75cl</h1>
+      <p class="product-desc">Still mineral water, 75cl bottle. Primary brand: Source du Mont Cameroun. Sold individually or by crate of 24.</p>
+      <div class="badges">
+        <span class="badge badge-success">
+          <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="#1D9E75"/></svg>
+          Active
+        </span>
+        <span class="badge badge-neutral">Physical product</span>
+        <span class="badge badge-info">Stock tracked</span>
+        <span class="badge badge-warn">
+          <svg width="8" height="8" viewBox="0 0 8 8"><path d="M4 1L7 7H1L4 1z" fill="#EF9F27"/></svg>
+          Low stock
+        </span>
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <p style="font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:3px">Selling price</p>
+      <p style="font-size:28px;font-weight:500;font-family:var(--mono);color:var(--color-text-primary);line-height:1">250</p>
+      <p style="font-size:12px;color:var(--color-text-secondary)">XAF / pcs</p>
+      <p style="font-size:11px;color:var(--color-text-secondary);margin-top:8px">Cost: <span style="font-family:var(--mono);font-weight:500;color:var(--color-text-primary)">155 XAF</span></p>
+    </div>
+  </div>
+</div>
+
+<div class="metrics-row">
+  <div class="metric-card">
+    <p class="metric-label">Current stock</p>
+    <p class="metric-value warn">18</p>
+    <p style="font-size:11px;color:var(--amber);margin-top:4px">Below threshold (25)</p>
+  </div>
+  <div class="metric-card">
+    <p class="metric-label">Low stock alert</p>
+    <p class="metric-value">25 pcs</p>
+    <p style="font-size:11px;color:var(--color-text-secondary);margin-top:4px">Reorder at 40 pcs</p>
+  </div>
+  <div class="metric-card">
+    <p class="metric-label">Gross margin</p>
+    <p class="metric-value ok">38%</p>
+    <p style="font-size:11px;color:var(--color-text-secondary);margin-top:4px">Cost 155 · Price 250</p>
+  </div>
+  <div class="metric-card">
+    <p class="metric-label">Last restock</p>
+    <p class="metric-value" style="font-size:15px">8 Apr 2025</p>
+    <p style="font-size:11px;color:var(--color-text-secondary);margin-top:4px">+120 pcs from Nguia SARL</p>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="surface">
+    <p class="surface-title">Product details</p>
+    <p class="surface-desc">Catalog and classification information</p>
+    <div class="fields-grid">
+      <div class="field"><p class="field-label">Category</p><p class="field-value">Boissons</p></div>
+      <div class="field"><p class="field-label">Unit</p><p class="field-value">pcs (piece)</p></div>
+      <div class="field"><p class="field-label">SKU</p><p class="field-value mono">DRK-LV3K2M-B8C1</p></div>
+      <div class="field"><p class="field-label">Barcode</p><p class="field-value mono">2001234567895</p></div>
+      <div class="field"><p class="field-label">Barcode type</p><p class="field-value">EAN-13 (internal)</p></div>
+      <div class="field"><p class="field-label">Tax rate</p><p class="field-value">0%</p></div>
+      <div class="field"><p class="field-label">Created</p><p class="field-value">01 Jan 2025</p></div>
+      <div class="field"><p class="field-label">Updated</p><p class="field-value">13 Apr 2025</p></div>
+    </div>
+    <div class="margin-bar-wrap">
+      <div class="margin-bar-label">
+        <span>Margin health</span>
+        <span style="font-weight:500;color:var(--brand)">38%</span>
+      </div>
+      <div class="margin-bar-track"><div class="margin-bar-fill" style="width:38%"></div></div>
+    </div>
+  </div>
+  <div class="surface">
+    <p class="surface-title">Inventory thresholds</p>
+    <p class="surface-desc">Set alert levels for this product</p>
+    <div class="threshold-form">
+      <div class="form-row">
+        <label>
+          <span class="form-label">Low stock threshold</span>
+          <input type="number" class="form-input" value="25" min="0" step="0.001" />
+        </label>
+        <label>
+          <span class="form-label">Reorder point</span>
+          <input type="number" class="form-input" value="40" min="0" step="0.001" />
+        </label>
+      </div>
+      <div class="form-footer">
+        <button class="save-btn">Save thresholds</button>
+      </div>
+    </div>
+    <div style="border-top:0.5px solid var(--color-border-tertiary);padding-top:.875rem">
+      <p class="surface-title" style="margin-bottom:.5rem">30-day movement</p>
+      <div class="chart-wrap">
+        <canvas id="mvChart" role="img" aria-label="Bar chart showing daily stock movements over the last 30 days">Stock movements for the past 30 days.</canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bin-card">
+  <div class="bin-header">
+    <div class="bin-header-left">
+      <h3>Stock bin card</h3>
+      <p>Eau Minérale 75cl · DRK-LV3K2M-B8C1 · Location: Shelf A3</p>
+    </div>
+    <div class="bin-header-right">
+      <p class="bin-stock-label">Balance</p>
+      <p class="bin-stock-value">18</p>
+      <p class="bin-stock-unit">pcs — as of today</p>
+    </div>
+  </div>
+  <div class="bin-meta">
+    <div class="bin-meta-cell">
+      <p class="bin-meta-label">Opening stock</p>
+      <p class="bin-meta-value">0 pcs</p>
+    </div>
+    <div class="bin-meta-cell">
+      <p class="bin-meta-label">Total restocked</p>
+      <p class="bin-meta-value">240 pcs</p>
+    </div>
+    <div class="bin-meta-cell">
+      <p class="bin-meta-label">Total sold</p>
+      <p class="bin-meta-value">222 pcs</p>
+    </div>
+    <div class="bin-meta-cell">
+      <p class="bin-meta-label">Adjustments</p>
+      <p class="bin-meta-value">0 pcs</p>
+    </div>
+  </div>
+  <div class="bin-table-wrap">
+    <table class="bin-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Reference</th>
+          <th>Movement type</th>
+          <th>Performed by</th>
+          <th>Notes</th>
+          <th>In</th>
+          <th>Out</th>
+          <th>Balance</th>
+        </tr>
+      </thead>
+      <tbody id="bin-tbody"></tbody>
+    </table>
+  </div>
+  <div class="bin-footer">
+    <p class="bin-footer-note">Showing 10 most recent movements · All times in Africa/Douala</p>
+    <button class="view-all-btn">View full history</button>
+  </div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const MOVEMENTS = [
+  {date:'13 Apr 2025',ref:'VTE-20250413-0038',type:'SALE',by:'Jean-Pierre',notes:'Walk-in customer',in:null,out:3,bal:18},
+  {date:'13 Apr 2025',ref:'VTE-20250413-0035',type:'SALE',by:'Fatima',notes:'',in:null,out:12,bal:21},
+  {date:'12 Apr 2025',ref:'VTE-20250412-0029',type:'SALE',by:'Jean-Pierre',notes:'',in:null,out:6,bal:33},
+  {date:'12 Apr 2025',ref:'VTE-20250412-0021',type:'SALE',by:'Fatima',notes:'Bulk purchase',in:null,out:24,bal:39},
+  {date:'10 Apr 2025',ref:'ADJ-20250410-001',type:'MANUAL_ADJUSTMENT',by:'Patron Joseph',notes:'Breakage — 2 bottles',in:null,out:2,bal:63},
+  {date:'08 Apr 2025',ref:'RST-20250408-003',type:'RESTOCK_IN',by:'Patron Joseph',notes:'Nguia SARL delivery',in:120,out:null,bal:65},
+  {date:'07 Apr 2025',ref:'VTE-20250407-0044',type:'SALE',by:'Jean-Pierre',notes:'',in:null,out:18,bal:45},  
+  {date:'05 Apr 2025',ref:'VTE-20250405-0031',type:'SALE',by:'Fatima',notes:'',in:null,out:9,bal:63},
+  {date:'03 Apr 2025',ref:'VTE-20250403-0018',type:'SALE',by:'Jean-Pierre',notes:'',in:null,out:6,bal:72},
+  {date:'01 Apr 2025',ref:'RST-20250401-001',type:'RESTOCK_IN',by:'Patron Joseph',notes:'Opening restock',in:120,out:null,bal:78},
+];
+
+const typeLabel = t => t==='SALE'?'Sale':t==='RESTOCK_IN'?'Restock in':t==='MANUAL_ADJUSTMENT'?'Adjustment':t.replace(/_/g,' ').toLowerCase().replace(/^\w/,c=>c.toUpperCase());
+const typeCls = t => t==='RESTOCK_IN'?'mv-in':t==='SALE'?'mv-out':'mv-adj';
+
+const tbody = document.getElementById('bin-tbody');
+MOVEMENTS.forEach(m=>{
+  const tr = document.createElement('tr');
+  tr.innerHTML=`
+    <td style="font-family:var(--mono);font-size:11px;color:var(--color-text-secondary);white-space:nowrap">${m.date}</td>
+    <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${m.ref}</td>
+    <td><span class="mv-type ${typeCls(m.type)}">${typeLabel(m.type)}</span></td>
+    <td style="font-size:12px;color:var(--color-text-secondary)">${m.by}</td>
+    <td style="font-size:11px;color:var(--color-text-secondary);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.notes||'—'}</td>
+    <td class="qty-change qty-pos">${m.in!=null?'+'+m.in:'—'}</td>
+    <td class="qty-change qty-neg">${m.out!=null?'-'+m.out:'—'}</td>
+    <td class="qty-bal">${m.bal}</td>
+  `;
+  tbody.appendChild(tr);
+});
+
+const days=30;
+const labels=Array.from({length:days},(_,i)=>{const d=new Date(2025,3,13-days+i+1);return(d.getMonth()+1)+'/'+(d.getDate())});
+const ins=Array.from({length:days},(_,i)=>[0,9,29].includes(i)?120:0);
+const outs=Array.from({length:days},(_,i)=>{
+  const v=[3,6,12,5,8,0,18,2,9,0,6,14,7,3,0,22,8,5,12,0,3,9,6,0,18,24,6,9,12,15];
+  return v[i]??0;
+});
+
+const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+
+new Chart(document.getElementById('mvChart'),{
+  type:'bar',
+  data:{
+    labels,
+    datasets:[
+      {label:'Restock',data:ins,backgroundColor:'#1D9E75',borderRadius:2,stack:'s'},
+      {label:'Sales/Out',data:outs.map(v=>-v),backgroundColor:'#E24B4A',borderRadius:2,stack:'s'},
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+Math.abs(ctx.raw)}}},
+    scales:{
+      x:{stacked:true,grid:{display:false},ticks:{font:{size:9},color:isDark?'#888780':'#888780',maxTicksLimit:8,autoSkip:true}},
+      y:{stacked:true,grid:{color:isDark?'rgba(136,135,128,.12)':'rgba(136,135,128,.12)'},ticks:{font:{size:10},color:'#888780',callback:v=>Math.abs(v)}}
+    }
+  }
+});
+</script>

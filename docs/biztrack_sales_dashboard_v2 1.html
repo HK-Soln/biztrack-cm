@@ -1,0 +1,418 @@
+
+<h2 class="sr-only">BizTrack CM Sales Dashboard — daily summary, revenue trend, payment breakdown, and sales table with ellipsis action menus for view, print, share, and void.</h2>
+
+<style>
+  .bz-root{font-family:var(--font-sans);padding:0}
+  .bz-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:0.5px solid var(--color-border-tertiary)}
+  .bz-header-left h1{font-size:18px;font-weight:500;margin:0;color:var(--color-text-primary)}
+  .bz-header-left p{font-size:12px;color:var(--color-text-secondary);margin:2px 0 0}
+  .bz-date-tabs{display:flex;gap:4px}
+  .bz-tab{font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+  .bz-tab.active{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500;border-color:var(--color-border-secondary)}
+  .bz-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+  .bz-metric{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px}
+  .bz-metric-label{font-size:11px;color:var(--color-text-secondary);margin:0 0 4px;text-transform:uppercase;letter-spacing:.04em}
+  .bz-metric-value{font-size:22px;font-weight:500;color:var(--color-text-primary);margin:0;line-height:1.1}
+  .bz-metric-sub{font-size:11px;color:var(--color-text-secondary);margin:3px 0 0}
+  .bz-metric-badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:var(--border-radius-md);font-weight:500;margin-top:4px}
+  .bz-up{background:var(--color-background-success);color:var(--color-text-success)}
+  .bz-down{background:var(--color-background-danger);color:var(--color-text-danger)}
+  .bz-mid-row{display:grid;grid-template-columns:1fr 200px;gap:12px;margin-bottom:18px}
+  .bz-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
+  .bz-card-title{font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin:0 0 12px}
+  .bz-filters{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .bz-search{flex:1;min-width:160px;font-size:13px}
+  .bz-select{font-size:12px;padding:6px 10px}
+  .bz-filter-badge{font-size:11px;padding:4px 10px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);cursor:pointer;white-space:nowrap}
+  .bz-filter-badge.on{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+  .bz-table{width:100%;border-collapse:collapse;font-size:13px}
+  .bz-table th{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:0.5px solid var(--color-border-tertiary);text-align:left;white-space:nowrap}
+  .bz-table td{padding:10px 10px;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-primary);vertical-align:middle}
+  .bz-table tr:last-child td{border-bottom:none}
+  .bz-table tr{cursor:pointer;transition:background .1s}
+  .bz-table tr:hover td{background:var(--color-background-secondary)}
+  .bz-sale-num{font-family:var(--font-mono);font-size:12px;color:var(--color-text-secondary)}
+  .bz-status{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 8px;border-radius:var(--border-radius-md);font-weight:500}
+  .bz-completed{background:var(--color-background-success);color:var(--color-text-success)}
+  .bz-voided{background:var(--color-background-danger);color:var(--color-text-danger)}
+  .bz-method-pill{display:inline-flex;align-items:center;font-size:11px;padding:2px 7px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);margin-right:3px}
+  .bz-drift{display:inline-block;width:6px;height:6px;border-radius:50%;background:#EF9F27;margin-left:4px;vertical-align:middle}
+  .bz-synced-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
+  .bz-synced{background:#639922}
+  .bz-unsynced{background:#EF9F27}
+  .bz-pagination{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--color-text-secondary)}
+  .bz-page-btns{display:flex;gap:4px}
+  .bz-page-btn{font-size:12px;padding:4px 10px;border-radius:var(--border-radius-md)}
+  .bz-page-btn.active{background:var(--color-background-secondary);color:var(--color-text-primary);border-color:var(--color-border-secondary);font-weight:500}
+  .bz-chart-legend{display:flex;gap:14px;margin-bottom:8px;font-size:11px;color:var(--color-text-secondary)}
+  .bz-legend-item{display:flex;align-items:center;gap:4px}
+  .bz-legend-sq{width:8px;height:8px;border-radius:2px}
+
+  .bz-ellipsis-wrap{position:relative;display:inline-block}
+  .bz-ellipsis-btn{background:none;border:0.5px solid transparent;border-radius:var(--border-radius-md);cursor:pointer;padding:4px 8px;font-size:15px;color:var(--color-text-secondary);line-height:1;display:flex;align-items:center;justify-content:center;width:30px;height:28px}
+  .bz-ellipsis-btn:hover{background:var(--color-background-secondary);border-color:var(--color-border-tertiary);color:var(--color-text-primary)}
+  .bz-dropdown{display:none;position:absolute;right:0;top:32px;background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);min-width:160px;z-index:50;overflow:hidden}
+  .bz-dropdown.open{display:block}
+  .bz-dropdown-item{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:13px;color:var(--color-text-primary);cursor:pointer;white-space:nowrap;border:none;background:none;width:100%;text-align:left}
+  .bz-dropdown-item:hover{background:var(--color-background-secondary)}
+  .bz-dropdown-item svg{width:14px;height:14px;flex-shrink:0;color:var(--color-text-secondary)}
+  .bz-dropdown-divider{height:0.5px;background:var(--color-border-tertiary);margin:3px 0}
+  .bz-dropdown-item.danger{color:var(--color-text-danger)}
+  .bz-dropdown-item.danger svg{color:var(--color-text-danger)}
+  .bz-dropdown-item.disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+
+  .bz-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center}
+  .bz-modal-bg.open{display:flex}
+  .bz-modal{background:var(--color-background-primary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary);width:460px;max-width:95vw;padding:20px}
+  .bz-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .bz-modal-title{font-size:15px;font-weight:500;margin:0}
+  .bz-modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--color-text-secondary);padding:0;line-height:1}
+  .bz-modal-section{margin-bottom:14px;padding-bottom:14px;border-bottom:0.5px solid var(--color-border-tertiary)}
+  .bz-modal-section:last-child{border-bottom:none;margin-bottom:0}
+  .bz-modal-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+  .bz-modal-row .label{color:var(--color-text-secondary)}
+  .bz-modal-row .val{font-weight:500}
+  .bz-modal-items{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+  .bz-modal-items th{font-size:10px;color:var(--color-text-secondary);text-transform:uppercase;padding:3px 6px;text-align:left;border-bottom:0.5px solid var(--color-border-tertiary)}
+  .bz-modal-items td{padding:5px 6px;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-primary)}
+  .bz-modal-items tr:last-child td{border-bottom:none}
+  .bz-total-row td{font-weight:500;font-size:14px;border-top:0.5px solid var(--color-border-secondary) !important}
+  .bz-void-section{background:var(--color-background-danger);border-radius:var(--border-radius-md);padding:12px;margin-top:6px}
+  .bz-void-label{font-size:12px;color:var(--color-text-danger);font-weight:500;margin:0 0 6px}
+  .bz-void-input{width:100%;font-size:12px;margin-bottom:8px;box-sizing:border-box}
+  .bz-void-btn{font-size:12px;padding:6px 14px;border-radius:var(--border-radius-md);background:var(--color-background-danger);color:var(--color-text-danger);border:0.5px solid var(--color-border-danger);cursor:pointer;font-weight:500}
+
+  .bz-receipt-actions{display:flex;gap:8px;margin-bottom:14px;padding-bottom:14px;border-bottom:0.5px solid var(--color-border-tertiary)}
+  .bz-receipt-btn{display:flex;align-items:center;gap:6px;font-size:12px;padding:7px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer;flex:1;justify-content:center;font-weight:500}
+  .bz-receipt-btn:hover{border-color:var(--color-border-secondary);background:var(--color-background-primary)}
+  .bz-receipt-btn svg{width:14px;height:14px;color:var(--color-text-secondary)}
+  .bz-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:10px 18px;font-size:13px;color:var(--color-text-primary);z-index:200;display:none;white-space:nowrap}
+  .bz-toast.show{display:block}
+</style>
+
+<div class="bz-root">
+  <div class="bz-header">
+    <div class="bz-header-left">
+      <h1>Sales</h1>
+      <p>Samedi, 13 Avril 2025 &mdash; Akwa Boutique</p>
+    </div>
+    <div class="bz-date-tabs">
+      <button class="bz-tab active" onclick="setTab(this,'today')">Today</button>
+      <button class="bz-tab" onclick="setTab(this,'week')">7 days</button>
+      <button class="bz-tab" onclick="setTab(this,'month')">30 days</button>
+    </div>
+  </div>
+
+  <div class="bz-metrics" id="bz-metrics"></div>
+
+  <div class="bz-mid-row">
+    <div class="bz-card">
+      <p class="bz-card-title">Revenue trend</p>
+      <div class="bz-chart-legend">
+        <span class="bz-legend-item"><span class="bz-legend-sq" style="background:#1D9E75;"></span>Revenue (XAF)</span>
+        <span class="bz-legend-item"><span class="bz-legend-sq" style="background:#B4B2A9;border:1px dashed #888780;"></span>Transactions</span>
+      </div>
+      <div style="position:relative;width:100%;height:160px;">
+        <canvas id="trendChart" role="img" aria-label="Revenue and transaction count trend over selected period"></canvas>
+      </div>
+    </div>
+    <div class="bz-card">
+      <p class="bz-card-title">Payments</p>
+      <div id="bz-payments"></div>
+    </div>
+  </div>
+
+  <div class="bz-card" style="margin-bottom:0;">
+    <div class="bz-filters">
+      <input class="bz-search" type="text" placeholder="Search by sale no. or customer..." id="bz-search" oninput="filterTable()" />
+      <select class="bz-select" id="bz-status-filter" onchange="filterTable()">
+        <option value="">All status</option>
+        <option value="COMPLETED">Completed</option>
+        <option value="VOIDED">Voided</option>
+      </select>
+      <select class="bz-select" id="bz-method-filter" onchange="filterTable()">
+        <option value="">All payments</option>
+        <option value="CASH">Cash</option>
+        <option value="MTN_MOMO">MTN MoMo</option>
+        <option value="ORANGE_MONEY">Orange Money</option>
+        <option value="MIXED">Mixed</option>
+      </select>
+      <span class="bz-filter-badge" id="bz-drift-filter" onclick="toggleDrift()">Price warnings</span>
+    </div>
+    <table class="bz-table">
+      <thead>
+        <tr>
+          <th>Sale no.</th>
+          <th>Time</th>
+          <th>Customer</th>
+          <th>Items</th>
+          <th>Payment</th>
+          <th style="text-align:right">Total (XAF)</th>
+          <th>Status</th>
+          <th>Sync</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="bz-tbody"></tbody>
+    </table>
+    <div class="bz-pagination">
+      <span id="bz-page-info"></span>
+      <div class="bz-page-btns" id="bz-page-btns"></div>
+    </div>
+  </div>
+</div>
+
+<div class="bz-modal-bg" id="bz-modal">
+  <div class="bz-modal">
+    <div class="bz-modal-header">
+      <h3 class="bz-modal-title" id="modal-title">Sale detail</h3>
+      <button class="bz-modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div class="bz-toast" id="bz-toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const SALES=[
+  {id:'s1',saleNumber:'VTE-20250413-0038',soldAt:'2025-04-13T17:52:00Z',customer:'Marie Ekotto',items:[{name:'Huile 1L',qty:2,unitPrice:1200,lineTotal:2400},{name:'Riz 5kg',qty:1,unitPrice:3500,lineTotal:3500}],subtotal:5900,discountAmount:0,totalAmount:5900,amountPaid:6000,changeGiven:100,payments:[{method:'CASH',amount:6000}],status:'COMPLETED',cashier:'Jean-Pierre',syncedAt:'2025-04-13T17:52:10Z',priceDrift:false,voidReason:null},
+  {id:'s2',saleNumber:'VTE-20250413-0037',soldAt:'2025-04-13T17:41:00Z',customer:null,items:[{name:'Savon Lux 100g',qty:5,unitPrice:500,lineTotal:2500},{name:'Eau Min. 75cl',qty:12,unitPrice:250,lineTotal:3000}],subtotal:5500,discountAmount:500,totalAmount:5000,amountPaid:5000,changeGiven:0,payments:[{method:'MTN_MOMO',amount:5000}],status:'COMPLETED',cashier:'Jean-Pierre',syncedAt:'2025-04-13T17:41:22Z',priceDrift:true,voidReason:null},
+  {id:'s3',saleNumber:'VTE-20250413-0036',soldAt:'2025-04-13T17:28:00Z',customer:'Paul Njock',items:[{name:'Biscuits 100g',qty:10,unitPrice:200,lineTotal:2000}],subtotal:2000,discountAmount:0,totalAmount:2000,amountPaid:2500,changeGiven:500,payments:[{method:'CASH',amount:2500}],status:'COMPLETED',cashier:'Fatima',syncedAt:'2025-04-13T17:28:45Z',priceDrift:false,voidReason:null},
+  {id:'s4',saleNumber:'VTE-20250413-0035',soldAt:'2025-04-13T17:05:00Z',customer:'Ngono Grace',items:[{name:'Lait Gloria 400g',qty:3,unitPrice:1800,lineTotal:5400},{name:'Sucre 1kg',qty:2,unitPrice:750,lineTotal:1500}],subtotal:6900,discountAmount:0,totalAmount:6900,amountPaid:4000,changeGiven:0,payments:[{method:'MTN_MOMO',amount:4000},{method:'ORANGE_MONEY',amount:2900}],status:'COMPLETED',cashier:'Fatima',syncedAt:'2025-04-13T17:05:33Z',priceDrift:false,voidReason:null},
+  {id:'s5',saleNumber:'VTE-20250413-0034',soldAt:'2025-04-13T16:50:00Z',customer:null,items:[{name:'Poulet DG portion',qty:2,unitPrice:2500,lineTotal:5000}],subtotal:5000,discountAmount:0,totalAmount:5000,amountPaid:5000,changeGiven:0,payments:[{method:'ORANGE_MONEY',amount:5000}],status:'VOIDED',cashier:'Jean-Pierre',syncedAt:'2025-04-13T16:55:00Z',priceDrift:false,voidReason:'Wrong product selected by cashier'},
+  {id:'s6',saleNumber:'VTE-20250413-0033',soldAt:'2025-04-13T16:33:00Z',customer:'Amina Bello',items:[{name:'Farine de blé 1kg',qty:4,unitPrice:900,lineTotal:3600},{name:'Levure',qty:2,unitPrice:200,lineTotal:400}],subtotal:4000,discountAmount:0,totalAmount:4000,amountPaid:4000,changeGiven:0,payments:[{method:'CASH',amount:4000}],status:'COMPLETED',cashier:'Fatima',syncedAt:'2025-04-13T16:33:11Z',priceDrift:false,voidReason:null},
+  {id:'s7',saleNumber:'VTE-20250413-0032',soldAt:'2025-04-13T16:12:00Z',customer:null,items:[{name:'Coca-Cola 35cl',qty:6,unitPrice:400,lineTotal:2400},{name:'Sprite 35cl',qty:4,unitPrice:400,lineTotal:1600}],subtotal:4000,discountAmount:200,totalAmount:3800,amountPaid:4000,changeGiven:200,payments:[{method:'CASH',amount:4000}],status:'COMPLETED',cashier:'Jean-Pierre',syncedAt:null,priceDrift:false,voidReason:null},
+  {id:'s8',saleNumber:'VTE-20250413-0031',soldAt:'2025-04-13T15:55:00Z',customer:'Bertrand Mfoula',items:[{name:'Sel de cuisine',qty:3,unitPrice:150,lineTotal:450},{name:'Cube Maggi x10',qty:5,unitPrice:300,lineTotal:1500}],subtotal:1950,discountAmount:0,totalAmount:1950,amountPaid:2000,changeGiven:50,payments:[{method:'CASH',amount:2000}],status:'COMPLETED',cashier:'Fatima',syncedAt:'2025-04-13T15:55:28Z',priceDrift:false,voidReason:null},
+  {id:'s9',saleNumber:'VTE-20250413-0030',soldAt:'2025-04-13T15:38:00Z',customer:'Chantal Oyono',items:[{name:'Détergent 500g',qty:2,unitPrice:1100,lineTotal:2200},{name:'Éponge cuisine',qty:4,unitPrice:250,lineTotal:1000}],subtotal:3200,discountAmount:0,totalAmount:3200,amountPaid:3200,changeGiven:0,payments:[{method:'MTN_MOMO',amount:3200}],status:'COMPLETED',cashier:'Jean-Pierre',syncedAt:'2025-04-13T15:38:55Z',priceDrift:true,voidReason:null},
+  {id:'s10',saleNumber:'VTE-20250413-0029',soldAt:'2025-04-13T15:20:00Z',customer:null,items:[{name:'Pain de mie',qty:1,unitPrice:650,lineTotal:650}],subtotal:650,discountAmount:0,totalAmount:650,amountPaid:1000,changeGiven:350,payments:[{method:'CASH',amount:1000}],status:'COMPLETED',cashier:'Fatima',syncedAt:'2025-04-13T15:20:10Z',priceDrift:false,voidReason:null},
+];
+const SUMMARY={totalSales:38,totalRevenue:245000,grossProfit:97000,grossMarginPercent:39.6,totalDiscounts:3500,cashCollected:180000,mtnMomoCollected:45000,orangeMoneyCollected:20000,voidedSales:2,voidedAmount:8500};
+const TREND={
+  today:{labels:['08h','09h','10h','11h','12h','13h','14h','15h','16h','17h'],revenue:[8200,14500,19000,11000,22000,18000,31000,28000,35000,18300],count:[3,5,7,4,8,6,12,10,13,7]},
+  week:{labels:['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'],revenue:[180000,210000,195000,230000,260000,245000,120000],count:[28,32,29,35,40,38,18]},
+  month:{labels:['S1','S2','S3','S4'],revenue:[820000,940000,1050000,980000],count:[120,138,155,140]}
+};
+
+let currentTab='today',driftFilter=false,currentPage=1,chart=null,selectedSale=null,openDropdownId=null;
+const PER_PAGE=10;
+
+function fmtXAF(n){return Math.round(n).toLocaleString('fr-FR')}
+function fmtTime(iso){return new Date(iso).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
+
+function showToast(msg){const t=document.getElementById('bz-toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
+
+function renderMetrics(){
+  const s=SUMMARY;
+  const data=[
+    {label:'Revenue',value:'XAF '+fmtXAF(s.totalRevenue),sub:s.totalSales+' transactions',badge:'+12%',up:true},
+    {label:'Gross profit',value:'XAF '+fmtXAF(s.grossProfit),sub:s.grossMarginPercent+'% margin',badge:'+4%',up:true},
+    {label:'Cash collected',value:'XAF '+fmtXAF(s.cashCollected),sub:'73.5% of revenue',badge:null,up:null},
+    {label:'Voided',value:s.voidedSales+' sales',sub:'XAF '+fmtXAF(s.voidedAmount)+' reversed',badge:null,up:null},
+  ];
+  document.getElementById('bz-metrics').innerHTML=data.map(d=>`
+    <div class="bz-metric">
+      <p class="bz-metric-label">${d.label}</p>
+      <p class="bz-metric-value">${d.value}</p>
+      <p class="bz-metric-sub">${d.sub}</p>
+      ${d.badge?`<span class="bz-metric-badge ${d.up?'bz-up':'bz-down'}">${d.badge}</span>`:''}
+    </div>`).join('');
+}
+
+function renderPayments(){
+  const s=SUMMARY;
+  const total=s.cashCollected+s.mtnMomoCollected+s.orangeMoneyCollected;
+  [{label:'Cash',amount:s.cashCollected,color:'#1D9E75'},{label:'MTN MoMo',amount:s.mtnMomoCollected,color:'#EF9F27'},{label:'Orange Money',amount:s.orangeMoneyCollected,color:'#D85A30'}].forEach(i=>{
+    const pct=Math.round(i.amount/total*100);
+    document.getElementById('bz-payments').innerHTML+=`
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary);"><span style="width:8px;height:8px;border-radius:50%;background:${i.color};display:inline-block;"></span>${i.label}</span>
+          <span style="font-size:12px;font-weight:500;color:var(--color-text-primary);">${pct}%</span>
+        </div>
+        <div style="height:4px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${i.color};border-radius:4px;"></div>
+        </div>
+        <span style="font-size:11px;color:var(--color-text-secondary);">XAF ${fmtXAF(i.amount)}</span>
+      </div>`;
+  });
+}
+
+function renderChart(tab){
+  const d=TREND[tab];
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('trendChart'),{
+    type:'bar',
+    data:{labels:d.labels,datasets:[
+      {label:'Revenue',data:d.revenue,backgroundColor:'#1D9E75',borderRadius:3,yAxisID:'y'},
+      {label:'Transactions',data:d.count,type:'line',borderColor:'#B4B2A9',borderDash:[4,4],borderWidth:1.5,pointRadius:3,pointBackgroundColor:'#B4B2A9',fill:false,yAxisID:'y1'}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.dataset.yAxisID==='y'?'XAF '+fmtXAF(ctx.raw):ctx.raw+' sales'}}},
+      scales:{
+        x:{grid:{display:false},ticks:{font:{size:10},color:'#888780'}},
+        y:{position:'left',grid:{color:'rgba(136,135,128,.12)'},ticks:{font:{size:10},color:'#888780',callback:v=>'XAF '+Math.round(v/1000)+'k'}},
+        y1:{position:'right',grid:{drawOnChartArea:false},ticks:{font:{size:10},color:'#888780'}}
+      }}
+  });
+}
+
+function getFiltered(){
+  const search=document.getElementById('bz-search').value.toLowerCase();
+  const status=document.getElementById('bz-status-filter').value;
+  const method=document.getElementById('bz-method-filter').value;
+  return SALES.filter(s=>{
+    if(search&&!s.saleNumber.toLowerCase().includes(search)&&!(s.customer||'').toLowerCase().includes(search))return false;
+    if(status&&s.status!==status)return false;
+    if(method){const ms=[...new Set(s.payments.map(p=>p.method))];const isMixed=ms.length>1;if(method==='MIXED'?!isMixed:!ms.includes(method))return false;}
+    if(driftFilter&&!s.priceDrift)return false;
+    return true;
+  });
+}
+
+const ICONS={
+  view:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M1.5 8C3 4.5 5.5 2.5 8 2.5s5 2 6.5 5.5c-1.5 3.5-4 5.5-6.5 5.5S3 11.5 1.5 8z"/></svg>`,
+  print:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="1.5" width="8" height="5" rx="1"/><path d="M4 10.5H2a.5.5 0 01-.5-.5V6a.5.5 0 01.5-.5h12a.5.5 0 01.5.5v4a.5.5 0 01-.5.5h-2"/><rect x="4" y="9.5" width="8" height="5" rx="1"/><circle cx="12.5" cy="7.5" r=".75" fill="currentColor" stroke="none"/></svg>`,
+  share:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2.5a2 2 0 110 2.5L5.5 7.5a2 2 0 010 1L11 11a2 2 0 11-.8 1.4L5 10a2 2 0 110-4l5.2-2.9A2 2 0 0111 2.5z"/></svg>`,
+  void:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="5" y1="5" x2="11" y2="11"/><line x1="11" y1="5" x2="5" y2="11"/></svg>`,
+};
+
+function buildDropdown(s){
+  const isVoided=s.status==='VOIDED';
+  return `
+    <div class="bz-ellipsis-wrap" id="wrap-${s.id}">
+      <button class="bz-ellipsis-btn" onclick="toggleDropdown(event,'${s.id}')" title="Actions">&#8942;</button>
+      <div class="bz-dropdown" id="dd-${s.id}">
+        <button class="bz-dropdown-item" onclick="closeAllDropdowns();openDetail('${s.id}')">${ICONS.view} View</button>
+        <button class="bz-dropdown-item" onclick="closeAllDropdowns();doPrint('${s.id}')">${ICONS.print} Print receipt</button>
+        <button class="bz-dropdown-item" onclick="closeAllDropdowns();doShare('${s.id}')">${ICONS.share} Share receipt</button>
+        <div class="bz-dropdown-divider"></div>
+        <button class="bz-dropdown-item danger ${isVoided?'disabled':''}" onclick="closeAllDropdowns();openVoid('${s.id}')">${ICONS.void} Void sale</button>
+      </div>
+    </div>`;
+}
+
+function renderTable(){
+  const filtered=getFiltered();
+  const total=filtered.length;
+  const start=(currentPage-1)*PER_PAGE;
+  const page=filtered.slice(start,start+PER_PAGE);
+  document.getElementById('bz-page-info').textContent=`Showing ${Math.min(start+1,total)}–${Math.min(start+PER_PAGE,total)} of ${total} sales`;
+  document.getElementById('bz-tbody').innerHTML=page.map(s=>{
+    const methods=[...new Set(s.payments.map(p=>p.method))];
+    const methodHtml=methods.map(m=>`<span class="bz-method-pill">${m==='MTN_MOMO'?'MTN':m==='ORANGE_MONEY'?'Orange':m==='CASH'?'Cash':m}</span>`).join('');
+    const statusHtml=s.status==='COMPLETED'?`<span class="bz-status bz-completed">Completed</span>`:`<span class="bz-status bz-voided">Voided</span>`;
+    const syncHtml=s.syncedAt?`<span class="bz-synced-dot bz-synced" title="Synced"></span>`:`<span class="bz-synced-dot bz-unsynced" title="Pending sync"></span>`;
+    const driftDot=s.priceDrift?`<span class="bz-drift" title="Price drift warning"></span>`:'';
+    return `<tr onclick="openDetail('${s.id}')">
+      <td><span class="bz-sale-num">${s.saleNumber}</span>${driftDot}</td>
+      <td>${fmtTime(s.soldAt)}</td>
+      <td style="color:var(--color-text-${s.customer?'primary':'secondary'})">${s.customer||'—'}</td>
+      <td style="color:var(--color-text-secondary)">${s.items.length} item${s.items.length>1?'s':''}</td>
+      <td>${methodHtml}</td>
+      <td style="text-align:right;font-weight:500;">${fmtXAF(s.totalAmount)}</td>
+      <td>${statusHtml}</td>
+      <td>${syncHtml}</td>
+      <td onclick="event.stopPropagation()">${buildDropdown(s)}</td>
+    </tr>`;
+  }).join('');
+  const pages=Math.ceil(total/PER_PAGE)||1;
+  document.getElementById('bz-page-btns').innerHTML=Array.from({length:pages},(_,i)=>
+    `<button class="bz-tab bz-page-btn ${i+1===currentPage?'active':''}" onclick="goPage(${i+1})">${i+1}</button>`
+  ).join('');
+}
+
+function toggleDropdown(e,id){
+  e.stopPropagation();
+  const dd=document.getElementById('dd-'+id);
+  const isOpen=dd.classList.contains('open');
+  closeAllDropdowns();
+  if(!isOpen){dd.classList.add('open');openDropdownId=id;}
+}
+
+function closeAllDropdowns(){
+  document.querySelectorAll('.bz-dropdown.open').forEach(d=>d.classList.remove('open'));
+  openDropdownId=null;
+}
+
+document.addEventListener('click',()=>closeAllDropdowns());
+
+function doPrint(id){showToast('Sending to thermal printer...')}
+function doShare(id){showToast('Opening WhatsApp...')}
+
+function openDetail(id){
+  const s=SALES.find(x=>x.id===id);
+  if(!s)return;
+  selectedSale=s;
+  document.getElementById('modal-title').textContent=s.saleNumber;
+  const driftBanner=s.priceDrift?`<div style="background:var(--color-background-warning);color:var(--color-text-warning);font-size:11px;padding:6px 10px;border-radius:var(--border-radius-md);margin-bottom:12px;">Price drift warning — one or more items sold at a price differing more than 10% from the current product price.</div>`:'';
+  const voidBanner=s.status==='VOIDED'?`<div style="background:var(--color-background-danger);color:var(--color-text-danger);font-size:12px;padding:8px 10px;border-radius:var(--border-radius-md);margin-top:4px;"><strong>Sale voided</strong> — ${s.voidReason}</div>`:'';
+  const voidSection=s.status==='COMPLETED'?`
+    <div class="bz-void-section">
+      <p class="bz-void-label">Void this sale</p>
+      <input class="bz-void-input" type="text" id="void-reason" placeholder="Reason (min. 10 characters)..." />
+      <button class="bz-void-btn" onclick="confirmVoid()">Confirm void</button>
+    </div>`:'';
+  document.getElementById('modal-body').innerHTML=`
+    ${driftBanner}
+    <div class="bz-receipt-actions">
+      <button class="bz-receipt-btn" onclick="doPrint('${s.id}')">${ICONS.print} Print receipt</button>
+      <button class="bz-receipt-btn" onclick="doShare('${s.id}')">${ICONS.share} Share via WhatsApp</button>
+    </div>
+    <div class="bz-modal-section">
+      <div class="bz-modal-row"><span class="label">Date &amp; time</span><span class="val">${new Date(s.soldAt).toLocaleString('fr-FR')}</span></div>
+      <div class="bz-modal-row"><span class="label">Cashier</span><span class="val">${s.cashier}</span></div>
+      <div class="bz-modal-row"><span class="label">Customer</span><span class="val">${s.customer||'—'}</span></div>
+      <div class="bz-modal-row"><span class="label">Sync</span><span class="val">${s.syncedAt?'Synced at '+fmtTime(s.syncedAt):'Pending sync'}</span></div>
+    </div>
+    <div class="bz-modal-section">
+      <p style="font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px;">Items</p>
+      <table class="bz-modal-items">
+        <thead><tr><th>Product</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>
+          ${s.items.map(i=>`<tr><td>${i.name}</td><td style="text-align:right">${i.qty}</td><td style="text-align:right">${fmtXAF(i.unitPrice)}</td><td style="text-align:right;font-weight:500;">${fmtXAF(i.lineTotal)}</td></tr>`).join('')}
+          ${s.discountAmount>0?`<tr><td colspan="3" style="color:var(--color-text-secondary);">Discount</td><td style="text-align:right;color:var(--color-text-danger);">-${fmtXAF(s.discountAmount)}</td></tr>`:''}
+          <tr class="bz-total-row"><td colspan="3" style="font-weight:500;">Total</td><td style="text-align:right;font-weight:500;">XAF ${fmtXAF(s.totalAmount)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="bz-modal-section">
+      <p style="font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px;">Payment</p>
+      ${s.payments.map(p=>`<div class="bz-modal-row"><span class="label">${p.method==='MTN_MOMO'?'MTN Mobile Money':p.method==='ORANGE_MONEY'?'Orange Money':'Cash'}</span><span class="val">XAF ${fmtXAF(p.amount)}</span></div>`).join('')}
+      ${s.changeGiven>0?`<div class="bz-modal-row"><span class="label">Change given</span><span class="val">XAF ${fmtXAF(s.changeGiven)}</span></div>`:''}
+    </div>
+    ${voidBanner}
+    ${voidSection}`;
+  document.getElementById('bz-modal').classList.add('open');
+}
+
+function openVoid(id){
+  openDetail(id);
+  setTimeout(()=>{const el=document.getElementById('void-reason');if(el)el.focus();},120);
+}
+
+function confirmVoid(){
+  const reason=(document.getElementById('void-reason')||{}).value||'';
+  if(reason.trim().length<10){document.getElementById('void-reason').style.borderColor='var(--color-border-danger)';return;}
+  const s=SALES.find(x=>x.id===selectedSale.id);
+  if(s){s.status='VOIDED';s.voidReason=reason;}
+  closeModal();
+  renderTable();
+  renderMetrics();
+  showToast('Sale '+s.saleNumber+' voided');
+}
+
+function closeModal(){document.getElementById('bz-modal').classList.remove('open');selectedSale=null;}
+document.getElementById('bz-modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+
+function goPage(n){currentPage=n;renderTable();}
+function filterTable(){currentPage=1;renderTable();}
+function toggleDrift(){driftFilter=!driftFilter;document.getElementById('bz-drift-filter').classList.toggle('on',driftFilter);filterTable();}
+function setTab(el,tab){document.querySelectorAll('.bz-date-tabs .bz-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');currentTab=tab;renderChart(tab);}
+
+renderMetrics();
+renderPayments();
+renderChart('today');
+renderTable();
+</script>

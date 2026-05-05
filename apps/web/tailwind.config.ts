@@ -1,5 +1,5 @@
 import type { Config } from 'tailwindcss'
-import { colors } from '@biztrack/theme/tokens'
+import { colors } from '@biztrack/theme'
 
 const config: Config = {
   darkMode: ['class'],

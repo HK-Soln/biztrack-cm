@@ -1,0 +1,466 @@
+
+<h2 class="sr-only">BizTrack CM Expenses Dashboard — monthly summary metrics, spending by category chart, and a filterable expense table with add, edit, and delete actions.</h2>
+
+<style>
+  .ez{font-family:var(--font-sans);padding:0}
+  .ez-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:0.5px solid var(--color-border-tertiary)}
+  .ez-header h1{font-size:18px;font-weight:500;margin:0;color:var(--color-text-primary)}
+  .ez-header p{font-size:12px;color:var(--color-text-secondary);margin:2px 0 0}
+  .ez-header-right{display:flex;align-items:center;gap:8px}
+  .ez-date-tabs{display:flex;gap:4px}
+  .ez-tab{font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+  .ez-tab.active{background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500;border-color:var(--color-border-secondary)}
+  .ez-btn-add{font-size:12px;padding:6px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer;font-weight:500;display:flex;align-items:center;gap:6px}
+  .ez-btn-add:hover{background:var(--color-background-primary);border-color:var(--color-border-primary)}
+  .ez-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+  .ez-metric{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px}
+  .ez-metric-label{font-size:11px;color:var(--color-text-secondary);margin:0 0 4px;text-transform:uppercase;letter-spacing:.04em}
+  .ez-metric-value{font-size:22px;font-weight:500;color:var(--color-text-primary);margin:0;line-height:1.1}
+  .ez-metric-sub{font-size:11px;color:var(--color-text-secondary);margin:3px 0 0}
+  .ez-badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:var(--border-radius-md);font-weight:500;margin-top:4px}
+  .ez-up{background:var(--color-background-danger);color:var(--color-text-danger)}
+  .ez-down{background:var(--color-background-success);color:var(--color-text-success)}
+  .ez-mid{display:grid;grid-template-columns:1fr 220px;gap:12px;margin-bottom:18px}
+  .ez-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
+  .ez-card-title{font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin:0 0 12px}
+  .ez-cat-row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .ez-cat-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .ez-cat-label{font-size:12px;color:var(--color-text-secondary);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ez-cat-bar-wrap{width:80px;height:4px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden}
+  .ez-cat-bar{height:100%;border-radius:4px}
+  .ez-cat-amount{font-size:12px;font-weight:500;color:var(--color-text-primary);min-width:64px;text-align:right}
+  .ez-filters{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .ez-search{flex:1;min-width:140px;font-size:13px}
+  .ez-select{font-size:12px;padding:6px 10px}
+  .ez-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+  .ez-table th{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:0.5px solid var(--color-border-tertiary);text-align:left;white-space:nowrap}
+  .ez-table td{padding:10px 10px;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-primary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ez-table tr:last-child td{border-bottom:none}
+  .ez-table tr:hover td{background:var(--color-background-secondary)}
+  .ez-cat-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 8px;border-radius:var(--border-radius-md);font-weight:500}
+  .ez-recur{display:inline-flex;align-items:center;font-size:11px;padding:2px 7px;border-radius:var(--border-radius-md);background:var(--color-background-info);color:var(--color-text-info);border:0.5px solid var(--color-border-info)}
+  .ez-pagination{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--color-text-secondary)}
+  .ez-page-btns{display:flex;gap:4px}
+  .ez-ellipsis-wrap{position:relative;display:inline-block}
+  .ez-ellipsis-btn{background:none;border:0.5px solid transparent;border-radius:var(--border-radius-md);cursor:pointer;padding:4px 8px;font-size:15px;color:var(--color-text-secondary);line-height:1;display:flex;align-items:center;justify-content:center;width:30px;height:28px}
+  .ez-ellipsis-btn:hover{background:var(--color-background-secondary);border-color:var(--color-border-tertiary)}
+  .ez-dropdown{display:none;position:absolute;right:0;top:32px;background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);min-width:140px;z-index:50;overflow:hidden}
+  .ez-dropdown.open{display:block}
+  .ez-dd-item{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:13px;color:var(--color-text-primary);cursor:pointer;white-space:nowrap;border:none;background:none;width:100%;text-align:left}
+  .ez-dd-item:hover{background:var(--color-background-secondary)}
+  .ez-dd-item svg{width:14px;height:14px;color:var(--color-text-secondary);flex-shrink:0}
+  .ez-dd-item.danger{color:var(--color-text-danger)}
+  .ez-dd-item.danger svg{color:var(--color-text-danger)}
+  .ez-dd-divider{height:0.5px;background:var(--color-border-tertiary);margin:3px 0}
+  .ez-modal-bg{display:none;min-height:500px;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;border-radius:var(--border-radius-lg);margin-top:12px}
+  .ez-modal-bg.open{display:flex}
+  .ez-modal{background:var(--color-background-primary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary);width:420px;max-width:98%;padding:20px}
+  .ez-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+  .ez-modal-title{font-size:15px;font-weight:500;margin:0}
+  .ez-modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--color-text-secondary);padding:0;line-height:1}
+  .ez-form-row{margin-bottom:14px}
+  .ez-form-label{font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:5px;font-weight:500}
+  .ez-form-row input,.ez-form-row select,.ez-form-row textarea{width:100%;box-sizing:border-box;font-size:13px}
+  .ez-form-row textarea{height:64px;resize:vertical}
+  .ez-form-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .ez-form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary)}
+  .ez-btn-cancel{font-size:13px;padding:7px 16px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+  .ez-btn-save{font-size:13px;padding:7px 16px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);cursor:pointer;font-weight:500}
+  .ez-btn-save:hover{border-color:var(--color-border-primary)}
+  .ez-detail-section{margin-bottom:14px;padding-bottom:14px;border-bottom:0.5px solid var(--color-border-tertiary)}
+  .ez-detail-section:last-child{border-bottom:none;margin-bottom:0}
+  .ez-detail-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+  .ez-detail-row .lbl{color:var(--color-text-secondary)}
+  .ez-detail-row .val{font-weight:500}
+  .ez-delete-section{background:var(--color-background-danger);border-radius:var(--border-radius-md);padding:12px;margin-top:6px}
+  .ez-delete-label{font-size:12px;color:var(--color-text-danger);font-weight:500;margin:0 0 8px}
+  .ez-delete-btn{font-size:12px;padding:6px 14px;border-radius:var(--border-radius-md);background:var(--color-background-danger);color:var(--color-text-danger);border:0.5px solid var(--color-border-danger);cursor:pointer;font-weight:500}
+  .ez-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:10px 18px;font-size:13px;color:var(--color-text-primary);z-index:200;display:none;white-space:nowrap}
+  .ez-toast.show{display:block}
+  .ez-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;font-size:11px;color:var(--color-text-secondary)}
+  .ez-legend-item{display:flex;align-items:center;gap:4px}
+  .ez-legend-sq{width:8px;height:8px;border-radius:2px}
+</style>
+
+<div class="ez">
+  <div class="ez-header">
+    <div>
+      <h1>Expenses</h1>
+      <p>Avril 2025 &mdash; Akwa Boutique</p>
+    </div>
+    <div class="ez-header-right">
+      <div class="ez-date-tabs">
+        <button class="ez-tab active" onclick="setTab(this,'month')">This month</button>
+        <button class="ez-tab" onclick="setTab(this,'quarter')">Quarter</button>
+        <button class="ez-tab" onclick="setTab(this,'year')">Year</button>
+      </div>
+      <button class="ez-btn-add" onclick="openAdd()">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+        Add expense
+      </button>
+    </div>
+  </div>
+
+  <div class="ez-metrics" id="ez-metrics"></div>
+
+  <div class="ez-mid">
+    <div class="ez-card">
+      <p class="ez-card-title">Spending by category</p>
+      <div class="ez-legend" id="ez-legend"></div>
+      <div style="position:relative;width:100%;height:170px;">
+        <canvas id="ezChart" role="img" aria-label="Bar chart showing expenses grouped by category for the selected period"></canvas>
+      </div>
+    </div>
+    <div class="ez-card">
+      <p class="ez-card-title">Top categories</p>
+      <div id="ez-cat-list"></div>
+    </div>
+  </div>
+
+  <div class="ez-card" style="margin-bottom:0;">
+    <div class="ez-filters">
+      <input class="ez-search" type="text" id="ez-search" placeholder="Search description or vendor..." oninput="filterTable()" />
+      <select class="ez-select" id="ez-cat-filter" onchange="filterTable()">
+        <option value="">All categories</option>
+        <option value="Loyer">Loyer</option>
+        <option value="Salaires">Salaires</option>
+        <option value="Électricité">Électricité</option>
+        <option value="Transport">Transport</option>
+        <option value="Entretien">Entretien</option>
+        <option value="Divers">Divers</option>
+      </select>
+      <select class="ez-select" id="ez-recur-filter" onchange="filterTable()">
+        <option value="">All types</option>
+        <option value="true">Recurring</option>
+        <option value="false">One-off</option>
+      </select>
+    </div>
+    <table class="ez-table">
+      <colgroup>
+        <col style="width:22%"><col style="width:13%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:14%"><col style="width:6%">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Date</th>
+          <th>Category</th>
+          <th>Vendor</th>
+          <th>Type</th>
+          <th style="text-align:right">Amount (XAF)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="ez-tbody"></tbody>
+    </table>
+    <div class="ez-pagination">
+      <span id="ez-page-info"></span>
+      <div class="ez-page-btns" id="ez-page-btns"></div>
+    </div>
+  </div>
+</div>
+
+<div class="ez-modal-bg" id="ez-modal">
+  <div class="ez-modal">
+    <div class="ez-modal-header">
+      <h3 class="ez-modal-title" id="modal-title">Add expense</h3>
+      <button class="ez-modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div class="ez-toast" id="ez-toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const CAT_COLORS={
+  'Loyer':'#378ADD','Salaires':'#1D9E75','Électricité':'#EF9F27',
+  'Transport':'#D85A30','Entretien':'#7F77DD','Divers':'#888780'
+};
+const CAT_BG={
+  'Loyer':'#E6F1FB','Salaires':'#E1F5EE','Électricité':'#FAEEDA',
+  'Transport':'#FAECE7','Entretien':'#EEEDFE','Divers':'#F1EFE8'
+};
+const CAT_TEXT={
+  'Loyer':'#0C447C','Salaires':'#085041','Électricité':'#633806',
+  'Transport':'#712B13','Entretien':'#3C3489','Divers':'#444441'
+};
+
+let EXPENSES=[
+  {id:'e1',description:'Loyer mensuel',date:'2025-04-01',category:'Loyer',vendor:'Propriétaire Akwa',amount:85000,recurring:true,notes:'Bail commercial mensuel'},
+  {id:'e2',description:'Salaire caissière',date:'2025-04-01',category:'Salaires',vendor:null,amount:45000,recurring:true,notes:'Salaire Fatima - Avril'},
+  {id:'e3',description:'Salaire caissier',date:'2025-04-01',category:'Salaires',vendor:null,amount:45000,recurring:true,notes:'Salaire Jean-Pierre - Avril'},
+  {id:'e4',description:'Facture ENEO',date:'2025-04-05',category:'Électricité',vendor:'ENEO Cameroun',amount:18500,recurring:false,notes:null},
+  {id:'e5',description:'Facture CDE eau',date:'2025-04-05',category:'Électricité',vendor:'CDE',amount:6200,recurring:false,notes:null},
+  {id:'e6',description:'Transport livraison fournisseur',date:'2025-04-08',category:'Transport',vendor:'Moto-taxi Akwa',amount:3500,recurring:false,notes:'Livraison Marché Central'},
+  {id:'e7',description:'Réparation réfrigérateur',date:'2025-04-10',category:'Entretien',vendor:'Tech Froid Douala',amount:12000,recurring:false,notes:'Remplacement joint porte'},
+  {id:'e8',description:'Transport fournisseur Bonanjo',date:'2025-04-12',category:'Transport',vendor:'Moto-taxi Akwa',amount:2500,recurring:false,notes:null},
+  {id:'e9',description:'Fournitures bureau',date:'2025-04-13',category:'Divers',vendor:'Papeterie centrale',amount:4800,recurring:false,notes:'Cahiers, stylos, reçus'},
+  {id:'e10',description:'Nettoyage boutique',date:'2025-04-14',category:'Entretien',vendor:null,amount:5000,recurring:true,notes:'Nettoyage hebdomadaire x4'},
+];
+
+let currentPage=1,chart=null,editId=null;
+const PER=8;
+
+function fmtXAF(n){return Math.round(n).toLocaleString('fr-FR')}
+function fmtDate(d){return new Date(d).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})}
+function showToast(msg){const t=document.getElementById('ez-toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
+function uid(){return 'e'+(Date.now()+Math.random()).toString(36)}
+
+function getCatTotals(){
+  const totals={};
+  EXPENSES.forEach(e=>{totals[e.category]=(totals[e.category]||0)+e.amount});
+  return totals;
+}
+
+function renderMetrics(){
+  const total=EXPENSES.reduce((s,e)=>s+e.amount,0);
+  const recurring=EXPENSES.filter(e=>e.recurring).reduce((s,e)=>s+e.amount,0);
+  const oneoff=total-recurring;
+  const cats=Object.keys(getCatTotals()).length;
+  document.getElementById('ez-metrics').innerHTML=[
+    {label:'Total expenses',value:'XAF '+fmtXAF(total),sub:'Avril 2025',badge:'+8%',up:true},
+    {label:'Fixed / recurring',value:'XAF '+fmtXAF(recurring),sub:Math.round(recurring/total*100)+'% of total',badge:null},
+    {label:'One-off',value:'XAF '+fmtXAF(oneoff),sub:Math.round(oneoff/total*100)+'% of total',badge:null},
+    {label:'Categories',value:cats,sub:EXPENSES.length+' expense entries',badge:null},
+  ].map(d=>`<div class="ez-metric">
+    <p class="ez-metric-label">${d.label}</p>
+    <p class="ez-metric-value">${d.value}</p>
+    <p class="ez-metric-sub">${d.sub}</p>
+    ${d.badge?`<span class="ez-badge ez-up">${d.badge}</span>`:''}
+  </div>`).join('');
+}
+
+function renderChart(){
+  const totals=getCatTotals();
+  const cats=Object.keys(CAT_COLORS);
+  const data=cats.map(c=>totals[c]||0);
+  document.getElementById('ez-legend').innerHTML=cats.map(c=>`
+    <span class="ez-legend-item">
+      <span class="ez-legend-sq" style="background:${CAT_COLORS[c]};"></span>${c}
+    </span>`).join('');
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('ezChart'),{
+    type:'bar',
+    data:{labels:cats,datasets:[{label:'XAF',data,backgroundColor:cats.map(c=>CAT_COLORS[c]),borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'XAF '+fmtXAF(ctx.raw)}}},
+      scales:{
+        x:{grid:{display:false},ticks:{font:{size:10},color:'#888780',maxRotation:0}},
+        y:{grid:{color:'rgba(136,135,128,.12)'},ticks:{font:{size:10},color:'#888780',callback:v=>'XAF '+Math.round(v/1000)+'k'}}
+      }}
+  });
+}
+
+function renderCatList(){
+  const totals=getCatTotals();
+  const sorted=Object.entries(totals).sort((a,b)=>b[1]-a[1]);
+  const max=sorted[0]?.[1]||1;
+  document.getElementById('ez-cat-list').innerHTML=sorted.map(([cat,amt])=>`
+    <div class="ez-cat-row">
+      <span class="ez-cat-dot" style="background:${CAT_COLORS[cat]||'#888'};"></span>
+      <span class="ez-cat-label">${cat}</span>
+      <div class="ez-cat-bar-wrap"><div class="ez-cat-bar" style="width:${Math.round(amt/max*100)}%;background:${CAT_COLORS[cat]||'#888'};"></div></div>
+      <span class="ez-cat-amount">${fmtXAF(amt)}</span>
+    </div>`).join('');
+}
+
+function getFiltered(){
+  const search=document.getElementById('ez-search').value.toLowerCase();
+  const cat=document.getElementById('ez-cat-filter').value;
+  const recur=document.getElementById('ez-recur-filter').value;
+  return EXPENSES.filter(e=>{
+    if(search&&!e.description.toLowerCase().includes(search)&&!(e.vendor||'').toLowerCase().includes(search))return false;
+    if(cat&&e.category!==cat)return false;
+    if(recur!==''&&String(e.recurring)!==recur)return false;
+    return true;
+  }).sort((a,b)=>new Date(b.date)-new Date(a.date));
+}
+
+const ICONS={
+  edit:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>`,
+  del:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3,5 13,5"/><path d="M6 5V3h4v2"/><path d="M5 5l.7 8.3a1 1 0 001 .7h2.6a1 1 0 001-.7L11 5"/></svg>`,
+  view:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M1.5 8C3 4.5 5.5 2.5 8 2.5s5 2 6.5 5.5c-1.5 3.5-4 5.5-6.5 5.5S3 11.5 1.5 8z"/></svg>`,
+};
+
+function buildDD(e){
+  return `<div class="ez-ellipsis-wrap" id="wrap-${e.id}">
+    <button class="ez-ellipsis-btn" onclick="toggleDD(event,'${e.id}')">&#8942;</button>
+    <div class="ez-dropdown" id="dd-${e.id}">
+      <button class="ez-dd-item" onclick="closeDD();openView('${e.id}')">${ICONS.view} View</button>
+      <button class="ez-dd-item" onclick="closeDD();openEdit('${e.id}')">${ICONS.edit} Edit</button>
+      <div class="ez-dd-divider"></div>
+      <button class="ez-dd-item danger" onclick="closeDD();openDelete('${e.id}')">${ICONS.del} Delete</button>
+    </div>
+  </div>`;
+}
+
+function renderTable(){
+  const filtered=getFiltered();
+  const total=filtered.length;
+  const start=(currentPage-1)*PER;
+  const page=filtered.slice(start,start+PER);
+  document.getElementById('ez-page-info').textContent=`Showing ${Math.min(start+1,total)}–${Math.min(start+PER,total)} of ${total} expenses`;
+  document.getElementById('ez-tbody').innerHTML=page.map(e=>{
+    const col=CAT_COLORS[e.category]||'#888';
+    const bg=CAT_BG[e.category]||'#F1EFE8';
+    const txt=CAT_TEXT[e.category]||'#444';
+    const pill=`<span class="ez-cat-pill" style="background:${bg};color:${txt};">
+      <span style="width:6px;height:6px;border-radius:50%;background:${col};display:inline-block;flex-shrink:0;"></span>${e.category}
+    </span>`;
+    const recur=e.recurring?`<span class="ez-recur">Recurring</span>`:`<span style="font-size:11px;color:var(--color-text-secondary);">One-off</span>`;
+    return `<tr>
+      <td title="${e.description}">${e.description}</td>
+      <td>${fmtDate(e.date)}</td>
+      <td>${pill}</td>
+      <td style="color:var(--color-text-${e.vendor?'primary':'secondary'})" title="${e.vendor||''}">${e.vendor||'—'}</td>
+      <td>${recur}</td>
+      <td style="text-align:right;font-weight:500;">${fmtXAF(e.amount)}</td>
+      <td onclick="event.stopPropagation()">${buildDD(e)}</td>
+    </tr>`;
+  }).join('');
+  const pages=Math.ceil(total/PER)||1;
+  document.getElementById('ez-page-btns').innerHTML=Array.from({length:pages},(_,i)=>
+    `<button class="ez-tab ez-page-btn ${i+1===currentPage?'active':''}" onclick="goPage(${i+1})">${i+1}</button>`
+  ).join('');
+}
+
+function toggleDD(ev,id){ev.stopPropagation();const dd=document.getElementById('dd-'+id);const was=dd.classList.contains('open');closeDD();if(!was)dd.classList.add('open');}
+function closeDD(){document.querySelectorAll('.ez-dropdown.open').forEach(d=>d.classList.remove('open'));}
+document.addEventListener('click',closeDD);
+
+function goPage(n){currentPage=n;renderTable();}
+function filterTable(){currentPage=1;renderTable();}
+function setTab(el){document.querySelectorAll('.ez-date-tabs .ez-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');}
+
+function openModal(title,body){
+  document.getElementById('modal-title').textContent=title;
+  document.getElementById('modal-body').innerHTML=body;
+  document.getElementById('ez-modal').classList.add('open');
+}
+function closeModal(){document.getElementById('ez-modal').classList.remove('open');editId=null;}
+
+function addExpenseForm(e){
+  return `
+    <div class="ez-form-row">
+      <label class="ez-form-label">Description *</label>
+      <input type="text" id="f-desc" value="${e?.description||''}" placeholder="e.g. Facture ENEO Avril" />
+    </div>
+    <div class="ez-form-2col">
+      <div class="ez-form-row">
+        <label class="ez-form-label">Amount (XAF) *</label>
+        <input type="number" id="f-amount" value="${e?.amount||''}" placeholder="0" min="0" />
+      </div>
+      <div class="ez-form-row">
+        <label class="ez-form-label">Date *</label>
+        <input type="date" id="f-date" value="${e?.date||new Date().toISOString().slice(0,10)}" />
+      </div>
+    </div>
+    <div class="ez-form-2col">
+      <div class="ez-form-row">
+        <label class="ez-form-label">Category *</label>
+        <select id="f-cat">
+          ${Object.keys(CAT_COLORS).map(c=>`<option ${e?.category===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="ez-form-row">
+        <label class="ez-form-label">Vendor / paid to</label>
+        <input type="text" id="f-vendor" value="${e?.vendor||''}" placeholder="Optional" />
+      </div>
+    </div>
+    <div class="ez-form-row">
+      <label class="ez-form-label">Notes</label>
+      <textarea id="f-notes" placeholder="Optional notes...">${e?.notes||''}</textarea>
+    </div>
+    <div class="ez-form-row" style="display:flex;align-items:center;gap:10px;">
+      <input type="checkbox" id="f-recur" style="width:auto;" ${e?.recurring?'checked':''} />
+      <label for="f-recur" class="ez-form-label" style="margin:0;cursor:pointer;">Recurring expense (repeats monthly)</label>
+    </div>
+    <div class="ez-form-actions">
+      <button class="ez-btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="ez-btn-save" onclick="saveExpense()">${e?'Save changes':'Add expense'}</button>
+    </div>`;
+}
+
+function openAdd(){editId=null;openModal('Add expense',addExpenseForm());}
+
+function openEdit(id){
+  const e=EXPENSES.find(x=>x.id===id);
+  if(!e)return;
+  editId=id;
+  openModal('Edit expense',addExpenseForm(e));
+}
+
+function saveExpense(){
+  const desc=(document.getElementById('f-desc').value||'').trim();
+  const amount=parseFloat(document.getElementById('f-amount').value);
+  const date=document.getElementById('f-date').value;
+  const cat=document.getElementById('f-cat').value;
+  if(!desc||!amount||!date){
+    if(!desc)document.getElementById('f-desc').style.borderColor='var(--color-border-danger)';
+    if(!amount)document.getElementById('f-amount').style.borderColor='var(--color-border-danger)';
+    return;
+  }
+  const entry={
+    id:editId||uid(),description:desc,date,category:cat,
+    vendor:(document.getElementById('f-vendor').value||'').trim()||null,
+    amount,recurring:document.getElementById('f-recur').checked,
+    notes:(document.getElementById('f-notes').value||'').trim()||null,
+  };
+  if(editId){const i=EXPENSES.findIndex(x=>x.id===editId);EXPENSES[i]=entry;showToast('Expense updated');}
+  else{EXPENSES.unshift(entry);showToast('Expense added');}
+  closeModal();
+  refreshAll();
+}
+
+function openView(id){
+  const e=EXPENSES.find(x=>x.id===id);
+  if(!e)return;
+  const col=CAT_COLORS[e.category]||'#888';
+  const bg=CAT_BG[e.category]||'#F1EFE8';
+  const txt=CAT_TEXT[e.category]||'#444';
+  openModal(e.description,`
+    <div class="ez-detail-section">
+      <div class="ez-detail-row"><span class="lbl">Amount</span><span class="val" style="font-size:18px;">XAF ${fmtXAF(e.amount)}</span></div>
+      <div class="ez-detail-row"><span class="lbl">Date</span><span class="val">${fmtDate(e.date)}</span></div>
+      <div class="ez-detail-row"><span class="lbl">Category</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:3px 8px;border-radius:var(--border-radius-md);font-weight:500;background:${bg};color:${txt};">
+          <span style="width:6px;height:6px;border-radius:50%;background:${col};display:inline-block;"></span>${e.category}
+        </span>
+      </div>
+      <div class="ez-detail-row"><span class="lbl">Vendor</span><span class="val">${e.vendor||'—'}</span></div>
+      <div class="ez-detail-row"><span class="lbl">Type</span><span class="val">${e.recurring?'Recurring (monthly)':'One-off'}</span></div>
+    </div>
+    ${e.notes?`<div class="ez-detail-section"><div class="ez-detail-row"><span class="lbl">Notes</span></div><p style="font-size:13px;margin:4px 0 0;color:var(--color-text-primary);">${e.notes}</p></div>`:''}
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button class="ez-btn-save" style="flex:1;" onclick="closeModal();openEdit('${e.id}')">Edit</button>
+      <button class="ez-btn-cancel" style="flex:1;color:var(--color-text-danger);border-color:var(--color-border-danger);" onclick="closeModal();openDelete('${e.id}')">Delete</button>
+    </div>`);
+}
+
+function openDelete(id){
+  const e=EXPENSES.find(x=>x.id===id);
+  if(!e)return;
+  openModal('Delete expense',`
+    <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 16px;">Are you sure you want to delete <strong style="color:var(--color-text-primary);">${e.description}</strong> (XAF ${fmtXAF(e.amount)})? This cannot be undone.</p>
+    <div class="ez-form-actions" style="margin-top:0;padding-top:0;border-top:none;">
+      <button class="ez-btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="ez-delete-btn" onclick="confirmDelete('${id}')">Yes, delete</button>
+    </div>`);
+}
+
+function confirmDelete(id){
+  const e=EXPENSES.find(x=>x.id===id);
+  EXPENSES=EXPENSES.filter(x=>x.id!==id);
+  showToast((e?.description||'Expense')+' deleted');
+  closeModal();
+  refreshAll();
+}
+
+function refreshAll(){renderMetrics();renderChart();renderCatList();renderTable();}
+
+renderMetrics();
+renderChart();
+renderCatList();
+renderTable();
+</script>

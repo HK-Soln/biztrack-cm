@@ -1,9 +1,11 @@
 {
-  "extends": "@biztrack/typescript-config/base.json",
+  "extends": "@biztrack/typescript-config/react-library.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
