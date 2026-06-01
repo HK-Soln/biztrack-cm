@@ -20,7 +20,7 @@ import { useAuthStore } from '../../store/useAuthStore'
 import { setupBusiness, BusinessType } from '../../services/auth.service'
 import { useForm } from '../../hooks/useForm'
 import { decodeJwtSub } from '../../utils/jwt'
-import type { Locale } from '../../store/useAuthStore'
+import type { Locale, SubscriptionPlan } from '../../store/useAuthStore'
 
 const SUPPORTED_LOCALES: Locale[] = ['fr', 'en']
 const safeLocale = (l: string): Locale =>
@@ -238,7 +238,7 @@ export default function SetupBusinessScreen() {
         store.setBusiness({
           id: biz.id,
           name: biz.name ?? name.trim(),
-          plan: (biz.plan as any) ?? 'FREE',
+          plan: (biz.plan as SubscriptionPlan) ?? 'FREE',
           role: 'OWNER',
         })
       }

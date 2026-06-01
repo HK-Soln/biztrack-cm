@@ -14,7 +14,7 @@ import { useAuthStore } from '../../store/useAuthStore'
 import { getMyBusinesses, selectBusiness, BusinessListItem } from '../../services/auth.service'
 import { decodeJwtSub } from '../../utils/jwt'
 import type { BadgeVariant } from '../../components/ui/AppBadge'
-import type { Locale } from '../../store/useAuthStore'
+import type { Locale, SubscriptionPlan, BusinessRole, OnboardingStep } from '../../store/useAuthStore'
 
 const SUPPORTED_LOCALES: Locale[] = ['fr', 'en']
 const safeLocale = (l: string): Locale =>
@@ -101,8 +101,8 @@ export default function SelectBusinessScreen() {
         store.setBusiness({
           id: selectedBiz.id,
           name: selectedBiz.name,
-          plan: (selectedBiz.plan as any) ?? 'FREE',
-          role: selectedBiz.role as any,
+          plan: (selectedBiz.plan as SubscriptionPlan) ?? 'FREE',
+          role: selectedBiz.role as BusinessRole,
         })
       }
 
@@ -110,7 +110,7 @@ export default function SelectBusinessScreen() {
       const onboardingStep = NEXT_STEP_TO_ONBOARDING[res.nextStep] ?? 'COMPLETE'
       const currentUser = store.user
       if (currentUser) {
-        store.setUser({ ...currentUser, onboardingStep: onboardingStep as any })
+        store.setUser({ ...currentUser, onboardingStep: onboardingStep as OnboardingStep })
       } else {
         const userId = decodeJwtSub(store.accessToken) ?? `pending-${Date.now()}`
         store.setUser({
@@ -118,7 +118,7 @@ export default function SelectBusinessScreen() {
           name: selectedBiz?.name ?? '',
           phone: '',
           locale: loc,
-          onboardingStep: onboardingStep as any,
+          onboardingStep: onboardingStep as OnboardingStep,
         })
       }
 

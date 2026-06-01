@@ -7,7 +7,6 @@ import {
   View,
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
-import type { Href } from 'expo-router'
 import { AuthCard } from '../../components/auth/AuthCard'
 import { AuthHeader } from '../../components/auth/AuthHeader'
 import { AppButton } from '../../components/ui/AppButton'

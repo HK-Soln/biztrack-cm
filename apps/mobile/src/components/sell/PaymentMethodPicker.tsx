@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
-import { Banknote, Smartphone, CreditCard } from 'lucide-react-native'
+import { Banknote, Smartphone, CreditCard, Clock } from 'lucide-react-native'
 import type { PaymentMethod } from '@/store/cart.store'
 import theme from '../../../theme'
 
@@ -9,6 +9,7 @@ const METHODS: { key: PaymentMethod; label: string }[] = [
   { key: 'CASH',         label: 'Espèces' },
   { key: 'MOBILE_MONEY', label: 'Mobile Money' },
   { key: 'CARD',         label: 'Carte' },
+  { key: 'CREDIT',       label: 'Crédit' },
 ]
 
 interface PaymentMethodPickerProps {
@@ -37,6 +38,7 @@ export function PaymentMethodPicker({ selected, onSelect }: PaymentMethodPickerP
               {key === 'CASH'         && <Banknote   size={15} color={isActive ? colors.primary : colors.neutral[800]} strokeWidth={1.8} />}
               {key === 'MOBILE_MONEY' && <Smartphone size={15} color={isActive ? colors.primary : colors.neutral[800]} strokeWidth={1.8} />}
               {key === 'CARD'         && <CreditCard size={15} color={isActive ? colors.primary : colors.neutral[800]} strokeWidth={1.8} />}
+              {key === 'CREDIT'       && <Clock      size={15} color={isActive ? colors.primary : colors.neutral[800]} strokeWidth={1.8} />}
             </View>
             <Text style={[styles.label, isActive && styles.labelActive]}>
               {label}

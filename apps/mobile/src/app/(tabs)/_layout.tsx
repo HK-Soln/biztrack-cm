@@ -7,7 +7,7 @@ const TAB_ACTIVE = '#042C53'
 const TAB_INACTIVE = '#B0ADA5'
 const TAB_BG = '#FFFFFF'
 
-function TabIcon({ icon: Icon, label, focused }: { icon: any; label: string; focused: boolean }) {
+function TabIcon({ icon: Icon, label, focused }: { icon: import('lucide-react-native').LucideIcon; label: string; focused: boolean }) {
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center', gap: 3, width: 80, paddingTop: 20 }}>
       <Icon size={25} color={focused ? TAB_ACTIVE : TAB_INACTIVE} strokeWidth={focused ? 2.2 : 1.8} />

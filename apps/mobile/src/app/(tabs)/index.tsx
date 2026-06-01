@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StatusBar, Platform, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
@@ -13,6 +14,9 @@ import {
   Wallet,
 } from 'lucide-react-native'
 import { useAuthStore } from '../../store/useAuthStore'
+import { useSalesStore } from '../../store/useSalesStore'
+import { useExpensesStore } from '../../store/useExpensesStore'
+import { AppSyncIndicator } from '../../components/ui'
 
 // Safe hex-opacity helper — avoids fragile string concatenation
 function addOpacity(hex: string, opacity: string): string {
@@ -22,7 +26,6 @@ function addOpacity(hex: string, opacity: string): string {
 
 const NAVY = '#042C53'
 const BLUE = '#185FA5'
-const LIGHT_BLUE = '#378ADD'
 const CREAM = '#F1EFE8'
 const GREEN = '#639922'
 const AMBER = '#BA7517'
@@ -73,7 +76,7 @@ function QuickAction({ icon: Icon, label, color, bg, onPress }: { icon: LucideIc
   )
 }
 
-function MenuRow({ icon: Icon, label, sub, color, onPress }: { icon: any; label: string; sub: string; color: string; onPress: () => void }) {
+function MenuRow({ icon: Icon, label, sub, color, onPress }: { icon: LucideIcon; label: string; sub: string; color: string; onPress: () => void }) {
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -119,7 +122,46 @@ export default function HomeScreen() {
   const router = useRouter()
   const { user, business } = useAuthStore()
 
+  // Select store values reactively
+  const sales = useSalesStore((state) => state.sales)
+  const expenses = useExpensesStore((state) => state.expenses)
+
+  // Fetch sales and expenses on mount to refresh
+  useEffect(() => {
+    useSalesStore.getState().fetchSales()
+    useExpensesStore.getState().fetchExpenses()
+  }, [])
+
   const firstName = user?.name?.split(' ')[0] ?? ''
+
+  // Today calculations
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todaySales = sales.filter((s) => s.createdAt.slice(0, 10) === todayStr)
+  const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0)
+  const todayTxCount = todaySales.length
+
+  const todayExpensesList = expenses.filter((e) => e.date === todayStr)
+  const todayExpensesTotal = todayExpensesList.reduce((sum, e) => sum + e.amount, 0)
+
+  // Current month calculations
+  const currentMonthStr = new Date().toISOString().slice(0, 7) // "YYYY-MM"
+  const monthlySales = sales.filter((s) => s.createdAt.slice(0, 7) === currentMonthStr)
+  const monthlyRevenue = monthlySales.reduce((sum, s) => sum + s.total, 0)
+
+  const monthlyExpensesList = expenses.filter((e) => e.date.slice(0, 7) === currentMonthStr)
+  const monthlyExpensesTotal = monthlyExpensesList.reduce((sum, e) => sum + e.amount, 0)
+
+  const monthlyNetProfit = monthlyRevenue - monthlyExpensesTotal
+
+  const formattedTodayRevenue = todayRevenue.toLocaleString('fr-FR') + ' F'
+  const formattedTodayExpenses = todayExpensesTotal.toLocaleString('fr-FR') + ' F'
+  
+  const formattedMonthlyRevenue = monthlyRevenue.toLocaleString('fr-FR') + ' F'
+  const formattedMonthlyNetProfit = monthlyNetProfit.toLocaleString('fr-FR') + ' F'
+  const profitColor = monthlyNetProfit >= 0 ? GREEN : '#EF4444'
+  const profitSub = monthlyRevenue > 0
+    ? `Marge de ${((monthlyNetProfit / monthlyRevenue) * 100).toFixed(0)}%`
+    : 'Aucune donnée'
 
   return (
     <View style={{ flex: 1, backgroundColor: CREAM }}>
@@ -150,26 +192,29 @@ export default function HomeScreen() {
             ) : null}
           </View>
 
-          {/* Profile avatar — 1-tap shortcut to Profile */}
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/profile' as never)}
-            accessibilityRole="button"
-            accessibilityLabel="Voir mon profil"
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: BLUE,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: '700', color: WHITE }}>
-              {user?.name
-                ? user.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
-                : '?'}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <AppSyncIndicator />
+            {/* Profile avatar — 1-tap shortcut to Profile */}
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/profile' as never)}
+              accessibilityRole="button"
+              accessibilityLabel="Voir mon profil"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: BLUE,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ fontSize: 14, fontWeight: '700', color: WHITE }}>
+                {user?.name
+                  ? user.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
+                  : '?'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Today summary bar */}
@@ -182,9 +227,9 @@ export default function HomeScreen() {
           gap: 0,
         }}>
           {[
-            { label: "Ventes aujourd'hui", value: '—' },
-            { label: 'Transactions', value: '—' },
-            { label: 'Dépenses', value: '—' },
+            { label: "Ventes aujourd'hui", value: formattedTodayRevenue },
+            { label: 'Transactions', value: String(todayTxCount) },
+            { label: 'Dépenses', value: formattedTodayExpenses },
           ].map((item, i) => (
             <View key={i} style={{
               flex: 1,
@@ -209,8 +254,18 @@ export default function HomeScreen() {
             CE MOIS-CI
           </Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            <StatCard label="Chiffre d'affaires" value="—" sub="Aucune vente" color={MUTED} />
-            <StatCard label="Bénéfice net" value="—" sub="Aucune donnée" color={MUTED} />
+            <StatCard
+              label="Chiffre d'affaires"
+              value={formattedMonthlyRevenue}
+              sub={monthlySales.length > 0 ? `${monthlySales.length} ventes` : 'Aucune vente'}
+              color={MUTED}
+            />
+            <StatCard
+              label="Bénéfice net"
+              value={formattedMonthlyNetProfit}
+              sub={profitSub}
+              color={profitColor}
+            />
           </View>
         </View>
 

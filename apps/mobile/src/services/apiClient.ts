@@ -133,7 +133,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         throw new ApiError(refreshRes.status, await refreshRes.json().catch(() => null))
       }
 
-      const { accessToken: newAccess, refreshToken: newRefresh } = await refreshRes.json()
+      const refreshJson = await refreshRes.json()
+      const payload =
+        refreshJson && typeof refreshJson === 'object' && 'success' in refreshJson && 'data' in refreshJson
+          ? (refreshJson as { data: { accessToken: string; refreshToken: string } }).data
+          : refreshJson
+      const { accessToken: newAccess, refreshToken: newRefresh } = payload
+
+      // Guard: malformed payload — tokens missing or not strings; force logout
+      // instead of storing undefined/null and breaking every subsequent request
+      if (!newAccess || !newRefresh) {
+        logout()
+        throw new ApiError(refreshRes.status, refreshJson)
+      }
+
       setTokens(newAccess, newRefresh)
       processQueue(null, newAccess)
 
@@ -168,7 +181,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   // Unwrap the NestJS global response interceptor format: { success: true, data: T }
   if (data && typeof data === 'object' && 'success' in data && 'data' in data) {
-    return (data as any).data as T
+    return (data as Record<string, unknown>).data as T
   }
 
   return data as T

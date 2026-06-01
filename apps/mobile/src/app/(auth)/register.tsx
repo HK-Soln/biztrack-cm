@@ -7,7 +7,6 @@ import {
   View,
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
-import type { Href } from 'expo-router'
 import { AuthCard } from '../../components/auth/AuthCard'
 import { AuthHeader } from '../../components/auth/AuthHeader'
 import { AppButton } from '../../components/ui/AppButton'
@@ -145,7 +144,7 @@ export default function RegisterScreen() {
       } else {
         // Unexpected nextStep — log and surface error
         if (__DEV__) console.warn(`[RegisterScreen] Unexpected nextStep: ${res.nextStep}`)
-        form.setFieldError('form' as any, t.errorNetwork)
+        form.setFieldError('form' as 'name', t.errorNetwork)
       }
     } catch (err: unknown) {
       // Check for ApiError shape

@@ -3,7 +3,10 @@ import { useEffect } from 'react'
 import { SplashScreen, Stack, useRouter, useSegments } from 'expo-router'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator'
 import { useAuthStore } from '../store/useAuthStore'
+import { db } from '../db'
+import migrations from '../db/migrations/migrations'
 import '../../global.css'
 
 // Keep splash screen open until hydration finishes to prevent a flash of unauthenticated content
@@ -15,9 +18,12 @@ export default function RootLayout() {
   const router = useRouter()
   const segments = useSegments()
   const { accessToken, business, user, _hasHydrated, setHasHydrated } = useAuthStore()
+  
+  // Drizzle SQLite database migrations hook
+  const { success: dbReady, error: dbError } = useMigrations(db, migrations)
 
   // Safety net: if AsyncStorage rehydration callback silently fails (common on
-  // some Android/Expo versions), force _hasHydrated after 2s so we never
+  // some Android/Expo versions), force _hasHydrated after 5s so we never
   // get a permanent black screen.
   useEffect(() => {
     if (_hasHydrated) return
@@ -27,11 +33,18 @@ export default function RootLayout() {
     return () => clearTimeout(timer)
   }, [_hasHydrated, setHasHydrated])
 
+  // Log db migration error if any
+  useEffect(() => {
+    if (dbError) {
+      console.error('SQLite migration failed:', dbError)
+    }
+  }, [dbError])
+
   // Auth guard: unauthenticated users → (auth), authenticated users → (tabs)
   useEffect(() => {
-    if (!_hasHydrated) return
+    if (!_hasHydrated || !dbReady) return
 
-    // Hide splash screen once we know the auth state
+    // Hide splash screen once we know the auth state and the database is ready
     SplashScreen.hideAsync().catch(() => {})
 
     const inAuthGroup = segments[0] === '(auth)'
@@ -49,10 +62,10 @@ export default function RootLayout() {
     } else if (isFullyAuthenticated && inAuthGroup) {
       router.replace('/(tabs)')
     }
-  }, [accessToken, business, user, segments, router, _hasHydrated])
+  }, [accessToken, business, user, segments, router, _hasHydrated, dbReady])
 
-  if (!_hasHydrated) {
-    // Avoid rendering the stack before state is hydrated to prevent flashes.
+  if (!_hasHydrated || !dbReady) {
+    // Avoid rendering the stack before state is hydrated and database is ready to prevent flashes.
     return null
   }
 
@@ -67,3 +80,4 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   )
 }
+

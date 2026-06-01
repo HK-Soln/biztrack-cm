@@ -2,7 +2,7 @@ import React from 'react'
 import { StyleSheet, ScrollView, View } from 'react-native'
 
 import theme from '../../../theme'
-const { colors, radius } = theme
+const { radius } = theme
 
 interface AuthCardProps {
   children: React.ReactNode

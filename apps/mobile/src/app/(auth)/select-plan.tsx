@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   FlatList,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -172,7 +171,7 @@ export default function SelectPlanScreen() {
     setSelecting(plan.name as SubscriptionPlan)
     setError(null)
     try {
-      const res = await selectPlan({ plan: plan.name as SubscriptionPlan })
+      await selectPlan({ plan: plan.name as SubscriptionPlan })
 
       // Always update user state — even if user was null (new onboarding)
       const store = useAuthStore.getState()

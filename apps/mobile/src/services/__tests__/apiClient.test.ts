@@ -132,4 +132,49 @@ describe('apiClient', () => {
     await expect(apiClient.get('/profile')).rejects.toBeInstanceOf(ApiError)
     expect(logoutFn).toHaveBeenCalled()
   })
+
+  // 1.12 — new: malformed refresh payload must not persist garbage tokens
+  it('calls logout and throws ApiError when refresh body has no tokens', async () => {
+    const setTokensFn = jest.fn()
+    const logoutFn = jest.fn()
+    mockStore({
+      accessToken: 'expired',
+      refreshToken: 'valid-rt',
+      setTokens: setTokensFn,
+      logout: logoutFn,
+    })
+
+    // 1st fetch: 401 on the original request
+    fetchMock.mockResponseOnce('{}', { status: 401 })
+    // 2nd fetch (refresh): 200 but body is missing the token fields
+    fetchMock.mockResponseOnce(JSON.stringify({ success: true, data: {} }), { status: 200 })
+
+    await expect(apiClient.get('/profile')).rejects.toBeInstanceOf(ApiError)
+    expect(setTokensFn).not.toHaveBeenCalled() // must NOT persist garbage
+    expect(logoutFn).toHaveBeenCalled()         // must force logout
+  })
+
+  // 1.13 — new: NestJS { success, data } envelope is correctly unwrapped
+  it('unwraps { success, data } envelope and retries with new token', async () => {
+    const setTokensFn = jest.fn()
+    mockStore({
+      accessToken: 'expired',
+      refreshToken: 'valid-rt',
+      setTokens: setTokensFn,
+      logout: jest.fn(),
+    })
+
+    // 1st fetch: 401
+    fetchMock.mockResponseOnce('{}', { status: 401 })
+    // 2nd fetch (refresh): 200 with wrapped envelope
+    fetchMock.mockResponseOnce(
+      JSON.stringify({ success: true, data: { accessToken: 'new-at', refreshToken: 'new-rt' } }),
+      { status: 200 }
+    )
+    // 3rd fetch: the retried original request succeeds
+    fetchMock.mockResponseOnce(JSON.stringify({ ok: true }))
+
+    await apiClient.get('/profile')
+    expect(setTokensFn).toHaveBeenCalledWith('new-at', 'new-rt')
+  })
 })

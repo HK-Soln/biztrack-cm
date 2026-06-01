@@ -13,10 +13,16 @@ export type BadgeVariant =
   | 'active'
   | 'suspended'
   | 'trial'
+  | 'info'
+  | 'success'
+  | 'warning'
+  | 'danger'
 
 interface AppBadgeProps {
   variant: BadgeVariant
   label?: string
+  size?: 'sm' | 'md' | 'lg'
+  children?: React.ReactNode
   className?: string
 }
 
@@ -29,23 +35,34 @@ const BADGE_STYLES: Record<BadgeVariant, { bg: string; text: string; defaultLabe
   active:      { bg: colors.success[50], text: colors.success[800], defaultLabel: 'Active' },
   suspended:   { bg: colors.danger[50],  text: colors.danger[800],  defaultLabel: 'Suspended' },
   trial:       { bg: colors.warning[50], text: colors.warning[800], defaultLabel: 'Trial' },
+  info:        { bg: colors.brand[50],   text: colors.brand[800],   defaultLabel: 'Info' },
+  success:     { bg: colors.success[50], text: colors.success[800], defaultLabel: 'Success' },
+  warning:     { bg: colors.warning[50], text: colors.warning[800], defaultLabel: 'Warning' },
+  danger:      { bg: colors.danger[50],  text: colors.danger[800],  defaultLabel: 'Danger' },
 }
 
-export const AppBadge: React.FC<AppBadgeProps> = ({ variant, label, className }) => {
+export const AppBadge: React.FC<AppBadgeProps> = ({ variant, label, size, children, className }) => {
   const style = BADGE_STYLES[variant]
+  const textContent = children || label || style.defaultLabel
+
   return (
     <View
       className={className}
       accessibilityRole="text"
-      accessibilityLabel={`Badge: ${label ?? style.defaultLabel}`}
+      accessibilityLabel={`Badge: ${typeof textContent === 'string' ? textContent : ''}`}
       style={[
         styles.container,
-        { backgroundColor: style.bg }
+        { backgroundColor: style.bg },
+        size === 'sm' && { paddingHorizontal: 6, paddingVertical: 2 }
       ]}
     >
-      <Text style={[styles.text, { color: style.text }]}>
-        {label ?? style.defaultLabel}
-      </Text>
+      {typeof textContent === 'string' || typeof textContent === 'number' ? (
+        <Text style={[styles.text, { color: style.text }, size === 'sm' && { fontSize: 9 }]}>
+          {textContent}
+        </Text>
+      ) : (
+        textContent
+      )}
     </View>
   )
 }

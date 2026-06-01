@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -19,24 +19,28 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  AlertTriangle,
 } from 'lucide-react-native'
-import { useExpensesStore, ExpenseCategory, EXPENSE_CATEGORIES } from '../../store/useExpensesStore'
+import { useExpensesStore, ExpenseCategory, EXPENSE_CATEGORIES, type Expense } from '../../store/useExpensesStore'
 import { Colors, addOpacity } from '../../utils/colors'
-import { AppButton, AppInput } from '../../components/ui'
+import { AppButton, AppInput, AppSyncIndicator } from '../../components/ui'
 
-const { NAVY, CREAM, WHITE, MUTED, BORDER, BLUE, AMBER } = Colors
+const { NAVY, CREAM, WHITE, MUTED, BORDER, AMBER } = Colors
 
 export default function ExpensesScreen() {
   const insets = useSafeAreaInsets()
   const {
-    expenses,
+    fetchExpenses,
     addExpense,
     removeExpense,
     updateExpense,
     totalForMonth,
     expensesForMonth,
   } = useExpensesStore()
+
+  useEffect(() => {
+    fetchExpenses().catch((err) => console.error('Error fetching expenses:', err))
+  }, [fetchExpenses])
+
 
   // Date selection states
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -45,7 +49,7 @@ export default function ExpensesScreen() {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [selectedExpense, setSelectedExpense] = useState<any>(null)
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
 
   // Form states
   const [description, setDescription] = useState('')
@@ -69,7 +73,7 @@ export default function ExpensesScreen() {
     setIsAddModalOpen(true)
   }
 
-  const openEditModal = (exp: any) => {
+  const openEditModal = (exp: Expense) => {
     setSelectedExpense(exp)
     setDescription(exp.description)
     setAmount(exp.amount.toString())
@@ -104,8 +108,9 @@ export default function ExpensesScreen() {
         addExpense(payload)
         setIsAddModalOpen(false)
       }
-    } catch (err: any) {
-      Alert.alert('Erreur', err?.message || 'Une erreur est survenue.')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Une erreur est survenue.'
+      Alert.alert('Erreur', errorMessage)
     }
   }
 
@@ -131,7 +136,7 @@ export default function ExpensesScreen() {
     return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
   }
 
-  const renderExpenseItem = ({ item }: { item: any }) => {
+  const renderExpenseItem = ({ item }: { item: Expense }) => {
     const meta = EXPENSE_CATEGORIES[item.category as ExpenseCategory] || EXPENSE_CATEGORIES.OTHER
 
     return (
@@ -204,20 +209,23 @@ export default function ExpensesScreen() {
           <Text style={{ fontSize: 18, fontWeight: '700', color: WHITE }}>Dépenses</Text>
           <Text style={{ fontSize: 12, color: '#85B7EB', marginTop: 2 }}>Suivi de vos sorties de caisse</Text>
         </View>
-        <TouchableOpacity
-          onPress={openAddModal}
-          activeOpacity={0.8}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: AMBER,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Plus size={20} color={WHITE} strokeWidth={2.5} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <AppSyncIndicator />
+          <TouchableOpacity
+            onPress={openAddModal}
+            activeOpacity={0.8}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: AMBER,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Plus size={20} color={WHITE} strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ─── Month Navigation & Total Card ────────────────────────────── */}
@@ -267,7 +275,7 @@ export default function ExpensesScreen() {
           </View>
           <Text style={{ fontSize: 16, fontWeight: '700', color: NAVY }}>Aucune dépense ce mois-ci</Text>
           <Text style={{ fontSize: 12, color: MUTED, textAlign: 'center', lineHeight: 18 }}>
-            Toutes vos dépenses et frais d'exploitation enregistrés s'afficheront ici.
+            {"Toutes vos dépenses et frais d'exploitation enregistrés s'afficheront ici."}
           </Text>
           <AppButton size="sm" onPress={openAddModal} variant="secondary">
             Enregistrer une dépense

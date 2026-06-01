@@ -18,3 +18,6 @@ export { AppSpinner } from './AppSpinner'
 
 export { AppBadge } from './AppBadge'
 export type { BadgeVariant } from './AppBadge'
+
+export { AppSyncIndicator } from './AppSyncIndicator'
+export { CustomerSelector } from './CustomerSelector'

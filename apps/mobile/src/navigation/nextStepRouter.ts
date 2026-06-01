@@ -35,7 +35,6 @@ export function handleNextStep(
     )
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nav = (path: string, params?: Record<string, string>) =>
     params ? router.push({ pathname: path as never, params }) : router.replace(path as never)
 

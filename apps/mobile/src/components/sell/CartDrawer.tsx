@@ -14,11 +14,12 @@ import { ShoppingCart, X, Tag, AlertTriangle } from 'lucide-react-native'
 import { useCartStore } from '@/store/cart.store'
 import { AppInput } from '@/components/ui/AppInput'
 import { AppButton } from '@/components/ui/AppButton'
+import { CustomerSelector } from '@/components/ui/CustomerSelector'
 import { CartItemRow } from './CartItemRow'
 import { PaymentMethodPicker } from './PaymentMethodPicker'
 import theme from '../../../theme'
 
-const { colors, radius } = theme
+const { colors } = theme
 
 interface CartDrawerProps {
   visible: boolean
@@ -32,6 +33,7 @@ export function CartDrawer({ visible, onClose, onCheckout, isCheckingOut }: Cart
     items,
     paymentMethod,
     discountAmount,
+    customer,
     itemCount,
     subtotal,
     total,
@@ -39,6 +41,7 @@ export function CartDrawer({ visible, onClose, onCheckout, isCheckingOut }: Cart
     removeItem,
     setPaymentMethod,
     setDiscount,
+    setCustomer,
   } = useCartStore()
 
   const slideAnim = useRef(new Animated.Value(0)).current
@@ -60,7 +63,7 @@ export function CartDrawer({ visible, onClose, onCheckout, isCheckingOut }: Cart
     }).start(({ finished }) => {
       if (finished && !visible) setIsMounted(false)
     })
-  }, [visible])
+  }, [visible, slideAnim])
 
   const translateY = slideAnim.interpolate({
     inputRange: [0, 1],
@@ -116,7 +119,7 @@ export function CartDrawer({ visible, onClose, onCheckout, isCheckingOut }: Cart
             <View style={styles.empty}>
               <ShoppingCart size={36} color={colors.neutral[100]} strokeWidth={1.5} />
               <Text style={styles.emptyText}>Panier vide</Text>
-              <Text style={styles.emptySubtext}>Appuyez sur un produit pour l'ajouter</Text>
+              <Text style={styles.emptySubtext}>{"Appuyez sur un produit pour l'ajouter"}</Text>
             </View>
           ) : (
             <>
@@ -136,6 +139,12 @@ export function CartDrawer({ visible, onClose, onCheckout, isCheckingOut }: Cart
                   />
                 ))}
               </ScrollView>
+
+              {/* Customer Selector */}
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Client</Text>
+                <CustomerSelector selectedCustomer={customer} onSelect={setCustomer} />
+              </View>
 
               {/* Discount input */}
               <View style={styles.section}>

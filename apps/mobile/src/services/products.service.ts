@@ -60,7 +60,7 @@ export const getProductById = (id: string) =>
 // Uses a query param instead of /products/low-stock to avoid route conflict
 // with the dynamic /products/:id route on the backend.
 export const getLowStockProducts = () =>
-  apiClient.get<Product[]>('/products', { lowStock: true })
+  apiClient.get<Product[]>('/products', { lowStock: 'true' })
 
 export const createProduct = (payload: CreateProductPayload) =>
   apiClient.post<Product>('/products', payload)

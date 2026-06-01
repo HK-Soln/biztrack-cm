@@ -211,15 +211,6 @@ export default function FirstProductScreen() {
           accessibilityLabel={t.stockLabel}
         />
 
-        {(form.errors as any).form ? (
-          <Text
-            style={{ fontSize: 12, color: '#E24B4A', textAlign: 'center' }}
-            accessibilityRole="alert"
-          >
-            {(form.errors as any).form}
-          </Text>
-        ) : null}
-
         <AppButton
           variant="primary"
           size="md"

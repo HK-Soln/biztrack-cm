@@ -2,7 +2,7 @@ import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import {
-  User,
+  Users,
   Building2,
   Wallet,
   BarChart2,
@@ -11,11 +11,12 @@ import {
   HelpCircle,
   Settings,
   Shield,
+  BookOpen,
 } from 'lucide-react-native'
 import { useAuthStore } from '../../store/useAuthStore'
 import { Colors, addOpacity } from '../../utils/colors'
 
-const { NAVY, BLUE, GREEN, AMBER, CREAM, WHITE, MUTED, BORDER } = Colors
+const { NAVY, BLUE, LIGHT_BLUE, GREEN, AMBER, CREAM, WHITE, MUTED, BORDER } = Colors
 
 // ─── Plan badge ───────────────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ function MenuRow({
   onPress,
   danger,
 }: {
-  icon: any
+  icon: import('lucide-react-native').LucideIcon
   label: string
   sub?: string
   color: string
@@ -167,6 +168,10 @@ export default function MoreScreen() {
         <SectionLabel label="Mon activité" />
         <Card>
           <MenuRow icon={Wallet}   label="Dépenses"  sub="Toutes vos sorties de caisse" color={AMBER}   onPress={() => router.push('/(tabs)/expenses' as never)} />
+          <Divider />
+          <MenuRow icon={Users}    label="Contacts"  sub="Gestion des clients et fournisseurs" color={BLUE} onPress={() => router.push('/contacts' as never)} />
+          <Divider />
+          <MenuRow icon={BookOpen} label="Dettes & Crédits" sub="Suivi des créances et crédits" color={LIGHT_BLUE} onPress={() => router.push('/debts' as never)} />
           <Divider />
           <MenuRow icon={BarChart2} label="Rapports"  sub="Ventes, marges et tendances"  color={'#8B5CF6'} onPress={() => router.push('/(tabs)/reports' as never)} />
           <Divider />

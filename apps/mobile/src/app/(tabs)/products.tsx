@@ -20,18 +20,16 @@ import {
   Trash2,
   AlertTriangle,
   Barcode,
-  Edit2,
 } from 'lucide-react-native'
-import { useProductsStore } from '../../store/useProductsStore'
+import { useProductsStore, type Product } from '../../store/useProductsStore'
 import { Colors, addOpacity } from '../../utils/colors'
-import { AppButton, AppInput } from '../../components/ui'
+import { AppButton, AppInput, AppSyncIndicator } from '../../components/ui'
 
 const { NAVY, GREEN, AMBER, CREAM, WHITE, MUTED, BORDER, BLUE } = Colors
 
 export default function ProductsScreen() {
   const insets = useSafeAreaInsets()
   const {
-    products,
     categories,
     isLoading,
     isSaving,
@@ -51,7 +49,7 @@ export default function ProductsScreen() {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
 
   // Form states
   const [name, setName] = useState('')
@@ -66,12 +64,12 @@ export default function ProductsScreen() {
 
   // Load products on mount
   useEffect(() => {
-    fetchProducts()
-    fetchCategories()
-  }, [])
+    fetchProducts().catch(() => {})
+    fetchCategories().catch(() => {})
+  }, [fetchProducts, fetchCategories])
 
   // Populate edit fields
-  const openDetailModal = (product: any) => {
+  const openDetailModal = (product: Product) => {
     setSelectedProduct(product)
     setName(product.name)
     setPrice(product.price.toString())
@@ -129,8 +127,9 @@ export default function ProductsScreen() {
         await addProduct(payload)
         setIsAddModalOpen(false)
       }
-    } catch (err: any) {
-      Alert.alert('Erreur', err?.message || 'Une erreur est survenue lors de l\'enregistrement.')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Une erreur est survenue lors de l'enregistrement."
+      Alert.alert('Erreur', errorMessage)
     }
   }
 
@@ -147,8 +146,9 @@ export default function ProductsScreen() {
             try {
               await removeProduct(id)
               setIsDetailModalOpen(false)
-            } catch (err: any) {
-              Alert.alert('Erreur', err.message || 'La suppression a échoué.')
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : 'La suppression a échoué.'
+              Alert.alert('Erreur', errorMessage)
             }
           },
         },
@@ -156,7 +156,7 @@ export default function ProductsScreen() {
     )
   }
 
-  const renderProductItem = ({ item }: { item: any }) => {
+  const renderProductItem = ({ item }: { item: Product }) => {
     const isLowStock = item.stockQuantity <= item.lowStockThreshold
     const catName = categories.find((c) => c.id === item.categoryId)?.name || 'Sans catégorie'
 
@@ -245,20 +245,23 @@ export default function ProductsScreen() {
           <Text style={{ fontSize: 18, fontWeight: '700', color: WHITE }}>Catalogue</Text>
           <Text style={{ fontSize: 12, color: '#85B7EB', marginTop: 2 }}>Gérer vos articles & stock</Text>
         </View>
-        <TouchableOpacity
-          onPress={openAddModal}
-          activeOpacity={0.8}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: BLUE,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Plus size={20} color={WHITE} strokeWidth={2.5} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <AppSyncIndicator />
+          <TouchableOpacity
+            onPress={openAddModal}
+            activeOpacity={0.8}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: BLUE,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Plus size={20} color={WHITE} strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ─── Search & Filters ─────────────────────────────────────────── */}

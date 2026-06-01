@@ -2,7 +2,6 @@ import { View, Text, ScrollView, Modal, StyleSheet, Platform } from 'react-nativ
 import { CheckCircle, Printer, ShoppingBag } from 'lucide-react-native'
 import { AppButton } from '@/components/ui/AppButton'
 import type { Sale } from '@/services/sales.service'
-import { UNIT_LABELS } from '../products/productHelpers'
 import theme from '../../../theme'
 
 const { colors, radius } = theme
@@ -57,7 +56,6 @@ export function SaleReceiptModal({ sale, visible, onClose, onNewSale }: SaleRece
           {/* Line items */}
           <ScrollView style={styles.itemList} showsVerticalScrollIndicator={false}>
             {sale.items.map((item, idx) => {
-              const unitLabel = UNIT_LABELS[item.productId] ?? 'pce'
               return (
                 <View key={idx} style={styles.lineItem}>
                   <View style={styles.lineLeft}>
