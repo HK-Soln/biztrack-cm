@@ -29,11 +29,15 @@ import {
   listUnitOfMeasuresLocal,
 } from '@/services/products.local'
 import { useAuthStore } from '@/stores/auth.store'
+import { usePlanStore } from '@/stores/plan.store'
 
 export default function ProductsPage() {
   const t = useTranslations('app.products')
+  const planGateT = useTranslations('app.plan_gate')
   const locale = useLocale()
   const businessId = useAuthStore((state) => state.businessId)
+  const businessCurrency = useAuthStore((state) => state.businessCurrency)
+  const planState = usePlanStore((state) => state.current)
   const [recentProducts, setRecentProducts] = useState<PaginatedResult<Product> | null>(null)
   const [categories, setCategories] = useState<ProductCategory[]>([])
   const [units, setUnits] = useState<UnitOfMeasure[]>([])
@@ -154,6 +158,11 @@ export default function ProductsPage() {
 
   const recentItems = recentProducts?.data ?? []
   const totalProducts = recentProducts?.total ?? 0
+  const productsQuotaUsage =
+    planState?.quotaUsage.find((entry) => entry.resource === 'products' && !entry.unlimited) ?? null
+  const productsQuotaReached = Boolean(
+    productsQuotaUsage && productsQuotaUsage.used >= (productsQuotaUsage.limit ?? 0),
+  )
 
   return (
     <>
@@ -167,6 +176,21 @@ export default function ProductsPage() {
           </h2>
           <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
         </div>
+
+        {productsQuotaReached ? (
+          <p className="text-sm text-muted-foreground">
+            {planGateT.rich('quota_hint', {
+              link: (chunks) => (
+                <a
+                  href={`/${locale}/subscription`}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  {chunks}
+                </a>
+              ),
+            })}
+          </p>
+        ) : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
@@ -203,7 +227,7 @@ export default function ProductsPage() {
                 <Button
                   variant="primary"
                   onClick={() => setIsAddProductOpen(true)}
-                  disabled={metadataLoading}
+                  disabled={metadataLoading || productsQuotaReached}
                 >
                   {t('actions.add_product')}
                 </Button>
@@ -325,7 +349,7 @@ export default function ProductsPage() {
                               {t('list.price')}
                             </p>
                             <p className="text-base font-semibold text-foreground">
-                              {formatProductPrice(product, locale)}
+                              {formatProductPrice(product, locale, businessCurrency)}
                             </p>
                           </div>
                           <div>
@@ -421,6 +445,7 @@ export default function ProductsPage() {
         open={isAddProductOpen}
         onOpenChange={setIsAddProductOpen}
         onCreated={() => setReloadKey((current) => current + 1)}
+        quotaReached={productsQuotaReached}
       />
     </>
   )

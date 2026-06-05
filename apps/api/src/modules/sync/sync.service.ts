@@ -19,23 +19,33 @@ import type {
   InventoryMovementSyncRecord,
   InventoryRestockSyncPayload,
   InventoryThresholdSyncPayload,
+  OpeningBalanceSyncPayload,
+  OpeningBalanceSyncRecord,
+  RoleSyncRecord,
   SaleItemSyncRecord,
   SalePaymentSyncRecord,
   SaleSyncPayload,
   SaleSyncRecord,
   RestockItemSyncRecord,
   RestockRecordSyncRecord,
+  SavingsAccountSyncPayload,
+  SavingsAccountSyncRecord,
+  SavingsTransactionSyncPayload,
+  SavingsTransactionSyncRecord,
   SyncBatchStatus,
   SyncBatchStatusResponse,
   SyncEntity,
+  SyncOperationFailureDetails,
   SyncOperationResult,
   SyncPullResponse,
   SyncPushResponse,
   SyncRecord,
+  TeamMemberSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
 import {
   ContactType,
+  DebtDirection,
   DebtSource,
   DebtStatus,
   getSyncEntityDependencyTier,
@@ -55,6 +65,9 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
+import { BusinessMember } from '@/entities/business-member.entity'
+import { ContactOpeningBalance } from '@/entities/contact-opening-balance.entity'
+import { Role } from '@/entities/role.entity'
 import { Contact } from '@/entities/contact.entity'
 import { Debt } from '@/entities/debt.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
@@ -69,6 +82,8 @@ import { RestockRecord } from '@/entities/restock-record.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
 import { Sale } from '@/entities/sale.entity'
+import { SavingsAccount } from '@/entities/savings-account.entity'
+import { SavingsTransaction } from '@/entities/savings-transaction.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -86,6 +101,8 @@ import { ExpensesService } from '@/modules/expenses/services/expenses.service'
 import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
+import { SavingsService } from '@/modules/savings/services/savings.service'
+import { QuotaService } from '@/modules/permissions/quota.service'
 import {
   SYNC_BATCH_MAX_OPERATIONS,
   SYNC_BATCH_RECOVERY_STALE_AFTER_MS,
@@ -99,6 +116,7 @@ type BatchProcessingResult = {
   status: 'applied' | 'conflict' | 'failed'
   resolution?: 'server_wins' | 'client_wins' | null
   errorMessage?: string | null
+  errorDetails?: SyncOperationFailureDetails | null
 }
 
 type CategorySyncPayload = {
@@ -273,8 +291,12 @@ export class SyncService {
     private readonly categoriesRepo: ProductCategoriesRepository,
     @InjectRepository(Business)
     private readonly businessesRepo: Repository<Business>,
+    @InjectRepository(BusinessMember)
+    private readonly businessMembersRepo: Repository<BusinessMember>,
     @InjectRepository(Contact)
     private readonly contactsRepo: Repository<Contact>,
+    @InjectRepository(ContactOpeningBalance)
+    private readonly openingBalancesRepo: Repository<ContactOpeningBalance>,
     @InjectRepository(Debt)
     private readonly debtsRepo: Repository<Debt>,
     @InjectRepository(ExpenseCategory)
@@ -299,12 +321,16 @@ export class SyncService {
     private readonly syncBatchesRepo: Repository<SyncBatch>,
     @InjectRepository(SyncOperation)
     private readonly syncOperationsRepo: Repository<SyncOperation>,
+    @InjectRepository(Role)
+    private readonly rolesRepo: Repository<Role>,
     @InjectRepository(UnitOfMeasure)
     private readonly unitsRepo: Repository<UnitOfMeasure>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
     private readonly salesService: SalesService,
+    private readonly savingsService: SavingsService,
+    private readonly quotaService: QuotaService,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
     private readonly barcodeService: BarcodeService,
@@ -376,6 +402,7 @@ export class SyncService {
               status: 'pending',
               resolution: null,
               errorMessage: null,
+              errorDetails: null,
             }),
           ),
         )
@@ -408,9 +435,13 @@ export class SyncService {
     }
   }
 
-  async getBatchStatus(businessId: string, batchId: string): Promise<SyncBatchStatusResponse> {
+  async getBatchStatus(
+    businessId: string,
+    batchId: string,
+    deviceId?: string,
+  ): Promise<SyncBatchStatusResponse> {
     try {
-      let batch = await this.findBatchWithOperations(batchId, businessId)
+      let batch = await this.findBatchWithOperations(batchId, businessId, deviceId)
 
       if (!batch) {
         throw new AppNotFoundException(
@@ -439,6 +470,7 @@ export class SyncService {
 
       const [
         contacts,
+        openingBalances,
         products,
         productCategories,
         expenseCategories,
@@ -452,6 +484,8 @@ export class SyncService {
         salePayments,
         debts,
         expenses,
+        teamMembers,
+        roles,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -459,6 +493,13 @@ export class SyncService {
           .andWhere('contact.updated_at > :since', { since })
           .andWhere('contact.updated_at <= :pulledAt', { pulledAt })
           .orderBy('contact.updated_at', 'ASC')
+          .getMany(),
+        this.openingBalancesRepo
+          .createQueryBuilder('ob')
+          .where('ob.business_id = :businessId', { businessId })
+          .andWhere('ob.updated_at > :since', { since })
+          .andWhere('ob.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('ob.updated_at', 'ASC')
           .getMany(),
         this.productsRepo
           .createQueryBuilder('product')
@@ -563,7 +604,24 @@ export class SyncService {
           .andWhere('expense.updated_at <= :pulledAt', { pulledAt })
           .orderBy('expense.updated_at', 'ASC')
           .getMany(),
+        this.businessMembersRepo
+          .createQueryBuilder('member')
+          .leftJoinAndSelect('member.user', 'user')
+          .where('member.business_id = :businessId', { businessId })
+          .andWhere('member.updated_at > :since', { since })
+          .andWhere('member.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('member.updated_at', 'ASC')
+          .getMany(),
+        this.rolesRepo
+          .createQueryBuilder('role')
+          .where('role.business_id = :businessId', { businessId })
+          .andWhere('role.updated_at > :since', { since })
+          .andWhere('role.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('role.updated_at', 'ASC')
+          .getMany(),
       ])
+
+      const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
 
       const restockQuantityMap = new Map(
         inventoryMovements
@@ -573,6 +631,7 @@ export class SyncService {
 
       const changes: ChangeSet = {
         contacts: contacts.map((record) => this.toContactSyncRecord(record)),
+        openingBalances: openingBalances.map((record) => this.toOpeningBalanceSyncRecord(record)),
         products: products.map((record) => this.toProductSyncRecord(record)),
         productCategories: productCategories.map((record) => this.toCategorySyncRecord(record)),
         expenseCategories: expenseCategories.map((record) => this.toExpenseCategorySyncRecord(record)),
@@ -593,6 +652,10 @@ export class SyncService {
         salePayments: salePayments.map((record) => this.toSalePaymentSyncRecord(record)),
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
+        teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
+        roles: roles.map((record) => this.toRoleSyncRecord(record)),
+        savingsAccounts: savingsData.accounts.map((record) => this.toSavingsAccountSyncRecord(record)),
+        savingsTransactions: savingsData.transactions.map((record) => this.toSavingsTransactionSyncRecord(record)),
       }
 
       return {
@@ -677,6 +740,7 @@ export class SyncService {
           status: result.status,
           resolution: result.resolution ?? null,
           errorMessage: result.errorMessage ?? null,
+          errorDetails: (result.errorDetails ? { ...result.errorDetails } : null) as any,
         })
       }
 
@@ -741,6 +805,10 @@ export class SyncService {
         return this.applyContactOperation(businessId, operation)
       }
 
+      if (operation.entity === 'opening_balance') {
+        return this.applyOpeningBalanceOperation(businessId, operation)
+      }
+
       if (operation.entity === 'product') {
         return this.applyProductOperation(businessId, operation)
       }
@@ -777,6 +845,14 @@ export class SyncService {
         return this.applyExpenseOperation(businessId, operation)
       }
 
+      if (operation.entity === 'savings') {
+        return this.applySavingsAccountOperation(businessId, operation)
+      }
+
+      if (operation.entity === 'savings_transaction') {
+        return this.applySavingsTransactionOperation(businessId, operation)
+      }
+
       return {
         status: 'failed',
         errorMessage: `Unsupported sync entity: ${operation.entity}`,
@@ -786,6 +862,7 @@ export class SyncService {
         return {
           status: 'failed',
           errorMessage: error.message,
+          errorDetails: (error.details as SyncOperationFailureDetails | undefined) ?? null,
         }
       }
 
@@ -799,6 +876,7 @@ export class SyncService {
       return {
         status: 'failed',
         errorMessage: error instanceof Error ? error.message : 'Unexpected sync failure',
+        errorDetails: null,
       }
     }
   }
@@ -841,10 +919,21 @@ export class SyncService {
     const slug = await this.slugService.generateCategorySlug(payload.name!, businessId, existing?.id)
 
     if (existing) {
+      const nextIsActive = payload.isActive ?? existing.isActive
+      const reactivatesQuotaConsumer =
+        nextIsActive && (existing.deletedAt !== null || existing.isActive === false)
+
+      // Sync is a second write path into the same business data. We enforce
+      // the quota here as well so an offline device cannot bypass the limits
+      // that the online controller/service path would apply.
+      if (reactivatesQuotaConsumer) {
+        await this.quotaService.assertWithinQuota(businessId, 'categories')
+      }
+
       await this.categoriesRepo.update(operation.recordId, {
         name: payload.name!.trim(),
         slug,
-        isActive: payload.isActive ?? existing.isActive,
+        isActive: nextIsActive,
         color: this.normalizeOptionalString(payload.color),
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -853,6 +942,10 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
       return { status: 'applied' }
+    }
+
+    if (payload.isActive ?? true) {
+      await this.quotaService.assertWithinQuota(businessId, 'categories')
     }
 
     await this.categoriesRepo.save(
@@ -909,6 +1002,16 @@ export class SyncService {
     const createdById = await this.resolveContactCreatedById(businessId, payload.createdById)
 
     if (existing) {
+      const nextIsActive = payload.isActive ?? existing.isActive
+      const reactivatesQuotaConsumer = nextIsActive && existing.isActive === false
+
+      // Contacts can be created offline and later pushed through sync. We
+      // repeat the quota check here so "reactivate while offline" behaves the
+      // same as "reactivate through the regular API".
+      if (reactivatesQuotaConsumer) {
+        await this.quotaService.assertWithinQuota(businessId, 'contacts')
+      }
+
       await this.contactsRepo.update(operation.recordId, {
         type: payload.type ?? existing.type,
         name: normalizedName,
@@ -916,11 +1019,15 @@ export class SyncService {
         phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
-        isActive: payload.isActive ?? existing.isActive,
+        isActive: nextIsActive,
         updatedAt: operation.recordUpdatedAt,
       })
 
       return { status: 'applied' }
+    }
+
+    if (payload.isActive ?? true) {
+      await this.quotaService.assertWithinQuota(businessId, 'contacts')
     }
 
     await this.contactsRepo.save(
@@ -935,6 +1042,70 @@ export class SyncService {
         notes: this.normalizeOptionalString(payload.notes),
         isActive: payload.isActive ?? true,
         createdById,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+
+    return { status: 'applied' }
+  }
+
+  private async applyOpeningBalanceOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const payload = this.readOpeningBalancePayload(operation.payload)
+
+    const existing = await this.openingBalancesRepo.findOne({
+      where: { businessId, contactId: payload.contactId, direction: payload.direction as DebtDirection },
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE') {
+      if (existing) {
+        await this.openingBalancesRepo.delete(existing.id)
+      }
+      return { status: 'applied' }
+    }
+
+    const contact = await this.contactsRepo.findOne({
+      where: { id: payload.contactId, businessId },
+      select: ['id', 'businessId'],
+    })
+
+    if (!contact) {
+      return { status: 'failed', errorMessage: 'Opening balance contact could not be resolved.' }
+    }
+
+    const amount = this.normalizeMoney(payload.amount)
+    if (amount <= 0) {
+      return { status: 'failed', errorMessage: 'Opening balance amount must be greater than zero.' }
+    }
+
+    if (existing) {
+      await this.openingBalancesRepo.update(existing.id, {
+        amount,
+        asOfDate: payload.asOfDate,
+        notes: this.normalizeOptionalString(payload.notes),
+        recordedById: this.normalizeOptionalString(payload.recordedById),
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.openingBalancesRepo.save(
+      this.openingBalancesRepo.create({
+        id: operation.recordId,
+        businessId,
+        contactId: payload.contactId,
+        direction: payload.direction as DebtDirection,
+        amount,
+        asOfDate: payload.asOfDate,
+        notes: this.normalizeOptionalString(payload.notes),
+        recordedById: this.normalizeOptionalString(payload.recordedById),
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -1119,6 +1290,18 @@ export class SyncService {
           : existing?.trackInventory ?? !isService
 
     if (existing) {
+      const nextIsActive = payload.isActive ?? existing.isActive
+      const reactivatesQuotaConsumer =
+        nextIsActive && (existing.deletedAt !== null || existing.isActive === false)
+
+      // Product creation is quota-limited in both the controller path and the
+      // sync path. Without this check, an offline device could create beyond
+      // plan limits and only discover the problem after the data was already
+      // accepted server-side.
+      if (reactivatesQuotaConsumer) {
+        await this.quotaService.assertWithinQuota(businessId, 'products')
+      }
+
       await this.dataSource.transaction(async (manager) => {
         await manager.getRepository(Product).update(operation.recordId, {
           categoryId: category?.id ?? null,
@@ -1132,7 +1315,7 @@ export class SyncService {
           sellingPrice: payload.sellingPrice!,
           costPrice: payload.costPrice ?? null,
           taxRate: payload.taxRate ?? existing.taxRate ?? 0,
-          isActive: payload.isActive ?? existing.isActive,
+          isActive: nextIsActive,
           isService,
           trackInventory,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -1172,6 +1355,10 @@ export class SyncService {
     const openingStock = trackInventory
       ? Math.max(payload.currentStock ?? payload.openingStock ?? 0, 0)
       : 0
+
+    if (payload.isActive ?? true) {
+      await this.quotaService.assertWithinQuota(businessId, 'products')
+    }
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(Product).save(
@@ -1481,7 +1668,7 @@ export class SyncService {
           direction: payload.direction,
           sourceType: payload.sourceType,
           sourceId: payload.sourceId,
-          sourceReference: payload.sourceReference.trim(),
+          sourceReference: this.normalizeOptionalString(payload.sourceReference) ?? payload.sourceId,
           originalAmount: normalizedOriginalAmount,
           status,
           dueDate: payload.dueDate ?? null,
@@ -1563,6 +1750,60 @@ export class SyncService {
     )
 
     return { status: 'applied' }
+  }
+
+  private async applySavingsAccountOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced savings accounts is not supported.',
+      }
+    }
+
+    const payload = this.readSavingsAccountPayload(operation.payload)
+    await this.savingsService.applySavingsAccountOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private async applySavingsTransactionOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced savings transactions is not supported.',
+      }
+    }
+
+    const payload = this.readSavingsTransactionPayload(operation.payload)
+    await this.savingsService.applyTransactionOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private readSavingsAccountPayload(payload: Record<string, unknown> | null): SavingsAccountSyncPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Savings account sync payload is required.',
+        'SYNC_SAVINGS_ACCOUNT_PAYLOAD_REQUIRED',
+      )
+    }
+
+    return payload as unknown as SavingsAccountSyncPayload
+  }
+
+  private readSavingsTransactionPayload(payload: Record<string, unknown> | null): SavingsTransactionSyncPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Savings transaction sync payload is required.',
+        'SYNC_SAVINGS_TRANSACTION_PAYLOAD_REQUIRED',
+      )
+    }
+
+    return payload as unknown as SavingsTransactionSyncPayload
   }
 
   private async resolveProductSku(
@@ -1675,18 +1916,40 @@ export class SyncService {
     const alias = DEFAULT_UNIT_ALIASES[normalizedId.toLowerCase()]
 
     if (alias) {
-      const unit = await this.unitsRepo.findOne({
+      const normalizedAliasName = this.normalizeUnitNameCandidate(alias.name)
+      const normalizedAliasAbbreviation = alias.abbreviation.trim().toLowerCase()
+      const candidates = await this.unitsRepo.find({
         where: {
           businessId: IsNull(),
-          name: alias.name,
           type: alias.type,
           deletedAt: IsNull(),
         },
       })
 
+      const unit = candidates.find((candidate) => {
+        const candidateName = this.normalizeUnitNameCandidate(candidate.name)
+        const candidateAbbreviation = candidate.abbreviation.trim().toLowerCase()
+
+        return (
+          candidateName === normalizedAliasName ||
+          candidateAbbreviation === normalizedAliasAbbreviation
+        )
+      })
+
       if (unit) {
         return unit
       }
+
+      return await this.unitsRepo.save(
+        this.unitsRepo.create({
+          businessId: null,
+          name: alias.name,
+          abbreviation: alias.abbreviation,
+          type: alias.type,
+          isDefault: true,
+          isActive: true,
+        }),
+      )
     }
 
     const canonicalName = this.normalizeUnitNameCandidate(normalizedId)
@@ -1716,8 +1979,14 @@ export class SyncService {
     )
   }
 
-  private async findBatchWithOperations(batchId: string, businessId?: string) {
-    const where = businessId ? { id: batchId, businessId } : { id: batchId }
+  private async findBatchWithOperations(batchId: string, businessId?: string, deviceId?: string) {
+    const where = businessId
+      ? {
+          id: batchId,
+          businessId,
+          ...(deviceId ? { deviceId } : {}),
+        }
+      : { id: batchId }
     return this.syncBatchesRepo.findOne({
       where,
       relations: ['operations'],
@@ -1878,6 +2147,7 @@ export class SyncService {
       .set({
         status: 'failed',
         errorMessage,
+        errorDetails: null,
       })
       .where('batch_id = :batchId', { batchId })
       .andWhere('status = :status', { status: 'pending' })
@@ -1989,6 +2259,7 @@ export class SyncService {
           ? operation.resolution
           : null,
       errorMessage: operation.errorMessage ?? null,
+      errorDetails: (operation.errorDetails as SyncOperationFailureDetails | null | undefined) ?? null,
     }
   }
 
@@ -2037,6 +2308,32 @@ export class SyncService {
       updatedAt: record.updatedAt.toISOString(),
       isDeleted: false,
     }
+  }
+
+  private toOpeningBalanceSyncRecord(record: ContactOpeningBalance): OpeningBalanceSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      contactId: record.contactId,
+      direction: record.direction as DebtDirection,
+      amount: record.amount,
+      asOfDate: record.asOfDate,
+      notes: record.notes ?? null,
+      recordedById: record.recordedById ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      isDeleted: false,
+    }
+  }
+
+  private readOpeningBalancePayload(payload: Record<string, unknown> | null): OpeningBalanceSyncPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Opening balance sync payload is missing or invalid.',
+        'SYNC_PAYLOAD_INVALID',
+      )
+    }
+    return payload as unknown as OpeningBalanceSyncPayload
   }
 
   private toCategorySyncRecord(record: ProductCategory): SyncRecord {
@@ -2313,6 +2610,81 @@ export class SyncService {
     }
   }
 
+  private toTeamMemberSyncRecord(record: BusinessMember): TeamMemberSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      userId: record.userId,
+      roleId: record.roleId ?? null,
+      role: record.role,
+      status: record.status,
+      name: record.user?.name ?? null,
+      email: record.user?.email ?? null,
+      phone: record.user?.phone ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toRoleSyncRecord(record: Role): RoleSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      name: record.name,
+      description: record.description ?? null,
+      isSystem: record.isSystem,
+      isOwnerRole: record.isOwnerRole,
+      colour: record.colour ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSavingsAccountSyncRecord(record: SavingsAccount): SavingsAccountSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      customerId: record.customerId,
+      accountNumber: record.accountNumber,
+      customerName: record.customerName ?? null,
+      customerPhone: record.customerPhone ?? null,
+      balance: record.balance,
+      totalDeposited: record.totalDeposited,
+      totalRefunded: record.totalRefunded,
+      totalUsed: record.totalUsed,
+      taggedProducts: record.taggedProducts ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.isDeleted,
+    }
+  }
+
+  private toSavingsTransactionSyncRecord(record: SavingsTransaction): SavingsTransactionSyncRecord {
+    return {
+      id: record.id,
+      savingsId: record.savingsId,
+      businessId: record.businessId,
+      type: record.type as SavingsTransactionSyncRecord['type'],
+      direction: record.direction as SavingsTransactionSyncRecord['direction'],
+      amount: record.amount,
+      method: record.method ?? null,
+      mobileMoneyReference: record.mobileMoneyReference ?? null,
+      saleId: record.saleId ?? null,
+      notes: record.notes ?? null,
+      recordedById: record.recordedById ?? null,
+      occurredAt: record.occurredAt.toISOString(),
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: record.isDeleted,
+    }
+  }
+
   private resolveBatchStatus(
     processedCount: number,
     appliedCount: number,
@@ -2478,6 +2850,16 @@ export class SyncService {
         fallbackRecordedById:
           typeof payload.fallbackRecordedById === 'string' && payload.fallbackRecordedById.trim()
             ? payload.fallbackRecordedById
+            : user.sub,
+      }
+    }
+
+    if (entity === 'opening_balance') {
+      return {
+        ...payload,
+        recordedById:
+          typeof payload.recordedById === 'string' && UUID_REGEX.test(payload.recordedById)
+            ? payload.recordedById
             : user.sub,
       }
     }

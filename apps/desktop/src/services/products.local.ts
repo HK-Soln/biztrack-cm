@@ -2,6 +2,7 @@
 
 import {
   Currency,
+  Resource,
   type CategoriesQuery,
   UnitOfMeasureType,
   type CreateCategoryRequest,
@@ -18,8 +19,276 @@ import {
   type UnitOfMeasure,
   type UnitOfMeasuresQuery,
 } from '@biztrack/types'
+import { assertLocalPermissionAccess, getLocalQuotaGate } from '@/lib/plan-access'
+import { usePlanStore } from '@/stores/plan.store'
 import { compareValues, dbBatch, dbQuery, paginateResult, normalizeSortOrder } from './local-db'
 import { buildOutboxUpsertOperation, requestBackgroundSync } from './sync.local'
+
+// ---------------------------------------------------------------------------
+// Shared SQL fragment — SELECT + FROM + LEFT JOINs for the full product row
+// ---------------------------------------------------------------------------
+const PRODUCT_FULL_SELECT = `
+  SELECT
+    p.id,
+    p.business_id,
+    p.name,
+    p.description,
+    p.sku,
+    p.barcode,
+    p.price,
+    p.cost_price,
+    p.currency,
+    p.tax_rate,
+    p.is_active,
+    p.is_service,
+    p.track_inventory,
+    p.category_id,
+    p.image_url,
+    p.created_at,
+    p.updated_at,
+    p.slug,
+    p.barcode_type,
+    p.is_barcode_generated,
+    p.reorder_point,
+    p.unit_of_measure_id,
+    p.created_by_id,
+    p.stock_quantity,
+    p.low_stock_threshold,
+    c.id AS category_join_id,
+    c.business_id AS category_business_id,
+    c.name AS category_name,
+    c.slug AS category_slug,
+    c.color AS category_color,
+    c.icon AS category_icon,
+    c.image_url AS category_image_url,
+    c.sort_order AS category_sort_order,
+    c.created_at AS category_created_at,
+    c.updated_at AS category_updated_at,
+    u.id AS unit_join_id,
+    u.name AS unit_name,
+    u.abbreviation AS unit_abbreviation,
+    u.business_id AS unit_business_id,
+    u.type AS unit_type,
+    u.is_default AS unit_is_default,
+    il.id AS inventory_id,
+    il.quantity AS inventory_quantity,
+    il.low_stock_threshold AS inventory_low_stock_threshold,
+    il.reorder_point AS inventory_reorder_point,
+    il.last_restock_at AS inventory_last_restock_at
+  FROM products p
+  LEFT JOIN product_categories c
+    ON c.id = p.category_id
+   AND c.is_deleted = 0
+  LEFT JOIN unit_of_measures u
+    ON u.id = p.unit_of_measure_id
+  LEFT JOIN inventory_levels il
+    ON il.product_id = p.id
+`
+
+// ---------------------------------------------------------------------------
+// ProductQueryParams — drives queryProductRows / queryInventoryProductRows
+// ---------------------------------------------------------------------------
+export type ProductQueryParams = {
+  search?: string
+  categoryId?: string
+  isActive?: boolean
+  isService?: boolean
+  trackInventory?: boolean
+  lowStockOnly?: boolean
+  sortBy?: string
+  sortOrder?: 'ASC' | 'DESC'
+  page?: number
+  limit?: number
+}
+
+// Column maps exposed so callers can pass their own keys
+const PRODUCT_SORT_COLUMN_MAP: Record<string, string> = {
+  name: 'p.name',
+  sellingPrice: 'p.price',
+  currentStock: 'COALESCE(il.quantity, p.stock_quantity, 0)',
+  createdAt: 'p.created_at',
+  updatedAt: 'p.updated_at',
+}
+
+const INVENTORY_SORT_COLUMN_MAP: Record<string, string> = {
+  productName: 'p.name',
+  sku: 'p.sku',
+  barcode: 'p.barcode',
+  categoryName: 'c.name',
+  quantity: 'COALESCE(il.quantity, p.stock_quantity, 0)',
+  currentQuantity: 'COALESCE(il.quantity, p.stock_quantity, 0)',
+  lowStockThreshold: 'COALESCE(il.low_stock_threshold, p.low_stock_threshold)',
+  reorderPoint: 'COALESCE(il.reorder_point, p.reorder_point)',
+  lastRestockAt: 'il.last_restock_at',
+  shortfall:
+    '(COALESCE(il.low_stock_threshold, p.low_stock_threshold) - COALESCE(il.quantity, p.stock_quantity, 0))',
+}
+
+// ---------------------------------------------------------------------------
+// Core parameterised query builders
+// ---------------------------------------------------------------------------
+
+export async function queryProductRows(
+  businessId: string,
+  params: ProductQueryParams,
+): Promise<PaginatedResult<ProductRow>> {
+  return _queryProductRowsWithColumnMap(businessId, params, PRODUCT_SORT_COLUMN_MAP, 'p.updated_at')
+}
+
+export async function queryInventoryProductRows(
+  businessId: string,
+  params: ProductQueryParams,
+): Promise<PaginatedResult<ProductRow>> {
+  return _queryProductRowsWithColumnMap(
+    businessId,
+    params,
+    INVENTORY_SORT_COLUMN_MAP,
+    'il.last_restock_at',
+  )
+}
+
+async function _queryProductRowsWithColumnMap(
+  businessId: string,
+  params: ProductQueryParams,
+  columnMap: Record<string, string>,
+  defaultOrderCol: string,
+): Promise<PaginatedResult<ProductRow>> {
+  const safePage = Math.max(1, params.page ?? 1)
+  const safeLimit = Math.min(Math.max(1, params.limit ?? 20), 200)
+  const direction: 'ASC' | 'DESC' = params.sortOrder === 'ASC' ? 'ASC' : 'DESC'
+  const orderCol = (params.sortBy && columnMap[params.sortBy]) ?? defaultOrderCol
+
+  const whereParts: string[] = ['p.business_id = ?', 'p.is_deleted = 0']
+  const bindParams: unknown[] = [businessId]
+
+  if (params.isActive !== undefined) {
+    whereParts.push('p.is_active = ?')
+    bindParams.push(params.isActive ? 1 : 0)
+  }
+
+  if (params.isService !== undefined) {
+    whereParts.push('p.is_service = ?')
+    bindParams.push(params.isService ? 1 : 0)
+  }
+
+  if (params.trackInventory !== undefined) {
+    whereParts.push('p.track_inventory = ?')
+    bindParams.push(params.trackInventory ? 1 : 0)
+  }
+
+  if (params.categoryId) {
+    whereParts.push('p.category_id = ?')
+    bindParams.push(params.categoryId)
+  }
+
+  if (params.lowStockOnly) {
+    whereParts.push(
+      'COALESCE(il.quantity, p.stock_quantity, 0) <= COALESCE(il.low_stock_threshold, p.low_stock_threshold)',
+    )
+    whereParts.push('COALESCE(il.low_stock_threshold, p.low_stock_threshold) IS NOT NULL')
+  }
+
+  if (params.search) {
+    const term = `%${params.search.trim()}%`
+    whereParts.push(
+      "(LOWER(p.name) LIKE LOWER(?) OR LOWER(COALESCE(p.sku,'')) LIKE LOWER(?) OR LOWER(COALESCE(p.barcode,'')) LIKE LOWER(?) OR LOWER(COALESCE(p.description,'')) LIKE LOWER(?))",
+    )
+    bindParams.push(term, term, term, term)
+  }
+
+  const whereClause = `WHERE ${whereParts.join(' AND ')}`
+
+  const countRows = await dbQuery<{ total: number }>(
+    `SELECT COUNT(*) as total FROM products p LEFT JOIN product_categories c ON c.id = p.category_id AND c.is_deleted = 0 LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id LEFT JOIN inventory_levels il ON il.product_id = p.id ${whereClause}`,
+    bindParams,
+  )
+  const total = countRows[0]?.total ?? 0
+
+  const dataRows = await dbQuery<ProductRow>(
+    `${PRODUCT_FULL_SELECT} ${whereClause} ORDER BY ${orderCol} ${direction} LIMIT ? OFFSET ?`,
+    [...bindParams, safeLimit, (safePage - 1) * safeLimit],
+  )
+
+  return {
+    data: dataRows,
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.ceil(total / safeLimit),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Single-row and batch lookups
+// ---------------------------------------------------------------------------
+
+export async function fetchProductRowById(
+  businessId: string,
+  productId: string,
+): Promise<ProductRow | null> {
+  const rows = await dbQuery<ProductRow>(
+    `${PRODUCT_FULL_SELECT} WHERE p.business_id = ? AND p.id = ? AND p.is_deleted = 0 LIMIT 1`,
+    [businessId, productId],
+  )
+  return rows[0] ?? null
+}
+
+export async function fetchProductRowByBarcode(
+  businessId: string,
+  barcode: string,
+): Promise<ProductRow | null> {
+  const rows = await dbQuery<ProductRow>(
+    `${PRODUCT_FULL_SELECT} WHERE p.business_id = ? AND p.barcode = ? AND p.is_deleted = 0 LIMIT 1`,
+    [businessId, barcode],
+  )
+  return rows[0] ?? null
+}
+
+export async function fetchProductRowsByIds(
+  businessId: string,
+  ids: string[],
+): Promise<ProductRow[]> {
+  if (ids.length === 0) return []
+  const placeholders = ids.map(() => '?').join(', ')
+  return dbQuery<ProductRow>(
+    `${PRODUCT_FULL_SELECT} WHERE p.business_id = ? AND p.id IN (${placeholders}) AND p.is_deleted = 0`,
+    [businessId, ...ids],
+  )
+}
+
+/** Returns a map of categoryId → product count (active, non-deleted products). */
+export async function countProductsByCategoryLocal(
+  businessId: string,
+): Promise<Map<string, number>> {
+  const rows = await dbQuery<{ category_id: string | null; cnt: number }>(
+    `SELECT category_id, COUNT(*) as cnt FROM products WHERE business_id = ? AND is_deleted = 0 GROUP BY category_id`,
+    [businessId],
+  )
+  const result = new Map<string, number>()
+  for (const row of rows) {
+    if (row.category_id !== null) {
+      result.set(row.category_id, row.cnt)
+    }
+  }
+  return result
+}
+
+/** Returns a map of unitOfMeasureId → product count (active, non-deleted products). */
+export async function countProductsByUnitLocal(
+  businessId: string,
+): Promise<Map<string, number>> {
+  const rows = await dbQuery<{ unit_of_measure_id: string | null; cnt: number }>(
+    `SELECT unit_of_measure_id, COUNT(*) as cnt FROM products WHERE business_id = ? AND is_deleted = 0 GROUP BY unit_of_measure_id`,
+    [businessId],
+  )
+  const result = new Map<string, number>()
+  for (const row of rows) {
+    if (row.unit_of_measure_id !== null) {
+      result.set(row.unit_of_measure_id, row.cnt)
+    }
+  }
+  return result
+}
 
 const SKU_PATTERN = /^[A-Z0-9\-_]{1,100}$/
 const SKU_RANDOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -49,6 +318,7 @@ export class ProductLocalError extends Error {
       | 'PRODUCT_BARCODE_INVALID'
       | 'PRODUCT_BARCODE_IN_USE'
       | 'PRODUCT_IMAGE_URL_TOO_LONG'
+      | 'PRODUCTS_QUOTA_REACHED'
       | 'PRODUCT_SAVE_RELOAD_FAILED'
       | 'CATEGORY_NOT_FOUND'
       | 'CATEGORY_NAME_REQUIRED'
@@ -58,6 +328,7 @@ export class ProductLocalError extends Error {
       | 'CATEGORY_ICON_TOO_LONG'
       | 'CATEGORY_IMAGE_URL_TOO_LONG'
       | 'CATEGORY_SORT_ORDER_INVALID'
+      | 'CATEGORIES_QUOTA_REACHED'
       | 'CATEGORY_HAS_PRODUCTS'
       | 'CATEGORY_SAVE_RELOAD_FAILED'
       | 'UNIT_NOT_FOUND'
@@ -71,6 +342,7 @@ export class ProductLocalError extends Error {
       | 'UNIT_HAS_PRODUCTS'
       | 'UNIT_SAVE_RELOAD_FAILED',
     message?: string,
+    public readonly details?: unknown,
   ) {
     super(message ?? code)
     this.name = 'ProductLocalError'
@@ -281,49 +553,26 @@ export async function listProductsLocal(
   businessId: string,
   query: ProductsQuery,
 ): Promise<PaginatedResult<Product>> {
-  const rows = await fetchProductRowsForBusiness(assertBusinessId(businessId))
-  const search = query.search?.trim().toLowerCase()
-  const sortOrder = normalizeSortOrder(query.sortOrder)
-
-  const filtered = rows
-    .filter((row) => {
-      if (query.categoryId && row.category_id !== query.categoryId) return false
-      if (query.isActive !== undefined && Boolean(row.is_active) !== query.isActive) return false
-      if (query.isService !== undefined && Boolean(row.is_service) !== query.isService) return false
-      if (
-        query.trackInventory !== undefined &&
-        Boolean(row.track_inventory) !== query.trackInventory
-      ) {
-        return false
-      }
-      if (!search) return true
-
-      const haystack = [row.name, row.sku, row.barcode, row.description]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-
-      return haystack.includes(search)
-    })
-    .map(mapProductRow)
-
-  filtered.sort((left, right) => {
-    switch (query.sortBy) {
-      case 'name':
-        return compareValues(left.name, right.name, sortOrder)
-      case 'sellingPrice':
-        return compareValues(left.sellingPrice, right.sellingPrice, sortOrder)
-      case 'currentStock':
-        return compareValues(left.currentStock ?? null, right.currentStock ?? null, sortOrder)
-      case 'createdAt':
-        return compareValues(left.createdAt ?? null, right.createdAt ?? null, sortOrder)
-      case 'updatedAt':
-      default:
-        return compareValues(left.updatedAt ?? null, right.updatedAt ?? null, sortOrder)
-    }
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const result = await queryProductRows(normalizedBusinessId, {
+    search: query.search,
+    categoryId: query.categoryId,
+    isActive: query.isActive,
+    isService: query.isService,
+    trackInventory: query.trackInventory,
+    sortBy: query.sortBy,
+    sortOrder: normalizeSortOrder(query.sortOrder) as 'ASC' | 'DESC',
+    page: query.page,
+    limit: query.limit,
   })
 
-  return paginateResult(filtered, query.page, query.limit)
+  return {
+    data: result.data.map(mapProductRow),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+    totalPages: result.totalPages,
+  }
 }
 
 export async function createProductLocal(
@@ -331,6 +580,7 @@ export async function createProductLocal(
   payload: CreateProductRequest,
 ): Promise<Product> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_CREATE)
   const trimmedName = payload.name.trim()
   const trimmedDescription = payload.description?.trim() || null
   const trimmedImageUrl = payload.imageUrl?.trim() || null
@@ -442,6 +692,14 @@ export async function createProductLocal(
   }
   if (conflicts.barcode) {
     throw new ProductLocalError(conflicts.barcode)
+  }
+
+  // We block before writing to SQLite/outbox so offline users get immediate
+  // feedback and do not create local records that are guaranteed to fail once
+  // the sync worker reaches the server.
+  const productQuota = await getLocalQuotaGate(normalizedBusinessId, 'products')
+  if (!productQuota.allowed) {
+    throw new ProductLocalError('PRODUCTS_QUOTA_REACHED', undefined, productQuota)
   }
 
   const now = new Date().toISOString()
@@ -593,6 +851,7 @@ export async function createProductLocal(
   }
 
   await dbBatch(operations)
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 
   const created = await getProductByIdLocal(normalizedBusinessId, id)
@@ -609,6 +868,7 @@ export async function updateProductLocal(
   payload: UpdateProductRequest,
 ): Promise<Product> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_EDIT)
   const existing = await getProductByIdLocal(normalizedBusinessId, productId)
 
   if (!existing) {
@@ -751,6 +1011,12 @@ export async function updateProductLocal(
         ? false
         : existing.trackInventory
   const isActive = payload.isActive ?? existing.isActive
+  if (isActive && !existing.isActive) {
+    const productQuota = await getLocalQuotaGate(normalizedBusinessId, 'products')
+    if (!productQuota.allowed) {
+      throw new ProductLocalError('PRODUCTS_QUOTA_REACHED', undefined, productQuota)
+    }
+  }
   const lowStockThreshold =
     payload.lowStockThreshold !== undefined
       ? payload.lowStockThreshold ?? null
@@ -881,6 +1147,7 @@ export async function updateProductLocal(
   operations.push(buildOutboxUpsertOperation('products', productId))
 
   await dbBatch(operations)
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 
   const updated = await getProductByIdLocal(normalizedBusinessId, productId)
@@ -897,6 +1164,7 @@ export async function setProductActiveStateLocal(
   isActive: boolean,
 ): Promise<Product> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_EDIT)
   const existing = await getProductByIdLocal(normalizedBusinessId, productId)
 
   if (!existing) {
@@ -904,6 +1172,13 @@ export async function setProductActiveStateLocal(
   }
 
   const now = new Date().toISOString()
+
+  if (isActive && !existing.isActive) {
+    const productQuota = await getLocalQuotaGate(normalizedBusinessId, 'products')
+    if (!productQuota.allowed) {
+      throw new ProductLocalError('PRODUCTS_QUOTA_REACHED', undefined, productQuota)
+    }
+  }
 
   await dbBatch([
     {
@@ -917,6 +1192,7 @@ export async function setProductActiveStateLocal(
     },
     buildOutboxUpsertOperation('products', productId),
   ])
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 
   const updated = await getProductByIdLocal(normalizedBusinessId, productId)
@@ -929,6 +1205,7 @@ export async function setProductActiveStateLocal(
 
 export async function deleteProductLocal(businessId: string, productId: string): Promise<void> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_DELETE)
   const existing = await getProductByIdLocal(normalizedBusinessId, productId)
 
   if (!existing) {
@@ -950,6 +1227,7 @@ export async function deleteProductLocal(businessId: string, productId: string):
     },
     buildOutboxUpsertOperation('products', productId),
   ])
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 }
 
@@ -1071,10 +1349,18 @@ export async function createCategoryLocal(
   payload: CreateCategoryRequest,
 ): Promise<ProductCategory> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_CREATE)
   const normalized = normalizeCategoryInput(payload)
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   const slug = await buildUniqueCategorySlug(normalizedBusinessId, slugify(normalized.name))
+
+  // Categories are quota-limited too, so local-first writes must respect the
+  // same ceiling as the API and the sync pathway.
+  const categoryQuota = await getLocalQuotaGate(normalizedBusinessId, 'categories')
+  if (!categoryQuota.allowed) {
+    throw new ProductLocalError('CATEGORIES_QUOTA_REACHED', undefined, categoryQuota)
+  }
 
   await dbBatch([
     {
@@ -1109,6 +1395,7 @@ export async function createCategoryLocal(
     },
     buildOutboxUpsertOperation('productCategories', id),
   ])
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 
   const created = await getCategoryByIdLocal(normalizedBusinessId, id, {
@@ -1128,6 +1415,7 @@ export async function updateCategoryLocal(
   payload: UpdateCategoryRequest,
 ): Promise<ProductCategory> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_EDIT)
   const existing = await getCategoryRowByIdLocal(normalizedBusinessId, categoryId, {
     includeInactive: true,
   })
@@ -1194,6 +1482,7 @@ export async function setCategoryActiveStateLocal(
   isActive: boolean,
 ): Promise<ProductCategory> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_EDIT)
   const existing = await getCategoryRowByIdLocal(normalizedBusinessId, categoryId, {
     includeInactive: true,
   })
@@ -1203,6 +1492,12 @@ export async function setCategoryActiveStateLocal(
   }
 
   const now = new Date().toISOString()
+  if (isActive && !existing.is_active) {
+    const categoryQuota = await getLocalQuotaGate(normalizedBusinessId, 'categories')
+    if (!categoryQuota.allowed) {
+      throw new ProductLocalError('CATEGORIES_QUOTA_REACHED', undefined, categoryQuota)
+    }
+  }
   await dbBatch([
     {
       sql: `
@@ -1215,6 +1510,7 @@ export async function setCategoryActiveStateLocal(
     },
     buildOutboxUpsertOperation('productCategories', categoryId),
   ])
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 
   const updated = await getCategoryByIdLocal(normalizedBusinessId, categoryId, {
@@ -1230,6 +1526,7 @@ export async function setCategoryActiveStateLocal(
 
 export async function deleteCategoryLocal(businessId: string, categoryId: string): Promise<void> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_DELETE)
   const existing = await getCategoryRowByIdLocal(normalizedBusinessId, categoryId, {
     includeInactive: true,
   })
@@ -1238,11 +1535,11 @@ export async function deleteCategoryLocal(businessId: string, categoryId: string
     throw new ProductLocalError('CATEGORY_NOT_FOUND')
   }
 
-  const productCount = (await fetchProductRowsForBusiness(normalizedBusinessId)).filter(
-    (row) => row.category_id === categoryId,
-  ).length
-
-  if (productCount > 0) {
+  const [countRow] = await dbQuery<{ total: number }>(
+    `SELECT COUNT(*) as total FROM products WHERE business_id = ? AND category_id = ? AND is_deleted = 0`,
+    [normalizedBusinessId, categoryId],
+  )
+  if ((countRow?.total ?? 0) > 0) {
     throw new ProductLocalError('CATEGORY_HAS_PRODUCTS')
   }
 
@@ -1260,6 +1557,7 @@ export async function deleteCategoryLocal(businessId: string, categoryId: string
     },
     buildOutboxUpsertOperation('productCategories', categoryId),
   ])
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 }
 
@@ -1268,6 +1566,7 @@ export async function restoreCategoryLocal(
   categoryId: string,
 ): Promise<ProductCategory> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_CREATE)
   const existing = await getCategoryRowByIdLocal(normalizedBusinessId, categoryId, {
     includeInactive: true,
     includeDeleted: true,
@@ -1278,6 +1577,10 @@ export async function restoreCategoryLocal(
   }
 
   const now = new Date().toISOString()
+  const categoryQuota = await getLocalQuotaGate(normalizedBusinessId, 'categories')
+  if (!categoryQuota.allowed) {
+    throw new ProductLocalError('CATEGORIES_QUOTA_REACHED', undefined, categoryQuota)
+  }
   await dbBatch([
     {
       sql: `
@@ -1291,6 +1594,7 @@ export async function restoreCategoryLocal(
     },
     buildOutboxUpsertOperation('productCategories', categoryId),
   ])
+  void usePlanStore.getState().recalculateLocalUsage(normalizedBusinessId)
   requestBackgroundSync()
 
   const restored = await getCategoryByIdLocal(normalizedBusinessId, categoryId, {
@@ -1309,6 +1613,7 @@ export async function createUnitOfMeasureLocal(
   payload: CreateUnitOfMeasureRequest,
 ): Promise<UnitOfMeasure> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_CREATE)
   const normalized = await normalizeUnitInput(normalizedBusinessId, payload)
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
@@ -1360,6 +1665,7 @@ export async function updateUnitOfMeasureLocal(
   payload: UpdateUnitOfMeasureRequest,
 ): Promise<UnitOfMeasure> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_EDIT)
   const existing = await getUnitRowByIdLocal(normalizedBusinessId, unitId, {
     includeInactive: true,
     includeDeleted: true,
@@ -1416,6 +1722,7 @@ export async function setUnitOfMeasureActiveStateLocal(
   isActive: boolean,
 ): Promise<UnitOfMeasure> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_EDIT)
   const existing = await getUnitRowByIdLocal(normalizedBusinessId, unitId, {
     includeInactive: true,
     includeDeleted: true,
@@ -1455,6 +1762,7 @@ export async function setUnitOfMeasureActiveStateLocal(
 
 export async function deleteUnitOfMeasureLocal(businessId: string, unitId: string): Promise<void> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_DELETE)
   const existing = await getUnitRowByIdLocal(normalizedBusinessId, unitId, {
     includeInactive: true,
     includeDeleted: true,
@@ -1466,11 +1774,11 @@ export async function deleteUnitOfMeasureLocal(businessId: string, unitId: strin
 
   ensureCustomBusinessUnit(normalizedBusinessId, existing)
 
-  const productCount = (await fetchProductRowsForBusiness(normalizedBusinessId)).filter(
-    (row) => row.unit_of_measure_id === unitId,
-  ).length
-
-  if (productCount > 0) {
+  const [unitCountRow] = await dbQuery<{ total: number }>(
+    `SELECT COUNT(*) as total FROM products WHERE business_id = ? AND unit_of_measure_id = ? AND is_deleted = 0`,
+    [normalizedBusinessId, unitId],
+  )
+  if ((unitCountRow?.total ?? 0) > 0) {
     throw new ProductLocalError('UNIT_HAS_PRODUCTS')
   }
 
@@ -1496,6 +1804,7 @@ export async function restoreUnitOfMeasureLocal(
   unitId: string,
 ): Promise<UnitOfMeasure> {
   const normalizedBusinessId = assertBusinessId(businessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.PRODUCTS_CREATE)
   const existing = await getUnitRowByIdLocal(normalizedBusinessId, unitId, {
     includeInactive: true,
     includeDeleted: true,
@@ -1537,27 +1846,28 @@ export async function restoreUnitOfMeasureLocal(
 export async function listLowStockProductsLocal(
   businessId: string,
 ): Promise<LowStockProduct[]> {
-  return (await fetchProductRowsForBusiness(assertBusinessId(businessId)))
-    .filter((row) => {
-      if (!row.is_active || !row.track_inventory) return false
-      const quantity = row.inventory_quantity ?? row.stock_quantity ?? 0
-      const threshold = row.inventory_low_stock_threshold ?? row.low_stock_threshold
-      return threshold !== null && threshold !== undefined && quantity <= threshold
-    })
-    .sort(
-      (left, right) =>
-        (left.inventory_quantity ?? left.stock_quantity ?? 0) -
-        (right.inventory_quantity ?? right.stock_quantity ?? 0),
-    )
-    .map((row) => ({
-      productId: row.id,
-      productName: row.name,
-      currentQuantity: row.inventory_quantity ?? row.stock_quantity ?? 0,
-      lowStockThreshold: row.inventory_low_stock_threshold ?? row.low_stock_threshold ?? null,
-      reorderPoint: row.inventory_reorder_point ?? row.reorder_point ?? null,
-      unitOfMeasure: row.unit_abbreviation ?? row.unit_name ?? null,
-      categoryName: row.category_name,
-    }))
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const rows = await dbQuery<ProductRow>(
+    `${PRODUCT_FULL_SELECT}
+     WHERE p.business_id = ?
+       AND p.is_deleted = 0
+       AND p.is_active = 1
+       AND p.track_inventory = 1
+       AND COALESCE(il.low_stock_threshold, p.low_stock_threshold) IS NOT NULL
+       AND COALESCE(il.quantity, p.stock_quantity, 0) <= COALESCE(il.low_stock_threshold, p.low_stock_threshold)
+     ORDER BY COALESCE(il.quantity, p.stock_quantity, 0) ASC`,
+    [normalizedBusinessId],
+  )
+
+  return rows.map((row) => ({
+    productId: row.id,
+    productName: row.name,
+    currentQuantity: row.inventory_quantity ?? row.stock_quantity ?? 0,
+    lowStockThreshold: row.inventory_low_stock_threshold ?? row.low_stock_threshold ?? null,
+    reorderPoint: row.inventory_reorder_point ?? row.reorder_point ?? null,
+    unitOfMeasure: row.unit_abbreviation ?? row.unit_name ?? null,
+    categoryName: row.category_name,
+  }))
 }
 
 export async function getCategoryByIdLocal(
@@ -1579,8 +1889,7 @@ export async function getUnitOfMeasureByIdLocal(
 }
 
 export async function getProductByIdLocal(businessId: string, productId: string) {
-  const rows = await fetchProductRowsForBusiness(assertBusinessId(businessId))
-  const row = rows.find((item) => item.id === productId)
+  const row = await fetchProductRowById(assertBusinessId(businessId), productId)
   return row ? mapProductRow(row) : null
 }
 
@@ -1589,76 +1898,13 @@ export async function getProductByBarcodeLocal(businessId: string, barcode: stri
   const normalizedBarcode = barcode.trim()
   if (!normalizedBarcode) return null
 
-  const rows = await fetchProductRowsForBusiness(normalizedBusinessId)
-  const row = rows.find((item) => item.barcode?.trim() === normalizedBarcode)
-
+  const row = await fetchProductRowByBarcode(normalizedBusinessId, normalizedBarcode)
   return row ? mapProductRow(row) : null
 }
 
-export async function fetchProductRowsForBusiness(businessId: string) {
-  return dbQuery<ProductRow>(
-    `
-      SELECT
-        p.id,
-        p.business_id,
-        p.name,
-        p.description,
-        p.sku,
-        p.barcode,
-        p.price,
-        p.cost_price,
-        p.currency,
-        p.tax_rate,
-        p.is_active,
-        p.is_service,
-        p.track_inventory,
-        p.category_id,
-        p.image_url,
-        p.created_at,
-        p.updated_at,
-        p.slug,
-        p.barcode_type,
-        p.is_barcode_generated,
-        p.reorder_point,
-        p.unit_of_measure_id,
-        p.created_by_id,
-        p.stock_quantity,
-        p.low_stock_threshold,
-        c.id AS category_join_id,
-        c.business_id AS category_business_id,
-        c.name AS category_name,
-        c.slug AS category_slug,
-        c.color AS category_color,
-        c.icon AS category_icon,
-        c.image_url AS category_image_url,
-        c.sort_order AS category_sort_order,
-        c.created_at AS category_created_at,
-        c.updated_at AS category_updated_at,
-        u.id AS unit_join_id,
-        u.name AS unit_name,
-        u.abbreviation AS unit_abbreviation,
-        u.business_id AS unit_business_id,
-        u.type AS unit_type,
-        u.is_default AS unit_is_default,
-        il.id AS inventory_id,
-        il.quantity AS inventory_quantity,
-        il.low_stock_threshold AS inventory_low_stock_threshold,
-        il.reorder_point AS inventory_reorder_point,
-        il.last_restock_at AS inventory_last_restock_at
-      FROM products p
-      LEFT JOIN product_categories c
-        ON c.id = p.category_id
-       AND c.is_deleted = 0
-      LEFT JOIN unit_of_measures u
-        ON u.id = p.unit_of_measure_id
-      LEFT JOIN inventory_levels il
-        ON il.product_id = p.id
-      WHERE p.business_id = ?
-        AND p.is_deleted = 0
-    `,
-    [businessId],
-  )
-}
+// fetchProductRowsForBusiness is intentionally removed — use fetchProductRowById,
+// fetchProductRowByBarcode, fetchProductRowsByIds, queryProductRows, or
+// queryInventoryProductRows instead.
 
 export function mapCategoryRow(row: CategoryRow): ProductCategory {
   return {

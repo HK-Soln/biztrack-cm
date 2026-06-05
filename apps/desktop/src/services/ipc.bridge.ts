@@ -54,6 +54,11 @@ declare global {
           fallback?: 'downloads' | 'downloads-revealed'
           error?: string
         }>
+        url: (payload: {
+          url: string
+          text?: string
+          title?: string
+        }) => Promise<{ success: boolean; shared: boolean; error?: string }>
       }
       documents: {
         exportPdf: (data: {
@@ -63,6 +68,11 @@ declare global {
           success: boolean
           path?: string
           canceled?: boolean
+          error?: string
+        }>
+        renderPdf: (data: { html?: string }) => Promise<{
+          success: boolean
+          buffer?: number[]
           error?: string
         }>
         exportFile: (data: {
@@ -78,6 +88,8 @@ declare global {
       }
       app: {
         version: () => Promise<string>
+        openExternal: (url: string) => Promise<{ success: boolean }>
+        isWhatsAppInstalled: () => Promise<{ installed: boolean }>
       }
       secureStore: {
         isAvailable: () => Promise<boolean>
@@ -107,6 +119,7 @@ const fallbackIpc: Window['electronAPI'] = {
       pendingCount: 0,
       lastSyncedAt: null,
       lastError: null,
+      lastFailureDetails: null,
       network: {
         online: true,
         quality: 'strong',
@@ -127,6 +140,7 @@ const fallbackIpc: Window['electronAPI'] = {
       pendingCount: 0,
       lastSyncedAt: null,
       lastError: null,
+      lastFailureDetails: null,
       network: {
         online: true,
         quality: 'strong',
@@ -151,6 +165,7 @@ const fallbackIpc: Window['electronAPI'] = {
       pendingCount: 0,
       lastSyncedAt: null,
       lastError: null,
+      lastFailureDetails: null,
       network: {
         online: true,
         quality: 'strong',
@@ -185,23 +200,18 @@ const fallbackIpc: Window['electronAPI'] = {
     receipt: async () => ({ success: false }),
   },
   share: {
-    file: async () => ({
-      success: false,
-      shared: false,
-    }),
+    file: async () => ({ success: false, shared: false }),
+    url: async () => ({ success: false, shared: false }),
   },
   documents: {
-    exportPdf: async () => ({
-      success: false,
-      canceled: true,
-    }),
-    exportFile: async () => ({
-      success: false,
-      canceled: true,
-    }),
+    exportPdf: async () => ({ success: false, canceled: true }),
+    renderPdf: async () => ({ success: false }),
+    exportFile: async () => ({ success: false, canceled: true }),
   },
   app: {
     version: async () => 'web',
+    openExternal: async () => ({ success: false }),
+    isWhatsAppInstalled: async () => ({ installed: false }),
   },
   secureStore: {
     isAvailable: async () => false,

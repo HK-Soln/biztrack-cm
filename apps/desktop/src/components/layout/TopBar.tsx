@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { useTheme } from 'next-themes'
 import type { SyncSettings } from '@biztrack/types'
@@ -9,6 +10,20 @@ import { type Locale, routing } from '@/i18n/routing'
 import { useSyncSnapshot } from '@/hooks/useSyncSnapshot'
 import { cn } from '@/lib/utils'
 import { hasDesktopIpc } from '@/services/ipc.bridge'
+import { type LocalBusiness, getLocalBusinesses } from '@/services/local-businesses.local'
+import { selectBusiness, getAuthTokens } from '@/services/auth.api'
+import { useAuthStore } from '@/stores/auth.store'
+import { usePlanStore } from '@/stores/plan.store'
+
+function getInitials(name: string | null): string {
+  if (!name) return 'BT'
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('')
+}
 
 const syncQualityOptions: SyncSettings['minQuality'][] = ['fair', 'strong', 'very_strong']
 
@@ -16,20 +31,34 @@ export function TopBar() {
   const t = useTranslations('topbar')
   const locale = useLocale()
   const pathname = usePathname()
+  const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false)
   const [isLocaleMenuOpen, setIsLocaleMenuOpen] = useState(false)
+  const [isBusinessMenuOpen, setIsBusinessMenuOpen] = useState(false)
+  const [localBusinesses, setLocalBusinesses] = useState<LocalBusiness[]>([])
+  const [isSwitching, setIsSwitching] = useState(false)
   const { snapshot, trigger, updateSettings } = useSyncSnapshot()
+  const planState = usePlanStore((state) => state.current)
+  const businessName = useAuthStore((state) => state.businessName)
+  const businessId = useAuthStore((state) => state.businessId)
+  const setTokens = useAuthStore((state) => state.setTokens)
   const syncMenuRef = useRef<HTMLDivElement | null>(null)
   const localeMenuRef = useRef<HTMLDivElement | null>(null)
+  const businessMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
   useEffect(() => {
-    if (!isSyncMenuOpen && !isLocaleMenuOpen) {
+    if (!hasDesktopIpc()) return
+    getLocalBusinesses().then(setLocalBusinesses).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!isSyncMenuOpen && !isLocaleMenuOpen && !isBusinessMenuOpen) {
       return
     }
 
@@ -37,10 +66,12 @@ export function TopBar() {
       const target = event.target as Node
       const insideSyncMenu = syncMenuRef.current?.contains(target)
       const insideLocaleMenu = localeMenuRef.current?.contains(target)
+      const insideBusinessMenu = businessMenuRef.current?.contains(target)
 
-      if (!insideSyncMenu && !insideLocaleMenu) {
+      if (!insideSyncMenu && !insideLocaleMenu && !insideBusinessMenu) {
         setIsSyncMenuOpen(false)
         setIsLocaleMenuOpen(false)
+        setIsBusinessMenuOpen(false)
       }
     }
 
@@ -48,6 +79,7 @@ export function TopBar() {
       if (event.key === 'Escape') {
         setIsSyncMenuOpen(false)
         setIsLocaleMenuOpen(false)
+        setIsBusinessMenuOpen(false)
       }
     }
 
@@ -58,12 +90,31 @@ export function TopBar() {
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isLocaleMenuOpen, isSyncMenuOpen])
+  }, [isSyncMenuOpen, isLocaleMenuOpen, isBusinessMenuOpen])
+
+  const handleSwitchBusiness = async (targetBusinessId: string) => {
+    if (targetBusinessId === businessId || isSwitching) return
+    setIsSwitching(true)
+    setIsBusinessMenuOpen(false)
+    try {
+      const response = await selectBusiness({ businessId: targetBusinessId })
+      const tokens = getAuthTokens(response)
+      if (tokens) {
+        await setTokens(tokens)
+        router.push(`/${locale}/`)
+      }
+    } catch {
+      // silently fail — user stays on current business
+    } finally {
+      setIsSwitching(false)
+    }
+  }
 
   const isDark = resolvedTheme === 'dark'
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
   const isDesktopRuntime = hasDesktopIpc()
   const currentLocale: Locale = locale.startsWith('fr') ? 'fr' : 'en'
+  const canSwitch = localBusinesses.length > 1 && snapshot.network.online && !isSwitching
 
   const qualityLabels = {
     offline: t('quality.offline'),
@@ -107,6 +158,14 @@ export function TopBar() {
       }).format(new Date(snapshot.lastSyncedAt))
     : t('never')
   const autoSyncWarning = t('auto_sync_warning')
+  const activePlanLabel = planState ? t('plan_label', { plan: planState.effectivePlan }) : null
+  const trialDaysRemaining =
+    planState?.trialEndsAt && planState.status === 'TRIAL'
+      ? Math.max(
+          0,
+          Math.ceil((new Date(planState.trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+        )
+      : 0
   const localeLabels: Record<Locale, string> = {
     en: t('languages.en'),
     fr: t('languages.fr'),
@@ -114,33 +173,168 @@ export function TopBar() {
 
   const statusToneClassName =
     snapshot.status === 'synced'
-      ? 'bg-[#E4F3E6] text-[#3B6D11]'
+      ? isDark
+        ? 'border border-emerald-900/70 bg-emerald-950/40 text-emerald-300'
+        : 'bg-[#E4F3E6] text-[#3B6D11]'
       : snapshot.status === 'syncing'
-        ? 'bg-[#E6F1FB] text-[#185FA5]'
+        ? isDark
+          ? 'border border-sky-900/70 bg-sky-950/40 text-sky-300'
+          : 'bg-[#E6F1FB] text-[#185FA5]'
         : snapshot.status === 'error'
-          ? 'bg-[#FCEBEB] text-[#A32D2D]'
+          ? isDark
+            ? 'border border-rose-900/70 bg-rose-950/40 text-rose-300'
+            : 'bg-[#FCEBEB] text-[#A32D2D]'
           : snapshot.status === 'paused'
-            ? 'bg-[#FAEEDA] text-[#854F0B]'
-            : 'bg-white/10 text-white/85'
+            ? isDark
+              ? 'border border-amber-900/70 bg-amber-950/40 text-amber-300'
+              : 'bg-[#FAEEDA] text-[#854F0B]'
+            : isDark
+              ? 'border border-border/70 bg-background/80 text-muted-foreground shadow-sm'
+              : 'bg-white/10 text-white/85'
+
+  const headerClassName = cn(
+    'relative z-40 isolate flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3',
+    isDark
+      ? 'border-b border-border/70 bg-card/50 text-foreground backdrop-blur-sm'
+      : 'border-b border-primary/20 bg-primary text-primary-foreground',
+  )
+
+  const brandTileClassName = cn(
+    'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold',
+    isDark ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-white',
+  )
+
+  const brandSubtitleClassName = isDark ? 'truncate text-xs text-muted-foreground' : 'truncate text-xs text-primary-foreground/70'
+
+  const passiveChipClassName = cn(
+    'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs',
+    isDark
+      ? 'border border-border/70 bg-background/80 text-foreground shadow-sm'
+      : 'bg-white/10 text-white/85',
+  )
+
+  const chromeButtonClassName = cn(
+    'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition',
+    isDark
+      ? 'border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary/80'
+      : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
+  )
+
+  const iconButtonClassName = cn(
+    'inline-flex h-9 w-9 items-center justify-center rounded-xl border transition',
+    isDark
+      ? 'border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary/80'
+      : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
+  )
+
 
   return (
-    <header className="flex min-h-[68px] flex-wrap items-center gap-3 border-b border-black/15 bg-[#042C53] px-4 py-3 text-white">
-      <div className="flex min-w-[220px] items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#185FA5] text-sm font-bold">
-          BT
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">BizTrack CM</div>
-          <div className="truncate text-xs text-[#85B7EB]">
-            {isDesktopRuntime ? t('last_sync', { time: lastSyncLabel }) : t('desktop_only_subtitle')}
+    <header className={headerClassName}>
+      <div ref={businessMenuRef} className="relative flex min-w-0 max-w-[260px] shrink-0 items-center">
+        {canSwitch ? (
+          <button
+            type="button"
+            onClick={() => {
+              setIsBusinessMenuOpen((prev) => !prev)
+              setIsSyncMenuOpen(false)
+            }}
+            aria-expanded={isBusinessMenuOpen}
+            aria-haspopup="menu"
+            className={cn(
+              'flex items-center gap-3 rounded-xl px-2 py-1.5 -mx-2 -my-1.5 transition',
+              isDark ? 'hover:bg-secondary/80' : 'hover:bg-white/10',
+            )}
+          >
+            <div className={brandTileClassName}>{getInitials(businessName)}</div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 text-sm font-semibold">
+                <span className="truncate">{businessName ?? t('business_fallback')}</span>
+                <svg
+                  viewBox="0 0 20 20"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className={cn('shrink-0 transition-transform', isBusinessMenuOpen ? 'rotate-180' : '')}
+                >
+                  <path d="m5 7 5 5 5-5" />
+                </svg>
+              </div>
+              <div className={brandSubtitleClassName}>
+                {isDesktopRuntime ? t('last_sync', { time: lastSyncLabel }) : t('desktop_only_subtitle')}
+              </div>
+            </div>
+          </button>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className={cn(brandTileClassName, isSwitching ? 'animate-pulse' : '')}>
+              {getInitials(businessName)}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">{businessName ?? t('business_fallback')}</div>
+              <div className={brandSubtitleClassName}>
+                {isDesktopRuntime ? t('last_sync', { time: lastSyncLabel }) : t('desktop_only_subtitle')}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {isBusinessMenuOpen ? (
+          <div className="absolute left-0 top-[calc(100%+0.75rem)] z-[80] min-w-[240px] rounded-2xl border border-border bg-card p-2 shadow-xl">
+            <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {t('switch_business_title')}
+            </p>
+            {localBusinesses.map((biz) => {
+              const active = biz.id === businessId
+              return (
+                <button
+                  key={biz.id}
+                  type="button"
+                  onClick={() => void handleSwitchBusiness(biz.id)}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition',
+                    active ? 'bg-accent text-primary' : 'text-foreground hover:bg-secondary',
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{biz.name}</div>
+                    {biz.city ? (
+                      <div className="mt-0.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                        {biz.city}
+                      </div>
+                    ) : null}
+                  </div>
+                  {active ? (
+                    <svg
+                      viewBox="0 0 20 20"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      className="shrink-0"
+                    >
+                      <path d="m4.5 10 3.5 3.5 7-7" />
+                    </svg>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {isDesktopRuntime ? (
           <>
-            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-white/85">
+            <span className={passiveChipClassName}>
               <span
                 className={cn(
                   'h-2 w-2 rounded-full',
@@ -154,10 +348,25 @@ export function TopBar() {
             </span>
           </>
         ) : (
-          <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1.5 text-white/85">
+          <span className={passiveChipClassName}>
             {t('desktop_only_title')}
           </span>
         )}
+        {isDesktopRuntime && activePlanLabel ? (
+          <span className={passiveChipClassName}>
+            {activePlanLabel}
+          </span>
+        ) : null}
+        {isDesktopRuntime && planState?.isStale ? (
+          <span className="inline-flex items-center gap-2 rounded-full bg-[#FAEEDA] px-3 py-1.5 text-xs text-[#854F0B]">
+            {t('plan_stale')}
+          </span>
+        ) : null}
+        {isDesktopRuntime && trialDaysRemaining > 0 && !planState?.offlineExpiredFallback ? (
+          <span className="inline-flex items-center gap-2 rounded-full bg-[#E6F1FB] px-3 py-1.5 text-xs text-[#185FA5]">
+            {t('trial_days_left', { count: trialDaysRemaining })}
+          </span>
+        ) : null}
       </div>
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -169,13 +378,14 @@ export function TopBar() {
                 onClick={() => {
                   setIsSyncMenuOpen((current) => !current)
                   setIsLocaleMenuOpen(false)
+                  setIsBusinessMenuOpen(false)
                 }}
                 aria-expanded={isSyncMenuOpen}
                 aria-haspopup="dialog"
                 className={cn(
                   'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition',
                   snapshot.settings.autoSyncEnabled
-                    ? 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                    ? chromeButtonClassName
                     : 'border-[#FAC775]/40 bg-[#FAEEDA] text-[#854F0B] hover:bg-[#FCE6BC]',
                 )}
               >
@@ -206,7 +416,7 @@ export function TopBar() {
               {snapshot.settings.autoSyncEnabled ? (
                 <div
                   className={cn(
-                    'pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-20 hidden rounded-full border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] shadow-sm group-hover:flex group-focus-within:flex',
+                    'pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-[70] hidden rounded-full border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] shadow-sm group-hover:flex group-focus-within:flex',
                     snapshot.realtime.mode === 'realtime'
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : snapshot.realtime.mode === 'fallback'
@@ -219,14 +429,14 @@ export function TopBar() {
               ) : null}
 
               {!snapshot.settings.autoSyncEnabled && !isSyncMenuOpen ? (
-                <div className="pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-20 hidden w-80 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-900 shadow-lg group-hover:block group-focus-within:block">
+                <div className="pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-[70] hidden w-80 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-900 shadow-lg group-hover:block group-focus-within:block">
                   {autoSyncWarning}
                 </div>
               ) : null}
             </div>
 
             {isSyncMenuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-80 rounded-2xl border border-border bg-card p-4 shadow-xl">
+              <div className="absolute right-0 top-[calc(100%+0.75rem)] z-[80] w-80 rounded-2xl border border-border bg-card p-4 shadow-xl">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-card-foreground">{t('settings_title')}</p>
                   <p className="text-xs leading-5 text-muted-foreground">
@@ -239,6 +449,13 @@ export function TopBar() {
                     })}
                   </p>
                 </div>
+
+                {snapshot.status === 'error' && snapshot.lastError ? (
+                  <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
+                    <p className="font-semibold">{t('sync_issue_label')}</p>
+                    <p className="mt-1">{snapshot.lastError}</p>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 space-y-3">
                   <div className="rounded-xl border border-border bg-background px-3 py-3">
@@ -316,7 +533,7 @@ export function TopBar() {
             type="button"
             onClick={() => void trigger()}
             disabled={snapshot.status === 'syncing'}
-            className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className={cn(chromeButtonClassName, 'disabled:cursor-not-allowed disabled:opacity-60')}
           >
             <svg
               viewBox="0 0 20 20"
@@ -344,7 +561,7 @@ export function TopBar() {
             type="button"
             onClick={toggleTheme}
             aria-label={isDark ? t('theme_to_light') : t('theme_to_dark')}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+            className={iconButtonClassName}
           >
             {isDark ? (
               <svg
@@ -392,10 +609,11 @@ export function TopBar() {
             onClick={() => {
               setIsLocaleMenuOpen((current) => !current)
               setIsSyncMenuOpen(false)
+              setIsBusinessMenuOpen(false)
             }}
             aria-expanded={isLocaleMenuOpen}
             aria-haspopup="menu"
-            className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-medium text-white transition hover:bg-white/10"
+            className={chromeButtonClassName}
           >
             <svg
               viewBox="0 0 20 20"
@@ -413,9 +631,7 @@ export function TopBar() {
               <path d="M10 3.5a10.5 10.5 0 0 1 0 13" />
               <path d="M10 3.5a10.5 10.5 0 0 0 0 13" />
             </svg>
-            <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-white">
-              {localeLabels[currentLocale]}
-            </span>
+            <span className="text-xs font-semibold uppercase">{currentLocale}</span>
             <svg
               viewBox="0 0 20 20"
               width="12"
@@ -433,7 +649,7 @@ export function TopBar() {
           </button>
 
           {isLocaleMenuOpen ? (
-            <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 min-w-[210px] rounded-2xl border border-border bg-card p-2 shadow-xl">
+            <div className="absolute right-0 top-[calc(100%+0.75rem)] z-[80] min-w-[210px] rounded-2xl border border-border bg-card p-2 shadow-xl">
               {routing.locales.map((language) => {
                 const active = currentLocale === language
 

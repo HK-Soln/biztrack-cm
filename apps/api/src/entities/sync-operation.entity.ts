@@ -40,7 +40,7 @@ export class SyncOperation extends BaseEntity {
   @Column({ type: 'varchar', length: 20 })
   action!: string
 
-  @Column({ name: 'record_id' })
+  @Column({ name: 'record_id', type: 'text' })
   recordId!: string
 
   @Column({ name: 'record_updated_at', type: 'timestamptz', transformer: dateTransformer })
@@ -57,4 +57,7 @@ export class SyncOperation extends BaseEntity {
 
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage!: string | null
+
+  @Column({ name: 'error_details', type: 'jsonb', nullable: true })
+  errorDetails!: Record<string, unknown> | null
 }

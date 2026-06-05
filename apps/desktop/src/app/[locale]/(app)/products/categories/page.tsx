@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Badge, Button, Spinner } from '@biztrack/ui'
 import { toast } from 'sonner'
@@ -13,14 +13,14 @@ import { ViewModeToggle } from '@/components/products/ViewModeToggle'
 import { getCategoryErrorMessage } from '@/components/products/resource-error-messages'
 import { formatDateLabel } from '@/components/products/product-utils'
 import {
+  countProductsByCategoryLocal,
   deleteCategoryLocal,
-  fetchProductRowsForBusiness,
   listCategoriesLocal,
   restoreCategoryLocal,
   setCategoryActiveStateLocal,
-  type ProductRow,
 } from '@/services/products.local'
 import { useAuthStore } from '@/stores/auth.store'
+import { usePlanStore } from '@/stores/plan.store'
 
 type ViewMode = 'list' | 'grid'
 
@@ -33,8 +33,10 @@ const PAGE_SIZE = 12
 
 export default function ProductCategoriesPage() {
   const t = useTranslations('app.products')
+  const planGateT = useTranslations('app.plan_gate')
   const locale = useLocale()
   const businessId = useAuthStore((state) => state.businessId)
+  const planState = usePlanStore((state) => state.current)
   const role = useAuthStore((state) => state.role)
   const [categories, setCategories] = useState<PaginatedResult<ProductCategory> | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -50,7 +52,7 @@ export default function ProductCategoriesPage() {
   const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null)
   const [busyCategoryId, setBusyCategoryId] = useState<string | null>(null)
 
-  const translateKey = (key: string) => t(key as never)
+  const translateKey = useCallback((key: string) => t(key as never), [t])
   const canUndoDelete = String(role ?? '') === 'SUPER_ADMIN'
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export default function ProductCategoriesPage() {
       setError(null)
 
       try {
-        const [categoriesResult, productRows] = await Promise.all([
+        const [categoriesResult, countByCategory] = await Promise.all([
           listCategoriesLocal(currentBusinessId, {
             page,
             limit: PAGE_SIZE,
@@ -77,28 +79,16 @@ export default function ProductCategoriesPage() {
             search: deferredSearch.trim() || undefined,
             includeInactive: true,
           }),
-          fetchProductRowsForBusiness(currentBusinessId),
+          countProductsByCategoryLocal(currentBusinessId),
         ])
 
         if (!active) {
           return
         }
 
-        const countByCategory = new Map<string, number>()
-        let nextUncategorizedCount = 0
-
-        for (const row of productRows as ProductRow[]) {
-          if (!row.category_id) {
-            nextUncategorizedCount += 1
-            continue
-          }
-
-          countByCategory.set(row.category_id, (countByCategory.get(row.category_id) ?? 0) + 1)
-        }
-
         setCategories(categoriesResult)
         setProductCounts(Object.fromEntries(countByCategory.entries()))
-        setUncategorizedCount(nextUncategorizedCount)
+        setUncategorizedCount(0)
       } catch (loadError) {
         if (!active) {
           return
@@ -119,7 +109,7 @@ export default function ProductCategoriesPage() {
     return () => {
       active = false
     }
-  }, [businessId, deferredSearch, page, reloadKey, t])
+  }, [businessId, deferredSearch, page, reloadKey, t, translateKey])
 
   useEffect(() => {
     if (!categories || categories.totalPages === 0 || page <= categories.totalPages) {
@@ -136,6 +126,11 @@ export default function ProductCategoriesPage() {
         productCount: productCounts[category.id] ?? 0,
       })),
     [categories, productCounts],
+  )
+  const categoriesQuotaUsage =
+    planState?.quotaUsage.find((entry) => entry.resource === 'categories' && !entry.unlimited) ?? null
+  const categoriesQuotaReached = Boolean(
+    categoriesQuotaUsage && categoriesQuotaUsage.used >= (categoriesQuotaUsage.limit ?? 0),
   )
 
   const handleToggleActive = async (category: ProductCategory) => {
@@ -242,6 +237,21 @@ export default function ProductCategoriesPage() {
           <p className="text-sm text-muted-foreground">{t('categories_page.description')}</p>
         </div>
 
+        {categoriesQuotaReached ? (
+          <p className="text-sm text-muted-foreground">
+            {planGateT.rich('quota_hint', {
+              link: (chunks) => (
+                <a
+                  href={`/${locale}/subscription`}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  {chunks}
+                </a>
+              ),
+            })}
+          </p>
+        ) : null}
+
         <SurfaceCard
           action={
             <div className="flex flex-wrap items-center gap-2">
@@ -251,7 +261,11 @@ export default function ProductCategoriesPage() {
                 listLabel={t('categories_page.views.list')}
                 gridLabel={t('categories_page.views.grid')}
               />
-              <Button variant="primary" onClick={() => setIsCreateOpen(true)}>
+              <Button
+                variant="primary"
+                onClick={() => setIsCreateOpen(true)}
+                disabled={categoriesQuotaReached}
+              >
                 {t('actions.add_category')}
               </Button>
               <Button variant="secondary" onClick={() => setReloadKey((current) => current + 1)}>
@@ -472,6 +486,7 @@ export default function ProductCategoriesPage() {
           setPage(1)
           setReloadKey((current) => current + 1)
         }}
+        quotaReached={categoriesQuotaReached}
       />
 
       <CategoryDialog

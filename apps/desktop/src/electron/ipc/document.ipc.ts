@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { mkdir, writeFile } from 'fs/promises'
-import { basename, dirname, join, parse } from 'path'
+import { basename, dirname, join } from 'path'
 
 type ExportPdfPayload = {
   html?: string
@@ -20,6 +20,12 @@ type ExportPdfResult = {
   success: boolean
   path?: string
   canceled?: boolean
+  error?: string
+}
+
+type RenderPdfResult = {
+  success: boolean
+  buffer?: number[]
   error?: string
 }
 
@@ -58,6 +64,20 @@ export function registerDocumentIpc() {
           success: false,
           error: error instanceof Error ? error.message : String(error),
         }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'document:render-pdf',
+    async (_event, payload: ExportPdfPayload | undefined): Promise<RenderPdfResult> => {
+      try {
+        const printableHtml = payload?.html?.trim()
+        if (!printableHtml) throw new Error('Document HTML is missing.')
+        const pdfBuffer = await renderHtmlToPdfBuffer(printableHtml)
+        return { success: true, buffer: Array.from(pdfBuffer) }
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
       }
     },
   )
@@ -103,24 +123,28 @@ export function registerDocumentIpc() {
 }
 
 function sanitizePdfFileName(filename: string) {
-  const cleaned = basename(filename || 'document.pdf')
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .trim()
+  const cleaned = sanitizeBaseFileName(filename || 'document.pdf')
 
   const safeName = cleaned || 'document.pdf'
   return safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`
 }
 
 function sanitizeFileName(filename: string) {
-  const cleaned = basename(filename || 'document.txt')
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
+  const cleaned = sanitizeBaseFileName(filename || 'document.txt')
+
+  return cleaned || 'document.txt'
+}
+
+function sanitizeBaseFileName(filename: string) {
+  const withoutControlChars = Array.from(basename(filename)).map((char) =>
+    char.charCodeAt(0) < 32 ? '-' : char,
+  ).join('')
+
+  return withoutControlChars
+    .replace(/[<>:"/\\|?*]/g, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .trim()
-
-  return cleaned || 'document.txt'
 }
 
 function sanitizeDialogFilters(filters: ExportFilePayload['filters']) {

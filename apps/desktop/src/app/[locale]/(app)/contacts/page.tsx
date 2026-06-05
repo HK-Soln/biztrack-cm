@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { getApiErrorMessage } from '@/services/api-response'
 import { listContactsLocal } from '@/services/contacts.local'
 import { useAuthStore } from '@/stores/auth.store'
+import { usePlanStore } from '@/stores/plan.store'
 
 type ContactTypeFilterValue = 'ALL' | ContactType
 type BalanceFilterValue = 'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'CLEAR'
@@ -32,11 +33,14 @@ const MAX_CONTACTS_LIMIT = 1000
 
 export default function ContactsPage() {
   const t = useTranslations('app.contacts')
+  const planGateT = useTranslations('app.plan_gate')
   const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const businessId = useAuthStore((state) => state.businessId)
   const accessToken = useAuthStore((state) => state.accessToken)
+  const businessCurrency = useAuthStore((state) => state.businessCurrency)
+  const planState = usePlanStore((state) => state.current)
   const [contacts, setContacts] = useState<ContactListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -191,6 +195,11 @@ export default function ContactsPage() {
   ).length
 
   const pageNumbers = useMemo(() => buildPageNumbers(currentPage, totalPages), [currentPage, totalPages])
+  const contactsQuotaUsage =
+    planState?.quotaUsage.find((entry) => entry.resource === 'contacts' && !entry.unlimited) ?? null
+  const contactsQuotaReached = Boolean(
+    contactsQuotaUsage && contactsQuotaUsage.used >= (contactsQuotaUsage.limit ?? 0),
+  )
   const buildContactHref = (contactId: string) =>
     `/${locale}/contacts/detail?contactId=${encodeURIComponent(contactId)}`
 
@@ -216,11 +225,31 @@ export default function ContactsPage() {
             <p className="text-sm text-muted-foreground">{pageSubtitle}</p>
           </div>
 
-          <Button type="button" variant="primary" onClick={() => setIsCreateOpen(true)} disabled={!businessId}>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => setIsCreateOpen(true)}
+            disabled={!businessId || contactsQuotaReached}
+          >
             <PlusIcon />
             <span>{t('actions.add')}</span>
           </Button>
         </div>
+
+        {contactsQuotaReached ? (
+          <p className="text-sm text-muted-foreground">
+            {planGateT.rich('quota_hint', {
+              link: (chunks) => (
+                <a
+                  href={`/${locale}/subscription`}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  {chunks}
+                </a>
+              ),
+            })}
+          </p>
+        ) : null}
 
         {error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -244,7 +273,7 @@ export default function ContactsPage() {
             hint={
               activeDebtors.length > 0
                 ? t('metrics.active_debtors_hint', {
-                    amount: formatCurrency(totalReceivable, locale),
+                    amount: formatCurrency(totalReceivable, locale, businessCurrency),
                   })
                 : t('metrics.no_receivables')
             }
@@ -256,7 +285,7 @@ export default function ContactsPage() {
             hint={
               activeCreditors.length > 0
                 ? t('metrics.active_creditors_hint', {
-                    amount: formatCurrency(totalPayable, locale),
+                    amount: formatCurrency(totalPayable, locale, businessCurrency),
                   })
                 : t('metrics.no_payables')
             }
@@ -406,6 +435,7 @@ export default function ContactsPage() {
                             value={contact.totalReceivable}
                             settledLabel={t('table.settled')}
                             locale={locale}
+                            currency={businessCurrency}
                           />
                         </td>
                         <td className="px-4 py-3">
@@ -414,6 +444,7 @@ export default function ContactsPage() {
                             value={contact.totalPayable}
                             settledLabel={t('table.settled')}
                             locale={locale}
+                            currency={businessCurrency}
                           />
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
@@ -488,13 +519,14 @@ export default function ContactsPage() {
         open={isCreateOpen}
         onOpenChange={setIsCreateOpen}
         onSaved={() => setReloadKey((current) => current + 1)}
+        quotaReached={contactsQuotaReached}
       />
     </>
   )
 }
 
-function formatCurrency(value: number, localeTag: string) {
-  return `XAF ${Math.round(value).toLocaleString(localeTag)}`
+function formatCurrency(value: number, localeTag: string, currency = 'XAF') {
+  return `${currency} ${Math.round(value).toLocaleString(localeTag)}`
 }
 
 function formatDateLabel(value: string, localeTag: string) {
@@ -622,11 +654,13 @@ function DebtChip({
   value,
   settledLabel,
   locale,
+  currency,
 }: {
   tone: 'receivable' | 'payable'
   value: number
   settledLabel: string
   locale: string
+  currency: string
 }) {
   if (value <= 0) {
     return (
@@ -643,7 +677,7 @@ function DebtChip({
         tone === 'receivable' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700',
       )}
     >
-      {formatCurrency(value, locale)}
+      {formatCurrency(value, locale, currency)}
     </span>
   )
 }

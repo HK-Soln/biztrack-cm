@@ -5,6 +5,7 @@ import {
   DebtDirection,
   DebtStatus,
   InventoryMovementType,
+  Resource,
   StockAdjustmentType,
   UnitOfMeasureType,
   type AdjustInventoryRequest,
@@ -26,10 +27,17 @@ import {
   type InventoryRestockSyncPayload,
   type InventoryThresholdSyncPayload,
 } from '@biztrack/types'
+import { assertLocalPermissionAccess } from '@/lib/plan-access'
 import { getContactByIdLocal } from './contacts.local'
 import { listAllDebtsByDirectionLocal } from './debts.local'
 import { compareValues, dbBatch, dbQuery, paginateResult, normalizeSortOrder } from './local-db'
-import { assertBusinessId, fetchProductRowsForBusiness, type ProductRow } from './products.local'
+import {
+  assertBusinessId,
+  fetchProductRowById,
+  fetchProductRowsByIds,
+  queryInventoryProductRows,
+  type ProductRow,
+} from './products.local'
 import {
   buildOutboxEventOperation,
   buildOutboxUpsertOperation,
@@ -131,61 +139,46 @@ export async function listInventoryLocal(
   businessId: string,
   query: InventoryQuery,
 ): Promise<PaginatedResult<InventoryListItem>> {
-  const sortOrder = normalizeSortOrder(query.sortOrder)
-  const items = (await fetchProductRowsForBusiness(assertBusinessId(businessId)))
-    .filter((row) => Boolean(row.track_inventory))
-    .filter((row) => !query.categoryId || row.category_id === query.categoryId)
-    .map(mapInventoryListItem)
-    .filter((item) => !query.lowStockOnly || item.isLowStock)
-
-  items.sort((left, right) => {
-    switch (query.sortBy) {
-      case 'productName':
-        return compareValues(left.productName, right.productName, sortOrder)
-      case 'sku':
-        return compareValues(left.sku, right.sku, sortOrder)
-      case 'barcode':
-        return compareValues(left.barcode, right.barcode, sortOrder)
-      case 'categoryName':
-        return compareValues(left.categoryName, right.categoryName, sortOrder)
-      case 'quantity':
-        return compareValues(left.quantity, right.quantity, sortOrder)
-      case 'lowStockThreshold':
-        return compareValues(left.lowStockThreshold, right.lowStockThreshold, sortOrder)
-      case 'reorderPoint':
-        return compareValues(left.reorderPoint, right.reorderPoint, sortOrder)
-      case 'lastRestockAt':
-      default:
-        return compareValues(left.lastRestockAt, right.lastRestockAt, sortOrder)
-    }
+  const result = await queryInventoryProductRows(assertBusinessId(businessId), {
+    trackInventory: true,
+    categoryId: query.categoryId,
+    lowStockOnly: query.lowStockOnly,
+    sortBy: query.sortBy,
+    sortOrder: normalizeSortOrder(query.sortOrder) as 'ASC' | 'DESC',
+    page: query.page,
+    limit: query.limit,
   })
 
-  return paginateResult(items, query.page, query.limit)
+  return {
+    data: result.data.map(mapInventoryListItem),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+    totalPages: result.totalPages,
+  }
 }
 
 export async function listInventoryAlertsLocal(
   businessId: string,
   query: InventoryAlertsQuery,
 ): Promise<PaginatedResult<InventoryAlert>> {
-  const sortOrder = normalizeSortOrder(query.sortOrder)
-  const items = (await fetchProductRowsForBusiness(assertBusinessId(businessId)))
-    .filter((row) => Boolean(row.is_active) && Boolean(row.track_inventory))
-    .map(mapInventoryAlert)
-    .filter((item) => item.lowStockThreshold !== null && item.currentQuantity <= item.lowStockThreshold)
-
-  items.sort((left, right) => {
-    switch (query.sortBy) {
-      case 'productName':
-        return compareValues(left.productName, right.productName, sortOrder)
-      case 'currentQuantity':
-        return compareValues(left.currentQuantity, right.currentQuantity, sortOrder)
-      case 'shortfall':
-      default:
-        return compareValues(left.shortfall, right.shortfall, sortOrder)
-    }
+  const result = await queryInventoryProductRows(assertBusinessId(businessId), {
+    isActive: true,
+    trackInventory: true,
+    lowStockOnly: true,
+    sortBy: query.sortBy ?? 'shortfall',
+    sortOrder: normalizeSortOrder(query.sortOrder) as 'ASC' | 'DESC',
+    page: query.page,
+    limit: query.limit,
   })
 
-  return paginateResult(items, query.page, query.limit)
+  return {
+    data: result.data.map(mapInventoryAlert),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+    totalPages: result.totalPages,
+  }
 }
 
 export async function getInventoryDetailLocal(
@@ -193,9 +186,7 @@ export async function getInventoryDetailLocal(
   productId: string,
 ): Promise<InventoryDetail> {
   const normalizedBusinessId = assertBusinessId(businessId)
-  const row = (await fetchProductRowsForBusiness(normalizedBusinessId)).find(
-    (item) => item.id === productId,
-  )
+  const row = await fetchProductRowById(normalizedBusinessId, productId)
 
   if (!row || !row.track_inventory) {
     throw new InventoryLocalError('INVENTORY_NOT_FOUND')
@@ -259,9 +250,8 @@ export async function setInventoryThresholdLocal(
 ): Promise<InventoryDetail> {
   validateThresholds(payload)
   const normalizedBusinessId = assertBusinessId(businessId)
-  const row = (await fetchProductRowsForBusiness(normalizedBusinessId)).find(
-    (item) => item.id === productId,
-  )
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.INVENTORY_ADJUST)
+  const row = await fetchProductRowById(normalizedBusinessId, productId)
 
   if (!row || !row.track_inventory) {
     throw new InventoryLocalError('INVENTORY_NOT_FOUND')
@@ -320,9 +310,8 @@ export async function adjustInventoryLocal(
 ): Promise<InventoryDetail> {
   validateAdjustment(payload)
   const normalizedBusinessId = assertBusinessId(businessId)
-  const row = (await fetchProductRowsForBusiness(normalizedBusinessId)).find(
-    (item) => item.id === productId,
-  )
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.INVENTORY_ADJUST)
+  const row = await fetchProductRowById(normalizedBusinessId, productId)
 
   if (!row || !row.track_inventory) {
     throw new InventoryLocalError('INVENTORY_NOT_FOUND')
@@ -412,7 +401,10 @@ export async function restockInventoryLocal(
 ): Promise<RestockResponse> {
   validateRestock(payload)
   const normalizedBusinessId = assertBusinessId(businessId)
-  const rows = await fetchProductRowsForBusiness(normalizedBusinessId)
+  await assertLocalPermissionAccess(normalizedBusinessId, Resource.INVENTORY_ADJUST)
+  const productIds = payload.items.map((item) => item.productId)
+  const fetchedRows = await fetchProductRowsByIds(normalizedBusinessId, productIds)
+  const productMap = new Map(fetchedRows.map((row) => [row.id, row]))
   const now = new Date().toISOString()
   const restockId = crypto.randomUUID()
   const normalizedReferenceNumber = payload.referenceNumber?.trim() || null
@@ -481,7 +473,7 @@ export async function restockInventoryLocal(
   const syncItems: InventoryRestockSyncPayload['items'] = []
 
   for (const item of payload.items) {
-    const row = rows.find((candidate) => candidate.id === item.productId)
+    const row = productMap.get(item.productId)
     if (!row) {
       throw new InventoryLocalError('INVENTORY_RESTOCK_PRODUCT_INVALID')
     }

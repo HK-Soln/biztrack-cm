@@ -7,13 +7,17 @@ import { UsersModule } from '@/modules/users/users.module'
 import { BusinessModule } from '@/modules/business/business.module'
 import { ProductsModule } from '@/modules/products/products.module'
 import { SyncModule } from '@/modules/sync/sync.module'
+import { RolesModule } from '@/modules/roles/roles.module'
 import { PlansModule } from '@/modules/plans/plans.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module'
+import { NotificationsModule } from '@/modules/notifications/notifications.module'
+import { MarketingModule } from '@/modules/marketing/marketing.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { SalesModule } from '@/modules/sales/sales.module'
+import { SavingsModule } from '@/modules/savings/savings.module'
 import { LoggerModule } from './logger/logger.module'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
@@ -35,6 +39,19 @@ import { HealthController } from './health.controller'
 const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/')
 const migrationsPath = join(__dirname, 'database', 'migrations', '*{.ts,.js}').replace(/\\/g, '/')
 
+function resolveI18nPath() {
+  const srcPath = resolve(process.cwd(), 'src', 'i18n')
+  const candidates =
+    process.env.NODE_ENV === NodeEnv.PRODUCTION
+      ? [join(__dirname, 'i18n'), join(__dirname, 'i18n', 'i18n'), srcPath]
+      : [srcPath, join(__dirname, 'i18n'), join(__dirname, 'i18n', 'i18n')]
+
+  const hasTranslations = (basePath: string) =>
+    existsSync(join(basePath, 'en')) || existsSync(join(basePath, 'fr'))
+
+  return candidates.find(hasTranslations) ?? srcPath
+}
+
 @Module({
   controllers: [HealthController],
   imports: [
@@ -42,14 +59,12 @@ const migrationsPath = join(__dirname, 'database', 'migrations', '*{.ts,.js}').r
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     I18nModule.forRootAsync({
       useFactory: () => {
-        const srcPath = resolve(process.cwd(), 'src', 'i18n')
-        const distPath = join(__dirname, 'i18n')
-        const useDist = process.env.NODE_ENV === 'production' && existsSync(distPath)
+        const i18nPath = resolveI18nPath()
 
         return {
           fallbackLanguage: 'fr',
           loaderOptions: {
-            path: useDist ? distPath : srcPath,
+            path: i18nPath,
             watch: process.env.NODE_ENV === 'development',
           },
           typesOutputPath: join(__dirname, '..', 'src', 'generated', 'i18n.generated.ts'),
@@ -83,9 +98,13 @@ const migrationsPath = join(__dirname, 'database', 'migrations', '*{.ts,.js}').r
     DebtsModule,
     SalesModule,
     SyncModule,
+    SavingsModule,
+    RolesModule,
     PermissionsModule,
     PlansModule,
     SubscriptionsModule,
+    NotificationsModule,
+    MarketingModule,
     RedisModule,
   ],
   providers: [

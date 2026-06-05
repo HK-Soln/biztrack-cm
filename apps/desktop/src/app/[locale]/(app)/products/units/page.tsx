@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Badge, Button, Spinner } from '@biztrack/ui'
 import { toast } from 'sonner'
@@ -13,12 +13,11 @@ import { ViewModeToggle } from '@/components/products/ViewModeToggle'
 import { getUnitErrorMessage } from '@/components/products/resource-error-messages'
 import { formatDateLabel } from '@/components/products/product-utils'
 import {
+  countProductsByUnitLocal,
   deleteUnitOfMeasureLocal,
-  fetchProductRowsForBusiness,
   listUnitOfMeasuresLocal,
   restoreUnitOfMeasureLocal,
   setUnitOfMeasureActiveStateLocal,
-  type ProductRow,
 } from '@/services/products.local'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -49,7 +48,7 @@ export default function ProductUnitsPage() {
   const [editingUnit, setEditingUnit] = useState<UnitOfMeasure | null>(null)
   const [busyUnitId, setBusyUnitId] = useState<string | null>(null)
 
-  const translateKey = (key: string) => t(key as never)
+  const translateKey = useCallback((key: string) => t(key as never), [t])
   const canUndoDelete = String(role ?? '') === 'SUPER_ADMIN'
 
   useEffect(() => {
@@ -67,7 +66,7 @@ export default function ProductUnitsPage() {
       setError(null)
 
       try {
-        const [unitsResult, productRows] = await Promise.all([
+        const [unitsResult, countByUnit] = await Promise.all([
           listUnitOfMeasuresLocal(currentBusinessId, {
             page,
             limit: PAGE_SIZE,
@@ -76,24 +75,11 @@ export default function ProductUnitsPage() {
             search: deferredSearch.trim() || undefined,
             includeInactive: true,
           }),
-          fetchProductRowsForBusiness(currentBusinessId),
+          countProductsByUnitLocal(currentBusinessId),
         ])
 
         if (!active) {
           return
-        }
-
-        const countByUnit = new Map<string, number>()
-
-        for (const row of productRows as ProductRow[]) {
-          if (!row.unit_of_measure_id) {
-            continue
-          }
-
-          countByUnit.set(
-            row.unit_of_measure_id,
-            (countByUnit.get(row.unit_of_measure_id) ?? 0) + 1,
-          )
         }
 
         setUnits(unitsResult)
@@ -116,7 +102,7 @@ export default function ProductUnitsPage() {
     return () => {
       active = false
     }
-  }, [businessId, deferredSearch, page, reloadKey, t])
+  }, [businessId, deferredSearch, page, reloadKey, t, translateKey])
 
   useEffect(() => {
     if (!units || units.totalPages === 0 || page <= units.totalPages) {

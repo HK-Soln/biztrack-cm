@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
@@ -16,7 +16,7 @@ import { getApiErrorDetails, getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
 import { normalizeAuthNextStep, routeForNextStep } from '@/lib/auth-routing'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
-import { getLastBusinessContext } from '@/stores/auth.store'
+import { getLastSessionContext } from '@/stores/auth.store'
 import type { AuthNextStep } from '@biztrack/types'
 import bcrypt from 'bcryptjs'
 
@@ -37,7 +37,7 @@ export default function LoginPage() {
 
   const goTo = (path: string) => router.push(`/${locale}${path}`)
 
-  const handleOnlineSubmit = async (event: React.FormEvent) => {
+  const handleOnlineSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
     setLoading(true)
@@ -68,7 +68,7 @@ export default function LoginPage() {
     }
   }
 
-  const handleOfflineLogin = async (event: React.FormEvent) => {
+  const handleOfflineLogin = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
     setLoading(true)
@@ -83,8 +83,8 @@ export default function LoginPage() {
         setError(t('login.offline_incorrect'))
         return
       }
-      const { businessId, role } = await getLastBusinessContext()
-      setOfflineSession(businessId ?? null, role)
+      const { businessId, role } = await getLastSessionContext()
+      await setOfflineSession(businessId ?? null, role)
       goTo('/')
     } catch {
       setError(t('login.offline_failed'))
@@ -118,7 +118,7 @@ export default function LoginPage() {
             </div>
             <PhoneInput
               value={identifier}
-              onChange={(value) => setIdentifier(value || '')}
+              onChange={(value: string | undefined) => setIdentifier(value || '')}
               disabled={!online}
               required={online}
             />
@@ -143,7 +143,7 @@ export default function LoginPage() {
             </div>
             <Input
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setIdentifier(event.target.value)}
               placeholder={t('login.email_placeholder')}
               disabled={!online}
               required={online}
@@ -158,7 +158,7 @@ export default function LoginPage() {
             <Input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)}
               placeholder={t('login.password_placeholder')}
               required
             />

@@ -25,7 +25,9 @@ import { Contact } from '@/entities/contact.entity'
 import { Debt } from '@/entities/debt.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { QuotaService } from '@/modules/permissions/quota.service'
 import { DebtsService } from './debts.service'
+import { OpeningBalancesService } from './opening-balances.service'
 
 @Injectable()
 export class ContactsService {
@@ -35,6 +37,8 @@ export class ContactsService {
     @InjectRepository(Debt)
     private readonly debtsRepo: Repository<Debt>,
     private readonly debtsService: DebtsService,
+    private readonly openingBalancesService: OpeningBalancesService,
+    private readonly quotaService: QuotaService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -131,6 +135,12 @@ export class ContactsService {
 
       const existing = await this.findByPrimaryPhone(businessId, phone)
       if (existing) {
+        if (!existing.isActive) {
+          // Reactivating an archived contact consumes a slot again because the
+          // quota counts only active contacts.
+          await this.quotaService.assertWithinQuota(businessId, 'contacts')
+        }
+
         if (existing.type === ContactType.BOTH) {
           return this.reuseExistingContact(existing, businessId, {
             type: ContactType.BOTH,
@@ -154,6 +164,8 @@ export class ContactsService {
           notes,
         })
       }
+
+      await this.quotaService.assertWithinQuota(businessId, 'contacts')
 
       const contact = await this.contactsRepo.save(
         this.contactsRepo.create({
@@ -281,18 +293,19 @@ export class ContactsService {
 
     if (contactIds.length === 0) return result
 
-    const debts = await this.debtsRepo.find({
-      where: {
-        businessId,
-        contactId: In(contactIds),
-      },
-      relations: ['payments'],
-    })
+    const [debts, obMap] = await Promise.all([
+      this.debtsRepo.find({
+        where: { businessId, contactId: In(contactIds) },
+        relations: ['payments'],
+      }),
+      this.openingBalancesService.findMapForContacts(businessId, contactIds),
+    ])
 
     for (const contactId of contactIds) {
+      const ob = obMap.get(contactId)
       result.set(contactId, {
-        totalReceivable: 0,
-        totalPayable: 0,
+        totalReceivable: ob?.receivable ?? 0,
+        totalPayable: ob?.payable ?? 0,
         openDebts: 0,
         lastTransactionDate: null,
       })

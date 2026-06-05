@@ -17,7 +17,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "zod": "^3.24.1"
+    "@biztrack/types": "workspace:*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biztrack/eslint-config": "workspace:*",

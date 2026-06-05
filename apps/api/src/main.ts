@@ -10,7 +10,7 @@ import { createI18nValidationPipe } from './common/pipes/i18n-validation.pipe'
 import cookieParser from 'cookie-parser'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create(AppModule, { rawBody: true })
 
   const config = app.get<ConfigService<AppConfig>>(ConfigService)
   const redis = app.get<RedisService>(RedisService)
@@ -65,8 +65,8 @@ async function bootstrap() {
     'Bootstrap',
   )
 
-  const port = config.get('API_PORT', { infer: true }) ?? 3001
-  await app.listen(port, '0.0.0.0')
+  const port = config.get('PORT', { infer: true }) ?? 3001
+  await app.listen(port, '::') // Listen on all interfaces (IPv4 & IPv6)
 
   logger.log(`API is running on port ${port}`, 'Bootstrap');
 }

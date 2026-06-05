@@ -120,8 +120,29 @@ export interface BusinessListItem {
   plan: string
 }
 
-export const getMyBusinesses = (): Promise<{ businesses: BusinessListItem[] }> =>
-  apiClient.get<{ businesses: BusinessListItem[] }>('/businesses/mine')
+// Raw shape returned by the API (POST-refactor: bare array of membership summaries)
+interface RawMembershipItem {
+  businessId: string
+  role: string
+  status: string
+  business: {
+    id: string
+    name: string
+    plan?: string | null
+  } | null
+}
+
+export const getMyBusinesses = async (): Promise<{ businesses: BusinessListItem[] }> => {
+  const memberships = await apiClient.get<RawMembershipItem[]>('/businesses/mine')
+  const businesses: BusinessListItem[] = memberships.map((m) => ({
+    id: m.businessId,
+    name: m.business?.name ?? 'Unknown Business',
+    role: m.role,
+    status: m.status,
+    plan: m.business?.plan ?? 'FREE',
+  }))
+  return { businesses }
+}
 
 // ─── Setup Business (onboarding step 1) ──────────────────────────────────────
 
