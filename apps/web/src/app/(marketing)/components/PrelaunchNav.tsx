@@ -39,6 +39,7 @@ export function PrelaunchNav({ locale, setLocale, t }: Props) {
             <a href="#how" className={styles.link}>{t('nav.how')}</a>
             <a href="#pricing" className={styles.link}>{t('nav.pricing')}</a>
             <a href="#contact" className={styles.link}>{t('nav.contact')}</a>
+            <a href="/roadmap" className={styles.link}>Roadmap</a>
 
             <div className={styles.localePill}>
               <button
@@ -76,6 +77,7 @@ export function PrelaunchNav({ locale, setLocale, t }: Props) {
         <a href="#how" className={styles.overlayLink} onClick={close}>{t('nav.how')}</a>
         <a href="#pricing" className={styles.overlayLink} onClick={close}>{t('nav.pricing')}</a>
         <a href="#contact" className={styles.overlayLink} onClick={close}>{t('nav.contact')}</a>
+        <a href="/roadmap" className={styles.overlayLink} onClick={close}>Roadmap</a>
 
         <div className={styles.localePill} style={{ marginTop: '0.5rem' }}>
           <button
