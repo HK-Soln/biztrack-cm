@@ -10,6 +10,7 @@ export type I18nTranslations = {
             "success": string;
             "phone_exists": string;
             "email_exists": string;
+            "invalid_whatsapp_number": string;
         };
         "otp": {
             "invalid": string;
@@ -111,13 +112,13 @@ export type I18nTranslations = {
         "restock_payment_exceeds_total": string;
         "already_voided": string;
         "sales_void_forbidden": string;
-        "savings_account_not_found": string;
-        "savings_account_already_exists": string;
-        "savings_account_number_in_use": string;
-        "savings_insufficient_balance": string;
-        "savings_amount_invalid": string;
-        "savings_delete_not_supported": string;
-        "savings_void_requires_savings_account": string;
+        "deposit_account_not_found": string;
+        "deposit_account_already_exists": string;
+        "deposit_account_number_in_use": string;
+        "deposit_insufficient_balance": string;
+        "deposit_amount_invalid": string;
+        "deposit_delete_not_supported": string;
+        "deposit_void_requires_deposit_account": string;
         "invalid_date_range": string;
         "date_range_too_large": string;
         "validation_failed": string;

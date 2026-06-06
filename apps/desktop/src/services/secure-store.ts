@@ -2,16 +2,22 @@
 
 import { ipc } from './ipc.bridge'
 
-async function isIpcStoreAvailable() {
+// Cache the availability check so every get/set/delete doesn't make two IPC
+// round-trips. The result is stable for the lifetime of the renderer process.
+let availabilityCache: boolean | null = null
+
+async function isIpcStoreAvailable(): Promise<boolean> {
+  if (availabilityCache !== null) return availabilityCache
   try {
-    return await ipc.secureStore.isAvailable()
+    availabilityCache = await ipc.secureStore.isAvailable()
   } catch {
-    return false
+    availabilityCache = false
   }
+  return availabilityCache
 }
 
 export const secureStore = {
-  isAvailable: async () => await isIpcStoreAvailable(),
+  isAvailable: async () => isIpcStoreAvailable(),
   get: async (key: string) => {
     if (await isIpcStoreAvailable()) return ipc.secureStore.get(key)
     return null

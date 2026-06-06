@@ -58,6 +58,10 @@ import {
 import { useAuthStore } from '@/stores/auth.store'
 import { usePlanStore } from '@/stores/plan.store'
 import { getPermissionAccessFromState } from '@/lib/plan-access'
+import { REPORT_META_FACTORIES, ReportWrapper, generateReportId } from '@/components/reports/shared'
+import { REPORT_PDF_CSS } from '@/components/reports/shared/reportPdfCss'
+import { ReportBodyRenderer } from '@/components/reports/ReportBodyRenderer'
+import { useBusiness } from '@/hooks/useBusiness'
 
 type ReportPreset = 'today' | 'last7' | 'thisMonth' | 'lastMonth' | 'quarter' | 'year' | 'custom'
 type ReportSectionKey = 'sales' | 'inventory' | 'financial' | 'credit'
@@ -1245,7 +1249,9 @@ export default function ReportsPage() {
   const businessId = useAuthStore((state) => state.businessId)
   const businessName = useAuthStore((state) => state.businessName)
   const businessCurrency = useAuthStore((state) => state.businessCurrency)
+  const businessEmail = useAuthStore((state) => state.businessEmail)
   const planState = usePlanStore((state) => state.current)
+  const business = useBusiness()
   const defaultRange = useMemo(() => resolvePresetRange('thisMonth'), [])
   const [previewReportId, setPreviewReportId] = useState<ReportId>(DEFAULT_REPORT.id)
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false)
@@ -1369,6 +1375,29 @@ export default function ReportsPage() {
     [t],
   )
 
+  const reportLabels = useMemo<Record<ReportId, { name: string; description: string; badge: string; source: string }>>(
+    () => ({
+      'daily-sales': { name: t('definitions.daily_sales.name'), description: t('definitions.daily_sales.description'), badge: t('definitions.daily_sales.badge'), source: t('definitions.daily_sales.source') },
+      'revenue-trend': { name: t('definitions.revenue_trend.name'), description: t('definitions.revenue_trend.description'), badge: t('definitions.revenue_trend.badge'), source: t('definitions.revenue_trend.source') },
+      'top-products': { name: t('definitions.top_products.name'), description: t('definitions.top_products.description'), badge: t('definitions.top_products.badge'), source: t('definitions.top_products.source') },
+      'cashier-performance': { name: t('definitions.cashier_performance.name'), description: t('definitions.cashier_performance.description'), badge: t('definitions.cashier_performance.badge'), source: t('definitions.cashier_performance.source') },
+      'payment-breakdown': { name: t('definitions.payment_breakdown.name'), description: t('definitions.payment_breakdown.description'), badge: t('definitions.payment_breakdown.badge'), source: t('definitions.payment_breakdown.source') },
+      'voided-sales': { name: t('definitions.voided_sales.name'), description: t('definitions.voided_sales.description'), badge: t('definitions.voided_sales.badge'), source: t('definitions.voided_sales.source') },
+      'stock-levels': { name: t('definitions.stock_levels.name'), description: t('definitions.stock_levels.description'), badge: t('definitions.stock_levels.badge'), source: t('definitions.stock_levels.source') },
+      'stock-movements': { name: t('definitions.stock_movements.name'), description: t('definitions.stock_movements.description'), badge: t('definitions.stock_movements.badge'), source: t('definitions.stock_movements.source') },
+      'low-stock-alerts': { name: t('definitions.low_stock_alerts.name'), description: t('definitions.low_stock_alerts.description'), badge: t('definitions.low_stock_alerts.badge'), source: t('definitions.low_stock_alerts.source') },
+      'restock-costs': { name: t('definitions.restock_costs.name'), description: t('definitions.restock_costs.description'), badge: t('definitions.restock_costs.badge'), source: t('definitions.restock_costs.source') },
+      'profit-loss': { name: t('definitions.profit_loss.name'), description: t('definitions.profit_loss.description'), badge: t('definitions.profit_loss.badge'), source: t('definitions.profit_loss.source') },
+      'expense-breakdown': { name: t('definitions.expense_breakdown.name'), description: t('definitions.expense_breakdown.description'), badge: t('definitions.expense_breakdown.badge'), source: t('definitions.expense_breakdown.source') },
+      'revenue-vs-expenses': { name: t('definitions.revenue_vs_expenses.name'), description: t('definitions.revenue_vs_expenses.description'), badge: t('definitions.revenue_vs_expenses.badge'), source: t('definitions.revenue_vs_expenses.source') },
+      'debtors-ageing': { name: t('definitions.debtors_ageing.name'), description: t('definitions.debtors_ageing.description'), badge: t('definitions.debtors_ageing.badge'), source: t('definitions.debtors_ageing.source') },
+      'creditors-ageing': { name: t('definitions.creditors_ageing.name'), description: t('definitions.creditors_ageing.description'), badge: t('definitions.creditors_ageing.badge'), source: t('definitions.creditors_ageing.source') },
+      'contact-statement': { name: t('definitions.contact_statement.name'), description: t('definitions.contact_statement.description'), badge: t('definitions.contact_statement.badge'), source: t('definitions.contact_statement.source') },
+      'credit-activity': { name: t('definitions.credit_activity.name'), description: t('definitions.credit_activity.description'), badge: t('definitions.credit_activity.badge'), source: t('definitions.credit_activity.source') },
+    }),
+    [t],
+  )
+
   const reportAccessById = useMemo(
     () =>
       new Map(
@@ -1409,11 +1438,12 @@ export default function ReportsPage() {
         return true
       }
 
+      const labels = reportLabels[report.id]
       const haystack = [
-        report.name,
-        report.description,
-        report.source,
-        report.badge,
+        labels.name,
+        labels.description,
+        labels.source,
+        labels.badge,
         report.id.replace(/-/g, ' '),
         sectionLabels[report.section],
       ]
@@ -1422,7 +1452,7 @@ export default function ReportsPage() {
 
       return haystack.includes(query)
     })
-  }, [deferredSearch, sectionLabels])
+  }, [deferredSearch, reportLabels, sectionLabels])
 
   const accessibleFilteredReports = useMemo(
     () =>
@@ -1474,7 +1504,7 @@ export default function ReportsPage() {
     openLockedFeaturePrompt({
       title: planGateT('locked_feature_title'),
       description: planGateT('locked_feature_description', {
-        report: report.name,
+        report: reportLabels[report.id].name,
         section: sectionLabels[report.section],
         plan: access?.requiredPlan ?? 'SOLO',
       }),
@@ -1690,17 +1720,23 @@ export default function ReportsPage() {
   }, [appliedRange.endDate, appliedRange.startDate, t, workspace])
 
   const pnlRows = useMemo(() => {
-    const expenseRows = [...derived.expenseCategoryRows]
-    const topExpenseRows = expenseRows.slice(0, 5)
-    const remainingExpenses = expenseRows.slice(5)
-    const otherAmount = sumNumbers(remainingExpenses.map((row) => row.amount))
+    const totalVoidedAmount = sumNumbers(derived.voidedSales.map((s) => s.total_amount ?? 0))
 
     const rows: WaterfallRow[] = [
       {
-        label: t('waterfall.revenue'),
+        label: t('waterfall.sales'),
         value: derived.totalRevenue,
         tone: 'positive' as const,
       },
+      ...(totalVoidedAmount > 0
+        ? [
+            {
+              label: t('waterfall.voided_sales'),
+              value: -totalVoidedAmount,
+              tone: 'warning' as const,
+            },
+          ]
+        : []),
       {
         label: t('waterfall.cogs'),
         value: -derived.totalCost,
@@ -1712,20 +1748,11 @@ export default function ReportsPage() {
         tone: derived.grossProfit >= 0 ? ('positive' as const) : ('danger' as const),
         total: true,
       },
-      ...topExpenseRows.map((row) => ({
+      ...derived.expenseCategoryRows.map((row) => ({
         label: row.name,
         value: -row.amount,
         tone: 'warning' as const,
       })),
-      ...(otherAmount > 0
-        ? [
-            {
-              label: t('waterfall.other_expenses'),
-              value: -otherAmount,
-              tone: 'warning' as const,
-            },
-          ]
-        : []),
       {
         label: t('waterfall.total_expenses'),
         value: -derived.totalExpenses,
@@ -1750,7 +1777,7 @@ export default function ReportsPage() {
       ...row,
       percent: Math.max(6, Math.round((Math.abs(row.value) / maxMagnitude) * 100)),
     }))
-  }, [derived.expenseCategoryRows, derived.grossProfit, derived.netProfit, derived.totalCost, derived.totalExpenses, derived.totalRevenue, t])
+  }, [derived.expenseCategoryRows, derived.grossProfit, derived.netProfit, derived.totalCost, derived.totalExpenses, derived.totalRevenue, derived.voidedSales, t])
 
   const trendMode = useMemo(() => getGroupMode(appliedRange), [appliedRange])
 
@@ -1803,15 +1830,15 @@ export default function ReportsPage() {
 
   const reportViewModel = useMemo<ReportViewModel>(() => {
     const rangeLabel = buildRangeLabel(appliedRange.startDate, appliedRange.endDate, localeTag)
-    const exportBase = `${slugify(selectedReport.name)}-${appliedRange.startDate}-${appliedRange.endDate}`
+    const exportBase = `${slugify(reportLabels[selectedReport.id].name)}-${appliedRange.startDate}-${appliedRange.endDate}`
 
     if (selectedReport.id === 'revenue-trend') {
       const points = buildRevenueTrendPoints(derived.completedSales, localeTag, getGroupMode(appliedRange))
 
       return {
         kind: 'trend',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.revenue'),
@@ -1841,8 +1868,8 @@ export default function ReportsPage() {
         secondaryMaxLabel: formatNumber(Math.max(...points.map((point) => point.secondary), 0), localeTag),
         empty: t('preview.no_sales_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.revenue'), value: formatCurrencyBase(derived.totalRevenue, localeTag, businessCurrency) },
@@ -1883,8 +1910,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'table',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.transactions'),
@@ -1908,8 +1935,8 @@ export default function ReportsPage() {
         table,
         empty: t('preview.no_sales_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.transactions'), value: formatNumber(derived.sales.length, localeTag) },
@@ -1931,8 +1958,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'ranked',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.products'),
@@ -1956,8 +1983,8 @@ export default function ReportsPage() {
         rows,
         empty: t('preview.no_sales_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.products'), value: formatNumber(derived.topProducts.length, localeTag) },
@@ -1990,8 +2017,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'table',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.cashiers'),
@@ -2015,8 +2042,8 @@ export default function ReportsPage() {
         table,
         empty: t('preview.no_sales_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.cashiers'), value: formatNumber(derived.cashierRows.length, localeTag) },
@@ -2054,8 +2081,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'bars',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.collected'),
@@ -2079,8 +2106,8 @@ export default function ReportsPage() {
         bars,
         empty: t('preview.no_sales_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.collected'), value: formatCurrencyBase(sumNumbers(Array.from(derived.paymentTotals.values())), localeTag, businessCurrency) },
@@ -2109,8 +2136,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'table',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.voided'),
@@ -2134,8 +2161,8 @@ export default function ReportsPage() {
         table,
         empty: t('preview.no_voided_sales'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.voided'), value: formatNumber(derived.voidedSales.length, localeTag) },
@@ -2164,8 +2191,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'table',
-        title: selectedReport.name,
-        description: `${selectedReport.description}`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description}`,
         stats: [
           {
             label: t('stats.tracked_products'),
@@ -2189,8 +2216,8 @@ export default function ReportsPage() {
         table,
         empty: t('preview.no_inventory_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: selectedReport.description,
+          title: reportLabels[selectedReport.id].name,
+          description: reportLabels[selectedReport.id].description,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.tracked_products'), value: formatNumber(derived.inventoryItems.length, localeTag) },
@@ -2205,8 +2232,8 @@ export default function ReportsPage() {
     if (selectedReport.id === 'stock-movements') {
       return {
         kind: 'ranked',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.movements'),
@@ -2235,8 +2262,8 @@ export default function ReportsPage() {
         })),
         empty: t('preview.no_movement_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.movements'), value: formatNumber(derived.inventoryMovements.length, localeTag) },
@@ -2267,8 +2294,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'ranked',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         stats: [
           {
             label: t('stats.alerts'),
@@ -2292,8 +2319,8 @@ export default function ReportsPage() {
         rows,
         empty: t('preview.no_low_stock_alerts'),
         exportModel: {
-          title: selectedReport.name,
-          description: selectedReport.description,
+          title: reportLabels[selectedReport.id].name,
+          description: reportLabels[selectedReport.id].description,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.alerts'), value: formatNumber(derived.lowStockItems.length, localeTag) },
@@ -2326,8 +2353,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'table',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.restocks'),
@@ -2351,8 +2378,8 @@ export default function ReportsPage() {
         table,
         empty: t('preview.no_restock_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.restocks'), value: formatNumber(derived.restocks.length, localeTag) },
@@ -2366,8 +2393,8 @@ export default function ReportsPage() {
     if (selectedReport.id === 'profit-loss') {
       return {
         kind: 'bars',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.revenue'),
@@ -2396,8 +2423,8 @@ export default function ReportsPage() {
         })),
         empty: t('preview.no_sales_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.revenue'), value: formatCurrencyBase(derived.totalRevenue, localeTag, businessCurrency) },
@@ -2424,8 +2451,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'bars',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.expenses'),
@@ -2449,8 +2476,8 @@ export default function ReportsPage() {
         bars,
         empty: t('preview.no_expense_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.expenses'), value: formatCurrencyBase(derived.totalExpenses, localeTag, businessCurrency) },
@@ -2473,8 +2500,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'trend',
-        title: selectedReport.name,
-        description: `${selectedReport.description} Range: ${rangeLabel}.`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
         stats: [
           {
             label: t('stats.revenue'),
@@ -2504,8 +2531,8 @@ export default function ReportsPage() {
         secondaryMaxLabel: formatCurrencyCompactBase(Math.max(...points.map((point) => point.secondary), 0), localeTag, businessCurrency),
         empty: t('preview.no_expense_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: `${selectedReport.description} (${rangeLabel})`,
+          title: reportLabels[selectedReport.id].name,
+          description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.revenue'), value: formatCurrencyBase(derived.totalRevenue, localeTag, businessCurrency) },
@@ -2539,8 +2566,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'bars',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         stats: [
           {
             label: t('stats.open_balances'),
@@ -2564,8 +2591,8 @@ export default function ReportsPage() {
         bars,
         empty: t('preview.no_debt_data'),
         exportModel: {
-          title: selectedReport.name,
-          description: selectedReport.description,
+          title: reportLabels[selectedReport.id].name,
+          description: reportLabels[selectedReport.id].description,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.open_balances'), value: formatNumber(openRows.length, localeTag) },
@@ -2589,8 +2616,8 @@ export default function ReportsPage() {
 
       return {
         kind: 'note',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         stats: [
           {
             label: t('stats.contacts'),
@@ -2614,8 +2641,8 @@ export default function ReportsPage() {
         note,
         bullets: topContacts.slice(0, 5).map((contact) => `${contact.contactName} · ${contact.direction === DebtDirection.RECEIVABLE ? 'Receivable' : 'Payable'} · ${formatCurrencyBase(contact.balance, localeTag, businessCurrency)} · ${contact.reference}`),
         exportModel: {
-          title: selectedReport.name,
-          description: selectedReport.description,
+          title: reportLabels[selectedReport.id].name,
+          description: reportLabels[selectedReport.id].description,
           filenameBase: exportBase,
           summaryRows: [
             { label: t('stats.contacts'), value: formatNumber(topContacts.length, localeTag) },
@@ -2658,8 +2685,8 @@ export default function ReportsPage() {
 
     return {
       kind: 'bars',
-      title: selectedReport.name,
-      description: `${selectedReport.description} Range: ${rangeLabel}.`,
+      title: reportLabels[selectedReport.id].name,
+      description: `${reportLabels[selectedReport.id].description} Range: ${rangeLabel}.`,
       stats: [
         {
           label: t('stats.credit_issued'),
@@ -2683,8 +2710,8 @@ export default function ReportsPage() {
       bars,
       empty: t('preview.no_debt_data'),
       exportModel: {
-        title: selectedReport.name,
-        description: `${selectedReport.description} (${rangeLabel})`,
+        title: reportLabels[selectedReport.id].name,
+        description: `${reportLabels[selectedReport.id].description} (${rangeLabel})`,
         filenameBase: exportBase,
         summaryRows: [
           { label: t('stats.credit_issued'), value: formatCurrencyBase(derived.issuedReceivable, localeTag, businessCurrency) },
@@ -2709,8 +2736,151 @@ export default function ReportsPage() {
     [localeTag, previewGeneratedAt],
   )
 
+  // ── Period short label for REPORT_META_FACTORIES ────────────────────────────
+  const periodShort = useMemo(() => {
+    const { preset, startDate, endDate } = appliedRange
+    if (preset === 'today') {
+      return `Daily · ${formatDateLabel(startDate, localeTag)}`
+    }
+    if (preset === 'thisMonth' || preset === 'lastMonth') {
+      const date = parseDateKey(startDate)
+      const monthLabel = new Intl.DateTimeFormat(localeTag, { month: 'long', year: 'numeric' }).format(date)
+      return `Monthly · ${monthLabel}`
+    }
+    if (preset === 'quarter') {
+      return `Quarterly · ${formatDateLabel(startDate, localeTag)} – ${formatDateLabel(endDate, localeTag)}`
+    }
+    if (preset === 'year') {
+      return `Annual · ${new Date(startDate).getFullYear()}`
+    }
+    // last7 or custom
+    return `${formatDateLabel(startDate, localeTag)} – ${formatDateLabel(endDate, localeTag)}`
+  }, [appliedRange, localeTag])
+
+  // ── ReportMeta for the React preview ───────────────────────────────────────
+  const reportPreviewMeta = useMemo(() => {
+    const generatedAt = new Date(previewGeneratedAt ?? Date.now())
+    const reportId = selectedReport.id
+    const contactName =
+      derived.contactBalanceRows[0]?.contactName || 'Contact'
+
+    let baseFactory: Omit<import('@/components/reports/shared').ReportMeta, 'generatedAt' | 'reportId'>
+
+    switch (reportId) {
+      case 'daily-sales':
+        baseFactory = REPORT_META_FACTORIES.dailySales(rangeLabel)
+        break
+      case 'revenue-trend':
+        baseFactory = REPORT_META_FACTORIES.revenueTrend(rangeLabel, periodShort)
+        break
+      case 'top-products':
+        baseFactory = REPORT_META_FACTORIES.topProducts(rangeLabel, periodShort)
+        break
+      case 'cashier-performance':
+        baseFactory = REPORT_META_FACTORIES.cashierPerformance(rangeLabel, periodShort)
+        break
+      case 'payment-breakdown':
+        baseFactory = REPORT_META_FACTORIES.paymentBreakdown(rangeLabel, periodShort)
+        break
+      case 'voided-sales':
+        baseFactory = REPORT_META_FACTORIES.voidedSales(rangeLabel, periodShort)
+        break
+      case 'stock-levels':
+        baseFactory = REPORT_META_FACTORIES.stockLevels(appliedRange.endDate)
+        break
+      case 'stock-movements':
+        baseFactory = REPORT_META_FACTORIES.stockMovement(rangeLabel, periodShort)
+        break
+      case 'low-stock-alerts':
+        baseFactory = REPORT_META_FACTORIES.lowStockAlert(appliedRange.endDate)
+        break
+      case 'restock-costs':
+        baseFactory = REPORT_META_FACTORIES.restockCost(rangeLabel, periodShort)
+        break
+      case 'profit-loss':
+        baseFactory = REPORT_META_FACTORIES.profitAndLoss(rangeLabel, periodShort)
+        break
+      case 'expense-breakdown':
+        baseFactory = REPORT_META_FACTORIES.expenseBreakdown(rangeLabel, periodShort)
+        break
+      case 'revenue-vs-expenses':
+        baseFactory = REPORT_META_FACTORIES.revenueVsExpenses(rangeLabel, periodShort)
+        break
+      case 'debtors-ageing':
+        baseFactory = REPORT_META_FACTORIES.debtorsAgeing(appliedRange.endDate)
+        break
+      case 'creditors-ageing':
+        baseFactory = REPORT_META_FACTORIES.creditorsAgeing(appliedRange.endDate)
+        break
+      case 'contact-statement':
+        baseFactory = REPORT_META_FACTORIES.contactStatement(contactName, rangeLabel, periodShort)
+        break
+      case 'credit-activity':
+      default:
+        baseFactory = REPORT_META_FACTORIES.creditActivitySummary(rangeLabel, periodShort)
+        break
+    }
+
+    return {
+      ...baseFactory,
+      generatedAt,
+      reportId: generateReportId(
+        reportId === 'daily-sales'
+          ? 'dailySales'
+          : reportId === 'revenue-trend'
+            ? 'revenueTrend'
+            : reportId === 'top-products'
+              ? 'topProducts'
+              : reportId === 'cashier-performance'
+                ? 'cashierPerformance'
+                : reportId === 'payment-breakdown'
+                  ? 'paymentBreakdown'
+                  : reportId === 'voided-sales'
+                    ? 'voidedSales'
+                    : reportId === 'stock-levels'
+                      ? 'stockLevels'
+                      : reportId === 'stock-movements'
+                        ? 'stockMovement'
+                        : reportId === 'low-stock-alerts'
+                          ? 'lowStockAlert'
+                          : reportId === 'restock-costs'
+                            ? 'restockCost'
+                            : reportId === 'profit-loss'
+                              ? 'profitAndLoss'
+                              : reportId === 'expense-breakdown'
+                                ? 'expenseBreakdown'
+                                : reportId === 'revenue-vs-expenses'
+                                  ? 'revenueVsExpenses'
+                                  : reportId === 'debtors-ageing'
+                                    ? 'debtorsAgeing'
+                                    : reportId === 'creditors-ageing'
+                                      ? 'creditorsAgeing'
+                                      : reportId === 'contact-statement'
+                                        ? 'contactStatement'
+                                        : 'creditActivitySummary',
+        generatedAt,
+      ),
+    }
+  }, [
+    appliedRange.endDate,
+    derived.contactBalanceRows,
+    periodShort,
+    previewGeneratedAt,
+    rangeLabel,
+    selectedReport.id,
+  ])
+
   const activeReportDocument = useMemo<ReportTemplateDocument | null>(() => {
     const fallbackBusinessName = businessName || 'BizTrack Business'
+    const businessTemplateFields = {
+      businessName: fallbackBusinessName,
+      businessLegalForm: business.legalForm || undefined,
+      businessAddress: business.address || undefined,
+      businessPhone: business.phone || undefined,
+      businessEmail: businessEmail || undefined,
+      businessRccm: business.rccm || undefined,
+      businessNiu: business.niu || undefined,
+    }
     const filenameBase = reportViewModel.exportModel.filenameBase
     const saleById = new Map(derived.sales.map((sale) => [sale.id, sale]))
     const inventoryByProductId = new Map(
@@ -2776,10 +2946,10 @@ export default function ReportsPage() {
           : formatCurrencyBase(derived.netProfit, localeTag, businessCurrency)
 
       return buildProfitLossReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Financial statement',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -2931,10 +3101,10 @@ export default function ReportsPage() {
       }
 
       return buildRevenueTrendReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Sales analysis',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -3054,10 +3224,10 @@ export default function ReportsPage() {
         })
 
       return buildStockLevelsReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Inventory snapshot',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -3149,10 +3319,10 @@ export default function ReportsPage() {
       )
 
       return buildDebtorsAgeingReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Credit management',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -3419,10 +3589,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Sales operations',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -3645,10 +3815,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Sales analysis',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -3889,10 +4059,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Human resources',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4062,10 +4232,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Financial analysis',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4215,10 +4385,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Audit and compliance',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4336,10 +4506,10 @@ export default function ReportsPage() {
       )
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Inventory management',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4473,10 +4643,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Inventory alert',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4620,10 +4790,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Purchasing',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4766,10 +4936,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Financial',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -4978,10 +5148,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Financial trend',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -5135,10 +5305,10 @@ export default function ReportsPage() {
       }
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Credit management',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -5340,10 +5510,10 @@ export default function ReportsPage() {
         }
 
         return buildCompositeReportTemplate({
-          businessName: fallbackBusinessName,
+          ...businessTemplateFields,
           reportLabel: 'Account statement',
-          title: selectedReport.name,
-          description: selectedReport.description,
+          title: reportLabels[selectedReport.id].name,
+          description: reportLabels[selectedReport.id].description,
           rangeLabel,
           generatedLabel: previewGeneratedLabel,
           filenameBase,
@@ -5527,10 +5697,10 @@ export default function ReportsPage() {
         }))
 
       return buildCompositeReportTemplate({
-        businessName: fallbackBusinessName,
+        ...businessTemplateFields,
         reportLabel: 'Credit overview',
-        title: selectedReport.name,
-        description: selectedReport.description,
+        title: reportLabels[selectedReport.id].name,
+        description: reportLabels[selectedReport.id].description,
         rangeLabel,
         generatedLabel: previewGeneratedLabel,
         filenameBase,
@@ -5699,10 +5869,10 @@ export default function ReportsPage() {
     }
 
     return buildGenericReportTemplate({
-      businessName: fallbackBusinessName,
+      ...businessTemplateFields,
       reportLabel: selectedReport.badge,
-      title: selectedReport.name,
-      description: selectedReport.description,
+      title: reportLabels[selectedReport.id].name,
+      description: reportLabels[selectedReport.id].description,
       rangeLabel,
       generatedLabel: previewGeneratedLabel,
       filenameBase,
@@ -5883,11 +6053,31 @@ export default function ReportsPage() {
       return
     }
 
+    const reportDocEl = document.getElementById('report-document')
+    if (!reportDocEl) {
+      toast.error(t('export.pdf_error'))
+      return
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${reportLabels[selectedReport.id].name}</title>
+  <style>${REPORT_PDF_CSS}</style>
+</head>
+<body>
+  <div class="report-wrapper" style="max-width:800px;margin:0 auto">
+    ${reportDocEl.outerHTML}
+  </div>
+</body>
+</html>`
+
     setExportingPdf(true)
 
     try {
       const result = await ipc.documents.exportPdf({
-        html: activeReportDocument.html,
+        html,
         filename: activeReportDocument.pdfFilename,
       })
 
@@ -6215,14 +6405,14 @@ export default function ReportsPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          <Badge variant={report.badgeTone}>{report.badge}</Badge>
+                          <Badge variant={report.badgeTone}>{reportLabels[report.id].badge}</Badge>
                           {isLocked ? <Badge variant="warning">{t('locked_badge')}</Badge> : null}
                         </div>
                       </div>
 
                       <div className="mt-4 space-y-2">
                         <h3 className={cn('text-sm font-semibold', isLocked ? 'text-amber-950' : 'text-foreground')}>
-                          {report.name}
+                          {reportLabels[report.id].name}
                         </h3>
                         <p
                           className={cn(
@@ -6232,11 +6422,11 @@ export default function ReportsPage() {
                         >
                           {isLocked
                             ? planGateT('locked_feature_description', {
-                                report: report.name,
+                                report: reportLabels[report.id].name,
                                 section: sectionLabels[report.section],
                                 plan: access?.requiredPlan ?? 'SOLO',
                               })
-                            : report.description}
+                            : reportLabels[report.id].description}
                         </p>
                       </div>
 
@@ -6247,7 +6437,7 @@ export default function ReportsPage() {
                         )}
                       >
                         <span className={cn('text-[11px]', isLocked ? 'text-amber-900/75' : 'text-muted-foreground')}>
-                          {report.source}
+                          {reportLabels[report.id].source}
                         </span>
                         <span className={cn('text-sm font-medium', isLocked ? 'text-amber-800' : 'text-primary')}>
                           {isLocked ? planGateT('upgrade_action') : t('generate')}
@@ -6410,24 +6600,20 @@ export default function ReportsPage() {
           )}
 
           <DialogHeader className="shrink-0 pr-32">
-            <DialogTitle>{selectedReport.name}</DialogTitle>
+            <DialogTitle>{reportLabels[selectedReport.id].name}</DialogTitle>
             <DialogDescription>
-              {selectedReport.description} Range: {rangeLabel}.
+              {reportLabels[selectedReport.id].description} Range: {rangeLabel}.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-hidden bg-[#ece8df] p-4">
-            {activeReportDocument ? (
-              <iframe
-                title={selectedReport.name}
-                srcDoc={activeReportDocument.html}
-                className="h-full w-full rounded-[20px] border border-border bg-white"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-[20px] border border-dashed border-border bg-background text-sm text-muted-foreground">
-                {t('load_error')}
-              </div>
-            )}
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <ReportWrapper
+              business={business}
+              meta={reportPreviewMeta}
+              showActions={false}
+            >
+              <ReportBodyRenderer viewModel={reportViewModel} />
+            </ReportWrapper>
           </div>
         </DialogContent>
       </Dialog>

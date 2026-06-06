@@ -90,6 +90,7 @@ type AuthState = {
   setPending: (pending: PendingAuth) => void
   setTokens: (tokens: AuthTokens) => Promise<void>
   applyUser: (user: AuthUser | null) => void
+  applyBusinessMeta: (meta: Partial<AuthBusinessMeta>) => void
   setOfflineSession: (businessId: string | null, role?: BusinessMemberRole | null) => Promise<void>
   clearSession: () => Promise<void>
   hydrate: () => Promise<void>
@@ -207,6 +208,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user })
   },
 
+  applyBusinessMeta: (meta) => {
+    set(meta)
+  },
+
   setOfflineSession: async (businessId, role) => {
     const lastUserId = get().user?.id ?? (await secureStore.get(LAST_USER_KEY))
 
@@ -240,10 +245,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       businessId: null,
       role: null,
       user: null,
+      pending: {},
       ...EMPTY_BUSINESS_META,
     })
 
-    await nudgeDesktopSync()
+    // Fire-and-forget: the sync service will detect missing tokens on its next
+    // cycle. Awaiting nudge would block navigation (and show a blank screen)
+    // because nudge reconnects WebSockets which can take several seconds.
+    void nudgeDesktopSync()
   },
 
   hydrate: async () => {

@@ -225,7 +225,11 @@ function spawnWindowsShare(script: string): Promise<void> {
     const settle = (err?: Error) => {
       if (settled) return
       settled = true
-      err ? reject(err) : resolve()
+      if (err) {
+        reject(err)
+      }else{
+        resolve()
+      }
     }
 
     child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })

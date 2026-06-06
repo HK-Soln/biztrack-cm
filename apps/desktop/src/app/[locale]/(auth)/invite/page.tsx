@@ -7,6 +7,7 @@ import type { InvitePreviewResponse } from '@biztrack/types'
 import { Button } from '@biztrack/ui'
 import { AuthCard } from '@/components/auth/AuthCard'
 import { getInvitePreview } from '@/services/auth.api'
+import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
 
 export default function InvitePreviewPage() {
@@ -32,7 +33,7 @@ export default function InvitePreviewPage() {
         // Only store the invite token in pending — contact info travels via URL params
         setPending({ inviteToken: token })
       })
-      .catch(() => setError(t('invite.invalid')))
+      .catch((err) => setError(getApiErrorMessage(err, t('invite.invalid'))))
   }, [setPending, t, token])
 
   const navigateTo = (base: string) => {

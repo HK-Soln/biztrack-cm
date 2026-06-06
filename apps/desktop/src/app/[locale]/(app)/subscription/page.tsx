@@ -3,25 +3,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { SubscriptionPlan, SubscriptionStatus } from '@biztrack/types'
+
+// ─── Launch flag ──────────────────────────────────────────────────────────────
+// Flip to false when plans are live and pricing is confirmed.
+const IS_LAUNCHING = true
 import type { CurrentSubscriptionResponse, PlanResourceSummary } from '@biztrack/types'
 import { Button } from '@biztrack/ui'
-import { Check, CreditCard } from 'lucide-react'
+import { CreditCard } from 'lucide-react'
 import { cancelPlan, listPlans, mySubscription, upgradePlan } from '@/services/auth.api'
 import { getApiErrorMessage } from '@/services/api-response'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePlanStore } from '@/stores/plan.store'
-
-const PLAN_ORDER = [
-  SubscriptionPlan.FREE,
-  SubscriptionPlan.SOLO,
-  SubscriptionPlan.BUSINESS,
-  SubscriptionPlan.PRO,
-]
-
-function getPlanRank(plan: SubscriptionPlan): number {
-  return PLAN_ORDER.indexOf(plan)
-}
+import { PlanCard } from '@/components/subscription/PlanCard'
 
 function formatLocalDate(isoString: string | null | undefined, locale: string): string {
   if (!isoString) return ''
@@ -30,122 +24,6 @@ function formatLocalDate(isoString: string | null | undefined, locale: string): 
     month: 'long',
     day: 'numeric',
   })
-}
-
-type PlanCardProps = {
-  plan: PlanResourceSummary
-  currentPlan: SubscriptionPlan | null
-  pendingPlan: SubscriptionPlan | null
-  switching: boolean
-  onSelect: (plan: SubscriptionPlan) => void
-  onCancelConfirm: () => void
-  onCancelPending: () => void
-}
-
-function PlanCard({
-  plan,
-  currentPlan,
-  pendingPlan,
-  switching,
-  onSelect,
-  onCancelConfirm,
-  onCancelPending,
-}: PlanCardProps) {
-  const t = useTranslations('app.subscription')
-  const isCurrent = plan.name === currentPlan
-  const isPending = plan.name === pendingPlan
-  const currentRank = currentPlan ? getPlanRank(currentPlan) : 0
-  const planRank = getPlanRank(plan.name)
-  const isUpgrade = planRank > currentRank
-  const isFree = plan.priceXAF === 0
-
-  const quotaItems = [
-    plan.quotas.products === null
-      ? t('quota_products_unlimited')
-      : t('quota_products', { count: plan.quotas.products }),
-    plan.quotas.contacts === null
-      ? t('quota_contacts_unlimited')
-      : t('quota_contacts', { count: plan.quotas.contacts }),
-    plan.quotas.categories === null
-      ? t('quota_categories_unlimited')
-      : t('quota_categories', { count: plan.quotas.categories }),
-    plan.quotas.users === null
-      ? t('quota_users_unlimited')
-      : t('quota_users', { count: plan.quotas.users }),
-  ]
-
-  return (
-    <div
-      className={cn(
-        'relative flex flex-col rounded-xl border p-5 transition-shadow',
-        isCurrent
-          ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
-          : 'border-border bg-card hover:shadow-sm',
-      )}
-    >
-      {isCurrent ? (
-        <span className="absolute -top-2.5 left-4 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-primary-foreground">
-          {t('current_badge')}
-        </span>
-      ) : null}
-
-      <div className="mb-4">
-        <div className="text-[15px] font-semibold text-foreground">{plan.displayName}</div>
-        <div className="mt-1 text-sm text-muted-foreground">
-          {isFree ? t('price_free') : t('price_per_month', { price: plan.priceXAF.toLocaleString() })}
-        </div>
-      </div>
-
-      <ul className="mb-5 flex-1 space-y-2">
-        {quotaItems.map((item) => (
-          <li key={item} className="flex items-center gap-2 text-sm text-foreground/80">
-            <Check className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.5} />
-            {item}
-          </li>
-        ))}
-      </ul>
-
-      {isCurrent ? (
-        <Button variant="secondary" disabled className="w-full">
-          {t('current_badge')}
-        </Button>
-      ) : isPending ? (
-        <div className="space-y-2">
-          <p className="text-center text-[13px] text-muted-foreground">
-            {t('confirm_switch_title', { plan: plan.displayName })}
-          </p>
-          <p className="text-center text-xs text-muted-foreground">{t('confirm_switch_body')}</p>
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              className="flex-1"
-              onClick={onCancelPending}
-              disabled={switching}
-            >
-              {t('confirm_cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              onClick={onCancelConfirm}
-              disabled={switching}
-            >
-              {switching ? t('upgrading') : t('confirm_action')}
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button
-          variant={isUpgrade ? 'primary' : 'secondary'}
-          className="w-full"
-          onClick={() => onSelect(plan.name)}
-          disabled={switching}
-        >
-          {isUpgrade ? t('upgrade') : t('downgrade')}
-        </Button>
-      )}
-    </div>
-  )
 }
 
 export default function SubscriptionPage() {
@@ -262,6 +140,7 @@ export default function SubscriptionPage() {
   }[statusVariant]
 
   const showCancelSection =
+    !IS_LAUNCHING &&
     subscription &&
     subscription.plan !== SubscriptionPlan.FREE &&
     subscription.status !== SubscriptionStatus.CANCELLED &&
@@ -277,6 +156,9 @@ export default function SubscriptionPage() {
           <h1 className="text-xl font-semibold text-foreground">{t('title')}</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
+        {IS_LAUNCHING ? (
+          <p className="mt-3 text-sm font-medium text-primary">{t('launch_banner')}</p>
+        ) : null}
       </div>
 
       {/* Loading / Error */}
@@ -364,18 +246,25 @@ export default function SubscriptionPage() {
             {t('plans_heading')}
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {plans.map((plan) => (
-              <PlanCard
-                key={plan.name}
-                plan={plan}
-                currentPlan={subscription?.plan ?? null}
-                pendingPlan={pendingPlan}
-                switching={switching}
-                onSelect={handleSelectPlan}
-                onCancelConfirm={handleConfirmSwitch}
-                onCancelPending={handleCancelPending}
-              />
-            ))}
+            {plans.map((plan) => {
+              const isProPlan = plan.name === SubscriptionPlan.PRO
+              const lockedByLaunch = IS_LAUNCHING && !isProPlan
+              return (
+                <PlanCard
+                  key={plan.name}
+                  plan={plan}
+                  mode="subscription"
+                  currentPlan={subscription?.plan ?? null}
+                  pendingPlan={pendingPlan}
+                  switching={switching}
+                  locked={lockedByLaunch}
+                  lockedLabel={t('not_available')}
+                  onSelect={handleSelectPlan}
+                  onCancelConfirm={handleConfirmSwitch}
+                  onCancelPending={handleCancelPending}
+                />
+              )
+            })}
           </div>
         </div>
       ) : null}

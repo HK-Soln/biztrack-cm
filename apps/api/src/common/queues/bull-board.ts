@@ -15,9 +15,14 @@ export function mountBullBoard(app: INestApplication): string {
 
   const inventoryAlertsQueue = app.get<Queue>(getQueueToken(INVENTORY_ALERTS_QUEUE))
   const syncBatchesQueue = app.get<Queue>(getQueueToken(SYNC_BATCHES_QUEUE))
+  const notificationsQueue = app.get<Queue>(getQueueToken('notifications'))
 
   createBullBoard({
-    queues: [new BullMQAdapter(inventoryAlertsQueue), new BullMQAdapter(syncBatchesQueue)],
+    queues: [
+      new BullMQAdapter(inventoryAlertsQueue),
+      new BullMQAdapter(syncBatchesQueue),
+      new BullMQAdapter(notificationsQueue),
+    ],
     serverAdapter,
   })
 

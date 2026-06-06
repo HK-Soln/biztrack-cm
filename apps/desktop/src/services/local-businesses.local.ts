@@ -53,6 +53,7 @@ type LocalBusinessRow = {
 
 export async function upsertLocalBusinesses(
   memberships: BusinessMembershipSummary[],
+  userId: string,
 ): Promise<void> {
   const now = new Date().toISOString()
   const ops = memberships
@@ -66,9 +67,9 @@ export async function upsertLocalBusinesses(
             type, description, business_status, owner_id, owner,
             subscription_status, trial_started_at, trial_ends_at,
             current_period_start, current_period_end, cancel_at_period_end,
-            saved_at
+            user_id, saved_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             name                  = excluded.name,
             slug                  = excluded.slug,
@@ -90,6 +91,7 @@ export async function upsertLocalBusinesses(
             current_period_start  = excluded.current_period_start,
             current_period_end    = excluded.current_period_end,
             cancel_at_period_end  = excluded.cancel_at_period_end,
+            user_id               = excluded.user_id,
             saved_at              = excluded.saved_at
         `,
         params: [
@@ -114,6 +116,7 @@ export async function upsertLocalBusinesses(
           b.currentPeriodStart ?? null,
           b.currentPeriodEnd ?? null,
           b.cancelAtPeriodEnd != null ? (b.cancelAtPeriodEnd ? 1 : 0) : null,
+          userId,
           now,
         ],
       }
@@ -124,7 +127,7 @@ export async function upsertLocalBusinesses(
   }
 }
 
-export async function getLocalBusinesses(): Promise<LocalBusiness[]> {
+export async function getLocalBusinesses(userId: string): Promise<LocalBusiness[]> {
   const rows = await dbQuery<LocalBusinessRow>(
     `SELECT
        id, name, slug, currency, phone, email, address, city, logo_url, plan,
@@ -132,8 +135,9 @@ export async function getLocalBusinesses(): Promise<LocalBusiness[]> {
        subscription_status, trial_started_at, trial_ends_at,
        current_period_start, current_period_end, cancel_at_period_end
      FROM local_businesses
+     WHERE user_id = ?
      ORDER BY name ASC`,
-    [],
+    [userId],
   )
 
   return rows.map((row) => ({
@@ -198,4 +202,42 @@ export async function getLocalBusiness(id: string): Promise<LocalBusiness | null
     currentPeriodEnd: row.current_period_end,
     cancelAtPeriodEnd: row.cancel_at_period_end != null ? row.cancel_at_period_end === 1 : null,
   }
+}
+
+/**
+ * Update only the profile fields (name, city, address, phone, email, currency)
+ * for an existing local business record. Does not touch subscription or plan
+ * columns — those are managed exclusively by the sync service.
+ */
+export async function updateLocalBusinessProfile(business: {
+  id: string
+  name: string
+  city?: string | null
+  address?: string | null
+  phone?: string | null
+  email?: string | null
+  currency?: string | null
+  description?: string | null
+}): Promise<void> {
+  await dbQuery(
+    `UPDATE local_businesses
+     SET name        = ?,
+         city        = ?,
+         address     = ?,
+         phone       = ?,
+         email       = ?,
+         currency    = COALESCE(?, currency),
+         description = ?
+     WHERE id = ?`,
+    [
+      business.name,
+      business.city ?? null,
+      business.address ?? null,
+      business.phone ?? null,
+      business.email ?? null,
+      business.currency ?? null,
+      business.description ?? null,
+      business.id,
+    ],
+  )
 }

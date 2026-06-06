@@ -5,39 +5,41 @@ import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { OtpType } from '@biztrack/types'
 import { Button, InputOTP, InputOTPGroup, InputOTPSlot } from '@biztrack/ui'
+import { toast } from 'sonner'
 import { AuthCard } from '@/components/auth/AuthCard'
 import {
   getAuthMaskedEmail,
   getAuthOtpExpiresIn,
   getAuthTokens,
+  getCurrentUser,
   resendOtp,
   verifyEmail,
 } from '@/services/auth.api'
 import { getApiErrorMessage } from '@/services/api-response'
 import { useAuthStore } from '@/stores/auth.store'
 import { routeForNextStep } from '@/lib/auth-routing'
+import { upsertLocalUserProfile } from '@/services/local-user-profiles.local'
 
 export default function VerifyEmailPage() {
   const locale = useLocale()
   const t = useTranslations('auth')
   const router = useRouter()
   const [code, setCode] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
-
+  
   const email = useAuthStore((s) => s.pending.email)
   const inviteToken = useAuthStore((s) => s.pending.inviteToken)
   const otpMessage = useAuthStore((s) => s.pending.otpMessage)
   const maskedEmail = useAuthStore((s) => s.pending.maskedEmail)
   const setTokens = useAuthStore((s) => s.setTokens)
   const setPending = useAuthStore((s) => s.setPending)
+  const applyUser = useAuthStore((s) => s.applyUser)
 
   const goTo = (path: string) => router.push(`/${locale}${path}`)
 
   const submit = async () => {
     if (!email) return goTo('/register')
-    setError(null)
     setLoading(true)
     try {
       const response = await verifyEmail({ email, code, inviteToken: inviteToken ?? undefined })
@@ -45,9 +47,30 @@ export default function VerifyEmailPage() {
       if (tokens) {
         await setTokens(tokens)
       }
-      return goTo(routeForNextStep(response.nextStep))
+
+      // Navigate immediately — awaiting getCurrentUser() here would create a
+      // window where AuthRedirect (seeing the new phase2 token) fires a
+      // competing router.replace('/') before this goTo resolves.
+      goTo(routeForNextStep(response.nextStep))
+
+      // Persist user profile in the background — non-blocking, non-fatal.
+      if (tokens) {
+        void getCurrentUser()
+          .then(async (user) => {
+            await upsertLocalUserProfile(user)
+            applyUser({
+              id: user.id,
+              name: user.name ?? null,
+              email: user.email ?? null,
+              phone: user.phone ?? null,
+              avatarUrl: user.avatarUrl ?? null,
+              language: user.language ?? null,
+            })
+          })
+          .catch(() => {})
+      }
     } catch (error) {
-      setError(getApiErrorMessage(error, t('otp.invalid')))
+      toast.error(getApiErrorMessage(error, t('otp.invalid')))
     } finally {
       setLoading(false)
     }
@@ -90,7 +113,7 @@ export default function VerifyEmailPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="text-sm font-medium text-foreground">{t('otp.code_label')}</label>
-          <InputOTP value={code} onChange={setCode} maxLength={6} className="w-full">
+          <InputOTP value={code} onChange={setCode} maxLength={6} className="w-full" autoFocus>
             <InputOTPGroup className="w-full">
               {Array.from({ length: 6 }).map((_, index) => (
                 <InputOTPSlot key={index} index={index} />
@@ -98,7 +121,6 @@ export default function VerifyEmailPage() {
             </InputOTPGroup>
           </InputOTP>
         </div>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>
           {loading ? t('otp.loading') : t('otp.verify')}
         </Button>

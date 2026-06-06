@@ -84,6 +84,7 @@ export class NotificationsProcessor extends WorkerHost {
     await this.notificationsService.incrementAttempts(notificationId)
 
     try {
+      
       const { providerMessageId, provider } = await this.dispatchToProvider(notification)
       await this.notificationsService.markSent(notificationId, providerMessageId, provider)
 
@@ -95,6 +96,7 @@ export class NotificationsProcessor extends WorkerHost {
 
       return { status: 'sent', notificationId, providerMessageId }
     } catch (err) {
+      console.log(err)
       const reason = err instanceof Error ? err.message : String(err)
 
       this.logger.error('Notification send failed', 'NotificationsProcessor', {

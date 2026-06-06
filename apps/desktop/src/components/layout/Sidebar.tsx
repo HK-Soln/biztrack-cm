@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { BusinessMemberRole, Resource, type JwtPayload } from '@biztrack/types'
+import { BusinessMemberRole, Resource } from '@biztrack/types'
 import {
   BarChart3,
   Bell,
@@ -17,7 +17,6 @@ import {
   LogOut,
   Lock,
   Package,
-  PiggyBank,
   Receipt,
   Ruler,
   Search,
@@ -29,14 +28,15 @@ import {
   Users,
   Wallet,
   type LucideIcon,
+  DollarSign,
 } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { logout } from '@/services/auth.api'
 import { formatPlanBadge } from '@/lib/app-route-access'
-import { decodeJwtPayload } from '@/lib/jwt'
 import { getPermissionAccessFromState } from '@/lib/plan-access'
 import { cn } from '@/lib/utils'
+import { ipc } from '@/services/ipc.bridge'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePlanStore } from '@/stores/plan.store'
 import { Link } from '@/i18n/navigation'
@@ -87,22 +87,6 @@ function toTitleCase(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ')
-}
-
-function resolveProfileName(payload: JwtPayload | null, fallback: string) {
-  if (payload?.email) {
-    const [localPart] = payload.email.split('@')
-    const label = toTitleCase(localPart || '')
-    if (label) {
-      return label
-    }
-  }
-
-  if (payload?.phone) {
-    return payload.phone
-  }
-
-  return fallback
 }
 
 function resolveLocalizedPath(to: string) {
@@ -201,13 +185,21 @@ function BrandMark({
   collapsed,
   title,
   subtitle,
+  platform,
 }: {
   collapsed: boolean
   title: string
   subtitle: string
+  platform: string
 }) {
+  const isMac = platform === 'darwin'
   return (
-    <div className="flex h-16 items-center gap-3 border-b border-white/10 px-4 dark:border-border/70">
+    <div
+      className={cn(
+        'app-drag flex h-[68px] items-center gap-3 border-b border-white/10 dark:border-border/70',
+        isMac ? 'pl-[74px] pr-4' : 'px-4',
+      )}
+    >
       <div className="relative shrink-0">
         <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-white/10 text-white shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_1px_2px_rgba(15,23,42,0.18)] dark:bg-primary dark:text-primary-foreground">
           <span className="font-serif text-[17px] leading-none tracking-tight">B</span>
@@ -276,7 +268,6 @@ function NavLeaf({
   disabledTitle,
   depth = 0,
   collapsed,
-  locale,
 }: {
   item: NavLeafItem
   active: boolean
@@ -296,7 +287,7 @@ function NavLeaf({
       ? 'text-primary-foreground/45 dark:text-muted-foreground/60'
       : active
         ? 'text-white dark:text-primary'
-        : 'text-primary-foreground/70 group-hover:text-white dark:text-muted-foreground dark:group-hover:text-foreground',
+        : 'text-primary-foreground/60 group-hover:text-white dark:text-muted-foreground dark:group-hover:text-foreground',
   )
   const content = (
     <>
@@ -324,8 +315,8 @@ function NavLeaf({
     disabled
       ? 'cursor-not-allowed text-primary-foreground/45 opacity-75 dark:text-muted-foreground/60'
       : active
-        ? 'bg-white/12 font-medium text-white dark:bg-accent dark:text-accent-foreground'
-        : 'text-primary-foreground/72 hover:bg-white/10 hover:text-white dark:text-muted-foreground dark:hover:bg-secondary/70 dark:hover:text-foreground',
+        ? 'bg-white/[0.22] font-medium text-white dark:bg-accent dark:text-accent-foreground'
+        : 'text-primary-foreground/60 hover:bg-white/10 hover:text-white dark:text-muted-foreground dark:hover:bg-secondary/70 dark:hover:text-foreground',
   )
 
   if (disabled) {
@@ -343,7 +334,7 @@ function NavLeaf({
       className={className}
     >
       {active && !collapsed ? (
-        <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r-full bg-white dark:bg-primary" />
+        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-white dark:bg-primary" />
       ) : null}
       {content}
     </Link>
@@ -526,22 +517,15 @@ function UserMenuItem({
 
 function UserPopover({
   collapsed,
-  locale,
   initialsValue,
   profileName,
   profileSecondary,
   businessLabel,
   roleLabel,
   profileLabel,
-  settingsLabel,
-  subscriptionLabel,
-  teamLabel,
-  rolesLabel,
   notificationsLabel,
   changePinLabel,
   logoutLabel,
-  showTeamLink,
-  showRolesLink,
   onLogout,
 }: {
   collapsed: boolean
@@ -552,15 +536,9 @@ function UserPopover({
   businessLabel: string
   roleLabel: string | null
   profileLabel: string
-  settingsLabel: string
-  subscriptionLabel: string
-  teamLabel: string
-  rolesLabel: string
   notificationsLabel: string
   changePinLabel: string
   logoutLabel: string
-  showTeamLink: boolean
-  showRolesLink: boolean
   onLogout: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -629,41 +607,17 @@ function UserPopover({
             </div>
             <div className="mt-2.5 flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
               <Building2 className="h-3 w-3" strokeWidth={2.25} />
-              <span>{businessLabel}</span>
+              <span className="truncate">{businessLabel}</span>
             </div>
           </div>
 
           <div className="p-1">
-            <UserMenuItem icon={UserCircle2} label={profileLabel} disabled />
             <UserMenuItem
-              icon={Settings}
-              label={settingsLabel}
-              hint="Ctrl+,"
-              href={resolveLocalizedPath('settings/general')}
+              icon={UserCircle2}
+              label={profileLabel}
+              href={resolveLocalizedPath('profile')}
               onSelect={() => setOpen(false)}
             />
-            <UserMenuItem
-              icon={CreditCard}
-              label={subscriptionLabel}
-              href={resolveLocalizedPath('subscription')}
-              onSelect={() => setOpen(false)}
-            />
-            {showTeamLink ? (
-              <UserMenuItem
-                icon={Users}
-                label={teamLabel}
-                href={resolveLocalizedPath('settings/team')}
-                onSelect={() => setOpen(false)}
-              />
-            ) : null}
-            {showRolesLink ? (
-              <UserMenuItem
-                icon={ShieldCheck}
-                label={rolesLabel}
-                href={resolveLocalizedPath('settings/roles')}
-                onSelect={() => setOpen(false)}
-              />
-            ) : null}
             <UserMenuItem icon={Bell} label={notificationsLabel} disabled />
             <UserMenuItem icon={KeyRound} label={changePinLabel} disabled />
           </div>
@@ -691,15 +645,14 @@ export function Sidebar() {
   const locale = useLocale()
   const pathname = usePathname().replace(`/${locale}`, '') || '/'
   const t = useTranslations('nav')
-  const accessToken = useAuthStore((state) => state.accessToken)
   const refreshToken = useAuthStore((state) => state.refreshToken)
   const businessName = useAuthStore((state) => state.businessName)
   const role = useAuthStore((state) => state.role)
   const clearSession = useAuthStore((state) => state.clearSession)
   const planState = usePlanStore((state) => state.current)
-  const payload = accessToken ? decodeJwtPayload<JwtPayload>(accessToken) : null
   const [collapsed, setCollapsed] = useState(false)
   const [hasLoadedCollapsed, setHasLoadedCollapsed] = useState(false)
+  const platform = hasLoadedCollapsed ? ipc.app.platform : ''
 
   useEffect(() => {
     const storedValue = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
@@ -780,7 +733,7 @@ export function Sidebar() {
         ],
       },
       { to: 'expenses', label: t('expenses'), icon: Wallet, requiredResource: Resource.EXPENSES_VIEW },
-      { to: 'savings', label: t('savings'), icon: PiggyBank, requiredResource: Resource.SAVINGS },
+      { to: 'deposits', label: t('deposits'), icon: DollarSign, requiredResource: Resource.SAVINGS },
       {
         to: 'reports',
         label: t('reports'),
@@ -797,6 +750,11 @@ export function Sidebar() {
             label: t('settings_general'),
             icon: Settings,
             inactiveChildRoutes: ['settings/team', 'settings/roles'],
+          },
+          {
+            to: 'subscription',
+            label: t('subscription'),
+            icon: CreditCard,
           },
           {
             to: 'settings/team',
@@ -828,18 +786,8 @@ export function Sidebar() {
     [navItems, role, planState],
   )
 
-  const canManageTeam =
-    role === BusinessMemberRole.OWNER ||
-    role === BusinessMemberRole.MANAGER ||
-    (role === BusinessMemberRole.STAFF && effectivePermissions.includes(Resource.STAFF_MANAGE))
-
-  const canManageRoles =
-    role === BusinessMemberRole.OWNER ||
-    role === BusinessMemberRole.MANAGER ||
-    (role === BusinessMemberRole.STAFF && effectivePermissions.includes(Resource.CUSTOM_ROLES))
-
-  const profileName = resolveProfileName(payload, 'BizTrack')
-  const profileSecondary = payload?.email ?? payload?.phone ?? t('profile_hint')
+  const profileName = useAuthStore(state => state.user?.name || state.user?.email || state.user?.phone || t('profile_hint'))
+  const profileSecondary = useAuthStore(state => state.user?.email || state.user?.phone || t('profile_hint'))
   const profileInitials = initials(profileName || 'BT')
   const businessLabel = businessName?.trim() || t('workspace_fallback')
   const roleLabel = role ? toTitleCase(role) : null
@@ -852,17 +800,46 @@ export function Sidebar() {
     }
 
     await clearSession()
-    router.replace(resolveLocalizedPath('login'))
+    router.replace(resolveLocalizedPath(`${locale}/login`))
   }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      // Don't fire shortcuts while the user is typing
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return
+
+      // Ctrl + , → Settings
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key === ',') {
+        event.preventDefault()
+        router.push(resolveLocalizedPath(`${locale}/settings/general`))
+        return
+      }
+
+      // Ctrl + Shift + Q → Logout
+      if (event.ctrlKey && event.shiftKey && !event.altKey && event.key === 'Q') {
+        event.preventDefault()
+        void handleLogout()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  // handleLogout is defined inline and recreated each render; listing the
+  // stable primitives it closes over keeps the effect stable without needing
+  // to memoize handleLogout.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale, router, refreshToken, clearSession])
 
   return (
     <aside
       className={cn(
-        'relative flex h-screen flex-col border-r border-primary/18 bg-primary text-primary-foreground backdrop-blur-sm transition-[width] duration-300 ease-out dark:border-border/70 dark:bg-card/50 dark:text-foreground',
+        'relative flex h-screen flex-col border-r border-primary/18 bg-primary text-primary-foreground transition-[width] duration-300 ease-out dark:border-border/70 dark:bg-card/50 dark:text-foreground dark:backdrop-blur-sm',
         collapsed ? 'w-[68px]' : 'w-[252px]',
       )}
     >
-      <BrandMark collapsed={collapsed} title="BizTrack CM" subtitle={t('point_of_sale')} />
+      <BrandMark collapsed={collapsed} title="BizTrack CM" subtitle={t('point_of_sale')} platform={platform} />
       <SearchField
         collapsed={collapsed}
         searchLabel={t('search')}
@@ -872,7 +849,7 @@ export function Sidebar() {
       <button
         type="button"
         onClick={() => setCollapsed((current) => !current)}
-        className="absolute -right-3 top-[58px] z-20 grid h-6 w-6 place-items-center rounded-full border border-white/20 bg-background text-primary shadow-sm transition-all hover:border-primary/40 hover:text-primary hover:shadow-md dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:border-primary/40 dark:hover:text-foreground"
+        className="absolute -right-3 top-[62px] z-50 grid h-6 w-6 place-items-center rounded-full border border-white/20 bg-background text-primary shadow-sm transition-all hover:border-primary/40 hover:text-primary hover:shadow-md dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:border-primary/40 dark:hover:text-foreground"
         title={collapsed ? t('expand') : t('collapse')}
       >
         <ChevronsLeft
@@ -893,7 +870,7 @@ export function Sidebar() {
 
       <nav
         className={cn(
-          'biztrack-scrollbar flex-1 space-y-0.5 overflow-y-auto px-2 pb-3',
+          'sidebar-scrollbar flex-1 space-y-0.5 overflow-y-auto px-2 pb-3',
           collapsed && 'px-2',
         )}
       >
@@ -936,15 +913,9 @@ export function Sidebar() {
         businessLabel={businessLabel}
         roleLabel={roleLabel}
         profileLabel={t('profile')}
-        settingsLabel={t('settings')}
-        subscriptionLabel={t('subscription')}
-        teamLabel={t('team')}
-        rolesLabel={t('roles')}
         notificationsLabel={t('notifications')}
         changePinLabel={t('change_pin')}
         logoutLabel={t('logout')}
-        showTeamLink={canManageTeam}
-        showRolesLink={canManageRoles}
         onLogout={() => {
           void handleLogout()
         }}

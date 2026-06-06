@@ -188,8 +188,7 @@ export class NotificationsService {
     this.logger.debug('Forwarding inbound email to founder', 'NotificationsService', {
       emailId: data.emailId,
       from: data.from,
-      subject: data.subject,
-    })
+      subject: data.subject,    })
 
     const content = await this.emailProvider.fetchReceivedEmail(data.emailId)
     if (!content) {

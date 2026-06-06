@@ -56,7 +56,7 @@ import {
 } from '@/services/products.local'
 import { createSaleLocal, SaleLocalError, type LocalSaleRecord, type SaleChargeLineInput, type SaleDiscountLineInput } from '@/services/sales.local'
 import { listChargeTypesLocal, type LocalChargeType } from '@/services/charges.local'
-import { getSavingsAccountByCustomerLocal } from '@/services/savings.local'
+import { getDepositAccountByCustomerLocal } from '@/services/deposits.local'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePlanStore } from '@/stores/plan.store'
 
@@ -111,7 +111,7 @@ type SellCartItem = {
   price: number
   qty: number
   categoryName: string | null
-  emoji: string
+  initials: string
   unitLabel: string | null
   trackInventory: boolean
   stock: number | null
@@ -308,27 +308,12 @@ function parseOptionalNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function pickEmoji(product: Product) {
-  const haystack = `${product.name} ${product.category?.name ?? ''}`.toLowerCase()
-
-  if (haystack.includes('drink') || haystack.includes('boisson') || haystack.includes('juice')) {
-    return 'Ã°Å¸Â¥Â¤'
+function getProductInitials(name: string): string {
+  const words = name.trim().split(/\s+/)
+  if (words.length >= 2) {
+    return ((words[0]?.[0] ?? '') + (words[1]?.[0] ?? words[0]?.[1] ?? '')).toUpperCase()
   }
-  if (haystack.includes('water') || haystack.includes('eau')) return 'Ã°Å¸â€™Â§'
-  if (haystack.includes('beer') || haystack.includes('biere')) return 'Ã°Å¸ÂÂº'
-  if (haystack.includes('rice') || haystack.includes('riz')) return 'Ã°Å¸ÂÅ¡'
-  if (haystack.includes('oil') || haystack.includes('huile')) return 'Ã°Å¸Â«â€™'
-  if (haystack.includes('soap') || haystack.includes('savon')) return 'Ã°Å¸Â§Â¼'
-  if (haystack.includes('toilet') || haystack.includes('papier')) return 'Ã°Å¸Â§Â»'
-  if (haystack.includes('tooth') || haystack.includes('dentifrice')) return 'Ã°Å¸ÂªÂ¥'
-  if (haystack.includes('lotion')) return 'Ã°Å¸Â§Â´'
-  if (haystack.includes('battery') || haystack.includes('pile')) return 'Ã°Å¸â€â€¹'
-  if (haystack.includes('service')) return 'Ã°Å¸â€ºÂ Ã¯Â¸Â'
-  if (haystack.includes('phone') || haystack.includes('credit') || haystack.includes('airtime')) {
-    return 'Ã°Å¸â€œÂ±'
-  }
-
-  return 'Ã°Å¸â€œÂ¦'
+  return name.slice(0, 2).toUpperCase()
 }
 
 function isTrackedOut(product: Product) {
@@ -1539,7 +1524,7 @@ export default function SellPage() {
           price: product.sellingPrice,
           qty: 1,
           categoryName: product.category?.name ?? null,
-          emoji: pickEmoji(product),
+          initials: getProductInitials(product.name),
           unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
           trackInventory: product.trackInventory,
           stock: currentStock,
@@ -1885,7 +1870,7 @@ export default function SellPage() {
     setCustomerSavingsAccountId(null)
     setCustomerSavingsBalance(0)
     if (businessId) {
-      getSavingsAccountByCustomerLocal(businessId, customer.id)
+      getDepositAccountByCustomerLocal(businessId, customer.id)
         .then((account) => {
           const savingsId = account?.id ?? null
           const balance = account?.balance ?? 0
@@ -2331,9 +2316,9 @@ export default function SellPage() {
                         <ProductThumbnail
                           imageUrl={product.primaryImageUrl ?? product.imageUrl ?? null}
                           alt={product.name}
-                          fallback={pickEmoji(product)}
+                          fallback={getProductInitials(product.name)}
                           className="mb-3 aspect-square w-full"
-                          fallbackClassName="text-4xl"
+                          fallbackClassName="text-lg font-bold"
                         />
                         <div className="min-h-[2.75rem] text-sm font-semibold leading-5">
                           {product.name}
@@ -2378,9 +2363,9 @@ export default function SellPage() {
                         <ProductThumbnail
                           imageUrl={product.primaryImageUrl ?? product.imageUrl ?? null}
                           alt={product.name}
-                          fallback={pickEmoji(product)}
+                          fallback={getProductInitials(product.name)}
                           className="h-12 w-12 shrink-0"
-                          fallbackClassName="text-2xl"
+                          fallbackClassName="text-xs font-bold"
                         />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold">{product.name}</div>
@@ -2887,9 +2872,9 @@ export default function SellPage() {
                               <ProductThumbnail
                                 imageUrl={item.imageUrl}
                                 alt={item.name}
-                                fallback={item.emoji}
+                                fallback={item.initials}
                                 className="h-12 w-12 shrink-0"
-                                fallbackClassName="text-2xl"
+                                fallbackClassName="text-xs font-bold"
                               />
                               <div className="min-w-0 flex-1">
                                 <div className="truncate text-sm font-semibold">{item.name}</div>

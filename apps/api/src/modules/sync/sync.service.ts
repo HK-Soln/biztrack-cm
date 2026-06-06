@@ -82,8 +82,8 @@ import { RestockRecord } from '@/entities/restock-record.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
 import { Sale } from '@/entities/sale.entity'
-import { SavingsAccount } from '@/entities/savings-account.entity'
-import { SavingsTransaction } from '@/entities/savings-transaction.entity'
+import { CustomerDeposit } from '@/entities/customer-deposit.entity'
+import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -101,7 +101,7 @@ import { ExpensesService } from '@/modules/expenses/services/expenses.service'
 import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
-import { SavingsService } from '@/modules/savings/services/savings.service'
+import { DepositsService } from '@/modules/savings/services/savings.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import {
   SYNC_BATCH_MAX_OPERATIONS,
@@ -329,7 +329,7 @@ export class SyncService {
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
     private readonly salesService: SalesService,
-    private readonly savingsService: SavingsService,
+    private readonly savingsService: DepositsService,
     private readonly quotaService: QuotaService,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
@@ -2644,7 +2644,7 @@ export class SyncService {
     }
   }
 
-  private toSavingsAccountSyncRecord(record: SavingsAccount): SavingsAccountSyncRecord {
+  private toSavingsAccountSyncRecord(record: CustomerDeposit): SavingsAccountSyncRecord {
     return {
       id: record.id,
       businessId: record.businessId,
@@ -2664,7 +2664,7 @@ export class SyncService {
     }
   }
 
-  private toSavingsTransactionSyncRecord(record: SavingsTransaction): SavingsTransactionSyncRecord {
+  private toSavingsTransactionSyncRecord(record: DepositTransaction): SavingsTransactionSyncRecord {
     return {
       id: record.id,
       savingsId: record.savingsId,

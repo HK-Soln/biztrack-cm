@@ -32,7 +32,7 @@
     "team": "Equipe",
     "roles": "Roles",
     "settings_general": "General",
-    "savings": "Épargne"
+    "deposits": "Dépôts clients"
   },
   "topbar": {
     "last_sync": "Derniere synchro : {time}",
@@ -324,7 +324,7 @@
       "save": "Enregistrer",
       "cancel": "Annuler",
       "select_payment": "Choisir le mode de paiement",
-      "cash": "EspÃ¨ces",
+      "cash": "Espèces",
       "mtnMomo": "MTN Mobile Money",
       "orangeMoney": "Orange Money",
       "card": "Carte",
@@ -400,7 +400,7 @@
       "add_payment_method": "Ajouter un mode de paiement",
       "total_paid": "Montant paye",
       "split_payment": "Paiement partage",
-      "savings": "Épargne",
+      "savings": "Dépôts clients",
       "savings_available": "Disponible",
       "savings_max_usable": "Max utilisable",
       "add_charge": "Ajouter une charge",
@@ -443,6 +443,7 @@
         "activate": "Activer",
         "deactivate": "Desactiver",
         "mark_inactive": "Rendre inactif",
+        "mark_active": "Reactiver",
         "delete": "Supprimer",
         "undo_delete": "Annuler la suppression",
         "deleting": "Suppression..."
@@ -594,6 +595,7 @@
         "back_to_recent": "Produits recents",
         "back_to_list": "Tous les produits",
         "inactive_state": "Deja inactif",
+        "active_success": "Produit reactive.",
         "no_description": "Aucune description n'a encore ete ajoutee pour ce produit.",
         "not_found_title": "Produit introuvable",
         "not_found_description": "BizTrack n'a pas trouve ce produit dans le catalogue local de ce business.",
@@ -815,6 +817,7 @@
         "update": "Impossible de mettre a jour le produit.",
         "delete": "Impossible de supprimer le produit.",
         "deactivate": "Impossible de rendre le produit inactif.",
+        "activate": "Impossible de reactiver le produit.",
         "business_required": "Selectionnez un business sur cet appareil avant de continuer.",
         "product_not_found": "BizTrack n'a pas trouve ce produit dans le catalogue local.",
         "create": "Impossible de creer le produit.",
@@ -1041,6 +1044,10 @@
         "supplier_saved": "Fournisseur enregistre.",
         "supplier_load_error": "Impossible de charger ou d'enregistrer les fournisseurs maintenant.",
         "reference": "NumÃ©ro de rÃ©fÃ©rence",
+        "total_amount": "Montant total de l'achat",
+        "total_amount_optional": "Optionnel si tous les couts unitaires sont renseignes",
+        "total_amount_hint": "Si une ligne n'a pas de cout unitaire, saisissez ici le montant total final du fournisseur.",
+        "computed_total": "Calcule depuis les couts unitaires",
         "notes": "Notes",
         "notes_placeholder": "Notes de livraison, info lot ou commentaire fournisseur.",
         "submitting": "Enregistrementâ€¦",
@@ -1405,6 +1412,7 @@
       "business_required": "Selectionnez un business sur cet appareil avant d'ouvrir ce contact.",
       "not_found": "Ce contact est introuvable sur cet appareil.",
       "back": "Retour",
+      "back_to_contacts": "Retour aux contacts",
       "types": {
         "customer": "Client",
         "supplier": "Fournisseur",
@@ -1805,7 +1813,8 @@
       "status": {
         "outstanding": "En attente",
         "partially_paid": "Partiellement paye",
-        "settled": "Regle"
+        "settled": "Regle",
+        "written_off": "Passe en perte"
       },
       "actions": {
         "retry": "Reessayer",
@@ -2044,11 +2053,117 @@
         "expand": "Afficher",
         "collapse": "Masquer"
       },
+      "definitions": {
+        "daily_sales": {
+          "badge": "Journalier",
+          "name": "Rapport des ventes journalieres",
+          "description": "Toutes les ventes de la periode selectionnee avec les totaux, la ventilation par caissier et la visibilite des annulations.",
+          "source": "sales + sale_items + sale_payments"
+        },
+        "revenue_trend": {
+          "badge": "Periode",
+          "name": "Rapport de tendance des revenus",
+          "description": "Revenu, marge brute et nombre de transactions sur toute plage de dates.",
+          "source": "agregation des ventes sur la periode"
+        },
+        "top_products": {
+          "badge": "Classement",
+          "name": "Rapport des meilleurs produits",
+          "description": "Produits les plus vendus classes par revenu, unites vendues et contribution brute.",
+          "source": "sale_items agreges"
+        },
+        "cashier_performance": {
+          "badge": "Periode",
+          "name": "Performance des caissiers",
+          "description": "Ventes par caissier avec revenu, panier moyen et taux d'annulation.",
+          "source": "ventes groupees par caissier"
+        },
+        "payment_breakdown": {
+          "badge": "Analyse",
+          "name": "Repartition des modes de paiement",
+          "description": "Distribution cash, MTN MoMo, Orange Money, carte et credit impaye.",
+          "source": "sale_payments + soldes credit"
+        },
+        "voided_sales": {
+          "badge": "Audit",
+          "name": "Rapport des ventes annulees",
+          "description": "Chaque vente annulee avec la raison, l'heure et la valeur inversee.",
+          "source": "ventes avec statut = ANNULE"
+        },
+        "stock_levels": {
+          "badge": "Instantane",
+          "name": "Rapport des niveaux de stock",
+          "description": "Quantite actuelle, seuil de stock faible et point de recommande pour les produits suivis.",
+          "source": "inventory_levels + produits"
+        },
+        "stock_movements": {
+          "badge": "Mouvements",
+          "name": "Rapport des mouvements de stock",
+          "description": "Evenements entrees/sorties sur ventes, reapprovisionnements, ajustements et reversions d'annulation.",
+          "source": "inventory_movements"
+        },
+        "low_stock_alerts": {
+          "badge": "Alerte",
+          "name": "Rapport des alertes stock faible",
+          "description": "Produits en dessous du seuil, tries par urgence et ecart.",
+          "source": "niveaux de stock filtres"
+        },
+        "restock_costs": {
+          "badge": "Cout",
+          "name": "Rapport des couts de reapprovisionnement",
+          "description": "Operations de reapprovisionnement avec fournisseur, cout, paiements et credit non regle.",
+          "source": "restock_records + restock_items + restock_payments"
+        },
+        "profit_loss": {
+          "badge": "P&L",
+          "name": "Compte de resultat",
+          "description": "Revenu, cout des marchandises, detail des depenses et resultat net de la periode.",
+          "source": "ventes + depenses"
+        },
+        "expense_breakdown": {
+          "badge": "Depenses",
+          "name": "Rapport de repartition des depenses",
+          "description": "Depenses groupees par categorie avec distinction recurrentes et ponctuelles.",
+          "source": "depenses + categories de depenses"
+        },
+        "revenue_vs_expenses": {
+          "badge": "Tendance",
+          "name": "Tendance revenus vs depenses",
+          "description": "Evolution des revenus et depenses sur la periode selectionnee pour identifier les points de pression.",
+          "source": "ventes + depenses groupees dans le temps"
+        },
+        "debtors_ageing": {
+          "badge": "Debiteurs",
+          "name": "Rapport d'anciennete des debiteurs",
+          "description": "Creances en cours regroupees par tranches d'age avec les soldes les plus anciens mis en evidence.",
+          "source": "dettes direction = A RECEVOIR"
+        },
+        "creditors_ageing": {
+          "badge": "Crediteurs",
+          "name": "Rapport d'anciennete des crediteurs",
+          "description": "Soldes fournisseurs en cours groupes par anciennete et urgence.",
+          "source": "dettes direction = A PAYER"
+        },
+        "contact_statement": {
+          "badge": "Releve",
+          "name": "Releve de contact",
+          "description": "Grand livre d'un seul contact affichant dettes, paiements, solde d'ouverture et de cloture.",
+          "source": "dettes + paiements par contact"
+        },
+        "credit_activity": {
+          "badge": "Synthese",
+          "name": "Synthese de l'activite credit",
+          "description": "Credit emis, collecte et passe en perte sur la periode selectionnee.",
+          "source": "dettes + paiements agreges"
+        }
+      },
       "waterfall": {
         "title": "Resume profit et perte",
         "description": "Resume de la periode {range}.",
+        "sales": "Ventes",
+        "voided_sales": "Ventes annulees",
         "revenue": "Revenu",
-        "cogs": "Cout des marchandises vendues",
+        "cogs": "Cout des ventes",
         "gross_profit": "Marge brute",
         "other_expenses": "Autres depenses",
         "total_expenses": "Total depenses",
@@ -2439,7 +2554,158 @@
       "cancel_success": "Abonnement programme pour annulation.",
       "cancel_error": "Impossible d annuler l abonnement.",
       "cancelled_notice": "Votre abonnement sera annule le {date}.",
-      "subscription_label": "Abonnement"
+      "subscription_label": "Abonnement",
+      "not_available": "Non disponible",
+      "launch_banner": "Le changement de formule et les annulations sont désactivés pendant la période de lancement. Toutes les entreprises bénéficient d'un accès Pro complet."
+    },
+    "deposits": {
+      "title": "Dépôts clients",
+      "subtitle": "Gérer les comptes de dépôt clients",
+      "loading": "Chargement des comptes de dépôt...",
+      "load_error": "Erreur lors du chargement des comptes de dépôt",
+      "business_required": "Aucune session d'entreprise active",
+      "new_deposit": "Nouveau dépôt",
+      "table": {
+        "number": "N° compte",
+        "customer": "Client",
+        "balance": "Solde",
+        "total_deposited": "Total déposé",
+        "last_activity": "Dernière activité",
+        "no_customer": "Client inconnu",
+        "actions": "Actions"
+      },
+      "actions": {
+        "more": "Plus",
+        "view_statement": "Voir le relevé",
+        "add_deposit": "Ajouter un dépôt",
+        "refund": "Remboursement"
+      },
+      "empty": {
+        "title": "Aucun compte de dépôt",
+        "subtitle": "Créez un nouveau dépôt pour ouvrir un compte de dépôt pour un client."
+      },
+      "pagination": {
+        "showing": "{from}–{to} sur {total}",
+        "none": "Aucun résultat"
+      },
+      "deposit": {
+        "title": "Nouveau dépôt",
+        "description": "Enregistrer un dépôt client. Si le client a déjà un compte, le dépôt sera ajouté à son solde.",
+        "customer_label": "Client",
+        "pick_customer": "Sélectionner un client",
+        "amount": "Montant (XAF)",
+        "method": "Mode de paiement",
+        "reference": "Référence mobile money",
+        "reference_placeholder": "ex. CM-12345678",
+        "notes": "Notes",
+        "notes_placeholder": "Notes optionnelles",
+        "submit": "Enregistrer le dépôt",
+        "submitting": "Enregistrement...",
+        "success": "Dépôt enregistré avec succès",
+        "cancel": "Annuler",
+        "existing_balance": "Solde existant : XAF {balance}"
+      },
+      "refund": {
+        "title": "Remboursement",
+        "description": "Effectuer un remboursement sur le solde du compte de dépôt.",
+        "available_balance": "Solde disponible : XAF {balance}",
+        "amount": "Montant du remboursement (XAF)",
+        "method": "Mode de paiement",
+        "reference": "Référence mobile money",
+        "reference_placeholder": "ex. CM-12345678",
+        "notes": "Notes",
+        "notes_placeholder": "Notes optionnelles",
+        "submit": "Enregistrer le remboursement",
+        "submitting": "Traitement...",
+        "success": "Remboursement enregistré avec succès",
+        "cancel": "Annuler"
+      },
+      "detail": {
+        "back": "Retour aux dépôts clients",
+        "account_number": "Numéro de compte",
+        "customer": "Client",
+        "balance": "Solde actuel",
+        "total_deposited": "Total déposé",
+        "total_refunded": "Total remboursé",
+        "transaction_type_deposit": "Dépôt",
+        "transaction_type_refund": "Remboursement",
+        "transaction_type_sale": "Vente",
+        "transaction_type_voided_sale": "Vente annulée",
+        "date": "Date",
+        "method": "Méthode",
+        "notes": "Notes",
+        "amount": "Montant",
+        "running_balance": "Solde courant",
+        "no_transactions": "Aucune transaction",
+        "tagged_products": "Produits associés",
+        "tagged_products_none": "Aucun produit associé",
+        "add_deposit": "Ajouter un dépôt",
+        "refund_balance": "Remboursement",
+        "share_statement": "Partager le relevé",
+        "share_generating": "Génération du PDF…",
+        "share_error": "Échec de la génération du relevé PDF"
+      },
+      "errors": {
+        "DEPOSIT_CUSTOMER_REQUIRED": "Un client est requis",
+        "DEPOSIT_AMOUNT_INVALID": "Le montant doit être supérieur à zéro",
+        "DEPOSIT_INSUFFICIENT_BALANCE": "Solde insuffisant pour ce remboursement",
+        "DEPOSIT_NOT_FOUND": "Compte de dépôt introuvable",
+        "DEPOSIT_METHOD_INVALID": "Mode de paiement invalide"
+      }
+    },
+    "profile": {
+      "title": "Mon profil",
+      "subtitle": "Gérez vos informations personnelles.",
+      "tabs": {
+        "profile": "Profil",
+        "security": "Sécurité",
+        "mfa": "Double authentification",
+        "sync": "Synchronisation"
+      },
+      "info_section": "Informations de base",
+      "info_subtitle": "Modifiez votre nom d affichage et votre langue.",
+      "readonly_notice": "L email, le numéro de téléphone et le mot de passe peuvent être mis à jour via des parcours dédiés.",
+      "field_name": "Nom d affichage",
+      "field_name_placeholder": "Votre nom complet",
+      "field_email": "Adresse e-mail",
+      "field_phone": "Numéro de téléphone",
+      "field_language": "Langue",
+      "language_en": "English",
+      "language_fr": "Français",
+      "save_action": "Enregistrer",
+      "saving": "Enregistrement...",
+      "save_success": "Profil mis à jour.",
+      "save_error": "Échec de la mise à jour du profil.",
+      "offline_warning": "Vous devez être en ligne pour mettre à jour votre profil.",
+      "security_title": "Mot de passe et sécurité",
+      "security_subtitle": "Gérez le mot de passe de votre compte.",
+      "change_password_title": "Modifier le mot de passe",
+      "change_password_description": "Modifiez votre mot de passe. Vous serez déconnecté de tous les autres appareils.",
+      "change_password_coming_soon": "La modification du mot de passe passe par un parcours dédié. Utilisez l écran de connexion pour réinitialiser votre mot de passe si nécessaire.",
+      "mfa_title": "Double authentification",
+      "mfa_subtitle": "Ajoutez une couche de sécurité supplémentaire à votre compte.",
+      "mfa_description": "La double authentification (2FA) n est pas encore disponible. Elle sera ajoutée dans une prochaine mise à jour.",
+      "mfa_coming_soon": "Bientôt disponible",
+      "sync": {
+        "section_status": "État de la synchronisation",
+        "section_settings": "Préférences de synchronisation",
+        "device_notice": "Ces préférences s appliquent uniquement à cet appareil.",
+        "last_sync": "Dernière sync : {time}",
+        "never_synced": "Jamais synchronisé sur cet appareil",
+        "realtime_label": "Canal temps réel : {mode} ({status})",
+        "auto_sync_label": "Sync automatique",
+        "auto_sync_help_on": "BizTrack se synchronise en arrière-plan lorsque la connexion est suffisante.",
+        "auto_sync_help_off": "Les modifications restent locales jusqu à une synchronisation manuelle ou la réactivation de la sync auto.",
+        "auto_sync_enable": "Activer",
+        "auto_sync_disable": "Désactiver",
+        "min_quality_label": "Démarrer la sync auto quand la connexion est",
+        "min_quality_help": "La sync en arrière-plan démarre lorsque la connexion atteint {quality}.",
+        "min_quality_disabled": "Réactivez la sync auto pour configurer le seuil de qualité.",
+        "sync_now": "Synchroniser",
+        "syncing": "Synchronisation…",
+        "error_label": "Dernière erreur de sync",
+        "warning_disabled": "La sync auto est désactivée. Les modifications récentes pourraient ne pas être à jour si vous utilisez plusieurs appareils."
+      }
     }
   },
   "auth": {
@@ -2559,101 +2825,6 @@
       "subtitle": "Ajoutez votre premier produit pour demarrer.",
       "add": "Ajouter un produit",
       "skip": "Passer pour l'instant"
-    },
-    "savings": {
-      "title": "Épargne",
-      "subtitle": "Gérer les comptes d'épargne clients",
-      "loading": "Chargement des comptes...",
-      "load_error": "Erreur lors du chargement des comptes",
-      "business_required": "Aucune session d'entreprise active",
-      "new_deposit": "Nouveau dépôt",
-      "table": {
-        "number": "N° compte",
-        "customer": "Client",
-        "balance": "Solde",
-        "total_deposited": "Total déposé",
-        "last_activity": "Dernière activité",
-        "no_customer": "Client inconnu",
-        "actions": "Actions"
-      },
-      "actions": {
-        "more": "Plus",
-        "view_statement": "Voir le relevé",
-        "add_deposit": "Ajouter un dépôt",
-        "refund": "Remboursement"
-      },
-      "empty": {
-        "title": "Aucun compte d'épargne",
-        "subtitle": "Créez un nouveau dépôt pour ouvrir un compte d'épargne pour un client."
-      },
-      "pagination": {
-        "showing": "{from}–{to} sur {total}",
-        "none": "Aucun résultat"
-      },
-      "deposit": {
-        "title": "Nouveau dépôt",
-        "description": "Enregistrer un dépôt client. Si le client a déjà un compte, le dépôt sera ajouté à son solde.",
-        "customer_label": "Client",
-        "pick_customer": "Sélectionner un client",
-        "amount": "Montant (XAF)",
-        "method": "Mode de paiement",
-        "reference": "Référence mobile money",
-        "reference_placeholder": "ex. CM-12345678",
-        "notes": "Notes",
-        "notes_placeholder": "Notes optionnelles",
-        "submit": "Enregistrer le dépôt",
-        "submitting": "Enregistrement...",
-        "success": "Dépôt enregistré avec succès",
-        "cancel": "Annuler",
-        "existing_balance": "Solde existant : XAF {balance}"
-      },
-      "refund": {
-        "title": "Remboursement",
-        "description": "Effectuer un remboursement sur le solde du compte d'épargne.",
-        "available_balance": "Solde disponible : XAF {balance}",
-        "amount": "Montant du remboursement (XAF)",
-        "method": "Mode de paiement",
-        "reference": "Référence mobile money",
-        "reference_placeholder": "ex. CM-12345678",
-        "notes": "Notes",
-        "notes_placeholder": "Notes optionnelles",
-        "submit": "Enregistrer le remboursement",
-        "submitting": "Traitement...",
-        "success": "Remboursement enregistré avec succès",
-        "cancel": "Annuler"
-      },
-      "detail": {
-        "back": "Retour à l'épargne",
-        "account_number": "Numéro de compte",
-        "customer": "Client",
-        "balance": "Solde actuel",
-        "total_deposited": "Total déposé",
-        "total_refunded": "Total remboursé",
-        "transaction_type_deposit": "Dépôt",
-        "transaction_type_refund": "Remboursement",
-        "transaction_type_sale": "Vente",
-        "transaction_type_voided_sale": "Vente annulée",
-        "date": "Date",
-        "method": "Méthode",
-        "notes": "Notes",
-        "amount": "Montant",
-        "running_balance": "Solde courant",
-        "no_transactions": "Aucune transaction",
-        "tagged_products": "Produits associés",
-        "tagged_products_none": "Aucun produit associé",
-        "add_deposit": "Ajouter un dépôt",
-        "refund_balance": "Remboursement",
-        "share_statement": "Partager le relevé",
-        "share_generating": "Génération du PDF…",
-        "share_error": "Échec de la génération du relevé PDF"
-      },
-      "errors": {
-        "SAVINGS_CUSTOMER_REQUIRED": "Un client est requis",
-        "SAVINGS_AMOUNT_INVALID": "Le montant doit être supérieur à zéro",
-        "SAVINGS_INSUFFICIENT_BALANCE": "Solde insuffisant pour ce remboursement",
-        "SAVINGS_NOT_FOUND": "Compte d'épargne introuvable",
-        "SAVINGS_METHOD_INVALID": "Mode de paiement invalide"
-      }
     }
   }
 }

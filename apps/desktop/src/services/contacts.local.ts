@@ -24,6 +24,24 @@ import { listDebtsForContactsLocal } from './debts.local'
 import { compareValues, dbBatch, dbQuery, normalizeSortOrder, paginateResult } from './local-db'
 import { buildOutboxDeleteOperation, buildOutboxEventOperation, requestBackgroundSync } from './sync.local'
 
+export type BalanceFilter = 'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'CLEAR'
+
+export type ContactsLocalQuery = ContactsQuery & {
+  balanceFilter?: BalanceFilter
+}
+
+export type ContactMetricsLocal = {
+  totalCount: number
+  customerCount: number
+  supplierCount: number
+  bothCount: number
+  activeDebtorCount: number
+  activeCreditorCount: number
+  totalReceivable: number
+  totalPayable: number
+  settledThisMonthCount: number
+}
+
 type ContactRow = {
   id: string
   business_id: string
@@ -177,64 +195,184 @@ export class ContactLocalError extends Error {
 
 export async function listContactsLocal(
   businessId: string,
-  query: ContactsQuery = {},
+  query: ContactsLocalQuery = {},
 ): Promise<ContactListResult> {
   const normalizedBusinessId = assertBusinessId(businessId)
   const sortOrder = normalizeSortOrder(query.sortOrder)
-  const rows = await dbQuery<ContactRow>(
-    `
-      SELECT
-        id,
-        business_id,
-        type,
-        name,
-        phone,
-        phone_alt,
-        address,
-        notes,
-        is_active,
-        created_by_id,
-        created_at,
-        updated_at
-      FROM contacts
-      WHERE business_id = ?
-      ORDER BY updated_at DESC, created_at DESC
-    `,
-    [normalizedBusinessId],
-  )
+  const sortBy = query.sortBy ?? 'updatedAt'
+  const page = Math.max(1, query.page ?? 1)
+  const limit = Math.max(1, query.limit ?? 20)
 
+  const clauses: string[] = ['c.business_id = ?']
+  const params: unknown[] = [normalizedBusinessId]
+
+  if (query.type) {
+    clauses.push('c.type = ?')
+    params.push(query.type)
+  }
+
+  if (query.isActive !== undefined) {
+    clauses.push('c.is_active = ?')
+    params.push(query.isActive ? 1 : 0)
+  }
+
+  if (query.search?.trim()) {
+    const search = `%${query.search.trim().toLowerCase()}%`
+    clauses.push(
+      `(LOWER(c.name) LIKE ? OR LOWER(COALESCE(c.phone, '')) LIKE ? OR LOWER(COALESCE(c.phone_alt, '')) LIKE ?)`,
+    )
+    params.push(search, search, search)
+  }
+
+  if (query.balanceFilter === 'RECEIVABLE') {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM debts d
+      WHERE d.contact_id = c.id AND d.business_id = c.business_id
+        AND d.direction = 'RECEIVABLE'
+        AND d.status NOT IN ('SETTLED', 'WRITTEN_OFF')
+        AND d.original_amount > COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0)
+    )`)
+  } else if (query.balanceFilter === 'PAYABLE') {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM debts d
+      WHERE d.contact_id = c.id AND d.business_id = c.business_id
+        AND d.direction = 'PAYABLE'
+        AND d.status NOT IN ('SETTLED', 'WRITTEN_OFF')
+        AND d.original_amount > COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0)
+    )`)
+  } else if (query.balanceFilter === 'CLEAR') {
+    clauses.push(`NOT EXISTS (
+      SELECT 1 FROM debts d
+      WHERE d.contact_id = c.id AND d.business_id = c.business_id
+        AND d.status NOT IN ('SETTLED', 'WRITTEN_OFF')
+        AND d.original_amount > COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0)
+    )`)
+  }
+
+  const whereClause = `WHERE ${clauses.join('\n      AND ')}`
+
+  let orderByColumn: string
+  switch (sortBy) {
+    case 'name':
+      orderByColumn = 'c.name'
+      break
+    case 'createdAt':
+      orderByColumn = 'c.created_at'
+      break
+    default:
+      orderByColumn = 'c.updated_at'
+  }
+  const orderDir = sortOrder === 'ASC' ? 'ASC' : 'DESC'
+
+  const [countRows, dataRows] = await Promise.all([
+    dbQuery<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM contacts c ${whereClause}`,
+      params,
+    ),
+    dbQuery<ContactRow>(
+      `
+        SELECT
+          c.id,
+          c.business_id,
+          c.type,
+          c.name,
+          c.phone,
+          c.phone_alt,
+          c.address,
+          c.notes,
+          c.is_active,
+          c.created_by_id,
+          c.created_at,
+          c.updated_at
+        FROM contacts c
+        ${whereClause}
+        ORDER BY ${orderByColumn} ${orderDir}, c.id ${orderDir}
+        LIMIT ${limit} OFFSET ${(page - 1) * limit}
+      `,
+      params,
+    ),
+  ])
+
+  const total = countRows[0]?.count ?? 0
   const summaryMap = await buildContactSummaryMapLocal(
     normalizedBusinessId,
-    rows.map((row) => row.id),
+    dataRows.map((row) => row.id),
   )
-  const search = query.search?.trim().toLowerCase()
-  let records = rows
-    .map((row) => mapContactRow(row, summaryMap.get(row.id)))
-    .filter((contact) => (query.type ? contact.type === query.type : true))
-    .filter((contact) => (query.isActive === undefined ? true : contact.isActive === query.isActive))
-    .filter((contact) => {
-      if (!search) return true
-      const haystack = [contact.name, contact.phone, contact.phoneAlt]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(search)
-    })
 
-  const sortBy = query.sortBy ?? 'updatedAt'
-  records = [...records].sort((left, right) => {
-    switch (sortBy) {
-      case 'name':
-        return compareValues(left.name, right.name, sortOrder)
-      case 'createdAt':
-        return compareValues(left.createdAt, right.createdAt, sortOrder)
-      case 'updatedAt':
-      default:
-        return compareValues(left.updatedAt, right.updatedAt, sortOrder)
-    }
-  })
+  return {
+    data: dataRows.map((row) => mapContactRow(row, summaryMap.get(row.id))),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  }
+}
 
-  return paginateResult(records, query.page, query.limit)
+export async function getContactMetricsLocal(businessId: string): Promise<ContactMetricsLocal> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+
+  const [typeCounts, balanceSummary, settledCount] = await Promise.all([
+    dbQuery<{ type: string; count: number }>(
+      `SELECT type, COUNT(*) AS count FROM contacts WHERE business_id = ? AND is_active = 1 GROUP BY type`,
+      [normalizedBusinessId],
+    ),
+    dbQuery<{ direction: string; contact_count: number; total_outstanding: number }>(
+      `
+        SELECT direction, COUNT(DISTINCT contact_id) AS contact_count, COALESCE(SUM(outstanding), 0) AS total_outstanding
+        FROM (
+          SELECT
+            d.contact_id,
+            d.direction,
+            MAX(0, d.original_amount - COALESCE(
+              (SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0
+            )) AS outstanding
+          FROM debts d
+          WHERE d.business_id = ?
+            AND d.status NOT IN ('SETTLED', 'WRITTEN_OFF')
+            AND EXISTS (
+              SELECT 1 FROM contacts c WHERE c.id = d.contact_id AND c.is_active = 1 AND c.business_id = d.business_id
+            )
+        ) sub
+        WHERE outstanding > 0
+        GROUP BY direction
+      `,
+      [normalizedBusinessId],
+    ),
+    dbQuery<{ count: number }>(
+      `
+        SELECT COUNT(DISTINCT d.contact_id) AS count
+        FROM debts d
+        WHERE d.business_id = ? AND d.status = 'SETTLED'
+          AND strftime('%Y-%m', d.settled_at) = strftime('%Y-%m', 'now')
+          AND NOT EXISTS (
+            SELECT 1 FROM debts d2
+            WHERE d2.contact_id = d.contact_id AND d2.business_id = d.business_id
+              AND d2.status NOT IN ('SETTLED', 'WRITTEN_OFF')
+              AND d2.original_amount > COALESCE(
+                (SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d2.id), 0
+              )
+          )
+      `,
+      [normalizedBusinessId],
+    ),
+  ])
+
+  const typeMap = new Map(typeCounts.map((r) => [r.type, r.count]))
+  const totalCount = typeCounts.reduce((sum, r) => sum + r.count, 0)
+  const receivable = balanceSummary.find((r) => r.direction === DebtDirection.RECEIVABLE)
+  const payable = balanceSummary.find((r) => r.direction === DebtDirection.PAYABLE)
+
+  return {
+    totalCount,
+    customerCount: typeMap.get(ContactType.CUSTOMER) ?? 0,
+    supplierCount: typeMap.get(ContactType.SUPPLIER) ?? 0,
+    bothCount: typeMap.get(ContactType.BOTH) ?? 0,
+    activeDebtorCount: receivable?.contact_count ?? 0,
+    activeCreditorCount: payable?.contact_count ?? 0,
+    totalReceivable: receivable?.total_outstanding ?? 0,
+    totalPayable: payable?.total_outstanding ?? 0,
+    settledThisMonthCount: settledCount[0]?.count ?? 0,
+  }
 }
 
 export async function listCustomerContactsLocal(
@@ -882,7 +1020,8 @@ export async function upsertOpeningBalanceLocal(
     createdAt,
   }
 
-  await dbBatch([
+  const obDebtId = `ob:${dto.direction.toLowerCase()}:${contactId}`
+  const operations: Array<{ sql: string; params?: unknown[] }> = [
     {
       sql: `
         INSERT INTO contact_opening_balances (
@@ -898,7 +1037,30 @@ export async function upsertOpeningBalanceLocal(
       params: [id, normalizedBusinessId, contactId, dto.direction, dto.amount, dto.asOfDate, dto.notes ?? null, userId, createdAt, now],
     },
     buildOutboxEventOperation('openingBalances', id, payload),
-  ])
+  ]
+
+  if (dto.amount > 0) {
+    const sourceType = dto.direction === DebtDirection.PAYABLE ? 'RESTOCK' : 'SALE'
+    operations.push({
+      sql: `
+        INSERT INTO debts (
+          id, business_id, contact_id, direction, source_type, source_id,
+          source_reference, original_amount, status, due_date, notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OUTSTANDING', NULL, NULL, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          original_amount = excluded.original_amount,
+          status = CASE WHEN debts.status IN ('SETTLED','WRITTEN_OFF') THEN debts.status ELSE 'OUTSTANDING' END
+      `,
+      params: [obDebtId, normalizedBusinessId, contactId, dto.direction, 'OPENING_BALANCE', id, `Opening Balance (${sourceType === 'RESTOCK' ? 'Supplier' : 'Customer'})`, dto.amount, createdAt],
+    })
+  } else {
+    operations.push({
+      sql: `DELETE FROM debts WHERE id = ? AND business_id = ? AND source_type = 'OPENING_BALANCE'`,
+      params: [obDebtId, normalizedBusinessId],
+    })
+  }
+
+  await dbBatch(operations)
 
   requestBackgroundSync()
 
@@ -933,10 +1095,16 @@ export async function deleteOpeningBalanceLocal(
 
   if (!existing) return
 
+  const obDebtId = `ob:${direction.toLowerCase()}:${contactId}`
+
   await dbBatch([
     {
       sql: `DELETE FROM contact_opening_balances WHERE id = ?`,
       params: [existing.id],
+    },
+    {
+      sql: `DELETE FROM debts WHERE id = ? AND business_id = ? AND source_type = 'OPENING_BALANCE'`,
+      params: [obDebtId, normalizedBusinessId],
     },
     buildOutboxDeleteOperation('openingBalances', existing.id),
   ])

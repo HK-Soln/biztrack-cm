@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     version: () => ipcRenderer.invoke('app:version'),
     openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
     isWhatsAppInstalled: () => ipcRenderer.invoke('app:is-whatsapp-installed'),
+    // Synchronous — read once at preload time, no IPC round-trip needed.
+    platform: process.platform,
   },
   // Secure storage
   secureStore: {

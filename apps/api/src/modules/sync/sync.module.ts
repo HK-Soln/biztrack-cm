@@ -38,7 +38,7 @@ import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SalesModule } from '@/modules/sales/sales.module'
-import { SavingsModule } from '@/modules/savings/savings.module'
+import { DepositsModule } from '@/modules/savings/savings.module'
 import type { AppConfig } from '@/config/configuration'
 import { SYNC_BATCHES_QUEUE } from './constants/sync.constants'
 import { SyncController } from './sync.controller'
@@ -59,7 +59,7 @@ import { SyncService } from './sync.service'
     ExpensesModule,
     InventoryModule,
     PermissionsModule,
-    SavingsModule,
+    DepositsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig>) => ({

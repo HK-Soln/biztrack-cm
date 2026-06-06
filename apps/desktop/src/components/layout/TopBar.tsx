@@ -1,15 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { useTheme } from 'next-themes'
-import type { SyncSettings } from '@biztrack/types'
 import { Link, usePathname } from '@/i18n/navigation'
 import { type Locale, routing } from '@/i18n/routing'
 import { useSyncSnapshot } from '@/hooks/useSyncSnapshot'
 import { cn } from '@/lib/utils'
-import { hasDesktopIpc } from '@/services/ipc.bridge'
+import { ipc, hasDesktopIpc } from '@/services/ipc.bridge'
 import { type LocalBusiness, getLocalBusinesses } from '@/services/local-businesses.local'
 import { selectBusiness, getAuthTokens } from '@/services/auth.api'
 import { useAuthStore } from '@/stores/auth.store'
@@ -25,26 +24,24 @@ function getInitials(name: string | null): string {
     .join('')
 }
 
-const syncQualityOptions: SyncSettings['minQuality'][] = ['fair', 'strong', 'very_strong']
-
 export function TopBar() {
   const t = useTranslations('topbar')
   const locale = useLocale()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
-  const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false)
   const [isLocaleMenuOpen, setIsLocaleMenuOpen] = useState(false)
   const [isBusinessMenuOpen, setIsBusinessMenuOpen] = useState(false)
   const [localBusinesses, setLocalBusinesses] = useState<LocalBusiness[]>([])
   const [isSwitching, setIsSwitching] = useState(false)
-  const { snapshot, trigger, updateSettings } = useSyncSnapshot()
+  const { snapshot, trigger } = useSyncSnapshot()
   const planState = usePlanStore((state) => state.current)
   const businessName = useAuthStore((state) => state.businessName)
   const businessId = useAuthStore((state) => state.businessId)
+  const userId = useAuthStore((state) => state.user?.id ?? null)
   const setTokens = useAuthStore((state) => state.setTokens)
-  const syncMenuRef = useRef<HTMLDivElement | null>(null)
   const localeMenuRef = useRef<HTMLDivElement | null>(null)
   const businessMenuRef = useRef<HTMLDivElement | null>(null)
 
@@ -53,23 +50,21 @@ export function TopBar() {
   }, [])
 
   useEffect(() => {
-    if (!hasDesktopIpc()) return
-    getLocalBusinesses().then(setLocalBusinesses).catch(() => {})
-  }, [])
+    if (!hasDesktopIpc() || !userId) return
+    getLocalBusinesses(userId).then(setLocalBusinesses).catch(() => {})
+  }, [userId])
 
   useEffect(() => {
-    if (!isSyncMenuOpen && !isLocaleMenuOpen && !isBusinessMenuOpen) {
+    if (!isLocaleMenuOpen && !isBusinessMenuOpen) {
       return
     }
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node
-      const insideSyncMenu = syncMenuRef.current?.contains(target)
       const insideLocaleMenu = localeMenuRef.current?.contains(target)
       const insideBusinessMenu = businessMenuRef.current?.contains(target)
 
-      if (!insideSyncMenu && !insideLocaleMenu && !insideBusinessMenu) {
-        setIsSyncMenuOpen(false)
+      if (!insideLocaleMenu && !insideBusinessMenu) {
         setIsLocaleMenuOpen(false)
         setIsBusinessMenuOpen(false)
       }
@@ -77,7 +72,6 @@ export function TopBar() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsSyncMenuOpen(false)
         setIsLocaleMenuOpen(false)
         setIsBusinessMenuOpen(false)
       }
@@ -90,7 +84,7 @@ export function TopBar() {
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isSyncMenuOpen, isLocaleMenuOpen, isBusinessMenuOpen])
+  }, [isLocaleMenuOpen, isBusinessMenuOpen])
 
   const handleSwitchBusiness = async (targetBusinessId: string) => {
     if (targetBusinessId === businessId || isSwitching) return
@@ -113,51 +107,16 @@ export function TopBar() {
   const isDark = resolvedTheme === 'dark'
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
   const isDesktopRuntime = hasDesktopIpc()
+  const platform = mounted ? ipc.app.platform : ''
+  const isWin32 = platform === 'win32'
   const currentLocale: Locale = locale.startsWith('fr') ? 'fr' : 'en'
   const canSwitch = localBusinesses.length > 1 && snapshot.network.online && !isSwitching
 
-  const qualityLabels = {
-    offline: t('quality.offline'),
-    weak: t('quality.weak'),
-    fair: t('quality.fair'),
-    strong: t('quality.strong'),
-    very_strong: t('quality.very_strong'),
-  } as const
-
-  const statusLabels = {
-    idle: t('status.idle'),
-    syncing: t('status.syncing'),
-    synced: t('status.synced'),
-    error: t('status.error'),
-    paused: t('status.paused'),
-    disabled: t('status.disabled'),
-  } as const
-
-  const realtimeModeLabels = {
-    disabled: t('realtime.mode.disabled'),
-    fallback: t('realtime.mode.fallback'),
-    realtime: t('realtime.mode.realtime'),
-  } as const
-
-  const realtimeStatusLabels = {
-    disconnected: t('realtime.status.disconnected'),
-    connecting: t('realtime.status.connecting'),
-    connected: t('realtime.status.connected'),
-    reconnecting: t('realtime.status.reconnecting'),
-  } as const
-
-  const qualityLabel = qualityLabels[snapshot.network.quality]
-  const statusLabel = statusLabels[snapshot.status]
-  const minQualityLabel = qualityLabels[snapshot.settings.minQuality]
-  const realtimeModeLabel = realtimeModeLabels[snapshot.realtime.mode]
-  const realtimeStatusLabel = realtimeStatusLabels[snapshot.realtime.status]
   const lastSyncLabel = snapshot.lastSyncedAt
-    ? new Intl.DateTimeFormat(currentLocale, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(snapshot.lastSyncedAt))
+    ? new Intl.DateTimeFormat(currentLocale, { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date(snapshot.lastSyncedAt),
+      )
     : t('never')
-  const autoSyncWarning = t('auto_sync_warning')
   const activePlanLabel = planState ? t('plan_label', { plan: planState.effectivePlan }) : null
   const trialDaysRemaining =
     planState?.trialEndsAt && planState.status === 'TRIAL'
@@ -171,32 +130,13 @@ export function TopBar() {
     fr: t('languages.fr'),
   }
 
-  const statusToneClassName =
-    snapshot.status === 'synced'
-      ? isDark
-        ? 'border border-emerald-900/70 bg-emerald-950/40 text-emerald-300'
-        : 'bg-[#E4F3E6] text-[#3B6D11]'
-      : snapshot.status === 'syncing'
-        ? isDark
-          ? 'border border-sky-900/70 bg-sky-950/40 text-sky-300'
-          : 'bg-[#E6F1FB] text-[#185FA5]'
-        : snapshot.status === 'error'
-          ? isDark
-            ? 'border border-rose-900/70 bg-rose-950/40 text-rose-300'
-            : 'bg-[#FCEBEB] text-[#A32D2D]'
-          : snapshot.status === 'paused'
-            ? isDark
-              ? 'border border-amber-900/70 bg-amber-950/40 text-amber-300'
-              : 'bg-[#FAEEDA] text-[#854F0B]'
-            : isDark
-              ? 'border border-border/70 bg-background/80 text-muted-foreground shadow-sm'
-              : 'bg-white/10 text-white/85'
-
   const headerClassName = cn(
     'relative z-40 isolate flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3',
     isDark
       ? 'border-b border-border/70 bg-card/50 text-foreground backdrop-blur-sm'
       : 'border-b border-primary/20 bg-primary text-primary-foreground',
+    isDesktopRuntime && 'app-drag',
+    isDesktopRuntime && isWin32 && 'pr-[138px]',
   )
 
   const brandTileClassName = cn(
@@ -227,16 +167,45 @@ export function TopBar() {
       : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
   )
 
+  const syncButtonClassName = cn(
+    'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60',
+    snapshot.status === 'synced'
+      ? isDark
+        ? 'border-emerald-900/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/60'
+        : 'border-emerald-200 bg-[#E4F3E6] text-[#3B6D11] hover:bg-emerald-100'
+      : snapshot.status === 'error'
+        ? isDark
+          ? 'border-rose-900/70 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60'
+          : 'border-rose-200 bg-[#FCEBEB] text-[#A32D2D] hover:bg-rose-100'
+        : snapshot.status === 'paused'
+          ? isDark
+            ? 'border-amber-900/70 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60'
+            : 'border-amber-200 bg-[#FAEEDA] text-[#854F0B] hover:bg-amber-100'
+          : isDark
+            ? 'border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary/80'
+            : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
+  )
+
+  const syncButtonLabel =
+    snapshot.status === 'syncing'
+      ? t('syncing')
+      : snapshot.status === 'synced'
+        ? t('status.synced')
+        : snapshot.status === 'error'
+          ? t('status.error')
+          : snapshot.status === 'paused'
+            ? t('status.paused')
+            : t('sync_now')
+
 
   return (
     <header className={headerClassName}>
-      <div ref={businessMenuRef} className="relative flex min-w-0 max-w-[260px] shrink-0 items-center">
+      <div ref={businessMenuRef} className="app-no-drag relative flex min-w-0 max-w-[260px] shrink-0 items-center">
         {canSwitch ? (
           <button
             type="button"
             onClick={() => {
               setIsBusinessMenuOpen((prev) => !prev)
-              setIsSyncMenuOpen(false)
             }}
             aria-expanded={isBusinessMenuOpen}
             aria-haspopup="menu"
@@ -248,7 +217,7 @@ export function TopBar() {
             <div className={brandTileClassName}>{getInitials(businessName)}</div>
             <div className="min-w-0">
               <div className="flex items-center gap-1 text-sm font-semibold">
-                <span className="truncate">{businessName ?? t('business_fallback')}</span>
+                <span className="truncate">{(businessName ?? t('business_fallback')).slice(0, 23) + (((businessName ?? t('business_fallback')).length) > 23 ? '...' : '')}</span>
                 <svg
                   viewBox="0 0 20 20"
                   width="12"
@@ -275,7 +244,7 @@ export function TopBar() {
               {getInitials(businessName)}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{businessName ?? t('business_fallback')}</div>
+              <div className="truncate text-sm font-semibold">{(businessName ?? t('business_fallback')).slice(0, 23) + (((businessName ?? t('business_fallback')).length) > 23 ? '...' : '')}</div>
               <div className={brandSubtitleClassName}>
                 {isDesktopRuntime ? t('last_sync', { time: lastSyncLabel }) : t('desktop_only_subtitle')}
               </div>
@@ -331,27 +300,8 @@ export function TopBar() {
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        {isDesktopRuntime ? (
-          <>
-            <span className={passiveChipClassName}>
-              <span
-                className={cn(
-                  'h-2 w-2 rounded-full',
-                  snapshot.network.online ? 'bg-[#97C459]' : 'bg-[#FAC775]',
-                )}
-              />
-              {t('quality_label', { quality: qualityLabel })}
-            </span>
-            <span className={cn('inline-flex rounded-full px-3 py-1.5 font-medium', statusToneClassName)}>
-              {t('status_label', { status: statusLabel })}
-            </span>
-          </>
-        ) : (
-          <span className={passiveChipClassName}>
-            {t('desktop_only_title')}
-          </span>
-        )}
+      <div className="app-no-drag flex flex-wrap items-center gap-2 text-xs">
+        
         {isDesktopRuntime && activePlanLabel ? (
           <span className={passiveChipClassName}>
             {activePlanLabel}
@@ -369,171 +319,13 @@ export function TopBar() {
         ) : null}
       </div>
 
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        {isDesktopRuntime ? (
-          <div ref={syncMenuRef} className="relative">
-            <div className="group relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSyncMenuOpen((current) => !current)
-                  setIsLocaleMenuOpen(false)
-                  setIsBusinessMenuOpen(false)
-                }}
-                aria-expanded={isSyncMenuOpen}
-                aria-haspopup="dialog"
-                className={cn(
-                  'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition',
-                  snapshot.settings.autoSyncEnabled
-                    ? chromeButtonClassName
-                    : 'border-[#FAC775]/40 bg-[#FAEEDA] text-[#854F0B] hover:bg-[#FCE6BC]',
-                )}
-              >
-                <span>
-                  {snapshot.settings.autoSyncEnabled ? t('auto_sync_on') : t('auto_sync_off')}
-                </span>
-                {!snapshot.settings.autoSyncEnabled ? (
-                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#A32D2D] px-1 text-[10px] font-semibold text-white">
-                    !
-                  </span>
-                ) : null}
-                <svg
-                  viewBox="0 0 20 20"
-                  width="12"
-                  height="12"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={cn('transition-transform', isSyncMenuOpen ? 'rotate-180' : '')}
-                >
-                  <path d="m5 7 5 5 5-5" />
-                </svg>
-              </button>
-
-              {snapshot.settings.autoSyncEnabled ? (
-                <div
-                  className={cn(
-                    'pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-[70] hidden rounded-full border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] shadow-sm group-hover:flex group-focus-within:flex',
-                    snapshot.realtime.mode === 'realtime'
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : snapshot.realtime.mode === 'fallback'
-                        ? 'border-amber-200 bg-amber-50 text-amber-700'
-                        : 'border-border bg-background text-muted-foreground',
-                  )}
-                >
-                  {t('realtime_badge')}: {realtimeModeLabel}
-                </div>
-              ) : null}
-
-              {!snapshot.settings.autoSyncEnabled && !isSyncMenuOpen ? (
-                <div className="pointer-events-none absolute right-0 top-[calc(100%+0.5rem)] z-[70] hidden w-80 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-900 shadow-lg group-hover:block group-focus-within:block">
-                  {autoSyncWarning}
-                </div>
-              ) : null}
-            </div>
-
-            {isSyncMenuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+0.75rem)] z-[80] w-80 rounded-2xl border border-border bg-card p-4 shadow-xl">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-card-foreground">{t('settings_title')}</p>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t('settings_description')}
-                  </p>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t('realtime_status_label', {
-                      mode: realtimeModeLabel,
-                      status: realtimeStatusLabel,
-                    })}
-                  </p>
-                </div>
-
-                {snapshot.status === 'error' && snapshot.lastError ? (
-                  <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
-                    <p className="font-semibold">{t('sync_issue_label')}</p>
-                    <p className="mt-1">{snapshot.lastError}</p>
-                  </div>
-                ) : null}
-
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-xl border border-border bg-background px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-foreground">{t('auto_sync_label')}</p>
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          {snapshot.settings.autoSyncEnabled
-                            ? t('auto_sync_help_on')
-                            : t('auto_sync_help_off')}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void updateSettings({
-                            autoSyncEnabled: !snapshot.settings.autoSyncEnabled,
-                          })
-                        }
-                        className={cn(
-                          'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                          snapshot.settings.autoSyncEnabled
-                            ? 'bg-foreground text-background hover:opacity-90'
-                            : 'bg-amber-600 text-white hover:bg-amber-700',
-                        )}
-                      >
-                        {snapshot.settings.autoSyncEnabled
-                          ? t('auto_sync_disable')
-                          : t('auto_sync_enable')}
-                      </button>
-                    </div>
-                  </div>
-
-                  <label className="block space-y-1">
-                    <span className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      {t('min_quality_label')}
-                    </span>
-                    <select
-                      value={snapshot.settings.minQuality}
-                      onChange={(event) =>
-                        void updateSettings({
-                          minQuality: event.target.value as SyncSettings['minQuality'],
-                        })
-                      }
-                      disabled={!snapshot.settings.autoSyncEnabled}
-                      className="block h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {syncQualityOptions.map((quality) => (
-                        <option key={quality} value={quality}>
-                          {qualityLabels[quality]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {snapshot.settings.autoSyncEnabled
-                      ? t('min_quality_help', { quality: minQualityLabel })
-                      : t('min_quality_disabled')}
-                  </p>
-
-                  {!snapshot.settings.autoSyncEnabled ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-                      {autoSyncWarning}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
+      <div className="app-no-drag ml-auto mr-4 flex flex-wrap items-center gap-2">
         {isDesktopRuntime ? (
           <button
             type="button"
             onClick={() => void trigger()}
             disabled={snapshot.status === 'syncing'}
-            className={cn(chromeButtonClassName, 'disabled:cursor-not-allowed disabled:opacity-60')}
+            className={syncButtonClassName}
           >
             <svg
               viewBox="0 0 20 20"
@@ -552,7 +344,7 @@ export function TopBar() {
               <path d="M15 8A6 6 0 0 0 5 5l-1 2" />
               <path d="M5 12a6 6 0 0 0 10 3l1-2" />
             </svg>
-            <span>{snapshot.status === 'syncing' ? t('syncing') : t('sync_now')}</span>
+            <span>{syncButtonLabel}</span>
           </button>
         ) : null}
 
@@ -608,7 +400,6 @@ export function TopBar() {
             type="button"
             onClick={() => {
               setIsLocaleMenuOpen((current) => !current)
-              setIsSyncMenuOpen(false)
               setIsBusinessMenuOpen(false)
             }}
             aria-expanded={isLocaleMenuOpen}
@@ -656,7 +447,7 @@ export function TopBar() {
                 return (
                   <Link
                     locale={language}
-                    href={pathname.replace(/^\/(en|fr)/, '')}
+                    href={searchParams.size > 0 ? `${pathname}?${searchParams.toString()}` : pathname}
                     key={language}
                     onClick={() => setIsLocaleMenuOpen(false)}
                     className={cn(
