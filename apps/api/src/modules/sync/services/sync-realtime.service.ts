@@ -51,8 +51,8 @@ export class SyncRealtimeService implements OnApplicationBootstrap, OnApplicatio
       },
     })
 
-    this.server.on('connection', (socket) => {
-      this.handleConnection(socket as SyncSocket)
+    this.server.on('connection', (socket: SyncSocket) => {
+      this.handleConnection(socket)
     })
 
     this.logger.log('Sync realtime server is ready', 'SyncRealtimeService', {
@@ -112,7 +112,7 @@ export class SyncRealtimeService implements OnApplicationBootstrap, OnApplicatio
     socket.data.deviceId = null
     socket.data.userId = null
 
-    socket.on('auth.authenticate', (payload) => {
+    socket.on('auth.authenticate', (payload: SyncRealtimeAuthPayload) => {
       void this.authenticateConnection(socket, payload)
     })
 

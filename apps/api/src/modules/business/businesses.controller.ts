@@ -11,7 +11,7 @@ import type {
 } from '@biztrack/types'
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
-import { serializeDto, serializeDtos } from '@/common/http/serialization'
+import { BusinessMembersRepository } from './repositories/business-members.repository'
 import { BusinessService } from './business.service'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import {
@@ -24,33 +24,33 @@ import {
 import { UpdateBusinessDto } from './dto/update-business.dto'
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto'
 import { BulkUpdateMemberRoleDto } from './dto/bulk-update-member-role.dto'
+import { serializeDto, serializeDtos } from '@/common/http/serialization'
 
 @ApiTags('Businesses')
 @ApiBearerAuth()
 @Controller('businesses')
 export class BusinessesController {
-  constructor(private businessService: BusinessService) {}
+  constructor(
+    private membersRepo: BusinessMembersRepository,
+    private businessService: BusinessService,
+  ) {}
 
   @Get('mine')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'List businesses for current user' })
   async mine(@CurrentUser() user: JwtPayload) {
-  const memberships = await this.businessService.listMembershipsForUser(user.sub)
-  const businesses = serializeDtos(memberships, (membership) =>
-    BusinessMembershipSummaryDto.fromEntity(membership),
-  )
-  return businesses
+    const memberships = await this.businessService.listMembershipsForUser(user.sub)
+    const businesses = serializeDtos(memberships, (membership) =>
+      BusinessMembershipSummaryDto.fromEntity(membership),
+    )
+    return businesses
   }
 
   @Post('setup')
   @UseGuards(Phase2Guard)
   @ApiOperation({ summary: 'Setup business details during onboarding' })
-  async setup(@CurrentUser() user: JwtPayload, @Body() dto: UpdateBusinessDto): Promise<Business> {
-    return serializeDto(
-      BusinessDto.fromEntity(
-        await this.businessService.update(user.businessId as string, user.sub, dto),
-      )!,
-    )
+  setup(@CurrentUser() user: JwtPayload, @Body() dto: UpdateBusinessDto) {
+    return this.businessService.update(user.businessId as string, user.sub, dto)
   }
 
   @Get('members')

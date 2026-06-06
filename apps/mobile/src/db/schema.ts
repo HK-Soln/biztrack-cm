@@ -45,6 +45,7 @@ export const products = sqliteTable('products', {
   lowStockThreshold: integer('low_stock_threshold').notNull().default(5),
   unit: text('unit').notNull(),
   imageUrl: text('image_url'),
+  description: text('description'),
   ...baseColumns,
 });
 
@@ -59,6 +60,7 @@ export const sales = sqliteTable('sales', {
   id: text('id').primaryKey(),
   businessId: text('business_id').notNull(),
   cashierId: text('cashier_id').notNull(),
+  customerId: text('customer_id'),
   deviceId: text('device_id'),
   totalAmount: real('total_amount').notNull(),
   discountAmount: real('discount_amount').notNull().default(0),
@@ -88,6 +90,7 @@ export const expenses = sqliteTable('expenses', {
   amount: real('amount').notNull(),
   description: text('description'),
   category: text('category').notNull(),
+  date: text('date').notNull().default(''),
   ...baseColumns,
 });
 
@@ -106,3 +109,48 @@ export const syncLogs = sqliteTable('sync_logs', {
   businessId: text('business_id').notNull(),
   syncedAt: integer('synced_at', { mode: 'timestamp' }).notNull(),
 });
+
+export const contacts = sqliteTable('contacts', {
+  id: text('id').primaryKey(),
+  businessId: text('business_id').notNull(),
+  type: text('type').notNull(), // CUSTOMER | SUPPLIER | BOTH
+  name: text('name').notNull(),
+  phone: text('phone'),
+  phoneAlt: text('phone_alt'),
+  address: text('address'),
+  notes: text('notes'),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  ...baseColumns,
+});
+
+export const debts = sqliteTable('debts', {
+  id: text('id').primaryKey(),
+  businessId: text('business_id').notNull(),
+  contactId: text('contact_id').notNull(),
+  direction: text('direction').notNull(), // RECEIVABLE | PAYABLE
+  sourceType: text('source_type').notNull(), // SALE | RESTOCK | MANUAL
+  sourceId: text('source_id'),
+  sourceReference: text('source_reference'),
+  originalAmount: real('original_amount').notNull(),
+  paidAmount: real('paid_amount').notNull().default(0),
+  outstandingAmount: real('outstanding_amount').notNull(),
+  status: text('status').notNull(), // OUTSTANDING | PARTIALLY_PAID | SETTLED | WRITTEN_OFF
+  dueDate: text('due_date'),
+  notes: text('notes'),
+  settledAt: integer('settled_at', { mode: 'timestamp' }),
+  writtenOffAt: integer('written_off_at', { mode: 'timestamp' }),
+  writtenOffReason: text('written_off_reason'),
+  ...baseColumns,
+});
+
+export const debtPayments = sqliteTable('debt_payments', {
+  id: text('id').primaryKey(),
+  businessId: text('business_id').notNull(),
+  debtId: text('debt_id').notNull(),
+  amount: real('amount').notNull(),
+  method: text('method').notNull(),
+  paymentDate: text('payment_date').notNull(),
+  notes: text('notes'),
+  ...baseColumns,
+});
+
