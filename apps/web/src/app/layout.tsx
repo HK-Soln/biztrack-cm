@@ -1,7 +1,7 @@
+// @ts-ignore
+import './globals.css'
 import type { Metadata } from 'next'
 import { Analytics } from "@vercel/analytics/next"
-// @ts-expect-error - Global CSS import, allowed in Next.js
-import './globals.css'
 
 export const metadata: Metadata = {
   title: 'BizTrack CM',
