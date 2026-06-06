@@ -1,4 +1,6 @@
 import type { Metadata } from 'next'
+import { Analytics } from "@vercel/analytics/next"
+// @ts-expect-error - Global CSS import, allowed in Next.js
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -9,6 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <Analytics />
       <body>{children}</body>
     </html>
   )
