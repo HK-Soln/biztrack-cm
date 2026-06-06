@@ -53,6 +53,11 @@ import { BusinessesRepository } from '@/modules/business/repositories/businesses
 import { RedisService } from '@/common/redis/redis.service'
 import { generateSlug } from '@biztrack/utils'
 import { NotificationsService } from '@/modules/notifications/services/notifications.service'
+import {
+  NotificationChannel,
+  NotificationType,
+} from '@/entities/notification.entity'
+import { WhatsAppProvider } from '@/modules/notifications/providers/whatsapp.provider'
 import { RolesService } from '@/modules/roles/roles.service'
 
 @Injectable()
@@ -71,6 +76,7 @@ export class AuthService {
     private permissionsService: PermissionsService,
     private quotaService: QuotaService,
     private notificationsService: NotificationsService,
+    private whatsappProvider: WhatsAppProvider,
     private rolesService: RolesService,
     private i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private logger: Logger,
@@ -80,8 +86,9 @@ export class AuthService {
   }
 
   async register(dto: RegisterRequest) {
+    console.log(JSON.stringify(dto, null, 2))
     const email = dto.email?.toLowerCase()
-    const phone = dto.phone
+    let phone = dto.phone
     this.logger.debug('Register attempt', 'AuthService', { email, phone })
 
     try {
@@ -101,6 +108,13 @@ export class AuthService {
           await this.i18n.translate('auth.register.phone_exists'),
           'PHONE_IN_USE',
         )
+      }
+
+      if (
+        (dto.preferredPhoneChannel ?? PrefferedPhoneChannel.SMS) === PrefferedPhoneChannel.WHATSAPP &&
+        this.isWhatsAppConfigured()
+      ) {
+        phone = await this.resolveWhatsAppPhoneForRegister(phone)
       }
 
       const passwordHash = await this.passwordManager.hashPassword(dto.password)
@@ -127,6 +141,7 @@ export class AuthService {
         VerificationPurpose.VERIFY_PHONE,
       )
 
+      this.dispatchPhoneOtp(user, verification.code)
       this.logger.log('User registered', 'AuthService', { userId: user.id })
       return {
         nextStep: AuthNextStep.VERIFY_PHONE,
@@ -241,6 +256,10 @@ export class AuthService {
           VerificationPurpose.VERIFY_PHONE,
         )
 
+        if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+          await this.assertWhatsAppContactExistsForOtp(user.phone!)
+        }
+        this.dispatchPhoneOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_PHONE,
           context: this.buildOtpContext(
@@ -264,6 +283,7 @@ export class AuthService {
           VerificationPurpose.VERIFY_EMAIL,
         )
 
+        this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
           context: this.buildOtpContext(
@@ -372,6 +392,7 @@ export class AuthService {
           VerificationPurpose.VERIFY_EMAIL,
         )
 
+        this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
           context: this.buildOtpContext(
@@ -478,6 +499,7 @@ export class AuthService {
           VerificationChannel.EMAIL,
           VerificationPurpose.VERIFY_EMAIL,
         )
+        this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
           context: this.buildOtpContext(
@@ -503,6 +525,10 @@ export class AuthService {
       const nextStep =
         dto.type === OtpType.LOGIN ? AuthNextStep.CONFIRM_LOGIN : AuthNextStep.VERIFY_PHONE
 
+      if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+        await this.assertWhatsAppContactExistsForOtp(user.phone!)
+      }
+      this.dispatchPhoneOtp(user, verification.code)
       return {
         nextStep,
         context: this.buildOtpContext(
@@ -1153,6 +1179,14 @@ export class AuthService {
     const codeHash = await this.passwordManager.hashOtp(code)
     const expiresAt = new Date(Date.now() + this.getOtpTtlMinutes() * 60 * 1000)
 
+    this.logger.debug('Creating verification code', 'AuthService', {
+      userId,
+      channel,
+      purpose,
+      expiresAt,
+      code
+    })
+
     const record = this.verificationCodesRepo.create({
       userId,
       channel,
@@ -1222,6 +1256,62 @@ export class AuthService {
     return this.config.get('OTP_TTL_MINUTES', { infer: true }) || 10
   }
 
+  /**
+   * Fire-and-forget: enqueue an OTP notification to the user's phone via
+   * WhatsApp or SMS depending on their preferred channel.
+   * Never throws — a delivery failure must never block the auth response.
+   */
+  private dispatchPhoneOtp(user: User, code: string): void {
+    const channel =
+      user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP
+        ? NotificationChannel.WHATSAPP
+        : NotificationChannel.SMS
+
+    const ttl = this.getOtpTtlMinutes()
+    const body = `Your BizTrack CM verification code is: *${code}*\n\nThis code expires in ${ttl} minutes. Do not share it with anyone.`
+
+    void this.notificationsService
+      .createAndEnqueue({
+        channel,
+        type: NotificationType.OTP,
+        recipient: user.phone!,
+        body,
+        userId: user.id,
+      })
+      .catch((err) =>
+        this.logger.error('Failed to enqueue phone OTP notification', 'AuthService', {
+          userId: user.id,
+          err,
+        }),
+      )
+  }
+
+  /**
+   * Fire-and-forget: enqueue an OTP notification to the user's email address.
+   * Never throws — a delivery failure must never block the auth response.
+   */
+  private dispatchEmailOtp(user: User, code: string): void {
+    const ttl = this.getOtpTtlMinutes()
+    const subject = 'Your BizTrack CM verification code'
+    const body = `Your verification code is: ${code}\n\nThis code expires in ${ttl} minutes. Do not share it with anyone.`
+
+    void this.notificationsService
+      .createAndEnqueue({
+        channel: NotificationChannel.EMAIL,
+        type: NotificationType.OTP,
+        recipient: user.email!,
+        subject,
+        body,
+        userId: user.id,
+      })
+      .catch((err) =>
+        this.logger.error('Failed to enqueue email OTP notification', 'AuthService', {
+          userId: user.id,
+          err,
+        }),
+      )
+  }
+
   private getInviteTtlDays(): number {
     return this.config.get('INVITE_TTL_DAYS', { infer: true }) || 7
   }
@@ -1237,6 +1327,10 @@ export class AuthService {
       VerificationPurpose.LOGIN,
     )
 
+    if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+      await this.assertWhatsAppContactExistsForOtp(user.phone!)
+    }
+    this.dispatchPhoneOtp(user, verification.code)
     return {
       nextStep: AuthNextStep.CONFIRM_LOGIN,
       context: this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
@@ -1297,10 +1391,13 @@ export class AuthService {
     }
 
     const business = await this.createDefaultBusiness(user)
+    await this.rolesService.seedDefaultRoles(business.id, user.id)
+    const ownerRole = await this.rolesService.findOwnerRole(business.id)
     const member = this.businessMembersRepo.create({
       businessId: business.id,
       userId: user.id,
       role: BusinessMemberRole.OWNER,
+      roleId: ownerRole?.id ?? null,
       status: BusinessMemberStatus.ACTIVE,
     })
     await this.businessMembersRepo.save(member)
@@ -1472,6 +1569,49 @@ export class AuthService {
     if (!domain) return email
     const prefix = (name || '').slice(0, 1)
     return `${prefix}***@${domain}`
+  }
+
+  private isWhatsAppConfigured(): boolean {
+    return !!this.config.get('WHATSAPP_BASE_URL', { infer: true })
+  }
+
+  /**
+   * For registration: verify the phone is on WhatsApp.
+   * Cameroon-specific: if the local number starts with '6' (e.g. 237650123456)
+   * and that number isn't found, try dropping the '6' (23750123456).
+   * Returns the phone string that is confirmed on WhatsApp.
+   */
+  private async resolveWhatsAppPhoneForRegister(phone: string): Promise<string> {
+    const exists = await this.whatsappProvider.isWhatsAppContact(phone)
+    if (exists) return phone
+
+    const CAMEROON_CC = '237'
+    const digits = phone.replace(/\D/g, '')
+    if (digits.startsWith(CAMEROON_CC)) {
+      const local = digits.slice(CAMEROON_CC.length)
+      if (local.startsWith('6') && local.length > 1) {
+        const altPhone = CAMEROON_CC + local.slice(1)
+        const altExists = await this.whatsappProvider.isWhatsAppContact(altPhone)
+        if (altExists) return altPhone
+      }
+    }
+
+    throw new AppBadRequestException(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await this.i18n.translate('auth.register.invalid_whatsapp_number' as any),
+      'INVALID_WHATSAPP_NUMBER',
+    )
+  }
+
+  private async assertWhatsAppContactExistsForOtp(phone: string): Promise<void> {
+    const exists = await this.whatsappProvider.isWhatsAppContact(phone)
+    if (!exists) {
+      throw new AppBadRequestException(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await this.i18n.translate('auth.register.invalid_whatsapp_number' as any),
+        'INVALID_WHATSAPP_NUMBER',
+      )
+    }
   }
 
   private async parseRefreshToken(raw: string): Promise<{ tokenId: string }> {

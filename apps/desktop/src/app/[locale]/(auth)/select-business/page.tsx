@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import type { BusinessMembershipSummary } from '@biztrack/types'
 import { Button } from '@biztrack/ui'
+import { toast } from 'sonner'
 import { AuthCard } from '@/components/auth/AuthCard'
 import { getCurrentUser, getBusinesses, getAuthTokens, selectBusiness } from '@/services/auth.api'
 import { getApiErrorMessage } from '@/services/api-response'
@@ -19,11 +20,11 @@ export default function SelectBusinessPage() {
   const router = useRouter()
   const [businesses, setBusinesses] = useState<BusinessMembershipSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   const setTokens = useAuthStore((s) => s.setTokens)
   const applyUser = useAuthStore((s) => s.applyUser)
   const clearSession = useAuthStore((s) => s.clearSession)
+  const userId = useAuthStore((s) => s.user?.id)
 
   const goTo = (path: string) => router.push(`/${locale}${path}`)
 
@@ -35,11 +36,11 @@ export default function SelectBusinessPage() {
         if (!mounted) return
         setBusinesses(items)
         // Always override local businesses with fresh API data
-        void upsertLocalBusinesses(items)
+        if (userId) void upsertLocalBusinesses(items, userId)
       })
       .catch((fetchError) => {
         if (!mounted) return
-        setError(getApiErrorMessage(fetchError, t('select_business.load_error')))
+        toast.error(getApiErrorMessage(fetchError, t('select_business.load_error')))
       })
       .finally(() => {
         if (!mounted) return
@@ -48,10 +49,9 @@ export default function SelectBusinessPage() {
     return () => {
       mounted = false
     }
-  }, [t])
+  }, [t, userId])
 
   const handleSelect = async (businessId: string) => {
-    setError(null)
     try {
       const response = await selectBusiness({ businessId })
       const tokens = getAuthTokens(response)
@@ -77,7 +77,7 @@ export default function SelectBusinessPage() {
       }
       return goTo(routeForNextStep(response.nextStep))
     } catch (selectError) {
-      setError(getApiErrorMessage(selectError, t('select_business.select_error')))
+      toast.error(getApiErrorMessage(selectError, t('select_business.select_error')))
     }
   }
 
@@ -89,7 +89,6 @@ export default function SelectBusinessPage() {
   return (
     <AuthCard title={t('select_business.title')} subtitle={t('select_business.subtitle')}>
       {loading && <p className="text-sm text-muted-foreground">{t('select_business.loading')}</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
       {!loading && businesses.length === 0 && (
         <p className="text-sm text-muted-foreground">{t('select_business.empty')}</p>
       )}

@@ -41,21 +41,43 @@ function getWindowIconPath() {
   return join(app.getAppPath(), 'assets', 'icon.png')
 }
 
+const TITLEBAR_HEIGHT = 68
+
+function getTitleBarOverlayOptions() {
+  const isDark = nativeTheme.shouldUseDarkColors
+  return {
+    color: isDark ? '#171716' : '#185FA5',
+    symbolColor: '#ffffff',
+    height: TITLEBAR_HEIGHT,
+  }
+}
+
 function createWindow() {
+  const isMac = process.platform === 'darwin'
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 600,
     icon: getWindowIconPath(),
+    backgroundColor: '#185FA5',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    titleBarStyle: 'hiddenInset',
+    // macOS: hide title bar and inset traffic lights into the content area.
+    // Windows/Linux: hide title bar and use titleBarOverlay so native window
+    // controls (− □ ×) render at the correct height over the web content.
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac
+      ? { trafficLightPosition: { x: 14, y: 28 } }
+      : { titleBarOverlay: getTitleBarOverlayOptions() }),
     show: false,
   })
+
+  win.setMenu(null)
 
   if (isDev) {
     const rendererUrl = process.env.DESKTOP_RENDERER_URL
@@ -139,10 +161,16 @@ app.whenReady().then(async () => {
   ipcMain.on('set-theme', (_event, theme: 'light' | 'dark' | 'system') => {
     nativeTheme.themeSource = theme
     broadcastTheme(getSystemTheme())
+    if (process.platform !== 'darwin') {
+      BrowserWindow.getAllWindows().forEach((w) => w.setTitleBarOverlay(getTitleBarOverlayOptions()))
+    }
   })
 
   nativeTheme.on('updated', () => {
     broadcastTheme(getSystemTheme())
+    if (process.platform !== 'darwin') {
+      BrowserWindow.getAllWindows().forEach((w) => w.setTitleBarOverlay(getTitleBarOverlayOptions()))
+    }
   })
 
   networkService.start()

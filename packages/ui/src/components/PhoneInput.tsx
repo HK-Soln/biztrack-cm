@@ -23,10 +23,11 @@ export interface PhoneInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
   value?: string
   onChange?: (value?: string) => void
+  disableCountrySelect?: boolean
 }
 
 const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
-  ({ className, value, onChange, ...props }, ref) => {
+  ({ className, value, onChange, disableCountrySelect = false, ...props }, ref) => {
     const PhoneInputPrimitive = PhoneInputBase as unknown as React.ComponentType<any>
 
     return (
@@ -46,7 +47,7 @@ const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
           value={value}
           onChange={onChange!}
           inputComponent={PhoneNumberInput}
-          countrySelectProps={{ disabled: true, className: 'text-sm text-muted-foreground bg-transparent' }}
+          countrySelectProps={{ disabled: disableCountrySelect, className: 'text-sm text-muted-foreground bg-transparent' }}
           className="w-full flex items-center gap-2"
         />
       </div>

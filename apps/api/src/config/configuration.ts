@@ -76,6 +76,11 @@ const envSchema = z.object({
   FOUNDER_EMAIL: z.preprocess(normalizeEnvString, z.string().email()).optional(),
   // Waiting list feature flags
   INTERNAL_API_SECRET: z.preprocess(normalizeEnvString, z.string()).optional(),
+  // WAHA (WhatsApp HTTP API) — self-hosted WhatsApp gateway
+  WHATSAPP_BASE_URL: z.preprocess(normalizeEnvString, z.string().url()).optional(),
+  WHATSAPP_API_KEY: z.preprocess(normalizeEnvString, z.string()).optional(),
+  WHATSAPP_SESSION: z.preprocess(normalizeEnvString, z.string()).default('default'),
+  WHATSAPP_WEBHOOK_SECRET: z.preprocess(normalizeEnvString, z.string()).optional(),
 })
 
 export type AppConfig = z.infer<typeof envSchema>

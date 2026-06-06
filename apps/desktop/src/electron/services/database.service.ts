@@ -22,8 +22,9 @@ import { migration_0017 } from '../migrations/0017_savings_transactions'
 import { migration_0018 } from '../migrations/0018_local_businesses'
 import { migration_0019 } from '../migrations/0019_local_businesses_extended'
 import { migration_0020 } from '../migrations/0020_local_user_profiles'
+import { migration_0021 } from '../migrations/0021_local_businesses_user_id'
 
-const MIGRATIONS = [migration_0001, migration_0002, migration_0003, migration_0004, migration_0005, migration_0006, migration_0007, migration_0008, migration_0009, migration_0010, migration_0011, migration_0012, migration_0013, migration_0014, migration_0015, migration_0016, migration_0017, migration_0018, migration_0019, migration_0020]
+const MIGRATIONS = [migration_0001, migration_0002, migration_0003, migration_0004, migration_0005, migration_0006, migration_0007, migration_0008, migration_0009, migration_0010, migration_0011, migration_0012, migration_0013, migration_0014, migration_0015, migration_0016, migration_0017, migration_0018, migration_0019, migration_0020, migration_0021]
 
 export class DatabaseService {
   private db: Database.Database

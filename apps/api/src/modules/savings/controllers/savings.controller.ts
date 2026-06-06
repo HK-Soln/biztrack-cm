@@ -1,12 +1,12 @@
 import { Controller, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
-import { SavingsService } from '../services/savings.service'
+import { DepositsService } from '../services/savings.service'
 
-@ApiTags('Savings')
+@ApiTags('Deposits')
 @ApiBearerAuth()
-@Controller('savings')
+@Controller('deposits')
 @UseGuards(Phase2Guard)
 export class SavingsController {
-  constructor(private readonly savingsService: SavingsService) {}
+  constructor(private readonly depositsService: DepositsService) {}
 }

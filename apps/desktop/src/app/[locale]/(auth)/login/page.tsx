@@ -4,7 +4,8 @@ import { useState, type ChangeEvent, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
-import { Input, Button, PhoneInput } from '@biztrack/ui'
+import { Input, Button, PhoneInput, InputPassword } from '@biztrack/ui'
+import { toast } from 'sonner'
 import { AuthCard } from '@/components/auth/AuthCard'
 import {
   getAuthMaskedEmail,
@@ -27,7 +28,6 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'phone' | 'email'>('phone')
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const online = useNetworkStatus()
 
@@ -39,7 +39,6 @@ export default function LoginPage() {
 
   const handleOnlineSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    setError(null)
     setLoading(true)
     try {
       const trimmed = identifier.trim()
@@ -62,7 +61,7 @@ export default function LoginPage() {
       if (apiNextStep) {
         return goTo(routeForNextStep(normalizeAuthNextStep(apiNextStep)))
       }
-      setError(getApiErrorMessage(error, t('login.error_default')))
+      toast.error(getApiErrorMessage(error, t('login.error_default')))
     } finally {
       setLoading(false)
     }
@@ -70,24 +69,23 @@ export default function LoginPage() {
 
   const handleOfflineLogin = async (event: FormEvent) => {
     event.preventDefault()
-    setError(null)
     setLoading(true)
     try {
       const storedHash = await getPasswordHash()
       if (!storedHash) {
-        setError(t('login.offline_no_hash'))
+        toast.error(t('login.offline_no_hash'))
         return
       }
       const matches = await bcrypt.compare(password, storedHash)
       if (!matches) {
-        setError(t('login.offline_incorrect'))
+        toast.error(t('login.offline_incorrect'))
         return
       }
       const { businessId, role } = await getLastSessionContext()
       await setOfflineSession(businessId ?? null, role)
       goTo('/')
     } catch {
-      setError(t('login.offline_failed'))
+      toast.error(t('login.offline_failed'))
     } finally {
       setLoading(false)
     }
@@ -121,6 +119,7 @@ export default function LoginPage() {
               onChange={(value: string | undefined) => setIdentifier(value || '')}
               disabled={!online}
               required={online}
+              autoFocus
             />
           </div>
         )}
@@ -147,6 +146,7 @@ export default function LoginPage() {
               placeholder={t('login.email_placeholder')}
               disabled={!online}
               required={online}
+              autoFocus
             />
           </div>
         )}
@@ -155,16 +155,15 @@ export default function LoginPage() {
             <label className="text-sm font-medium text-foreground">
               {t('login.password_label')}
             </label>
-            <Input
-              type="password"
+            <InputPassword
               value={password}
               onChange={(event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)}
               placeholder={t('login.password_placeholder')}
               required
+              autoFocus
             />
           </div>
         )}
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>
           {loading ? t('login.loading') : online ? t('login.continue') : t('login.offline_submit')}
         </Button>

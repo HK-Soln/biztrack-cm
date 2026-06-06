@@ -9,6 +9,7 @@ type OTPPrimitiveProps = {
   maxLength: number
   className?: string
   children?: React.ReactNode
+  autoFocus?: boolean
 }
 
 const OTPInputPrimitive = OTPInput as unknown as React.ComponentType<any>

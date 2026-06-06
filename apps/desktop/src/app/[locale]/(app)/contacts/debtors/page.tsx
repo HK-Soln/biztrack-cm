@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   DebtDirection,
@@ -12,7 +12,6 @@ import {
 import { Button, Input, NumberInput, Spinner } from '@biztrack/ui'
 import { toast } from 'sonner'
 import { SurfaceCard } from '@/components/catalog/SurfaceCard'
-import { ResourceActionMenu } from '@/components/products/ResourceActionMenu'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -32,16 +32,17 @@ import { cn } from '@/lib/utils'
 import { getApiErrorMessage } from '@/services/api-response'
 import {
   DebtLocalError,
-  getDebtByIdLocal,
   listAllDebtsByDirectionLocal,
+  listDebtsByDirectionLocal,
   recordDebtPaymentLocal,
   writeOffDebtLocal,
 } from '@/services/debts.local'
 import { useAuthStore } from '@/stores/auth.store'
-import Link from 'next/link'
+import { Link } from '@/i18n/navigation'
+import { EllipsisVertical } from 'lucide-react'
 
 type PeriodKey = 'month' | 'quarter' | 'all'
-type DebtorStatus = 'OUTSTANDING' | 'PARTIALLY_PAID' | 'SETTLED' | 'WRITTEN_OFF'
+type DebtorStatus = 'OUTSTANDING' | 'PARTIALLY_PAID'
 type DebtorStatusFilter = 'ALL' | DebtorStatus
 type MetricTone = 'default' | 'success' | 'warning' | 'danger'
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string
@@ -111,14 +112,6 @@ function buildDebtorStatus(
   outstandingAmount: number,
   paidAmount: number,
 ): DebtorStatus {
-  if (debtStatus === DebtStatus.WRITTEN_OFF) {
-    return 'WRITTEN_OFF'
-  }
-
-  if (debtStatus === DebtStatus.SETTLED || outstandingAmount <= 0) {
-    return 'SETTLED'
-  }
-
   if (debtStatus === DebtStatus.PARTIALLY_PAID || paidAmount > 0) {
     return 'PARTIALLY_PAID'
   }
@@ -185,14 +178,6 @@ function getDebtStatusBadgeClassName(status: DebtorStatus) {
     return 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
   }
 
-  if (status === 'SETTLED') {
-    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-  }
-
-  if (status === 'WRITTEN_OFF') {
-    return 'bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300'
-  }
-
   return 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'
 }
 
@@ -203,6 +188,7 @@ export default function DebtorsPage() {
   const businessId = useAuthStore((state) => state.businessId)
   const accessToken = useAuthStore((state) => state.accessToken)
   const businessCurrency = useAuthStore((state) => state.businessCurrency)
+  // Full debt list — for metrics (period filter, aging, collection snapshot)
   const [debts, setDebts] = useState<Debt[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -211,71 +197,25 @@ export default function DebtorsPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<DebtorStatusFilter>('ALL')
   const [currentPage, setCurrentPage] = useState(1)
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailDebtId, setDetailDebtId] = useState<string | null>(null)
-  const [detailDebt, setDetailDebt] = useState<Debt | null>(null)
+  // Paginated table data
+  const [tableData, setTableData] = useState<Debt[]>([])
+  const [tableTotal, setTableTotal] = useState(0)
+  const [tableTotalPages, setTableTotalPages] = useState(1)
+  const [tableLoading, setTableLoading] = useState(false)
+  const [actionState, setActionState] = useState<{ id: string; mode: 'payment' | 'writeoff' } | null>(null)
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraftState>(() => createPaymentDraft())
-  const [focusPaymentForm, setFocusPaymentForm] = useState(false)
   const [recordingPayment, setRecordingPayment] = useState(false)
   const [writeOffReasonDraft, setWriteOffReasonDraft] = useState('')
-  const [focusWriteOffForm, setFocusWriteOffForm] = useState(false)
   const [writingOff, setWritingOff] = useState(false)
-  const paymentAmountInputRef = useRef<HTMLInputElement | null>(null)
-  const writeOffReasonInputRef = useRef<HTMLInputElement | null>(null)
   const deferredSearch = useDeferredValue(search)
   const actorPayload = accessToken ? decodeJwtPayload<JwtPayload>(accessToken) : null
 
   useEffect(() => {
-    if (!detailOpen) {
-      setDetailDebt(null)
-      setDetailDebtId(null)
+    if (!actionState) {
       setPaymentDraft(createPaymentDraft())
-      setFocusPaymentForm(false)
       setWriteOffReasonDraft('')
-      setFocusWriteOffForm(false)
     }
-  }, [detailOpen])
-
-  useEffect(() => {
-    if (!detailOpen || !focusPaymentForm || detailLoading || !canRecordPaymentForDebt(detailDebt)) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      const input = paymentAmountInputRef.current
-      if (!input) {
-        return
-      }
-
-      input.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      input.focus()
-      input.select()
-      setFocusPaymentForm(false)
-    }, 30)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [detailDebt, detailLoading, detailOpen, focusPaymentForm])
-
-  useEffect(() => {
-    if (!detailOpen || !focusWriteOffForm || detailLoading || !canWriteOffDebt(detailDebt)) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      const input = writeOffReasonInputRef.current
-      if (!input) {
-        return
-      }
-
-      input.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      input.focus()
-      input.setSelectionRange(input.value.length, input.value.length)
-      setFocusWriteOffForm(false)
-    }, 30)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [detailDebt, detailLoading, detailOpen, focusWriteOffForm])
+  }, [actionState])
 
   useEffect(() => {
     if (!businessId) {
@@ -297,21 +237,13 @@ export default function DebtorsPage() {
           includePayments: true,
         })
 
-        if (!active) {
-          return
-        }
-
+        if (!active) return
         setDebts(result)
       } catch (loadError) {
-        if (!active) {
-          return
-        }
-
+        if (!active) return
         setError(getApiErrorMessage(loadError, t('load_error')))
       } finally {
-        if (active) {
-          setLoading(false)
-        }
+        if (active) setLoading(false)
       }
     }
 
@@ -322,36 +254,68 @@ export default function DebtorsPage() {
     }
   }, [businessId, reloadKey, t])
 
-  const getStatusLabel = (status: DebtorStatus) => {
-    if (status === 'PARTIALLY_PAID') {
-      return t('status.partially_paid')
+  // Reset page when table filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [deferredSearch, period, statusFilter])
+
+  // Load paginated table data
+  useEffect(() => {
+    if (!businessId) {
+      setTableData([])
+      setTableTotal(0)
+      setTableTotalPages(1)
+      return
     }
 
-    if (status === 'SETTLED') {
-      return t('status.settled')
+    const currentBusinessId = businessId
+    let active = true
+    const { dateFrom, dateTo } = getPeriodDateRange(period)
+
+    async function loadTable() {
+      setTableLoading(true)
+
+      try {
+        const result = await listDebtsByDirectionLocal(currentBusinessId, DebtDirection.RECEIVABLE, {
+          page: currentPage,
+          limit: PAGE_SIZE,
+          status: statusFilter === 'ALL' ? undefined : (statusFilter as DebtStatus),
+          search: deferredSearch || undefined,
+          dateFrom,
+          dateTo,
+          sortBy: 'createdAt',
+          sortOrder: 'DESC',
+        })
+
+        if (!active) return
+        setTableData(result.data)
+        setTableTotal(result.total)
+        setTableTotalPages(result.totalPages)
+      } catch {
+        // table errors are non-fatal; metrics still show
+      } finally {
+        if (active) setTableLoading(false)
+      }
     }
 
-    if (status === 'WRITTEN_OFF') {
-      return t('status.written_off')
-    }
+    void loadTable()
 
-    return t('status.outstanding')
-  }
+    return () => {
+      active = false
+    }
+  }, [businessId, reloadKey, currentPage, deferredSearch, period, statusFilter])
 
   const updateDebtRow = (debt: Debt) => {
     setDebts((current) => {
       let found = false
       const next = current.map((item) => {
-        if (item.id !== debt.id) {
-          return item
-        }
-
+        if (item.id !== debt.id) return item
         found = true
         return debt
       })
-
       return found ? next : [debt, ...next]
     })
+    setTableData((current) => current.map((item) => (item.id === debt.id ? debt : item)))
   }
 
   const getDebtPaymentErrorMessage = (errorValue: unknown) => {
@@ -386,46 +350,24 @@ export default function DebtorsPage() {
     return t('detail.write_off_error')
   }
 
-  const openDetail = async (
-    debtId: string,
-    options?: {
-      focusPaymentForm?: boolean
-      focusWriteOffForm?: boolean
-    },
-  ) => {
-    if (!businessId) {
-      return
-    }
-
-    setDetailOpen(true)
-    setDetailLoading(true)
-    setDetailDebtId(debtId)
-    setDetailDebt(null)
+  const openAction = (debtId: string, mode: 'payment' | 'writeoff') => {
+    setActionState({ id: debtId, mode })
     setPaymentDraft(createPaymentDraft())
-    setFocusPaymentForm(Boolean(options?.focusPaymentForm))
     setWriteOffReasonDraft('')
-    setFocusWriteOffForm(Boolean(options?.focusWriteOffForm))
-
-    try {
-      const debt = await getDebtByIdLocal(businessId, debtId, DebtDirection.RECEIVABLE)
-      setDetailDebt(debt)
-    } catch {
-      toast.error(t('load_error'))
-    } finally {
-      setDetailLoading(false)
-    }
   }
 
-  const handleOpenRecordPayment = async (debtId: string) => {
-    await openDetail(debtId, { focusPaymentForm: true })
+  const handleOpenRecordPayment = (debtId: string) => {
+    openAction(debtId, 'payment')
   }
 
-  const handleOpenWriteOff = async (debtId: string) => {
-    await openDetail(debtId, { focusWriteOffForm: true })
+  const handleOpenWriteOff = (debtId: string) => {
+    openAction(debtId, 'writeoff')
   }
+
+  const activeDebt = actionState ? (tableData.find((d) => d.id === actionState.id) ?? null) : null
 
   const handleRecordPayment = async () => {
-    if (!businessId || !detailDebt || !canRecordPaymentForDebt(detailDebt)) {
+    if (!businessId || !activeDebt || !canRecordPaymentForDebt(activeDebt)) {
       toast.error(t('detail.record_payment_unavailable'))
       return
     }
@@ -441,7 +383,7 @@ export default function DebtorsPage() {
     try {
       const updatedDebt = await recordDebtPaymentLocal(
         businessId,
-        detailDebt.id,
+        activeDebt.id,
         DebtDirection.RECEIVABLE,
         {
           amount,
@@ -459,9 +401,8 @@ export default function DebtorsPage() {
         },
       )
 
-      setDetailDebt(updatedDebt)
       updateDebtRow(updatedDebt)
-      setPaymentDraft(createPaymentDraft())
+      setActionState(null)
       toast.success(t('detail.record_payment_success'))
     } catch (paymentError) {
       toast.error(getDebtPaymentErrorMessage(paymentError))
@@ -471,7 +412,7 @@ export default function DebtorsPage() {
   }
 
   const handleWriteOff = async () => {
-    if (!businessId || !detailDebt || !canWriteOffDebt(detailDebt)) {
+    if (!businessId || !activeDebt || !canWriteOffDebt(activeDebt)) {
       toast.error(t('detail.write_off_locked'))
       return
     }
@@ -479,7 +420,6 @@ export default function DebtorsPage() {
     const reason = writeOffReasonDraft.trim()
     if (reason.length < 10 || reason.length > 1000) {
       toast.error(t('detail.write_off_reason_invalid'))
-      setFocusWriteOffForm(true)
       return
     }
 
@@ -488,7 +428,7 @@ export default function DebtorsPage() {
     try {
       const updatedDebt = await writeOffDebtLocal(
         businessId,
-        detailDebt.id,
+        activeDebt.id,
         DebtDirection.RECEIVABLE,
         { reason },
         {
@@ -496,9 +436,8 @@ export default function DebtorsPage() {
         },
       )
 
-      setDetailDebt(updatedDebt)
       updateDebtRow(updatedDebt)
-      setWriteOffReasonDraft('')
+      setActionState(null)
       toast.success(t('detail.write_off_success'))
     } catch (writeOffError) {
       toast.error(getWriteOffErrorMessage(writeOffError))
@@ -506,10 +445,6 @@ export default function DebtorsPage() {
       setWritingOff(false)
     }
   }
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [deferredSearch, period, statusFilter])
 
   const debtorRows = useMemo(() => debts.map(mapDebtToDebtorRow), [debts])
   const periodRows = useMemo(
@@ -521,33 +456,11 @@ export default function DebtorsPage() {
     [periodRows],
   )
 
-  const filteredRows = useMemo(() => {
-    const normalizedSearch = deferredSearch.trim().toLowerCase()
-
-    return periodRows.filter((row) => {
-      if (statusFilter !== 'ALL' && row.status !== statusFilter) {
-        return false
-      }
-
-      if (!normalizedSearch) {
-        return true
-      }
-
-      return `${row.contactName} ${row.reference}`.toLowerCase().includes(normalizedSearch)
-    })
-  }, [deferredSearch, periodRows, statusFilter])
-
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages))
-  }, [totalPages])
-
-  const pageStart = filteredRows.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE
-  const paginatedRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE)
-  const showingStart = filteredRows.length === 0 ? 0 : pageStart + 1
-  const showingEnd = filteredRows.length === 0 ? 0 : pageStart + paginatedRows.length
-  const pageNumbers = useMemo(() => buildPageNumbers(currentPage, totalPages), [currentPage, totalPages])
+  // Table rows come from SQL-paginated result
+  const paginatedRows = useMemo(() => tableData.map(mapDebtToDebtorRow), [tableData])
+  const showingStart = tableTotal === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const showingEnd = tableTotal === 0 ? 0 : Math.min(currentPage * PAGE_SIZE, tableTotal)
+  const pageNumbers = useMemo(() => buildPageNumbers(currentPage, tableTotalPages), [currentPage, tableTotalPages])
 
   const totalOutstanding = sumAmount(openRows, 'outstandingAmount')
   const totalDebtors = new Set(openRows.map((row) => row.contactId || row.contactName)).size
@@ -572,8 +485,6 @@ export default function DebtorsPage() {
   const agingBuckets = useMemo(() => buildAgingBuckets(openRows), [openRows])
 
   const metricMax = Math.max(totalOutstanding, overdueAmount, collectedThisMonth, writtenOffThisMonth, 1)
-  const detailCanRecordPayment = canRecordPaymentForDebt(detailDebt)
-  const detailCanWriteOff = canWriteOffDebt(detailDebt)
 
   if (loading) {
     return (
@@ -779,8 +690,6 @@ export default function DebtorsPage() {
                   <SelectItem value="ALL">{t('filters.all_statuses')}</SelectItem>
                   <SelectItem value="OUTSTANDING">{t('status.outstanding')}</SelectItem>
                   <SelectItem value="PARTIALLY_PAID">{t('status.partially_paid')}</SelectItem>
-                  <SelectItem value="SETTLED">{t('status.settled')}</SelectItem>
-                  <SelectItem value="WRITTEN_OFF">{t('status.written_off')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -817,7 +726,15 @@ export default function DebtorsPage() {
               </tr>
             </thead>
             <tbody>
-              {paginatedRows.length === 0 ? (
+              {tableLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10">
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Spinner size="sm" />
+                    </div>
+                  </td>
+                </tr>
+              ) : paginatedRows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-16 text-center text-sm text-muted-foreground">
                     {t('table.empty')}
@@ -832,23 +749,23 @@ export default function DebtorsPage() {
                   return (
                     <tr
                       key={row.id}
-                      onClick={() => void openDetail(row.id)}
-                      className="cursor-pointer border-t border-border/80 first:border-t-0 hover:bg-muted/30"
+                      className="border-t border-border/80 first:border-t-0"
                     >
                       <td
                         className="px-4 py-3"
                         onClick={(e)=>e.stopPropagation()}
                       >
                         <Link
-                          href={row.contactId ? `/${locale}/contacts/detail?contactId=${row.contactId}` : ''}
-                          className=' hover:text-primary hover:underline'
+                          href={row.contactId ? `/contacts/detail?contactId=${row.contactId}` : ''}
                         >
                           <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
                               {getInitials(row.contactName)}
                             </div>
                             <div className="min-w-0">
-                              <div className="truncate font-medium text-foreground">{row.contactName}</div>
+                              <div className="truncate font-medium text-foreground hover:text-primary">
+                                {row.contactName}
+                              </div>
                               <div className="truncate text-xs text-muted-foreground">
                                 {row.contactPhone || t('table.no_phone')}
                               </div>
@@ -866,11 +783,7 @@ export default function DebtorsPage() {
                         <div
                           className={cn(
                             'font-medium',
-                            row.status === 'WRITTEN_OFF'
-                              ? 'text-slate-600 dark:text-slate-300'
-                              : row.outstandingAmount > 0
-                                ? 'text-danger-400'
-                                : 'text-emerald-700',
+                            row.outstandingAmount > 0 ? 'text-danger-400' : 'text-emerald-700',
                           )}
                         >
                           {formatCurrency(row.outstandingAmount, localeTag, businessCurrency)}
@@ -896,32 +809,35 @@ export default function DebtorsPage() {
                         onClick={(event) => event.stopPropagation()}
                       >
                         <div className="flex justify-end">
-                          <ResourceActionMenu
-                            label={t('actions.more')}
-                            orientation="vertical"
-                            items={[
-                              {
-                                label: t('actions.view'),
-                                onSelect: () => void openDetail(row.id),
-                              },
-                              ...(canRecordPayment
-                                ? [
-                                    {
-                                      label: t('actions.record_payment'),
-                                      onSelect: () => void handleOpenRecordPayment(row.id),
-                                    },
-                                  ]
-                                : []),
-                              ...(row.status !== 'SETTLED' && row.status !== 'WRITTEN_OFF'
-                                ? [
-                                    {
-                                      label: t('actions.write_off'),
-                                      onSelect: () => void handleOpenWriteOff(row.id),
-                                    },
-                                  ]
-                                : []),
-                            ]}
-                          />
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                aria-label={t('actions.more')}
+                              >
+                                <EllipsisVertical />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-44 p-1">
+                              {canRecordPayment ? (
+                                <button
+                                  type="button"
+                                  className="flex w-full rounded-md px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+                                  onClick={() => handleOpenRecordPayment(row.id)}
+                                >
+                                  {t('actions.record_payment')}
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="flex w-full rounded-md px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+                                onClick={() => handleOpenWriteOff(row.id)}
+                              >
+                                {t('actions.write_off')}
+                              </button>
+                            </PopoverContent>
+                          </Popover>
                         </div>
                       </td>
                     </tr>
@@ -937,7 +853,7 @@ export default function DebtorsPage() {
             {t('table.showing', {
               start: showingStart,
               end: showingEnd,
-              total: filteredRows.length,
+              total: tableTotal,
             })}
           </p>
 
@@ -961,353 +877,171 @@ export default function DebtorsPage() {
         </div>
       </SurfaceCard>
 
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent
-          className="max-h-[calc(100vh-1rem)] max-w-2xl overflow-hidden p-0 sm:max-h-[calc(100vh-3rem)]"
-          closeLabel={t('actions.close')}
-        >
-          <DialogHeader className="shrink-0 pr-16">
-            <DialogTitle>{detailDebt?.sourceReference || detailDebtId || t('detail.title')}</DialogTitle>
-            <DialogDescription>{t('detail.subtitle')}</DialogDescription>
+      <Dialog
+        open={actionState !== null}
+        onOpenChange={(open) => { if (!open) setActionState(null) }}
+      >
+        <DialogContent className="max-w-md px-6 pb-6" closeLabel={t('actions.close')}>
+          <DialogHeader>
+            <DialogTitle>{activeDebt?.contact?.name || t('detail.title')}</DialogTitle>
+            {activeDebt ? (
+              <DialogDescription>
+                {t('detail.outstanding_balance')}: {formatCurrency(activeDebt.outstandingAmount, localeTag, businessCurrency)}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
 
-          {detailLoading ? (
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className="flex min-h-[260px] items-center justify-center">
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <Spinner size="sm" />
-                  <span>{t('loading')}</span>
-                </div>
-              </div>
-            </div>
-          ) : detailDebt ? (
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className="space-y-5">
-                <div className="flex flex-wrap gap-3">
-                  {detailCanRecordPayment ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={recordingPayment || writingOff}
-                      onClick={() => setFocusPaymentForm(true)}
+          {activeDebt ? (
+            actionState?.mode === 'payment' ? (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-foreground">{t('detail.payment_amount')}</span>
+                    <NumberInput
+                      autoFocus
+                      min="0"
+                      step="0.01"
+                      value={paymentDraft.amount}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        setPaymentDraft((current) => ({ ...current, amount: event.target.value }))
+                      }
+                      placeholder="0"
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-foreground">{t('detail.payment_date')}</span>
+                    <input
+                      type="date"
+                      value={paymentDraft.date}
+                      onChange={(event) =>
+                        setPaymentDraft((current) => ({ ...current, date: event.target.value }))
+                      }
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium text-foreground">{t('detail.payment_method')}</span>
+                    <select
+                      value={paymentDraft.method}
+                      onChange={(event) =>
+                        setPaymentDraft((current) => ({
+                          ...current,
+                          method: event.target.value as PaymentMethod,
+                          mobileMoneyReference:
+                            event.target.value === PaymentMethod.MTN_MOMO ||
+                            event.target.value === PaymentMethod.ORANGE_MONEY
+                              ? current.mobileMoneyReference
+                              : '',
+                        }))
+                      }
+                      className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
                     >
-                      {t('actions.record_payment')}
-                    </Button>
-                  ) : null}
-                  {detailCanWriteOff ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={recordingPayment || writingOff}
-                      onClick={() => setFocusWriteOffForm(true)}
-                    >
-                      {t('actions.write_off')}
-                    </Button>
-                  ) : null}
-                </div>
+                      <option value={PaymentMethod.CASH}>{getPaymentMethodLabel(PaymentMethod.CASH, t)}</option>
+                      <option value={PaymentMethod.MTN_MOMO}>
+                        {getPaymentMethodLabel(PaymentMethod.MTN_MOMO, t)}
+                      </option>
+                      <option value={PaymentMethod.ORANGE_MONEY}>
+                        {getPaymentMethodLabel(PaymentMethod.ORANGE_MONEY, t)}
+                      </option>
+                      <option value={PaymentMethod.CARD}>{getPaymentMethodLabel(PaymentMethod.CARD, t)}</option>
+                    </select>
+                  </label>
 
-                <div className="grid gap-5 md:grid-cols-2">
-                  <section className="rounded-2xl border border-border bg-muted/20 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {t('detail.customer_information')}
-                    </p>
-                    <div className="mt-3 space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.customer')}</span>
-                        <span className="text-right font-medium text-foreground">
-                          {detailDebt.contact?.name || t('detail.no_customer')}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.phone')}</span>
-                        <span className="text-right font-medium text-foreground">
-                          {detailDebt.contact?.phone || t('table.no_phone')}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.reference')}</span>
-                        <span className="font-mono text-xs font-medium text-foreground">
-                          {detailDebt.sourceReference}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.opened')}</span>
-                        <span className="font-medium text-foreground">
-                          {formatDateLabel(detailDebt.createdAt, localeTag)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-4 rounded-xl border border-border/70 bg-background/80 px-3 py-3 dark:bg-background/60">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        {t('detail.notes')}
-                      </p>
-                      <p className="mt-2 text-sm text-foreground">
-                        {detailDebt.notes?.trim() || t('detail.no_notes')}
-                      </p>
-                    </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-border bg-muted/20 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {t('detail.balance_summary')}
-                    </p>
-                    <div className="mt-3 space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.original_balance')}</span>
-                        <span className="font-medium text-foreground">
-                          {formatCurrency(detailDebt.originalAmount, localeTag, businessCurrency)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.collected_amount')}</span>
-                        <span className="font-medium text-foreground">
-                          {formatCurrency(detailDebt.paidAmount, localeTag, businessCurrency)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.outstanding_balance')}</span>
-                        <span className="font-medium text-foreground">
-                          {formatCurrency(detailDebt.outstandingAmount, localeTag, businessCurrency)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">{t('detail.status')}</span>
-                        <span
-                          className={cn(
-                            'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
-                            getDebtStatusBadgeClassName(
-                              buildDebtorStatus(
-                                detailDebt.status,
-                                detailDebt.outstandingAmount,
-                                detailDebt.paidAmount,
-                              ),
-                            ),
-                          )}
-                        >
-                          {getStatusLabel(
-                            buildDebtorStatus(
-                              detailDebt.status,
-                              detailDebt.outstandingAmount,
-                              detailDebt.paidAmount,
-                            ),
-                          )}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 space-y-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        {t('detail.follow_up_payments')}
-                      </p>
-                      {detailDebt.payments && detailDebt.payments.length > 0 ? (
-                        detailDebt.payments.map((payment) => (
-                          <div
-                            key={payment.id}
-                            className="rounded-xl border border-border bg-background/80 px-3 py-2 dark:bg-background/60"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="font-medium text-foreground">
-                                {getPaymentMethodLabel(payment.method, t)}
-                              </span>
-                              <span className="font-medium text-foreground">
-                                {formatCurrency(payment.amount, localeTag, businessCurrency)}
-                              </span>
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              <span>{formatDateLabel(`${payment.paymentDate}T00:00:00`, localeTag)}</span>
-                              {payment.mobileMoneyReference ? (
-                                <span>{payment.mobileMoneyReference}</span>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-muted-foreground">{t('detail.no_follow_up_payments')}</p>
-                      )}
-                    </div>
-                  </section>
-                </div>
-
-                {detailCanRecordPayment ? (
-                  <section className="rounded-2xl border border-border bg-card px-4 py-4 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300">
-                          {t('actions.record_payment')}
-                        </span>
-                        <p className="mt-3 text-sm font-semibold text-foreground">
-                          {t('detail.record_payment_title')}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {t('detail.record_payment_description', {
-                            amount: formatCurrency(detailDebt.outstandingAmount, localeTag, businessCurrency),
-                          })}
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300">
-                        {formatCurrency(detailDebt.outstandingAmount, localeTag, businessCurrency)}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <label className="space-y-2 text-sm">
-                        <span className="font-medium text-foreground">{t('detail.payment_amount')}</span>
-                        <NumberInput
-                          ref={paymentAmountInputRef}
-                          min="0"
-                          step="0.01"
-                          value={paymentDraft.amount}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            setPaymentDraft((current) => ({ ...current, amount: event.target.value }))
-                          }
-                          placeholder="0"
-                          className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
-                        />
-                      </label>
-
-                      <label className="space-y-2 text-sm">
-                        <span className="font-medium text-foreground">{t('detail.payment_date')}</span>
-                        <input
-                          type="date"
-                          value={paymentDraft.date}
-                          onChange={(event) =>
-                            setPaymentDraft((current) => ({ ...current, date: event.target.value }))
-                          }
-                          className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
-                        />
-                      </label>
-
-                      <label className="space-y-2 text-sm">
-                        <span className="font-medium text-foreground">{t('detail.payment_method')}</span>
-                        <select
-                          value={paymentDraft.method}
-                          onChange={(event) =>
-                            setPaymentDraft((current) => ({
-                              ...current,
-                              method: event.target.value as PaymentMethod,
-                              mobileMoneyReference:
-                                event.target.value === PaymentMethod.MTN_MOMO ||
-                                event.target.value === PaymentMethod.ORANGE_MONEY
-                                  ? current.mobileMoneyReference
-                                  : '',
-                            }))
-                          }
-                          className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
-                        >
-                          <option value={PaymentMethod.CASH}>{getPaymentMethodLabel(PaymentMethod.CASH, t)}</option>
-                          <option value={PaymentMethod.MTN_MOMO}>
-                            {getPaymentMethodLabel(PaymentMethod.MTN_MOMO, t)}
-                          </option>
-                          <option value={PaymentMethod.ORANGE_MONEY}>
-                            {getPaymentMethodLabel(PaymentMethod.ORANGE_MONEY, t)}
-                          </option>
-                          <option value={PaymentMethod.CARD}>{getPaymentMethodLabel(PaymentMethod.CARD, t)}</option>
-                        </select>
-                      </label>
-
-                      {paymentDraft.method === PaymentMethod.MTN_MOMO ||
-                      paymentDraft.method === PaymentMethod.ORANGE_MONEY ? (
-                        <label className="space-y-2 text-sm">
-                          <span className="font-medium text-foreground">{t('detail.payment_reference')}</span>
-                          <Input
-                            value={paymentDraft.mobileMoneyReference}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                              setPaymentDraft((current) => ({
-                                ...current,
-                                mobileMoneyReference: event.target.value,
-                              }))
-                            }
-                            placeholder={t('detail.payment_reference_placeholder')}
-                            className="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
-                          />
-                        </label>
-                      ) : (
-                        <div className="hidden md:block" aria-hidden="true" />
-                      )}
-                    </div>
-
-                    <label className="mt-4 block space-y-2 text-sm">
-                      <span className="font-medium text-foreground">{t('detail.payment_notes')}</span>
+                  {paymentDraft.method === PaymentMethod.MTN_MOMO ||
+                  paymentDraft.method === PaymentMethod.ORANGE_MONEY ? (
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-foreground">{t('detail.payment_reference')}</span>
                       <Input
-                        value={paymentDraft.notes}
+                        value={paymentDraft.mobileMoneyReference}
                         onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          setPaymentDraft((current) => ({ ...current, notes: event.target.value }))
+                          setPaymentDraft((current) => ({
+                            ...current,
+                            mobileMoneyReference: event.target.value,
+                          }))
                         }
-                        placeholder={t('detail.payment_notes_placeholder')}
+                        placeholder={t('detail.payment_reference_placeholder')}
                         className="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
                       />
                     </label>
+                  ) : (
+                    <div className="hidden md:block" aria-hidden="true" />
+                  )}
+                </div>
 
-                    <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
-                      <Button
-                        type="button"
-                        variant="primary"
-                        disabled={recordingPayment || writingOff}
-                        onClick={() => void handleRecordPayment()}
-                      >
-                        {recordingPayment
-                          ? t('detail.record_payment_submitting')
-                          : t('detail.record_payment_submit')}
-                      </Button>
-                    </div>
-                  </section>
-                ) : null}
+                <label className="block space-y-2 text-sm">
+                  <span className="font-medium text-foreground">{t('detail.payment_notes')}</span>
+                  <Input
+                    value={paymentDraft.notes}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setPaymentDraft((current) => ({ ...current, notes: event.target.value }))
+                    }
+                    placeholder={t('detail.payment_notes_placeholder')}
+                    className="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/15"
+                  />
+                </label>
 
-                {detailCanWriteOff ? (
-                  <section className="rounded-2xl border border-border bg-card px-4 py-4 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <span className="inline-flex rounded-full border border-slate-500/20 bg-slate-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700 dark:border-slate-400/30 dark:bg-slate-400/10 dark:text-slate-300">
-                          {t('actions.write_off')}
-                        </span>
-                        <p className="mt-3 text-sm font-semibold text-foreground">
-                          {t('detail.write_off_title')}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {t('detail.write_off_description', {
-                            amount: formatCurrency(detailDebt.outstandingAmount, localeTag, businessCurrency),
-                          })}
-                        </p>
-                      </div>
-                    </div>
-
-                    <label className="mt-4 block space-y-2 text-sm">
-                      <span className="font-medium text-foreground">{t('detail.write_off_reason')}</span>
-                      <Input
-                        ref={writeOffReasonInputRef}
-                        value={writeOffReasonDraft}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          setWriteOffReasonDraft(event.target.value)
-                        }
-                        placeholder={t('detail.write_off_reason_placeholder')}
-                        maxLength={1000}
-                        className="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-slate-500/40 focus:ring-2 focus:ring-slate-500/15"
-                      />
-                    </label>
-
-                    <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={recordingPayment || writingOff}
-                        onClick={() => void handleWriteOff()}
-                      >
-                        {writingOff ? t('detail.write_off_submitting') : t('detail.write_off_submit')}
-                      </Button>
-                    </div>
-                  </section>
-                ) : null}
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={recordingPayment || writingOff}
+                    onClick={() => void handleRecordPayment()}
+                  >
+                    {recordingPayment
+                      ? t('detail.record_payment_submitting')
+                      : t('detail.record_payment_submit')}
+                  </Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <p className="text-sm text-muted-foreground">{t('load_error')}</p>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-4">
+                <label className="block space-y-2 text-sm">
+                  <span className="font-medium text-foreground">{t('detail.write_off_reason')}</span>
+                  <Input
+                    autoFocus
+                    value={writeOffReasonDraft}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setWriteOffReasonDraft(event.target.value)
+                    }
+                    placeholder={t('detail.write_off_reason_placeholder')}
+                    maxLength={1000}
+                    className="h-11 rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-slate-500/40 focus:ring-2 focus:ring-slate-500/15"
+                  />
+                </label>
+
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={recordingPayment || writingOff}
+                    onClick={() => void handleWriteOff()}
+                  >
+                    {writingOff ? t('detail.write_off_submitting') : t('detail.write_off_submit')}
+                  </Button>
+                </div>
+              </div>
+            )
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
   )
+}
+
+function getPeriodDateRange(period: PeriodKey): { dateFrom?: string; dateTo?: string } {
+  if (period === 'all') return {}
+  const now = new Date()
+  const start =
+    period === 'quarter'
+      ? new Date(now.getFullYear(), now.getMonth() - 2, 1)
+      : new Date(now.getFullYear(), now.getMonth(), 1)
+  return {
+    dateFrom: formatDateOnly(start),
+    dateTo: formatDateOnly(now),
+  }
 }
 
 function buildAgingBuckets(rows: DebtorRow[]): AgingBucket[] {
@@ -1611,13 +1345,7 @@ function DebtorStatusBadge({
         getDebtStatusBadgeClassName(status),
       )}
     >
-      {status === 'PARTIALLY_PAID'
-        ? t('status.partially_paid')
-        : status === 'SETTLED'
-          ? t('status.settled')
-          : status === 'WRITTEN_OFF'
-            ? t('status.written_off')
-            : t('status.outstanding')}
+      {status === 'PARTIALLY_PAID' ? t('status.partially_paid') : t('status.outstanding')}
     </span>
   )
 }

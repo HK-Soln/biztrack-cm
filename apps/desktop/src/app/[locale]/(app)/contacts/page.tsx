@@ -1,7 +1,6 @@
 'use client'
 
 import { useDeferredValue, useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import Link from 'next/link'
 import { useLocale, useTranslations } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button, Input, Spinner } from '@biztrack/ui'
@@ -21,15 +20,19 @@ import {
 import { decodeJwtPayload } from '@/lib/jwt'
 import { cn } from '@/lib/utils'
 import { getApiErrorMessage } from '@/services/api-response'
-import { listContactsLocal } from '@/services/contacts.local'
+import {
+  getContactMetricsLocal,
+  listContactsLocal,
+  type ContactMetricsLocal,
+} from '@/services/contacts.local'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePlanStore } from '@/stores/plan.store'
+import { Link } from '@/i18n/navigation'
 
 type ContactTypeFilterValue = 'ALL' | ContactType
 type BalanceFilterValue = 'ALL' | 'RECEIVABLE' | 'PAYABLE' | 'CLEAR'
 
 const PAGE_SIZE = 8
-const MAX_CONTACTS_LIMIT = 1000
 
 export default function ContactsPage() {
   const t = useTranslations('app.contacts')
@@ -41,7 +44,10 @@ export default function ContactsPage() {
   const accessToken = useAuthStore((state) => state.accessToken)
   const businessCurrency = useAuthStore((state) => state.businessCurrency)
   const planState = usePlanStore((state) => state.current)
-  const [contacts, setContacts] = useState<ContactListItem[]>([])
+  const [tableData, setTableData] = useState<ContactListItem[]>([])
+  const [tableTotal, setTableTotal] = useState(0)
+  const [tableTotalPages, setTableTotalPages] = useState(1)
+  const [metrics, setMetrics] = useState<ContactMetricsLocal | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -62,9 +68,40 @@ export default function ContactsPage() {
     [accessToken],
   )
 
+  // Load aggregate metrics (independent of filters/page)
   useEffect(() => {
     if (!businessId) {
-      setContacts([])
+      setMetrics(null)
+      return
+    }
+
+    const currentBusinessId = businessId
+    let active = true
+
+    void getContactMetricsLocal(currentBusinessId).then((result) => {
+      if (active) setMetrics(result)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [businessId, reloadKey])
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [balanceFilter, deferredSearch, typeFilter])
+
+  useEffect(() => {
+    setBalanceFilter(balanceFilterFromView)
+  }, [balanceFilterFromView])
+
+  // Load paginated table data
+  useEffect(() => {
+    if (!businessId) {
+      setTableData([])
+      setTableTotal(0)
+      setTableTotalPages(1)
       setLoading(false)
       setError(t('business_required'))
       return
@@ -79,28 +116,26 @@ export default function ContactsPage() {
 
       try {
         const result = await listContactsLocal(currentBusinessId, {
-          page: 1,
-          limit: MAX_CONTACTS_LIMIT,
+          page: currentPage,
+          limit: PAGE_SIZE,
           isActive: true,
           sortBy: 'updatedAt',
           sortOrder: 'DESC',
+          type: typeFilter === 'ALL' ? undefined : (typeFilter as ContactType),
+          search: deferredSearch || undefined,
+          balanceFilter: balanceFilter === 'ALL' ? undefined : balanceFilter,
         })
 
-        if (!active) {
-          return
-        }
+        if (!active) return
 
-        setContacts(result.data)
+        setTableData(result.data)
+        setTableTotal(result.total)
+        setTableTotalPages(result.totalPages)
       } catch (loadError) {
-        if (!active) {
-          return
-        }
-
+        if (!active) return
         setError(getApiErrorMessage(loadError, t('load_error')))
       } finally {
-        if (active) {
-          setLoading(false)
-        }
+        if (active) setLoading(false)
       }
     }
 
@@ -109,15 +144,7 @@ export default function ContactsPage() {
     return () => {
       active = false
     }
-  }, [businessId, reloadKey, t])
-
-  useEffect(() => {
-    setBalanceFilter(balanceFilterFromView)
-  }, [balanceFilterFromView])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [balanceFilter, deferredSearch, typeFilter])
+  }, [businessId, reloadKey, currentPage, deferredSearch, typeFilter, balanceFilter, t])
 
   const pageTitle =
     contactsView === 'debtors'
@@ -133,75 +160,17 @@ export default function ContactsPage() {
         ? t('views.creditors_subtitle')
         : t('subtitle')
 
-  const filteredContacts = useMemo(() => {
-    const normalizedSearch = deferredSearch.trim().toLowerCase()
+  const showingStart = tableTotal === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const showingEnd = tableTotal === 0 ? 0 : Math.min(currentPage * PAGE_SIZE, tableTotal)
 
-    return contacts.filter((contact) => {
-      if (typeFilter !== 'ALL' && contact.type !== typeFilter) {
-        return false
-      }
-
-      if (balanceFilter === 'RECEIVABLE' && contact.totalReceivable <= 0) {
-        return false
-      }
-
-      if (balanceFilter === 'PAYABLE' && contact.totalPayable <= 0) {
-        return false
-      }
-
-      if (
-        balanceFilter === 'CLEAR' &&
-        (contact.totalReceivable > 0 || contact.totalPayable > 0)
-      ) {
-        return false
-      }
-
-      if (!normalizedSearch) {
-        return true
-      }
-
-      const haystack = [contact.name, contact.phone, contact.phoneAlt]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-
-      return haystack.includes(normalizedSearch)
-    })
-  }, [balanceFilter, contacts, deferredSearch, typeFilter])
-
-  const totalPages = Math.max(1, Math.ceil(filteredContacts.length / PAGE_SIZE))
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages))
-  }, [totalPages])
-
-  const pageStart = filteredContacts.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE
-  const paginatedContacts = filteredContacts.slice(pageStart, pageStart + PAGE_SIZE)
-  const showingStart = filteredContacts.length === 0 ? 0 : pageStart + 1
-  const showingEnd = filteredContacts.length === 0 ? 0 : pageStart + paginatedContacts.length
-
-  const exactCustomers = contacts.filter((contact) => contact.type === ContactType.CUSTOMER).length
-  const exactSuppliers = contacts.filter((contact) => contact.type === ContactType.SUPPLIER).length
-  const exactBoth = contacts.filter((contact) => contact.type === ContactType.BOTH).length
-  const activeDebtors = contacts.filter((contact) => contact.totalReceivable > 0)
-  const activeCreditors = contacts.filter((contact) => contact.totalPayable > 0)
-  const totalReceivable = activeDebtors.reduce((sum, contact) => sum + contact.totalReceivable, 0)
-  const totalPayable = activeCreditors.reduce((sum, contact) => sum + contact.totalPayable, 0)
-  const settledThisMonthCount = contacts.filter(
-    (contact) =>
-      contact.totalReceivable <= 0 &&
-      contact.totalPayable <= 0 &&
-      isDateInCurrentMonth(getLastActivityDate(contact)),
-  ).length
-
-  const pageNumbers = useMemo(() => buildPageNumbers(currentPage, totalPages), [currentPage, totalPages])
+  const pageNumbers = useMemo(() => buildPageNumbers(currentPage, tableTotalPages), [currentPage, tableTotalPages])
   const contactsQuotaUsage =
     planState?.quotaUsage.find((entry) => entry.resource === 'contacts' && !entry.unlimited) ?? null
   const contactsQuotaReached = Boolean(
     contactsQuotaUsage && contactsQuotaUsage.used >= (contactsQuotaUsage.limit ?? 0),
   )
   const buildContactHref = (contactId: string) =>
-    `/${locale}/contacts/detail?contactId=${encodeURIComponent(contactId)}`
+    `/contacts/detail?contactId=${encodeURIComponent(contactId)}`
 
   const handleCopyValue = async (value: string | null | undefined, label: string) => {
     if (!value) {
@@ -260,44 +229,54 @@ export default function ContactsPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label={t('metrics.total_contacts')}
-            value={String(contacts.length)}
-            hint={t('metrics.total_contacts_hint', {
-              customers: exactCustomers,
-              suppliers: exactSuppliers,
-              both: exactBoth,
-            })}
+            value={metrics ? String(metrics.totalCount) : '—'}
+            hint={
+              metrics
+                ? t('metrics.total_contacts_hint', {
+                    customers: metrics.customerCount,
+                    suppliers: metrics.supplierCount,
+                    both: metrics.bothCount,
+                  })
+                : ''
+            }
           />
           <MetricCard
             label={t('metrics.active_debtors')}
-            value={String(activeDebtors.length)}
+            value={metrics ? String(metrics.activeDebtorCount) : '—'}
             hint={
-              activeDebtors.length > 0
-                ? t('metrics.active_debtors_hint', {
-                    amount: formatCurrency(totalReceivable, locale, businessCurrency),
-                  })
-                : t('metrics.no_receivables')
+              metrics
+                ? metrics.activeDebtorCount > 0
+                  ? t('metrics.active_debtors_hint', {
+                      amount: formatCurrency(metrics.totalReceivable, locale, businessCurrency),
+                    })
+                  : t('metrics.no_receivables')
+                : ''
             }
-            tone={activeDebtors.length > 0 ? 'warning' : 'default'}
+            tone={metrics && metrics.activeDebtorCount > 0 ? 'warning' : 'default'}
           />
           <MetricCard
             label={t('metrics.active_creditors')}
-            value={String(activeCreditors.length)}
+            value={metrics ? String(metrics.activeCreditorCount) : '—'}
             hint={
-              activeCreditors.length > 0
-                ? t('metrics.active_creditors_hint', {
-                    amount: formatCurrency(totalPayable, locale, businessCurrency),
-                  })
-                : t('metrics.no_payables')
+              metrics
+                ? metrics.activeCreditorCount > 0
+                  ? t('metrics.active_creditors_hint', {
+                      amount: formatCurrency(metrics.totalPayable, locale, businessCurrency),
+                    })
+                  : t('metrics.no_payables')
+                : ''
             }
-            tone={activeCreditors.length > 0 ? 'danger' : 'default'}
+            tone={metrics && metrics.activeCreditorCount > 0 ? 'danger' : 'default'}
           />
           <MetricCard
             label={t('metrics.settled_this_month')}
-            value={String(settledThisMonthCount)}
+            value={metrics ? String(metrics.settledThisMonthCount) : '—'}
             hint={
-              settledThisMonthCount > 0
-                ? t('metrics.settled_this_month_hint', { count: settledThisMonthCount })
-                : t('metrics.nothing_settled')
+              metrics
+                ? metrics.settledThisMonthCount > 0
+                  ? t('metrics.settled_this_month_hint', { count: metrics.settledThisMonthCount })
+                  : t('metrics.nothing_settled')
+                : ''
             }
             tone="accent"
           />
@@ -387,14 +366,14 @@ export default function ContactsPage() {
                       </div>
                     </td>
                   </tr>
-                ) : paginatedContacts.length === 0 ? (
+                ) : tableData.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-16 text-center text-sm text-muted-foreground">
                       {t('table.empty')}
                     </td>
                   </tr>
                 ) : (
-                  paginatedContacts.map((contact) => {
+                  tableData.map((contact) => {
                     const lastActivity = getLastActivityDate(contact)
 
                     return (
@@ -489,23 +468,23 @@ export default function ContactsPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 text-sm text-muted-foreground">
-            <span>{t('table.showing', { start: showingStart, end: showingEnd, total: filteredContacts.length })}</span>
+            <span>{t('table.showing', { start: showingStart, end: showingEnd, total: tableTotal })}</span>
 
             <div className="flex items-center gap-2">
-              {pageNumbers.map((page) => (
+              {pageNumbers.map((pg) => (
                 <button
-                  key={page}
+                  key={pg}
                   type="button"
-                  onClick={() => setCurrentPage(page)}
-                  disabled={page === currentPage}
+                  onClick={() => setCurrentPage(pg)}
+                  disabled={pg === currentPage}
                   className={cn(
                     'inline-flex min-w-9 items-center justify-center rounded-lg border px-3 py-1.5 text-sm transition-colors',
-                    page === currentPage
+                    pg === currentPage
                       ? 'border-primary/20 bg-primary/10 font-medium text-foreground'
                       : 'border-border bg-background hover:border-primary/30 hover:text-foreground',
                   )}
                 >
-                  {page}
+                  {pg}
                 </button>
               ))}
             </div>
@@ -550,20 +529,6 @@ function getLastActivityDate(contact: ContactListItem) {
   return contact.lastTransactionDate || contact.updatedAt || contact.createdAt || null
 }
 
-function isDateInCurrentMonth(value: string | null) {
-  if (!value) {
-    return false
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return false
-  }
-
-  const now = new Date()
-
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
-}
 
 function getAvatarClassName(type: ContactType) {
   if (type === ContactType.SUPPLIER) {

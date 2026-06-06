@@ -2,8 +2,10 @@ import { Inject, Injectable } from '@nestjs/common'
 import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import type { Notification } from '@/entities/notification.entity'
+import { AppInternalServerException } from '@/common/exceptions/app-exceptions'
+import { WahaHttpClient } from './waha-http.client'
 
-export const META_PROVIDER = 'meta'
+export const WAHA_PROVIDER = 'waha'
 
 export interface WhatsAppSendResult {
   providerMessageId?: string
@@ -12,27 +14,89 @@ export interface WhatsAppSendResult {
 
 @Injectable()
 export class WhatsAppProvider {
-  constructor(@Inject(LOGGER) private logger: Logger) {
+  constructor(
+    @Inject(LOGGER) private readonly logger: Logger,
+    private readonly waha: WahaHttpClient,
+  ) {
     this.logger.setContext('WhatsAppProvider')
   }
 
   /**
-   * Send a WhatsApp notification via the Meta Cloud API.
-   *
-   * Currently a stub — logs the message.
-   * Replace with the real Meta Business Cloud API client once the
-   * WhatsApp Business Account and phone-number registration are complete.
+   * Format a phone number to WAHA chatId format.
+   * Input: +237650123456  →  Output: 237650123456@c.us
+   */
+  private toChatId(phone: string): string {
+    const digits = phone.replace(/\D/g, '')
+    return `${digits}@c.us`
+  }
+
+  /**
+   * Check whether a phone number is registered on WhatsApp.
+   * Returns true if the number exists, false if it does not.
+   * Throws if the WAHA server is unreachable or returns an unexpected error.
+   */
+  async isWhatsAppContact(phone: string): Promise<boolean> {
+    const digits = phone.replace(/\D/g, '')
+
+    try {
+      const result = await this.waha.checkContactExists(digits)
+      return result.numberExists
+    } catch (err) {
+      this.logger.error(`Failed to check WhatsApp contact existence for ${digits}`, WhatsAppProvider.name, { err })
+      throw new AppInternalServerException('Failed to check WhatsApp contact')
+    }
+  }
+
+  /**
+   * Send a plain text message to a WhatsApp number.
+   */
+  async sendMessage(phone: string, text: string): Promise<void> {
+    const chatId = this.toChatId(phone)
+
+    try {
+      await this.waha.sendText({ chatId, text })
+      this.logger.log(`WhatsApp message sent to ${chatId}`)
+    } catch (err) {
+      this.logger.error(`Failed to send WhatsApp message to ${chatId}`, WhatsAppProvider.name, { err })
+      throw new AppInternalServerException('Failed to send WhatsApp message')
+    }
+  }
+
+  /**
+   * Send an OTP code.
+   */
+  async sendOtp(phone: string, code: string, expiryMins: number): Promise<void> {
+    const text = `Your verification code is: *${code}*\n\nThis code expires in ${expiryMins} minutes. Do not share it with anyone.`
+    await this.sendMessage(phone, text)
+  }
+
+  /**
+   * Send a WhatsApp notification from a persisted Notification record.
+   * Routes to text-only for now; extend to image/file/voice/video as needed.
    */
   async send(notification: Notification): Promise<WhatsAppSendResult> {
-    this.logger.warn(
-      '[STUB] WhatsApp provider not configured — message not actually sent',
-      'WhatsAppProvider',
-      {
-        notificationId: notification.id,
-        recipient: notification.recipient,
-      },
-    )
+    const chatId = this.toChatId(notification.recipient)
 
-    return { providerMessageId: `stub-wa-${notification.id}`, provider: META_PROVIDER }
+    try {
+      console.log('Sending whatsapp notification')
+      const result = await this.waha.sendText({
+        chatId,
+        text: notification.body,
+      })
+
+      this.logger.log(`WhatsApp notification sent`, 'WhatsAppProvider', {
+        notificationId: notification.id,
+        wahaMessageId: result.id,
+      })
+
+      return { providerMessageId: result.id, provider: WAHA_PROVIDER }
+    } catch (err) {
+      console.log(err)
+      this.logger.error(`Failed to send WhatsApp notification`, 'WhatsAppProvider', {
+        notificationId: notification.id,
+        err,
+      })
+      throw new AppInternalServerException('Failed to send WhatsApp notification')
+    }
   }
 }

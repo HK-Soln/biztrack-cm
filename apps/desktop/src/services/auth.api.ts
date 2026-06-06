@@ -143,6 +143,14 @@ export async function getCurrentUser(): Promise<User> {
   return unwrapApiResponse<User>(data)
 }
 
+export async function updateCurrentUser(payload: {
+  name?: string
+  language?: string
+}): Promise<User> {
+  const { data } = await api.patch<ApiEnvelope<User>>('/users/me', payload)
+  return unwrapApiResponse<User>(data)
+}
+
 export async function setupBusiness(payload: UpdateBusinessRequest): Promise<Business> {
   const { data } = await api.post<ApiEnvelope<Business>>('/businesses/setup', payload)
   return unwrapApiResponse<Business>(data)

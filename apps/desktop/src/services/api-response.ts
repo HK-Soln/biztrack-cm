@@ -13,6 +13,10 @@ export function unwrapApiResponse<T>(payload: ApiEnvelope<T> | T): T {
 }
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {
+  const status = (error as { status?: number }).status
+  if (typeof status === 'number' && status >= 500) {
+    return 'An unknown error occurred'
+  }
   return (
     getApiErrorResponse(error)?.message ??
     (error instanceof Error ? error.message : undefined) ??

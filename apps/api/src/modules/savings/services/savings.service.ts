@@ -5,16 +5,16 @@ import type {
   SavingsTransactionSyncPayload,
 } from '@biztrack/types'
 import { Repository } from 'typeorm'
-import { SavingsAccount } from '@/entities/savings-account.entity'
-import { SavingsTransaction } from '@/entities/savings-transaction.entity'
+import { CustomerDeposit } from '@/entities/customer-deposit.entity'
+import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 
 @Injectable()
-export class SavingsService {
+export class DepositsService {
   constructor(
-    @InjectRepository(SavingsAccount)
-    private readonly savingsAccountsRepo: Repository<SavingsAccount>,
-    @InjectRepository(SavingsTransaction)
-    private readonly savingsTransactionsRepo: Repository<SavingsTransaction>,
+    @InjectRepository(CustomerDeposit)
+    private readonly savingsAccountsRepo: Repository<CustomerDeposit>,
+    @InjectRepository(DepositTransaction)
+    private readonly savingsTransactionsRepo: Repository<DepositTransaction>,
   ) {}
 
   async applySavingsAccountOperation(
@@ -136,8 +136,8 @@ export class SavingsService {
     cursor: Date,
     pulledAt: Date,
   ): Promise<{
-    accounts: SavingsAccount[]
-    transactions: SavingsTransaction[]
+    accounts: CustomerDeposit[]
+    transactions: DepositTransaction[]
   }> {
     const [accounts, transactions] = await Promise.all([
       this.savingsAccountsRepo

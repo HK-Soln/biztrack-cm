@@ -80,6 +80,7 @@ type DebtFilters = {
   search?: string
   dateFrom?: string
   dateTo?: string
+  outstandingOnly?: boolean
 }
 
 export class DebtLocalError extends Error {
@@ -115,24 +116,33 @@ export async function listDebtsByDirectionLocal(
   const normalizedBusinessId = assertBusinessId(businessId)
   await assertValidDateRange(query.dateFrom, query.dateTo)
 
-  const debts = await fetchDebtsLocal(
-    {
-      businessId: normalizedBusinessId,
-      direction,
-      contactId: query.contactId,
-      status: query.status,
-      search: query.search,
-      dateFrom: query.dateFrom,
-      dateTo: query.dateTo,
-    },
-    { includePayments: false },
-  )
+  const filters: DebtFilters = {
+    businessId: normalizedBusinessId,
+    direction,
+    contactId: query.contactId,
+    status: query.status,
+    search: query.search,
+    dateFrom: query.dateFrom,
+    dateTo: query.dateTo,
+    outstandingOnly: true,
+  }
 
-  return paginateResult(
-    sortDebts(debts, query.sortBy, normalizeSortOrder(query.sortOrder)),
-    query.page,
-    query.limit,
-  )
+  const page = Math.max(1, query.page ?? 1)
+  const limit = Math.max(1, query.limit ?? 20)
+  const sortOrder = normalizeSortOrder(query.sortOrder)
+
+  const [total, rows] = await Promise.all([
+    countDebtRowsLocal(filters),
+    queryDebtRowsLocal(filters, { sortBy: query.sortBy, sortOrder, limit, offset: (page - 1) * limit }),
+  ])
+
+  return {
+    data: rows.map((row) => mapDebtRow(row)),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  }
 }
 
 export async function listAllDebtsByDirectionLocal(
@@ -623,10 +633,12 @@ async function queueDebtSyncEventLocal(
   updatedAt: string,
 ) {
   const debt = await getDebtByIdLocal(businessId, debtId, direction)
-  await dbBatch([
-    buildOutboxEventOperation('debts', debt.id, buildDebtSyncPayloadLocal(debt, updatedAt)),
-  ])
-  requestBackgroundSync()
+  if (debt.sourceType !== DebtSource.OPENING_BALANCE) {
+    await dbBatch([
+      buildOutboxEventOperation('debts', debt.id, buildDebtSyncPayloadLocal(debt, updatedAt)),
+    ])
+    requestBackgroundSync()
+  }
   return debt
 }
 
@@ -674,7 +686,7 @@ async function fetchDebtsLocal(
   return rows.map((row) => mapDebtRow(row, paymentsByDebtId.get(row.id)))
 }
 
-async function queryDebtRowsLocal(filters: DebtFilters) {
+function buildDebtWhereClauses(filters: DebtFilters): { clauses: string[]; params: unknown[] } {
   const clauses = ['d.business_id = ?']
   const params: unknown[] = [filters.businessId]
 
@@ -724,6 +736,10 @@ async function queryDebtRowsLocal(filters: DebtFilters) {
     params.push(filters.dateTo)
   }
 
+  if (filters.outstandingOnly) {
+    clauses.push(`d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`)
+  }
+
   if (filters.search?.trim()) {
     const search = `%${filters.search.trim().toLowerCase()}%`
     clauses.push(`
@@ -735,6 +751,61 @@ async function queryDebtRowsLocal(filters: DebtFilters) {
     `)
     params.push(search, search, search)
   }
+
+  return { clauses, params }
+}
+
+async function countDebtRowsLocal(filters: DebtFilters): Promise<number> {
+  const { clauses, params } = buildDebtWhereClauses(filters)
+  const [row] = await dbQuery<{ count: number }>(
+    `
+      SELECT COUNT(*) AS count
+      FROM debts d
+      LEFT JOIN contacts c
+        ON c.id = d.contact_id
+       AND c.business_id = d.business_id
+      WHERE ${clauses.join('\n        AND ')}
+    `,
+    params,
+  )
+  return row?.count ?? 0
+}
+
+async function queryDebtRowsLocal(
+  filters: DebtFilters,
+  options: {
+    sortBy?: string
+    sortOrder?: 'ASC' | 'DESC'
+    limit?: number
+    offset?: number
+  } = {},
+) {
+  const { clauses, params } = buildDebtWhereClauses(filters)
+
+  let orderByColumn: string
+  switch (options.sortBy) {
+    case 'dueDate':
+      orderByColumn = 'd.due_date'
+      break
+    case 'originalAmount':
+      orderByColumn = 'd.original_amount'
+      break
+    case 'sourceReference':
+      orderByColumn = 'd.source_reference'
+      break
+    case 'status':
+      orderByColumn = 'd.status'
+      break
+    case 'contactName':
+      orderByColumn = 'c.name'
+      break
+    default:
+      orderByColumn = 'd.created_at'
+  }
+  const orderDir = options.sortOrder ?? 'DESC'
+
+  const limitClause =
+    options.limit != null ? `LIMIT ${Number(options.limit)} OFFSET ${Number(options.offset ?? 0)}` : ''
 
   return dbQuery<DebtRow>(
     `
@@ -764,7 +835,8 @@ async function queryDebtRowsLocal(filters: DebtFilters) {
         ON c.id = d.contact_id
        AND c.business_id = d.business_id
       WHERE ${clauses.join('\n        AND ')}
-      ORDER BY d.created_at DESC, d.id DESC
+      ORDER BY ${orderByColumn} ${orderDir}, d.id ${orderDir}
+      ${limitClause}
     `,
     params,
   )
@@ -979,7 +1051,9 @@ function normalizeDebtDirection(value: string | null | undefined) {
 }
 
 function normalizeDebtSource(value: string | null | undefined) {
-  return value === DebtSource.RESTOCK ? DebtSource.RESTOCK : DebtSource.SALE
+  if (value === DebtSource.RESTOCK) return DebtSource.RESTOCK
+  if (value === DebtSource.OPENING_BALANCE) return DebtSource.OPENING_BALANCE
+  return DebtSource.SALE
 }
 
 function normalizeDebtStatus(value: string | null | undefined) {

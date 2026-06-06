@@ -33,7 +33,7 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
-import { SavingsService } from '@/modules/savings/services/savings.service'
+import { DepositsService } from '@/modules/savings/services/savings.service'
 import type { CreateSaleDto } from '../dto/create-sale.dto'
 import type { VoidSaleDto } from '../dto/void-sale.dto'
 import { DailySalesSummaryService } from './daily-sales-summary.service'
@@ -70,7 +70,7 @@ export class SalesService {
     private readonly salesRepo: Repository<Sale>,
     private readonly debtsService: DebtsService,
     private readonly inventoryService: InventoryService,
-    private readonly savingsService: SavingsService,
+    private readonly savingsService: DepositsService,
     private readonly saleNumberService: SaleNumberService,
     private readonly dailySummaryService: DailySalesSummaryService,
     private readonly i18n: I18nService<I18nTranslations>,

@@ -90,6 +90,7 @@ declare global {
         version: () => Promise<string>
         openExternal: (url: string) => Promise<{ success: boolean }>
         isWhatsAppInstalled: () => Promise<{ installed: boolean }>
+        platform: string
       }
       secureStore: {
         isAvailable: () => Promise<boolean>
@@ -212,6 +213,7 @@ const fallbackIpc: Window['electronAPI'] = {
     version: async () => 'web',
     openExternal: async () => ({ success: false }),
     isWhatsAppInstalled: async () => ({ installed: false }),
+    platform: 'web',
   },
   secureStore: {
     isAvailable: async () => false,

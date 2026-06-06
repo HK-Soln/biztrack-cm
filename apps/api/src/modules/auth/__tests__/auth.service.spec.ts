@@ -136,6 +136,7 @@ const makeService = () => {
     permissionsService as any,
     quotaService as any,
     notificationsService as any,
+    { isWhatsAppContact: jest.fn().mockResolvedValue(true) } as any,
     { findByIdOrFail: jest.fn(), findOwnerRole: jest.fn() } as any,
     i18n as any,
     logger as any,

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 import { Notification } from '@/entities/notification.entity'
 import { PendingInvite } from '@/entities/pending-invite.entity'
 import { NOTIFICATIONS_QUEUE } from './constants/notifications.constants'
+import { WahaHttpClient } from './providers/waha-http.client'
 import { EmailProvider } from './providers/email.provider'
 import { SmsProvider } from './providers/sms.provider'
 import { WhatsAppProvider } from './providers/whatsapp.provider'
@@ -11,6 +12,7 @@ import { NotificationsService } from './services/notifications.service'
 import { NotificationsProcessor } from './processors/notifications.processor'
 import { NotificationsWebhookController } from './controllers/notifications-webhook.controller'
 import { ResendWebhookGuard } from './guards/resend-webhook.guard'
+import { WahaWebhookGuard } from './guards/waha-webhook.guard'
 import { RedisModule } from '@/common/redis/redis.module'
 
 @Module({
@@ -21,13 +23,15 @@ import { RedisModule } from '@/common/redis/redis.module'
   ],
   controllers: [NotificationsWebhookController],
   providers: [
+    WahaHttpClient,
     EmailProvider,
     SmsProvider,
     WhatsAppProvider,
     NotificationsService,
     NotificationsProcessor,
     ResendWebhookGuard,
+    WahaWebhookGuard,
   ],
-  exports: [NotificationsService],
+  exports: [NotificationsService, WhatsAppProvider],
 })
 export class NotificationsModule {}

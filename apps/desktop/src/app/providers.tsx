@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import { ipc } from '@/services/ipc.bridge'
 
 function ThemeBridge() {
-  const { setTheme } = useTheme()
+  const { setTheme, resolvedTheme } = useTheme()
 
   useEffect(() => {
     return ipc.theme?.onThemeChange?.((theme) => {
@@ -14,6 +14,14 @@ function ThemeBridge() {
       }
     })
   }, [setTheme])
+
+  // Push the resolved app theme back to main so the native titlebar overlay
+  // tracks the app theme rather than the OS system theme.
+  useEffect(() => {
+    if (resolvedTheme === 'light' || resolvedTheme === 'dark') {
+      ipc.theme.setTheme(resolvedTheme)
+    }
+  }, [resolvedTheme])
 
   return null
 }

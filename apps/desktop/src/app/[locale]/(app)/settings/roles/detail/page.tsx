@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import type {
@@ -91,7 +91,6 @@ function PermissionRow({
 // ── Permission group section ──────────────────────────────────────────────────
 
 function PermissionGroup({
-  groupKey,
   label,
   perms,
   enabled,
@@ -101,7 +100,6 @@ function PermissionGroup({
   disabled,
   t,
 }: {
-  groupKey: string
   label: string
   perms: PermissionCatalogItem[]
   enabled: Set<string>
@@ -693,7 +691,6 @@ function RoleDetailContent() {
           {groups.map(([groupKey, perms]) => (
               <PermissionGroup
                 key={groupKey}
-                groupKey={groupKey}
                 label={groupLabels[groupKey] ?? groupKey}
                 perms={perms}
                 enabled={enabled}

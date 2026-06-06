@@ -879,18 +879,19 @@ export default function ProductDetailPage() {
   }
 
   const handleMarkInactive = async () => {
-    if (!businessId || !product || !product.isActive) {
+    if (!businessId || !product) {
       return
     }
 
+    const nextState = !product.isActive
     setMarkingInactive(true)
 
     try {
-      const updatedProduct = await setProductActiveStateLocal(businessId, product.id, false)
+      const updatedProduct = await setProductActiveStateLocal(businessId, product.id, nextState)
       setProduct(updatedProduct)
-      toast.success(t('detail.inactive_success'))
+      toast.success(nextState ? t('detail.active_success') : t('detail.inactive_success'))
     } catch (submitError) {
-      toast.error(getApiErrorMessage(submitError, t('errors.deactivate')))
+      toast.error(getApiErrorMessage(submitError, nextState ? t('errors.activate') : t('errors.deactivate')))
     } finally {
       setMarkingInactive(false)
     }
@@ -1169,9 +1170,9 @@ export default function ProductDetailPage() {
                     setIsActionMenuOpen(false)
                     void handleMarkInactive()
                   }}
-                  disabled={markingInactive || deleting || !product.isActive}
+                  disabled={markingInactive || deleting}
                 >
-                  {product.isActive ? t('actions.mark_inactive') : t('detail.inactive_state')}
+                  {product.isActive ? t('actions.mark_inactive') : t('actions.mark_active')}
                 </MenuActionButton>
                 <MenuActionButton
                   onClick={() => {

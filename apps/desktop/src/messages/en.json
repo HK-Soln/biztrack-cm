@@ -32,7 +32,7 @@
     "team": "Team",
     "roles": "Roles",
     "settings_general": "General",
-    "savings": "Savings"
+    "deposits": "Deposits"
   },
   "topbar": {
     "last_sync": "Last sync: {time}",
@@ -399,7 +399,7 @@
       "add_payment_method": "Add payment method",
       "total_paid": "Amount paid",
       "split_payment": "Split payment",
-      "savings": "Savings",
+      "savings": "Customer Deposits",
       "savings_available": "Available",
       "savings_max_usable": "Max usable",
       "add_charge": "Add charge",
@@ -442,6 +442,7 @@
         "activate": "Activate",
         "deactivate": "Deactivate",
         "mark_inactive": "Mark inactive",
+        "mark_active": "Reactivate",
         "delete": "Delete",
         "undo_delete": "Undo delete",
         "deleting": "Deleting..."
@@ -593,6 +594,7 @@
         "back_to_recent": "Recent products",
         "back_to_list": "All products",
         "inactive_state": "Already inactive",
+        "active_success": "Product reactivated.",
         "no_description": "No description added for this product yet.",
         "not_found_title": "Product not found",
         "not_found_description": "BizTrack could not find that product in the local catalog for this business.",
@@ -814,6 +816,7 @@
         "update": "Unable to update the product.",
         "delete": "Unable to delete the product.",
         "deactivate": "Unable to mark the product inactive.",
+        "activate": "Unable to reactivate the product.",
         "business_required": "Select a business on this device before continuing.",
         "product_not_found": "BizTrack could not find that product in the local catalog.",
         "create": "Unable to create the product.",
@@ -1408,6 +1411,7 @@
       "business_required": "Select a business on this device before opening this contact.",
       "not_found": "This contact could not be found on this device.",
       "back": "Back",
+      "back_to_contacts": "Back to contacts",
       "types": {
         "customer": "Customer",
         "supplier": "Supplier",
@@ -1808,7 +1812,8 @@
       "status": {
         "outstanding": "Outstanding",
         "partially_paid": "Partially paid",
-        "settled": "Settled"
+        "settled": "Settled",
+        "written_off": "Written off"
       },
       "actions": {
         "retry": "Retry",
@@ -2043,11 +2048,117 @@
         "expand": "Expand",
         "collapse": "Collapse"
       },
+      "definitions": {
+        "daily_sales": {
+          "badge": "Daily",
+          "name": "Daily sales report",
+          "description": "All sales for the selected period with totals, cashier breakdown and void visibility.",
+          "source": "sales + sale_items + sale_payments"
+        },
+        "revenue_trend": {
+          "badge": "Range",
+          "name": "Revenue trend report",
+          "description": "Revenue, gross profit and transaction count over any date range.",
+          "source": "sales range aggregation"
+        },
+        "top_products": {
+          "badge": "Ranking",
+          "name": "Top products report",
+          "description": "Best-selling products ranked by revenue, units sold and gross contribution.",
+          "source": "sale_items aggregated"
+        },
+        "cashier_performance": {
+          "badge": "Period",
+          "name": "Cashier performance",
+          "description": "Sales per cashier with revenue, average basket size and void rate.",
+          "source": "sales grouped by cashier"
+        },
+        "payment_breakdown": {
+          "badge": "Analysis",
+          "name": "Payment method breakdown",
+          "description": "Cash, MTN MoMo, Orange Money, card and unpaid credit distribution.",
+          "source": "sale_payments + credit balances"
+        },
+        "voided_sales": {
+          "badge": "Audit",
+          "name": "Voided sales report",
+          "description": "Every voided sale with the reason, timing and value reversed.",
+          "source": "sales where status = VOIDED"
+        },
+        "stock_levels": {
+          "badge": "Snapshot",
+          "name": "Stock levels report",
+          "description": "Current quantity, low-stock threshold and reorder point for tracked products.",
+          "source": "inventory_levels + products"
+        },
+        "stock_movements": {
+          "badge": "Movements",
+          "name": "Stock movement report",
+          "description": "Stock in/out events across sales, restocks, adjustments and void reversals.",
+          "source": "inventory_movements"
+        },
+        "low_stock_alerts": {
+          "badge": "Alert",
+          "name": "Low stock alert report",
+          "description": "Products below threshold, sorted by urgency and shortfall.",
+          "source": "inventory levels filtered"
+        },
+        "restock_costs": {
+          "badge": "Cost",
+          "name": "Restock cost report",
+          "description": "Restock operations with supplier, cost, payments and credit left unpaid.",
+          "source": "restock_records + restock_items + restock_payments"
+        },
+        "profit_loss": {
+          "badge": "P&L",
+          "name": "Profit & loss statement",
+          "description": "Revenue, cost of goods, expense breakdown and net result for the period.",
+          "source": "sales + expenses"
+        },
+        "expense_breakdown": {
+          "badge": "Expenses",
+          "name": "Expense breakdown report",
+          "description": "Expenses grouped by category with recurring versus one-off split.",
+          "source": "expenses + expense_categories"
+        },
+        "revenue_vs_expenses": {
+          "badge": "Trend",
+          "name": "Revenue vs expenses trend",
+          "description": "Revenue and expense trend over the selected period to spot pressure points.",
+          "source": "sales + expenses grouped over time"
+        },
+        "debtors_ageing": {
+          "badge": "Debtors",
+          "name": "Debtors ageing report",
+          "description": "Outstanding receivables grouped by age buckets with oldest balances highlighted.",
+          "source": "debts where direction = RECEIVABLE"
+        },
+        "creditors_ageing": {
+          "badge": "Creditors",
+          "name": "Creditors ageing report",
+          "description": "Outstanding supplier balances grouped by age and urgency.",
+          "source": "debts where direction = PAYABLE"
+        },
+        "contact_statement": {
+          "badge": "Statement",
+          "name": "Contact statement",
+          "description": "Single-contact ledger showing debts, payments, opening and closing balance.",
+          "source": "debts + debt_payments per contact"
+        },
+        "credit_activity": {
+          "badge": "Summary",
+          "name": "Credit activity summary",
+          "description": "Credit issued, collected and written off during the selected period.",
+          "source": "debts + debt_payments aggregated"
+        }
+      },
       "waterfall": {
         "title": "Profit and loss summary",
         "description": "Period summary for {range}.",
+        "sales": "Sales",
+        "voided_sales": "Voided sales",
         "revenue": "Revenue",
-        "cogs": "Cost of goods sold",
+        "cogs": "Cost of sales",
         "gross_profit": "Gross profit",
         "other_expenses": "Other expenses",
         "total_expenses": "Total expenses",
@@ -2438,15 +2549,17 @@
       "cancel_success": "Subscription scheduled for cancellation.",
       "cancel_error": "Unable to cancel subscription.",
       "cancelled_notice": "Your subscription will cancel on {date}.",
-      "subscription_label": "Subscription"
+      "subscription_label": "Subscription",
+      "not_available": "Not available",
+      "launch_banner": "Plan switching and cancellations are disabled during the launch period. All businesses have full Pro access."
     },
-    "savings": {
-      "title": "Savings",
-      "subtitle": "Manage customer savings accounts",
-      "loading": "Loading savings accounts...",
-      "load_error": "Failed to load savings accounts",
+    "deposits": {
+      "title": "Customer Deposits",
+      "subtitle": "Manage customer deposit accounts",
+      "loading": "Loading deposit accounts...",
+      "load_error": "Failed to load deposit accounts",
       "business_required": "No active business session",
-      "new_deposit": "New deposit",
+      "new_deposit": "New Deposit",
       "table": {
         "number": "Account #",
         "customer": "Customer",
@@ -2463,8 +2576,8 @@
         "refund": "Refund"
       },
       "empty": {
-        "title": "No savings accounts yet",
-        "subtitle": "Create a new deposit to open a savings account for a customer."
+        "title": "No deposit accounts yet",
+        "subtitle": "Create a new deposit to open a deposit account for a customer."
       },
       "pagination": {
         "showing": "Showing {from}–{to} of {total}",
@@ -2489,7 +2602,7 @@
       },
       "refund": {
         "title": "Refund",
-        "description": "Issue a refund from the savings account balance.",
+        "description": "Issue a refund from the deposit account balance.",
         "available_balance": "Available balance: XAF {balance}",
         "amount": "Refund amount (XAF)",
         "method": "Payment method",
@@ -2503,7 +2616,7 @@
         "cancel": "Cancel"
       },
       "detail": {
-        "back": "Back to savings",
+        "back": "Back to deposits",
         "account_number": "Account number",
         "customer": "Customer",
         "balance": "Current balance",
@@ -2528,11 +2641,65 @@
         "share_error": "Failed to generate statement PDF"
       },
       "errors": {
-        "SAVINGS_CUSTOMER_REQUIRED": "A customer is required",
-        "SAVINGS_AMOUNT_INVALID": "Amount must be greater than zero",
-        "SAVINGS_INSUFFICIENT_BALANCE": "Insufficient balance for this refund",
-        "SAVINGS_NOT_FOUND": "Savings account not found",
-        "SAVINGS_METHOD_INVALID": "Invalid payment method"
+        "DEPOSIT_CUSTOMER_REQUIRED": "A customer is required",
+        "DEPOSIT_AMOUNT_INVALID": "Amount must be greater than zero",
+        "DEPOSIT_INSUFFICIENT_BALANCE": "Insufficient balance for this refund",
+        "DEPOSIT_NOT_FOUND": "Deposit account not found",
+        "DEPOSIT_METHOD_INVALID": "Invalid payment method"
+      }
+    },
+    "profile": {
+      "title": "My profile",
+      "subtitle": "Manage your personal information.",
+      "tabs": {
+        "profile": "Profile",
+        "security": "Security",
+        "mfa": "Two-factor auth",
+        "sync": "Sync"
+      },
+      "info_section": "Basic information",
+      "info_subtitle": "Update your display name and preferred language.",
+      "readonly_notice": "Email, phone number, and password can be changed through dedicated flows.",
+      "field_name": "Display name",
+      "field_name_placeholder": "Your full name",
+      "field_email": "Email address",
+      "field_phone": "Phone number",
+      "field_language": "Language",
+      "language_en": "English",
+      "language_fr": "Français",
+      "save_action": "Save changes",
+      "saving": "Saving...",
+      "save_success": "Profile updated.",
+      "save_error": "Failed to update profile.",
+      "offline_warning": "You need to be online to update your profile.",
+      "security_title": "Password & security",
+      "security_subtitle": "Manage your account password.",
+      "change_password_title": "Change password",
+      "change_password_description": "Update your account password. You will be signed out on all other devices.",
+      "change_password_coming_soon": "Password change is handled through a dedicated flow. Use the login screen to reset your password if needed.",
+      "mfa_title": "Two-factor authentication",
+      "mfa_subtitle": "Add an extra layer of security to your account.",
+      "mfa_description": "Two-factor authentication (2FA) is not yet available. It will be added in a future update.",
+      "mfa_coming_soon": "Coming soon",
+      "sync": {
+        "section_status": "Sync status",
+        "section_settings": "Sync preferences",
+        "device_notice": "These preferences apply to this device only.",
+        "last_sync": "Last synced: {time}",
+        "never_synced": "Never synced on this device",
+        "realtime_label": "Live channel: {mode} ({status})",
+        "auto_sync_label": "Auto-sync",
+        "auto_sync_help_on": "BizTrack syncs in the background when your connection is good enough.",
+        "auto_sync_help_off": "Changes stay local until you sync manually or turn auto-sync back on.",
+        "auto_sync_enable": "Turn on",
+        "auto_sync_disable": "Turn off",
+        "min_quality_label": "Start auto-sync when connection is",
+        "min_quality_help": "Background sync starts once this device reaches {quality} connection quality.",
+        "min_quality_disabled": "Turn auto-sync back on to configure when background sync starts.",
+        "sync_now": "Sync now",
+        "syncing": "Syncing…",
+        "error_label": "Latest sync issue",
+        "warning_disabled": "Auto-sync is off. Recent changes may not stay up to date if you use more than one device."
       }
     }
   },

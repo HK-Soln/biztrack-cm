@@ -4,16 +4,22 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { Input, Button } from '@biztrack/ui'
+import { toast } from 'sonner'
 import { AuthCard } from '@/components/auth/AuthCard'
 import { getApiErrorMessage } from '@/services/api-response'
 import { setupBusiness } from '@/services/auth.api'
+import { updateLocalBusinessProfile } from '@/services/local-businesses.local'
+import { useAuthStore } from '@/stores/auth.store'
 
 export default function SetupBusinessPage() {
   const locale = useLocale()
   const t = useTranslations('auth')
   const router = useRouter()
+
+  const businessId = useAuthStore((s) => s.businessId)
+  const applyBusinessMeta = useAuthStore((s) => s.applyBusinessMeta)
+
   const [form, setForm] = useState({ name: '', city: '', address: '' })
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const goTo = (path: string) => router.push(`/${locale}${path}`)
@@ -23,17 +29,42 @@ export default function SetupBusinessPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError(null)
     setLoading(true)
     try {
-      await setupBusiness({
+      const business = await setupBusiness({
         name: form.name,
         city: form.city || undefined,
         address: form.address || undefined,
       })
+
+      // Persist the updated profile to local SQLite so the auth store (which
+      // reads businessName from there) reflects the new name on all screens.
+      if (businessId) {
+        await updateLocalBusinessProfile({
+          id: businessId,
+          name: business.name,
+          city: business.city ?? null,
+          address: business.address ?? null,
+          phone: business.phone ?? null,
+          email: business.email ?? null,
+          currency: business.currency ?? null,
+        })
+      }
+
+      // Update the in-memory store immediately so the dashboard/topbar shows
+      // the correct name without waiting for the next sync cycle.
+      applyBusinessMeta({
+        businessName: business.name,
+        businessCity: business.city ?? null,
+        businessAddress: business.address ?? null,
+        businessPhone: business.phone ?? null,
+        businessEmail: business.email ?? null,
+        businessCurrency: business.currency || 'XAF',
+      })
+
       return goTo('/select-plan')
     } catch (error) {
-      setError(getApiErrorMessage(error, t('setup_business.error_default')))
+      toast.error(getApiErrorMessage(error, t('setup_business.error_default')))
     } finally {
       setLoading(false)
     }
@@ -46,7 +77,7 @@ export default function SetupBusinessPage() {
           <label className="text-sm font-medium text-foreground">
             {t('setup_business.name_label')}
           </label>
-          <Input value={form.name} onChange={handleChange('name')} required />
+          <Input value={form.name} onChange={handleChange('name')} required autoFocus />
         </div>
         <div>
           <label className="text-sm font-medium text-foreground">
@@ -68,7 +99,6 @@ export default function SetupBusinessPage() {
             placeholder={t('setup_business.address_placeholder')}
           />
         </div>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>
           {loading ? t('setup_business.loading') : t('setup_business.continue')}
         </Button>

@@ -120,6 +120,14 @@ function resolveRedirectTarget({
       return null
     }
 
+    // When tokens are set while the user is still on a verification page (e.g.
+    // verifyEmail sets phase2 tokens and then immediately navigates to
+    // setup-business), AuthRedirect must not fire a competing redirect to '/'.
+    // The pending state confirms the user is mid-flow, not visiting the page
+    // after already being fully authenticated.
+    if (routeKind === 'verifyEmail' && hasPendingEmail) return null
+    if (routeKind === 'verifyPhone' && hasPendingPhone) return null
+
     return '/'
   }
 

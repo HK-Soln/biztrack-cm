@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { AuthNextStep } from '@biztrack/types'
-import { Input, Button } from '@biztrack/ui'
+import { Button, InputPassword } from '@biztrack/ui'
+import { toast } from 'sonner'
 import { AuthCard } from '@/components/auth/AuthCard'
 import { acceptInvite, getAuthTokens, login } from '@/services/auth.api'
 import { getApiErrorMessage } from '@/services/api-response'
@@ -17,7 +18,6 @@ export default function PasswordLoginPage() {
   const t = useTranslations('auth')
   const router = useRouter()
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const pendingIdentifier = useAuthStore((s) => s.pending.identifier)
@@ -33,7 +33,6 @@ export default function PasswordLoginPage() {
     if (!pendingIdentifier) {
       return goTo('/login')
     }
-    setError(null)
     setLoading(true)
     try {
       const response = await login({ identifier: pendingIdentifier, password })
@@ -62,7 +61,7 @@ export default function PasswordLoginPage() {
       }
       return goTo(routeForNextStep(response.nextStep))
     } catch (error) {
-      setError(getApiErrorMessage(error, t('password.error_default')))
+      toast.error(getApiErrorMessage(error, t('password.error_default')))
     } finally {
       setLoading(false)
     }
@@ -73,15 +72,14 @@ export default function PasswordLoginPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="text-sm font-medium text-foreground">{t('password.label')}</label>
-          <Input
-            type="password"
+          <InputPassword
             value={password}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)}
+            onChange={(event) => setPassword(event.target.value)}
             placeholder={t('password.placeholder')}
             required
+            autoFocus
           />
         </div>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>
           {loading ? t('password.loading') : t('password.submit')}
         </Button>

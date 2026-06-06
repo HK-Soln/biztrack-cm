@@ -17,7 +17,7 @@ import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { SalesModule } from '@/modules/sales/sales.module'
-import { SavingsModule } from '@/modules/savings/savings.module'
+import { DepositsModule } from '@/modules/savings/savings.module'
 import { LoggerModule } from './logger/logger.module'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
@@ -98,7 +98,7 @@ function resolveI18nPath() {
     DebtsModule,
     SalesModule,
     SyncModule,
-    SavingsModule,
+    DepositsModule,
     RolesModule,
     PermissionsModule,
     PlansModule,

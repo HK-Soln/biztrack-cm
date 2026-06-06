@@ -16,6 +16,7 @@ export enum DebtDirection {
 export enum DebtSource {
   SALE = 'SALE',
   RESTOCK = 'RESTOCK',
+  OPENING_BALANCE = 'OPENING_BALANCE',
 }
 
 export enum DebtStatus {
