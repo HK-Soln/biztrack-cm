@@ -1169,6 +1169,20 @@ export class SyncService {
       withDeleted: true,
     })
 
+    if (existing?.businessId === null) {
+      return {
+        status: 'failed',
+        errorMessage: 'System units of measure are pull-only.',
+      }
+    }
+
+    if (existing?.businessId && existing.businessId !== businessId) {
+      return {
+        status: 'failed',
+        errorMessage: 'Unit of measure belongs to another business.',
+      }
+    }
+
     if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
       return {
         status: 'conflict',
@@ -1201,7 +1215,7 @@ export class SyncService {
         name: payload.name!.trim().toUpperCase(),
         abbreviation: payload.abbreviation?.trim() ?? '',
         type: payload.type! as UnitOfMeasureType,
-        businessId: payload.businessId ?? businessId,
+        businessId,
         isDefault: Boolean(payload.isDefault),
         isActive: payload.isActive ?? true,
         deletedAt: null,
@@ -1215,7 +1229,7 @@ export class SyncService {
         id: operation.recordId,
         name: payload.name!.trim().toUpperCase(),
         abbreviation: payload.abbreviation?.trim() ?? '',
-        businessId: payload.businessId ?? businessId,
+        businessId,
         type: payload.type! as UnitOfMeasureType,
         isDefault: Boolean(payload.isDefault),
         isActive: payload.isActive ?? true,
