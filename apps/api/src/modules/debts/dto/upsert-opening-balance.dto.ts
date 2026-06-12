@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { DebtDirection, type UpsertOpeningBalanceRequest } from '@biztrack/types'
-import { IsEnum, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
+import { IsEnum, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator'
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
@@ -10,8 +10,9 @@ export class UpsertOpeningBalanceDto implements UpsertOpeningBalanceRequest {
   direction!: DebtDirection
 
   @ApiProperty({ example: 50000 })
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
+  @Max(9_999_999_999)
   amount!: number
 
   @ApiProperty({ example: '2026-01-01' })

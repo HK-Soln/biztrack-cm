@@ -5,9 +5,14 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator'
+
+// decimal(12,2) money / decimal(12,3) quantity column ceilings — keep clean 400s instead of DB overflow 500s.
+const MAX_MONEY = 9_999_999_999
+const MAX_QUANTITY = 9_999_999
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import type { CreateProductRequest } from '@biztrack/types'
 
@@ -36,36 +41,41 @@ export class CreateProductDto implements CreateProductRequest {
   barcode?: string
 
   @ApiProperty({ example: 500 })
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   @Type(() => Number)
   sellingPrice!: number
 
   @ApiPropertyOptional({ example: 350 })
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   @Type(() => Number)
   costPrice?: number
 
   @ApiPropertyOptional({ example: 19.25, default: 0 })
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(100)
   @Type(() => Number)
   taxRate?: number
 
   @ApiPropertyOptional({ example: 100, default: 0 })
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
+  @Max(MAX_QUANTITY)
   @Type(() => Number)
   openingStock?: number
 
   @ApiPropertyOptional({ example: 10, default: 5 })
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
+  @Max(MAX_QUANTITY)
   @Type(() => Number)
   lowStockThreshold?: number
 

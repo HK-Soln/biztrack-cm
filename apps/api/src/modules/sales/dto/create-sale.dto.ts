@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsDateString,
@@ -9,10 +10,15 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator'
+
+// decimal(12,2) money / decimal(12,3) quantity column ceilings.
+const MAX_MONEY = 9_999_999_999
+const MAX_QUANTITY = 9_999_999
 import { PaymentMethod, type CreateSaleItemRequest, type CreateSalePaymentRequest, type CreateSaleRequest } from '@biztrack/types'
 
 const CREATE_SALE_PAYMENT_METHODS = [
@@ -29,8 +35,9 @@ export class CreateSalePaymentDto implements CreateSalePaymentRequest {
 
   @ApiProperty({ example: 5000 })
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
+  @Max(MAX_MONEY)
   amount!: number
 
   @ApiPropertyOptional({ maxLength: 100 })
@@ -47,28 +54,32 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
 
   @ApiProperty({ example: 2 })
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.001)
+  @Max(MAX_QUANTITY)
   quantity!: number
 
   @ApiProperty({ example: 500 })
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   unitPrice!: number
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   discountAmount?: number
 
   @ApiPropertyOptional({ example: 250 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   costPrice?: number
 }
 
@@ -107,19 +118,22 @@ export class CreateSaleDto implements CreateSaleRequest {
   @ApiPropertyOptional({ example: 500 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   discountAmount?: number
 
   @ApiPropertyOptional({ example: 250 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(MAX_MONEY)
   chargesAmount?: number
 
   @ApiProperty({ type: [CreateSalePaymentDto] })
   @IsArray()
+  @ArrayMaxSize(20)
   @ValidateNested({ each: true })
   @Type(() => CreateSalePaymentDto)
   payments!: CreateSalePaymentDto[]
@@ -127,6 +141,7 @@ export class CreateSaleDto implements CreateSaleRequest {
   @ApiProperty({ type: [CreateSaleItemDto] })
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => CreateSaleItemDto)
   items!: CreateSaleItemDto[]
