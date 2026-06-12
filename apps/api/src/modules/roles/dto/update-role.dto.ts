@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsHexColor, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
+import { ArrayMaxSize, IsArray, IsHexColor, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
 import type { AddRolePermissionRequest, SetRolePermissionsRequest, UpdateRoleRequest } from '@biztrack/types'
 
 export class UpdateRoleDto implements UpdateRoleRequest {
@@ -24,12 +24,15 @@ export class UpdateRoleDto implements UpdateRoleRequest {
 export class SetRolePermissionsDto implements SetRolePermissionsRequest {
   @ApiProperty({ type: [String] })
   @IsArray()
+  @ArrayMaxSize(200)
   @IsString({ each: true })
+  @MaxLength(100, { each: true })
   permissions!: string[]
 }
 
 export class AddRolePermissionDto implements AddRolePermissionRequest {
   @ApiProperty({ example: 'sales:create' })
   @IsString()
+  @MaxLength(100)
   permission!: string
 }

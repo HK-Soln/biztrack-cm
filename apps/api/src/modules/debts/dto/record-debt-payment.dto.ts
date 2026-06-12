@@ -1,13 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { PaymentMethod, type RecordDebtPaymentRequest } from '@biztrack/types'
-import { IsEnum, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
+import { IsEnum, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator'
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 export class RecordDebtPaymentDto implements RecordDebtPaymentRequest {
   @ApiProperty({ example: 2500 })
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
+  @Max(9_999_999_999)
   amount!: number
 
   @ApiProperty({ enum: PaymentMethod, example: PaymentMethod.CASH })

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer'
 import {
+  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsISO8601,
@@ -10,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
+import { SYNC_BATCH_MAX_OPERATIONS } from '../constants/sync.constants'
 enum SyncEntityDto {
   CONTACT = 'contact',
   OPENING_BALANCE = 'opening_balance',
@@ -71,6 +73,7 @@ export class PushSyncBatchDto {
 
   @ApiProperty({ type: [SyncPushOperationDto] })
   @IsArray()
+  @ArrayMaxSize(SYNC_BATCH_MAX_OPERATIONS)
   @ValidateNested({ each: true })
   @Type(() => SyncPushOperationDto)
   operations!: SyncPushOperationDto[]
