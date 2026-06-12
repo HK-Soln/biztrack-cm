@@ -86,7 +86,6 @@ export class AuthService {
   }
 
   async register(dto: RegisterRequest) {
-    console.log(JSON.stringify(dto, null, 2))
     const email = dto.email?.toLowerCase()
     let phone = dto.phone
     this.logger.debug('Register attempt', 'AuthService', { email, phone })

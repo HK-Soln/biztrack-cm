@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { LessThan, Not } from 'typeorm'
 import { BusinessesRepository } from '@/modules/business/repositories/businesses.repository'
 import { SubscriptionEventsRepository } from './repositories/subscription-events.repository'
 import { PermissionsService } from '@/modules/permissions/permissions.service'
@@ -19,9 +20,9 @@ export class SubscriptionsService {
     const expired = await this.businessesRepo.find({
       where: {
         subscriptionStatus: SubscriptionStatus.TRIAL,
-        trialEndsAt: { lt: now } as any,
-        plan: { not: SubscriptionPlan.FREE } as any,
-      } as any,
+        trialEndsAt: LessThan(now),
+        plan: Not(SubscriptionPlan.FREE),
+      },
     })
 
     for (const business of expired) {
