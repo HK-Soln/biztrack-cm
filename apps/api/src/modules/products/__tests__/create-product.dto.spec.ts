@@ -38,4 +38,18 @@ describe('CreateProductDto validation bounds', () => {
   it('allows a decimal quantity (scale 3) on openingStock', async () => {
     expect(await validateDto({ openingStock: 1.5 })).toHaveLength(0)
   })
+
+  it('accepts a valid productType', async () => {
+    expect(await validateDto({ productType: 'VARIABLE_QUANTITY' })).toHaveLength(0)
+    expect(await validateDto({ productType: 'COMPOSITE' })).toHaveLength(0)
+  })
+
+  it('rejects an unknown productType', async () => {
+    const errors = await validateDto({ productType: 'BUNDLE' })
+    expect(errors).toContain('isEnum')
+  })
+
+  it('stays valid for legacy clients that send only isService (no productType)', async () => {
+    expect(await validateDto({ isService: true })).toHaveLength(0)
+  })
 })

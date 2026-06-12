@@ -48,9 +48,12 @@ import {
   DebtDirection,
   DebtSource,
   DebtStatus,
+  deriveProductTypeFlags,
   getSyncEntityDependencyTier,
   getSyncEntityStableOrder,
+  inferProductType,
   PaymentMethod,
+  ProductType,
   StockAdjustmentType,
   UnitOfMeasureType,
 } from '@biztrack/types'
@@ -172,6 +175,7 @@ type ProductSyncPayload = {
   unitOfMeasureId?: string | null
   categoryId?: string | null
   imageUrl?: string | null
+  productType?: ProductType
   isService?: boolean
   trackInventory?: boolean
   isActive?: boolean
@@ -1316,6 +1320,7 @@ export class SyncService {
       unitOfMeasureId: unitOfMeasure.id,
       categoryId: payload.categoryId ?? undefined,
       imageUrl: payload.imageUrl ?? undefined,
+      productType: payload.productType ?? undefined,
       isService: payload.isService ?? undefined,
       trackInventory: payload.trackInventory ?? undefined,
       isActive: payload.isActive ?? undefined,
@@ -1330,13 +1335,17 @@ export class SyncService {
     const slug = await this.slugService.generateProductSlug(payload.name!, businessId, existing?.id)
     const sku = await this.resolveProductSku(businessId, category?.slug ?? null, payload, existing?.id, existing?.sku ?? null)
     const barcode = await this.resolveProductBarcode(businessId, payload, existing, sku)
-    const isService = payload.isService ?? existing?.isService ?? false
-    const trackInventory =
-      payload.trackInventory !== undefined
-        ? payload.trackInventory
-        : payload.isService === true
-          ? false
-          : existing?.trackInventory ?? !isService
+    // productType is authoritative; isService/trackInventory are derived from it.
+    // Fall back to the payload's/existing productType, then to a classification
+    // inferred from the legacy isService flag (older clients send no productType).
+    const productType =
+      payload.productType ??
+      existing?.productType ??
+      inferProductType(payload.isService ?? existing?.isService)
+    const { isService, trackInventory } = deriveProductTypeFlags(
+      productType,
+      payload.trackInventory ?? existing?.trackInventory,
+    )
 
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
@@ -1365,6 +1374,7 @@ export class SyncService {
           costPrice: payload.costPrice ?? null,
           taxRate: payload.taxRate ?? existing.taxRate ?? 0,
           isActive: nextIsActive,
+          productType,
           isService,
           trackInventory,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -1428,6 +1438,7 @@ export class SyncService {
           currency: business.currency,
           taxRate: payload.taxRate ?? 0,
           isActive: payload.isActive ?? true,
+          productType,
           isService,
           trackInventory,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),

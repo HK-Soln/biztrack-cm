@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer'
 import {
   IsBoolean,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -14,7 +15,7 @@ import {
 const MAX_MONEY = 9_999_999_999
 const MAX_QUANTITY = 9_999_999
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import type { CreateProductRequest } from '@biztrack/types'
+import { ProductType, type CreateProductRequest } from '@biztrack/types'
 
 export class CreateProductDto implements CreateProductRequest {
   @ApiProperty({ example: 'Coca-Cola 50cl' })
@@ -94,7 +95,19 @@ export class CreateProductDto implements CreateProductRequest {
   @MaxLength(500)
   imageUrl?: string
 
-  @ApiPropertyOptional({ default: false })
+  @ApiPropertyOptional({
+    enum: ProductType,
+    description:
+      'Authoritative product classification. If omitted, derived from isService (SERVICE when isService=true, else SIMPLE).',
+  })
+  @IsOptional()
+  @IsEnum(ProductType)
+  productType?: ProductType
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Deprecated. Use productType=SERVICE. Kept for backward compatibility.',
+  })
   @IsOptional()
   @IsBoolean()
   isService?: boolean

@@ -1,4 +1,4 @@
-import type { Product } from '@biztrack/types'
+import { ProductType, type Product } from '@biztrack/types'
 import { CategoryDto } from './category-response.dto'
 import { UnitOfMeasureDto } from './unit-of-measure-response.dto'
 import { UserDto } from './user.dto'
@@ -15,6 +15,7 @@ type ProductModel = {
   currency: string
   taxRate: number
   isActive: boolean
+  productType: ProductType
   isService: boolean
   trackInventory: boolean
   category?: Parameters<typeof CategoryDto.fromEntity>[0]
@@ -47,6 +48,7 @@ export class ProductResponseDto implements Product {
   currency!: string
   taxRate!: number
   isActive!: boolean
+  productType!: ProductType
   isService!: boolean
   trackInventory!: boolean
   category?: CategoryDto | null
@@ -79,6 +81,7 @@ export class ProductResponseDto implements Product {
     dto.currency = model.currency
     dto.taxRate = model.taxRate
     dto.isActive = model.isActive
+    dto.productType = model.productType
     dto.isService = model.isService
     dto.trackInventory = model.trackInventory
     dto.category = CategoryDto.fromEntity(model.category) ?? null
