@@ -16,7 +16,7 @@ import type {
 } from '@biztrack/types'
 import { DebtDirection, DebtSource, StockAdjustmentType } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm'
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -424,10 +424,25 @@ export class InventoryService {
       const movementRepo = this.getMovementRepo(manager)
       const productRepo = this.getProductRepo(manager)
 
+      const productIds = [...new Set(items.map((item) => item.productId))]
+
+      // Batch-load products and inventory levels once instead of per line item
+      // (was an N+1: one product findOne + one locked level query per item).
+      const products = await productRepo.find({
+        where: { id: In(productIds), businessId, deletedAt: IsNull() },
+      })
+      const productMap = new Map(products.map((product) => [product.id, product]))
+
+      const levels = await this.findInventoryLevelsForUpdate(inventoryRepo, businessId, productIds)
+      const levelMap = new Map(levels.map((level) => [level.productId, level]))
+
+      // Running quantity per product so repeated line items for the same product
+      // deduct cumulatively (matching the previous per-item sequential behaviour).
+      const runningQuantities = new Map<string, number>()
+      const movementsToInsert: InventoryMovement[] = []
+
       for (const item of items) {
-        const product = await productRepo.findOne({
-          where: { id: item.productId, businessId, deletedAt: IsNull() },
-        })
+        const product = productMap.get(item.productId)
 
         if (!product) {
           throw new AppNotFoundException(
@@ -440,8 +455,10 @@ export class InventoryService {
           continue
         }
 
-        const level = await this.findInventoryLevelForUpdate(inventoryRepo, businessId, item.productId)
-        const quantityBefore = Number(level?.quantity ?? 0)
+        const level = levelMap.get(item.productId)
+        const quantityBefore = runningQuantities.has(item.productId)
+          ? runningQuantities.get(item.productId)!
+          : Number(level?.quantity ?? 0)
         const quantityAfter = quantityBefore - item.quantity
 
         if (quantityAfter < 0) {
@@ -463,19 +480,9 @@ export class InventoryService {
           )
         }
 
-        if (!level) {
-          await inventoryRepo.save(
-            inventoryRepo.create({
-              businessId,
-              productId: item.productId,
-              quantity: quantityAfter,
-            }),
-          )
-        } else {
-          await inventoryRepo.update(level.id, { quantity: quantityAfter })
-        }
+        runningQuantities.set(item.productId, quantityAfter)
 
-        await movementRepo.save(
+        movementsToInsert.push(
           movementRepo.create({
             id: item.movementId ?? undefined,
             businessId,
@@ -490,6 +497,22 @@ export class InventoryService {
             performedById: userId,
           }),
         )
+      }
+
+      // Apply the final level once per distinct product, then bulk-insert movements.
+      for (const [productId, finalQuantity] of runningQuantities) {
+        const level = levelMap.get(productId)
+        if (!level) {
+          await inventoryRepo.save(
+            inventoryRepo.create({ businessId, productId, quantity: finalQuantity }),
+          )
+        } else {
+          await inventoryRepo.update(level.id, { quantity: finalQuantity })
+        }
+      }
+
+      if (movementsToInsert.length > 0) {
+        await movementRepo.save(movementsToInsert)
       }
     } catch (error) {
       return this.handleServiceError('deductForSale', error, { businessId, saleId, saleNumber, userId })
@@ -1006,6 +1029,27 @@ export class InventoryService {
     }
 
     return qb.getOne()
+  }
+
+  private async findInventoryLevelsForUpdate(
+    inventoryRepo: Repository<InventoryLevel>,
+    businessId: string,
+    productIds: string[],
+  ) {
+    if (productIds.length === 0) {
+      return []
+    }
+
+    const qb = inventoryRepo
+      .createQueryBuilder('inventory')
+      .where('inventory.business_id = :businessId', { businessId })
+      .andWhere('inventory.product_id IN (:...productIds)', { productIds })
+
+    if (inventoryRepo.manager.queryRunner?.isTransactionActive) {
+      qb.setLock('pessimistic_write')
+    }
+
+    return qb.getMany()
   }
 
   private async loadMovementReferenceInfo(

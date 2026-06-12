@@ -57,7 +57,7 @@ import {
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type { Queue } from 'bullmq'
 import { I18nService } from 'nestjs-i18n'
-import { DataSource, IsNull, Repository } from 'typeorm'
+import { DataSource, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -714,6 +714,43 @@ export class SyncService {
     let failedCount = 0
     let firstFailureMessage: string | null = null
 
+    // Buffer per-operation status writes and flush them grouped by outcome, so the
+    // common "applied" majority is persisted in a single UPDATE ... WHERE id IN (...)
+    // instead of one UPDATE per operation (previously an N+1 over the batch). The
+    // catch path flushes whatever was computed before marking the rest failed, so
+    // crash-recovery semantics are unchanged (markPendingOperationsFailed only
+    // touches rows still 'pending').
+    const operationResults: Array<{ id: string; result: BatchProcessingResult }> = []
+
+    const flushOperationResults = async () => {
+      if (operationResults.length === 0) {
+        return
+      }
+
+      const groups = new Map<string, { update: Record<string, unknown>; ids: string[] }>()
+      for (const { id, result } of operationResults) {
+        const update = {
+          status: result.status,
+          resolution: result.resolution ?? null,
+          errorMessage: result.errorMessage ?? null,
+          errorDetails: result.errorDetails ? { ...result.errorDetails } : null,
+        }
+        const key = JSON.stringify(update)
+        const group = groups.get(key)
+        if (group) {
+          group.ids.push(id)
+        } else {
+          groups.set(key, { update, ids: [id] })
+        }
+      }
+
+      operationResults.length = 0
+
+      for (const { update, ids } of groups.values()) {
+        await this.syncOperationsRepo.update({ id: In(ids) }, update as never)
+      }
+    }
+
     try {
       for (const operation of sortedOperations) {
         if (operation.status !== 'pending') {
@@ -736,13 +773,10 @@ export class SyncService {
           firstFailureMessage ??= result.errorMessage ?? null
         }
 
-        await this.syncOperationsRepo.update(operation.id, {
-          status: result.status,
-          resolution: result.resolution ?? null,
-          errorMessage: result.errorMessage ?? null,
-          errorDetails: (result.errorDetails ? { ...result.errorDetails } : null) as any,
-        })
+        operationResults.push({ id: operation.id, result })
       }
+
+      await flushOperationResults()
 
       const status = this.resolveBatchStatus(processedCount, appliedCount, failedCount)
 
@@ -758,9 +792,10 @@ export class SyncService {
 
       await this.emitBatchStatus(batch.id)
     } catch (error) {
-      console.log(error, 'batch error')
       const message = error instanceof Error ? error.message : 'Unexpected sync batch processing failure.'
+      this.logger.error('Sync batch processing failed', 'SyncService', { batchId: batch.id, message })
 
+      await flushOperationResults()
       await this.markPendingOperationsFailed(batch.id, message)
       await this.finalizeBatchFromPersistedOperations(batch.id, message)
       await this.emitBatchStatus(batch.id)
