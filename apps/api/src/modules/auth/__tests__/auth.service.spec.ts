@@ -118,8 +118,10 @@ const makeService = () => {
   }
 
   const notificationsService = {
-    createAndEnqueue: jest.fn(),
+    // Must resolve a Promise: dispatchPhoneOtp/dispatchEmailOtp chain `.catch()` on the result.
+    createAndEnqueue: jest.fn().mockResolvedValue(undefined),
     sendInviteNotification: jest.fn(),
+    enqueueInviteNotifications: jest.fn().mockResolvedValue(undefined),
   }
 
   const service = new AuthService(
@@ -137,7 +139,11 @@ const makeService = () => {
     quotaService as any,
     notificationsService as any,
     { isWhatsAppContact: jest.fn().mockResolvedValue(true) } as any,
-    { findByIdOrFail: jest.fn(), findOwnerRole: jest.fn() } as any,
+    {
+      findByIdOrFail: jest.fn(),
+      findOwnerRole: jest.fn().mockResolvedValue({ id: 'owner-role-1' }),
+      seedDefaultRoles: jest.fn().mockResolvedValue(undefined),
+    } as any,
     i18n as any,
     logger as any,
   )
