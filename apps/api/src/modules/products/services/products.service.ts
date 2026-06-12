@@ -1,11 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
-import type {
-  AssignBarcodeRequest,
-  CreateProductRequest,
-  ProductsQuery,
-  UpdateProductRequest,
+import {
+  deriveProductTypeFlags,
+  inferProductType,
+  type AssignBarcodeRequest,
+  type CreateProductRequest,
+  type ProductsQuery,
+  type UpdateProductRequest,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, IsNull, Repository } from 'typeorm'
@@ -77,8 +79,10 @@ export class ProductsService {
         ? await this.barcodeService.validateAndNormalize(businessId, dto.barcode)
         : this.barcodeService.generateFromSKU(sku)
 
-      const isService = dto.isService ?? false
-      const trackInventory = dto.trackInventory !== undefined ? dto.trackInventory : !isService
+      // productType is authoritative; isService/trackInventory are derived from it.
+      // Legacy clients that send only isService get a best-effort classification.
+      const productType = dto.productType ?? inferProductType(dto.isService)
+      const { isService, trackInventory } = deriveProductTypeFlags(productType, dto.trackInventory)
 
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
@@ -98,6 +102,7 @@ export class ProductsService {
             currency: business.currency,
             taxRate: dto.taxRate ?? 0,
             isActive: dto.isActive ?? true,
+            productType,
             isService,
             trackInventory,
             imageUrl: dto.imageUrl?.trim() ?? null,

@@ -9,6 +9,48 @@ export enum UnitOfMeasureType {
   CUSTOM = 'CUSTOM',
 }
 
+export enum ProductType {
+  SIMPLE = 'SIMPLE', // physical good, integer qty, inventory tracked (may be untracked — see below)
+  SERVICE = 'SERVICE', // no physical stock, no inventory row
+  VARIABLE_QUANTITY = 'VARIABLE_QUANTITY', // sold by weight/volume/length, decimal qty
+  COMPOSITE = 'COMPOSITE', // bundle of other products, no own stock
+}
+
+export interface ProductTypeFlags {
+  isService: boolean
+  trackInventory: boolean
+}
+
+/**
+ * Derive the legacy `isService` / `trackInventory` flags from a `productType`.
+ *
+ * SERVICE and COMPOSITE never carry stock; VARIABLE_QUANTITY always does.
+ * SIMPLE may be tracked OR untracked — "physical but untracked" is an existing,
+ * supported configuration — so the caller's explicit `trackInventory` is honored
+ * for SIMPLE only (defaulting to true).
+ */
+export function deriveProductTypeFlags(
+  productType: ProductType,
+  explicitTrackInventory?: boolean | null,
+): ProductTypeFlags {
+  switch (productType) {
+    case ProductType.SERVICE:
+      return { isService: true, trackInventory: false }
+    case ProductType.COMPOSITE:
+      return { isService: false, trackInventory: false }
+    case ProductType.VARIABLE_QUANTITY:
+      return { isService: false, trackInventory: true }
+    case ProductType.SIMPLE:
+    default:
+      return { isService: false, trackInventory: explicitTrackInventory ?? true }
+  }
+}
+
+/** Best-effort classification for legacy clients that only send `isService`. */
+export function inferProductType(isService?: boolean | null): ProductType {
+  return isService ? ProductType.SERVICE : ProductType.SIMPLE
+}
+
 export interface ProductUserSummary {
   id: string
   name: string
@@ -60,6 +102,10 @@ export interface Product {
   currency: Currency | string
   taxRate: number
   isActive: boolean
+  // Optional on the shared shape for backward compatibility: older API responses
+  // and the desktop's local SQLite rows may not carry it yet. The API response DTO
+  // always populates it.
+  productType?: ProductType
   isService: boolean
   trackInventory: boolean
   category?: ProductCategory | null
@@ -102,6 +148,7 @@ export interface CreateProductRequest {
   unitOfMeasureId: string
   categoryId?: string
   imageUrl?: string
+  productType?: ProductType
   isService?: boolean
   trackInventory?: boolean
   isActive?: boolean

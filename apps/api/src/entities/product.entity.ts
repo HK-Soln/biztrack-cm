@@ -6,7 +6,10 @@ import {
   JoinColumn,
   Index,
   Unique,
+  BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm'
+import { ProductType, deriveProductTypeFlags } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -78,6 +81,16 @@ export class Product
   })
   taxRate!: number
 
+  @Column({
+    name: 'product_type',
+    type: 'enum',
+    enum: ProductType,
+    enumName: 'product_type_enum',
+    default: ProductType.SIMPLE,
+  })
+  productType!: ProductType
+
+  // Kept for backward compatibility; derived from productType by syncDerivedFields().
   @Column({ name: 'is_service', default: false })
   isService!: boolean
 
@@ -119,4 +132,19 @@ export class Product
 
   @OneToMany(() => ProductImage, (image) => image.product)
   images?: ProductImage[]
+
+  // Keep the legacy isService/trackInventory columns in sync with productType.
+  // Runs on save()-based inserts/updates; repository.update() bypasses this, so
+  // those call sites set the fields explicitly. productType is inferred from
+  // isService when unset so legacy save paths still get a correct value.
+  @BeforeInsert()
+  @BeforeUpdate()
+  syncDerivedFields() {
+    if (!this.productType) {
+      this.productType = this.isService ? ProductType.SERVICE : ProductType.SIMPLE
+    }
+    const flags = deriveProductTypeFlags(this.productType, this.trackInventory)
+    this.isService = flags.isService
+    this.trackInventory = flags.trackInventory
+  }
 }

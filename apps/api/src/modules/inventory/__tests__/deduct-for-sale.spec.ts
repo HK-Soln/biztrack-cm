@@ -74,7 +74,7 @@ describe('InventoryService.deductForSale (batched)', () => {
 
     // one bulk movement insert, with correct running before/after per line
     expect(inventoryMovementsRepo.save).toHaveBeenCalledTimes(1)
-    const movements = inventoryMovementsRepo.save.mock.calls[0][0] as Array<any>
+    const movements = (inventoryMovementsRepo.save.mock.calls[0]?.[0] ?? []) as Array<any>
     expect(movements).toHaveLength(2)
     expect(movements[0]).toMatchObject({ quantityBefore: 10, quantityAfter: 7, quantityChange: -3 })
     expect(movements[1]).toMatchObject({ quantityBefore: 7, quantityAfter: 3, quantityChange: -4 })

@@ -85,7 +85,7 @@ const makeService = () => {
 }
 
 describe('ProductsService', () => {
-  it('respects an explicit trackInventory=true override when creating a service product', async () => {
+  it('forces a SERVICE product to be non-inventory-tracked even if trackInventory=true is sent', async () => {
     const {
       service,
       businessesRepo,
@@ -148,25 +148,17 @@ describe('ProductsService', () => {
       lowStockThreshold: 1,
     })
 
+    // productType is authoritative: SERVICE never carries stock, so the
+    // contradictory trackInventory=true is overridden to false and no
+    // inventory level is created.
     expect(transactionProductRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
+        productType: 'SERVICE',
         isService: true,
-        trackInventory: true,
+        trackInventory: false,
       }),
     )
-    expect(transactionInventoryRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        businessId: 'business-1',
-        productId: 'product-1',
-        quantity: 4,
-        lowStockThreshold: 1,
-      }),
-    )
-    expect(transactionMovementRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MovementType.OPENING_STOCK,
-        quantityAfter: 4,
-      }),
-    )
+    expect(transactionInventoryRepo.create).not.toHaveBeenCalled()
+    expect(transactionMovementRepo.create).not.toHaveBeenCalled()
   })
 })
