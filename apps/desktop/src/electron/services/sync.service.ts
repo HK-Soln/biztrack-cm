@@ -1332,6 +1332,8 @@ export class SyncService extends EventEmitter {
     const serverAttributeGroups = response.changes.attributeGroups ?? []
     const serverAttributeOptions = response.changes.attributeOptions ?? []
     const serverCategoryAttributeGroups = response.changes.categoryAttributeGroups ?? []
+    const serverProductVariants = response.changes.productVariants ?? []
+    const serverProductVariantOptions = response.changes.productVariantOptions ?? []
 
     if (serverUnits.length > 0) {
       this.applyUnitOfMeasureChanges(serverUnits)
@@ -1427,6 +1429,14 @@ export class SyncService extends EventEmitter {
 
     for (const record of serverCategoryAttributeGroups) {
       operations.push(this.buildCategoryAttributeGroupUpsertOperation(record))
+    }
+
+    for (const record of serverProductVariants) {
+      operations.push(this.buildProductVariantUpsertOperation(record))
+    }
+
+    for (const record of serverProductVariantOptions) {
+      operations.push(this.buildProductVariantOptionUpsertOperation(record))
     }
 
     if (operations.length > 0) {
@@ -1665,6 +1675,7 @@ export class SyncService extends EventEmitter {
       taxRate?: number
       isService?: boolean
       trackInventory?: boolean
+      hasVariants?: boolean
       categoryId?: string | null
       unitOfMeasureId?: string | null
       imageUrl?: string | null
@@ -1704,8 +1715,9 @@ export class SyncService extends EventEmitter {
           is_barcode_generated,
           reorder_point,
           unit_of_measure_id,
-          created_by_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 'qty', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+          created_by_id,
+          has_variants
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 'qty', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
           name = excluded.name,
@@ -1727,7 +1739,8 @@ export class SyncService extends EventEmitter {
           barcode_type = excluded.barcode_type,
           is_barcode_generated = excluded.is_barcode_generated,
           unit_of_measure_id = excluded.unit_of_measure_id,
-          created_by_id = excluded.created_by_id
+          created_by_id = excluded.created_by_id,
+          has_variants = excluded.has_variants
       `,
       params: [
         data.id,
@@ -1753,6 +1766,7 @@ export class SyncService extends EventEmitter {
         data.isBarcodeGenerated ? 1 : 0,
         data.unitOfMeasureId ?? null,
         data.createdById ?? null,
+        data.hasVariants ? 1 : 0,
       ],
     }
   }
@@ -2019,6 +2033,93 @@ export class SyncService extends EventEmitter {
         data.attributeGroupId ?? '',
         data.isRequired === false ? 0 : 1,
         data.sortOrder ?? 0,
+        deleted ? 1 : 0,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
+      ],
+    }
+  }
+
+  private buildProductVariantUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      businessId?: string
+      productId?: string
+      name?: string
+      displayNameOverride?: string | null
+      priceOverride?: number | null
+      costPriceOverride?: number | null
+      sku?: string | null
+      barcode?: string | null
+      isActive?: boolean
+      sortOrder?: number
+    }
+    const deleted = Boolean(data.isDeleted)
+    return {
+      sql: `
+        INSERT INTO product_variants (
+          id, business_id, product_id, name, display_name_override, price_override,
+          cost_price_override, sku, barcode, is_active, sort_order, is_deleted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          product_id = excluded.product_id,
+          name = excluded.name,
+          display_name_override = excluded.display_name_override,
+          price_override = excluded.price_override,
+          cost_price_override = excluded.cost_price_override,
+          sku = excluded.sku,
+          barcode = excluded.barcode,
+          is_active = excluded.is_active,
+          sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.businessId ?? '',
+        data.productId ?? '',
+        data.name ?? '',
+        data.displayNameOverride ?? null,
+        data.priceOverride ?? null,
+        data.costPriceOverride ?? null,
+        data.sku ?? null,
+        data.barcode ?? null,
+        deleted ? 0 : data.isActive === false ? 0 : 1,
+        data.sortOrder ?? 0,
+        deleted ? 1 : 0,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
+      ],
+    }
+  }
+
+  private buildProductVariantOptionUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      variantId?: string
+      attributeGroupId?: string
+      attributeOptionId?: string
+      businessId?: string
+    }
+    const deleted = Boolean(data.isDeleted)
+    return {
+      sql: `
+        INSERT INTO product_variant_options (
+          id, variant_id, attribute_group_id, attribute_option_id, business_id, is_deleted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          variant_id = excluded.variant_id,
+          attribute_group_id = excluded.attribute_group_id,
+          attribute_option_id = excluded.attribute_option_id,
+          business_id = excluded.business_id,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.variantId ?? '',
+        data.attributeGroupId ?? '',
+        data.attributeOptionId ?? '',
+        data.businessId ?? '',
         deleted ? 1 : 0,
         data.createdAt ?? data.updatedAt,
         data.updatedAt,

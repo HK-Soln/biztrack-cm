@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -8,6 +8,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { Button, Input, NumberInput } from '@biztrack/ui'
 import {
+  type CategoryAttributeGroupNode,
   type CreateProductRequest,
   type Product,
   type ProductCategory,
@@ -22,11 +23,15 @@ import {
   findCreateProductConflictsLocal,
   isValidProductBarcodeCandidate,
   isValidProductSkuCandidate,
+  listCategoryAttributeGroupsLocal,
   listUnitOfMeasuresLocal,
   updateProductLocal,
 } from '@/services/products.local'
+import { createProduct } from '@/services/products.api'
+import { requestBackgroundSync } from '@/services/sync.local'
 import { CommandSelect, type CommandSelectOption } from '@/components/ui/command-select'
 import { Form, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { VariantBuilder, type VariantBuilderValue } from './VariantBuilder'
 
 type ProductFormMode = 'create' | 'update'
 
@@ -427,6 +432,41 @@ export function CreateProductForm({
   const categoryId = form.watch('categoryId')
   const unitOfMeasureId = form.watch('unitOfMeasureId')
   const trackInventory = form.watch('trackInventory')
+  const sellingPrice = form.watch('sellingPrice')
+
+  // Variants (Phase 3C) — only in create mode for non-service products whose
+  // (leaf) category has attribute groups. Managed online; matrix previewed locally.
+  const [attributeGroups, setAttributeGroups] = useState<CategoryAttributeGroupNode[]>([])
+  const [variantConfig, setVariantConfig] = useState<VariantBuilderValue>({
+    attributeSelections: [],
+    variantOverrides: [],
+    variantCount: 0,
+  })
+
+  useEffect(() => {
+    if (isUpdateMode || isService || !businessId || !categoryId) {
+      setAttributeGroups([])
+      return
+    }
+    let active = true
+    listCategoryAttributeGroupsLocal(businessId, categoryId)
+      .then((groups) => {
+        if (active) setAttributeGroups(groups)
+      })
+      .catch(() => {
+        if (active) setAttributeGroups([])
+      })
+    return () => {
+      active = false
+    }
+  }, [businessId, categoryId, isService, isUpdateMode])
+
+  const handleVariantChange = useCallback((value: VariantBuilderValue) => {
+    setVariantConfig(value)
+  }, [])
+
+  const showVariantBuilder = !isUpdateMode && !isService && attributeGroups.length > 0
+  const hasVariants = showVariantBuilder && variantConfig.variantCount >= 2
   const selectedCategoryOption = useMemo(() => {
     if (!categoryId) {
       return null
@@ -568,6 +608,40 @@ export function CreateProductForm({
       hasConflict = true
     }
     if (hasConflict) {
+      return
+    }
+
+    // Variant products are created online (variant management is online-only);
+    // the new product + its variants arrive locally on the next sync pull.
+    if (!isUpdateMode && hasVariants) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        toast.error('Variant products require an internet connection.')
+        return
+      }
+      try {
+        const created = await createProduct({
+          name: values.name.trim(),
+          description: toOptionalString(values.description),
+          sku: toOptionalString(values.sku),
+          barcode: toOptionalString(values.barcode),
+          sellingPrice: Number(values.sellingPrice),
+          costPrice: toOptionalNumber(values.costPrice),
+          taxRate: toOptionalNumber(values.taxRate) ?? 0,
+          unitOfMeasureId: values.unitOfMeasureId,
+          categoryId: values.categoryId,
+          imageUrl: toOptionalString(values.imageUrl),
+          isActive: values.isActive,
+          attributeSelections: variantConfig.attributeSelections,
+          variantOverrides: variantConfig.variantOverrides,
+        } satisfies CreateProductRequest)
+
+        toast.success(t('form.success'))
+        form.reset(createInitialProductForm(defaultUnitId))
+        void requestBackgroundSync()
+        onSaved(created)
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t('errors.create')))
+      }
       return
     }
 
@@ -916,6 +990,14 @@ export function CreateProductForm({
                   )}
                 />
               </div>
+            ) : null}
+
+            {showVariantBuilder ? (
+              <VariantBuilder
+                groups={attributeGroups}
+                basePrice={sellingPrice}
+                onChange={handleVariantChange}
+              />
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">

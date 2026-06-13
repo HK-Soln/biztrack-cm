@@ -1,9 +1,11 @@
 'use client'
 
 import {
+  AttributeDisplayType,
   Currency,
   Resource,
   type CategoriesQuery,
+  type CategoryAttributeGroupNode,
   UnitOfMeasureType,
   type CreateCategoryRequest,
   type CreateProductRequest,
@@ -1296,6 +1298,88 @@ export async function listCategoriesLocal(
   })
 
   return paginateResult(filtered, query.page, query.limit)
+}
+
+/**
+ * Read the attribute groups (with options) linked to a leaf category from the
+ * local mirror. Drives the variant builder in the product-creation form offline.
+ */
+export async function listCategoryAttributeGroupsLocal(
+  businessId: string,
+  categoryId: string,
+): Promise<CategoryAttributeGroupNode[]> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  if (!categoryId) return []
+
+  const links = await dbQuery<{
+    id: string
+    attribute_group_id: string
+    is_required: number
+    sort_order: number
+    group_name: string
+    display_type: string
+  }>(
+    `
+      SELECT
+        l.id AS id,
+        l.attribute_group_id AS attribute_group_id,
+        l.is_required AS is_required,
+        l.sort_order AS sort_order,
+        g.name AS group_name,
+        g.display_type AS display_type
+      FROM category_attribute_groups l
+      JOIN attribute_groups g
+        ON g.id = l.attribute_group_id
+       AND g.is_deleted = 0
+      WHERE l.business_id = ?
+        AND l.category_id = ?
+        AND l.is_deleted = 0
+      ORDER BY l.sort_order ASC
+    `,
+    [normalizedBusinessId, categoryId],
+  )
+  if (links.length === 0) return []
+
+  const groupIds = links.map((link) => link.attribute_group_id)
+  const placeholders = groupIds.map(() => '?').join(',')
+  const options = await dbQuery<{
+    id: string
+    group_id: string
+    value: string
+    color_hex: string | null
+    sort_order: number
+  }>(
+    `
+      SELECT id, group_id, value, color_hex, sort_order
+      FROM attribute_options
+      WHERE business_id = ?
+        AND is_deleted = 0
+        AND is_active = 1
+        AND group_id IN (${placeholders})
+      ORDER BY sort_order ASC, value ASC
+    `,
+    [normalizedBusinessId, ...groupIds],
+  )
+  const optionsByGroup = new Map<string, typeof options>()
+  for (const option of options) {
+    const list = optionsByGroup.get(option.group_id) ?? []
+    list.push(option)
+    optionsByGroup.set(option.group_id, list)
+  }
+
+  return links.map((link) => ({
+    id: link.id,
+    attributeGroupId: link.attribute_group_id,
+    name: link.group_name,
+    displayType: (link.display_type as AttributeDisplayType) ?? AttributeDisplayType.CHIPS,
+    isRequired: link.is_required === 1,
+    sortOrder: link.sort_order,
+    options: (optionsByGroup.get(link.attribute_group_id) ?? []).map((option) => ({
+      id: option.id,
+      value: option.value,
+      colorHex: option.color_hex ?? null,
+    })),
+  }))
 }
 
 export async function listUnitOfMeasuresLocal(

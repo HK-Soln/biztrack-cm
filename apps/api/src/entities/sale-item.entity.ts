@@ -37,6 +37,10 @@ export class SaleItem extends BaseEntity {
   @JoinColumn({ name: 'product_id', foreignKeyConstraintName: 'fk_sale_items_product_id' })
   product?: Product
 
+  // Set when the sold product has variants (Phase 3C). Nullable for back-compat.
+  @Column({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
   @Column({ name: 'product_name', length: 200 })
   productName!: string
 

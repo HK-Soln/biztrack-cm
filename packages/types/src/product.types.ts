@@ -143,6 +143,87 @@ export interface CategoryAttributeGroupNode {
   options: Array<{ id: string; value: string; colorHex?: string | null }>
 }
 
+// ---- Variants (Phase 3C) --------------------------------------------------
+
+/** One attribute dimension of a variant (e.g. Color=Black). Normalized link. */
+export interface ProductVariantOption {
+  id: string
+  variantId: string
+  attributeGroupId: string
+  attributeOptionId: string
+  businessId: string
+  // Enriched for display (optional — populated by detail/tree responses).
+  groupName?: string
+  optionValue?: string
+  colorHex?: string | null
+}
+
+/** A concrete sellable configuration of a product (e.g. "Black 128GB"). */
+export interface ProductVariant {
+  id: string
+  businessId: string
+  productId: string
+  name: string
+  displayNameOverride?: string | null
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  barcode?: string | null
+  isActive: boolean
+  sortOrder: number
+  options?: ProductVariantOption[]
+  // Enriched stock (optional — populated by sell-screen / detail responses).
+  currentStock?: number | null
+  lowStockThreshold?: number | null
+  createdAt?: IsoDateString
+  updatedAt?: IsoDateString
+}
+
+/** Selection of options from one attribute group, driving variant generation. */
+export interface ProductAttributeSelection {
+  attributeGroupId: string
+  selectedOptionIds: string[]
+}
+
+/** Per-combination override applied after the matrix is generated. */
+export interface VariantOverride {
+  optionIds: string[]
+  excluded?: boolean
+  nameOverride?: string
+  priceOverride?: number
+  costPriceOverride?: number
+  openingStock?: number
+}
+
+export interface PreviewVariantsRequest {
+  attributeSelections: ProductAttributeSelection[]
+  variantOverrides?: VariantOverride[]
+}
+
+export interface PreviewVariantAttribute {
+  groupId: string
+  groupName: string
+  optionId: string
+  optionValue: string
+  colorHex?: string | null
+}
+
+/** One row of the previewed/saved variant matrix. */
+export interface PreviewVariant {
+  name: string
+  optionIds: string[]
+  attributes: PreviewVariantAttribute[]
+  excluded: boolean
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  openingStock?: number | null
+}
+
+export interface PreviewVariantsResponse {
+  totalCombinations: number
+  variants: PreviewVariant[]
+}
+
 export interface ProductCategory {
   id: string
   businessId: string
@@ -219,6 +300,10 @@ export interface Product {
   productType?: ProductType
   isService: boolean
   trackInventory: boolean
+  // True when the product is sold as distinct variants (each its own stock/price).
+  hasVariants?: boolean
+  // Populated on the detail response when hasVariants is true.
+  variants?: ProductVariant[]
   category?: ProductCategory | null
   unitOfMeasure?: UnitOfMeasure
   createdAt?: IsoDateString
@@ -263,6 +348,10 @@ export interface CreateProductRequest {
   isService?: boolean
   trackInventory?: boolean
   isActive?: boolean
+  // Variants (Phase 3C). When attributeSelections is provided with ≥1 group that
+  // has ≥1 selected option, the API generates the Cartesian product as variants.
+  attributeSelections?: ProductAttributeSelection[]
+  variantOverrides?: VariantOverride[]
 }
 
 export interface UpdateProductRequest extends Partial<CreateProductRequest> {}

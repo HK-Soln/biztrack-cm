@@ -4,8 +4,11 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   deriveProductTypeFlags,
   inferProductType,
+  ProductType,
   type AssignBarcodeRequest,
   type CreateProductRequest,
+  type PreviewVariantsRequest,
+  type PreviewVariantsResponse,
   type ProductsQuery,
   type UpdateProductRequest,
 } from '@biztrack/types'
@@ -28,6 +31,7 @@ import { LOGGER } from '@/logger/logger.module'
 import { ProductCategoriesRepository } from '../repositories/product-categories.repository'
 import { ProductsRepository } from '../repositories/products.repository'
 import { BarcodeService } from './barcode.service'
+import { ProductVariantsService } from './product-variants.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import { SlugService } from './slug.service'
 import { SkuService } from './sku.service'
@@ -51,11 +55,24 @@ export class ProductsService {
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
     private readonly barcodeService: BarcodeService,
+    private readonly variantsService: ProductVariantsService,
     private readonly quotaService: QuotaService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('ProductsService')
+  }
+
+  /** Preview the variant matrix for a set of attribute selections (no writes). */
+  async previewVariants(
+    businessId: string,
+    dto: PreviewVariantsRequest,
+  ): Promise<PreviewVariantsResponse> {
+    return this.variantsService.previewVariantMatrix(
+      businessId,
+      dto.attributeSelections,
+      dto.variantOverrides ?? [],
+    )
   }
 
   async create(businessId: string, userId: string, dto: CreateProductRequest) {
@@ -84,6 +101,21 @@ export class ProductsService {
       const productType = dto.productType ?? inferProductType(dto.isService)
       const { isService, trackInventory } = deriveProductTypeFlags(productType, dto.trackInventory)
 
+      // Variants are driven by attribute selections (Phase 3C). A selection only
+      // counts when it has at least one chosen option.
+      const wantsVariants = (dto.attributeSelections ?? []).some(
+        (selection) => (selection.selectedOptionIds?.length ?? 0) > 0,
+      )
+      const variantsAllowed =
+        productType === ProductType.SIMPLE || productType === ProductType.VARIABLE_QUANTITY
+      if (wantsVariants && !variantsAllowed) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.variants_not_supported'),
+          'VARIANTS_NOT_SUPPORTED',
+        )
+      }
+      const hasVariants = wantsVariants && variantsAllowed
+
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
           manager.getRepository(Product).create({
@@ -105,12 +137,23 @@ export class ProductsService {
             productType,
             isService,
             trackInventory,
+            hasVariants,
             imageUrl: dto.imageUrl?.trim() ?? null,
             createdById: userId,
           }),
         )
 
-        if (trackInventory) {
+        if (hasVariants) {
+          // Stock lives per-variant; no product-level inventory_level row.
+          await this.variantsService.createVariantsFromAttributeSelections(
+            manager,
+            created,
+            dto.attributeSelections!,
+            dto.variantOverrides ?? [],
+            businessId,
+            userId,
+          )
+        } else if (trackInventory) {
           const quantity = dto.openingStock ?? 0
           await manager.getRepository(InventoryLevel).save(
             manager.getRepository(InventoryLevel).create({
@@ -230,21 +273,32 @@ export class ProductsService {
         )
       }
 
-      const [inventoryLevel, images] = await Promise.all([
-        this.inventoryLevelsRepo.findOne({ where: { businessId, productId: id } }),
+      const [inventoryLevel, images, variants] = await Promise.all([
+        this.inventoryLevelsRepo.findOne({
+          where: { businessId, productId: id, variantId: IsNull() },
+        }),
         this.imagesRepo.find({
           where: { productId: id },
           order: { sortOrder: 'ASC', createdAt: 'ASC' },
         }),
+        product.hasVariants
+          ? this.variantsService.listVariantsForProduct(businessId, id)
+          : Promise.resolve(undefined),
       ])
 
       return {
         ...product,
-        currentStock: product.trackInventory ? (inventoryLevel?.quantity ?? 0) : null,
+        // Variant products carry stock per-variant; the product-level figure is null.
+        currentStock: product.hasVariants
+          ? null
+          : product.trackInventory
+            ? (inventoryLevel?.quantity ?? 0)
+            : null,
         lowStockThreshold: inventoryLevel?.lowStockThreshold ?? null,
         reorderPoint: inventoryLevel?.reorderPoint ?? null,
         primaryImageUrl: images[0]?.url ?? product.imageUrl ?? null,
         images,
+        variants,
       }
     } catch (error) {
       return this.handleServiceError('findById', error, { id, businessId })
@@ -456,7 +510,8 @@ export class ProductsService {
 
     const [levels, images] = await Promise.all([
       this.inventoryLevelsRepo.find({
-        where: productIds.map((productId) => ({ businessId, productId })),
+        // Product-level rows only (variant rows carry a variant_id).
+        where: productIds.map((productId) => ({ businessId, productId, variantId: IsNull() })),
       }),
       this.imagesRepo
         .createQueryBuilder('image')
@@ -480,7 +535,10 @@ export class ProductsService {
 
       return {
         ...product,
-        currentStock: product.trackInventory ? (inventory?.quantity ?? 0) : null,
+        // The list view never loads variants; detail (findById) does.
+        variants: undefined,
+        currentStock:
+          product.hasVariants || !product.trackInventory ? null : (inventory?.quantity ?? 0),
         lowStockThreshold: inventory?.lowStockThreshold ?? null,
         reorderPoint: inventory?.reorderPoint ?? null,
         primaryImageUrl: primaryImage?.url ?? product.imageUrl ?? null,

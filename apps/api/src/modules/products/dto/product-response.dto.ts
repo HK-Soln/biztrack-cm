@@ -1,4 +1,4 @@
-import { ProductType, type Product } from '@biztrack/types'
+import { ProductType, type Product, type ProductVariant } from '@biztrack/types'
 import { CategoryDto } from './category-response.dto'
 import { UnitOfMeasureDto } from './unit-of-measure-response.dto'
 import { UserDto } from './user.dto'
@@ -18,6 +18,8 @@ type ProductModel = {
   productType: ProductType
   isService: boolean
   trackInventory: boolean
+  hasVariants?: boolean
+  variants?: ProductVariant[]
   category?: Parameters<typeof CategoryDto.fromEntity>[0]
   unitOfMeasure?: Parameters<typeof UnitOfMeasureDto.fromEntity>[0]
   createdAt?: Date | string | null
@@ -51,6 +53,8 @@ export class ProductResponseDto implements Product {
   productType!: ProductType
   isService!: boolean
   trackInventory!: boolean
+  hasVariants?: boolean
+  variants?: ProductVariant[]
   category?: CategoryDto | null
   unitOfMeasure?: UnitOfMeasureDto
   createdAt?: string
@@ -84,6 +88,8 @@ export class ProductResponseDto implements Product {
     dto.productType = model.productType
     dto.isService = model.isService
     dto.trackInventory = model.trackInventory
+    dto.hasVariants = model.hasVariants ?? false
+    dto.variants = model.variants
     dto.category = CategoryDto.fromEntity(model.category) ?? null
     dto.unitOfMeasure = UnitOfMeasureDto.fromEntity(model.unitOfMeasure) ?? undefined
     dto.createdAt = toIsoString(model.createdAt) ?? undefined
