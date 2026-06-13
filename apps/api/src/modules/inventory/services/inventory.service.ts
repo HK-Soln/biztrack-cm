@@ -291,7 +291,9 @@ export class InventoryService {
           payments: dto.payments,
           items: dto.items.map((item) => ({
             productId: item.productId,
-            quantity: item.quantity,
+            // Serialised restock (serialNumbers -> units) is wired in a follow-up;
+            // quantity is optional on the request for that path.
+            quantity: item.quantity ?? 0,
             unitCost: item.unitCost ?? null,
           })),
         })

@@ -5,6 +5,7 @@ import {
   deriveProductTypeFlags,
   inferProductType,
   ProductType,
+  SerialUnitStatus,
   type AssignBarcodeRequest,
   type CreateProductRequest,
   type PreviewVariantsRequest,
@@ -25,6 +26,7 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -55,6 +57,8 @@ export class ProductsService {
     private readonly imagesRepo: Repository<ProductImage>,
     @InjectRepository(ProductBundleComponent)
     private readonly bundleComponentsRepo: Repository<ProductBundleComponent>,
+    @InjectRepository(ProductSerialUnit)
+    private readonly serialUnitsRepo: Repository<ProductSerialUnit>,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
     private readonly barcodeService: BarcodeService,
@@ -148,6 +152,23 @@ export class ProductsService {
         }
       }
 
+      // Serialised inventory (Phase 3G) — only valid for SIMPLE products.
+      const isSerialized = dto.isSerialized === true
+      if (isSerialized) {
+        if (productType !== ProductType.SIMPLE) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.serialized_only_simple'),
+            'SERIALIZED_ONLY_SIMPLE',
+          )
+        }
+        if (!dto.serialType) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.serial_type_required'),
+            'SERIAL_TYPE_REQUIRED',
+          )
+        }
+      }
+
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
           manager.getRepository(Product).create({
@@ -170,6 +191,9 @@ export class ProductsService {
             isService,
             trackInventory,
             hasVariants,
+            isSerialized,
+            serialType: isSerialized ? (dto.serialType ?? null) : null,
+            warrantyMonths: dto.warrantyMonths ?? null,
             imageUrl: dto.imageUrl?.trim() ?? null,
             createdById: userId,
           }),
@@ -199,7 +223,8 @@ export class ProductsService {
               }),
             ),
           )
-        } else if (trackInventory) {
+        } else if (trackInventory && !isSerialized) {
+          // Serialised products derive stock from IN_STOCK serial units — no level row.
           const quantity = dto.openingStock ?? 0
           await manager.getRepository(InventoryLevel).save(
             manager.getRepository(InventoryLevel).create({
@@ -320,7 +345,7 @@ export class ProductsService {
       }
 
       const isComposite = product.productType === ProductType.COMPOSITE
-      const [inventoryLevel, images, variants, bundleRows] = await Promise.all([
+      const [inventoryLevel, images, variants, bundleRows, serialUnitRows] = await Promise.all([
         this.inventoryLevelsRepo.findOne({
           where: { businessId, productId: id, variantId: IsNull() },
         }),
@@ -338,6 +363,17 @@ export class ProductsService {
               order: { sortOrder: 'ASC' },
             })
           : Promise.resolve(undefined),
+        product.isSerialized
+          ? this.serialUnitsRepo.find({
+              where: {
+                businessId,
+                productId: id,
+                status: In([SerialUnitStatus.IN_STOCK, SerialUnitStatus.RESERVED]),
+                deletedAt: IsNull(),
+              },
+              order: { createdAt: 'ASC' },
+            })
+          : Promise.resolve(undefined),
       ])
 
       const bundleComponents = bundleRows?.map((row) => ({
@@ -350,20 +386,40 @@ export class ProductsService {
         componentName: row.componentProduct?.name,
       }))
 
+      const serialUnits = serialUnitRows?.map((row) => ({
+        id: row.id,
+        businessId: row.businessId,
+        productId: row.productId,
+        variantId: row.variantId ?? null,
+        serialNumber: row.serialNumber,
+        serialType: row.serialType,
+        status: row.status,
+        purchasePrice: row.purchasePrice,
+        warrantyExpiresAt: row.warrantyExpiresAt?.toISOString() ?? null,
+        reservedAt: row.reservedAt?.toISOString() ?? null,
+        reservedBy: row.reservedBy ?? null,
+      }))
+      // Serialised stock is the count of IN_STOCK units.
+      const inStockSerialCount =
+        serialUnitRows?.filter((row) => row.status === SerialUnitStatus.IN_STOCK).length ?? 0
+
       return {
         ...product,
-        // Variant products carry stock per-variant; the product-level figure is null.
+        // Variant/serialised products carry stock elsewhere; product-level figure varies.
         currentStock: product.hasVariants
           ? null
-          : product.trackInventory
-            ? (inventoryLevel?.quantity ?? 0)
-            : null,
+          : product.isSerialized
+            ? inStockSerialCount
+            : product.trackInventory
+              ? (inventoryLevel?.quantity ?? 0)
+              : null,
         lowStockThreshold: inventoryLevel?.lowStockThreshold ?? null,
         reorderPoint: inventoryLevel?.reorderPoint ?? null,
         primaryImageUrl: images[0]?.url ?? product.imageUrl ?? null,
         images,
         variants,
         bundleComponents,
+        serialUnits,
       }
     } catch (error) {
       return this.handleServiceError('findById', error, { id, businessId })

@@ -96,6 +96,7 @@ import { CategoryAttributeGroup } from '@/entities/category-attribute-group.enti
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -347,6 +348,8 @@ export class SyncService {
     private readonly productVariantOptionsRepo: Repository<ProductVariantOption>,
     @InjectRepository(ProductBundleComponent)
     private readonly productBundleComponentsRepo: Repository<ProductBundleComponent>,
+    @InjectRepository(ProductSerialUnit)
+    private readonly productSerialUnitsRepo: Repository<ProductSerialUnit>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -514,6 +517,7 @@ export class SyncService {
         productVariants,
         productVariantOptions,
         productBundleComponents,
+        productSerialUnits,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -695,6 +699,16 @@ export class SyncService {
           .andWhere('bundle.updated_at <= :pulledAt', { pulledAt })
           .orderBy('bundle.updated_at', 'ASC')
           .getMany(),
+        // All changed serial units (any status); the device keeps only
+        // IN_STOCK/RESERVED and drops the rest.
+        this.productSerialUnitsRepo
+          .createQueryBuilder('serial')
+          .withDeleted()
+          .where('serial.business_id = :businessId', { businessId })
+          .andWhere('serial.updated_at > :since', { since })
+          .andWhere('serial.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('serial.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -799,6 +813,21 @@ export class SyncService {
           componentProductId: record.componentProductId,
           quantity: record.quantity,
           sortOrder: record.sortOrder,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        productSerialUnits: productSerialUnits.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          productId: record.productId,
+          variantId: record.variantId ?? null,
+          serialNumber: record.serialNumber,
+          serialType: record.serialType,
+          status: record.status,
+          warrantyExpiresAt: record.warrantyExpiresAt?.toISOString() ?? null,
+          reservedAt: record.reservedAt?.toISOString() ?? null,
+          reservedBy: record.reservedBy ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -2485,6 +2514,9 @@ export class SyncService {
       trackInventory: record.trackInventory,
       hasVariants: record.hasVariants,
       productType: record.productType,
+      isSerialized: record.isSerialized,
+      serialType: record.serialType ?? null,
+      warrantyMonths: record.warrantyMonths ?? null,
       categoryId: record.categoryId ?? null,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,

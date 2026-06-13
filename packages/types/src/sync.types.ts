@@ -413,6 +413,7 @@ export interface ChangeSet {
   productVariants?: SyncRecord[]
   productVariantOptions?: SyncRecord[]
   productBundleComponents?: SyncRecord[]
+  productSerialUnits?: SyncRecord[]
   expenseCategories?: ExpenseCategorySyncRecord[]
   unitOfMeasures?: SyncRecord[]
   inventoryLevels?: InventoryLevelSyncRecord[]

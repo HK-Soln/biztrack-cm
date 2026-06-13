@@ -10,6 +10,7 @@ import { ProductCategory } from '@/entities/product-category.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -43,6 +44,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
       InventoryMovement,
       Product,
       ProductBundleComponent,
+      ProductSerialUnit,
       ProductCategory,
       ProductImage,
       ProductVariant,

@@ -2,7 +2,9 @@ import {
   ProductType,
   type Product,
   type ProductBundleComponent,
+  type ProductSerialUnit,
   type ProductVariant,
+  type SerialType,
 } from '@biztrack/types'
 import { CategoryDto } from './category-response.dto'
 import { UnitOfMeasureDto } from './unit-of-measure-response.dto'
@@ -26,6 +28,10 @@ type ProductModel = {
   hasVariants?: boolean
   variants?: ProductVariant[]
   bundleComponents?: ProductBundleComponent[]
+  isSerialized?: boolean
+  serialType?: SerialType | string | null
+  warrantyMonths?: number | null
+  serialUnits?: ProductSerialUnit[]
   category?: Parameters<typeof CategoryDto.fromEntity>[0]
   unitOfMeasure?: Parameters<typeof UnitOfMeasureDto.fromEntity>[0]
   createdAt?: Date | string | null
@@ -62,6 +68,10 @@ export class ProductResponseDto implements Product {
   hasVariants?: boolean
   variants?: ProductVariant[]
   bundleComponents?: ProductBundleComponent[]
+  isSerialized?: boolean
+  serialType?: SerialType | null
+  warrantyMonths?: number | null
+  serialUnits?: ProductSerialUnit[]
   category?: CategoryDto | null
   unitOfMeasure?: UnitOfMeasureDto
   createdAt?: string
@@ -98,6 +108,10 @@ export class ProductResponseDto implements Product {
     dto.hasVariants = model.hasVariants ?? false
     dto.variants = model.variants
     dto.bundleComponents = model.bundleComponents
+    dto.isSerialized = model.isSerialized ?? false
+    dto.serialType = (model.serialType as SerialType | null) ?? null
+    dto.warrantyMonths = model.warrantyMonths ?? null
+    dto.serialUnits = model.serialUnits
     dto.category = CategoryDto.fromEntity(model.category) ?? null
     dto.unitOfMeasure = UnitOfMeasureDto.fromEntity(model.unitOfMeasure) ?? undefined
     dto.createdAt = toIsoString(model.createdAt) ?? undefined

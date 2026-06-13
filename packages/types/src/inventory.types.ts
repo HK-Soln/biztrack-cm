@@ -138,8 +138,12 @@ export interface AdjustInventoryRequest {
 
 export interface RestockItemRequest {
   productId: string
-  quantity: number
+  // For serialised products (Phase 3G), provide serialNumbers instead of quantity.
+  quantity?: number
   unitCost?: number
+  variantId?: string
+  serialNumbers?: string[]
+  warrantyMonths?: number
 }
 
 export interface RestockPaymentRequest {
