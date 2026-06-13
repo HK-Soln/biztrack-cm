@@ -33,6 +33,7 @@
     "roles": "Roles",
     "product_attributes": "Product attributes",
     "settings_general": "General",
+    "appearance": "Appearance",
     "deposits": "Deposits"
   },
   "topbar": {
@@ -2329,6 +2330,25 @@
     "settings": {
       "title": "Settings",
       "subtitle": "Settings - coming soon.",
+      "appearance": {
+        "title": "Appearance",
+        "subtitle": "Choose a theme, light or dark mode, and how the app frame is painted. Changes apply instantly and are saved on this device.",
+        "theme_label": "Theme",
+        "theme_help": "Pick the colour palette for the whole app.",
+        "default_badge": "Default",
+        "mode_label": "Mode",
+        "mode_help": "Follow your system or pick light or dark.",
+        "mode_light": "Light",
+        "mode_dark": "Dark",
+        "mode_system": "System",
+        "chrome_label": "Navigation style",
+        "chrome_help": "How the sidebar and top bar are coloured.",
+        "chrome_neutral": "Neutral",
+        "chrome_neutral_help": "Calm surface frame with the theme colour as an accent.",
+        "chrome_brand": "Brand",
+        "chrome_brand_help": "Bold frame painted in the theme colour.",
+        "preview_label": "Preview"
+      },
       "general": {
         "title": "General",
         "subtitle": "Update your business information.",

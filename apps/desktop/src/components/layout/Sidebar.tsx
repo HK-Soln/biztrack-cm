@@ -17,6 +17,7 @@ import {
   LogOut,
   Lock,
   Package,
+  Palette,
   Receipt,
   Ruler,
   Search,
@@ -196,22 +197,22 @@ function BrandMark({
   return (
     <div
       className={cn(
-        'app-drag flex h-[68px] items-center gap-3 border-b border-white/10 dark:border-border/70',
+        'app-drag flex h-[68px] items-center gap-3 border-b border-[var(--top-border)] bg-[var(--top-bg)]',
         isMac ? 'pl-[74px] pr-4' : 'px-4',
       )}
     >
       <div className="relative shrink-0">
-        <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-white/10 text-white shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_1px_2px_rgba(15,23,42,0.18)] dark:bg-primary dark:text-primary-foreground">
+        <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-[var(--top-logo-bg)] text-[var(--top-logo-fg)] shadow-[0_1px_2px_rgba(15,23,42,0.18)]">
           <span className="font-serif text-[17px] leading-none tracking-tight">B</span>
         </div>
-        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[rgb(var(--chart-2))] ring-2 ring-primary dark:ring-background" />
+        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[rgb(var(--chart-2))] ring-2 ring-[var(--top-bg)]" />
       </div>
       {!collapsed ? (
         <div className="min-w-0 flex-1">
-          <div className="truncate font-serif text-[15px] leading-tight tracking-tight text-white dark:text-foreground">
+          <div className="truncate font-serif text-[15px] leading-tight tracking-tight text-[var(--top-fg-strong)]">
             {title}
           </div>
-          <div className="mt-0.5 truncate text-[11px] uppercase tracking-[0.14em] text-primary-foreground/70 dark:text-muted-foreground/80">
+          <div className="mt-0.5 truncate text-[11px] uppercase tracking-[0.14em] text-[var(--top-muted)]">
             {subtitle}
           </div>
         </div>
@@ -234,7 +235,7 @@ function SearchField({
       <div className="px-2 pt-3">
         <button
           type="button"
-          className="grid h-9 w-full place-items-center rounded-md text-primary-foreground/72 transition-colors hover:bg-white/10 hover:text-white dark:text-muted-foreground dark:hover:bg-secondary/70 dark:hover:text-foreground"
+          className="grid h-9 w-full place-items-center rounded-md text-[var(--nav-fg)] transition-colors hover:bg-[var(--nav-hover)] hover:text-[var(--nav-fg-strong)]"
           title={searchLabel}
         >
           <Search className="h-4 w-4" strokeWidth={2} />
@@ -246,13 +247,13 @@ function SearchField({
   return (
     <div className="px-3 pt-3">
       <div className="group relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-primary-foreground/55 dark:text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--nav-muted)]" />
         <input
           type="text"
           placeholder={placeholder}
-          className="h-9 w-full rounded-md border border-white/10 bg-white/10 pl-8 pr-12 text-[13px] text-white outline-none transition-all placeholder:text-primary-foreground/60 focus:border-white/20 focus:bg-white/12 focus:ring-2 focus:ring-white/15 dark:border-transparent dark:bg-secondary/60 dark:text-foreground dark:placeholder:text-muted-foreground dark:focus:border-border dark:focus:bg-card dark:focus:ring-ring/20"
+          className="h-9 w-full rounded-md border border-[var(--nav-search-border)] bg-[var(--nav-search-bg)] pl-8 pr-12 text-[13px] text-[var(--nav-fg-strong)] outline-none transition-all placeholder:text-[var(--nav-muted)] focus:ring-2 focus:ring-ring/25"
         />
-        <kbd className="absolute right-2 top-1/2 grid h-5 -translate-y-1/2 place-items-center rounded border border-white/10 bg-white/10 px-1.5 text-[10px] font-medium text-primary-foreground/70 shadow-sm dark:border-border/80 dark:bg-background dark:text-muted-foreground">
+        <kbd className="absolute right-2 top-1/2 grid h-5 -translate-y-1/2 place-items-center rounded border border-[var(--nav-border)] bg-[var(--nav-search-bg)] px-1.5 text-[10px] font-medium text-[var(--nav-muted)] shadow-sm">
           Ctrl+K
         </kbd>
       </div>
@@ -284,10 +285,10 @@ function NavLeaf({
     'shrink-0 transition-colors',
     depth > 0 ? 'h-3.5 w-3.5' : 'h-4 w-4',
     disabled
-      ? 'text-primary-foreground/45 dark:text-muted-foreground/60'
+      ? 'text-[var(--nav-muted)] opacity-70'
       : active
-        ? 'text-white dark:text-primary'
-        : 'text-primary-foreground/60 group-hover:text-white dark:text-muted-foreground dark:group-hover:text-foreground',
+        ? 'text-[var(--nav-active-fg)]'
+        : 'text-[var(--nav-fg)] group-hover:text-[var(--nav-fg-strong)]',
   )
   const content = (
     <>
@@ -296,10 +297,10 @@ function NavLeaf({
         <>
           <span className="flex-1 truncate text-left">{item.label}</span>
           {disabled ? (
-            <Lock className="h-3.5 w-3.5 shrink-0 text-primary-foreground/45 dark:text-muted-foreground/60" />
+            <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--nav-muted)]" />
           ) : null}
           {badge ? (
-            <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/90 dark:bg-[rgb(var(--chart-2))]/15 dark:text-[rgb(var(--chart-2))]">
+            <span className="shrink-0 rounded bg-[rgb(var(--chart-2))]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[rgb(var(--chart-2))]">
               {badge}
             </span>
           ) : null}
@@ -309,14 +310,14 @@ function NavLeaf({
   )
 
   const className = cn(
-    'group relative flex w-full items-center gap-2.5 rounded-md text-[13px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-white/20 dark:focus-visible:ring-ring/40',
+    'group relative flex w-full items-center gap-2.5 rounded-md text-[13px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring/40',
     collapsed ? 'mx-auto h-9 w-9 justify-center px-0' : 'h-8 px-2.5',
     depth > 0 && !collapsed && 'h-[30px] pl-8',
     disabled
-      ? 'cursor-not-allowed text-primary-foreground/45 opacity-75 dark:text-muted-foreground/60'
+      ? 'cursor-not-allowed text-[var(--nav-fg)] opacity-60'
       : active
-        ? 'bg-white/[0.22] font-medium text-white dark:bg-accent dark:text-accent-foreground'
-        : 'text-primary-foreground/60 hover:bg-white/10 hover:text-white dark:text-muted-foreground dark:hover:bg-secondary/70 dark:hover:text-foreground',
+        ? 'bg-[var(--nav-active-bg)] font-medium text-[var(--nav-active-fg)]'
+        : 'text-[var(--nav-fg)] hover:bg-[var(--nav-hover)] hover:text-[var(--nav-fg-strong)]',
   )
 
   if (disabled) {
@@ -334,7 +335,7 @@ function NavLeaf({
       className={className}
     >
       {active && !collapsed ? (
-        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-white dark:bg-primary" />
+        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--nav-strip)]" />
       ) : null}
       {content}
     </Link>
@@ -380,16 +381,16 @@ function NavGroup({
         }}
         title={item.label}
         className={cn(
-          'group relative mx-auto flex h-9 w-9 items-center justify-center rounded-md text-[13px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-white/20 dark:focus-visible:ring-ring/40',
+          'group relative mx-auto flex h-9 w-9 items-center justify-center rounded-md text-[13px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring/40',
           containsActive
-            ? 'bg-white/12 text-white dark:bg-accent dark:text-accent-foreground'
-            : 'text-primary-foreground/72 hover:bg-white/10 hover:text-white dark:text-muted-foreground dark:hover:bg-secondary/70 dark:hover:text-foreground',
+            ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]'
+            : 'text-[var(--nav-fg)] hover:bg-[var(--nav-hover)] hover:text-[var(--nav-fg-strong)]',
         )}
       >
         <Icon
           className={cn(
             'h-4 w-4 shrink-0',
-            containsActive ? 'text-white dark:text-primary' : 'text-primary-foreground/70 group-hover:text-white dark:text-muted-foreground dark:group-hover:text-foreground',
+            containsActive ? 'text-[var(--nav-active-fg)]' : 'text-[var(--nav-fg)] group-hover:text-[var(--nav-fg-strong)]',
           )}
           strokeWidth={2}
         />
@@ -404,23 +405,23 @@ function NavGroup({
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         className={cn(
-          'group relative flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-white/20 dark:focus-visible:ring-ring/40',
+          'group relative flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring/40',
           containsActive
-            ? 'font-medium text-white dark:text-foreground'
-            : 'text-primary-foreground/72 hover:bg-white/10 hover:text-white dark:text-muted-foreground dark:hover:bg-secondary/70 dark:hover:text-foreground',
+            ? 'font-medium text-[var(--nav-fg-strong)]'
+            : 'text-[var(--nav-fg)] hover:bg-[var(--nav-hover)] hover:text-[var(--nav-fg-strong)]',
         )}
       >
         <Icon
           className={cn(
             'h-4 w-4 shrink-0 transition-colors',
-            containsActive ? 'text-white dark:text-primary' : 'text-primary-foreground/70 group-hover:text-white dark:text-muted-foreground dark:group-hover:text-foreground',
+            containsActive ? 'text-[var(--nav-active-fg)]' : 'text-[var(--nav-fg)] group-hover:text-[var(--nav-fg-strong)]',
           )}
           strokeWidth={2}
         />
         <span className="flex-1 truncate text-left">{item.label}</span>
         <ChevronRight
           className={cn(
-            'h-3.5 w-3.5 text-primary-foreground/55 transition-transform duration-200 dark:text-muted-foreground/70',
+            'h-3.5 w-3.5 text-[var(--nav-muted)] transition-transform duration-200',
             open && 'rotate-90',
           )}
           strokeWidth={2.25}
@@ -434,7 +435,7 @@ function NavGroup({
         )}
       >
         <div className="overflow-hidden">
-          <div className="relative ml-[15px] mt-0.5 space-y-0.5 border-l border-white/12 py-0.5 pl-3 dark:border-border/80">
+          <div className="relative ml-[15px] mt-0.5 space-y-0.5 border-l border-[var(--nav-border)] py-0.5 pl-3">
             {item.children.map((child) => {
               const permissionState = getLeafPermissionState(child, planState)
               return (
@@ -544,36 +545,36 @@ function UserPopover({
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="border-t border-white/10 px-2 py-2 dark:border-border/70">
+    <div className="border-t border-[var(--nav-border)] px-2 py-2">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
             className={cn(
-              'w-full rounded-md text-left transition-colors hover:bg-white/10 dark:hover:bg-secondary/70',
+              'w-full rounded-md text-left transition-colors hover:bg-[var(--nav-hover)]',
               collapsed ? 'flex h-10 justify-center' : 'flex h-12 items-center gap-2.5 px-2',
-              open && 'bg-white/10 dark:bg-secondary/70',
+              open && 'bg-[var(--nav-hover)]',
             )}
           >
             <div className="relative shrink-0">
-              <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-white/95 to-white/75 text-[13px] font-medium text-primary ring-2 ring-primary shadow-sm dark:from-primary dark:to-[rgb(var(--chart-5))] dark:text-primary-foreground dark:ring-background">
+              <div className="grid h-8 w-8 place-items-center rounded-full bg-[var(--nav-logo-bg)] text-[13px] font-medium text-[var(--nav-logo-fg)] ring-2 ring-[var(--nav-bg)] shadow-sm">
                 {initialsValue}
               </div>
-              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[rgb(var(--chart-2))] ring-2 ring-primary dark:ring-background" />
+              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[rgb(var(--chart-2))] ring-2 ring-[var(--nav-bg)]" />
             </div>
             {!collapsed ? (
               <>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium leading-tight text-white dark:text-foreground">
+                  <div className="truncate text-[13px] font-medium leading-tight text-[var(--nav-fg-strong)]">
                     {profileName}
                   </div>
-                  <div className="mt-0.5 truncate text-[11px] text-primary-foreground/70 dark:text-muted-foreground">
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--nav-muted)]">
                     {roleLabel ? `${roleLabel} . ${businessLabel}` : businessLabel}
                   </div>
                 </div>
                 <ChevronRight
                   className={cn(
-                    'h-3.5 w-3.5 text-primary-foreground/70 transition-transform duration-200 dark:text-muted-foreground',
+                    'h-3.5 w-3.5 text-[var(--nav-muted)] transition-transform duration-200',
                     open && 'rotate-90',
                   )}
                 />
@@ -749,7 +750,12 @@ export function Sidebar() {
             to: 'settings/general',
             label: t('settings_general'),
             icon: Settings,
-            inactiveChildRoutes: ['settings/team', 'settings/roles'],
+            inactiveChildRoutes: ['settings/team', 'settings/roles', 'settings/appearance'],
+          },
+          {
+            to: 'settings/appearance',
+            label: t('appearance'),
+            icon: Palette,
           },
           {
             to: 'subscription',
@@ -841,7 +847,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'relative flex h-screen flex-col border-r border-primary/18 bg-primary text-primary-foreground transition-[width] duration-300 ease-out dark:border-border/70 dark:bg-card/50 dark:text-foreground dark:backdrop-blur-sm',
+        'relative flex h-screen flex-col border-r border-[var(--nav-border)] bg-[var(--nav-bg)] text-[var(--nav-fg)] transition-[width,background-color,color] duration-300 ease-out',
         collapsed ? 'w-[68px]' : 'w-[252px]',
       )}
     >
@@ -855,7 +861,7 @@ export function Sidebar() {
       <button
         type="button"
         onClick={() => setCollapsed((current) => !current)}
-        className="absolute -right-3 top-[62px] z-50 grid h-6 w-6 place-items-center rounded-full border border-white/20 bg-background text-primary shadow-sm transition-all hover:border-primary/40 hover:text-primary hover:shadow-md dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:border-primary/40 dark:hover:text-foreground"
+        className="absolute -right-3 top-[62px] z-50 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-all hover:border-primary/40 hover:text-foreground hover:shadow-md"
         title={collapsed ? t('expand') : t('collapse')}
       >
         <ChevronsLeft
@@ -866,7 +872,7 @@ export function Sidebar() {
 
       {!collapsed ? (
         <div className="px-4 pb-1.5 pt-5">
-          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-primary-foreground/60 dark:text-muted-foreground/80">
+          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--nav-muted)]">
             {t('workspace')}
           </div>
         </div>

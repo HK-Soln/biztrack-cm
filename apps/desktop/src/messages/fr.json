@@ -33,6 +33,7 @@
     "roles": "Roles",
     "product_attributes": "Attributs produit",
     "settings_general": "General",
+    "appearance": "Apparence",
     "deposits": "Dépôts clients"
   },
   "topbar": {
@@ -2334,6 +2335,25 @@
     "settings": {
       "title": "Parametres",
       "subtitle": "Parametres - bientot disponible.",
+      "appearance": {
+        "title": "Apparence",
+        "subtitle": "Choisissez un theme, le mode clair ou sombre, et le style du cadre de l'application. Les changements s'appliquent immediatement et sont enregistres sur cet appareil.",
+        "theme_label": "Theme",
+        "theme_help": "Choisissez la palette de couleurs de toute l'application.",
+        "default_badge": "Par defaut",
+        "mode_label": "Mode",
+        "mode_help": "Suivez votre systeme ou choisissez clair ou sombre.",
+        "mode_light": "Clair",
+        "mode_dark": "Sombre",
+        "mode_system": "Systeme",
+        "chrome_label": "Style de navigation",
+        "chrome_help": "Comment la barre laterale et la barre superieure sont colorees.",
+        "chrome_neutral": "Neutre",
+        "chrome_neutral_help": "Cadre sobre avec la couleur du theme en accent.",
+        "chrome_brand": "Marque",
+        "chrome_brand_help": "Cadre affirme peint dans la couleur du theme.",
+        "preview_label": "Apercu"
+      },
       "general": {
         "title": "General",
         "subtitle": "Mettez a jour les informations de votre entreprise.",
