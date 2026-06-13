@@ -407,6 +407,8 @@ export interface ChangeSet {
   attributeGroups?: SyncRecord[]
   attributeOptions?: SyncRecord[]
   categoryAttributeGroups?: SyncRecord[]
+  productVariants?: SyncRecord[]
+  productVariantOptions?: SyncRecord[]
   expenseCategories?: ExpenseCategorySyncRecord[]
   unitOfMeasures?: SyncRecord[]
   inventoryLevels?: InventoryLevelSyncRecord[]

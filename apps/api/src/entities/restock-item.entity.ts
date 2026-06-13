@@ -25,6 +25,10 @@ export class RestockItem extends ImmutableBaseEntity {
   @JoinColumn({ name: 'product_id', foreignKeyConstraintName: 'fk_restock_items_product_id' })
   product?: Product
 
+  // Set when restocking a specific variant (Phase 3C). Nullable for back-compat.
+  @Column({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
   @Column({
     type: 'decimal',
     precision: 12,

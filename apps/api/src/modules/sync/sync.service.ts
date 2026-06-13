@@ -93,6 +93,8 @@ import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -338,6 +340,10 @@ export class SyncService {
     private readonly attributeOptionsRepo: Repository<AttributeOption>,
     @InjectRepository(CategoryAttributeGroup)
     private readonly categoryAttributeGroupsRepo: Repository<CategoryAttributeGroup>,
+    @InjectRepository(ProductVariant)
+    private readonly productVariantsRepo: Repository<ProductVariant>,
+    @InjectRepository(ProductVariantOption)
+    private readonly productVariantOptionsRepo: Repository<ProductVariantOption>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -502,6 +508,8 @@ export class SyncService {
         attributeGroups,
         attributeOptions,
         categoryAttributeGroups,
+        productVariants,
+        productVariantOptions,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -659,6 +667,22 @@ export class SyncService {
           .andWhere('link.updated_at <= :pulledAt', { pulledAt })
           .orderBy('link.updated_at', 'ASC')
           .getMany(),
+        this.productVariantsRepo
+          .createQueryBuilder('variant')
+          .withDeleted()
+          .where('variant.business_id = :businessId', { businessId })
+          .andWhere('variant.updated_at > :since', { since })
+          .andWhere('variant.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('variant.updated_at', 'ASC')
+          .getMany(),
+        this.productVariantOptionsRepo
+          .createQueryBuilder('vopt')
+          .withDeleted()
+          .where('vopt.business_id = :businessId', { businessId })
+          .andWhere('vopt.updated_at > :since', { since })
+          .andWhere('vopt.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('vopt.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -726,6 +750,32 @@ export class SyncService {
           attributeGroupId: record.attributeGroupId,
           isRequired: record.isRequired,
           sortOrder: record.sortOrder,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        productVariants: productVariants.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          productId: record.productId,
+          name: record.name,
+          displayNameOverride: record.displayNameOverride ?? null,
+          priceOverride: record.priceOverride ?? null,
+          costPriceOverride: record.costPriceOverride ?? null,
+          sku: record.sku ?? null,
+          barcode: record.barcode ?? null,
+          isActive: record.isActive,
+          sortOrder: record.sortOrder,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        productVariantOptions: productVariantOptions.map((record) => ({
+          id: record.id,
+          variantId: record.variantId,
+          attributeGroupId: record.attributeGroupId,
+          attributeOptionId: record.attributeOptionId,
+          businessId: record.businessId,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -2410,6 +2460,7 @@ export class SyncService {
       taxRate: record.taxRate,
       isService: record.isService,
       trackInventory: record.trackInventory,
+      hasVariants: record.hasVariants,
       categoryId: record.categoryId ?? null,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,

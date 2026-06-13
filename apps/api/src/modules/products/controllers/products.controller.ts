@@ -13,7 +13,13 @@ import {
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
-import type { JwtPayload, LowStockProduct, PaginatedResult, Product } from '@biztrack/types'
+import type {
+  JwtPayload,
+  LowStockProduct,
+  PaginatedResult,
+  PreviewVariantsResponse,
+  Product,
+} from '@biztrack/types'
 import { serializeDto, serializeDtos, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
@@ -21,6 +27,7 @@ import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/res
 import { ListProductsQueryDto } from '../dto/list-products-query.dto'
 import { AssignBarcodeDto } from '../dto/assign-barcode.dto'
 import { CreateProductDto } from '../dto/create-product.dto'
+import { PreviewVariantsDto } from '../dto/preview-variants.dto'
 import { UpdateProductDto } from '../dto/update-product.dto'
 import { LowStockProductDto } from '../dto/low-stock-product.dto'
 import { ProductDetailResponseDto } from '../dto/product-detail-response.dto'
@@ -43,6 +50,17 @@ export class ProductsController {
         await this.productsService.create(user.businessId as string, user.sub, dto),
       ),
     )
+  }
+
+  @Post('preview-variants')
+  @HttpCode(HttpStatus.OK)
+  @RequireResource(Resource.PRODUCTS_CREATE)
+  @ApiOperation({ summary: 'Preview the variant matrix without saving' })
+  async previewVariants(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: PreviewVariantsDto,
+  ): Promise<PreviewVariantsResponse> {
+    return this.productsService.previewVariants(user.businessId as string, dto)
   }
 
   @Get()

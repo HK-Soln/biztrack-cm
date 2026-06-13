@@ -1,7 +1,10 @@
 import { Type } from 'class-transformer'
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -9,13 +12,79 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator'
 
 // decimal(12,2) money / decimal(12,3) quantity column ceilings — keep clean 400s instead of DB overflow 500s.
 const MAX_MONEY = 9_999_999_999
 const MAX_QUANTITY = 9_999_999
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { ProductType, type CreateProductRequest } from '@biztrack/types'
+import {
+  ProductType,
+  type CreateProductRequest,
+  type ProductAttributeSelection,
+  type VariantOverride,
+} from '@biztrack/types'
+
+export class ProductAttributeSelectionDto implements ProductAttributeSelection {
+  @ApiProperty({ description: 'The attribute group these options belong to.' })
+  @IsUUID()
+  attributeGroupId!: string
+
+  @ApiProperty({
+    type: [String],
+    description: 'Options from this group that the product comes in.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID(undefined, { each: true })
+  selectedOptionIds!: string[]
+}
+
+export class VariantOverrideDto implements VariantOverride {
+  @ApiProperty({
+    type: [String],
+    description: 'Identifies the combination by its set of option ids.',
+  })
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  optionIds!: string[]
+
+  @ApiPropertyOptional({ description: 'true = do not create this combination.' })
+  @IsOptional()
+  @IsBoolean()
+  excluded?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  nameOverride?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_MONEY)
+  @Type(() => Number)
+  priceOverride?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_MONEY)
+  @Type(() => Number)
+  costPriceOverride?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  @Max(MAX_QUANTITY)
+  @Type(() => Number)
+  openingStock?: number
+}
 
 export class CreateProductDto implements CreateProductRequest {
   @ApiProperty({ example: 'Coca-Cola 50cl' })
@@ -121,4 +190,26 @@ export class CreateProductDto implements CreateProductRequest {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean
+
+  @ApiPropertyOptional({
+    type: [ProductAttributeSelectionDto],
+    description:
+      'Drives variant generation. When provided with at least one option, the ' +
+      'API creates the Cartesian product of the selected options as variants.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductAttributeSelectionDto)
+  attributeSelections?: ProductAttributeSelectionDto[]
+
+  @ApiPropertyOptional({
+    type: [VariantOverrideDto],
+    description: 'Exclude combinations or override name/price/opening stock per variant.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantOverrideDto)
+  variantOverrides?: VariantOverrideDto[]
 }

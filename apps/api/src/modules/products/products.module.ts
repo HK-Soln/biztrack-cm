@@ -9,6 +9,8 @@ import { InventoryMovement } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { AttributeGroupsController } from './controllers/attribute-groups.controller'
@@ -23,6 +25,7 @@ import { BarcodeService } from './services/barcode.service'
 import { CategoriesService } from './services/categories.service'
 import { ProductImagesService } from './services/product-images.service'
 import { ProductsService } from './services/products.service'
+import { ProductVariantsService } from './services/product-variants.service'
 import { SlugService } from './services/slug.service'
 import { SkuService } from './services/sku.service'
 import { UnitOfMeasuresService } from './services/unit-of-measures.service'
@@ -40,6 +43,8 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
       Product,
       ProductCategory,
       ProductImage,
+      ProductVariant,
+      ProductVariantOption,
       UnitOfMeasure,
     ]),
   ],
@@ -58,6 +63,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     CategoriesService,
     ProductImagesService,
     ProductsService,
+    ProductVariantsService,
     SlugService,
     SkuService,
     UnitOfMeasuresService,
