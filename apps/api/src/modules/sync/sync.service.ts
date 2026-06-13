@@ -2751,6 +2751,8 @@ export class SyncService {
       productId: record.productId,
       variantId: record.variantId ?? null,
       variantName: record.variantName ?? null,
+      serialUnitId: record.serialUnitId ?? null,
+      serialNumber: record.serialNumber ?? null,
       productName: record.productName,
       productSku: record.productSku ?? null,
       unitOfMeasure: record.unitOfMeasure ?? null,

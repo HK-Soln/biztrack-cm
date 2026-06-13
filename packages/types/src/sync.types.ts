@@ -260,6 +260,8 @@ export interface SaleItemSyncRecord extends SyncRecord {
   productId: string
   variantId?: string | null
   variantName?: string | null
+  serialUnitId?: string | null
+  serialNumber?: string | null
   productName: string
   productSku?: string | null
   unitOfMeasure?: string | null

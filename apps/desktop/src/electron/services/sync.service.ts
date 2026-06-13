@@ -1335,6 +1335,7 @@ export class SyncService extends EventEmitter {
     const serverProductVariants = response.changes.productVariants ?? []
     const serverProductVariantOptions = response.changes.productVariantOptions ?? []
     const serverProductBundleComponents = response.changes.productBundleComponents ?? []
+    const serverProductSerialUnits = response.changes.productSerialUnits ?? []
 
     if (serverUnits.length > 0) {
       this.applyUnitOfMeasureChanges(serverUnits)
@@ -1442,6 +1443,10 @@ export class SyncService extends EventEmitter {
 
     for (const record of serverProductBundleComponents) {
       operations.push(this.buildProductBundleComponentUpsertOperation(record))
+    }
+
+    for (const record of serverProductSerialUnits) {
+      operations.push(this.buildProductSerialUnitUpsertOperation(record))
     }
 
     if (operations.length > 0) {
@@ -1682,6 +1687,9 @@ export class SyncService extends EventEmitter {
       trackInventory?: boolean
       hasVariants?: boolean
       productType?: string
+      isSerialized?: boolean
+      serialType?: string | null
+      warrantyMonths?: number | null
       categoryId?: string | null
       unitOfMeasureId?: string | null
       imageUrl?: string | null
@@ -1723,8 +1731,11 @@ export class SyncService extends EventEmitter {
           unit_of_measure_id,
           created_by_id,
           has_variants,
-          product_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 'qty', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+          product_type,
+          is_serialized,
+          serial_type,
+          warranty_months
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 'qty', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
           name = excluded.name,
@@ -1748,7 +1759,10 @@ export class SyncService extends EventEmitter {
           unit_of_measure_id = excluded.unit_of_measure_id,
           created_by_id = excluded.created_by_id,
           has_variants = excluded.has_variants,
-          product_type = excluded.product_type
+          product_type = excluded.product_type,
+          is_serialized = excluded.is_serialized,
+          serial_type = excluded.serial_type,
+          warranty_months = excluded.warranty_months
       `,
       params: [
         data.id,
@@ -1776,6 +1790,9 @@ export class SyncService extends EventEmitter {
         data.createdById ?? null,
         data.hasVariants ? 1 : 0,
         data.productType ?? 'SIMPLE',
+        data.isSerialized ? 1 : 0,
+        data.serialType ?? null,
+        data.warrantyMonths ?? null,
       ],
     }
   }
@@ -2173,6 +2190,63 @@ export class SyncService extends EventEmitter {
     }
   }
 
+  private buildProductSerialUnitUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      businessId?: string
+      productId?: string
+      variantId?: string | null
+      serialNumber?: string
+      serialType?: string
+      status?: string
+      warrantyExpiresAt?: string | null
+      reservedAt?: string | null
+      reservedBy?: string | null
+    }
+    const status = data.status ?? 'IN_STOCK'
+    const keepable = status === 'IN_STOCK' || status === 'RESERVED'
+    // The device only mirrors IN_STOCK / RESERVED units; anything else (SOLD,
+    // RETURNED, DAMAGED) or a tombstone is removed locally.
+    if (Boolean(data.isDeleted) || !keepable) {
+      return {
+        sql: `DELETE FROM product_serial_units WHERE id = ?`,
+        params: [data.id],
+      }
+    }
+    return {
+      sql: `
+        INSERT INTO product_serial_units (
+          id, business_id, product_id, variant_id, serial_number, serial_type, status,
+          warranty_expires_at, reserved_at, reserved_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          product_id = excluded.product_id,
+          variant_id = excluded.variant_id,
+          serial_number = excluded.serial_number,
+          serial_type = excluded.serial_type,
+          status = excluded.status,
+          warranty_expires_at = excluded.warranty_expires_at,
+          reserved_at = excluded.reserved_at,
+          reserved_by = excluded.reserved_by,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.businessId ?? '',
+        data.productId ?? '',
+        data.variantId ?? null,
+        data.serialNumber ?? '',
+        data.serialType ?? 'SERIAL_NUMBER',
+        status,
+        data.warrantyExpiresAt ?? null,
+        data.reservedAt ?? null,
+        data.reservedBy ?? null,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
+      ],
+    }
+  }
+
   private buildExpenseCategoryUpsertOperation(record: ExpenseCategorySyncRecord) {
     const deleted = Boolean(record.isDeleted)
 
@@ -2370,6 +2444,8 @@ export class SyncService extends EventEmitter {
           product_id,
           variant_id,
           variant_name,
+          serial_unit_id,
+          serial_number,
           product_name,
           product_sku,
           unit_of_measure,
@@ -2382,13 +2458,15 @@ export class SyncService extends EventEmitter {
           is_deleted,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           sale_id = excluded.sale_id,
           business_id = excluded.business_id,
           product_id = excluded.product_id,
           variant_id = excluded.variant_id,
           variant_name = excluded.variant_name,
+          serial_unit_id = excluded.serial_unit_id,
+          serial_number = excluded.serial_number,
           product_name = excluded.product_name,
           product_sku = excluded.product_sku,
           unit_of_measure = excluded.unit_of_measure,
@@ -2408,6 +2486,8 @@ export class SyncService extends EventEmitter {
         record.productId,
         record.variantId ?? null,
         record.variantName ?? null,
+        record.serialUnitId ?? null,
+        record.serialNumber ?? null,
         record.productName,
         record.productSku ?? null,
         record.unitOfMeasure ?? null,
