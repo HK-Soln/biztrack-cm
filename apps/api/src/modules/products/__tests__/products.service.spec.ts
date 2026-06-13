@@ -75,6 +75,7 @@ const makeService = () => {
     service,
     businessesRepo,
     unitsRepo,
+    categoriesRepo,
     slugService,
     skuService,
     barcodeService,
@@ -160,5 +161,35 @@ describe('ProductsService', () => {
     )
     expect(transactionInventoryRepo.create).not.toHaveBeenCalled()
     expect(transactionMovementRepo.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects assigning a product to a non-leaf category', async () => {
+    const { service, businessesRepo, unitsRepo, categoriesRepo, slugService, skuService, barcodeService } =
+      makeService()
+
+    businessesRepo.findOne.mockResolvedValue({ id: 'business-1', currency: 'XAF' })
+    unitsRepo.findOne.mockResolvedValue({ id: 'uom-1', businessId: null })
+    categoriesRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'business-1' })
+    categoriesRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(2), // has active children → not a leaf
+    })
+    slugService.generateProductSlug.mockResolvedValue('phone')
+    skuService.generate.mockResolvedValue('GEN-1')
+    barcodeService.generateFromSKU.mockReturnValue({
+      value: '2000000000002',
+      type: 'INTERNAL',
+      isGenerated: true,
+    })
+
+    await expect(
+      service.create('business-1', 'user-1', {
+        name: 'Phone',
+        unitOfMeasureId: 'uom-1',
+        sellingPrice: 1000,
+        categoryId: 'cat-1',
+      }),
+    ).rejects.toMatchObject({ code: 'CATEGORY_NOT_LEAF' })
   })
 })

@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
+import { IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
 import type { CreateCategoryRequest } from '@biztrack/types'
 
 export class CreateCategoryDto implements CreateCategoryRequest {
@@ -33,4 +33,11 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   @Min(0)
   @Type(() => Number)
   sortOrder?: number
+
+  @ApiPropertyOptional({
+    description: 'Parent category id. Omit/null for a top-level (L1) category. Parent must have depth < 3.',
+  })
+  @IsOptional()
+  @IsUUID()
+  parentId?: string
 }

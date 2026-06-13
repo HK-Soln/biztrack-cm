@@ -18,6 +18,10 @@ export type CommandSelectOption = {
   label: string
   imageUrl?: string | null
   keywords?: string[]
+  // Non-selectable entry (e.g. a non-leaf category shown only for context).
+  disabled?: boolean
+  // Visual nesting depth (0-based) — indents the label.
+  indentLevel?: number
 }
 
 const EMPTY_OPTIONS: CommandSelectOption[] = []
@@ -299,10 +303,18 @@ export function CommandSelect({
                 <CommandItem
                   key={option.value}
                   value={getOptionSearchValue(option)}
+                  disabled={option.disabled}
                   onSelect={() => {
+                    if (option.disabled) return
                     onChange(option.value, option)
                     setOpen(false)
                   }}
+                  style={
+                    option.indentLevel
+                      ? { paddingLeft: `${0.5 + option.indentLevel * 1}rem` }
+                      : undefined
+                  }
+                  className={cn(option.disabled && 'opacity-60')}
                 >
                   {showAvatar ? <OptionAvatar option={option} /> : null}
                   <span className="truncate">{option.label}</span>

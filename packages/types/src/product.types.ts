@@ -65,9 +65,31 @@ export interface ProductCategory {
   icon?: string | null
   imageUrl?: string | null
   sortOrder?: number
+  parentId?: string | null
+  depth?: number
+  isLeaf?: boolean
   isActive?: boolean
   createdAt: IsoDateString
   updatedAt: IsoDateString
+}
+
+/** A category node in the nested tree returned by GET /products/categories/tree. */
+export interface CategoryTreeNode {
+  id: string
+  name: string
+  slug?: string
+  depth: number
+  parentId?: string | null
+  sortOrder: number
+  isLeaf: boolean
+  isActive: boolean
+  productCount: number
+  imageUrl?: string | null
+  children: CategoryTreeNode[]
+}
+
+export interface CategoryTreeResponse {
+  tree: CategoryTreeNode[]
 }
 
 export interface UnitOfMeasure {
@@ -168,6 +190,7 @@ export interface CreateCategoryRequest {
   icon?: string
   imageUrl?: string
   sortOrder?: number
+  parentId?: string | null
   isActive?: boolean
 }
 

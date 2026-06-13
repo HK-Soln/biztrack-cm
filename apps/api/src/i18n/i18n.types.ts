@@ -72,6 +72,12 @@ export interface I18nTranslations {
     product_image_not_found: string
     category_not_found: string
     category_has_products: string
+    category_parent_not_found: string
+    category_max_depth_exceeded: string
+    category_parent_has_products: string
+    category_parent_cycle: string
+    category_reparent_has_children: string
+    category_not_leaf: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string

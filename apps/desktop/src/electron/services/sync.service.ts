@@ -139,6 +139,8 @@ type LocalCategoryRow = {
   icon: string | null
   image_url: string | null
   sort_order: number | null
+  parent_id: string | null
+  depth: number | null
   is_deleted: number
   created_at: string
   updated_at: string
@@ -984,6 +986,8 @@ export class SyncService extends EventEmitter {
           icon,
           image_url,
           sort_order,
+          parent_id,
+          depth,
           is_deleted,
           created_at,
           updated_at
@@ -1008,6 +1012,8 @@ export class SyncService extends EventEmitter {
       icon: row.icon,
       imageUrl: row.image_url,
       sortOrder: row.sort_order ?? 0,
+      parentId: row.parent_id ?? null,
+      depth: row.depth ?? 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       deletedAt: row.is_deleted ? row.updated_at : null,
@@ -1833,6 +1839,8 @@ export class SyncService extends EventEmitter {
       icon?: string | null
       imageUrl?: string | null
       sortOrder?: number
+      parentId?: string | null
+      depth?: number
       createdAt?: string
     }
 
@@ -1852,8 +1860,10 @@ export class SyncService extends EventEmitter {
           color,
           icon,
           image_url,
-          sort_order
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          sort_order,
+          parent_id,
+          depth
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
           name = excluded.name,
@@ -1864,7 +1874,9 @@ export class SyncService extends EventEmitter {
           color = excluded.color,
           icon = excluded.icon,
           image_url = excluded.image_url,
-          sort_order = excluded.sort_order
+          sort_order = excluded.sort_order,
+          parent_id = excluded.parent_id,
+          depth = excluded.depth
       `,
       params: [
         data.id,
@@ -1879,6 +1891,8 @@ export class SyncService extends EventEmitter {
         data.icon ?? null,
         data.imageUrl ?? null,
         data.sortOrder ?? 0,
+        data.parentId ?? null,
+        data.depth ?? 1,
       ],
     }
   }

@@ -509,6 +509,22 @@ export class ProductsService {
         'CATEGORY_NOT_FOUND',
       )
     }
+
+    // Products can only be assigned to leaf categories (no active children).
+    const activeChildCount = await this.categoriesRepo
+      .createQueryBuilder('category')
+      .where('category.business_id = :businessId', { businessId })
+      .andWhere('category.parent_id = :id', { id })
+      .andWhere('category.deleted_at IS NULL')
+      .andWhere('category.is_active = true')
+      .getCount()
+    if (activeChildCount > 0) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.category_not_leaf'),
+        'CATEGORY_NOT_LEAF',
+      )
+    }
+
     return category
   }
 
