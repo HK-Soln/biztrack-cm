@@ -47,6 +47,9 @@ const PRODUCT_FULL_SELECT = `
     p.track_inventory,
     p.has_variants,
     p.product_type,
+    p.is_serialized,
+    p.serial_type,
+    p.warranty_months,
     p.category_id,
     p.image_url,
     p.created_at,
@@ -373,6 +376,9 @@ export type ProductRow = {
   track_inventory: number
   has_variants: number | null
   product_type: string | null
+  is_serialized: number | null
+  serial_type: string | null
+  warranty_months: number | null
   category_id: string | null
   image_url: string | null
   created_at: string
@@ -1590,6 +1596,100 @@ export async function loadBundleAvailabilityLocal(
   return result
 }
 
+export interface SellSerialUnit {
+  id: string
+  serialNumber: string
+  variantId: string | null
+  warrantyExpiresAt: string | null
+}
+
+/** IN_STOCK serial units for a serialised product (optionally a variant). */
+export async function listInStockSerialUnitsLocal(
+  businessId: string,
+  productId: string,
+  variantId?: string | null,
+): Promise<SellSerialUnit[]> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const rows = await dbQuery<{
+    id: string
+    serial_number: string
+    variant_id: string | null
+    warranty_expires_at: string | null
+  }>(
+    `
+      SELECT id, serial_number, variant_id, warranty_expires_at
+      FROM product_serial_units
+      WHERE business_id = ?
+        AND product_id = ?
+        AND status = 'IN_STOCK'
+        ${variantId ? 'AND variant_id = ?' : ''}
+      ORDER BY serial_number ASC
+    `,
+    variantId ? [normalizedBusinessId, productId, variantId] : [normalizedBusinessId, productId],
+  )
+  return rows.map((row) => ({
+    id: row.id,
+    serialNumber: row.serial_number,
+    variantId: row.variant_id ?? null,
+    warrantyExpiresAt: row.warranty_expires_at ?? null,
+  }))
+}
+
+/** Reserve a serial unit locally when it's added to a cart (Phase 3G). */
+export async function reserveSerialUnitLocal(
+  businessId: string,
+  serialUnitId: string,
+  userId: string | null,
+): Promise<void> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  await dbBatch([
+    {
+      sql: `
+        UPDATE product_serial_units
+        SET status = 'RESERVED', reserved_at = datetime('now'), reserved_by = ?, updated_at = datetime('now')
+        WHERE id = ? AND business_id = ? AND status = 'IN_STOCK'
+      `,
+      params: [userId, serialUnitId, normalizedBusinessId],
+    },
+  ])
+}
+
+/** Release a reserved serial unit back to IN_STOCK (cart remove/clear). */
+export async function releaseSerialUnitLocal(
+  businessId: string,
+  serialUnitId: string,
+): Promise<void> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  await dbBatch([
+    {
+      sql: `
+        UPDATE product_serial_units
+        SET status = 'IN_STOCK', reserved_at = NULL, reserved_by = NULL, updated_at = datetime('now')
+        WHERE id = ? AND business_id = ? AND status = 'RESERVED'
+      `,
+      params: [serialUnitId, normalizedBusinessId],
+    },
+  ])
+}
+
+/** Release reservations older than 30 minutes (called on sell-screen mount). */
+export async function releaseExpiredSerialReservationsLocal(businessId: string): Promise<void> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  await dbBatch([
+    {
+      sql: `
+        UPDATE product_serial_units
+        SET status = 'IN_STOCK', reserved_at = NULL, reserved_by = NULL, updated_at = datetime('now')
+        WHERE business_id = ?
+          AND status = 'RESERVED'
+          AND reserved_at IS NOT NULL
+          AND reserved_at < datetime('now', '-30 minutes')
+      `,
+      params: [normalizedBusinessId],
+    },
+  ])
+}
+
 export async function listUnitOfMeasuresLocal(
   businessId: string,
   query: LocalUnitOfMeasuresQuery = { page: 1, limit: 100 },
@@ -2319,6 +2419,9 @@ export function mapProductRow(row: ProductRow): Product {
     trackInventory: Boolean(row.track_inventory),
     hasVariants: Boolean(row.has_variants),
     productType: (row.product_type as ProductType | null) ?? ProductType.SIMPLE,
+    isSerialized: Boolean(row.is_serialized),
+    serialType: (row.serial_type as Product['serialType']) ?? null,
+    warrantyMonths: row.warranty_months ?? null,
     category,
     unitOfMeasure: unit,
     createdAt: row.created_at,

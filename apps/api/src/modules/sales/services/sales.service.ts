@@ -8,6 +8,7 @@ import {
   PaymentMethod,
   ProductType,
   SaleStatus,
+  SerialUnitStatus,
   type CashierShiftSummary,
   type DailySalesSummary,
   type JwtPayload,
@@ -27,6 +28,7 @@ import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleDiscount } from '@/entities/sale-discount.entity'
@@ -46,6 +48,8 @@ type ComputedSaleItem = {
   product: Product
   variantId: string | null
   variantName: string | null
+  serialUnitId: string | null
+  serialNumber: string | null
   quantity: number
   unitPrice: number
   discountAmount: number
@@ -60,6 +64,8 @@ type SaleComputationInput = {
     productId: string
     variantId?: string | null
     variantName?: string | null
+    serialUnitId?: string | null
+    serialNumber?: string | null
     quantity: number
     unitPrice: number
     discountAmount?: number
@@ -117,8 +123,12 @@ export class SalesService {
 
         const soldAt = this.normalizeDate(dto.soldAt)
         const saleDate = soldAt.toISOString().slice(0, 10)
-        const { products, variantsById } = await this.loadProductsForSale(manager, businessId, dto)
-        const computed = this.computeSale(products, variantsById, dto)
+        const { products, variantsById, serialUnitsById } = await this.loadProductsForSale(
+          manager,
+          businessId,
+          dto,
+        )
+        const computed = this.computeSale(products, variantsById, serialUnitsById, dto)
         const amountPaid = this.roundMoney(
           dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
@@ -173,6 +183,8 @@ export class SalesService {
               productId: item.product.id,
               variantId: item.variantId,
               variantName: item.variantName,
+              serialUnitId: item.serialUnitId,
+              serialNumber: item.serialNumber,
               productName: item.product.name,
               productSku: item.product.sku ?? null,
               unitOfMeasure: item.product.unitOfMeasure?.abbreviation ?? null,
@@ -216,6 +228,8 @@ export class SalesService {
           ),
           manager,
         )
+
+        await this.markSerialUnitsSold(manager, businessId, sale.id, customerId ?? null, saleItems)
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
@@ -291,12 +305,12 @@ export class SalesService {
 
         const soldAt = this.normalizeDate(payload.soldAt)
         const saleDate = soldAt.toISOString().slice(0, 10)
-        const { products, variantsById } = await this.loadProductsForSale(
+        const { products, variantsById, serialUnitsById } = await this.loadProductsForSale(
           manager,
           businessId,
           payload,
         )
-        const computed = this.computeSale(products, variantsById, payload)
+        const computed = this.computeSale(products, variantsById, serialUnitsById, payload)
         const amountPaid = this.roundMoney(
           payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
@@ -374,6 +388,8 @@ export class SalesService {
               productId: item.product.id,
               variantId: item.variantId,
               variantName: item.variantName,
+              serialUnitId: item.serialUnitId,
+              serialNumber: item.serialNumber,
               productName: item.product.name,
               productSku: item.product.sku ?? null,
               unitOfMeasure: item.product.unitOfMeasure?.abbreviation ?? null,
@@ -461,6 +477,8 @@ export class SalesService {
           ),
           manager,
         )
+
+        await this.markSerialUnitsSold(manager, businessId, sale.id, customerId ?? null, saleItems)
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
@@ -687,6 +705,8 @@ export class SalesService {
           ),
           manager,
         )
+
+        await this.releaseSerialUnitsForVoid(manager, businessId, sale.items ?? [])
 
         await this.dailySummaryService.decrementForVoid(
           sale,
@@ -994,7 +1014,46 @@ export class SalesService {
       }
     }
 
-    return { products, variantsById }
+    // Load + validate serial units (Phase 3G).
+    const serialUnitIds = [
+      ...new Set(dto.items.map((item) => item.serialUnitId).filter((id): id is string => Boolean(id))),
+    ]
+    const serialUnits = serialUnitIds.length
+      ? await manager.getRepository(ProductSerialUnit).find({
+          where: { id: In(serialUnitIds), businessId, deletedAt: IsNull() },
+        })
+      : []
+    const serialUnitsById = new Map(serialUnits.map((unit) => [unit.id, unit]))
+
+    for (const item of dto.items) {
+      const product = productsById.get(item.productId)!
+      if (!product.isSerialized) continue
+      if (!item.serialUnitId) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.serial_unit_required', { args: { name: product.name } }),
+          'SERIAL_UNIT_REQUIRED',
+        )
+      }
+      const unit = serialUnitsById.get(item.serialUnitId)
+      if (
+        !unit ||
+        unit.productId !== product.id ||
+        (unit.status !== SerialUnitStatus.IN_STOCK && unit.status !== SerialUnitStatus.RESERVED)
+      ) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.serial_unit_unavailable'),
+          'SERIAL_UNIT_UNAVAILABLE',
+        )
+      }
+      if (product.hasVariants && item.variantId && unit.variantId !== item.variantId) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.serial_unit_variant_mismatch'),
+          'SERIAL_UNIT_VARIANT_MISMATCH',
+        )
+      }
+    }
+
+    return { products, variantsById, serialUnitsById }
   }
 
   /**
@@ -1026,6 +1085,11 @@ export class SalesService {
       where: { id: In(productIds), businessId },
     })
     const typeById = new Map(products.map((product) => [product.id, product.productType]))
+    // Serialised products have no inventory_levels row — stock is the unit count,
+    // handled by marking the serial unit SOLD, so they're excluded from deduction.
+    const serializedIds = new Set(
+      products.filter((product) => product.isSerialized).map((product) => product.id),
+    )
     const compositeIds = products
       .filter((product) => product.productType === ProductType.COMPOSITE)
       .map((product) => product.id)
@@ -1050,6 +1114,9 @@ export class SalesService {
       movementId?: string | null
     }> = []
     for (const line of lines) {
+      if (serializedIds.has(line.productId)) {
+        continue
+      }
       if (typeById.get(line.productId) === ProductType.COMPOSITE) {
         for (const component of componentsByBundle.get(line.productId) ?? []) {
           expanded.push({
@@ -1066,9 +1133,68 @@ export class SalesService {
     return expanded
   }
 
+  /** Mark a sale's serialised units SOLD (Phase 3G). Runs in the sale transaction. */
+  private async markSerialUnitsSold(
+    manager: EntityManager,
+    businessId: string,
+    saleId: string,
+    customerId: string | null,
+    items: Array<{ id: string; serialUnitId?: string | null }>,
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductSerialUnit)
+    for (const item of items) {
+      if (!item.serialUnitId) continue
+      const result = await repo.update(
+        {
+          id: item.serialUnitId,
+          businessId,
+          status: In([SerialUnitStatus.IN_STOCK, SerialUnitStatus.RESERVED]),
+        },
+        {
+          status: SerialUnitStatus.SOLD,
+          saleId,
+          saleItemId: item.id,
+          soldAt: new Date(),
+          customerId,
+          reservedAt: null,
+          reservedBy: null,
+        },
+      )
+      if (!result.affected) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.serial_unit_unavailable'),
+          'SERIAL_UNIT_UNAVAILABLE',
+        )
+      }
+    }
+  }
+
+  /** Return a voided sale's serialised units to IN_STOCK (Phase 3G). */
+  private async releaseSerialUnitsForVoid(
+    manager: EntityManager,
+    businessId: string,
+    items: Array<{ serialUnitId?: string | null }>,
+  ): Promise<void> {
+    const repo = manager.getRepository(ProductSerialUnit)
+    for (const item of items) {
+      if (!item.serialUnitId) continue
+      await repo.update(
+        { id: item.serialUnitId, businessId, status: SerialUnitStatus.SOLD },
+        {
+          status: SerialUnitStatus.IN_STOCK,
+          saleId: null,
+          saleItemId: null,
+          soldAt: null,
+          customerId: null,
+        },
+      )
+    }
+  }
+
   private computeSale(
     products: Product[],
     variantsById: Map<string, ProductVariant>,
+    serialUnitsById: Map<string, ProductSerialUnit>,
     dto: SaleComputationInput,
   ) {
     const productsById = new Map(products.map((product) => [product.id, product]))
@@ -1099,11 +1225,14 @@ export class SalesService {
       }
 
       const variant = input.variantId ? variantsById.get(input.variantId) : undefined
+      const serialUnit = input.serialUnitId ? serialUnitsById.get(input.serialUnitId) : undefined
       subtotal = this.roundMoney(subtotal + lineTotal)
       items.push({
         product,
         variantId: variant?.id ?? null,
         variantName: variant?.name ?? input.variantName ?? null,
+        serialUnitId: serialUnit?.id ?? input.serialUnitId ?? null,
+        serialNumber: serialUnit?.serialNumber ?? input.serialNumber ?? null,
         quantity,
         unitPrice,
         discountAmount,
@@ -1200,6 +1329,8 @@ export class SalesService {
       ),
       manager,
     )
+
+    await this.releaseSerialUnitsForVoid(manager, businessId, sale.items ?? [])
 
     await this.dailySummaryService.decrementForVoid(
       sale,

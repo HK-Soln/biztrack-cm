@@ -75,6 +75,8 @@ type SaleItemRow = {
   product_id: string
   variant_id: string | null
   variant_name: string | null
+  serial_unit_id: string | null
+  serial_number: string | null
   product_name: string
   product_sku: string | null
   unit_of_measure: string | null
@@ -182,6 +184,7 @@ export class SaleLocalError extends Error {
       | 'SALE_PRODUCT_INACTIVE'
       | 'SALE_INSUFFICIENT_STOCK'
       | 'SALE_QUANTITY_MUST_BE_INTEGER'
+      | 'SALE_SERIAL_UNIT_REQUIRED'
       | 'SALE_PAYMENT_REQUIRED'
       | 'SALE_PAYMENT_AMOUNT_INVALID'
       | 'SALE_PAYMENT_METHOD_INVALID'
@@ -262,6 +265,8 @@ export async function createSaleLocal(
 
     const variantId = input.variantId ?? null
     const variantName = input.variantName ?? null
+    const serialUnitId = input.serialUnitId ?? null
+    const serialNumber = input.serialNumber ?? null
     const itemId = crypto.randomUUID()
     saleItems.push({
       id: itemId,
@@ -269,6 +274,8 @@ export async function createSaleLocal(
       productId: row.id,
       variantId,
       variantName,
+      serialUnitId,
+      serialNumber,
       productName: row.name,
       productSku: row.sku,
       unitOfMeasure: row.unit_abbreviation ?? row.unit_name ?? null,
@@ -292,6 +299,8 @@ export async function createSaleLocal(
           product_id,
           variant_id,
           variant_name,
+          serial_unit_id,
+          serial_number,
           product_name,
           product_sku,
           unit_of_measure,
@@ -304,7 +313,7 @@ export async function createSaleLocal(
           is_deleted,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `,
       params: [
         itemId,
@@ -313,6 +322,8 @@ export async function createSaleLocal(
         row.id,
         variantId,
         variantName,
+        serialUnitId,
+        serialNumber,
         row.name,
         row.sku,
         row.unit_abbreviation ?? row.unit_name ?? null,
@@ -329,7 +340,22 @@ export async function createSaleLocal(
 
     let movementId: string | null = null
 
-    if (row.track_inventory) {
+    if (row.is_serialized) {
+      // Serialised: mark the specific unit SOLD; stock is the IN_STOCK count.
+      if (!serialUnitId) {
+        throw new SaleLocalError('SALE_SERIAL_UNIT_REQUIRED')
+      }
+      // Mark SOLD locally (the unit is dropped on the next pull). The server
+      // records the sale linkage when the sale syncs.
+      operations.push({
+        sql: `
+          UPDATE product_serial_units
+          SET status = 'SOLD', updated_at = ?, reserved_at = NULL, reserved_by = NULL
+          WHERE id = ? AND business_id = ? AND status IN ('IN_STOCK', 'RESERVED')
+        `,
+        params: [createdAt, serialUnitId, normalizedBusinessId],
+      })
+    } else if (row.track_inventory) {
       const level = await ensureInventoryLevel(normalizedBusinessId, row, createdAt, variantId)
       const quantityBefore = roundQuantity(level.quantity)
       const quantityAfter = roundQuantity(quantityBefore - quantity)
@@ -1390,14 +1416,17 @@ export async function buildSaleReceiptLocal(
     cashierName: sale.cashierName ?? sale.cashier?.name ?? 'Local user',
     customerName: sale.customerName ?? null,
     customerPhone: sale.customerPhone ?? null,
-    items: sale.items.map((item) => ({
-      // Variant name is appended to the product name on the receipt line.
-      name: item.variantName ? `${item.productName} · ${item.variantName}` : item.productName,
-      qty: item.quantity,
-      unitPrice: item.unitPrice,
-      total: item.lineTotal,
-      discountAmount: item.discountAmount,
-    })),
+    items: sale.items.map((item) => {
+      // Variant name + serial/IMEI are appended to the product name on the line.
+      const base = item.variantName ? `${item.productName} · ${item.variantName}` : item.productName
+      return {
+        name: item.serialNumber ? `${base} (IMEI: ${item.serialNumber})` : base,
+        qty: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.lineTotal,
+        discountAmount: item.discountAmount,
+      }
+    }),
     subtotal: sale.subtotal,
     discountAmount: sale.discountAmount,
     chargesAmount: sale.chargesAmount,
@@ -1552,6 +1581,8 @@ async function buildSaleSyncPayload(
       productId: item.product_id,
       variantId: item.variant_id ?? undefined,
       variantName: item.variant_name ?? undefined,
+      serialUnitId: item.serial_unit_id ?? undefined,
+      serialNumber: item.serial_number ?? undefined,
       quantity: roundQuantity(item.quantity),
       unitPrice: roundMoney(item.unit_price),
       discountAmount: roundMoney(item.discount_amount ?? 0),
@@ -1573,6 +1604,8 @@ async function hydrateSaleRecord(row: SaleRow): Promise<LocalSaleRecord> {
           product_id,
           variant_id,
           variant_name,
+          serial_unit_id,
+          serial_number,
           product_name,
           product_sku,
           unit_of_measure,
@@ -1763,6 +1796,8 @@ function mapSaleItemRow(row: SaleItemRow): SaleItem {
     productId: row.product_id,
     variantId: row.variant_id ?? null,
     variantName: row.variant_name ?? null,
+    serialUnitId: row.serial_unit_id ?? null,
+    serialNumber: row.serial_number ?? null,
     productName: row.product_name,
     productSku: row.product_sku ?? null,
     unitOfMeasure: row.unit_of_measure ?? null,
@@ -1806,6 +1841,8 @@ async function querySaleItemsBySaleIds(saleIds: string[]) {
         product_id,
         variant_id,
         variant_name,
+        serial_unit_id,
+        serial_number,
         product_name,
         product_sku,
         unit_of_measure,

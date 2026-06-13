@@ -56,11 +56,17 @@ import {
   listProductsLocal,
   listUnitOfMeasuresLocal,
   loadBundleAvailabilityLocal,
+  listInStockSerialUnitsLocal,
+  reserveSerialUnitLocal,
+  releaseSerialUnitLocal,
+  releaseExpiredSerialReservationsLocal,
   type ProductVariantSelection,
   type SellVariant,
+  type SellSerialUnit,
 } from '@/services/products.local'
 import { VariantSelectDrawer } from '@/components/sell/VariantSelectDrawer'
 import { QuantityEntryModal } from '@/components/sell/QuantityEntryModal'
+import { SerialUnitSelectDrawer } from '@/components/sell/SerialUnitSelectDrawer'
 import { createSaleLocal, SaleLocalError, type LocalSaleRecord, type SaleChargeLineInput, type SaleDiscountLineInput } from '@/services/sales.local'
 import { listChargeTypesLocal, type LocalChargeType } from '@/services/charges.local'
 import { getDepositAccountByCustomerLocal } from '@/services/deposits.local'
@@ -118,6 +124,8 @@ type SellCartItem = {
   productId: string
   variantId: string | null
   variantName: string | null
+  serialUnitId: string | null
+  serialNumber: string | null
   productType: ProductType
   name: string
   sku: string | null
@@ -132,8 +140,11 @@ type SellCartItem = {
   imageUrl: string | null
 }
 
-const cartLineKey = (productId: string, variantId?: string | null) =>
-  `${productId}::${variantId ?? ''}`
+const cartLineKey = (
+  productId: string,
+  variantId?: string | null,
+  serialUnitId?: string | null,
+) => `${productId}::${variantId ?? ''}::${serialUnitId ?? ''}`
 
 type HeldSale = {
   id: string
@@ -963,6 +974,21 @@ export default function SellPage() {
   const [quantityModalProduct, setQuantityModalProduct] = useState<Product | null>(null)
   // productId -> how many bundles can currently be made (COMPOSITE products).
   const [bundleAvailability, setBundleAvailability] = useState<Record<string, number>>({})
+  // Serial/IMEI selector (Phase 3G).
+  const [serialDrawer, setSerialDrawer] = useState<{
+    product: Product
+    variantId: string | null
+    variantName: string | null
+    price: number
+  } | null>(null)
+  const [serialUnits, setSerialUnits] = useState<SellSerialUnit[]>([])
+  const [serialDrawerLoading, setSerialDrawerLoading] = useState(false)
+
+  // Release serial reservations that outlived their cart (>30 min) on mount.
+  useEffect(() => {
+    if (!businessId) return
+    void releaseExpiredSerialReservationsLocal(businessId)
+  }, [businessId])
   const [selectedCustomer, setSelectedCustomer] = useState<SellCustomer | null>(null)
   const [cartQuantityInputs, setCartQuantityInputs] = useState<Record<string, string>>({})
   const [saleDiscountLines, setSaleDiscountLines] = useState<SaleDiscountLine[]>([])
@@ -1520,6 +1546,8 @@ export default function SellPage() {
       productId: string
       variantId: string | null
       variantName: string | null
+      serialUnitId?: string | null
+      serialNumber?: string | null
       productType: ProductType
       name: string
       sku: string | null
@@ -1537,7 +1565,7 @@ export default function SellPage() {
   ) => {
     ensureCartStage()
 
-    const lineKey = cartLineKey(line.productId, line.variantId)
+    const lineKey = cartLineKey(line.productId, line.variantId, line.serialUnitId)
     const availableStock = line.trackInventory ? line.stock : null
     const cartForStockCheck = stage === 'success' ? [] : cart
     const currentCartItem = cartForStockCheck.find((item) => item.lineKey === lineKey)
@@ -1568,6 +1596,8 @@ export default function SellPage() {
           productId: line.productId,
           variantId: line.variantId,
           variantName: line.variantName,
+          serialUnitId: line.serialUnitId ?? null,
+          serialNumber: line.serialNumber ?? null,
           productType: line.productType,
           name: line.name,
           sku: line.sku,
@@ -1652,7 +1682,65 @@ export default function SellPage() {
         imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
       })
     }
+    if (product.isSerialized) {
+      void openSerialDrawer(product, null, null, product.sellingPrice)
+      return true
+    }
     return addToCart(product)
+  }
+
+  const openSerialDrawer = async (
+    product: Product,
+    variantId: string | null,
+    variantName: string | null,
+    price: number,
+  ) => {
+    if (!businessId) {
+      toast.error(copy.businessRequired)
+      return
+    }
+    setSerialDrawer({ product, variantId, variantName, price })
+    setSerialUnits([])
+    setSerialDrawerLoading(true)
+    try {
+      setSerialUnits(await listInStockSerialUnitsLocal(businessId, product.id, variantId))
+    } catch {
+      toast.error(copy.loadError)
+    } finally {
+      setSerialDrawerLoading(false)
+    }
+  }
+
+  const handleSerialSelected = async (unit: SellSerialUnit) => {
+    const context = serialDrawer
+    if (!context || !businessId) return
+    const { product, variantId, variantName, price } = context
+    const variantSuffix = variantName ? ` · ${variantName}` : ''
+    const added = addCartLine({
+      productId: product.id,
+      variantId,
+      variantName,
+      serialUnitId: unit.id,
+      serialNumber: unit.serialNumber,
+      productType: product.productType ?? ProductType.SIMPLE,
+      name: `${product.name}${variantSuffix}`,
+      sku: product.sku,
+      price,
+      categoryName: product.category?.name ?? null,
+      unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
+      // Each serial unit is a unique line of quantity 1.
+      trackInventory: true,
+      stock: 1,
+      lowStockThreshold: null,
+      imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
+    })
+    if (!added) {
+      toast.error(copy.errors.SALE_INSUFFICIENT_STOCK)
+      return
+    }
+    // Reserve the unit locally so it leaves the IN_STOCK pool.
+    await reserveSerialUnitLocal(businessId, unit.id, null)
+    setSerialDrawer(null)
   }
 
   const handleQuantityConfirm = (quantity: number) => {
@@ -1686,6 +1774,13 @@ export default function SellPage() {
   const handleVariantSelected = (variant: SellVariant) => {
     const product = variantDrawerProduct
     if (!product) return
+    const price = variant.priceOverride ?? product.sellingPrice
+    // Serialised variant products go on to pick a specific unit.
+    if (product.isSerialized) {
+      setVariantDrawerProduct(null)
+      void openSerialDrawer(product, variant.id, variant.name, price)
+      return
+    }
     const added = addCartLine({
       productId: product.id,
       variantId: variant.id,
@@ -1693,7 +1788,7 @@ export default function SellPage() {
       productType: product.productType ?? ProductType.SIMPLE,
       name: product.name,
       sku: product.sku,
-      price: variant.priceOverride ?? product.sellingPrice,
+      price,
       categoryName: product.category?.name ?? null,
       unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
       trackInventory: product.trackInventory,
@@ -1745,6 +1840,11 @@ export default function SellPage() {
           if (added) {
             toast.success(`${product.name} ${copy.productAddedFromScan}`)
           }
+          return
+        }
+        // Serialised products open the IMEI selector.
+        if (product.isSerialized) {
+          void openSerialDrawer(product, null, null, product.sellingPrice)
           return
         }
         const wasAdded = addToCart(product)
@@ -1882,7 +1982,20 @@ export default function SellPage() {
   }
 
   const removeItem = (lineKey: string) => {
+    const removed = cart.find((item) => item.lineKey === lineKey)
+    if (removed?.serialUnitId && businessId) {
+      void releaseSerialUnitLocal(businessId, removed.serialUnitId)
+    }
     setCart((current) => current.filter((item) => item.lineKey !== lineKey))
+  }
+
+  // Release any locally-reserved serial units when the cart is abandoned.
+  // (No-op for units already SOLD after a confirmed sale.)
+  const releaseCartSerialReservations = (items: SellCartItem[]) => {
+    if (!businessId) return
+    for (const item of items) {
+      if (item.serialUnitId) void releaseSerialUnitLocal(businessId, item.serialUnitId)
+    }
   }
 
   const handleAddDiscountConfirm = (event: FormEvent) => {
@@ -2031,6 +2144,7 @@ export default function SellPage() {
   }
 
   const clearCurrentSale = () => {
+    releaseCartSerialReservations(cart)
     setCart([])
     setSelectedCustomer(null)
     setSaleDiscountLines([])
@@ -2168,6 +2282,8 @@ export default function SellPage() {
           productId: item.productId,
           variantId: item.variantId ?? undefined,
           variantName: item.variantName ?? undefined,
+          serialUnitId: item.serialUnitId ?? undefined,
+          serialNumber: item.serialNumber ?? undefined,
           quantity: item.qty,
           unitPrice: item.price,
           discountAmount: 0,
@@ -3083,8 +3199,15 @@ export default function SellPage() {
                               />
                               <div className="min-w-0 flex-1">
                                 <div className="truncate text-sm font-semibold">
-                                  {item.variantName ? `${item.name} · ${item.variantName}` : item.name}
+                                  {item.variantName && !item.name.includes(' · ')
+                                    ? `${item.name} · ${item.variantName}`
+                                    : item.name}
                                 </div>
+                                {item.serialNumber ? (
+                                  <div className="truncate font-mono text-[11px] text-muted-foreground">
+                                    IMEI: {item.serialNumber}
+                                  </div>
+                                ) : null}
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <span>{item.sku || item.categoryName || copy.uncategorized}</span>
                                   {item.trackInventory && item.stock !== null ? (
@@ -3613,6 +3736,19 @@ export default function SellPage() {
         }
         onClose={() => setQuantityModalProduct(null)}
         onConfirm={handleQuantityConfirm}
+      />
+
+      <SerialUnitSelectDrawer
+        open={serialDrawer !== null}
+        title={
+          serialDrawer
+            ? `${serialDrawer.product.name}${serialDrawer.variantName ? ` · ${serialDrawer.variantName}` : ''}`
+            : ''
+        }
+        units={serialUnits}
+        loading={serialDrawerLoading}
+        onClose={() => setSerialDrawer(null)}
+        onSelect={(unit) => void handleSerialSelected(unit)}
       />
 
       {holdsOpen ? (

@@ -26,11 +26,12 @@ export class RestockItemDto implements RestockItemRequest {
   @IsUUID()
   productId!: string
 
-  @ApiProperty({ example: 12 })
+  @ApiPropertyOptional({ example: 12, description: 'Omit for serialised products (use serialNumbers).' })
+  @IsOptional()
   @IsNumber()
   @Min(0.001)
   @Type(() => Number)
-  quantity!: number
+  quantity?: number
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -38,6 +39,27 @@ export class RestockItemDto implements RestockItemRequest {
   @Min(0)
   @Type(() => Number)
   unitCost?: number
+
+  @ApiPropertyOptional({ description: 'Required when restocking a specific variant.' })
+  @IsOptional()
+  @IsUUID()
+  variantId?: string
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Serial/IMEI numbers received (serialised products only).',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[]
+
+  @ApiPropertyOptional({ description: 'Warranty months for this delivery (overrides product default).' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  warrantyMonths?: number
 }
 
 export class RestockPaymentDto implements RestockPaymentRequest {

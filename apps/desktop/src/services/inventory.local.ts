@@ -481,10 +481,11 @@ export async function restockInventoryLocal(
     const itemId = crypto.randomUUID()
     const movementId = crypto.randomUUID()
 
+    const itemQuantity = item.quantity ?? 0
     syncItems.push({
       id: itemId,
       productId: row.id,
-      quantity: item.quantity,
+      quantity: itemQuantity,
       unitCost: item.unitCost ?? undefined,
       movementId,
     })
@@ -495,7 +496,7 @@ export async function restockInventoryLocal(
 
     const level = await ensureInventoryLevel(normalizedBusinessId, row)
     const quantityBefore = level.quantity
-    const quantityAfter = quantityBefore + item.quantity
+    const quantityAfter = quantityBefore + itemQuantity
 
     operations.push(
       {
@@ -533,7 +534,7 @@ export async function restockInventoryLocal(
           itemId,
           restockId,
           row.id,
-          item.quantity,
+          itemQuantity,
           item.unitCost ?? null,
           quantityAfter,
           now,
@@ -562,7 +563,7 @@ export async function restockInventoryLocal(
           normalizedBusinessId,
           row.id,
           InventoryMovementType.RESTOCK_IN,
-          item.quantity,
+          itemQuantity,
           quantityBefore,
           quantityAfter,
           'restock',
@@ -577,7 +578,7 @@ export async function restockInventoryLocal(
 
     processedItems.push({
       productId: row.id,
-      quantity: item.quantity,
+      quantity: itemQuantity,
       newQuantity: quantityAfter,
     })
   }
@@ -1150,7 +1151,8 @@ function validateRestock(payload: RestockRequest) {
       throw new InventoryLocalError('INVENTORY_RESTOCK_PRODUCT_INVALID')
     }
 
-    if (!Number.isFinite(item.quantity) || item.quantity < 0.001) {
+    const itemQuantity = item.quantity ?? 0
+    if (!Number.isFinite(itemQuantity) || itemQuantity < 0.001) {
       throw new InventoryLocalError('INVENTORY_RESTOCK_QUANTITY_INVALID')
     }
 
@@ -1180,7 +1182,7 @@ function resolveRestockTotal(payload: RestockRequest) {
   const computedTotal = allUnitCostsPresent
     ? roundMoney(
         payload.items.reduce(
-          (sum, item) => sum + item.quantity * (item.unitCost ?? 0),
+          (sum, item) => sum + (item.quantity ?? 0) * (item.unitCost ?? 0),
           0,
         ),
       )

@@ -12,9 +12,12 @@ import type {
   InventoryQuery,
   RestockRequest,
   RestockPaymentRequest,
+  RestockSerialResult,
+  SerialType,
   SetInventoryThresholdRequest,
 } from '@biztrack/types'
-import { DebtDirection, DebtSource, StockAdjustmentType } from '@biztrack/types'
+import { DebtDirection, DebtSource, SerialUnitStatus, StockAdjustmentType } from '@biztrack/types'
+import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -28,6 +31,7 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
@@ -58,6 +62,10 @@ type RestockInputItem = {
   quantity: number
   unitCost?: number | null
   movementId?: string | null
+  // Serialised restock (Phase 3G): the units received instead of a quantity.
+  variantId?: string | null
+  serialNumbers?: string[]
+  warrantyMonths?: number | null
 }
 
 type RestockCreationInput = {
@@ -291,10 +299,12 @@ export class InventoryService {
           payments: dto.payments,
           items: dto.items.map((item) => ({
             productId: item.productId,
-            // Serialised restock (serialNumbers -> units) is wired in a follow-up;
-            // quantity is optional on the request for that path.
-            quantity: item.quantity ?? 0,
+            // Serialised products receive serial numbers instead of a quantity.
+            quantity: item.quantity ?? (item.serialNumbers?.length ?? 0),
             unitCost: item.unitCost ?? null,
+            variantId: item.variantId ?? null,
+            serialNumbers: item.serialNumbers,
+            warrantyMonths: item.warrantyMonths ?? null,
           })),
         })
       })
@@ -877,7 +887,12 @@ export class InventoryService {
       }),
     )
 
-    const processedItems: Array<{ productId: string; quantity: number; newQuantity: number }> = []
+    const processedItems: Array<{
+      productId: string
+      quantity: number
+      newQuantity: number
+      serialErrors?: RestockSerialResult[]
+    }> = []
 
     for (const item of normalizedItems) {
       const product = await productRepo.findOne({
@@ -897,6 +912,34 @@ export class InventoryService {
           'PRODUCT_INVENTORY_TRACKING_REQUIRED',
           { productId: item.productId, productName: product.name },
         )
+      }
+
+      // Serialised products: create one unit per serial number (no level/movement).
+      if (product.isSerialized) {
+        const { created, errors } = await this.restockSerialUnits(
+          manager,
+          item,
+          product,
+          input,
+          record.id,
+        )
+        await itemRepo.save(
+          itemRepo.create({
+            id: item.id,
+            restockRecordId: record.id,
+            productId: product.id,
+            quantity: created,
+            unitCost: item.unitCost,
+            createdAt: input.createdAt,
+          }),
+        )
+        processedItems.push({
+          productId: product.id,
+          quantity: created,
+          newQuantity: created,
+          serialErrors: errors,
+        })
+        continue
       }
 
       const level = await inventoryRepo.findOne({
@@ -992,6 +1035,106 @@ export class InventoryService {
       items: processedItems,
       payments: normalizedPayments,
     }
+  }
+
+  /**
+   * Create one serial unit per supplied serial number for a serialised product.
+   * Validates format (Luhn for IMEI), rejects in-stock duplicates, and re-stocks
+   * previously SOLD/RETURNED units. Returns per-serial errors for the rest.
+   */
+  private async restockSerialUnits(
+    manager: EntityManager,
+    item: RestockInputItem,
+    product: Product,
+    input: RestockCreationInput,
+    restockId: string,
+  ): Promise<{ created: number; errors: RestockSerialResult[] }> {
+    const serialUnitRepo = manager.getRepository(ProductSerialUnit)
+    const serialType = (product.serialType ?? 'SERIAL_NUMBER') as
+      | 'IMEI'
+      | 'SERIAL_NUMBER'
+      | 'BARCODE'
+    const serialNumbers = item.serialNumbers ?? []
+    const warrantyMonths = item.warrantyMonths ?? product.warrantyMonths ?? null
+    const warrantyExpiresAt =
+      warrantyMonths && warrantyMonths > 0 ? this.addMonths(input.createdAt, warrantyMonths) : null
+
+    const errors: RestockSerialResult[] = []
+    let created = 0
+    const seenInBatch = new Set<string>()
+
+    for (const raw of serialNumbers) {
+      const serialNumber = raw.trim()
+      if (!serialNumber || seenInBatch.has(serialNumber)) {
+        continue
+      }
+      seenInBatch.add(serialNumber)
+
+      if (!validateSerialNumber(serialNumber, serialType)) {
+        errors.push({ serialNumber, reason: 'INVALID_FORMAT' })
+        continue
+      }
+
+      const existing = await serialUnitRepo.findOne({
+        where: { businessId: input.businessId, serialNumber },
+        withDeleted: true,
+      })
+
+      if (existing) {
+        if (
+          existing.status === SerialUnitStatus.IN_STOCK ||
+          existing.status === SerialUnitStatus.RESERVED
+        ) {
+          errors.push({ serialNumber, reason: 'DUPLICATE_IN_STOCK' })
+          continue
+        }
+        // Legitimate re-stock of a previously sold/returned/damaged unit.
+        await serialUnitRepo.update(
+          { id: existing.id },
+          {
+            status: SerialUnitStatus.IN_STOCK,
+            variantId: item.variantId ?? null,
+            restockId,
+            purchasePrice: item.unitCost ?? 0,
+            supplierId: input.supplierId ?? null,
+            warrantyExpiresAt,
+            saleId: null,
+            saleItemId: null,
+            soldAt: null,
+            customerId: null,
+            reservedAt: null,
+            reservedBy: null,
+            deletedAt: null,
+          },
+        )
+        created += 1
+        continue
+      }
+
+      await serialUnitRepo.save(
+        serialUnitRepo.create({
+          businessId: input.businessId,
+          productId: product.id,
+          variantId: item.variantId ?? null,
+          serialNumber,
+          serialType: serialType as SerialType,
+          status: SerialUnitStatus.IN_STOCK,
+          purchasePrice: item.unitCost ?? 0,
+          supplierId: input.supplierId ?? null,
+          restockId,
+          warrantyExpiresAt,
+        }),
+      )
+      created += 1
+    }
+
+    return { created, errors }
+  }
+
+  private addMonths(date: Date, months: number): Date {
+    const result = new Date(date)
+    result.setMonth(result.getMonth() + months)
+    return result
   }
 
   private async resolveRestockTotal(input: {
