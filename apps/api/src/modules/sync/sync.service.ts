@@ -2461,6 +2461,7 @@ export class SyncService {
       isService: record.isService,
       trackInventory: record.trackInventory,
       hasVariants: record.hasVariants,
+      productType: record.productType,
       categoryId: record.categoryId ?? null,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,

@@ -24,6 +24,7 @@ import {
 } from '@biztrack/ui'
 import {
   PaymentMethod,
+  ProductType,
   type JwtPayload,
   type Product,
   type ProductCategory,
@@ -58,6 +59,7 @@ import {
   type SellVariant,
 } from '@/services/products.local'
 import { VariantSelectDrawer } from '@/components/sell/VariantSelectDrawer'
+import { QuantityEntryModal } from '@/components/sell/QuantityEntryModal'
 import { createSaleLocal, SaleLocalError, type LocalSaleRecord, type SaleChargeLineInput, type SaleDiscountLineInput } from '@/services/sales.local'
 import { listChargeTypesLocal, type LocalChargeType } from '@/services/charges.local'
 import { getDepositAccountByCustomerLocal } from '@/services/deposits.local'
@@ -115,6 +117,7 @@ type SellCartItem = {
   productId: string
   variantId: string | null
   variantName: string | null
+  productType: ProductType
   name: string
   sku: string | null
   price: number
@@ -956,6 +959,7 @@ export default function SellPage() {
     variants: [],
   })
   const [variantDrawerLoading, setVariantDrawerLoading] = useState(false)
+  const [quantityModalProduct, setQuantityModalProduct] = useState<Product | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<SellCustomer | null>(null)
   const [cartQuantityInputs, setCartQuantityInputs] = useState<Record<string, string>>({})
   const [saleDiscountLines, setSaleDiscountLines] = useState<SaleDiscountLine[]>([])
@@ -1497,20 +1501,26 @@ export default function SellPage() {
 
   // Add a fully-resolved cart line (simple product or a chosen variant),
   // deduplicating by lineKey and respecting available stock.
-  const addCartLine = (line: {
-    productId: string
-    variantId: string | null
-    variantName: string | null
-    name: string
-    sku: string | null
-    price: number
-    categoryName: string | null
-    unitLabel: string | null
-    trackInventory: boolean
-    stock: number | null
-    lowStockThreshold: number | null
-    imageUrl: string | null
-  }) => {
+  const addCartLine = (
+    line: {
+      productId: string
+      variantId: string | null
+      variantName: string | null
+      productType: ProductType
+      name: string
+      sku: string | null
+      price: number
+      categoryName: string | null
+      unitLabel: string | null
+      trackInventory: boolean
+      stock: number | null
+      lowStockThreshold: number | null
+      imageUrl: string | null
+    },
+    // When provided, set this absolute quantity (variable-quantity entry) instead
+    // of incrementing by one.
+    setQuantity?: number,
+  ) => {
     ensureCartStage()
 
     const lineKey = cartLineKey(line.productId, line.variantId)
@@ -1520,18 +1530,20 @@ export default function SellPage() {
     if (availableStock !== null && availableStock <= 0) {
       return false
     }
-    if (availableStock !== null && currentCartItem && currentCartItem.qty >= availableStock) {
+    const targetQty = setQuantity ?? (currentCartItem ? currentCartItem.qty + 1 : 1)
+    if (availableStock !== null && targetQty > availableStock) {
       return false
     }
 
     setCart((current) => {
       const existing = current.find((item) => item.lineKey === lineKey)
       if (existing) {
-        if (availableStock !== null && existing.qty >= availableStock) {
+        const nextQty = setQuantity ?? existing.qty + 1
+        if (availableStock !== null && nextQty > availableStock) {
           return current
         }
         return current.map((item) =>
-          item.lineKey === lineKey ? { ...item, qty: item.qty + 1 } : item,
+          item.lineKey === lineKey ? { ...item, qty: nextQty } : item,
         )
       }
 
@@ -1542,10 +1554,11 @@ export default function SellPage() {
           productId: line.productId,
           variantId: line.variantId,
           variantName: line.variantName,
+          productType: line.productType,
           name: line.name,
           sku: line.sku,
           price: line.price,
-          qty: 1,
+          qty: setQuantity ?? 1,
           categoryName: line.categoryName,
           initials: getProductInitials(line.variantName ?? line.name),
           unitLabel: line.unitLabel,
@@ -1560,7 +1573,7 @@ export default function SellPage() {
     return true
   }
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, setQuantity?: number) => {
     if (isTrackedOut(product)) {
       return false
     }
@@ -1570,29 +1583,49 @@ export default function SellPage() {
       product.currentStock !== undefined
         ? product.currentStock
         : null
-    return addCartLine({
-      productId: product.id,
-      variantId: null,
-      variantName: null,
-      name: product.name,
-      sku: product.sku,
-      price: product.sellingPrice,
-      categoryName: product.category?.name ?? null,
-      unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
-      trackInventory: product.trackInventory,
-      stock,
-      lowStockThreshold: product.lowStockThreshold ?? null,
-      imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
-    })
+    return addCartLine(
+      {
+        productId: product.id,
+        variantId: null,
+        variantName: null,
+        productType: product.productType ?? ProductType.SIMPLE,
+        name: product.name,
+        sku: product.sku,
+        price: product.sellingPrice,
+        categoryName: product.category?.name ?? null,
+        unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
+        trackInventory: product.trackInventory,
+        stock,
+        lowStockThreshold: product.lowStockThreshold ?? null,
+        imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
+      },
+      setQuantity,
+    )
   }
 
-  // Tapping a product: variant products open the selector drawer; others add directly.
+  // Tapping a product: variant products open the selector drawer; variable-quantity
+  // products open the decimal quantity entry; others add directly.
   const handleProductTap = (product: Product) => {
     if (product.hasVariants) {
       void openVariantDrawer(product)
       return true
     }
+    if (product.productType === ProductType.VARIABLE_QUANTITY) {
+      setQuantityModalProduct(product)
+      return true
+    }
     return addToCart(product)
+  }
+
+  const handleQuantityConfirm = (quantity: number) => {
+    const product = quantityModalProduct
+    if (!product) return
+    const added = addToCart(product, quantity)
+    if (!added) {
+      toast.error(copy.errors.SALE_INSUFFICIENT_STOCK)
+      return
+    }
+    setQuantityModalProduct(null)
   }
 
   const openVariantDrawer = async (product: Product) => {
@@ -1619,6 +1652,7 @@ export default function SellPage() {
       productId: product.id,
       variantId: variant.id,
       variantName: variant.name,
+      productType: product.productType ?? ProductType.SIMPLE,
       name: product.name,
       sku: product.sku,
       price: variant.priceOverride ?? product.sellingPrice,
@@ -1660,6 +1694,11 @@ export default function SellPage() {
         // Variant products open the selector drawer instead of adding directly.
         if (product.hasVariants) {
           void openVariantDrawer(product)
+          return
+        }
+        // Variable-quantity products open the decimal quantity entry.
+        if (product.productType === ProductType.VARIABLE_QUANTITY) {
+          setQuantityModalProduct(product)
           return
         }
         const wasAdded = addToCart(product)
@@ -1754,7 +1793,11 @@ export default function SellPage() {
       return
     }
 
-    const normalizedQty = Number(parsedValue.toFixed(3))
+    // Only variable-quantity products accept decimals; others are whole units.
+    const normalizedQty =
+      item.productType === ProductType.VARIABLE_QUANTITY
+        ? Number(parsedValue.toFixed(3))
+        : Math.round(parsedValue)
 
     if (normalizedQty <= 0) {
       removeItem(lineKey)
@@ -3012,7 +3055,7 @@ export default function SellPage() {
                                       <NumberInput
                                         value={cartQuantityInputs[item.lineKey] ?? formatEditableQuantity(item.qty)}
                                         min="0"
-                                        step="0.001"
+                                        step={item.productType === ProductType.VARIABLE_QUANTITY ? '0.001' : '1'}
                                         inputMode="decimal"
                                         onChange={(event: ChangeEvent<HTMLInputElement>) =>
                                           handleItemQuantityInputChange(item.lineKey, event.target.value)
@@ -3496,6 +3539,24 @@ export default function SellPage() {
         loading={variantDrawerLoading}
         onClose={() => setVariantDrawerProduct(null)}
         onSelect={handleVariantSelected}
+      />
+
+      <QuantityEntryModal
+        open={quantityModalProduct !== null}
+        productName={quantityModalProduct?.name ?? ''}
+        unitLabel={
+          quantityModalProduct?.unitOfMeasure?.abbreviation ??
+          quantityModalProduct?.unitOfMeasure?.name ??
+          null
+        }
+        unitPrice={quantityModalProduct?.sellingPrice ?? 0}
+        stock={
+          quantityModalProduct?.trackInventory
+            ? quantityModalProduct.currentStock ?? null
+            : null
+        }
+        onClose={() => setQuantityModalProduct(null)}
+        onConfirm={handleQuantityConfirm}
       />
 
       {holdsOpen ? (

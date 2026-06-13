@@ -3,6 +3,7 @@
 import {
   AttributeDisplayType,
   Currency,
+  ProductType,
   Resource,
   type CategoriesQuery,
   type CategoryAttributeGroupNode,
@@ -44,6 +45,8 @@ const PRODUCT_FULL_SELECT = `
     p.is_active,
     p.is_service,
     p.track_inventory,
+    p.has_variants,
+    p.product_type,
     p.category_id,
     p.image_url,
     p.created_at,
@@ -368,6 +371,8 @@ export type ProductRow = {
   is_active: number
   is_service: number
   track_inventory: number
+  has_variants: number | null
+  product_type: string | null
   category_id: string | null
   image_url: string | null
   created_at: string
@@ -2247,6 +2252,8 @@ export function mapProductRow(row: ProductRow): Product {
     isActive: Boolean(row.is_active),
     isService: Boolean(row.is_service),
     trackInventory: Boolean(row.track_inventory),
+    hasVariants: Boolean(row.has_variants),
+    productType: (row.product_type as ProductType | null) ?? ProductType.SIMPLE,
     category,
     unitOfMeasure: unit,
     createdAt: row.created_at,
