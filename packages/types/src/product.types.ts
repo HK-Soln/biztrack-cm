@@ -56,6 +56,93 @@ export interface ProductUserSummary {
   name: string
 }
 
+export enum AttributeDisplayType {
+  CHIPS = 'CHIPS', // text chips
+  SWATCHES = 'SWATCHES', // colour circles (options carry colorHex)
+  DROPDOWN = 'DROPDOWN', // long lists (>8 options)
+}
+
+export interface AttributeOption {
+  id: string
+  groupId: string
+  businessId: string
+  value: string
+  colorHex?: string | null
+  sortOrder: number
+  isActive: boolean
+  createdAt?: IsoDateString
+}
+
+export interface AttributeGroup {
+  id: string
+  businessId: string
+  name: string
+  displayType: AttributeDisplayType
+  sortOrder: number
+  isActive: boolean
+  options?: AttributeOption[]
+  createdAt?: IsoDateString
+  updatedAt?: IsoDateString
+}
+
+/** Link of an attribute group to a (leaf) category, with presentation order. */
+export interface CategoryAttributeGroup {
+  id: string
+  categoryId: string
+  attributeGroupId: string
+  isRequired: boolean
+  sortOrder: number
+  group?: AttributeGroup
+}
+
+export interface CreateAttributeGroupRequest {
+  name: string
+  displayType: AttributeDisplayType
+  sortOrder?: number
+}
+
+export interface UpdateAttributeGroupRequest {
+  name?: string
+  displayType?: AttributeDisplayType
+  sortOrder?: number
+  isActive?: boolean
+}
+
+export interface CreateAttributeOptionRequest {
+  value: string
+  colorHex?: string
+  sortOrder?: number
+}
+
+export interface UpdateAttributeOptionRequest {
+  value?: string
+  colorHex?: string | null
+  sortOrder?: number
+  isActive?: boolean
+}
+
+export interface LinkCategoryAttributeGroupRequest {
+  attributeGroupId: string
+  isRequired?: boolean
+  sortOrder?: number
+}
+
+export interface UpdateCategoryAttributeGroupRequest {
+  isRequired?: boolean
+  sortOrder?: number
+}
+
+/** Attribute group as embedded in the category tree (leaf nodes). */
+export interface CategoryAttributeGroupNode {
+  id: string // category_attribute_groups link id
+  attributeGroupId: string
+  name: string
+  displayType: AttributeDisplayType
+  isRequired: boolean
+  sortOrder: number
+  options: Array<{ id: string; value: string; colorHex?: string | null }>
+}
+
 export interface ProductCategory {
   id: string
   businessId: string
@@ -85,6 +172,8 @@ export interface CategoryTreeNode {
   isActive: boolean
   productCount: number
   imageUrl?: string | null
+  // Attribute groups linked to this category (only populated on leaf categories).
+  attributeGroups?: CategoryAttributeGroupNode[]
   children: CategoryTreeNode[]
 }
 

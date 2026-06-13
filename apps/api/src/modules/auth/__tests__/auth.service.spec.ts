@@ -144,6 +144,7 @@ const makeService = () => {
       findOwnerRole: jest.fn().mockResolvedValue({ id: 'owner-role-1' }),
       seedDefaultRoles: jest.fn().mockResolvedValue(undefined),
     } as any,
+    { seedDefaults: jest.fn().mockResolvedValue(undefined) } as any,
     i18n as any,
     logger as any,
   )

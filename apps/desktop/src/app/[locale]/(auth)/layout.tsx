@@ -1,5 +1,6 @@
 import { AuthRedirect } from '@/components/auth/AuthRedirect'
 import type { ReactNode } from 'react'
+import { TitleBarOverlaySync } from '@/components/layout/TitleBarOverlaySync'
 import { routing } from '@/i18n/routing'
 
 export function generateStaticParams() {
@@ -9,5 +10,10 @@ export function generateStaticParams() {
 export const dynamicParams = false
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
-  return <AuthRedirect>{children}</AuthRedirect>
+  return (
+    <AuthRedirect>
+      <TitleBarOverlaySync variant="auth" />
+      {children}
+    </AuthRedirect>
+  )
 }

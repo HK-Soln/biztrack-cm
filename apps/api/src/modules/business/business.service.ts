@@ -25,6 +25,7 @@ import { I18nService } from 'nestjs-i18n'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { BusinessMemberRole, BusinessMemberStatus, BusinessStatus } from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
+import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
 
 @Injectable()
 export class BusinessService {
@@ -32,6 +33,7 @@ export class BusinessService {
     private businessRepo: BusinessesRepository,
     private membersRepo: BusinessMembersRepository,
     private rolesService: RolesService,
+    private attributeGroupsService: AttributeGroupsService,
     private i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private logger: Logger,
   ) {
@@ -55,6 +57,9 @@ export class BusinessService {
 
       // Seed the 4 default roles for this new business
       await this.rolesService.seedDefaultRoles(business.id, ownerId)
+      // Seed the default attribute groups (Color, Size, Storage, …). Idempotent
+      // and error-swallowing, so it never blocks business creation.
+      await this.attributeGroupsService.seedDefaults(business.id)
       const ownerRole = await this.rolesService.findOwnerRole(business.id)
 
       const member = this.membersRepo.create({

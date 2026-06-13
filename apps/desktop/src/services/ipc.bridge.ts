@@ -102,6 +102,7 @@ declare global {
       theme: {
         onThemeChange: (callback: (theme: 'light' | 'dark') => void) => void
         setTheme: (theme: 'light' | 'dark' | 'system') => void
+        setTitleBarOverlay: (overlay: { color: string; symbolColor: string }) => void
       }
     }
   }
@@ -225,6 +226,7 @@ const fallbackIpc: Window['electronAPI'] = {
   theme: {
     onThemeChange: () => {},
     setTheme: () => {},
+    setTitleBarOverlay: () => {},
   },
 }
 

@@ -43,11 +43,17 @@ function getWindowIconPath() {
 
 const TITLEBAR_HEIGHT = 68
 
+// The renderer sends the resolved top-band colours (palette + chrome + mode
+// aware) so the native window controls match the top bar exactly. These hold
+// the latest values; the fallbacks are the Deep Ink Blue defaults used before
+// the renderer reports in.
+let overlayColors: { color: string; symbolColor: string } | null = null
+
 function getTitleBarOverlayOptions() {
   const isDark = nativeTheme.shouldUseDarkColors
   return {
-    color: isDark ? '#171716' : '#185FA5',
-    symbolColor: '#ffffff',
+    color: overlayColors?.color ?? (isDark ? '#161D2B' : '#16467A'),
+    symbolColor: overlayColors?.symbolColor ?? '#ffffff',
     height: TITLEBAR_HEIGHT,
   }
 }
@@ -61,7 +67,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 600,
     icon: getWindowIconPath(),
-    backgroundColor: '#185FA5',
+    backgroundColor: '#16467A',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -164,6 +170,13 @@ app.whenReady().then(async () => {
     if (process.platform !== 'darwin') {
       BrowserWindow.getAllWindows().forEach((w) => w.setTitleBarOverlay(getTitleBarOverlayOptions()))
     }
+  })
+
+  ipcMain.on('set-titlebar-overlay', (_event, overlay: { color?: string; symbolColor?: string }) => {
+    if (process.platform === 'darwin') return
+    if (!overlay?.color || !overlay?.symbolColor) return
+    overlayColors = { color: overlay.color, symbolColor: overlay.symbolColor }
+    BrowserWindow.getAllWindows().forEach((w) => w.setTitleBarOverlay(getTitleBarOverlayOptions()))
   })
 
   nativeTheme.on('updated', () => {

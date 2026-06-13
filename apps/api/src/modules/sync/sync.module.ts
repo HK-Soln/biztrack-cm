@@ -27,6 +27,9 @@ import { SyncLog } from '@/entities/sync-log.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { Role } from '@/entities/role.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
+import { AttributeGroup } from '@/entities/attribute-group.entity'
+import { AttributeOption } from '@/entities/attribute-option.entity'
+import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import { User } from '@/entities/user.entity'
 import { RedisModule } from '@/common/redis/redis.module'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
@@ -71,6 +74,9 @@ import { SyncService } from './sync.service'
       }),
     }),
     TypeOrmModule.forFeature([
+      AttributeGroup,
+      AttributeOption,
+      CategoryAttributeGroup,
       BusinessMember,
       Business,
       Contact,

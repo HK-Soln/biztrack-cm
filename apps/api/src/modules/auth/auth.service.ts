@@ -59,6 +59,7 @@ import {
 } from '@/entities/notification.entity'
 import { WhatsAppProvider } from '@/modules/notifications/providers/whatsapp.provider'
 import { RolesService } from '@/modules/roles/roles.service'
+import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
 
 @Injectable()
 export class AuthService {
@@ -78,6 +79,7 @@ export class AuthService {
     private notificationsService: NotificationsService,
     private whatsappProvider: WhatsAppProvider,
     private rolesService: RolesService,
+    private attributeGroupsService: AttributeGroupsService,
     private i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private logger: Logger,
   ) {
@@ -1391,6 +1393,7 @@ export class AuthService {
 
     const business = await this.createDefaultBusiness(user)
     await this.rolesService.seedDefaultRoles(business.id, user.id)
+    await this.attributeGroupsService.seedDefaults(business.id)
     const ownerRole = await this.rolesService.findOwnerRole(business.id)
     const member = this.businessMembersRepo.create({
       businessId: business.id,

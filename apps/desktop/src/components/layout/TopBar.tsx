@@ -131,59 +131,34 @@ export function TopBar() {
   }
 
   const headerClassName = cn(
-    'relative z-40 isolate flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3',
-    isDark
-      ? 'border-b border-border/70 bg-card/50 text-foreground backdrop-blur-sm'
-      : 'border-b border-primary/20 bg-primary text-primary-foreground',
+    'relative z-40 isolate flex min-h-[68px] flex-wrap items-center gap-3 border-b border-[var(--top-border)] bg-[var(--top-bg)] px-4 py-3 text-[var(--top-fg)]',
     isDesktopRuntime && 'app-drag',
     isDesktopRuntime && isWin32 && 'pr-[138px]',
   )
 
-  const brandTileClassName = cn(
-    'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold',
-    isDark ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-white',
-  )
+  const brandTileClassName =
+    'flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--top-logo-bg)] text-sm font-bold text-[var(--top-logo-fg)]'
 
-  const brandSubtitleClassName = isDark ? 'truncate text-xs text-muted-foreground' : 'truncate text-xs text-primary-foreground/70'
+  const brandSubtitleClassName = 'truncate text-xs text-[var(--top-muted)]'
 
-  const passiveChipClassName = cn(
-    'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs',
-    isDark
-      ? 'border border-border/70 bg-background/80 text-foreground shadow-sm'
-      : 'bg-white/10 text-white/85',
-  )
+  const passiveChipClassName =
+    'inline-flex items-center gap-2 rounded-full border border-[var(--top-border)] bg-[var(--top-hover)] px-3 py-1.5 text-xs text-[var(--top-fg-strong)]'
 
-  const chromeButtonClassName = cn(
-    'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition',
-    isDark
-      ? 'border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary/80'
-      : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
-  )
+  const chromeButtonClassName =
+    'inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--top-border)] bg-[var(--top-hover)] px-3 text-sm font-medium text-[var(--top-fg-strong)] transition hover:bg-[var(--top-hover)] hover:brightness-110'
 
-  const iconButtonClassName = cn(
-    'inline-flex h-9 w-9 items-center justify-center rounded-xl border transition',
-    isDark
-      ? 'border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary/80'
-      : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
-  )
+  const iconButtonClassName =
+    'inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--top-border)] bg-[var(--top-hover)] text-[var(--top-fg-strong)] transition hover:brightness-110'
 
   const syncButtonClassName = cn(
     'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60',
     snapshot.status === 'synced'
-      ? isDark
-        ? 'border-emerald-900/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/60'
-        : 'border-emerald-200 bg-[#E4F3E6] text-[#3B6D11] hover:bg-emerald-100'
+      ? 'border-transparent bg-[rgb(var(--chart-2))]/15 text-[rgb(var(--chart-2))] hover:bg-[rgb(var(--chart-2))]/25'
       : snapshot.status === 'error'
-        ? isDark
-          ? 'border-rose-900/70 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60'
-          : 'border-rose-200 bg-[#FCEBEB] text-[#A32D2D] hover:bg-rose-100'
+        ? 'border-transparent bg-destructive/15 text-destructive hover:bg-destructive/25'
         : snapshot.status === 'paused'
-          ? isDark
-            ? 'border-amber-900/70 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60'
-            : 'border-amber-200 bg-[#FAEEDA] text-[#854F0B] hover:bg-amber-100'
-          : isDark
-            ? 'border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary/80'
-            : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
+          ? 'border-transparent bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 dark:text-amber-300'
+          : 'border-[var(--top-border)] bg-[var(--top-hover)] text-[var(--top-fg-strong)] hover:brightness-110',
   )
 
   const syncButtonLabel =
@@ -209,10 +184,7 @@ export function TopBar() {
             }}
             aria-expanded={isBusinessMenuOpen}
             aria-haspopup="menu"
-            className={cn(
-              'flex items-center gap-3 rounded-xl px-2 py-1.5 -mx-2 -my-1.5 transition',
-              isDark ? 'hover:bg-secondary/80' : 'hover:bg-white/10',
-            )}
+            className="flex items-center gap-3 rounded-xl px-2 py-1.5 -mx-2 -my-1.5 transition hover:bg-[var(--top-hover)]"
           >
             <div className={brandTileClassName}>{getInitials(businessName)}</div>
             <div className="min-w-0">
@@ -308,12 +280,12 @@ export function TopBar() {
           </span>
         ) : null}
         {isDesktopRuntime && planState?.isStale ? (
-          <span className="inline-flex items-center gap-2 rounded-full bg-[#FAEEDA] px-3 py-1.5 text-xs text-[#854F0B]">
+          <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
             {t('plan_stale')}
           </span>
         ) : null}
         {isDesktopRuntime && trialDaysRemaining > 0 && !planState?.offlineExpiredFallback ? (
-          <span className="inline-flex items-center gap-2 rounded-full bg-[#E6F1FB] px-3 py-1.5 text-xs text-[#185FA5]">
+          <span className="inline-flex items-center gap-2 rounded-full border border-[var(--top-border)] bg-[var(--top-hover)] px-3 py-1.5 text-xs font-medium text-[var(--top-fg-strong)]">
             {t('trial_days_left', { count: trialDaysRemaining })}
           </span>
         ) : null}

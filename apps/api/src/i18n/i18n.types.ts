@@ -78,6 +78,13 @@ export interface I18nTranslations {
     category_parent_cycle: string
     category_reparent_has_children: string
     category_not_leaf: string
+    attribute_group_not_found: string
+    attribute_group_name_exists: string
+    attribute_group_in_use: string
+    attribute_option_not_found: string
+    attribute_option_exists: string
+    attribute_group_already_linked: string
+    category_attribute_group_not_found: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string

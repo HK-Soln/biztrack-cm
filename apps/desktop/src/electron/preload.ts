@@ -89,5 +89,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('theme-changed', (_event, theme) => callback(theme))
     },
     setTheme: (theme: 'light' | 'dark' | 'system') => ipcRenderer.send('set-theme', theme),
+    setTitleBarOverlay: (overlay: { color: string; symbolColor: string }) =>
+      ipcRenderer.send('set-titlebar-overlay', overlay),
   },
 })
