@@ -224,6 +224,39 @@ export interface PreviewVariantsResponse {
   variants: PreviewVariant[]
 }
 
+// ---- Composite / bundle products (Phase 3F) -------------------------------
+
+export interface ProductBundleComponent {
+  id: string
+  businessId: string
+  bundleProductId: string
+  componentProductId: string
+  quantity: number
+  sortOrder: number
+  // Enriched for display.
+  componentName?: string
+}
+
+export interface CreateBundleComponentRequest {
+  componentProductId: string
+  quantity: number
+  sortOrder?: number
+}
+
+export interface BundleAvailabilityComponent {
+  productId: string
+  productName: string
+  requiredPerBundle: number
+  inStock: number
+}
+
+export interface BundleAvailability {
+  productId: string
+  canMake: number
+  limitedBy: string | null
+  components: BundleAvailabilityComponent[]
+}
+
 export interface ProductCategory {
   id: string
   businessId: string
@@ -304,6 +337,8 @@ export interface Product {
   hasVariants?: boolean
   // Populated on the detail response when hasVariants is true.
   variants?: ProductVariant[]
+  // Populated on the detail response for COMPOSITE products.
+  bundleComponents?: ProductBundleComponent[]
   category?: ProductCategory | null
   unitOfMeasure?: UnitOfMeasure
   createdAt?: IsoDateString
@@ -352,6 +387,8 @@ export interface CreateProductRequest {
   // has ≥1 selected option, the API generates the Cartesian product as variants.
   attributeSelections?: ProductAttributeSelection[]
   variantOverrides?: VariantOverride[]
+  // Component lines for a COMPOSITE product (Phase 3F).
+  bundleComponents?: CreateBundleComponentRequest[]
 }
 
 export interface UpdateProductRequest extends Partial<CreateProductRequest> {}

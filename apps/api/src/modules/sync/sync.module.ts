@@ -32,6 +32,7 @@ import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
+import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { User } from '@/entities/user.entity'
 import { RedisModule } from '@/common/redis/redis.module'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
@@ -81,6 +82,7 @@ import { SyncService } from './sync.service'
       CategoryAttributeGroup,
       ProductVariant,
       ProductVariantOption,
+      ProductBundleComponent,
       BusinessMember,
       Business,
       Contact,

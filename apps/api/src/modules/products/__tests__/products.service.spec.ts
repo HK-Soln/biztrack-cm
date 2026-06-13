@@ -43,6 +43,7 @@ const makeService = () => {
   const inventoryLevelsRepo = { findOne: jest.fn(), find: jest.fn() }
   const inventoryMovementsRepo = { find: jest.fn() }
   const imagesRepo = { find: jest.fn(), createQueryBuilder: jest.fn() }
+  const bundleComponentsRepo = { find: jest.fn() }
   const slugService = { generateProductSlug: jest.fn() }
   const skuService = { generate: jest.fn(), validateAndNormalize: jest.fn() }
   const barcodeService = { generateFromSKU: jest.fn(), validateAndNormalize: jest.fn() }
@@ -68,6 +69,7 @@ const makeService = () => {
     inventoryLevelsRepo as any,
     inventoryMovementsRepo as any,
     imagesRepo as any,
+    bundleComponentsRepo as any,
     slugService as any,
     skuService as any,
     barcodeService as any,

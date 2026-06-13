@@ -16,6 +16,7 @@ import { Business } from './business.entity'
 import { ProductCategory } from './product-category.entity'
 import { ProductImage } from './product-image.entity'
 import { ProductVariant } from './product-variant.entity'
+import { ProductBundleComponent } from './product-bundle-component.entity'
 import { SaleItem } from './sale-item.entity'
 import { StockMovement } from './stock-movement.entity'
 import { UnitOfMeasure } from './unit-of-measure.entity'
@@ -140,6 +141,9 @@ export class Product
 
   @OneToMany(() => ProductVariant, (variant) => variant.product)
   variants?: ProductVariant[]
+
+  @OneToMany(() => ProductBundleComponent, (component) => component.bundleProduct)
+  bundleComponents?: ProductBundleComponent[]
 
   // Keep the legacy isService/trackInventory columns in sync with productType.
   // Runs on save()-based inserts/updates; repository.update() bypasses this, so

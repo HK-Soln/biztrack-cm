@@ -412,6 +412,7 @@ export interface ChangeSet {
   categoryAttributeGroups?: SyncRecord[]
   productVariants?: SyncRecord[]
   productVariantOptions?: SyncRecord[]
+  productBundleComponents?: SyncRecord[]
   expenseCategories?: ExpenseCategorySyncRecord[]
   unitOfMeasures?: SyncRecord[]
   inventoryLevels?: InventoryLevelSyncRecord[]

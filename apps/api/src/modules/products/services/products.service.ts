@@ -13,7 +13,7 @@ import {
   type UpdateProductRequest,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
-import { DataSource, IsNull, Repository } from 'typeorm'
+import { DataSource, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -24,6 +24,7 @@ import { Business } from '@/entities/business.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -52,6 +53,8 @@ export class ProductsService {
     private readonly inventoryMovementsRepo: Repository<InventoryMovement>,
     @InjectRepository(ProductImage)
     private readonly imagesRepo: Repository<ProductImage>,
+    @InjectRepository(ProductBundleComponent)
+    private readonly bundleComponentsRepo: Repository<ProductBundleComponent>,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
     private readonly barcodeService: BarcodeService,
@@ -116,6 +119,35 @@ export class ProductsService {
       }
       const hasVariants = wantsVariants && variantsAllowed
 
+      // Composite (bundle) products (Phase 3F) — validate components up front.
+      const isComposite = productType === ProductType.COMPOSITE
+      const bundleComponents = dto.bundleComponents ?? []
+      if (isComposite) {
+        if (bundleComponents.length === 0) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.bundle_components_required'),
+            'BUNDLE_COMPONENTS_REQUIRED',
+          )
+        }
+        const componentIds = [...new Set(bundleComponents.map((c) => c.componentProductId))]
+        const componentProducts = await this.productsRepo.find({
+          where: { id: In(componentIds), businessId, deletedAt: IsNull() },
+        })
+        if (componentProducts.length !== componentIds.length) {
+          throw new AppNotFoundException(
+            await this.i18n.translate('errors.product_not_found'),
+            'PRODUCT_NOT_FOUND',
+          )
+        }
+        // A bundle cannot contain another bundle.
+        if (componentProducts.some((c) => c.productType === ProductType.COMPOSITE)) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.bundle_component_nested'),
+            'BUNDLE_COMPONENT_NESTED',
+          )
+        }
+      }
+
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
           manager.getRepository(Product).create({
@@ -152,6 +184,20 @@ export class ProductsService {
             dto.variantOverrides ?? [],
             businessId,
             userId,
+          )
+        } else if (isComposite) {
+          // No stock of its own — selling deducts components.
+          const componentRepo = manager.getRepository(ProductBundleComponent)
+          await componentRepo.save(
+            bundleComponents.map((component, index) =>
+              componentRepo.create({
+                businessId,
+                bundleProductId: created.id,
+                componentProductId: component.componentProductId,
+                quantity: component.quantity,
+                sortOrder: component.sortOrder ?? index,
+              }),
+            ),
           )
         } else if (trackInventory) {
           const quantity = dto.openingStock ?? 0
@@ -273,7 +319,8 @@ export class ProductsService {
         )
       }
 
-      const [inventoryLevel, images, variants] = await Promise.all([
+      const isComposite = product.productType === ProductType.COMPOSITE
+      const [inventoryLevel, images, variants, bundleRows] = await Promise.all([
         this.inventoryLevelsRepo.findOne({
           where: { businessId, productId: id, variantId: IsNull() },
         }),
@@ -284,7 +331,24 @@ export class ProductsService {
         product.hasVariants
           ? this.variantsService.listVariantsForProduct(businessId, id)
           : Promise.resolve(undefined),
+        isComposite
+          ? this.bundleComponentsRepo.find({
+              where: { businessId, bundleProductId: id, deletedAt: IsNull() },
+              relations: ['componentProduct'],
+              order: { sortOrder: 'ASC' },
+            })
+          : Promise.resolve(undefined),
       ])
+
+      const bundleComponents = bundleRows?.map((row) => ({
+        id: row.id,
+        businessId: row.businessId,
+        bundleProductId: row.bundleProductId,
+        componentProductId: row.componentProductId,
+        quantity: row.quantity,
+        sortOrder: row.sortOrder,
+        componentName: row.componentProduct?.name,
+      }))
 
       return {
         ...product,
@@ -299,9 +363,71 @@ export class ProductsService {
         primaryImageUrl: images[0]?.url ?? product.imageUrl ?? null,
         images,
         variants,
+        bundleComponents,
       }
     } catch (error) {
       return this.handleServiceError('findById', error, { id, businessId })
+    }
+  }
+
+  /** Real-time "how many bundles can be made" for a COMPOSITE product. */
+  async getBundleAvailability(productId: string, businessId: string) {
+    try {
+      const product = await this.productsRepo.findOne({
+        where: { id: productId, businessId, deletedAt: IsNull() },
+      })
+      if (!product) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.product_not_found'),
+          'PRODUCT_NOT_FOUND',
+        )
+      }
+      if (product.productType !== ProductType.COMPOSITE) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.not_composite'),
+          'NOT_COMPOSITE',
+        )
+      }
+
+      const components = await this.bundleComponentsRepo.find({
+        where: { bundleProductId: productId, businessId, deletedAt: IsNull() },
+        relations: ['componentProduct'],
+        order: { sortOrder: 'ASC' },
+      })
+      const componentIds = components.map((component) => component.componentProductId)
+      const levels = componentIds.length
+        ? await this.inventoryLevelsRepo.find({
+            where: { businessId, productId: In(componentIds), variantId: IsNull() },
+          })
+        : []
+      const stockByProduct = new Map(levels.map((level) => [level.productId, Number(level.quantity)]))
+
+      let minCanMake = Infinity
+      let limitedBy: string | null = null
+      const componentSummaries = components.map((component) => {
+        const inStock = stockByProduct.get(component.componentProductId) ?? 0
+        const canMakeFromThis = Math.floor(inStock / component.quantity)
+        if (canMakeFromThis < minCanMake) {
+          minCanMake = canMakeFromThis
+          limitedBy = component.componentProduct?.name ?? null
+        }
+        return {
+          productId: component.componentProductId,
+          productName: component.componentProduct?.name ?? '',
+          requiredPerBundle: component.quantity,
+          inStock,
+        }
+      })
+
+      const canMake = components.length === 0 || minCanMake === Infinity ? 0 : minCanMake
+      return {
+        productId,
+        canMake,
+        limitedBy: canMake === 0 ? limitedBy : null,
+        components: componentSummaries,
+      }
+    } catch (error) {
+      return this.handleServiceError('getBundleAvailability', error, { productId, businessId })
     }
   }
 

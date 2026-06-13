@@ -90,6 +90,9 @@ export interface I18nTranslations {
     variant_required: string
     variant_not_found: string
     quantity_must_be_integer: string
+    bundle_components_required: string
+    bundle_component_nested: string
+    not_composite: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string

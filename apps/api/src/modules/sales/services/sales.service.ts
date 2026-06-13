@@ -26,6 +26,7 @@ import {
 import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleDiscount } from '@/entities/sale-discount.entity'
@@ -203,12 +204,16 @@ export class SalesService {
           sale.id,
           sale.saleNumber,
           user.sub,
-          saleItems.map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId ?? null,
-            productName: item.productName,
-            quantity: item.quantity,
-          })),
+          await this.expandSaleItemsForInventory(
+            manager,
+            businessId,
+            saleItems.map((item) => ({
+              productId: item.productId,
+              variantId: item.variantId ?? null,
+              productName: item.productName,
+              quantity: item.quantity,
+            })),
+          ),
           manager,
         )
 
@@ -443,12 +448,17 @@ export class SalesService {
           sale.id,
           sale.saleNumber,
           cashierId,
-          saleItems.map((item, index) => ({
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            movementId: payload.items[index]?.movementId ?? null,
-          })),
+          await this.expandSaleItemsForInventory(
+            manager,
+            businessId,
+            saleItems.map((item, index) => ({
+              productId: item.productId,
+              variantId: item.variantId ?? null,
+              productName: item.productName,
+              quantity: item.quantity,
+              movementId: payload.items[index]?.movementId ?? null,
+            })),
+          ),
           manager,
         )
 
@@ -665,12 +675,16 @@ export class SalesService {
           sale.id,
           sale.saleNumber,
           user.sub,
-          (sale.items ?? []).map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId ?? null,
-            productName: item.productName,
-            quantity: item.quantity,
-          })),
+          await this.expandSaleItemsForInventory(
+            manager,
+            businessId,
+            (sale.items ?? []).map((item) => ({
+              productId: item.productId,
+              variantId: item.variantId ?? null,
+              productName: item.productName,
+              quantity: item.quantity,
+            })),
+          ),
           manager,
         )
 
@@ -983,6 +997,75 @@ export class SalesService {
     return { products, variantsById }
   }
 
+  /**
+   * Expand sale lines into inventory deduction lines: COMPOSITE products are
+   * replaced by their component products (quantity × per-bundle quantity), so a
+   * bundle sale debits every component atomically. Other products pass through.
+   */
+  private async expandSaleItemsForInventory(
+    manager: EntityManager,
+    businessId: string,
+    lines: Array<{
+      productId: string
+      variantId?: string | null
+      productName: string
+      quantity: number
+      movementId?: string | null
+    }>,
+  ): Promise<
+    Array<{
+      productId: string
+      variantId?: string | null
+      productName: string
+      quantity: number
+      movementId?: string | null
+    }>
+  > {
+    const productIds = [...new Set(lines.map((line) => line.productId))]
+    const products = await manager.getRepository(Product).find({
+      where: { id: In(productIds), businessId },
+    })
+    const typeById = new Map(products.map((product) => [product.id, product.productType]))
+    const compositeIds = products
+      .filter((product) => product.productType === ProductType.COMPOSITE)
+      .map((product) => product.id)
+
+    const componentsByBundle = new Map<string, ProductBundleComponent[]>()
+    if (compositeIds.length > 0) {
+      const components = await manager.getRepository(ProductBundleComponent).find({
+        where: { bundleProductId: In(compositeIds), businessId, deletedAt: IsNull() },
+      })
+      for (const component of components) {
+        const list = componentsByBundle.get(component.bundleProductId) ?? []
+        list.push(component)
+        componentsByBundle.set(component.bundleProductId, list)
+      }
+    }
+
+    const expanded: Array<{
+      productId: string
+      variantId?: string | null
+      productName: string
+      quantity: number
+      movementId?: string | null
+    }> = []
+    for (const line of lines) {
+      if (typeById.get(line.productId) === ProductType.COMPOSITE) {
+        for (const component of componentsByBundle.get(line.productId) ?? []) {
+          expanded.push({
+            productId: component.componentProductId,
+            variantId: null,
+            productName: line.productName,
+            quantity: component.quantity * line.quantity,
+          })
+        }
+      } else {
+        expanded.push(line)
+      }
+    }
+    return expanded
+  }
+
   private computeSale(
     products: Product[],
     variantsById: Map<string, ProductVariant>,
@@ -1105,12 +1188,16 @@ export class SalesService {
       sale.id,
       sale.saleNumber,
       voidedById ?? sale.cashierId,
-      (sale.items ?? []).map((item) => ({
-        productId: item.productId,
-        variantId: item.variantId ?? null,
-        productName: item.productName,
-        quantity: item.quantity,
-      })),
+      await this.expandSaleItemsForInventory(
+        manager,
+        businessId,
+        (sale.items ?? []).map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId ?? null,
+          productName: item.productName,
+          quantity: item.quantity,
+        })),
+      ),
       manager,
     )
 
