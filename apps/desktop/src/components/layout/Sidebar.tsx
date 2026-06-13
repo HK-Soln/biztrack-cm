@@ -770,6 +770,12 @@ export function Sidebar() {
             roles: [BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER, BusinessMemberRole.STAFF],
             requiredResource: Resource.CUSTOM_ROLES,
           },
+          {
+            to: 'settings/attributes',
+            label: t('product_attributes'),
+            icon: Tag,
+            requiredResource: Resource.PRODUCTS_VIEW,
+          },
         ],
       },
     ],
