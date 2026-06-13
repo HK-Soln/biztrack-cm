@@ -93,6 +93,11 @@ export interface I18nTranslations {
     bundle_components_required: string
     bundle_component_nested: string
     not_composite: string
+    serialized_only_simple: string
+    serial_type_required: string
+    serial_unit_required: string
+    serial_unit_unavailable: string
+    serial_unit_variant_mismatch: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string

@@ -21,6 +21,7 @@ const MAX_QUANTITY = 9_999_999
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import {
   ProductType,
+  SerialType,
   type CreateBundleComponentRequest,
   type CreateProductRequest,
   type ProductAttributeSelection,
@@ -242,4 +243,20 @@ export class CreateProductDto implements CreateProductRequest {
   @ValidateNested({ each: true })
   @Type(() => CreateBundleComponentDto)
   bundleComponents?: CreateBundleComponentDto[]
+
+  @ApiPropertyOptional({ default: false, description: 'Track each unit by serial/IMEI (SIMPLE only).' })
+  @IsOptional()
+  @IsBoolean()
+  isSerialized?: boolean
+
+  @ApiPropertyOptional({ enum: SerialType, description: 'Required when isSerialized = true.' })
+  @IsOptional()
+  @IsEnum(SerialType)
+  serialType?: SerialType
+
+  @ApiPropertyOptional({ description: 'Warranty period in months, applied per unit at restock.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  warrantyMonths?: number
 }

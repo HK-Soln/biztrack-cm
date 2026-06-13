@@ -38,6 +38,8 @@ export interface SaleItem {
   productId: string
   variantId?: string | null
   variantName?: string | null
+  serialUnitId?: string | null
+  serialNumber?: string | null
   productName: string
   productSku?: string | null
   unitOfMeasure?: string | null
@@ -112,6 +114,9 @@ export interface CreateSaleItemRequest {
   // is being sold so stock is deducted from the correct inventory row.
   variantId?: string
   variantName?: string
+  // Required when the product is serialised (Phase 3G); the specific unit sold.
+  serialUnitId?: string
+  serialNumber?: string
   quantity: number
   unitPrice: number
   discountAmount?: number

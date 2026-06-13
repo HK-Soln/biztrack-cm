@@ -224,6 +224,52 @@ export interface PreviewVariantsResponse {
   variants: PreviewVariant[]
 }
 
+// ---- Serialised inventory / IMEI (Phase 3G) -------------------------------
+
+export enum SerialType {
+  IMEI = 'IMEI',
+  SERIAL_NUMBER = 'SERIAL_NUMBER',
+  BARCODE = 'BARCODE',
+}
+
+export enum SerialUnitStatus {
+  IN_STOCK = 'IN_STOCK',
+  SOLD = 'SOLD',
+  RESERVED = 'RESERVED',
+  RETURNED = 'RETURNED',
+  DAMAGED = 'DAMAGED',
+}
+
+export interface ProductSerialUnit {
+  id: string
+  businessId: string
+  productId: string
+  variantId?: string | null
+  serialNumber: string
+  serialType: SerialType
+  status: SerialUnitStatus
+  purchasePrice: number
+  supplierId?: string | null
+  restockId?: string | null
+  saleId?: string | null
+  saleItemId?: string | null
+  soldAt?: IsoDateString | null
+  customerId?: string | null
+  warrantyExpiresAt?: IsoDateString | null
+  reservedAt?: IsoDateString | null
+  reservedBy?: string | null
+  notes?: string | null
+  createdAt?: IsoDateString
+  updatedAt?: IsoDateString
+}
+
+/** Per-serial result returned by a serialised restock. */
+export interface RestockSerialResult {
+  serialNumber: string
+  reason: 'INVALID_FORMAT' | 'DUPLICATE_IN_STOCK'
+  detail?: string
+}
+
 // ---- Composite / bundle products (Phase 3F) -------------------------------
 
 export interface ProductBundleComponent {
@@ -339,6 +385,12 @@ export interface Product {
   variants?: ProductVariant[]
   // Populated on the detail response for COMPOSITE products.
   bundleComponents?: ProductBundleComponent[]
+  // Serialised inventory (Phase 3G).
+  isSerialized?: boolean
+  serialType?: SerialType | null
+  warrantyMonths?: number | null
+  // IN_STOCK / RESERVED units synced to the device (detail / sell screen).
+  serialUnits?: ProductSerialUnit[]
   category?: ProductCategory | null
   unitOfMeasure?: UnitOfMeasure
   createdAt?: IsoDateString
@@ -389,6 +441,10 @@ export interface CreateProductRequest {
   variantOverrides?: VariantOverride[]
   // Component lines for a COMPOSITE product (Phase 3F).
   bundleComponents?: CreateBundleComponentRequest[]
+  // Serialised inventory (Phase 3G) — only valid for SIMPLE products.
+  isSerialized?: boolean
+  serialType?: SerialType
+  warrantyMonths?: number
 }
 
 export interface UpdateProductRequest extends Partial<CreateProductRequest> {}

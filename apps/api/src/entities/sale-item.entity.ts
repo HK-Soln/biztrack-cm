@@ -45,6 +45,13 @@ export class SaleItem extends BaseEntity {
   @Column({ name: 'variant_name', type: 'varchar', length: 200, nullable: true })
   variantName?: string | null
 
+  // Serialised inventory (Phase 3G): the specific unit sold + its serial snapshot.
+  @Column({ name: 'serial_unit_id', type: 'uuid', nullable: true })
+  serialUnitId?: string | null
+
+  @Column({ name: 'serial_number', type: 'varchar', length: 30, nullable: true })
+  serialNumber?: string | null
+
   @Column({ name: 'product_name', length: 200 })
   productName!: string
 

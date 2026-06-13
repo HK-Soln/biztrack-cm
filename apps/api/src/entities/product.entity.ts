@@ -103,6 +103,16 @@ export class Product
   @Column({ name: 'has_variants', default: false })
   hasVariants!: boolean
 
+  // Serialised inventory (Phase 3G) — each unit tracked by serial/IMEI.
+  @Column({ name: 'is_serialized', default: false })
+  isSerialized!: boolean
+
+  @Column({ name: 'serial_type', type: 'varchar', length: 20, nullable: true })
+  serialType?: string | null
+
+  @Column({ name: 'warranty_months', type: 'int', nullable: true })
+  warrantyMonths?: number | null
+
   @Column({ name: 'category_id', nullable: true })
   categoryId?: string | null
 

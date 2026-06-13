@@ -207,8 +207,8 @@ export class ProductVariantsService {
         ),
       )
 
-      // Per-variant stock. Serialised variants (Phase 3G) won't carry a level.
-      if (product.trackInventory) {
+      // Per-variant stock. Serialised variants derive stock from serial units.
+      if (product.trackInventory && !product.isSerialized) {
         const quantity = override?.openingStock ?? 0
         await inventoryRepo.save(
           inventoryRepo.create({
