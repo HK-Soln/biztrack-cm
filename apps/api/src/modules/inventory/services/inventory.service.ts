@@ -39,10 +39,18 @@ import type { InventoryLowStockAlertDigest } from '../constants/inventory.consta
 
 type SaleInventoryItemInput = {
   productId: string
+  // Set when selling a specific variant (Phase 3D); stock is deducted from the
+  // matching per-variant inventory_levels row instead of the product-level row.
+  variantId?: string | null
   productName: string
   quantity: number
   movementId?: string | null
 }
+
+// Composite stock key — one inventory_levels row per (product, variant). The
+// non-variant row uses an empty variant segment.
+const stockKey = (productId: string, variantId?: string | null) =>
+  `${productId}|${variantId ?? ''}`
 
 type RestockInputItem = {
   id?: string
@@ -434,11 +442,15 @@ export class InventoryService {
       const productMap = new Map(products.map((product) => [product.id, product]))
 
       const levels = await this.findInventoryLevelsForUpdate(inventoryRepo, businessId, productIds)
-      const levelMap = new Map(levels.map((level) => [level.productId, level]))
+      // Keyed by (product, variant) so variant products deduct from the correct row.
+      const levelMap = new Map(
+        levels.map((level) => [stockKey(level.productId, level.variantId), level]),
+      )
 
-      // Running quantity per product so repeated line items for the same product
-      // deduct cumulatively (matching the previous per-item sequential behaviour).
+      // Running quantity per (product, variant) so repeated line items deduct
+      // cumulatively (matching the previous per-item sequential behaviour).
       const runningQuantities = new Map<string, number>()
+      const keyMeta = new Map<string, { productId: string; variantId: string | null }>()
       const movementsToInsert: InventoryMovement[] = []
 
       for (const item of items) {
@@ -455,9 +467,11 @@ export class InventoryService {
           continue
         }
 
-        const level = levelMap.get(item.productId)
-        const quantityBefore = runningQuantities.has(item.productId)
-          ? runningQuantities.get(item.productId)!
+        const key = stockKey(item.productId, item.variantId)
+        keyMeta.set(key, { productId: item.productId, variantId: item.variantId ?? null })
+        const level = levelMap.get(key)
+        const quantityBefore = runningQuantities.has(key)
+          ? runningQuantities.get(key)!
           : Number(level?.quantity ?? 0)
         const quantityAfter = quantityBefore - item.quantity
 
@@ -480,7 +494,7 @@ export class InventoryService {
           )
         }
 
-        runningQuantities.set(item.productId, quantityAfter)
+        runningQuantities.set(key, quantityAfter)
 
         movementsToInsert.push(
           movementRepo.create({
@@ -499,12 +513,18 @@ export class InventoryService {
         )
       }
 
-      // Apply the final level once per distinct product, then bulk-insert movements.
-      for (const [productId, finalQuantity] of runningQuantities) {
-        const level = levelMap.get(productId)
+      // Apply the final level once per distinct (product, variant), then bulk-insert movements.
+      for (const [key, finalQuantity] of runningQuantities) {
+        const level = levelMap.get(key)
+        const meta = keyMeta.get(key)!
         if (!level) {
           await inventoryRepo.save(
-            inventoryRepo.create({ businessId, productId, quantity: finalQuantity }),
+            inventoryRepo.create({
+              businessId,
+              productId: meta.productId,
+              variantId: meta.variantId,
+              quantity: finalQuantity,
+            }),
           )
         } else {
           await inventoryRepo.update(level.id, { quantity: finalQuantity })
@@ -548,7 +568,12 @@ export class InventoryService {
           continue
         }
 
-        const level = await this.findInventoryLevelForUpdate(inventoryRepo, businessId, item.productId)
+        const level = await this.findInventoryLevelForUpdate(
+          inventoryRepo,
+          businessId,
+          item.productId,
+          item.variantId,
+        )
         const quantityBefore = Number(level?.quantity ?? 0)
         const quantityAfter = quantityBefore + item.quantity
 
@@ -557,6 +582,7 @@ export class InventoryService {
             inventoryRepo.create({
               businessId,
               productId: item.productId,
+              variantId: item.variantId ?? null,
               quantity: quantityAfter,
             }),
           )
@@ -1018,11 +1044,18 @@ export class InventoryService {
     inventoryRepo: Repository<InventoryLevel>,
     businessId: string,
     productId: string,
+    variantId?: string | null,
   ) {
     const qb = inventoryRepo
       .createQueryBuilder('inventory')
       .where('inventory.business_id = :businessId', { businessId })
       .andWhere('inventory.product_id = :productId', { productId })
+
+    if (variantId) {
+      qb.andWhere('inventory.variant_id = :variantId', { variantId })
+    } else {
+      qb.andWhere('inventory.variant_id IS NULL')
+    }
 
     if (inventoryRepo.manager.queryRunner?.isTransactionActive) {
       qb.setLock('pessimistic_write')

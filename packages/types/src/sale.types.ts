@@ -36,6 +36,8 @@ export interface SaleItem {
   id: string
   saleId: string
   productId: string
+  variantId?: string | null
+  variantName?: string | null
   productName: string
   productSku?: string | null
   unitOfMeasure?: string | null
@@ -106,6 +108,10 @@ export interface CreateSalePaymentRequest {
 
 export interface CreateSaleItemRequest {
   productId: string
+  // Required when the product has variants (Phase 3D). Identifies which variant
+  // is being sold so stock is deducted from the correct inventory row.
+  variantId?: string
+  variantName?: string
   quantity: number
   unitPrice: number
   discountAmount?: number

@@ -41,6 +41,10 @@ export class SaleItem extends BaseEntity {
   @Column({ name: 'variant_id', type: 'uuid', nullable: true })
   variantId?: string | null
 
+  // Snapshot of the variant name at sale time (for receipts/history).
+  @Column({ name: 'variant_name', type: 'varchar', length: 200, nullable: true })
+  variantName?: string | null
+
   @Column({ name: 'product_name', length: 200 })
   productName!: string
 

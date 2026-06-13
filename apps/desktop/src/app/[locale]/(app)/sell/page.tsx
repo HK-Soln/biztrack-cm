@@ -50,10 +50,14 @@ import {
 } from '@/services/contacts.local'
 import {
   getProductByBarcodeLocal,
+  getProductVariantsForSaleLocal,
   listCategoriesLocal,
   listProductsLocal,
   listUnitOfMeasuresLocal,
+  type ProductVariantSelection,
+  type SellVariant,
 } from '@/services/products.local'
+import { VariantSelectDrawer } from '@/components/sell/VariantSelectDrawer'
 import { createSaleLocal, SaleLocalError, type LocalSaleRecord, type SaleChargeLineInput, type SaleDiscountLineInput } from '@/services/sales.local'
 import { listChargeTypesLocal, type LocalChargeType } from '@/services/charges.local'
 import { getDepositAccountByCustomerLocal } from '@/services/deposits.local'
@@ -105,7 +109,12 @@ type SellCustomer = {
 }
 
 type SellCartItem = {
+  // Stable cart-line identity: productId for simple products, product+variant
+  // for variant products (so each variant is its own line).
+  lineKey: string
   productId: string
+  variantId: string | null
+  variantName: string | null
   name: string
   sku: string | null
   price: number
@@ -118,6 +127,9 @@ type SellCartItem = {
   lowStockThreshold: number | null
   imageUrl: string | null
 }
+
+const cartLineKey = (productId: string, variantId?: string | null) =>
+  `${productId}::${variantId ?? ''}`
 
 type HeldSale = {
   id: string
@@ -938,6 +950,12 @@ export default function SellPage() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [stage, setStage] = useState<Stage>('cart')
   const [cart, setCart] = useState<SellCartItem[]>([])
+  const [variantDrawerProduct, setVariantDrawerProduct] = useState<Product | null>(null)
+  const [variantSelection, setVariantSelection] = useState<ProductVariantSelection>({
+    groups: [],
+    variants: [],
+  })
+  const [variantDrawerLoading, setVariantDrawerLoading] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<SellCustomer | null>(null)
   const [cartQuantityInputs, setCartQuantityInputs] = useState<Record<string, string>>({})
   const [saleDiscountLines, setSaleDiscountLines] = useState<SaleDiscountLine[]>([])
@@ -1350,7 +1368,7 @@ export default function SellPage() {
       const next: Record<string, string> = {}
 
       for (const item of cart) {
-        next[item.productId] = formatEditableQuantity(item.qty)
+        next[item.lineKey] = formatEditableQuantity(item.qty)
       }
 
       const currentKeys = Object.keys(current)
@@ -1477,64 +1495,145 @@ export default function SellPage() {
     }
   }
 
-  const addToCart = (product: Product) => {
+  // Add a fully-resolved cart line (simple product or a chosen variant),
+  // deduplicating by lineKey and respecting available stock.
+  const addCartLine = (line: {
+    productId: string
+    variantId: string | null
+    variantName: string | null
+    name: string
+    sku: string | null
+    price: number
+    categoryName: string | null
+    unitLabel: string | null
+    trackInventory: boolean
+    stock: number | null
+    lowStockThreshold: number | null
+    imageUrl: string | null
+  }) => {
     ensureCartStage()
 
-    if (isTrackedOut(product)) {
+    const lineKey = cartLineKey(line.productId, line.variantId)
+    const availableStock = line.trackInventory ? line.stock : null
+    const cartForStockCheck = stage === 'success' ? [] : cart
+    const currentCartItem = cartForStockCheck.find((item) => item.lineKey === lineKey)
+    if (availableStock !== null && availableStock <= 0) {
       return false
     }
-
-    const availableStock =
-      product.trackInventory &&
-      product.currentStock !== null &&
-      product.currentStock !== undefined
-        ? product.currentStock
-        : null
-    const cartForStockCheck = stage === 'success' ? [] : cart
-    const currentCartItem = cartForStockCheck.find((item) => item.productId === product.id)
     if (availableStock !== null && currentCartItem && currentCartItem.qty >= availableStock) {
       return false
     }
 
     setCart((current) => {
-      const currentStock =
-        product.trackInventory &&
-        product.currentStock !== null &&
-        product.currentStock !== undefined
-          ? product.currentStock
-          : null
-
-      const existing = current.find((item) => item.productId === product.id)
+      const existing = current.find((item) => item.lineKey === lineKey)
       if (existing) {
-        if (currentStock !== null && existing.qty >= currentStock) {
+        if (availableStock !== null && existing.qty >= availableStock) {
           return current
         }
-
         return current.map((item) =>
-          item.productId === product.id ? { ...item, qty: item.qty + 1 } : item,
+          item.lineKey === lineKey ? { ...item, qty: item.qty + 1 } : item,
         )
       }
 
       return [
         ...current,
         {
-          productId: product.id,
-          name: product.name,
-          sku: product.sku,
-          price: product.sellingPrice,
+          lineKey,
+          productId: line.productId,
+          variantId: line.variantId,
+          variantName: line.variantName,
+          name: line.name,
+          sku: line.sku,
+          price: line.price,
           qty: 1,
-          categoryName: product.category?.name ?? null,
-          initials: getProductInitials(product.name),
-          unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
-          trackInventory: product.trackInventory,
-          stock: currentStock,
-          lowStockThreshold: product.lowStockThreshold ?? null,
-          imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
+          categoryName: line.categoryName,
+          initials: getProductInitials(line.variantName ?? line.name),
+          unitLabel: line.unitLabel,
+          trackInventory: line.trackInventory,
+          stock: availableStock,
+          lowStockThreshold: line.lowStockThreshold,
+          imageUrl: line.imageUrl,
         },
       ]
     })
 
     return true
+  }
+
+  const addToCart = (product: Product) => {
+    if (isTrackedOut(product)) {
+      return false
+    }
+    const stock =
+      product.trackInventory &&
+      product.currentStock !== null &&
+      product.currentStock !== undefined
+        ? product.currentStock
+        : null
+    return addCartLine({
+      productId: product.id,
+      variantId: null,
+      variantName: null,
+      name: product.name,
+      sku: product.sku,
+      price: product.sellingPrice,
+      categoryName: product.category?.name ?? null,
+      unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
+      trackInventory: product.trackInventory,
+      stock,
+      lowStockThreshold: product.lowStockThreshold ?? null,
+      imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
+    })
+  }
+
+  // Tapping a product: variant products open the selector drawer; others add directly.
+  const handleProductTap = (product: Product) => {
+    if (product.hasVariants) {
+      void openVariantDrawer(product)
+      return true
+    }
+    return addToCart(product)
+  }
+
+  const openVariantDrawer = async (product: Product) => {
+    if (!businessId) {
+      toast.error(copy.businessRequired)
+      return
+    }
+    setVariantDrawerProduct(product)
+    setVariantSelection({ groups: [], variants: [] })
+    setVariantDrawerLoading(true)
+    try {
+      setVariantSelection(await getProductVariantsForSaleLocal(businessId, product.id))
+    } catch {
+      toast.error(copy.loadError)
+    } finally {
+      setVariantDrawerLoading(false)
+    }
+  }
+
+  const handleVariantSelected = (variant: SellVariant) => {
+    const product = variantDrawerProduct
+    if (!product) return
+    const added = addCartLine({
+      productId: product.id,
+      variantId: variant.id,
+      variantName: variant.name,
+      name: product.name,
+      sku: product.sku,
+      price: variant.priceOverride ?? product.sellingPrice,
+      categoryName: product.category?.name ?? null,
+      unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
+      trackInventory: product.trackInventory,
+      stock: variant.currentStock,
+      lowStockThreshold: null,
+      imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
+    })
+    if (!added) {
+      toast.error(copy.errors.SALE_INSUFFICIENT_STOCK)
+      return
+    }
+    setVariantDrawerProduct(null)
   }
 
   const handleBarcodeScan = async (rawBarcode: string) => {
@@ -1557,8 +1656,13 @@ export default function SellPage() {
           return
         }
 
-        const wasAdded = addToCart(product)
         setSearch('')
+        // Variant products open the selector drawer instead of adding directly.
+        if (product.hasVariants) {
+          void openVariantDrawer(product)
+          return
+        }
+        const wasAdded = addToCart(product)
         if (wasAdded) {
           toast.success(`${product.name} ${copy.productAddedFromScan}`)
         } else {
@@ -1605,10 +1709,10 @@ export default function SellPage() {
     setPendingScannedBarcode(null)
   }
 
-  const setItemQuantity = (productId: string, nextQty: number) => {
+  const setItemQuantity = (lineKey: string, nextQty: number) => {
     setCart((current) =>
       current.flatMap((item) => {
-        if (item.productId !== productId) return item
+        if (item.lineKey !== lineKey) return item
 
         if (nextQty <= 0) return []
         if (item.stock !== null && nextQty > item.stock) return item
@@ -1617,26 +1721,26 @@ export default function SellPage() {
     )
   }
 
-  const handleItemQuantityInputChange = (productId: string, value: string) => {
+  const handleItemQuantityInputChange = (lineKey: string, value: string) => {
     setCartQuantityInputs((current) => ({
       ...current,
-      [productId]: value,
+      [lineKey]: value,
     }))
   }
 
-  const commitItemQuantityInput = (productId: string) => {
-    const item = cart.find((cartItem) => cartItem.productId === productId)
+  const commitItemQuantityInput = (lineKey: string) => {
+    const item = cart.find((cartItem) => cartItem.lineKey === lineKey)
     if (!item) {
       return
     }
 
-    const rawValue = cartQuantityInputs[productId] ?? ''
+    const rawValue = cartQuantityInputs[lineKey] ?? ''
     const trimmedValue = rawValue.trim()
 
     if (!trimmedValue) {
       setCartQuantityInputs((current) => ({
         ...current,
-        [productId]: formatEditableQuantity(item.qty),
+        [lineKey]: formatEditableQuantity(item.qty),
       }))
       return
     }
@@ -1645,7 +1749,7 @@ export default function SellPage() {
     if (!Number.isFinite(parsedValue)) {
       setCartQuantityInputs((current) => ({
         ...current,
-        [productId]: formatEditableQuantity(item.qty),
+        [lineKey]: formatEditableQuantity(item.qty),
       }))
       return
     }
@@ -1653,27 +1757,27 @@ export default function SellPage() {
     const normalizedQty = Number(parsedValue.toFixed(3))
 
     if (normalizedQty <= 0) {
-      removeItem(productId)
+      removeItem(lineKey)
       return
     }
 
     if (item.stock !== null && normalizedQty > item.stock) {
       toast.error(copy.errors.SALE_INSUFFICIENT_STOCK)
-      setItemQuantity(productId, item.stock)
+      setItemQuantity(lineKey, item.stock)
       return
     }
 
-    setItemQuantity(productId, normalizedQty)
+    setItemQuantity(lineKey, normalizedQty)
   }
 
   const handleItemQuantityKeyDown = (
     event: ReactKeyboardEvent<HTMLInputElement>,
-    productId: string,
+    lineKey: string,
     fallbackQty: number,
   ) => {
     if (event.key === 'Enter') {
       event.preventDefault()
-      commitItemQuantityInput(productId)
+      commitItemQuantityInput(lineKey)
       event.currentTarget.blur()
       return
     }
@@ -1682,14 +1786,14 @@ export default function SellPage() {
       event.preventDefault()
       setCartQuantityInputs((current) => ({
         ...current,
-        [productId]: formatEditableQuantity(fallbackQty),
+        [lineKey]: formatEditableQuantity(fallbackQty),
       }))
       event.currentTarget.blur()
     }
   }
 
-  const removeItem = (productId: string) => {
-    setCart((current) => current.filter((item) => item.productId !== productId))
+  const removeItem = (lineKey: string) => {
+    setCart((current) => current.filter((item) => item.lineKey !== lineKey))
   }
 
   const handleAddDiscountConfirm = (event: FormEvent) => {
@@ -1973,6 +2077,8 @@ export default function SellPage() {
         discounts: discountsPayload,
         items: cart.map((item) => ({
           productId: item.productId,
+          variantId: item.variantId ?? undefined,
+          variantName: item.variantName ?? undefined,
           quantity: item.qty,
           unitPrice: item.price,
           discountAmount: 0,
@@ -2294,7 +2400,7 @@ export default function SellPage() {
                       <button
                         key={product.id}
                         type="button"
-                        onClick={() => addToCart(product)}
+                        onClick={() => handleProductTap(product)}
                         disabled={disabled}
                         className={cn(
                           'relative rounded-[20px] border border-border bg-card p-3 text-left shadow-sm transition',
@@ -2351,7 +2457,7 @@ export default function SellPage() {
                       <button
                         key={product.id}
                         type="button"
-                        onClick={() => addToCart(product)}
+                        onClick={() => handleProductTap(product)}
                         disabled={disabled}
                         className={cn(
                           'flex w-full items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3 text-left transition',
@@ -2865,7 +2971,7 @@ export default function SellPage() {
                       <div className="space-y-3">
                         {cart.map((item) => (
                           <div
-                            key={item.productId}
+                            key={item.lineKey}
                             className="rounded-[22px] border border-border bg-card p-3 shadow-sm"
                           >
                             <div className="flex items-start gap-3">
@@ -2877,7 +2983,9 @@ export default function SellPage() {
                                 fallbackClassName="text-xs font-bold"
                               />
                               <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-semibold">{item.name}</div>
+                                <div className="truncate text-sm font-semibold">
+                                  {item.variantName ? `${item.name} · ${item.variantName}` : item.name}
+                                </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <span>{item.sku || item.categoryName || copy.uncategorized}</span>
                                   {item.trackInventory && item.stock !== null ? (
@@ -2895,40 +3003,40 @@ export default function SellPage() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => setItemQuantity(item.productId, item.qty - 1)}
+                                      onClick={() => setItemQuantity(item.lineKey, item.qty - 1)}
                                       className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background transition hover:bg-secondary"
                                     >
                                       <Icon name="minus" className="h-4 w-4" />
                                     </button>
                                     <div className="w-[72px]">
                                       <NumberInput
-                                        value={cartQuantityInputs[item.productId] ?? formatEditableQuantity(item.qty)}
+                                        value={cartQuantityInputs[item.lineKey] ?? formatEditableQuantity(item.qty)}
                                         min="0"
                                         step="0.001"
                                         inputMode="decimal"
                                         onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                          handleItemQuantityInputChange(item.productId, event.target.value)
+                                          handleItemQuantityInputChange(item.lineKey, event.target.value)
                                         }
-                                        onBlur={() => commitItemQuantityInput(item.productId)}
+                                        onBlur={() => commitItemQuantityInput(item.lineKey)}
                                         onFocus={(event: FocusEvent<HTMLInputElement>) =>
                                           event.currentTarget.select()
                                         }
                                         onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) =>
-                                          handleItemQuantityKeyDown(event, item.productId, item.qty)
+                                          handleItemQuantityKeyDown(event, item.lineKey, item.qty)
                                         }
                                         className="h-8 rounded-lg px-2 text-center text-sm font-semibold"
                                       />
                                     </div>
                                     <button
                                       type="button"
-                                      onClick={() => setItemQuantity(item.productId, item.qty + 1)}
+                                      onClick={() => setItemQuantity(item.lineKey, item.qty + 1)}
                                       className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background transition hover:bg-secondary"
                                     >
                                       <Icon name="plus" className="h-4 w-4" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => removeItem(item.productId)}
+                                      onClick={() => removeItem(item.lineKey)}
                                       className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-[#FCEBEB] hover:text-[#A32D2D]"
                                     >
                                       <Icon name="trash" className="h-4 w-4" />
@@ -3378,6 +3486,16 @@ export default function SellPage() {
         }}
         onCreated={handleScannedProductCreated}
         quotaReached={productsQuotaReached}
+      />
+
+      <VariantSelectDrawer
+        open={variantDrawerProduct !== null}
+        productName={variantDrawerProduct?.name ?? ''}
+        basePrice={variantDrawerProduct?.sellingPrice ?? 0}
+        selection={variantSelection}
+        loading={variantDrawerLoading}
+        onClose={() => setVariantDrawerProduct(null)}
+        onSelect={handleVariantSelected}
       />
 
       {holdsOpen ? (

@@ -73,6 +73,8 @@ type SaleItemRow = {
   sale_id: string
   business_id: string
   product_id: string
+  variant_id: string | null
+  variant_name: string | null
   product_name: string
   product_sku: string | null
   unit_of_measure: string | null
@@ -253,11 +255,15 @@ export async function createSaleLocal(
 
     subtotal = roundMoney(subtotal + lineTotal)
 
+    const variantId = input.variantId ?? null
+    const variantName = input.variantName ?? null
     const itemId = crypto.randomUUID()
     saleItems.push({
       id: itemId,
       saleId,
       productId: row.id,
+      variantId,
+      variantName,
       productName: row.name,
       productSku: row.sku,
       unitOfMeasure: row.unit_abbreviation ?? row.unit_name ?? null,
@@ -279,6 +285,8 @@ export async function createSaleLocal(
           sale_id,
           business_id,
           product_id,
+          variant_id,
+          variant_name,
           product_name,
           product_sku,
           unit_of_measure,
@@ -291,13 +299,15 @@ export async function createSaleLocal(
           is_deleted,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `,
       params: [
         itemId,
         saleId,
         normalizedBusinessId,
         row.id,
+        variantId,
+        variantName,
         row.name,
         row.sku,
         row.unit_abbreviation ?? row.unit_name ?? null,
@@ -315,7 +325,7 @@ export async function createSaleLocal(
     let movementId: string | null = null
 
     if (row.track_inventory) {
-      const level = await ensureInventoryLevel(normalizedBusinessId, row, createdAt)
+      const level = await ensureInventoryLevel(normalizedBusinessId, row, createdAt, variantId)
       const quantityBefore = roundQuantity(level.quantity)
       const quantityAfter = roundQuantity(quantityBefore - quantity)
 
@@ -324,17 +334,19 @@ export async function createSaleLocal(
       }
 
       movementId = crypto.randomUUID()
-      operations.push(
-        {
-          sql: `
+      operations.push({
+        sql: `
             UPDATE inventory_levels
             SET quantity = ?,
                 updated_at = ?
             WHERE id = ?
           `,
-          params: [quantityAfter, createdAt, level.id],
-        },
-        {
+        params: [quantityAfter, createdAt, level.id],
+      })
+      // Only mirror onto products.stock_quantity for non-variant rows; variant
+      // stock lives per-variant in inventory_levels.
+      if (!variantId) {
+        operations.push({
           sql: `
             UPDATE products
             SET stock_quantity = ?,
@@ -342,9 +354,10 @@ export async function createSaleLocal(
             WHERE id = ?
           `,
           params: [quantityAfter, createdAt, row.id],
-        },
-        {
-          sql: `
+        })
+      }
+      operations.push({
+        sql: `
             INSERT INTO inventory_movements (
               id,
               business_id,
@@ -361,23 +374,22 @@ export async function createSaleLocal(
               created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
-          params: [
-            movementId,
-            normalizedBusinessId,
-            row.id,
-            InventoryMovementType.SALE,
-            -quantity,
-            quantityBefore,
-            quantityAfter,
-            'sale',
-            saleId,
-            `Sale ${saleNumber}`,
-            cashierId,
-            cashierName ?? 'Local user',
-            soldAtIso,
-          ],
-        },
-      )
+        params: [
+          movementId,
+          normalizedBusinessId,
+          row.id,
+          InventoryMovementType.SALE,
+          -quantity,
+          quantityBefore,
+          quantityAfter,
+          'sale',
+          saleId,
+          `Sale ${saleNumber}`,
+          cashierId,
+          cashierName ?? 'Local user',
+          soldAtIso,
+        ],
+      })
     }
 
     itemMovementIds.push(movementId)
@@ -1306,7 +1318,8 @@ export async function buildSaleReceiptLocal(
     customerName: sale.customerName ?? null,
     customerPhone: sale.customerPhone ?? null,
     items: sale.items.map((item) => ({
-      name: item.productName,
+      // Variant name is appended to the product name on the receipt line.
+      name: item.variantName ? `${item.productName} · ${item.variantName}` : item.productName,
       qty: item.quantity,
       unitPrice: item.unitPrice,
       total: item.lineTotal,
@@ -1464,6 +1477,8 @@ async function buildSaleSyncPayload(
     items: items.map((item) => ({
       id: item.id,
       productId: item.product_id,
+      variantId: item.variant_id ?? undefined,
+      variantName: item.variant_name ?? undefined,
       quantity: roundQuantity(item.quantity),
       unitPrice: roundMoney(item.unit_price),
       discountAmount: roundMoney(item.discount_amount ?? 0),
@@ -1483,6 +1498,8 @@ async function hydrateSaleRecord(row: SaleRow): Promise<LocalSaleRecord> {
           sale_id,
           business_id,
           product_id,
+          variant_id,
+          variant_name,
           product_name,
           product_sku,
           unit_of_measure,
@@ -1671,6 +1688,8 @@ function mapSaleItemRow(row: SaleItemRow): SaleItem {
     id: row.id,
     saleId: row.sale_id,
     productId: row.product_id,
+    variantId: row.variant_id ?? null,
+    variantName: row.variant_name ?? null,
     productName: row.product_name,
     productSku: row.product_sku ?? null,
     unitOfMeasure: row.unit_of_measure ?? null,
@@ -1712,6 +1731,8 @@ async function querySaleItemsBySaleIds(saleIds: string[]) {
         sale_id,
         business_id,
         product_id,
+        variant_id,
+        variant_name,
         product_name,
         product_sku,
         unit_of_measure,
@@ -1778,25 +1799,33 @@ async function buildSaleNumber(businessId: string, saleDate: string) {
   return `${prefix}${String(Number.isFinite(nextSequence) && nextSequence > 0 ? nextSequence : 1).padStart(4, '0')}`
 }
 
-async function ensureInventoryLevel(businessId: string, row: ProductRow, now: string) {
+async function ensureInventoryLevel(
+  businessId: string,
+  row: ProductRow,
+  now: string,
+  variantId?: string | null,
+) {
   const [existing] = await dbQuery<InventoryLevelRow>(
     `
       SELECT id, quantity
       FROM inventory_levels
       WHERE business_id = ?
         AND product_id = ?
+        AND ${variantId ? 'variant_id = ?' : 'variant_id IS NULL'}
       LIMIT 1
     `,
-    [businessId, row.id],
+    variantId ? [businessId, row.id, variantId] : [businessId, row.id],
   )
 
   if (existing) {
     return existing
   }
 
+  // Variant rows start at 0 if missing locally; non-variant rows fall back to
+  // the product's known stock figure.
   const created = {
     id: crypto.randomUUID(),
-    quantity: roundQuantity(row.inventory_quantity ?? row.stock_quantity ?? 0),
+    quantity: variantId ? 0 : roundQuantity(row.inventory_quantity ?? row.stock_quantity ?? 0),
   }
 
   await dbBatch([
@@ -1806,21 +1835,23 @@ async function ensureInventoryLevel(businessId: string, row: ProductRow, now: st
           id,
           business_id,
           product_id,
+          variant_id,
           quantity,
           low_stock_threshold,
           reorder_point,
           last_restock_at,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         created.id,
         businessId,
         row.id,
+        variantId ?? null,
         created.quantity,
-        row.inventory_low_stock_threshold ?? row.low_stock_threshold ?? null,
-        row.inventory_reorder_point ?? row.reorder_point ?? null,
+        variantId ? null : (row.inventory_low_stock_threshold ?? row.low_stock_threshold ?? null),
+        variantId ? null : (row.inventory_reorder_point ?? row.reorder_point ?? null),
         row.inventory_last_restock_at ?? null,
         now,
         now,

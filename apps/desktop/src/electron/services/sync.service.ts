@@ -2322,6 +2322,8 @@ export class SyncService extends EventEmitter {
           sale_id,
           business_id,
           product_id,
+          variant_id,
+          variant_name,
           product_name,
           product_sku,
           unit_of_measure,
@@ -2334,11 +2336,13 @@ export class SyncService extends EventEmitter {
           is_deleted,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           sale_id = excluded.sale_id,
           business_id = excluded.business_id,
           product_id = excluded.product_id,
+          variant_id = excluded.variant_id,
+          variant_name = excluded.variant_name,
           product_name = excluded.product_name,
           product_sku = excluded.product_sku,
           unit_of_measure = excluded.unit_of_measure,
@@ -2356,6 +2360,8 @@ export class SyncService extends EventEmitter {
         record.saleId,
         record.businessId,
         record.productId,
+        record.variantId ?? null,
+        record.variantName ?? null,
         record.productName,
         record.productSku ?? null,
         record.unitOfMeasure ?? null,
@@ -2592,23 +2598,27 @@ export class SyncService extends EventEmitter {
   }
 
   private buildInventoryLevelUpsertOperations(record: InventoryLevelSyncRecord) {
-    return [
+    const variantId = record.variantId ?? null
+    const operations: Array<{ sql: string; params?: unknown[] }> = [
       {
+        // One row per (product, variant); conflict on the server-stable id.
         sql: `
           INSERT INTO inventory_levels (
             id,
             business_id,
             product_id,
+            variant_id,
             quantity,
             low_stock_threshold,
             reorder_point,
             last_restock_at,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(product_id) DO UPDATE SET
-            id = excluded.id,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
             business_id = excluded.business_id,
+            product_id = excluded.product_id,
+            variant_id = excluded.variant_id,
             quantity = excluded.quantity,
             low_stock_threshold = excluded.low_stock_threshold,
             reorder_point = excluded.reorder_point,
@@ -2619,6 +2629,7 @@ export class SyncService extends EventEmitter {
           record.id,
           record.businessId,
           record.productId,
+          variantId,
           record.quantity,
           record.lowStockThreshold ?? null,
           record.reorderPoint ?? null,
@@ -2627,7 +2638,12 @@ export class SyncService extends EventEmitter {
           record.updatedAt,
         ],
       },
-      {
+    ]
+
+    // Only the product-level row mirrors onto products.stock_quantity; variant
+    // rows are read per-variant by the sell screen.
+    if (!variantId) {
+      operations.push({
         sql: `
           UPDATE products
           SET stock_quantity = ?,
@@ -2641,8 +2657,10 @@ export class SyncService extends EventEmitter {
           record.reorderPoint ?? null,
           record.productId,
         ],
-      },
-    ]
+      })
+    }
+
+    return operations
   }
 
   private buildInventoryMovementUpsertOperation(record: InventoryMovementSyncRecord) {

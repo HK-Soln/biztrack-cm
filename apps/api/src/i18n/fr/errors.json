@@ -43,6 +43,8 @@
   "category_attribute_group_not_found": "Ce groupe d'attributs n'est pas lie a la categorie.",
   "variants_not_supported": "Les variantes ne sont pas prises en charge pour ce type de produit.",
   "variant_min_two": "Un produit avec variantes doit avoir au moins 2 variantes.",
+  "variant_required": "Selectionnez une variante pour \"{name}\".",
+  "variant_not_found": "La variante selectionnee n'est pas disponible.",
   "inventory_not_found": "Enregistrement d'inventaire introuvable.",
   "inventory_insufficient_stock": "Stock insuffisant pour cet ajustement.",
   "insufficient_stock": "Stock insuffisant pour {name} : {available} disponible(s), {requested} demande(s).",

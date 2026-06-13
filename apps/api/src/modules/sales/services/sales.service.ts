@@ -14,7 +14,7 @@ import {
   type SalesQuery,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm'
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -24,6 +24,7 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleDiscount } from '@/entities/sale-discount.entity'
@@ -41,6 +42,8 @@ import { SaleNumberService } from './sale-number.service'
 
 type ComputedSaleItem = {
   product: Product
+  variantId: string | null
+  variantName: string | null
   quantity: number
   unitPrice: number
   discountAmount: number
@@ -53,6 +56,8 @@ type SaleComputationInput = {
   chargesAmount?: number
   items: Array<{
     productId: string
+    variantId?: string | null
+    variantName?: string | null
     quantity: number
     unitPrice: number
     discountAmount?: number
@@ -110,8 +115,8 @@ export class SalesService {
 
         const soldAt = this.normalizeDate(dto.soldAt)
         const saleDate = soldAt.toISOString().slice(0, 10)
-        const products = await this.loadProductsForSale(manager, businessId, dto)
-        const computed = this.computeSale(products, dto)
+        const { products, variantsById } = await this.loadProductsForSale(manager, businessId, dto)
+        const computed = this.computeSale(products, variantsById, dto)
         const amountPaid = this.roundMoney(
           dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
@@ -164,6 +169,8 @@ export class SalesService {
               saleId: sale.id,
               businessId,
               productId: item.product.id,
+              variantId: item.variantId,
+              variantName: item.variantName,
               productName: item.product.name,
               productSku: item.product.sku ?? null,
               unitOfMeasure: item.product.unitOfMeasure?.abbreviation ?? null,
@@ -197,6 +204,7 @@ export class SalesService {
           user.sub,
           saleItems.map((item) => ({
             productId: item.productId,
+            variantId: item.variantId ?? null,
             productName: item.productName,
             quantity: item.quantity,
           })),
@@ -277,8 +285,12 @@ export class SalesService {
 
         const soldAt = this.normalizeDate(payload.soldAt)
         const saleDate = soldAt.toISOString().slice(0, 10)
-        const products = await this.loadProductsForSale(manager, businessId, payload)
-        const computed = this.computeSale(products, payload)
+        const { products, variantsById } = await this.loadProductsForSale(
+          manager,
+          businessId,
+          payload,
+        )
+        const computed = this.computeSale(products, variantsById, payload)
         const amountPaid = this.roundMoney(
           payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
@@ -354,6 +366,8 @@ export class SalesService {
               saleId: sale.id,
               businessId,
               productId: item.product.id,
+              variantId: item.variantId,
+              variantName: item.variantName,
               productName: item.product.name,
               productSku: item.product.sku ?? null,
               unitOfMeasure: item.product.unitOfMeasure?.abbreviation ?? null,
@@ -652,6 +666,7 @@ export class SalesService {
           user.sub,
           (sale.items ?? []).map((item) => ({
             productId: item.productId,
+            variantId: item.variantId ?? null,
             productName: item.productName,
             quantity: item.quantity,
           })),
@@ -911,6 +926,8 @@ export class SalesService {
       )
     }
 
+    const productsById = new Map(products.map((product) => [product.id, product]))
+
     for (const product of products) {
       if (!product.isActive) {
         throw new AppBadRequestException(
@@ -922,10 +939,44 @@ export class SalesService {
       }
     }
 
-    return products
+    // Load + validate variants (Phase 3D).
+    const variantIds = [
+      ...new Set(dto.items.map((item) => item.variantId).filter((id): id is string => Boolean(id))),
+    ]
+    const variants = variantIds.length
+      ? await manager.getRepository(ProductVariant).find({
+          where: { id: In(variantIds), businessId, deletedAt: IsNull() },
+        })
+      : []
+    const variantsById = new Map(variants.map((variant) => [variant.id, variant]))
+
+    for (const item of dto.items) {
+      const product = productsById.get(item.productId)!
+      if (product.hasVariants) {
+        if (!item.variantId) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.variant_required', { args: { name: product.name } }),
+            'VARIANT_REQUIRED',
+          )
+        }
+        const variant = variantsById.get(item.variantId)
+        if (!variant || variant.productId !== product.id || !variant.isActive) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.variant_not_found'),
+            'VARIANT_NOT_FOUND',
+          )
+        }
+      }
+    }
+
+    return { products, variantsById }
   }
 
-  private computeSale(products: Product[], dto: SaleComputationInput) {
+  private computeSale(
+    products: Product[],
+    variantsById: Map<string, ProductVariant>,
+    dto: SaleComputationInput,
+  ) {
     const productsById = new Map(products.map((product) => [product.id, product]))
     const items: ComputedSaleItem[] = []
     let subtotal = 0
@@ -953,9 +1004,12 @@ export class SalesService {
         priceDriftWarning = true
       }
 
+      const variant = input.variantId ? variantsById.get(input.variantId) : undefined
       subtotal = this.roundMoney(subtotal + lineTotal)
       items.push({
         product,
+        variantId: variant?.id ?? null,
+        variantName: variant?.name ?? input.variantName ?? null,
         quantity,
         unitPrice,
         discountAmount,
@@ -1042,6 +1096,7 @@ export class SalesService {
       voidedById ?? sale.cashierId,
       (sale.items ?? []).map((item) => ({
         productId: item.productId,
+        variantId: item.variantId ?? null,
         productName: item.productName,
         quantity: item.quantity,
       })),
