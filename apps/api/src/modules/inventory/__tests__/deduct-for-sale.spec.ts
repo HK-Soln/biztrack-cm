@@ -6,7 +6,7 @@ import { InventoryService } from '../services/inventory.service'
 // inventoryLevelsRepo and inventoryMovementsRepo. We mock just those.
 const makeService = (opts: {
   products: Array<{ id: string; trackInventory: boolean }>
-  levels: Array<{ id: string; productId: string; quantity: number }>
+  levels: Array<{ id: string; productId: string; quantity: number; variantId?: string | null }>
 }) => {
   const productsRepo = { find: jest.fn().mockResolvedValue(opts.products) }
 
@@ -95,6 +95,25 @@ describe('InventoryService.deductForSale (batched)', () => {
     expect(inventoryMovementsRepo.save).not.toHaveBeenCalled()
     expect(inventoryLevelsRepo.update).not.toHaveBeenCalled()
     expect(inventoryLevelsRepo.save).not.toHaveBeenCalled()
+  })
+
+  it('deducts each variant from its own inventory level row', async () => {
+    const { service, inventoryLevelsRepo } = makeService({
+      products: [{ id: 'p1', trackInventory: true }],
+      levels: [
+        { id: 'lvl-a', productId: 'p1', quantity: 10, variantId: 'v-a' },
+        { id: 'lvl-b', productId: 'p1', quantity: 5, variantId: 'v-b' },
+      ],
+    })
+
+    await service.deductForSale('biz-1', 'sale-1', 'S-001', 'user-1', [
+      { productId: 'p1', variantId: 'v-a', productName: 'p1', quantity: 3 },
+      { productId: 'p1', variantId: 'v-b', productName: 'p1', quantity: 2 },
+    ])
+
+    expect(inventoryLevelsRepo.update).toHaveBeenCalledTimes(2)
+    expect(inventoryLevelsRepo.update).toHaveBeenCalledWith('lvl-a', { quantity: 7 })
+    expect(inventoryLevelsRepo.update).toHaveBeenCalledWith('lvl-b', { quantity: 3 })
   })
 
   it('rejects when cumulative deduction would drive stock negative', async () => {

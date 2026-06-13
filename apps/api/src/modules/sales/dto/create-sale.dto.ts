@@ -52,6 +52,17 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @IsUUID()
   productId!: string
 
+  @ApiPropertyOptional({ description: 'Required when the product has variants.' })
+  @IsOptional()
+  @IsUUID()
+  variantId?: string
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  variantName?: string
+
   @ApiProperty({ example: 2 })
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })

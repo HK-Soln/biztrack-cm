@@ -153,6 +153,7 @@ export interface SyncRecord {
 export interface InventoryLevelSyncRecord extends SyncRecord {
   businessId: string
   productId: string
+  variantId?: string | null
   quantity: number
   lowStockThreshold?: number | null
   reorderPoint?: number | null
@@ -257,6 +258,8 @@ export interface SaleItemSyncRecord extends SyncRecord {
   saleId: string
   businessId: string
   productId: string
+  variantId?: string | null
+  variantName?: string | null
   productName: string
   productSku?: string | null
   unitOfMeasure?: string | null

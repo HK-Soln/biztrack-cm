@@ -1382,6 +1382,144 @@ export async function listCategoryAttributeGroupsLocal(
   }))
 }
 
+export interface SellVariantAttributeGroup {
+  id: string
+  name: string
+  sortOrder: number
+  options: Array<{ id: string; value: string; colorHex: string | null; sortOrder: number }>
+}
+
+export interface SellVariant {
+  id: string
+  name: string
+  priceOverride: number | null
+  currentStock: number
+  /** attributeGroupId -> attributeOptionId for this variant. */
+  optionsByGroup: Record<string, string>
+}
+
+export interface ProductVariantSelection {
+  groups: SellVariantAttributeGroup[]
+  variants: SellVariant[]
+}
+
+/**
+ * Load a variant product's selectable variants (with per-variant stock) and the
+ * attribute groups/options that define them — drives the sell-screen variant drawer.
+ */
+export async function getProductVariantsForSaleLocal(
+  businessId: string,
+  productId: string,
+): Promise<ProductVariantSelection> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const variantRows = await dbQuery<{ id: string; name: string; price_override: number | null }>(
+    `
+      SELECT id, name, price_override
+      FROM product_variants
+      WHERE business_id = ?
+        AND product_id = ?
+        AND is_deleted = 0
+        AND is_active = 1
+      ORDER BY sort_order ASC, name ASC
+    `,
+    [normalizedBusinessId, productId],
+  )
+  if (variantRows.length === 0) {
+    return { groups: [], variants: [] }
+  }
+
+  const variantIds = variantRows.map((variant) => variant.id)
+  const placeholders = variantIds.map(() => '?').join(',')
+  const [optionRows, stockRows] = await Promise.all([
+    dbQuery<{
+      variant_id: string
+      attribute_group_id: string
+      attribute_option_id: string
+      group_name: string
+      group_sort: number
+      option_value: string
+      color_hex: string | null
+      option_sort: number
+    }>(
+      `
+        SELECT
+          vo.variant_id AS variant_id,
+          vo.attribute_group_id AS attribute_group_id,
+          vo.attribute_option_id AS attribute_option_id,
+          g.name AS group_name,
+          g.sort_order AS group_sort,
+          o.value AS option_value,
+          o.color_hex AS color_hex,
+          o.sort_order AS option_sort
+        FROM product_variant_options vo
+        JOIN attribute_groups g ON g.id = vo.attribute_group_id
+        JOIN attribute_options o ON o.id = vo.attribute_option_id
+        WHERE vo.business_id = ?
+          AND vo.is_deleted = 0
+          AND vo.variant_id IN (${placeholders})
+      `,
+      [normalizedBusinessId, ...variantIds],
+    ),
+    dbQuery<{ variant_id: string; quantity: number }>(
+      `
+        SELECT variant_id, quantity
+        FROM inventory_levels
+        WHERE business_id = ?
+          AND product_id = ?
+          AND variant_id IS NOT NULL
+      `,
+      [normalizedBusinessId, productId],
+    ),
+  ])
+
+  const stockByVariant = new Map(stockRows.map((row) => [row.variant_id, Number(row.quantity)]))
+  const optionsByVariant = new Map<string, Record<string, string>>()
+  const groupsById = new Map<string, SellVariantAttributeGroup>()
+  const seenOption = new Set<string>()
+
+  for (const row of optionRows) {
+    const map = optionsByVariant.get(row.variant_id) ?? {}
+    map[row.attribute_group_id] = row.attribute_option_id
+    optionsByVariant.set(row.variant_id, map)
+
+    let group = groupsById.get(row.attribute_group_id)
+    if (!group) {
+      group = {
+        id: row.attribute_group_id,
+        name: row.group_name,
+        sortOrder: row.group_sort,
+        options: [],
+      }
+      groupsById.set(row.attribute_group_id, group)
+    }
+    const optionKey = `${row.attribute_group_id}:${row.attribute_option_id}`
+    if (!seenOption.has(optionKey)) {
+      seenOption.add(optionKey)
+      group.options.push({
+        id: row.attribute_option_id,
+        value: row.option_value,
+        colorHex: row.color_hex ?? null,
+        sortOrder: row.option_sort,
+      })
+    }
+  }
+
+  const groups = [...groupsById.values()].sort((a, b) => a.sortOrder - b.sortOrder)
+  for (const group of groups) {
+    group.options.sort((a, b) => a.sortOrder - b.sortOrder || a.value.localeCompare(b.value))
+  }
+
+  const variants: SellVariant[] = variantRows.map((variant) => ({
+    id: variant.id,
+    name: variant.name,
+    priceOverride: variant.price_override ?? null,
+    currentStock: stockByVariant.get(variant.id) ?? 0,
+    optionsByGroup: optionsByVariant.get(variant.id) ?? {},
+  }))
+
+  return { groups, variants }
+}
+
 export async function listUnitOfMeasuresLocal(
   businessId: string,
   query: LocalUnitOfMeasuresQuery = { page: 1, limit: 100 },

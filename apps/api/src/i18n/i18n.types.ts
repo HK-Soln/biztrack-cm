@@ -87,6 +87,8 @@ export interface I18nTranslations {
     category_attribute_group_not_found: string
     variants_not_supported: string
     variant_min_two: string
+    variant_required: string
+    variant_not_found: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string
