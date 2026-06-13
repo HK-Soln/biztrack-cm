@@ -13,7 +13,12 @@ import {
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
-import type { JwtPayload, PaginatedResult, ProductCategory } from '@biztrack/types'
+import type {
+  CategoryTreeResponse,
+  JwtPayload,
+  PaginatedResult,
+  ProductCategory,
+} from '@biztrack/types'
 import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
@@ -52,6 +57,13 @@ export class CategoriesController {
   ): Promise<PaginatedResult<ProductCategory>> {
     const result = await this.categoriesService.findAll(user.businessId as string, query)
     return serializePaginatedResult(result, (category) => CategoryDto.fromEntity(category)!)
+  }
+
+  @Get('tree')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'Get the nested category tree' })
+  async tree(@CurrentUser() user: JwtPayload): Promise<CategoryTreeResponse> {
+    return this.categoriesService.getTree(user.businessId as string)
   }
 
   @Patch(':id')

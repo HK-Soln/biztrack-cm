@@ -330,6 +330,9 @@ export class ProductLocalError extends Error {
       | 'CATEGORY_SORT_ORDER_INVALID'
       | 'CATEGORIES_QUOTA_REACHED'
       | 'CATEGORY_HAS_PRODUCTS'
+      | 'CATEGORY_PARENT_NOT_FOUND'
+      | 'CATEGORY_MAX_DEPTH'
+      | 'CATEGORY_NOT_LEAF'
       | 'CATEGORY_SAVE_RELOAD_FAILED'
       | 'UNIT_NOT_FOUND'
       | 'UNIT_NAME_REQUIRED'
@@ -409,6 +412,8 @@ type CategoryRow = {
   icon: string | null
   image_url: string | null
   sort_order: number | null
+  parent_id: string | null
+  depth: number | null
   created_at: string
   updated_at: string
 }
@@ -1256,6 +1261,8 @@ export async function listCategoriesLocal(
         icon,
         image_url,
         sort_order,
+        parent_id,
+        depth,
         created_at,
         updated_at
       FROM product_categories
@@ -1362,6 +1369,24 @@ export async function createCategoryLocal(
     throw new ProductLocalError('CATEGORIES_QUOTA_REACHED', undefined, categoryQuota)
   }
 
+  // Resolve parent + depth. depth = parent.depth + 1 (or 1 for a top-level category).
+  let parentId: string | null = null
+  let depth = 1
+  if (payload.parentId) {
+    const parent = await getCategoryRowByIdLocal(normalizedBusinessId, payload.parentId, {
+      includeInactive: true,
+    })
+    if (!parent) {
+      throw new ProductLocalError('CATEGORY_PARENT_NOT_FOUND')
+    }
+    const parentDepth = parent.depth ?? 1
+    if (parentDepth >= 3) {
+      throw new ProductLocalError('CATEGORY_MAX_DEPTH')
+    }
+    parentId = parent.id
+    depth = parentDepth + 1
+  }
+
   await dbBatch([
     {
       sql: `
@@ -1377,8 +1402,10 @@ export async function createCategoryLocal(
           color,
           icon,
           image_url,
-          sort_order
-        ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)
+          sort_order,
+          parent_id,
+          depth
+        ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -1391,6 +1418,8 @@ export async function createCategoryLocal(
         normalized.icon,
         normalized.imageUrl,
         normalized.sortOrder,
+        parentId,
+        depth,
       ],
     },
     buildOutboxUpsertOperation('productCategories', id),
@@ -1917,6 +1946,8 @@ export function mapCategoryRow(row: CategoryRow): ProductCategory {
     icon: row.icon ?? null,
     imageUrl: row.image_url ?? null,
     sortOrder: row.sort_order ?? undefined,
+    parentId: row.parent_id ?? null,
+    depth: row.depth ?? 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -1951,6 +1982,8 @@ export function mapProductRow(row: ProductRow): Product {
           icon: row.category_icon,
           image_url: row.category_image_url,
           sort_order: row.category_sort_order,
+          parent_id: null,
+          depth: null,
           created_at: row.category_created_at,
           updated_at: row.category_updated_at,
         })
@@ -2045,6 +2078,8 @@ async function getCategoryRowByIdLocal(
         icon,
         image_url,
         sort_order,
+        parent_id,
+        depth,
         created_at,
         updated_at
       FROM product_categories

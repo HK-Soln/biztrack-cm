@@ -22,7 +22,6 @@ import {
   findCreateProductConflictsLocal,
   isValidProductBarcodeCandidate,
   isValidProductSkuCandidate,
-  listCategoriesLocal,
   listUnitOfMeasuresLocal,
   updateProductLocal,
 } from '@/services/products.local'
@@ -171,6 +170,46 @@ function toCategoryOption(category: Pick<ProductCategory, 'id' | 'name' | 'image
     label: category.name,
     imageUrl: category.imageUrl ?? null,
   }
+}
+
+/**
+ * Flatten the category hierarchy into a depth-ordered option list for the picker.
+ * Non-leaf categories (those with active children) are shown for context but are
+ * not selectable — products can only be assigned to leaf categories.
+ */
+function buildCategoryTreeOptions(categories: ProductCategory[]): CommandSelectOption[] {
+  const active = categories.filter((category) => category.isActive !== false)
+  const activeIds = new Set(active.map((category) => category.id))
+
+  const childrenByParent = new Map<string | null, ProductCategory[]>()
+  for (const category of active) {
+    const parentKey =
+      category.parentId && activeIds.has(category.parentId) ? category.parentId : null
+    const siblings = childrenByParent.get(parentKey) ?? []
+    siblings.push(category)
+    childrenByParent.set(parentKey, siblings)
+  }
+
+  const sortNodes = (a: ProductCategory, b: ProductCategory) =>
+    (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)
+
+  const options: CommandSelectOption[] = []
+  const walk = (parentId: string | null, level: number) => {
+    const nodes = [...(childrenByParent.get(parentId) ?? [])].sort(sortNodes)
+    for (const node of nodes) {
+      const isLeaf = (childrenByParent.get(node.id) ?? []).length === 0
+      options.push({
+        value: node.id,
+        label: node.name,
+        imageUrl: node.imageUrl ?? null,
+        disabled: !isLeaf,
+        indentLevel: level,
+      })
+      walk(node.id, level + 1)
+    }
+  }
+  walk(null, 0)
+  return options
 }
 
 function toUnitOption(unit: Pick<UnitOfMeasure, 'id' | 'name' | 'abbreviation'>): CommandSelectOption {
@@ -362,7 +401,7 @@ export function CreateProductForm({
     [defaultUnitId, defaultValues, isUpdateMode, product],
   )
   const categoryOptions = useMemo<CommandSelectOption[]>(
-    () => categories.map(toCategoryOption),
+    () => buildCategoryTreeOptions(categories),
     [categories],
   )
   const unitOptions = useMemo<CommandSelectOption[]>(
@@ -426,33 +465,6 @@ export function CreateProductForm({
     ? t('form.tooltips.track_inventory_disabled_service')
     : t('form.tooltips.track_inventory')
   const fallbackUnitId = product?.unitOfMeasure?.id ?? defaultUnitId ?? ''
-  const loadCategoryOptions = useCallback(
-    async ({ search, page }: { search: string; page: number }) => {
-      if (!businessId) {
-        return {
-          data: [],
-          total: 0,
-          page,
-          limit: 20,
-          totalPages: 1,
-        }
-      }
-
-      const result = await listCategoriesLocal(businessId, {
-        page,
-        limit: 20,
-        sortBy: 'name',
-        sortOrder: 'ASC',
-        search: search || undefined,
-      })
-
-      return {
-        ...result,
-        data: result.data.map(toCategoryOption),
-      }
-    },
-    [businessId],
-  )
   const loadUnitOptions = useCallback(
     async ({ search, page }: { search: string; page: number }) => {
       if (!businessId) {
@@ -823,7 +835,6 @@ export function CreateProductForm({
                       onBlur={field.onBlur}
                       options={categoryOptions}
                       selectedOption={selectedCategoryOption}
-                      loadOptions={loadCategoryOptions}
                       placeholder={t('form.select_category')}
                       searchPlaceholder={t('form.search_categories')}
                       emptyMessage={t('form.no_categories')}

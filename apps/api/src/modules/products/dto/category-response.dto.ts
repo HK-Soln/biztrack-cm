@@ -11,6 +11,9 @@ export class CategoryDto implements ProductCategory {
   icon?: string | null
   imageUrl?: string | null
   sortOrder?: number
+  parentId?: string | null
+  depth?: number
+  isLeaf?: boolean
   isActive?: boolean
   createdAt!: string
   updatedAt!: string
@@ -27,6 +30,9 @@ export class CategoryDto implements ProductCategory {
     dto.icon = entity.icon ?? null
     dto.imageUrl = entity.imageUrl ?? null
     dto.sortOrder = entity.sortOrder
+    dto.parentId = entity.parentId ?? null
+    dto.depth = entity.depth
+    dto.isLeaf = entity.isLeaf
     dto.isActive = entity.isActive
     dto.createdAt = toIsoString(entity.createdAt) ?? ''
     dto.updatedAt = toIsoString(entity.updatedAt) ?? ''
