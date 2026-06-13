@@ -90,6 +90,9 @@ import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
+import { AttributeGroup } from '@/entities/attribute-group.entity'
+import { AttributeOption } from '@/entities/attribute-option.entity'
+import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -329,6 +332,12 @@ export class SyncService {
     private readonly rolesRepo: Repository<Role>,
     @InjectRepository(UnitOfMeasure)
     private readonly unitsRepo: Repository<UnitOfMeasure>,
+    @InjectRepository(AttributeGroup)
+    private readonly attributeGroupsRepo: Repository<AttributeGroup>,
+    @InjectRepository(AttributeOption)
+    private readonly attributeOptionsRepo: Repository<AttributeOption>,
+    @InjectRepository(CategoryAttributeGroup)
+    private readonly categoryAttributeGroupsRepo: Repository<CategoryAttributeGroup>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -490,6 +499,9 @@ export class SyncService {
         expenses,
         teamMembers,
         roles,
+        attributeGroups,
+        attributeOptions,
+        categoryAttributeGroups,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -623,6 +635,30 @@ export class SyncService {
           .andWhere('role.updated_at <= :pulledAt', { pulledAt })
           .orderBy('role.updated_at', 'ASC')
           .getMany(),
+        this.attributeGroupsRepo
+          .createQueryBuilder('group')
+          .withDeleted()
+          .where('group.business_id = :businessId', { businessId })
+          .andWhere('group.updated_at > :since', { since })
+          .andWhere('group.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('group.updated_at', 'ASC')
+          .getMany(),
+        this.attributeOptionsRepo
+          .createQueryBuilder('option')
+          .withDeleted()
+          .where('option.business_id = :businessId', { businessId })
+          .andWhere('option.updated_at > :since', { since })
+          .andWhere('option.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('option.updated_at', 'ASC')
+          .getMany(),
+        this.categoryAttributeGroupsRepo
+          .createQueryBuilder('link')
+          .withDeleted()
+          .where('link.business_id = :businessId', { businessId })
+          .andWhere('link.updated_at > :since', { since })
+          .andWhere('link.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('link.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -660,6 +696,40 @@ export class SyncService {
         roles: roles.map((record) => this.toRoleSyncRecord(record)),
         savingsAccounts: savingsData.accounts.map((record) => this.toSavingsAccountSyncRecord(record)),
         savingsTransactions: savingsData.transactions.map((record) => this.toSavingsTransactionSyncRecord(record)),
+        attributeGroups: attributeGroups.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          name: record.name,
+          displayType: record.displayType,
+          sortOrder: record.sortOrder,
+          isActive: record.isActive,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        attributeOptions: attributeOptions.map((record) => ({
+          id: record.id,
+          groupId: record.groupId,
+          businessId: record.businessId,
+          value: record.value,
+          colorHex: record.colorHex ?? null,
+          sortOrder: record.sortOrder,
+          isActive: record.isActive,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        categoryAttributeGroups: categoryAttributeGroups.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          categoryId: record.categoryId,
+          attributeGroupId: record.attributeGroupId,
+          isRequired: record.isRequired,
+          sortOrder: record.sortOrder,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
       }
 
       return {

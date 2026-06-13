@@ -1329,6 +1329,9 @@ export class SyncService extends EventEmitter {
     const serverRoles = response.changes.roles ?? []
     const serverSavingsAccounts = (response.changes.savingsAccounts ?? []) as SavingsAccountSyncRecord[]
     const serverSavingsTransactions = (response.changes.savingsTransactions ?? []) as SavingsTransactionSyncRecord[]
+    const serverAttributeGroups = response.changes.attributeGroups ?? []
+    const serverAttributeOptions = response.changes.attributeOptions ?? []
+    const serverCategoryAttributeGroups = response.changes.categoryAttributeGroups ?? []
 
     if (serverUnits.length > 0) {
       this.applyUnitOfMeasureChanges(serverUnits)
@@ -1412,6 +1415,18 @@ export class SyncService extends EventEmitter {
 
     for (const record of serverSavingsTransactions) {
       operations.push(this.buildSavingsTransactionUpsertOperation(record))
+    }
+
+    for (const record of serverAttributeGroups) {
+      operations.push(this.buildAttributeGroupUpsertOperation(record))
+    }
+
+    for (const record of serverAttributeOptions) {
+      operations.push(this.buildAttributeOptionUpsertOperation(record))
+    }
+
+    for (const record of serverCategoryAttributeGroups) {
+      operations.push(this.buildCategoryAttributeGroupUpsertOperation(record))
     }
 
     if (operations.length > 0) {
@@ -1893,6 +1908,120 @@ export class SyncService extends EventEmitter {
         data.sortOrder ?? 0,
         data.parentId ?? null,
         data.depth ?? 1,
+      ],
+    }
+  }
+
+  private buildAttributeGroupUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      businessId?: string
+      name?: string
+      displayType?: string
+      sortOrder?: number
+      isActive?: boolean
+    }
+    const deleted = Boolean(data.isDeleted)
+    return {
+      sql: `
+        INSERT INTO attribute_groups (
+          id, business_id, name, display_type, sort_order, is_active, is_deleted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          name = excluded.name,
+          display_type = excluded.display_type,
+          sort_order = excluded.sort_order,
+          is_active = excluded.is_active,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.businessId ?? '',
+        data.name ?? '',
+        data.displayType ?? 'CHIPS',
+        data.sortOrder ?? 0,
+        deleted ? 0 : data.isActive === false ? 0 : 1,
+        deleted ? 1 : 0,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
+      ],
+    }
+  }
+
+  private buildAttributeOptionUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      groupId?: string
+      businessId?: string
+      value?: string
+      colorHex?: string | null
+      sortOrder?: number
+      isActive?: boolean
+    }
+    const deleted = Boolean(data.isDeleted)
+    return {
+      sql: `
+        INSERT INTO attribute_options (
+          id, group_id, business_id, value, color_hex, sort_order, is_active, is_deleted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          group_id = excluded.group_id,
+          business_id = excluded.business_id,
+          value = excluded.value,
+          color_hex = excluded.color_hex,
+          sort_order = excluded.sort_order,
+          is_active = excluded.is_active,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.groupId ?? '',
+        data.businessId ?? '',
+        data.value ?? '',
+        data.colorHex ?? null,
+        data.sortOrder ?? 0,
+        deleted ? 0 : data.isActive === false ? 0 : 1,
+        deleted ? 1 : 0,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
+      ],
+    }
+  }
+
+  private buildCategoryAttributeGroupUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      businessId?: string
+      categoryId?: string
+      attributeGroupId?: string
+      isRequired?: boolean
+      sortOrder?: number
+    }
+    const deleted = Boolean(data.isDeleted)
+    return {
+      sql: `
+        INSERT INTO category_attribute_groups (
+          id, business_id, category_id, attribute_group_id, is_required, sort_order, is_deleted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          category_id = excluded.category_id,
+          attribute_group_id = excluded.attribute_group_id,
+          is_required = excluded.is_required,
+          sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.businessId ?? '',
+        data.categoryId ?? '',
+        data.attributeGroupId ?? '',
+        data.isRequired === false ? 0 : 1,
+        data.sortOrder ?? 0,
+        deleted ? 1 : 0,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
       ],
     }
   }
