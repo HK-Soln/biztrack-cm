@@ -27,6 +27,7 @@ import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { BusinessModule } from '@/modules/business/business.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { RolesModule } from '@/modules/roles/roles.module'
+import { ProductsModule } from '@/modules/products/products.module'
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { RolesModule } from '@/modules/roles/roles.module'
     RedisModule,
     PermissionsModule,
     RolesModule,
+    ProductsModule,
     TypeOrmModule.forFeature([User, RefreshToken, VerificationCode, Business, BusinessMember, PendingInvite]),
     JwtModule.registerAsync({
       inject: [ConfigService],
