@@ -5,6 +5,12 @@ const dotenv = require('dotenv')
 
 const cwd = path.resolve(__dirname, '..')
 dotenv.config({ path: path.join(cwd, '.env') })
+// `pnpm dev` always runs the renderer (and electron) in development mode.
+// A local .env may set NODE_ENV=production (e.g. to point at the prod API),
+// but that must NOT leak into `next dev` — running the dev server in
+// production mode disables Next's dev CSS pipeline and breaks globals.css
+// with "Module parse failed: Unexpected character '@' (@tailwind ...)".
+process.env.NODE_ENV = 'development'
 require('./generate-build-config')
 fs.rmSync(path.join(cwd, 'dist', 'electron'), { recursive: true, force: true })
 
