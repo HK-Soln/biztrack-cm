@@ -395,6 +395,74 @@ export async function createSaleLocal(
           soldAtIso,
         ],
       })
+    } else if (row.product_type === 'COMPOSITE') {
+      // Selling a bundle deducts each component's stock (quantity × per-bundle).
+      const components = await dbQuery<{ component_product_id: string; quantity: number }>(
+        `
+          SELECT component_product_id, quantity
+          FROM product_bundle_components
+          WHERE business_id = ?
+            AND bundle_product_id = ?
+            AND is_deleted = 0
+        `,
+        [normalizedBusinessId, row.id],
+      )
+      const componentRows = await fetchProductRowsByIds(
+        normalizedBusinessId,
+        components.map((component) => component.component_product_id),
+      )
+      const componentRowMap = new Map(componentRows.map((componentRow) => [componentRow.id, componentRow]))
+
+      for (const component of components) {
+        const componentRow = componentRowMap.get(component.component_product_id)
+        if (!componentRow) {
+          throw new SaleLocalError('SALE_PRODUCT_NOT_FOUND')
+        }
+        if (!componentRow.track_inventory) {
+          continue
+        }
+        const level = await ensureInventoryLevel(normalizedBusinessId, componentRow, createdAt)
+        const deductQty = roundQuantity(component.quantity * quantity)
+        const before = roundQuantity(level.quantity)
+        const after = roundQuantity(before - deductQty)
+        if (after < 0) {
+          throw new SaleLocalError('SALE_INSUFFICIENT_STOCK')
+        }
+        operations.push(
+          {
+            sql: `UPDATE inventory_levels SET quantity = ?, updated_at = ? WHERE id = ?`,
+            params: [after, createdAt, level.id],
+          },
+          {
+            sql: `UPDATE products SET stock_quantity = ?, updated_at = ? WHERE id = ?`,
+            params: [after, createdAt, componentRow.id],
+          },
+          {
+            sql: `
+              INSERT INTO inventory_movements (
+                id, business_id, product_id, type, quantity_change, quantity_before,
+                quantity_after, reference_type, reference_id, notes, performed_by_id,
+                performed_by_name, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            params: [
+              crypto.randomUUID(),
+              normalizedBusinessId,
+              componentRow.id,
+              InventoryMovementType.SALE,
+              -deductQty,
+              before,
+              after,
+              'sale',
+              saleId,
+              `Sale ${saleNumber}`,
+              cashierId,
+              cashierName ?? 'Local user',
+              soldAtIso,
+            ],
+          },
+        )
+      }
     }
 
     itemMovementIds.push(movementId)

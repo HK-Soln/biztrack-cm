@@ -95,6 +95,7 @@ import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
+import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -344,6 +345,8 @@ export class SyncService {
     private readonly productVariantsRepo: Repository<ProductVariant>,
     @InjectRepository(ProductVariantOption)
     private readonly productVariantOptionsRepo: Repository<ProductVariantOption>,
+    @InjectRepository(ProductBundleComponent)
+    private readonly productBundleComponentsRepo: Repository<ProductBundleComponent>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -510,6 +513,7 @@ export class SyncService {
         categoryAttributeGroups,
         productVariants,
         productVariantOptions,
+        productBundleComponents,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -683,6 +687,14 @@ export class SyncService {
           .andWhere('vopt.updated_at <= :pulledAt', { pulledAt })
           .orderBy('vopt.updated_at', 'ASC')
           .getMany(),
+        this.productBundleComponentsRepo
+          .createQueryBuilder('bundle')
+          .withDeleted()
+          .where('bundle.business_id = :businessId', { businessId })
+          .andWhere('bundle.updated_at > :since', { since })
+          .andWhere('bundle.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('bundle.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -776,6 +788,17 @@ export class SyncService {
           attributeGroupId: record.attributeGroupId,
           attributeOptionId: record.attributeOptionId,
           businessId: record.businessId,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        productBundleComponents: productBundleComponents.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          bundleProductId: record.bundleProductId,
+          componentProductId: record.componentProductId,
+          quantity: record.quantity,
+          sortOrder: record.sortOrder,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,

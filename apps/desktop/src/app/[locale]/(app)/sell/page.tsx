@@ -55,6 +55,7 @@ import {
   listCategoriesLocal,
   listProductsLocal,
   listUnitOfMeasuresLocal,
+  loadBundleAvailabilityLocal,
   type ProductVariantSelection,
   type SellVariant,
 } from '@/services/products.local'
@@ -960,6 +961,8 @@ export default function SellPage() {
   })
   const [variantDrawerLoading, setVariantDrawerLoading] = useState(false)
   const [quantityModalProduct, setQuantityModalProduct] = useState<Product | null>(null)
+  // productId -> how many bundles can currently be made (COMPOSITE products).
+  const [bundleAvailability, setBundleAvailability] = useState<Record<string, number>>({})
   const [selectedCustomer, setSelectedCustomer] = useState<SellCustomer | null>(null)
   const [cartQuantityInputs, setCartQuantityInputs] = useState<Record<string, string>>({})
   const [saleDiscountLines, setSaleDiscountLines] = useState<SaleDiscountLine[]>([])
@@ -1328,6 +1331,17 @@ export default function SellPage() {
         if (!active) return
         setProducts(productsResult.data)
         setProductCount(productsResult.total)
+
+        // Compute "can make" for composite products from local component stock.
+        const compositeIds = productsResult.data
+          .filter((product) => product.productType === ProductType.COMPOSITE)
+          .map((product) => product.id)
+        if (compositeIds.length > 0) {
+          const availability = await loadBundleAvailabilityLocal(currentBusinessId, compositeIds)
+          if (active) setBundleAvailability(Object.fromEntries(availability))
+        } else if (active) {
+          setBundleAvailability({})
+        }
       } catch {
         if (!active) return
         setProducts([])
@@ -1604,7 +1618,8 @@ export default function SellPage() {
   }
 
   // Tapping a product: variant products open the selector drawer; variable-quantity
-  // products open the decimal quantity entry; others add directly.
+  // products open the decimal quantity entry; composite products add at bundle
+  // price capped by "can make"; others add directly.
   const handleProductTap = (product: Product) => {
     if (product.hasVariants) {
       void openVariantDrawer(product)
@@ -1613,6 +1628,29 @@ export default function SellPage() {
     if (product.productType === ProductType.VARIABLE_QUANTITY) {
       setQuantityModalProduct(product)
       return true
+    }
+    if (product.productType === ProductType.COMPOSITE) {
+      const canMake = bundleAvailability[product.id] ?? 0
+      if (canMake <= 0) {
+        toast.error(copy.errors.SALE_INSUFFICIENT_STOCK)
+        return false
+      }
+      return addCartLine({
+        productId: product.id,
+        variantId: null,
+        variantName: null,
+        productType: ProductType.COMPOSITE,
+        name: product.name,
+        sku: product.sku,
+        price: product.sellingPrice,
+        categoryName: product.category?.name ?? null,
+        unitLabel: product.unitOfMeasure?.abbreviation ?? product.unitOfMeasure?.name ?? null,
+        // Cap the cart quantity at how many bundles can currently be made.
+        trackInventory: true,
+        stock: canMake,
+        lowStockThreshold: null,
+        imageUrl: product.primaryImageUrl ?? product.imageUrl ?? null,
+      })
     }
     return addToCart(product)
   }
@@ -1699,6 +1737,14 @@ export default function SellPage() {
         // Variable-quantity products open the decimal quantity entry.
         if (product.productType === ProductType.VARIABLE_QUANTITY) {
           setQuantityModalProduct(product)
+          return
+        }
+        // Composite products add at bundle price, capped by "can make".
+        if (product.productType === ProductType.COMPOSITE) {
+          const added = handleProductTap(product)
+          if (added) {
+            toast.success(`${product.name} ${copy.productAddedFromScan}`)
+          }
           return
         }
         const wasAdded = addToCart(product)
@@ -2437,7 +2483,10 @@ export default function SellPage() {
               ) : viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                   {products.map((product) => {
-                    const disabled = isTrackedOut(product)
+                    const isComposite = product.productType === ProductType.COMPOSITE
+                    const canMake = isComposite ? bundleAvailability[product.id] ?? 0 : null
+                    const disabled =
+                      isTrackedOut(product) || (canMake !== null && canMake <= 0)
 
                     return (
                       <button
@@ -2480,11 +2529,13 @@ export default function SellPage() {
                             <div className="text-[11px] text-muted-foreground">{copy.currency}</div>
                           </div>
                           <div className="text-right text-[11px] text-muted-foreground">
-                            {product.trackInventory &&
-                            product.currentStock !== null &&
-                            product.currentStock !== undefined
-                              ? `${formatQuantity(product.currentStock)} ${copy.inStock}`
-                              : copy.notTracked}
+                            {isComposite
+                              ? `${canMake} bundles`
+                              : product.trackInventory &&
+                                  product.currentStock !== null &&
+                                  product.currentStock !== undefined
+                                ? `${formatQuantity(product.currentStock)} ${copy.inStock}`
+                                : copy.notTracked}
                           </div>
                         </div>
                       </button>
@@ -2494,7 +2545,10 @@ export default function SellPage() {
               ) : (
                 <div className="space-y-2">
                   {products.map((product) => {
-                    const disabled = isTrackedOut(product)
+                    const isComposite = product.productType === ProductType.COMPOSITE
+                    const canMake = isComposite ? bundleAvailability[product.id] ?? 0 : null
+                    const disabled =
+                      isTrackedOut(product) || (canMake !== null && canMake <= 0)
 
                     return (
                       <button
@@ -2527,11 +2581,13 @@ export default function SellPage() {
                             {formatAmount(product.sellingPrice, copy.localeTag)}
                           </div>
                           <div className="mt-1 text-[11px] text-muted-foreground">
-                            {product.trackInventory &&
-                            product.currentStock !== null &&
-                            product.currentStock !== undefined
-                              ? formatQuantity(product.currentStock)
-                              : copy.notTracked}
+                            {isComposite
+                              ? `${canMake} bundles`
+                              : product.trackInventory &&
+                                  product.currentStock !== null &&
+                                  product.currentStock !== undefined
+                                ? formatQuantity(product.currentStock)
+                                : copy.notTracked}
                           </div>
                         </div>
                       </button>

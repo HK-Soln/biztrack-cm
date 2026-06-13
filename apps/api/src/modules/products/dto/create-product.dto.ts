@@ -21,10 +21,30 @@ const MAX_QUANTITY = 9_999_999
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import {
   ProductType,
+  type CreateBundleComponentRequest,
   type CreateProductRequest,
   type ProductAttributeSelection,
   type VariantOverride,
 } from '@biztrack/types'
+
+export class CreateBundleComponentDto implements CreateBundleComponentRequest {
+  @ApiProperty({ description: 'The stocked product consumed by this bundle.' })
+  @IsUUID()
+  componentProductId!: string
+
+  @ApiProperty({ example: 2, description: 'Units of the component consumed per bundle.' })
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  @Max(MAX_QUANTITY)
+  @Type(() => Number)
+  quantity!: number
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number
+}
 
 export class ProductAttributeSelectionDto implements ProductAttributeSelection {
   @ApiProperty({ description: 'The attribute group these options belong to.' })
@@ -212,4 +232,14 @@ export class CreateProductDto implements CreateProductRequest {
   @ValidateNested({ each: true })
   @Type(() => VariantOverrideDto)
   variantOverrides?: VariantOverrideDto[]
+
+  @ApiPropertyOptional({
+    type: [CreateBundleComponentDto],
+    description: 'Required for COMPOSITE products: the stocked products this bundle consumes.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateBundleComponentDto)
+  bundleComponents?: CreateBundleComponentDto[]
 }

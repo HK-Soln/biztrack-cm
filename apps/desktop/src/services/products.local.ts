@@ -1525,6 +1525,71 @@ export async function getProductVariantsForSaleLocal(
   return { groups, variants }
 }
 
+/**
+ * Compute "how many bundles can be made" for each composite product, from local
+ * component stocks. Drives the sell-screen availability for COMPOSITE products.
+ */
+export async function loadBundleAvailabilityLocal(
+  businessId: string,
+  bundleProductIds: string[],
+): Promise<Map<string, number>> {
+  const normalizedBusinessId = assertBusinessId(businessId)
+  const result = new Map<string, number>()
+  if (bundleProductIds.length === 0) return result
+
+  const placeholders = bundleProductIds.map(() => '?').join(',')
+  const components = await dbQuery<{
+    bundle_product_id: string
+    component_product_id: string
+    quantity: number
+  }>(
+    `
+      SELECT bundle_product_id, component_product_id, quantity
+      FROM product_bundle_components
+      WHERE business_id = ?
+        AND is_deleted = 0
+        AND bundle_product_id IN (${placeholders})
+    `,
+    [normalizedBusinessId, ...bundleProductIds],
+  )
+
+  for (const id of bundleProductIds) result.set(id, 0)
+  if (components.length === 0) return result
+
+  const componentIds = [...new Set(components.map((component) => component.component_product_id))]
+  const stockPlaceholders = componentIds.map(() => '?').join(',')
+  const levels = await dbQuery<{ product_id: string; quantity: number }>(
+    `
+      SELECT product_id, quantity
+      FROM inventory_levels
+      WHERE business_id = ?
+        AND variant_id IS NULL
+        AND product_id IN (${stockPlaceholders})
+    `,
+    [normalizedBusinessId, ...componentIds],
+  )
+  const stockByProduct = new Map(levels.map((level) => [level.product_id, Number(level.quantity)]))
+
+  const componentsByBundle = new Map<string, typeof components>()
+  for (const component of components) {
+    const list = componentsByBundle.get(component.bundle_product_id) ?? []
+    list.push(component)
+    componentsByBundle.set(component.bundle_product_id, list)
+  }
+
+  for (const [bundleId, bundleComponents] of componentsByBundle) {
+    let min = Infinity
+    for (const component of bundleComponents) {
+      const stock = stockByProduct.get(component.component_product_id) ?? 0
+      const canMake = component.quantity > 0 ? Math.floor(stock / component.quantity) : 0
+      if (canMake < min) min = canMake
+    }
+    result.set(bundleId, min === Infinity ? 0 : min)
+  }
+
+  return result
+}
+
 export async function listUnitOfMeasuresLocal(
   businessId: string,
   query: LocalUnitOfMeasuresQuery = { page: 1, limit: 100 },

@@ -1334,6 +1334,7 @@ export class SyncService extends EventEmitter {
     const serverCategoryAttributeGroups = response.changes.categoryAttributeGroups ?? []
     const serverProductVariants = response.changes.productVariants ?? []
     const serverProductVariantOptions = response.changes.productVariantOptions ?? []
+    const serverProductBundleComponents = response.changes.productBundleComponents ?? []
 
     if (serverUnits.length > 0) {
       this.applyUnitOfMeasureChanges(serverUnits)
@@ -1437,6 +1438,10 @@ export class SyncService extends EventEmitter {
 
     for (const record of serverProductVariantOptions) {
       operations.push(this.buildProductVariantOptionUpsertOperation(record))
+    }
+
+    for (const record of serverProductBundleComponents) {
+      operations.push(this.buildProductBundleComponentUpsertOperation(record))
     }
 
     if (operations.length > 0) {
@@ -2124,6 +2129,43 @@ export class SyncService extends EventEmitter {
         data.attributeGroupId ?? '',
         data.attributeOptionId ?? '',
         data.businessId ?? '',
+        deleted ? 1 : 0,
+        data.createdAt ?? data.updatedAt,
+        data.updatedAt,
+      ],
+    }
+  }
+
+  private buildProductBundleComponentUpsertOperation(record: SyncRecord) {
+    const data = record as SyncRecord & {
+      businessId?: string
+      bundleProductId?: string
+      componentProductId?: string
+      quantity?: number
+      sortOrder?: number
+    }
+    const deleted = Boolean(data.isDeleted)
+    return {
+      sql: `
+        INSERT INTO product_bundle_components (
+          id, business_id, bundle_product_id, component_product_id, quantity, sort_order, is_deleted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          business_id = excluded.business_id,
+          bundle_product_id = excluded.bundle_product_id,
+          component_product_id = excluded.component_product_id,
+          quantity = excluded.quantity,
+          sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at
+      `,
+      params: [
+        data.id,
+        data.businessId ?? '',
+        data.bundleProductId ?? '',
+        data.componentProductId ?? '',
+        data.quantity ?? 1,
+        data.sortOrder ?? 0,
         deleted ? 1 : 0,
         data.createdAt ?? data.updatedAt,
         data.updatedAt,

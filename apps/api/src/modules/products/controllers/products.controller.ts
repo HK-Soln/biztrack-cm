@@ -14,6 +14,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
 import type {
+  BundleAvailability,
   JwtPayload,
   LowStockProduct,
   PaginatedResult,
@@ -133,6 +134,16 @@ export class ProductsController {
         await this.productsService.assignBarcode(id, user.businessId as string, dto),
       ),
     )
+  }
+
+  @Get(':id/bundle-availability')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'How many bundles a composite product can currently make' })
+  getBundleAvailability(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<BundleAvailability> {
+    return this.productsService.getBundleAvailability(id, user.businessId as string)
   }
 
   @Get(':id')
