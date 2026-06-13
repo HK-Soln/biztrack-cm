@@ -6,6 +6,7 @@ import {
   DebtDirection,
   DebtSource,
   PaymentMethod,
+  ProductType,
   SaleStatus,
   type CashierShiftSummary,
   type DailySalesSummary,
@@ -966,6 +967,16 @@ export class SalesService {
             'VARIANT_NOT_FOUND',
           )
         }
+      }
+
+      // Only VARIABLE_QUANTITY products may be sold in fractional amounts.
+      if (product.productType !== ProductType.VARIABLE_QUANTITY && !Number.isInteger(item.quantity)) {
+        throw new AppBadRequestException(
+          await this.i18n.translate('errors.quantity_must_be_integer', {
+            args: { name: product.name },
+          }),
+          'QUANTITY_MUST_BE_INTEGER',
+        )
       }
     }
 

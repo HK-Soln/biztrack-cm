@@ -1676,6 +1676,7 @@ export class SyncService extends EventEmitter {
       isService?: boolean
       trackInventory?: boolean
       hasVariants?: boolean
+      productType?: string
       categoryId?: string | null
       unitOfMeasureId?: string | null
       imageUrl?: string | null
@@ -1716,8 +1717,9 @@ export class SyncService extends EventEmitter {
           reorder_point,
           unit_of_measure_id,
           created_by_id,
-          has_variants
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 'qty', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+          has_variants,
+          product_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 'qty', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           business_id = excluded.business_id,
           name = excluded.name,
@@ -1740,7 +1742,8 @@ export class SyncService extends EventEmitter {
           is_barcode_generated = excluded.is_barcode_generated,
           unit_of_measure_id = excluded.unit_of_measure_id,
           created_by_id = excluded.created_by_id,
-          has_variants = excluded.has_variants
+          has_variants = excluded.has_variants,
+          product_type = excluded.product_type
       `,
       params: [
         data.id,
@@ -1767,6 +1770,7 @@ export class SyncService extends EventEmitter {
         data.unitOfMeasureId ?? null,
         data.createdById ?? null,
         data.hasVariants ? 1 : 0,
+        data.productType ?? 'SIMPLE',
       ],
     }
   }

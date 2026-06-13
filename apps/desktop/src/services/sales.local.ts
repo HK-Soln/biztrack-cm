@@ -181,6 +181,7 @@ export class SaleLocalError extends Error {
       | 'SALE_PRODUCT_NOT_FOUND'
       | 'SALE_PRODUCT_INACTIVE'
       | 'SALE_INSUFFICIENT_STOCK'
+      | 'SALE_QUANTITY_MUST_BE_INTEGER'
       | 'SALE_PAYMENT_REQUIRED'
       | 'SALE_PAYMENT_AMOUNT_INVALID'
       | 'SALE_PAYMENT_METHOD_INVALID'
@@ -243,6 +244,10 @@ export async function createSaleLocal(
     }
 
     const quantity = roundQuantity(input.quantity)
+    // Only VARIABLE_QUANTITY products may be sold in fractional amounts.
+    if (row.product_type !== 'VARIABLE_QUANTITY' && !Number.isInteger(quantity)) {
+      throw new SaleLocalError('SALE_QUANTITY_MUST_BE_INTEGER')
+    }
     const unitPrice = roundMoney(input.unitPrice)
     const itemDiscountAmount = roundMoney(input.discountAmount ?? 0)
     const lineTotal = roundMoney(Math.max(0, unitPrice * quantity - itemDiscountAmount))

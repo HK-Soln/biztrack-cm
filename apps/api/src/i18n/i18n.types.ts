@@ -89,6 +89,7 @@ export interface I18nTranslations {
     variant_min_two: string
     variant_required: string
     variant_not_found: string
+    quantity_must_be_integer: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string

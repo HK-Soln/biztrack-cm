@@ -45,6 +45,7 @@
   "variant_min_two": "Un produit avec variantes doit avoir au moins 2 variantes.",
   "variant_required": "Selectionnez une variante pour \"{name}\".",
   "variant_not_found": "La variante selectionnee n'est pas disponible.",
+  "quantity_must_be_integer": "\"{name}\" ne peut etre vendu qu'en unites entieres.",
   "inventory_not_found": "Enregistrement d'inventaire introuvable.",
   "inventory_insufficient_stock": "Stock insuffisant pour cet ajustement.",
   "insufficient_stock": "Stock insuffisant pour {name} : {available} disponible(s), {requested} demande(s).",

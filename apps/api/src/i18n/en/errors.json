@@ -45,6 +45,7 @@
   "variant_min_two": "A product with variants must have at least 2 variants.",
   "variant_required": "Select a variant for \"{name}\".",
   "variant_not_found": "The selected variant is not available.",
+  "quantity_must_be_integer": "\"{name}\" can only be sold in whole units.",
   "inventory_not_found": "Inventory record not found.",
   "inventory_insufficient_stock": "Not enough stock available for this adjustment.",
   "insufficient_stock": "Insufficient stock for {name}: {available} available, {requested} requested.",
