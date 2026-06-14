@@ -110,6 +110,13 @@ export interface PublicProductVariant {
   attributes: Array<{ groupName: string; optionValue: string; colorHex?: string | null }>
 }
 
+export interface PublicProductsQuery {
+  page?: number
+  limit?: number
+  categoryId?: string
+  search?: string
+}
+
 export interface PublicProductListItem {
   id: string
   name: string
@@ -129,4 +136,127 @@ export interface PublicProductDetail extends PublicProductListItem {
   metaDescription?: string | null
   images: string[]
   variants: PublicProductVariant[]
+}
+
+// ---- Cart, orders, events (Phase 3I part 2) --------------------------------
+
+export interface OnlineCartItem {
+  productId: string
+  variantId?: string | null
+  serialUnitId?: string | null
+  quantity: number
+  unitPrice: number
+  productName: string
+  variantName?: string | null
+}
+
+export interface OnlineCart {
+  sessionToken: string
+  items: OnlineCartItem[]
+  subtotal: number
+  customerName?: string | null
+  customerPhone?: string | null
+  customerEmail?: string | null
+  notes?: string | null
+}
+
+export interface AddCartItemRequest {
+  productId: string
+  variantId?: string
+  serialUnitId?: string
+  quantity: number
+}
+
+export interface UpdateCartItemRequest {
+  quantity: number
+}
+
+export type OnlineFulfillmentType = 'DELIVERY' | 'PICKUP'
+
+export type OnlineOrderStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'PREPARING'
+  | 'DISPATCHED'
+  | 'DELIVERED'
+  | 'CANCELLED'
+  | 'REFUNDED'
+
+export type OnlinePaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
+
+export type OnlineOrderEventType =
+  | 'ORDER_PLACED'
+  | 'PAYMENT_INITIATED'
+  | 'PAYMENT_RECEIVED'
+  | 'PAYMENT_FAILED'
+  | 'ORDER_CONFIRMED'
+  | 'PREPARATION_STARTED'
+  | 'ORDER_DISPATCHED'
+  | 'ORDER_DELIVERED'
+  | 'ORDER_CANCELLED'
+  | 'ORDER_REFUNDED'
+  | 'NOTE_ADDED'
+  | 'DELIVERY_ATTEMPTED'
+
+export interface CheckoutRequest {
+  customerName: string
+  customerPhone: string
+  customerEmail?: string
+  fulfillmentType?: OnlineFulfillmentType
+  deliveryAddress?: string
+  deliveryCity?: string
+  deliveryNotes?: string
+  notes?: string
+  paymentMethod?: string
+}
+
+export interface OnlineOrderEvent {
+  id: string
+  eventType: OnlineOrderEventType
+  fromStatus?: string | null
+  toStatus?: string | null
+  isCustomerVisible: boolean
+  customerMessage?: string | null
+  createdAt: IsoDateString
+}
+
+export interface OnlineOrder {
+  id: string
+  onlineStoreId: string
+  saleId?: string | null
+  orderNumber: string
+  trackingToken: string
+  customerName: string
+  customerEmail?: string | null
+  customerPhone?: string | null
+  fulfillmentType: OnlineFulfillmentType
+  deliveryAddress?: string | null
+  deliveryCity?: string | null
+  deliveryNotes?: string | null
+  status: OnlineOrderStatus
+  paymentMethod?: string | null
+  paymentStatus: OnlinePaymentStatus
+  items?: OnlineCartItem[]
+  totalAmount: number
+  createdAt?: IsoDateString
+  confirmedAt?: IsoDateString | null
+  dispatchedAt?: IsoDateString | null
+  deliveredAt?: IsoDateString | null
+}
+
+export interface UpdateOrderStatusRequest {
+  status: OnlineOrderStatus
+  internalNote?: string
+  customerMessage?: string
+}
+
+/** Public tracking page payload (no auth, by tracking token). */
+export interface PublicOrderTracking {
+  orderNumber: string
+  status: OnlineOrderStatus
+  customerName: string
+  totalAmount: number
+  currency: string
+  fulfillmentType: OnlineFulfillmentType
+  events: OnlineOrderEvent[]
 }
