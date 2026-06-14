@@ -522,6 +522,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.62.7
         version: 5.101.0(react@19.2.4)
+      bcryptjs:
+        specifier: ^2.4.3
+        version: 2.4.3
       better-sqlite3:
         specifier: ^11.7.0
         version: 11.10.0
@@ -547,6 +550,9 @@ importers:
       '@electron/rebuild':
         specifier: 3.6.1
         version: 3.6.1
+      '@types/bcryptjs':
+        specifier: ^2.4.6
+        version: 2.4.6
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13

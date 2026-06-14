@@ -1,13 +1,54 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Input } from '@biztrack/ui/biztrack'
+import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
+import type { MessageKey } from '@/i18n/messages'
+import { useSessionStore } from '@/stores/session.store'
+import { signInSchema, type SignInMode } from '@/lib/schemas'
 
-// Sign-in form (presentational for now — real auth lands with the auth module).
+// Feature 1: minimally wired to the BFF (password login) so the auth gate works
+// end-to-end. The full designed sign-in (OTP/"SSO" tabs, offline) is Feature 2.
 export function SignIn() {
   const navigate = useNavigate()
   const t = useT()
+  const setStatus = useSessionStore((s) => s.setStatus)
+
+  const [mode, setMode] = useState<SignInMode>('email')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState<string | undefined>(undefined)
+  const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<{ identifier?: MessageKey; password?: MessageKey }>({})
+  const [serverError, setServerError] = useState<string | null>(null)
+
+  const identifier = mode === 'email' ? email.trim() : (phone ?? '')
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setServerError(null)
+    const parsed = signInSchema(mode).safeParse({ identifier, password })
+    if (!parsed.success) {
+      const f = parsed.error.flatten().fieldErrors
+      setErrors({
+        identifier: f.identifier?.[0] as MessageKey | undefined,
+        password: f.password?.[0] as MessageKey | undefined,
+      })
+      return
+    }
+    setErrors({})
+    if (busy || !window.api?.auth) return
+    setBusy(true)
+    const res = await window.api.auth.login(identifier, password)
+    setBusy(false)
+    if (!res.ok) {
+      setServerError(res.error ?? 'Sign in failed.')
+      return
+    }
+    setStatus(res.session)
+    if (res.session.authenticated) navigate('/')
+    else setServerError('Signed in — business selection screen is coming next.')
+  }
 
   return (
     <div className="auth-card">
@@ -20,27 +61,60 @@ export function SignIn() {
         <p>{t('auth.signinSub')}</p>
       </div>
 
-      <form
-        className="fform"
-        onSubmit={(e) => {
-          e.preventDefault()
-          navigate('/')
-        }}
-      >
-        <div className="ff">
+      <form className="fform" onSubmit={submit}>
+        <div className={`ff${errors.identifier ? ' invalid' : ''}`}>
           <label className="lbl2" htmlFor="i-id">
-            {t('auth.emailOrPhone')}
+            {mode === 'email' ? t('auth.email') : t('auth.phone')}
+            <button
+              type="button"
+              className="opt"
+              style={{ color: 'var(--brand-int)', background: 'none', border: 0, cursor: 'pointer' }}
+              onClick={() => {
+                setMode((m) => (m === 'email' ? 'phone' : 'email'))
+                setErrors((e) => ({ ...e, identifier: undefined }))
+              }}
+            >
+              {mode === 'email' ? t('auth.usePhoneInstead') : t('auth.useEmailInstead')}
+            </button>
           </label>
-          <div className="inwrap has-lead">
-            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="m3 7 9 6 9-6" />
-            </svg>
-            <Input id="i-id" placeholder="you@shop.cm · 6 91 22 14 08" />
-          </div>
+
+          {mode === 'email' ? (
+            <div className="inwrap has-lead">
+              <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m3 7 9 6 9-6" />
+              </svg>
+              <Input
+                id="i-id"
+                type="email"
+                placeholder="you@shop.cm"
+                value={email}
+                error={!!errors.identifier}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          ) : (
+            <PhoneInput
+              id="i-id"
+              value={phone}
+              onChange={setPhone}
+              error={!!errors.identifier}
+              placeholder="6 91 22 14 08"
+            />
+          )}
+
+          {errors.identifier ? (
+            <div className="msg err">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v5M12 16h.01" />
+              </svg>
+              <span>{t(errors.identifier)}</span>
+            </div>
+          ) : null}
         </div>
 
-        <div className="ff">
+        <div className={`ff${errors.password ? ' invalid' : ''}`}>
           <label className="lbl2" htmlFor="i-pw">
             {t('auth.password')}
             <a className="opt" href="#" style={{ color: 'var(--brand-int)', textDecoration: 'none' }}>
@@ -52,7 +126,14 @@ export function SignIn() {
               <rect x="4" y="11" width="16" height="9" rx="2" />
               <path d="M8 11V8a4 4 0 0 1 8 0v3" />
             </svg>
-            <Input id="i-pw" type={showPw ? 'text' : 'password'} placeholder="••••••••" />
+            <Input
+              id="i-pw"
+              type={showPw ? 'text' : 'password'}
+              placeholder="••••••••"
+              value={password}
+              error={!!errors.password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
             <span className="trail">
               <button type="button" className="eye" aria-label="Show password" onClick={() => setShowPw((v) => !v)}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -62,7 +143,22 @@ export function SignIn() {
               </button>
             </span>
           </div>
+          {errors.password ? (
+            <div className="msg err">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v5M12 16h.01" />
+              </svg>
+              <span>{t(errors.password)}</span>
+            </div>
+          ) : null}
         </div>
+
+        {serverError ? (
+          <p style={{ color: 'var(--danger)', fontSize: 12.5 }} role="alert">
+            {serverError}
+          </p>
+        ) : null}
 
         <label className="chk" style={{ marginTop: 2 }}>
           <input type="checkbox" defaultChecked />
@@ -74,24 +170,27 @@ export function SignIn() {
           <span>{t('auth.keepSignedIn')}</span>
         </label>
 
-        <Button type="submit" variant="primary" block>
+        <Button type="submit" variant="primary" block loading={busy}>
           {t('auth.signIn')}
         </Button>
       </form>
 
-      <div className="or">{t('auth.orContinue')}</div>
+      <div className="or">{t('auth.or')}</div>
       <div className="oauth">
+        {/* Passwordless ("SSO"): channel picker (Email / SMS / WhatsApp) → OTP. */}
         <button type="button">
-          <span className="g mtn">M</span>
-          {t('auth.continueMtn')}
-        </button>
-        <button type="button">
-          <span className="g" style={{ background: '#4285F4' }}>
-            G
+          <span className="g" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={2}>
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="m3 8 9 5 9-5" />
+            </svg>
           </span>
-          {t('auth.continueGoogle')}
+          {t('auth.useOneTimeCode')}
         </button>
       </div>
+      <p style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8 }}>
+        {t('auth.oneTimeCodeHint')}
+      </p>
 
       <div className="auth-foot">
         {t('auth.newToBiztrack')} <a href="#">{t('auth.createBusiness')}</a>

@@ -14,6 +14,20 @@ const api: BridgeApi = {
   window: {
     setTitleBarOverlay: (colors) => ipcRenderer.send(IPC.titlebarSetOverlay, colors),
   },
+  auth: {
+    getSession: () => ipcRenderer.invoke(IPC.authGetSession),
+    login: (identifier, password) => ipcRenderer.invoke(IPC.authLogin, identifier, password),
+    requestLogin: (identifier, channel) => ipcRenderer.invoke(IPC.authRequestLogin, identifier, channel),
+    loginOtp: (identifier, code) => ipcRenderer.invoke(IPC.authLoginOtp, identifier, code),
+    verifyPhone: (phone, code) => ipcRenderer.invoke(IPC.authVerifyPhone, phone, code),
+    verifyEmail: (email, code) => ipcRenderer.invoke(IPC.authVerifyEmail, email, code),
+    resendOtp: (identifier, type, channel) => ipcRenderer.invoke(IPC.authResendOtp, identifier, type, channel),
+    register: (payload) => ipcRenderer.invoke(IPC.authRegister, payload),
+    selectBusiness: (businessId) => ipcRenderer.invoke(IPC.authSelectBusiness, businessId),
+    listBusinesses: () => ipcRenderer.invoke(IPC.authListBusinesses),
+    offlineLogin: (password) => ipcRenderer.invoke(IPC.authOfflineLogin, password),
+    logout: () => ipcRenderer.invoke(IPC.authLogout),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)
