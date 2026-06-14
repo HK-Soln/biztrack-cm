@@ -7,15 +7,17 @@ import { registerIpc } from './ipc'
 
 const TITLEBAR_HEIGHT = 64
 
-// The renderer reports the resolved top-bar colours (palette + mode aware) so the
-// native window controls (− □ ×) blend with the header. Fallbacks are the Deep Ink
-// Blue defaults used before the renderer reports in.
+// The caption-button band uses a TRANSPARENT background so the real header pixels
+// show through — it matches any palette / light-dark with zero colour computation.
+// Only the symbol (− □ ×) colour needs syncing for contrast; the renderer reports
+// the resolved --foreground, with an OS-theme fallback before it reports in.
+const TRANSPARENT = '#00000000'
 let overlayColors: TitleBarOverlayColors | null = null
 
 function getTitleBarOverlayOptions() {
   const isDark = nativeTheme.shouldUseDarkColors
   return {
-    color: overlayColors?.color ?? (isDark ? '#161D2B' : '#FFFFFF'),
+    color: TRANSPARENT,
     symbolColor: overlayColors?.symbolColor ?? (isDark ? '#FFFFFF' : '#1A1A1A'),
     height: TITLEBAR_HEIGHT,
   }
@@ -85,7 +87,7 @@ app.whenReady().then(() => {
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {
-    if (!colors?.color || !colors?.symbolColor) return
+    if (!colors?.symbolColor) return
     overlayColors = colors
     applyOverlayToAllWindows()
   })
