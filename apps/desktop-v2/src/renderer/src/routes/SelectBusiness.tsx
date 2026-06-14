@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
@@ -27,7 +27,6 @@ export function SelectBusiness() {
   const [businesses, setBusinesses] = useState<BusinessOption[] | null>(null)
   const [selecting, setSelecting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const autoTried = useRef(false)
 
   const select = async (id: string) => {
     if (selecting || !window.api?.auth) return
@@ -49,19 +48,14 @@ export function SelectBusiness() {
       setBusinesses([])
       return
     }
+    // Show the picker and wait for an explicit choice (matches v1) — never
+    // auto-select, so the user is never silently routed off this screen.
     void window.api.auth.listBusinesses().then((list) => {
-      if (!active) return
-      setBusinesses(list)
-      // One business → skip the picker and open it straight away.
-      if (list.length === 1 && !autoTried.current) {
-        autoTried.current = true
-        void select(list[0]!.id)
-      }
+      if (active) setBusinesses(list)
     })
     return () => {
       active = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const roleLabel = (role: string | null): string =>
