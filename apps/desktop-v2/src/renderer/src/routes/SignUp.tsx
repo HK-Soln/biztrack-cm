@@ -5,6 +5,7 @@ import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { passwordStrength, signUpSchema } from '@/lib/schemas'
+import { routeForNextStep } from '@/lib/auth-routing'
 
 type Step = 'form' | 'verify'
 type FieldErrors = Partial<
@@ -91,8 +92,7 @@ export function SignUp() {
       return
     }
     setStatus(res.session)
-    if (res.session.authenticated) navigate('/')
-    else setServerError('Account created — onboarding screen is coming next.')
+    navigate(routeForNextStep(res.nextStep))
   }
 
   const resend = async () => {

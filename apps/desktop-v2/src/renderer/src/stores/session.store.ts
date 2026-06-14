@@ -8,6 +8,7 @@ const EMPTY: SessionStatus = {
   user: null,
   businessId: null,
   businessName: null,
+  nextStep: null,
 }
 
 interface SessionState {

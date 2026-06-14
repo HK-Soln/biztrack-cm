@@ -14,6 +14,7 @@ export interface CachedUser {
   phone: string | null
   role: string | null
   businessId: string | null
+  onboardingStep: string | null
 }
 
 /**
@@ -27,13 +28,14 @@ export class LocalCache {
   saveUser(user: CachedUser & { language?: string | null }): void {
     const now = new Date().toISOString()
     this.db.run(
-      `INSERT INTO local_user_profiles (id, name, email, phone, role, business_id, language, saved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO local_user_profiles (id, name, email, phone, role, business_id, onboarding_step, language, saved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name=excluded.name, email=excluded.email, phone=excluded.phone,
          role=excluded.role, business_id=excluded.business_id,
+         onboarding_step=excluded.onboarding_step,
          language=excluded.language, saved_at=excluded.saved_at`,
-      [user.id, user.name, user.email, user.phone, user.role, user.businessId, user.language ?? null, now],
+      [user.id, user.name, user.email, user.phone, user.role, user.businessId, user.onboardingStep, user.language ?? null, now],
     )
   }
 
@@ -45,9 +47,21 @@ export class LocalCache {
       phone: string | null
       role: string | null
       business_id: string | null
-    }>('SELECT id, name, email, phone, role, business_id FROM local_user_profiles WHERE id = ?', [id])
+      onboarding_step: string | null
+    }>(
+      'SELECT id, name, email, phone, role, business_id, onboarding_step FROM local_user_profiles WHERE id = ?',
+      [id],
+    )
     if (!row) return null
-    return { id: row.id, name: row.name, email: row.email, phone: row.phone, role: row.role, businessId: row.business_id }
+    return {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+      role: row.role,
+      businessId: row.business_id,
+      onboardingStep: row.onboarding_step,
+    }
   }
 
   saveBusinesses(userId: string, list: Array<{ id: string; name: string; currency?: string | null; role?: string | null }>): void {

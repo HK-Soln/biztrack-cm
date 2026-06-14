@@ -132,6 +132,13 @@ export const en = {
   'verify.title': 'Verify your phone',
   'verify.sentTo': 'We sent a 6-digit code to',
   'verify.verify': 'Verify',
+
+  'onboarding.selectBusiness': 'Select a business',
+  'onboarding.setupBusiness': 'Set up your business',
+  'onboarding.selectPlan': 'Choose a plan',
+  'onboarding.addFirstProduct': 'Add your first product',
+  'onboarding.comingSoon': 'This screen is coming next — building it now.',
+  'onboarding.signOut': 'Sign out',
 }
 
 export type MessageKey = keyof typeof en
@@ -269,6 +276,13 @@ export const fr: Record<MessageKey, string> = {
   'verify.title': 'Vérifiez votre téléphone',
   'verify.sentTo': 'Code à 6 chiffres envoyé à',
   'verify.verify': 'Vérifier',
+
+  'onboarding.selectBusiness': 'Sélectionnez une entreprise',
+  'onboarding.setupBusiness': 'Configurez votre entreprise',
+  'onboarding.selectPlan': 'Choisissez un forfait',
+  'onboarding.addFirstProduct': 'Ajoutez votre premier produit',
+  'onboarding.comingSoon': 'Cet écran arrive bientôt — en cours de construction.',
+  'onboarding.signOut': 'Se déconnecter',
 }
 
 export const catalogs = { en, fr }

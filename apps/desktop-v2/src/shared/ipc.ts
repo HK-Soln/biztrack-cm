@@ -35,13 +35,18 @@ export interface SessionUser {
 }
 
 export interface SessionStatus {
-  /** True only when a phase2 (business-scoped) session is active. */
+  /** True only when a phase2 (business-scoped) session is active. NOTE: this is NOT
+   * the same as "ready for dashboard" — a phase2 user may still be mid-onboarding.
+   * Routing must use `nextStep`. */
   authenticated: boolean
   phase: AuthPhase
   isOffline: boolean
   user: SessionUser | null
   businessId: string | null
   businessName: string | null
+  /** The AuthNextStep that drives routing: which screen this session should be on
+   * (e.g. 'select_business', 'setup_business', 'dashboard'). null = signed out. */
+  nextStep: string | null
 }
 
 export interface AuthContextInfo {

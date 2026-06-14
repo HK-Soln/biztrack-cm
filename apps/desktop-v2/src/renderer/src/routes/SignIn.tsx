@@ -5,6 +5,7 @@ import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { signInSchema, type SignInMode } from '@/lib/schemas'
+import { routeForNextStep } from '@/lib/auth-routing'
 
 // Feature 1: minimally wired to the BFF (password login) so the auth gate works
 // end-to-end. The full designed sign-in (OTP/"SSO" tabs, offline) is Feature 2.
@@ -46,8 +47,7 @@ export function SignIn() {
       return
     }
     setStatus(res.session)
-    if (res.session.authenticated) navigate('/')
-    else setServerError('Signed in — business selection screen is coming next.')
+    navigate(routeForNextStep(res.nextStep))
   }
 
   return (
