@@ -8,7 +8,21 @@ const makeService = (opts: {
   levels?: Array<{ productId: string; quantity: number }>
 }) => {
   const storesRepo = { findOne: jest.fn().mockResolvedValue(opts.store ?? null) }
-  const productsRepo = { find: jest.fn().mockResolvedValue(opts.products ?? []), findOne: jest.fn() }
+  const productsQb = {
+    leftJoinAndSelect: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getManyAndCount: jest.fn().mockResolvedValue([opts.products ?? [], (opts.products ?? []).length]),
+  }
+  const productsRepo = {
+    find: jest.fn().mockResolvedValue(opts.products ?? []),
+    findOne: jest.fn(),
+    createQueryBuilder: jest.fn(() => productsQb),
+  }
   const inventoryRepo = { find: jest.fn().mockResolvedValue(opts.levels ?? []) }
   const imagesRepo = { find: jest.fn().mockResolvedValue([]) }
   const serialUnitsRepo = { createQueryBuilder: jest.fn() }
@@ -76,7 +90,8 @@ describe('PublicStorefrontService', () => {
 
     const result = await service.listProducts('akwa')
     // p1: 5 - 2 = 3 in stock (shown); p2: 0 (hidden, showOutOfStock = false)
-    expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ id: 'p1', inStock: 3 })
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]).toMatchObject({ id: 'p1', inStock: 3 })
+    expect(result.total).toBe(2)
   })
 })

@@ -4,8 +4,10 @@ import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import type {
   CategoryTreeResponse,
+  PaginatedResult,
   PublicProductDetail,
   PublicProductListItem,
+  PublicProductsQuery,
   PublicProductVariant,
   PublicStore,
 } from '@biztrack/types'
@@ -43,24 +45,44 @@ export class PublicStorefrontService {
     return this.toPublicStore(store)
   }
 
-  async listProducts(slug: string): Promise<PublicProductListItem[]> {
+  async listProducts(
+    slug: string,
+    query: PublicProductsQuery = {},
+  ): Promise<PaginatedResult<PublicProductListItem>> {
     const store = await this.requireStore(slug)
-    const products = await this.productsRepo.find({
-      where: {
-        businessId: store.businessId,
-        isPublishedOnline: true,
-        isActive: true,
-        deletedAt: IsNull(),
-      },
-      relations: ['category'],
-      order: { onlineSortOrder: 'ASC', name: 'ASC' },
-    })
-    if (products.length === 0) return []
+    const page = Math.max(query.page ?? 1, 1)
+    const limit = Math.min(Math.max(query.limit ?? 24, 1), 100)
+
+    // Paginate at the DB level — never load the whole catalogue.
+    const qb = this.productsRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .where('product.business_id = :businessId', { businessId: store.businessId })
+      .andWhere('product.is_published_online = true')
+      .andWhere('product.is_active = true')
+      .andWhere('product.deleted_at IS NULL')
+
+    if (query.categoryId) {
+      qb.andWhere('product.category_id = :categoryId', { categoryId: query.categoryId })
+    }
+    if (query.search) {
+      qb.andWhere('LOWER(product.name) LIKE LOWER(:search)', { search: `%${query.search}%` })
+    }
+
+    const [products, total] = await qb
+      .orderBy('product.online_sort_order', 'ASC')
+      .addOrderBy('product.name', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount()
 
     const stockByProduct = await this.resolveStock(store.businessId, products)
-    return products
+    // Out-of-stock hiding applies within the page; pagination keeps the request bounded.
+    const data = products
       .map((product) => this.toListItem(product, store.currency, stockByProduct.get(product.id) ?? 0))
       .filter((item) => store.showOutOfStock || item.inStock > 0 || item.hasVariants)
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
   async getProduct(slug: string, productSlug: string): Promise<PublicProductDetail> {

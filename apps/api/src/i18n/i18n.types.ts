@@ -100,6 +100,10 @@ export interface I18nTranslations {
     serial_unit_variant_mismatch: string
     online_store_exists: string
     online_store_not_found: string
+    online_cart_not_found: string
+    online_cart_empty: string
+    online_order_not_found: string
+    online_min_order_not_met: string
     inventory_not_found: string
     inventory_insufficient_stock: string
     insufficient_stock: string
