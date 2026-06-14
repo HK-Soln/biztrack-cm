@@ -9,6 +9,9 @@ export function AuthShell() {
   const lang = useLangStore((s) => s.lang)
   return (
     <div id="auth" data-layout="split" data-lang={lang}>
+      <main className="auth-main">
+        <Outlet />
+      </main>
       <aside className="auth-brand app-drag">
         <span className="bcorner" />
         <span className="bcorner2" />
@@ -43,9 +46,6 @@ export function AuthShell() {
           <div className="ft">{t('auth.trusted')}</div>
         </div>
       </aside>
-      <main className="auth-main">
-        <Outlet />
-      </main>
     </div>
   )
 }

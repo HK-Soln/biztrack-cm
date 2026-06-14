@@ -5,6 +5,7 @@ import { RequireAuth, RequireGuest } from '@/components/RouteGuards'
 import { Dashboard } from '@/routes/Dashboard'
 import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
+import { Sso } from '@/routes/Sso'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -15,7 +16,10 @@ export const router = createHashRouter([
         <AuthShell />
       </RequireGuest>
     ),
-    children: [{ path: '/signin', element: <SignIn /> }],
+    children: [
+      { path: '/signin', element: <SignIn /> },
+      { path: '/sso', element: <Sso /> },
+    ],
   },
   {
     element: (
