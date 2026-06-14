@@ -143,6 +143,19 @@ export const en = {
   'onboarding.addFirstProduct': 'Add your first product',
   'onboarding.comingSoon': 'This screen is coming next — building it now.',
   'onboarding.signOut': 'Sign out',
+
+  'selectBiz.eyebrow': 'Almost there',
+  'selectBiz.title': 'Choose a business',
+  'selectBiz.subtitle': 'Pick which business to open on this device.',
+  'selectBiz.loading': 'Loading your businesses…',
+  'selectBiz.empty': "You don't belong to any business yet. Create one to get started.",
+  'selectBiz.createBusiness': 'Create a business',
+  'selectBiz.error': 'Could not open that business. Please try again.',
+  'selectBiz.role.owner': 'Owner',
+  'selectBiz.role.manager': 'Manager',
+  'selectBiz.role.cashier': 'Cashier',
+  'selectBiz.role.accountant': 'Accountant',
+  'selectBiz.role.member': 'Member',
 }
 
 export type MessageKey = keyof typeof en
@@ -291,6 +304,19 @@ export const fr: Record<MessageKey, string> = {
   'onboarding.addFirstProduct': 'Ajoutez votre premier produit',
   'onboarding.comingSoon': 'Cet écran arrive bientôt — en cours de construction.',
   'onboarding.signOut': 'Se déconnecter',
+
+  'selectBiz.eyebrow': 'Presque terminé',
+  'selectBiz.title': 'Choisissez une entreprise',
+  'selectBiz.subtitle': 'Choisissez l’entreprise à ouvrir sur cet appareil.',
+  'selectBiz.loading': 'Chargement de vos entreprises…',
+  'selectBiz.empty': "Vous n'appartenez encore à aucune entreprise. Créez-en une pour commencer.",
+  'selectBiz.createBusiness': 'Créer une entreprise',
+  'selectBiz.error': 'Impossible d’ouvrir cette entreprise. Veuillez réessayer.',
+  'selectBiz.role.owner': 'Propriétaire',
+  'selectBiz.role.manager': 'Gérant',
+  'selectBiz.role.cashier': 'Caissier',
+  'selectBiz.role.accountant': 'Comptable',
+  'selectBiz.role.member': 'Membre',
 }
 
 export const catalogs = { en, fr }
