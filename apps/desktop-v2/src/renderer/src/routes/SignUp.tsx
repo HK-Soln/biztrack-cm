@@ -7,7 +7,9 @@ import { useSessionStore } from '@/stores/session.store'
 import { passwordStrength, signUpSchema } from '@/lib/schemas'
 
 type Step = 'form' | 'verify'
-type FieldErrors = Partial<Record<'businessName' | 'name' | 'phone' | 'password' | 'terms', MessageKey>>
+type FieldErrors = Partial<
+  Record<'businessName' | 'name' | 'phone' | 'password' | 'confirmPassword' | 'terms', MessageKey>
+>
 
 const PW_LABELS: MessageKey[] = ['signup.pwWeak', 'signup.pwWeak', 'signup.pwFair', 'signup.pwGood', 'signup.pwStrong']
 
@@ -21,6 +23,7 @@ export function SignUp() {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState<string | undefined>(undefined)
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [terms, setTerms] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -41,7 +44,14 @@ export function SignUp() {
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault()
     setServerError(null)
-    const parsed = signUpSchema.safeParse({ businessName, name, phone: phone ?? '', password, terms })
+    const parsed = signUpSchema.safeParse({
+      businessName,
+      name,
+      phone: phone ?? '',
+      password,
+      confirmPassword,
+      terms,
+    })
     if (!parsed.success) {
       const f = parsed.error.flatten().fieldErrors
       setErrors({
@@ -49,6 +59,7 @@ export function SignUp() {
         name: f.name?.[0] as MessageKey | undefined,
         phone: f.phone?.[0] as MessageKey | undefined,
         password: f.password?.[0] as MessageKey | undefined,
+        confirmPassword: f.confirmPassword?.[0] as MessageKey | undefined,
         terms: f.terms?.[0] as MessageKey | undefined,
       })
       return
@@ -232,6 +243,26 @@ export function SignUp() {
           <div className="pwmeta">
             {errors.password ? t(errors.password) : password ? t(PW_LABELS[strength]!) : t('signup.passwordHint')}
           </div>
+        </div>
+
+        <div className={`ff${errors.confirmPassword ? ' invalid' : ''}`}>
+          <label className="lbl2">
+            {t('signup.confirmPassword')} <span className="req">*</span>
+          </label>
+          <div className="inwrap has-lead">
+            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <rect x="4" y="11" width="16" height="9" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            <Input
+              type={showPw ? 'text' : 'password'}
+              placeholder={t('signup.confirmPlaceholder')}
+              value={confirmPassword}
+              error={!!errors.confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          </div>
+          {errors.confirmPassword ? <FieldError message={t(errors.confirmPassword)} /> : null}
         </div>
 
         <label className="chk">

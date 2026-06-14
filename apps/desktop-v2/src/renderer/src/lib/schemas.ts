@@ -33,13 +33,22 @@ export { isValidPhone }
 // ---- Sign up --------------------------------------------------------------
 const PASSWORD_COMPLEXITY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/
 
-export const signUpSchema = z.object({
-  businessName: z.string().trim().min(1, 'signup.businessRequired'),
-  name: z.string().trim().min(1, 'signup.nameRequired'),
-  phone: z.string().refine(isValidPhone, 'auth.invalidPhone'),
-  password: z.string().min(8, 'signup.passwordWeak').regex(PASSWORD_COMPLEXITY, 'signup.passwordComplexity'),
-  terms: z.boolean().refine((v) => v === true, 'signup.acceptTerms'),
-})
+export const signUpSchema = z
+  .object({
+    businessName: z.string().trim().min(1, 'signup.businessRequired'),
+    name: z.string().trim().min(1, 'signup.nameRequired'),
+    phone: z.string().refine(isValidPhone, 'auth.invalidPhone'),
+    password: z
+      .string()
+      .min(8, 'signup.passwordWeak')
+      .regex(PASSWORD_COMPLEXITY, 'signup.passwordComplexity'),
+    confirmPassword: z.string(),
+    terms: z.boolean().refine((v) => v === true, 'signup.acceptTerms'),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'signup.passwordMismatch',
+  })
 
 export type SignUpValues = z.infer<typeof signUpSchema>
 
