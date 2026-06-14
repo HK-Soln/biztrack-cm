@@ -137,6 +137,12 @@ export class AuthService {
         await this.redis.setex(`invite:${user.id}`, 30 * 60, dto.inviteToken)
       }
 
+      // The business name is captured at signup but the business is only created
+      // once registration completes (after OTP verify), so stash it like the invite.
+      if (dto.businessName?.trim()) {
+        await this.redis.setex(`signup-business:${user.id}`, 30 * 60, dto.businessName.trim())
+      }
+
       const verification = await this.createVerificationCode(
         user.id,
         VerificationChannel.PHONE,
@@ -1473,7 +1479,9 @@ export class AuthService {
       }
     }
 
-    const business = await this.createDefaultBusiness(user)
+    const signupBusinessName = await this.redis.get(`signup-business:${user.id}`)
+    const business = await this.createDefaultBusiness(user, signupBusinessName)
+    await this.redis.del(`signup-business:${user.id}`)
     await this.rolesService.seedDefaultRoles(business.id, user.id)
     await this.attributeGroupsService.seedDefaults(business.id)
     const ownerRole = await this.rolesService.findOwnerRole(business.id)
@@ -1504,8 +1512,8 @@ export class AuthService {
     }
   }
 
-  private async createDefaultBusiness(user: User) {
-    const name = `${user.name}'s Business`
+  private async createDefaultBusiness(user: User, businessName?: string | null) {
+    const name = businessName?.trim() || `${user.name}'s Business`
     const baseSlug = generateSlug(name)
     const slug = await this.generateUniqueSlug(baseSlug)
 

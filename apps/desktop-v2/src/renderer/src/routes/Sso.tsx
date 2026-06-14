@@ -6,6 +6,7 @@ import type { MessageKey } from '@/i18n/messages'
 import type { OtpChannel } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
 import { isValidEmail } from '@/lib/schemas'
+import { routeForNextStep } from '@/lib/auth-routing'
 
 type Step = 'channel' | 'verify'
 
@@ -123,8 +124,7 @@ export function Sso() {
       return
     }
     setStatus(res.session)
-    if (res.session.authenticated) navigate('/')
-    else setError('Signed in — business selection screen is coming next.')
+    navigate(routeForNextStep(res.nextStep))
   }
 
   const resend = async () => {
@@ -239,7 +239,10 @@ export function Sso() {
             </button>
           </div>
           <div className="auth-foot">
-            {t('auth.newToBiztrack')} <a href="#">{t('auth.createBusiness')}</a>
+            {t('auth.newToBiztrack')}{' '}
+            <a onClick={() => navigate('/signup')} style={{ cursor: 'pointer' }}>
+              {t('auth.createBusiness')}
+            </a>
           </div>
         </>
       ) : (

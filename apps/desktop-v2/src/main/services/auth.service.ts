@@ -28,6 +28,25 @@ const EMPTY: SessionStatus = {
   user: null,
   businessId: null,
   businessName: null,
+  nextStep: null,
+}
+
+// Maps phase + cached onboarding step to the AuthNextStep that drives routing.
+// Mirrors the backend's step resolution so a relaunched session lands on the
+// right screen (e.g. a phase2 owner mid-onboarding → setup_business, not dashboard).
+function deriveNextStep(phase: 'none' | 'phase1' | 'phase2', onboardingStep: string | null): string | null {
+  if (phase === 'none') return null
+  if (phase === 'phase1') return 'select_business'
+  switch ((onboardingStep ?? '').toUpperCase()) {
+    case 'SETUP_BUSINESS':
+      return 'setup_business'
+    case 'SELECT_PLAN':
+      return 'select_plan'
+    case 'ADD_FIRST_PRODUCT':
+      return 'add_first_product'
+    default:
+      return 'dashboard'
+  }
 }
 
 /**
@@ -184,15 +203,18 @@ export class AuthService {
     const businessId = this.tokens.getLastBusinessId()
     const cu = userId ? this.cache.getUser(userId) : null
     const cb = businessId ? this.cache.getBusiness(businessId) : null
+    const phase = businessId ? 'phase2' : 'phase1'
+    const nextStep = deriveNextStep(phase, cu?.onboardingStep ?? null)
     this.session = {
       authenticated: !!businessId,
-      phase: businessId ? 'phase2' : 'phase1',
+      phase,
       isOffline: true,
       user: cu ? { id: cu.id, name: cu.name ?? '', email: cu.email, phone: cu.phone, role: cu.role } : null,
       businessId,
       businessName: cb?.name ?? null,
+      nextStep,
     }
-    return { ok: true, nextStep: 'dashboard', session: this.session, context: null, error: null }
+    return { ok: true, nextStep, session: this.session, context: null, error: null }
   }
 
   async logout(): Promise<SessionStatus> {
@@ -236,15 +258,21 @@ export class AuthService {
       },
       businessId,
       businessName: cb?.name ?? null,
+      nextStep: deriveNextStep(phase, cu?.onboardingStep ?? null),
     }
     this.tokens.setLastSession(payload.sub, businessId)
   }
 
   private async cacheProfileAndBusinesses(): Promise<void> {
     try {
-      const me = await this.get<{ id: string; name?: string; email?: string; phone?: string; language?: string }>(
-        '/users/me',
-      )
+      const me = await this.get<{
+        id: string
+        name?: string
+        email?: string
+        phone?: string
+        language?: string
+        onboardingStep?: string
+      }>('/users/me')
       if (me?.id) {
         this.cache.saveUser({
           id: me.id,
@@ -253,6 +281,7 @@ export class AuthService {
           phone: me.phone ?? null,
           role: this.session.user?.role ?? null,
           businessId: this.session.businessId,
+          onboardingStep: me.onboardingStep ?? null,
           language: me.language ?? null,
         })
       }
