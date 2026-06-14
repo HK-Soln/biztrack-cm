@@ -15,6 +15,8 @@ const ROLE_KEY: Record<string, MessageKey> = {
 }
 
 const isOwner = (b: BusinessOption): boolean => (b.role ?? '').toUpperCase() === 'OWNER'
+// Fully set up and ready to open.
+const isConfigured = (b: BusinessOption): boolean => b.status === 'ACTIVE'
 // Known to be mid-setup (status present and not ACTIVE). null status = unknown
 // (offline) → not flagged; the backend stays the authority.
 const isIncomplete = (b: BusinessOption): boolean => !!b.status && b.status !== 'ACTIVE'
@@ -65,9 +67,10 @@ export function SelectBusiness() {
     void window.api.auth.listBusinesses().then((list) => {
       if (!active) return
       setBusinesses(list)
-      // One business the user can actually enter → skip the picker and open it.
-      // Never auto-open a locked (non-owner, not-set-up) business.
-      if (list.length === 1 && !autoTried.current && !isLocked(list[0]!)) {
+      // Only skip the picker for the unambiguous case: exactly one business AND it's
+      // already fully set up. Anything else (multiple businesses, or a single one
+      // still mid-setup) requires an explicit choice from the user.
+      if (list.length === 1 && !autoTried.current && isConfigured(list[0]!)) {
         autoTried.current = true
         void select(list[0]!.id)
       }
