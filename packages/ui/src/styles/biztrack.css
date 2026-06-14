@@ -79,6 +79,16 @@ html,body,#root{height:100%;}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--canvas);color:var(--text);
   -webkit-font-smoothing:antialiased;transition:background .2s,color .2s;}
 
+/* Custom thin scrollbars everywhere — never the default chunky OS scrollbar */
+*{scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent;}
+*::-webkit-scrollbar{width:5px;height:5px;}
+*::-webkit-scrollbar-track{background:transparent;border-radius:999px;}
+*::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:999px;}
+*::-webkit-scrollbar-thumb:hover{background:var(--text-muted);}
+*::-webkit-scrollbar-corner{background:transparent;}
+/* Remove the up/down (and left/right) stepper arrow buttons */
+*::-webkit-scrollbar-button{display:none;width:0;height:0;}
+
 /* Electron window drag regions (used by the app top bars) */
 .app-drag{-webkit-app-region:drag;}
 .app-no-drag{-webkit-app-region:no-drag;}
