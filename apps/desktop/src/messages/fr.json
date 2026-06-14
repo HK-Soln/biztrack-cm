@@ -34,7 +34,9 @@
     "product_attributes": "Attributs produit",
     "settings_general": "General",
     "appearance": "Apparence",
-    "deposits": "Dépôts clients"
+    "deposits": "Dépôts clients",
+    "online": "Boutique en ligne",
+    "online_orders": "Commandes en ligne"
   },
   "topbar": {
     "last_sync": "Derniere synchro : {time}",

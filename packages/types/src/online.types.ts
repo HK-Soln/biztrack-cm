@@ -1,4 +1,4 @@
-import type { IsoDateString } from './http.types'
+import type { IsoDateString, PaginatedResult } from './http.types'
 
 export type OnlineStoreDomainType = 'PATH' | 'SUBDOMAIN' | 'CUSTOM' | 'PURCHASED'
 
@@ -249,6 +249,14 @@ export interface UpdateOrderStatusRequest {
   internalNote?: string
   customerMessage?: string
 }
+
+/** Owner order detail: the order with its full event timeline. */
+export interface OnlineOrderDetail extends OnlineOrder {
+  events: OnlineOrderEvent[]
+}
+
+/** Paginated owner order list. */
+export interface OnlineOrderListResult extends PaginatedResult<OnlineOrder> {}
 
 /** Public tracking page payload (no auth, by tracking token). */
 export interface PublicOrderTracking {

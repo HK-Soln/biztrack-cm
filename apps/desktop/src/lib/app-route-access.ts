@@ -18,6 +18,7 @@ const APP_ROUTE_RULES: AppRouteRule[] = [
   { prefix: '/products', resource: Resource.PRODUCTS_VIEW },
   { prefix: '/inventory', resource: Resource.INVENTORY_VIEW },
   { prefix: '/sales', resource: Resource.SALES_VIEW },
+  { prefix: '/online', resource: Resource.SALES_VIEW },
   { prefix: '/contacts/debtors', resource: Resource.DEBTS_VIEW },
   { prefix: '/contacts/creditors', resource: Resource.DEBTS_VIEW },
   { prefix: '/contacts', resource: Resource.CONTACTS_VIEW },
