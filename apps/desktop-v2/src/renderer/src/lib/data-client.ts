@@ -23,9 +23,10 @@ function electronAdapter(): DataClient {
   }
 }
 
-// Placeholder until the cloud build lands. A plain browser has no local SQLite and
-// no IPC; data will come from apps/api over HTTP. Until that adapter exists, fail
-// with a clear message instead of a cryptic "window.api is undefined".
+// Placeholder until the cloud build lands. The cloud/browser build is ONLINE-ONLY:
+// it never touches the filesystem or SQLite — it calls apps/api directly over HTTP
+// (access token in memory, refresh token in an httpOnly cookie). Until that adapter
+// exists, fail with a clear message instead of a cryptic "window.api is undefined".
 function cloudAdapter(): DataClient {
   const notWired = async (): Promise<never> => {
     throw new Error(
