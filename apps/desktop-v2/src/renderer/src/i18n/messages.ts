@@ -109,6 +109,9 @@ export const en = {
   'signup.fullName': 'Your full name',
   'signup.namePlaceholder': 'Henson Amah',
   'signup.phone': 'Phone number',
+  'signup.email': 'Email',
+  'signup.emailOptional': 'optional',
+  'signup.emailPlaceholder': 'you@shop.cm',
   'signup.password': 'Password',
   'signup.passwordPlaceholder': 'At least 8 characters',
   'signup.passwordHint': 'Use 8+ characters with a number & a symbol',
@@ -130,6 +133,7 @@ export const en = {
   'signup.phoneHint': "We'll send a code to verify your number",
 
   'verify.title': 'Verify your phone',
+  'verify.emailTitle': 'Verify your email',
   'verify.sentTo': 'We sent a 6-digit code to',
   'verify.verify': 'Verify',
 
@@ -253,6 +257,9 @@ export const fr: Record<MessageKey, string> = {
   'signup.fullName': 'Votre nom complet',
   'signup.namePlaceholder': 'Henson Amah',
   'signup.phone': 'Numéro de téléphone',
+  'signup.email': 'Email',
+  'signup.emailOptional': 'facultatif',
+  'signup.emailPlaceholder': 'vous@boutique.cm',
   'signup.password': 'Mot de passe',
   'signup.passwordPlaceholder': 'Au moins 8 caractères',
   'signup.passwordHint': 'Utilisez 8+ caractères avec un chiffre et un symbole',
@@ -274,6 +281,7 @@ export const fr: Record<MessageKey, string> = {
   'signup.phoneHint': 'Nous enverrons un code pour vérifier votre numéro',
 
   'verify.title': 'Vérifiez votre téléphone',
+  'verify.emailTitle': 'Vérifiez votre email',
   'verify.sentTo': 'Code à 6 chiffres envoyé à',
   'verify.verify': 'Vérifier',
 

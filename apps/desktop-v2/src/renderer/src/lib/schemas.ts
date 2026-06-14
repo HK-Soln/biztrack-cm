@@ -38,6 +38,12 @@ export const signUpSchema = z
     businessName: z.string().trim().min(1, 'signup.businessRequired'),
     name: z.string().trim().min(1, 'signup.nameRequired'),
     phone: z.string().refine(isValidPhone, 'auth.invalidPhone'),
+    email: z
+      .string()
+      .trim()
+      .email('auth.invalidEmail')
+      .or(z.literal(''))
+      .optional(),
     password: z
       .string()
       .min(8, 'signup.passwordWeak')

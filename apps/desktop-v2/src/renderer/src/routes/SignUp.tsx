@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, OtpInput, PhoneInput } from '@biztrack/ui/biztrack'
-import { useT } from '@/i18n'
+import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { passwordStrength, signUpSchema } from '@/lib/schemas'
-import { routeForNextStep } from '@/lib/auth-routing'
+import { normalizeNextStep, routeForNextStep } from '@/lib/auth-routing'
 
 type Step = 'form' | 'verify'
+type VerifyChannel = 'phone' | 'email'
 type FieldErrors = Partial<
-  Record<'businessName' | 'name' | 'phone' | 'password' | 'confirmPassword' | 'terms', MessageKey>
+  Record<'businessName' | 'name' | 'phone' | 'email' | 'password' | 'confirmPassword' | 'terms', MessageKey>
 >
 
 const PW_LABELS: MessageKey[] = ['signup.pwWeak', 'signup.pwWeak', 'signup.pwFair', 'signup.pwGood', 'signup.pwStrong']
@@ -17,12 +18,14 @@ const PW_LABELS: MessageKey[] = ['signup.pwWeak', 'signup.pwWeak', 'signup.pwFai
 export function SignUp() {
   const navigate = useNavigate()
   const t = useT()
+  const lang = useLangStore((s) => s.lang)
   const setStatus = useSessionStore((s) => s.setStatus)
 
   const [step, setStep] = useState<Step>('form')
   const [businessName, setBusinessName] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState<string | undefined>(undefined)
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [terms, setTerms] = useState(false)
@@ -31,7 +34,8 @@ export function SignUp() {
   const [serverError, setServerError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [code, setCode] = useState('')
-  const [maskedPhone, setMaskedPhone] = useState('')
+  const [verifyChannel, setVerifyChannel] = useState<VerifyChannel>('phone')
+  const [maskedDest, setMaskedDest] = useState('')
   const [resendIn, setResendIn] = useState(0)
 
   const strength = passwordStrength(password)
@@ -49,6 +53,7 @@ export function SignUp() {
       businessName,
       name,
       phone: phone ?? '',
+      email,
       password,
       confirmPassword,
       terms,
@@ -59,6 +64,7 @@ export function SignUp() {
         businessName: f.businessName?.[0] as MessageKey | undefined,
         name: f.name?.[0] as MessageKey | undefined,
         phone: f.phone?.[0] as MessageKey | undefined,
+        email: f.email?.[0] as MessageKey | undefined,
         password: f.password?.[0] as MessageKey | undefined,
         confirmPassword: f.confirmPassword?.[0] as MessageKey | undefined,
         terms: f.terms?.[0] as MessageKey | undefined,
@@ -68,13 +74,23 @@ export function SignUp() {
     setErrors({})
     if (busy || !window.api?.auth) return
     setBusy(true)
-    const res = await window.api.auth.register({ name, phone: phone!, password, businessName })
+    const trimmedEmail = email.trim()
+    const res = await window.api.auth.register({
+      name,
+      phone: phone!,
+      password,
+      businessName,
+      email: trimmedEmail || undefined,
+      language: lang,
+    })
     setBusy(false)
     if (!res.ok) {
       setServerError(res.error ?? 'Could not create your account.')
       return
     }
-    setMaskedPhone(res.context?.maskedPhone ?? phone ?? '')
+    // Registration always verifies the phone first.
+    setVerifyChannel('phone')
+    setMaskedDest(res.context?.maskedPhone ?? phone ?? '')
     setCode('')
     setStep('verify')
     setResendIn(30)
@@ -85,19 +101,31 @@ export function SignUp() {
     if (otp.length !== 6 || busy || !window.api?.auth || !phone) return
     setBusy(true)
     setServerError(null)
-    const res = await window.api.auth.verifyPhone(phone, otp)
+    const res =
+      verifyChannel === 'phone'
+        ? await window.api.auth.verifyPhone(phone, otp)
+        : await window.api.auth.verifyEmail(email.trim(), otp)
     setBusy(false)
     if (!res.ok) {
       setServerError(res.error ?? t('sso.invalidCode'))
       return
     }
     setStatus(res.session)
+    // If the backend now wants email verification, switch the step to email.
+    if (normalizeNextStep(res.nextStep) === 'verify_email') {
+      setVerifyChannel('email')
+      setMaskedDest(res.context?.maskedEmail ?? email.trim())
+      setCode('')
+      setResendIn(30)
+      return
+    }
     navigate(routeForNextStep(res.nextStep))
   }
 
   const resend = async () => {
-    if (resendIn > 0 || !window.api?.auth || !phone) return
-    await window.api.auth.resendOtp(phone, 'VERIFY_PHONE')
+    if (resendIn > 0 || !window.api?.auth) return
+    if (verifyChannel === 'phone' && phone) await window.api.auth.resendOtp(phone, 'VERIFY_PHONE')
+    else if (verifyChannel === 'email') await window.api.auth.resendOtp(email.trim(), 'VERIFY_EMAIL')
     setResendIn(30)
   }
 
@@ -115,9 +143,9 @@ export function SignUp() {
           {t('sso.changeChannel')}
         </button>
         <div className="auth-h">
-          <h1>{t('verify.title')}</h1>
+          <h1>{verifyChannel === 'email' ? t('verify.emailTitle') : t('verify.title')}</h1>
           <p>
-            {t('verify.sentTo')} <b style={{ color: 'var(--text)' }}>{maskedPhone}</b>.
+            {t('verify.sentTo')} <b style={{ color: 'var(--text)' }}>{maskedDest}</b>.
           </p>
         </div>
         <form
@@ -207,6 +235,26 @@ export function SignUp() {
           </label>
           <PhoneInput value={phone} onChange={setPhone} error={!!errors.phone} placeholder="6 91 22 14 08" />
           {errors.phone ? <FieldError message={t(errors.phone)} /> : <div className="hint">{t('signup.phoneHint')}</div>}
+        </div>
+
+        <div className={`ff${errors.email ? ' invalid' : ''}`}>
+          <label className="lbl2">
+            {t('signup.email')} <span className="opt" style={{ marginLeft: 'auto' }}>{t('signup.emailOptional')}</span>
+          </label>
+          <div className="inwrap has-lead">
+            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="m3 7 9 6 9-6" />
+            </svg>
+            <Input
+              type="email"
+              placeholder={t('signup.emailPlaceholder')}
+              value={email}
+              error={!!errors.email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          {errors.email ? <FieldError message={t(errors.email)} /> : null}
         </div>
 
         <div className={`ff${errors.password ? ' invalid' : ''}`}>
