@@ -118,19 +118,23 @@ export function SignIn() {
         </Button>
       </form>
 
-      <div className="or">{t('auth.orContinue')}</div>
+      <div className="or">{t('auth.or')}</div>
       <div className="oauth">
+        {/* Passwordless ("SSO"): channel picker (Email / SMS / WhatsApp) → OTP.
+            Wired to its own flow in the passwordless-login feature. */}
         <button type="button">
-          <span className="g mtn">M</span>
-          {t('auth.continueMtn')}
-        </button>
-        <button type="button">
-          <span className="g" style={{ background: '#4285F4' }}>
-            G
+          <span className="g" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={2}>
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="m3 8 9 5 9-5" />
+            </svg>
           </span>
-          {t('auth.continueGoogle')}
+          {t('auth.useOneTimeCode')}
         </button>
       </div>
+      <p style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8 }}>
+        {t('auth.oneTimeCodeHint')}
+      </p>
 
       <div className="auth-foot">
         {t('auth.newToBiztrack')} <a href="#">{t('auth.createBusiness')}</a>
