@@ -74,6 +74,6 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     SkuService,
     UnitOfMeasuresService,
   ],
-  exports: [ProductsService, AttributeGroupsService],
+  exports: [ProductsService, AttributeGroupsService, CategoriesService, ProductVariantsService],
 })
 export class ProductsModule {}

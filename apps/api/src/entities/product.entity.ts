@@ -113,6 +113,25 @@ export class Product
   @Column({ name: 'warranty_months', type: 'int', nullable: true })
   warrantyMonths?: number | null
 
+  // Online storefront (Phase 3I).
+  @Column({ name: 'is_published_online', default: false })
+  isPublishedOnline!: boolean
+
+  @Column({ name: 'online_description', type: 'text', nullable: true })
+  onlineDescription?: string | null
+
+  @Column({ name: 'meta_title', type: 'varchar', length: 200, nullable: true })
+  metaTitle?: string | null
+
+  @Column({ name: 'meta_description', type: 'varchar', length: 500, nullable: true })
+  metaDescription?: string | null
+
+  @Column({ name: 'online_sort_order', type: 'int', default: 0 })
+  onlineSortOrder!: number
+
+  @Column({ name: 'online_stock_reserve', type: 'int', default: 0 })
+  onlineStockReserve!: number
+
   @Column({ name: 'category_id', nullable: true })
   categoryId?: string | null
 
