@@ -75,9 +75,11 @@ export class AuthService {
 
   async requestLogin(identifier: string, channel?: OtpChannel): Promise<AuthFlowResult> {
     try {
+      // Passwordless ("SSO"): use request-login-otp which ALWAYS sends a code,
+      // unlike /auth/request-login which returns PASSWORD_REQUIRED for password users.
       const body: Record<string, unknown> = { identifier }
       if (channel === 'SMS' || channel === 'WHATSAPP') body.preferredOtpChannel = channel
-      const data = await this.post<AuthResponseData>('/auth/request-login', body, PUBLIC)
+      const data = await this.post<AuthResponseData>('/auth/request-login-otp', body, PUBLIC)
       return this.ok(data)
     } catch (e) {
       return this.fail(e)

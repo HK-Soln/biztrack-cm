@@ -85,7 +85,10 @@ export interface RequestLoginRequest {
 }
 
 export interface RequestLoginOtpRequest {
-  phone: string
+  /** Email or phone. Passwordless ("SSO") login: always sends a one-time code,
+   * regardless of whether the user has a password set. */
+  identifier: string
+  preferredOtpChannel?: PrefferedPhoneChannel
 }
 
 export interface LoginOtpRequest {

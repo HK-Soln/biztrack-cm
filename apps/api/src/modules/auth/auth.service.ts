@@ -11,6 +11,7 @@ import {
   PrefferedPhoneChannel,
   RegisterRequest,
   RequestLoginRequest,
+  RequestLoginOtpRequest,
   ResendOtpRequest,
   SendInviteRequest,
   OtpType,
@@ -307,6 +308,87 @@ export class AuthService {
       return this.createLoginOtp(user)
     } catch (error) {
       return this.handleServiceError('requestLogin', error, { identifier: dto.identifier })
+    }
+  }
+
+  /**
+   * Passwordless ("SSO") login. Unlike requestLogin, this ALWAYS sends a one-time
+   * code via the chosen channel — it never short-circuits to PASSWORD_REQUIRED.
+   * Channel is inferred from the identifier (email vs phone); for phone the
+   * sub-channel (SMS/WhatsApp) comes from preferredOtpChannel.
+   */
+  async requestLoginOtp(dto: RequestLoginOtpRequest) {
+    this.logger.debug('Request login OTP (passwordless)', 'AuthService', {
+      identifier: dto.identifier,
+    })
+
+    try {
+      const user = await this.findUserByIdentifier(dto.identifier)
+      if (!user) {
+        throw new AppUnauthorizedException(
+          await this.i18n.translate('auth.login.invalid_credentials'),
+          'INVALID_CREDENTIALS',
+        )
+      }
+      await this.ensureUserActive(user)
+
+      const isEmailIdentifier = dto.identifier.includes('@')
+
+      if (isEmailIdentifier) {
+        if (!user.email) {
+          throw new AppUnauthorizedException(
+            await this.i18n.translate('auth.login.invalid_credentials'),
+            'INVALID_CREDENTIALS',
+          )
+        }
+        const verification = await this.createVerificationCode(
+          user.id,
+          VerificationChannel.EMAIL,
+          VerificationPurpose.LOGIN,
+        )
+        this.dispatchEmailOtp(user, verification.code)
+        return {
+          nextStep: AuthNextStep.CONFIRM_LOGIN,
+          context: this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+          verification: {
+            channel: VerificationChannel.EMAIL,
+            expiresAt: verification.expiresAt,
+            code: this.shouldReturnOtp() ? verification.code : undefined,
+          },
+        }
+      }
+
+      if (!user.phone) {
+        throw new AppUnauthorizedException(
+          await this.i18n.translate('auth.login.invalid_credentials'),
+          'INVALID_CREDENTIALS',
+        )
+      }
+      if (dto.preferredOtpChannel && dto.preferredOtpChannel !== user.preferredPhoneChannel) {
+        await this.usersRepo.update(user.id, { preferredPhoneChannel: dto.preferredOtpChannel })
+        user.preferredPhoneChannel = dto.preferredOtpChannel
+      }
+      const verification = await this.createVerificationCode(
+        user.id,
+        VerificationChannel.PHONE,
+        VerificationPurpose.LOGIN,
+      )
+      if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+        await this.assertWhatsAppContactExistsForOtp(user.phone)
+      }
+      this.dispatchPhoneOtp(user, verification.code)
+      return {
+        nextStep: AuthNextStep.CONFIRM_LOGIN,
+        context: this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+        verification: {
+          channel: VerificationChannel.PHONE,
+          delivery: user.preferredPhoneChannel,
+          expiresAt: verification.expiresAt,
+          code: this.shouldReturnOtp() ? verification.code : undefined,
+        },
+      }
+    } catch (error) {
+      return this.handleServiceError('requestLoginOtp', error, { identifier: dto.identifier })
     }
   }
 

@@ -116,13 +116,9 @@ export class AuthController {
   @Post('request-login-otp')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
-  @ApiOperation({ summary: 'Request a login OTP via phone' })
+  @ApiOperation({ summary: 'Passwordless login — always send a one-time code (email/SMS/WhatsApp)' })
   async requestLoginOtp(@Body() dto: RequestLoginOtpDto): Promise<AuthNextStepResponse> {
-    return serializeDto(
-      AuthNextStepResponseDto.fromResult(
-        await this.authService.requestLogin({ identifier: dto.phone }),
-      ),
-    )
+    return serializeDto(AuthNextStepResponseDto.fromResult(await this.authService.requestLoginOtp(dto)))
   }
 
   @Post('login-otp')
