@@ -10,9 +10,10 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import { BusinessMemberRole, Resource, type CashierShiftSummary, type DailySalesSummary, type JwtPayload, type PaginatedResult, type Sale, type SaleListItem, type SaleReceipt } from '@biztrack/types'
+import { BusinessMemberRole, Resource, type AuditContext, type CashierShiftSummary, type DailySalesSummary, type JwtPayload, type PaginatedResult, type Sale, type SaleListItem, type SaleReceipt } from '@biztrack/types'
 import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
+import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { CashierSummaryQueryDto } from '../dto/cashier-summary-query.dto'
@@ -40,10 +41,14 @@ export class SalesController {
   @HttpCode(HttpStatus.OK)
   @RequireResource(Resource.SALES_CREATE)
   @ApiOperation({ summary: 'Create a completed sale' })
-  async create(@CurrentUser() user: JwtPayload, @Body() dto: CreateSaleDto): Promise<Sale> {
+  async create(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateSaleDto,
+    @CurrentAuditContext() auditContext: AuditContext,
+  ): Promise<Sale> {
     return serializeDto(
       SaleResponseDto.fromEntity(
-        await this.salesService.create(user.businessId as string, user, dto),
+        await this.salesService.create(user.businessId as string, user, dto, auditContext),
       ),
     )
   }
@@ -128,10 +133,11 @@ export class SalesController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: VoidSaleDto,
+    @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Sale> {
     return serializeDto(
       SaleResponseDto.fromEntity(
-        await this.salesService.void(id, user.businessId as string, user, dto),
+        await this.salesService.void(id, user.businessId as string, user, dto, auditContext),
       ),
     )
   }

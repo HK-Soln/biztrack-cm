@@ -23,6 +23,8 @@ import type {
 } from '@biztrack/types'
 import { serializeDto, serializeDtos, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
+import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
+import type { AuditContext } from '@biztrack/types'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { ListProductsQueryDto } from '../dto/list-products-query.dto'
@@ -45,10 +47,14 @@ export class ProductsController {
   @Post()
   @RequireResource(Resource.PRODUCTS_CREATE)
   @ApiOperation({ summary: 'Create a product' })
-  async create(@CurrentUser() user: JwtPayload, @Body() dto: CreateProductDto): Promise<Product> {
+  async create(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateProductDto,
+    @CurrentAuditContext() auditContext: AuditContext,
+  ): Promise<Product> {
     return serializeDto(
       ProductDetailResponseDto.fromModel(
-        await this.productsService.create(user.businessId as string, user.sub, dto),
+        await this.productsService.create(user.businessId as string, user.sub, dto, auditContext),
       ),
     )
   }
@@ -164,10 +170,11 @@ export class ProductsController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
+    @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Product> {
     return serializeDto(
       ProductDetailResponseDto.fromModel(
-        await this.productsService.update(id, user.businessId as string, dto),
+        await this.productsService.update(id, user.businessId as string, dto, auditContext),
       ),
     )
   }
@@ -176,7 +183,11 @@ export class ProductsController {
   @RequireResource(Resource.PRODUCTS_DELETE)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Soft delete a product' })
-  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<void> {
-    return this.productsService.softDelete(id, user.businessId as string)
+  remove(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @CurrentAuditContext() auditContext: AuditContext,
+  ): Promise<void> {
+    return this.productsService.softDelete(id, user.businessId as string, auditContext)
   }
 }

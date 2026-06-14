@@ -53,6 +53,7 @@ const makeService = () => {
     previewVariantMatrix: jest.fn(),
     listVariantsForProduct: jest.fn(),
   }
+  const auditService = { log: jest.fn() }
   const quotaService = { assertWithinQuota: jest.fn() }
   const i18n = { translate: jest.fn(async (key: string) => key) }
   const logger = {
@@ -76,6 +77,7 @@ const makeService = () => {
     skuService as any,
     barcodeService as any,
     variantsService as any,
+    auditService as any,
     quotaService as any,
     i18n as any,
     logger as any,

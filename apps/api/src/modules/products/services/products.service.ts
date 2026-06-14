@@ -6,6 +6,7 @@ import {
   inferProductType,
   ProductType,
   SerialUnitStatus,
+  type AuditContext,
   type AssignBarcodeRequest,
   type CreateProductRequest,
   type PreviewVariantsRequest,
@@ -33,6 +34,8 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { ProductCategoriesRepository } from '../repositories/product-categories.repository'
 import { ProductsRepository } from '../repositories/products.repository'
+import { computeChanges, sanitizeForAudit } from '@biztrack/utils'
+import { AuditService } from '@/modules/audit/audit.service'
 import { BarcodeService } from './barcode.service'
 import { ProductVariantsService } from './product-variants.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
@@ -63,6 +66,7 @@ export class ProductsService {
     private readonly skuService: SkuService,
     private readonly barcodeService: BarcodeService,
     private readonly variantsService: ProductVariantsService,
+    private readonly auditService: AuditService,
     private readonly quotaService: QuotaService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -82,7 +86,12 @@ export class ProductsService {
     )
   }
 
-  async create(businessId: string, userId: string, dto: CreateProductRequest) {
+  async create(
+    businessId: string,
+    userId: string,
+    dto: CreateProductRequest,
+    context?: AuditContext,
+  ) {
     try {
       // Count-based gating lives in the owning service, not only in guards,
       // because only the service can tell whether this write would consume a
@@ -256,7 +265,17 @@ export class ProductsService {
         return created
       })
 
-      return this.findById(product.id, businessId)
+      const result = await this.findById(product.id, businessId)
+      if (context) {
+        this.auditService.log(context, {
+          action: 'CREATE',
+          entityType: 'product',
+          entityId: product.id,
+          entityLabel: product.name,
+          changes: { before: null, after: sanitizeForAudit({ ...product }) },
+        })
+      }
+      return result
     } catch (error) {
       return this.handleServiceError('create', error, { businessId, userId, name: dto.name })
     }
@@ -538,9 +557,22 @@ export class ProductsService {
     }
   }
 
-  async update(id: string, businessId: string, dto: UpdateProductRequest) {
+  async update(
+    id: string,
+    businessId: string,
+    dto: UpdateProductRequest,
+    context?: AuditContext,
+  ) {
     try {
       const product = await this.findById(id, businessId)
+      const beforeSnapshot = sanitizeForAudit({
+        name: product.name,
+        sellingPrice: product.sellingPrice,
+        costPrice: product.costPrice,
+        taxRate: product.taxRate,
+        categoryId: product.categoryId,
+        isActive: product.isActive,
+      })
 
       if (dto.sku && dto.sku.trim().toUpperCase() !== product.sku) {
         throw new AppBadRequestException(
@@ -621,7 +653,25 @@ export class ProductsService {
         }
       })
 
-      return this.findById(id, businessId)
+      const updated = await this.findById(id, businessId)
+      if (context) {
+        const afterSnapshot = sanitizeForAudit({
+          name: updated.name,
+          sellingPrice: updated.sellingPrice,
+          costPrice: updated.costPrice,
+          taxRate: updated.taxRate,
+          categoryId: updated.categoryId,
+          isActive: updated.isActive,
+        })
+        this.auditService.log(context, {
+          action: 'UPDATE',
+          entityType: 'product',
+          entityId: id,
+          entityLabel: updated.name,
+          changes: computeChanges(beforeSnapshot, afterSnapshot),
+        })
+      }
+      return updated
     } catch (error) {
       return this.handleServiceError('update', error, { id, businessId })
     }
@@ -643,14 +693,23 @@ export class ProductsService {
     }
   }
 
-  async softDelete(id: string, businessId: string): Promise<void> {
+  async softDelete(id: string, businessId: string, context?: AuditContext): Promise<void> {
     try {
-      await this.findById(id, businessId)
+      const product = await this.findById(id, businessId)
       await this.productsRepo.update(id, {
         isActive: false,
         deletedAt: new Date(),
         updatedAt: new Date(),
       })
+      if (context) {
+        this.auditService.log(context, {
+          action: 'DELETE',
+          entityType: 'product',
+          entityId: id,
+          entityLabel: product.name,
+          changes: { before: { isActive: true }, after: { isActive: false } },
+        })
+      }
     } catch (error) {
       return this.handleServiceError('softDelete', error, { id, businessId })
     }

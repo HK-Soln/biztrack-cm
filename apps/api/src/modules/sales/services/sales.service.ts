@@ -25,6 +25,8 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
+import { AuditService } from '@/modules/audit/audit.service'
+import type { AuditContext } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
@@ -86,13 +88,14 @@ export class SalesService {
     private readonly savingsService: DepositsService,
     private readonly saleNumberService: SaleNumberService,
     private readonly dailySummaryService: DailySalesSummaryService,
+    private readonly auditService: AuditService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('SalesService')
   }
 
-  async create(businessId: string, user: JwtPayload, dto: CreateSaleDto) {
+  async create(businessId: string, user: JwtPayload, dto: CreateSaleDto, context?: AuditContext) {
     try {
       const existing = await this.salesRepo.findOne({
         where: {
@@ -253,7 +256,20 @@ export class SalesService {
         throw new AppInternalServerException('Sale creation failed.', 'SALE_CREATE_FAILED')
       }
 
-      return this.findById(saleId, businessId)
+      const result = await this.findById(saleId, businessId)
+      if (context) {
+        this.auditService.log(context, {
+          action: 'CREATE',
+          entityType: 'sale',
+          entityId: saleId,
+          entityLabel: result.saleNumber,
+          changes: {
+            before: null,
+            after: { totalAmount: result.totalAmount, itemCount: result.items?.length ?? 0 },
+          },
+        })
+      }
+      return result
     } catch (error) {
       if (this.isUniqueConstraintViolation(error, 'unq_sales_business_id_client_id')) {
         const existing = await this.salesRepo.findOne({
@@ -648,7 +664,13 @@ export class SalesService {
     }
   }
 
-  async void(id: string, businessId: string, user: JwtPayload, dto: VoidSaleDto) {
+  async void(
+    id: string,
+    businessId: string,
+    user: JwtPayload,
+    dto: VoidSaleDto,
+    context?: AuditContext,
+  ) {
     try {
       if (![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(user.role as BusinessMemberRole)) {
         throw new AppForbiddenException(
@@ -725,7 +747,20 @@ export class SalesService {
         })
       })
 
-      return this.findById(id, businessId)
+      const result = await this.findById(id, businessId)
+      if (context) {
+        this.auditService.log(context, {
+          action: 'VOID',
+          entityType: 'sale',
+          entityId: id,
+          entityLabel: result.saleNumber,
+          changes: {
+            before: { status: 'COMPLETED' },
+            after: { status: 'VOIDED', voidReason: dto.reason.trim() },
+          },
+        })
+      }
+      return result
     } catch (error) {
       return this.handleServiceError('void', error, { id, businessId, userId: user.sub })
     }
