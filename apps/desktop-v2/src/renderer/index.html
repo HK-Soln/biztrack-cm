@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-palette="a" data-chrome="neutral">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'"
+    />
+    <title>BizTrack CM</title>
+    <script>
+      // No-flash: apply persisted theme before first paint.
+      ;(function () {
+        try {
+          var m = localStorage.getItem('biztrack.theme.mode')
+          var p = localStorage.getItem('biztrack.theme.palette')
+          var c = localStorage.getItem('biztrack.theme.chrome')
+          var e = document.documentElement
+          e.setAttribute('data-palette', p === 'a' || p === 'b' || p === 'c' || p === 'd' ? p : 'a')
+          e.setAttribute('data-chrome', c === 'neutral' || c === 'brand' ? c : 'neutral')
+          var dark =
+            m === 'dark' ||
+            ((!m || m === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) e.classList.add('dark')
+        } catch (_) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
