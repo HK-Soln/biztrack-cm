@@ -10,6 +10,7 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductsModule } from '@/modules/products/products.module'
+import { SalesModule } from '@/modules/sales/sales.module'
 import { OnlineStoreController } from './online-store.controller'
 import { OnlineStoreService } from './online-store.service'
 import { PublicStorefrontController } from './public-storefront.controller'
@@ -31,6 +32,7 @@ import { OnlineOrdersService } from './online-orders.service'
       ProductSerialUnit,
     ]),
     ProductsModule,
+    SalesModule,
   ],
   controllers: [OnlineStoreController, PublicStorefrontController, OnlineOrdersController],
   providers: [OnlineStoreService, PublicStorefrontService, OnlineOrdersService],
