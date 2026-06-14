@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsEmail, IsOptional, IsString, IsUUID, Matches } from 'class-validator'
+import { IsEmail, IsOptional, IsString, IsUUID } from 'class-validator'
 import type { SendInviteRequest } from '@biztrack/types'
+import { IsValidPhone } from '@/common/validators/is-identifier.validator'
 
 export class SendInviteDto implements SendInviteRequest {
   @ApiProperty({ example: 'uuid-of-role' })
@@ -9,8 +10,7 @@ export class SendInviteDto implements SendInviteRequest {
 
   @ApiProperty({ required: false, example: '+237612345678' })
   @IsOptional()
-  @IsString()
-  @Matches(/^\+237[6-9]\d{8}$/)
+  @IsValidPhone()
   phone?: string
 
   @ApiProperty({ required: false, example: 'staff@example.com' })

@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { PrefferedPhoneChannel, type RegisterRequest } from '@biztrack/types'
 import { Transform } from 'class-transformer'
 import { Locale } from '@/common/enums/locale.enum'
+import { IsValidPhone } from '@/common/validators/is-identifier.validator'
 
 export class RegisterDto implements RegisterRequest {
   @ApiProperty({ example: 'Jean Dupont' })
@@ -12,7 +13,7 @@ export class RegisterDto implements RegisterRequest {
   name!: string
 
   @ApiProperty({ example: '+237612345678' })
-  @Matches(/^\+2376[524789]\d{7}$/, { message: 'Invalid Cameroonian phone number' })
+  @IsValidPhone()
   phone!: string
 
   @ApiPropertyOptional({ example: 'jean@example.com' })
