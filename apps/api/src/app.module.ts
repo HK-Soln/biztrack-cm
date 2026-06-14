@@ -6,6 +6,7 @@ import { AuthModule } from '@/modules/auth/auth.module'
 import { UsersModule } from '@/modules/users/users.module'
 import { BusinessModule } from '@/modules/business/business.module'
 import { ProductsModule } from '@/modules/products/products.module'
+import { AuditModule } from '@/modules/audit/audit.module'
 import { SyncModule } from '@/modules/sync/sync.module'
 import { RolesModule } from '@/modules/roles/roles.module'
 import { PlansModule } from '@/modules/plans/plans.module'
@@ -102,6 +103,7 @@ function resolveI18nPath() {
     RolesModule,
     PermissionsModule,
     PlansModule,
+    AuditModule,
     SubscriptionsModule,
     NotificationsModule,
     MarketingModule,

@@ -15,6 +15,7 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
+import { AuditModule } from '@/modules/audit/audit.module'
 import { AttributeGroupsController } from './controllers/attribute-groups.controller'
 import { CategoriesController } from './controllers/categories.controller'
 import { ProductImagesController } from './controllers/product-images.controller'
@@ -35,6 +36,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
 @Module({
   imports: [
     PermissionsModule,
+    AuditModule,
     TypeOrmModule.forFeature([
       AttributeGroup,
       AttributeOption,

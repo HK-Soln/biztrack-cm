@@ -62,6 +62,50 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
+// Audit/device context headers (Phase 3H) — sent on every request so the API
+// can attribute audit-log entries to this device and link them per request.
+const AUDIT_DEVICE_ID_KEY = 'audit.device-id'
+const APP_VERSION =
+  (typeof process !== 'undefined' ? process.env?.NEXT_PUBLIC_APP_VERSION : undefined) ?? '1.0.0'
+let deviceIdPromise: Promise<string> | null = null
+
+async function resolveDeviceId(): Promise<string> {
+  if (!deviceIdPromise) {
+    deviceIdPromise = (async () => {
+      const existing = await secureStore.get(AUDIT_DEVICE_ID_KEY)
+      if (existing) return existing
+      const id = crypto.randomUUID()
+      await secureStore.set(AUDIT_DEVICE_ID_KEY, id)
+      return id
+    })()
+  }
+  return deviceIdPromise
+}
+
+function resolvePlatform(): string {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  if (/Windows/i.test(ua)) return 'windows'
+  if (/Mac/i.test(ua)) return 'macos'
+  if (/Linux|X11/i.test(ua)) return 'linux'
+  return 'web'
+}
+
+api.interceptors.request.use(async (config) => {
+  const headers = ensureHeaders(config)
+  if (!headers['X-Device-ID']) {
+    try {
+      headers['X-Device-ID'] = await resolveDeviceId()
+    } catch {
+      // Device id is best-effort; the request proceeds without it.
+    }
+  }
+  headers['X-Device-Type'] = 'DESKTOP_APP'
+  headers['X-Platform'] = resolvePlatform()
+  headers['X-App-Version'] = APP_VERSION
+  headers['X-Request-ID'] = crypto.randomUUID()
+  return config
+})
+
 let isRefreshing = false
 let pendingQueue: Array<(token: string | null) => void> = []
 
