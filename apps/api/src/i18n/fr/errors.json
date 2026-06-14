@@ -9,6 +9,7 @@
   "user_not_found": "Utilisateur introuvable.",
   "business_not_found": "Entreprise introuvable.",
   "business_forbidden": "Vous n'etes pas autorise a modifier l'entreprise.",
+  "business_setup_incomplete": "La configuration de cette entreprise n'est pas terminee. Demandez au proprietaire de la finaliser, ou choisissez une autre entreprise.",
   "business_already_exists": "Vous possedez deja une entreprise.",
   "invite_invalid": "Invitation introuvable ou expiree.",
   "invite_contact_required": "Fournissez un numero ou un email pour l'invitation.",

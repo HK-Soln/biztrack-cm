@@ -346,6 +346,23 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .auth-success h1{font-size:23px;font-weight:700;}
 .auth-success p{font-size:13.5px;color:var(--text-2);margin-top:9px;line-height:1.6;}
 
+/* Business picker (select-business / phase1 → phase2) ----- */
+.biz-list{display:grid;gap:9px;margin-top:4px;}
+.biz-item{display:flex;align-items:center;gap:13px;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--border);background:var(--surface);border-radius:13px;cursor:pointer;font:inherit;color:var(--text);transition:border-color .12s,background .12s;}
+.biz-item:hover{border-color:var(--brand-int);background:var(--inset);}
+.biz-item:disabled{cursor:default;opacity:.6;}
+.biz-item .ava{flex-shrink:0;width:42px;height:42px;border-radius:11px;display:grid;place-items:center;font-size:16px;font-weight:700;color:#fff;background:var(--brand-int);text-transform:uppercase;}
+.biz-item .meta{flex:1;min-width:0;}
+.biz-item .nm{font-size:14px;font-weight:650;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.biz-item .rl{font-size:11.5px;color:var(--text-2);margin-top:2px;text-transform:capitalize;}
+.biz-item .chev{flex-shrink:0;width:18px;height:18px;color:var(--text-muted);}
+.biz-item .spin{flex-shrink:0;width:18px;height:18px;border-radius:50%;border:2.5px solid var(--border);border-top-color:var(--brand-int);animation:spin .7s linear infinite;}
+.biz-item.locked{opacity:1;cursor:not-allowed;background:var(--inset);}
+.biz-item.locked:hover{border-color:var(--border);background:var(--inset);}
+.biz-item.locked .ava{background:var(--text-muted);}
+.biz-badge{flex-shrink:0;font-size:10.5px;font-weight:650;line-height:1;padding:4px 8px;border-radius:999px;background:var(--warning-soft,var(--inset));color:var(--warning,var(--text-2));white-space:nowrap;}
+.biz-empty{text-align:center;font-size:13.5px;color:var(--text-2);padding:20px 0;line-height:1.6;}
+
 /* =========================================================
    Tablet shell — collapsed icon rail (≤ 1024px, ≥ 640px)
    ========================================================= */

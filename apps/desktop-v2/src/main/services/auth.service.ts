@@ -84,7 +84,7 @@ export class AuthService {
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
         this.tokens.setPasswordHash(await bcrypt.hash(password, 10))
-        this.applyTokens(data.tokens, false)
+        this.applyTokens(data.tokens, false, data.nextStep)
       }
       return this.ok(data)
     } catch (e) {
@@ -110,7 +110,7 @@ export class AuthService {
       const data = await this.post<AuthResponseData>('/auth/login-otp', { identifier, code }, PUBLIC)
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
-        this.applyTokens(data.tokens, false)
+        this.applyTokens(data.tokens, false, data.nextStep)
       }
       return this.ok(data)
     } catch (e) {
@@ -131,7 +131,7 @@ export class AuthService {
       const data = await this.post<AuthResponseData>(path, body, PUBLIC)
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
-        this.applyTokens(data.tokens, false)
+        this.applyTokens(data.tokens, false, data.nextStep)
       }
       return this.ok(data)
     } catch (e) {
@@ -166,11 +166,12 @@ export class AuthService {
       const data = await this.post<AuthResponseData>('/auth/select-business', { businessId })
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
-        this.applyTokens(data.tokens, false)
+        this.applyTokens(data.tokens, false, data.nextStep)
         await this.cacheProfileAndBusinesses()
-        // Re-apply so the cached business name shows in the session.
+        // Re-apply so the cached business name shows — but keep the API's authoritative
+        // nextStep (business-status-driven), not a re-derivation from onboardingStep.
         const stored = this.tokens.getTokens()
-        if (stored) this.applyTokens(stored, false)
+        if (stored) this.applyTokens(stored, false, data.nextStep)
         void this.ensureSyncToken()
       }
       return this.ok(data)
@@ -188,8 +189,16 @@ export class AuthService {
       if (userId) this.cache.saveBusinesses(userId, options)
       return options
     } catch {
+      // Offline fallback (defensive; the real offline path is offlineLogin, which
+      // bypasses this screen). Status isn't cached, so leave it null.
       const userId = this.tokens.getLastUserId()
-      return userId ? this.cache.listBusinesses(userId) : []
+      if (!userId) return []
+      return this.cache.listBusinesses(userId).map((b) => ({
+        id: b.id,
+        name: b.name,
+        role: b.role,
+        status: null,
+      }))
     }
   }
 
@@ -204,7 +213,8 @@ export class AuthService {
     const cu = userId ? this.cache.getUser(userId) : null
     const cb = businessId ? this.cache.getBusiness(businessId) : null
     const phase = businessId ? 'phase2' : 'phase1'
-    const nextStep = deriveNextStep(phase, cu?.onboardingStep ?? null)
+    // Prefer the last authoritative step from the API; derive only if none is stored.
+    const nextStep = this.tokens.getLastNextStep() || deriveNextStep(phase, cu?.onboardingStep ?? null)
     this.session = {
       authenticated: !!businessId,
       phase,
@@ -232,10 +242,20 @@ export class AuthService {
 
   private hydrate(): void {
     const stored = this.tokens.getTokens()
-    if (stored) this.applyTokens(stored, false)
+    // Restore the last authoritative nextStep so a relaunch lands where the backend
+    // last said, instead of re-deriving (which can disagree for owners mid-setup).
+    if (stored) this.applyTokens(stored, false, this.tokens.getLastNextStep())
   }
 
-  private applyTokens(tokens: StoredTokens, offline: boolean): void {
+  /**
+   * Rebuilds the session from a token pair. `nextStep` is AUTHORITATIVE: when the
+   * API just told us the next step (authoritativeNextStep), we use it verbatim — the
+   * backend decides routing (e.g. select-business uses business status, not the
+   * user's onboardingStep). We only fall back to a local derivation on cold start /
+   * offline, where no fresh API answer exists. The authoritative value is persisted
+   * so the next cold start restores it instead of re-guessing.
+   */
+  private applyTokens(tokens: StoredTokens, offline: boolean, authoritativeNextStep?: string | null): void {
     const payload = decodeJwt(tokens.accessToken)
     if (!payload?.sub) {
       this.session = EMPTY
@@ -245,6 +265,7 @@ export class AuthService {
     const businessId = payload.businessId ?? null
     const cu = this.cache.getUser(payload.sub)
     const cb = businessId ? this.cache.getBusiness(businessId) : null
+    const nextStep = authoritativeNextStep || deriveNextStep(phase, cu?.onboardingStep ?? null)
     this.session = {
       authenticated: phase === 'phase2' && !!businessId,
       phase,
@@ -258,9 +279,10 @@ export class AuthService {
       },
       businessId,
       businessName: cb?.name ?? null,
-      nextStep: deriveNextStep(phase, cu?.onboardingStep ?? null),
+      nextStep,
     }
     this.tokens.setLastSession(payload.sub, businessId)
+    if (authoritativeNextStep) this.tokens.setLastNextStep(authoritativeNextStep)
   }
 
   private async cacheProfileAndBusinesses(): Promise<void> {
@@ -307,7 +329,12 @@ export class AuthService {
     const id = biz.id as string | undefined
     const name = biz.name as string | undefined
     if (!id || !name) return null
-    return { id, name, role: (rec.role as string | undefined) ?? null }
+    return {
+      id,
+      name,
+      role: (rec.role as string | undefined) ?? null,
+      status: (biz.businessStatus as string | undefined) ?? null,
+    }
   }
 
   private async post<T>(path: string, body: unknown, opts?: RequestOptions): Promise<T> {

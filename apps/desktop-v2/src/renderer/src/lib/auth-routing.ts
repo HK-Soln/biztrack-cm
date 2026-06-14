@@ -39,12 +39,19 @@ export function routeForNextStep(step: string | null | undefined): string {
       return '/'
     case 'register':
       return '/signup'
+    // Phone/email verification UI lives inside the sign-up screen (handled inline
+    // there); a returning user is never asked to verify on login (the API errors
+    // instead). Route to /signup defensively rather than a non-existent route.
+    case 'verify_phone':
     case 'verify_email':
-      return '/verify-email'
-    // password_required / confirm_login / request_new_otp / verify_phone are handled
-    // inline by the sign-in, SSO and sign-up screens; fall back to the entry points.
+      return '/signup'
+    // OTP / passwordless steps are owned by the SSO screen.
     case 'confirm_login':
+    case 'request_new_otp':
       return '/sso'
+    // password_required, login and anything unrecognized → the password sign-in.
+    case 'password_required':
+    case 'login':
     default:
       return '/signin'
   }

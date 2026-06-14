@@ -7,6 +7,7 @@ import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
 import { SignUp } from '@/routes/SignUp'
 import { Sso } from '@/routes/Sso'
+import { SelectBusiness } from '@/routes/SelectBusiness'
 import { AuthPlaceholder } from '@/routes/AuthPlaceholder'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
@@ -22,7 +23,7 @@ export const router = createHashRouter([
       { path: '/signin', element: <SignIn /> },
       { path: '/signup', element: <SignUp /> },
       { path: '/sso', element: <Sso /> },
-      { path: '/select-business', element: <AuthPlaceholder titleKey="onboarding.selectBusiness" /> },
+      { path: '/select-business', element: <SelectBusiness /> },
       { path: '/setup-business', element: <AuthPlaceholder titleKey="onboarding.setupBusiness" /> },
       { path: '/select-plan', element: <AuthPlaceholder titleKey="onboarding.selectPlan" /> },
       { path: '/add-first-product', element: <AuthPlaceholder titleKey="onboarding.addFirstProduct" /> },

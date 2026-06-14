@@ -9,6 +9,7 @@
   "user_not_found": "User not found.",
   "business_not_found": "Business not found.",
   "business_forbidden": "Not allowed to update business.",
+  "business_setup_incomplete": "This business hasn't finished setup yet. Ask the owner to complete it, or choose another business.",
   "business_already_exists": "You already own a business.",
   "invite_invalid": "Invitation not found or expired.",
   "invite_contact_required": "Provide a phone or email for the invite.",

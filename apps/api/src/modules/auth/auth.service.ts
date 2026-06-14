@@ -784,6 +784,20 @@ export class AuthService {
         membership.status = BusinessMemberStatus.ACTIVE
       }
 
+      // A non-owner can't enter a business the owner hasn't finished setting up —
+      // there's nothing usable yet, and only the owner can complete onboarding.
+      // Owners fall through to resolveBusinessNextStep, which routes them to the
+      // remaining onboarding step (setup_business / select_plan).
+      if (
+        membership.role !== BusinessMemberRole.OWNER &&
+        business.businessStatus !== BusinessStatus.ACTIVE
+      ) {
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.business_setup_incomplete'),
+          'BUSINESS_SETUP_INCOMPLETE',
+        )
+      }
+
       const tokens = await this.generateTokens(
         user.id,
         user.email ?? undefined,
