@@ -8,7 +8,12 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./biztrack": {
+      "types": "./dist/biztrack/index.d.ts",
+      "default": "./dist/biztrack/index.js"
+    },
+    "./styles.css": "./src/styles/biztrack.css"
   },
   "scripts": {
     "build": "tsc",

@@ -1,6 +1,6 @@
-// Reads the resolved header CSS variables and pushes them to main so the native
-// Windows caption buttons blend with the top bar. The header is `bg-card` /
-// `text-foreground`, so we mirror --card / --foreground.
+// Pushes the resolved top-bar symbol colour to main so the native Windows caption
+// glyphs (− □ ×) contrast with the header. The overlay background is transparent
+// (set in main), so only the symbol colour needs syncing — mirror --nav-fg-strong.
 
 export const isWindows =
   typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
@@ -24,9 +24,9 @@ function readVarAsHex(styles: CSSStyleDeclaration, name: string): string | null 
 export function syncTitleBarOverlay(): void {
   if (typeof window === 'undefined' || !window.api?.window) return
   const styles = getComputedStyle(document.documentElement)
-  const color = readVarAsHex(styles, '--card')
-  const symbolColor = readVarAsHex(styles, '--foreground')
-  if (color && symbolColor) {
-    window.api.window.setTitleBarOverlay({ color, symbolColor })
+  const symbolColor = readVarAsHex(styles, '--nav-fg-strong') ?? readVarAsHex(styles, '--text')
+  if (symbolColor) {
+    // Background stays transparent (main forces it); color is ignored there.
+    window.api.window.setTitleBarOverlay({ color: '#00000000', symbolColor })
   }
 }

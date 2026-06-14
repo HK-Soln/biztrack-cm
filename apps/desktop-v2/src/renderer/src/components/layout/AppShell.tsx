@@ -1,102 +1,232 @@
-import { useEffect, type ReactNode } from 'react'
-import { PALETTE_META, useThemeStore } from '@/stores/theme.store'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
+import { useBreakpoint } from '@/lib/useBreakpoint'
+import { useThemeStore } from '@/stores/theme.store'
+import { useLangStore, useT } from '@/i18n'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
 
-const NAV_ITEMS = ['Dashboard', 'Sell', 'Products', 'Inventory', 'Sales', 'Reports', 'Settings']
-
-function ThemeControls() {
-  const mode = useThemeStore((s) => s.mode)
-  const resolvedDark = useThemeStore((s) => s.resolvedDark)
-  const setMode = useThemeStore((s) => s.setMode)
-  const palette = useThemeStore((s) => s.palette)
-  const setPalette = useThemeStore((s) => s.setPalette)
-
+function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
+  const t = useT()
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center gap-1">
-        {PALETTE_META.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            title={p.name}
-            aria-label={`Palette ${p.name}`}
-            onClick={() => setPalette(p.id)}
-            className={`h-5 w-5 rounded-full border-2 transition-all ${
-              palette === p.id ? 'scale-110 border-ring' : 'border-border'
-            }`}
-            style={{ backgroundColor: p.swatch }}
-          />
+    <NavLink to={to} end={to === '/'} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+      {icon ? Icon[icon] : <span style={{ width: 16 }} />}
+      <span className="lab">{t(label)}</span>
+      {badge ? <span className="badge-a">{t(badge)}</span> : null}
+    </NavLink>
+  )
+}
+
+function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }) {
+  const t = useT()
+  const { pathname } = useLocation()
+  const hasActiveChild = entry.children.some((c) => pathname === c.to || pathname.startsWith(c.to + '/'))
+  const [open, setOpen] = useState(hasActiveChild)
+  useEffect(() => {
+    if (hasActiveChild) setOpen(true)
+  }, [hasActiveChild])
+  return (
+    <div className={`nav-grp${open ? ' open' : ''}`}>
+      <button type="button" className="nav-item" onClick={() => setOpen((o) => !o)}>
+        {Icon[entry.icon]}
+        <span className="lab">{t(entry.label)}</span>
+        <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+      </button>
+      <div className="nav-children">
+        {entry.children.map((c) => (
+          <NavLeafLink key={c.to} {...c} />
         ))}
       </div>
-      <button
-        type="button"
-        onClick={() => setMode(resolvedDark ? 'light' : 'dark')}
-        className="rounded-lg border border-border bg-card px-3 py-1.5 text-body-sm text-foreground transition-colors hover:bg-muted"
-      >
-        {resolvedDark ? 'Light' : 'Dark'} mode
-        {mode === 'system' ? ' (system)' : ''}
-      </button>
     </div>
   )
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+function Sidebar({ rail }: { rail?: boolean }) {
+  const t = useT()
+  return (
+    <aside className={`sidebar${rail ? ' rail' : ''}`}>
+      <div className="brandmark app-drag">
+        <div className="logo">
+          B<span className="pip" />
+        </div>
+        <div>
+          <div className="bt">BizTrack CM</div>
+          <div className="bs">Point of Sale</div>
+        </div>
+      </div>
+      {!rail ? (
+        <div className="search">
+          <span className="si">{Icon.search}</span>
+          <input placeholder={t('nav.searchPlaceholder')} />
+          <kbd>Ctrl K</kbd>
+        </div>
+      ) : null}
+      <div className="nav-sec">{t('nav.workspace')}</div>
+      <nav className="nav">
+        {NAV.map((entry, i) =>
+          isGroup(entry) ? (
+            <NavGroup key={`g${i}`} entry={entry} />
+          ) : (
+            <NavLeafLink key={entry.to} {...entry} />
+          ),
+        )}
+      </nav>
+      <div className="sb-foot">
+        <button type="button" className="sb-user">
+          <span className="sb-av">HA</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="nm" style={{ display: 'block' }}>
+              Henson Amah
+            </span>
+            <span className="rl" style={{ display: 'block' }}>
+              Owner · Boutique Mballa
+            </span>
+          </span>
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+function ModeToggle() {
+  const t = useT()
+  const resolvedDark = useThemeStore((s) => s.resolvedDark)
+  const setMode = useThemeStore((s) => s.setMode)
+  return (
+    <button
+      type="button"
+      className="tb-btn app-no-drag"
+      title={t('top.toggleTheme')}
+      onClick={() => setMode(resolvedDark ? 'light' : 'dark')}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5 6.5 6.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
+      </svg>
+    </button>
+  )
+}
+
+function LanguageToggle() {
+  const lang = useLangStore((s) => s.lang)
+  const setLang = useLangStore((s) => s.setLang)
+  return (
+    <button
+      type="button"
+      className="tb-btn app-no-drag"
+      title="Language"
+      onClick={() => setLang(lang === 'en' ? 'fr' : 'en')}
+    >
+      {lang.toUpperCase()}
+    </button>
+  )
+}
+
+function TopBar() {
+  const t = useT()
+  return (
+    <header className="topbar app-drag" style={isWindows ? { paddingRight: 138 } : undefined}>
+      <button type="button" className="biz app-no-drag">
+        <span className="biz-tile">BM</span>
+        <span>
+          <span className="nm">Boutique Mballa</span>
+          <span className="sub">{t('top.lastSync')}</span>
+        </span>
+      </button>
+      <span className="tb-chip">{t('top.businessPlan')}</span>
+      <div className="tb-right">
+        <span className="tb-sync">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+            <path d="M16 3v4h-4M4 17v-4h4" />
+            <path d="M15 8A6 6 0 0 0 5 5L4 7M5 12a6 6 0 0 0 10 3l1-2" />
+          </svg>
+          {t('top.synced')}
+        </span>
+        <LanguageToggle />
+        <ModeToggle />
+      </div>
+    </header>
+  )
+}
+
+function MobileTopBar() {
+  const t = useT()
+  return (
+    <header className="m-topbar app-drag">
+      <div className="logo">
+        B<span className="pip" />
+      </div>
+      <div className="m-tt">
+        <div className="m-title">Boutique Mballa</div>
+        <div className="m-sub">BizTrack CM · {t('top.synced')}</div>
+      </div>
+      <LanguageToggle />
+      <button type="button" className="m-act app-no-drag">
+        {Icon.bell}
+      </button>
+    </header>
+  )
+}
+
+function TabBar() {
+  const tr = useT()
+  return (
+    <nav className="tabbar">
+      {TABS.map((item) =>
+        item.center ? (
+          <NavLink key={item.to} to={item.to} className={({ isActive }) => `tab sell${isActive ? ' active' : ''}`}>
+            <span className="ti">{Icon[item.icon!]}</span>
+          </NavLink>
+        ) : (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === '/'}
+            className={({ isActive }) => `tab${isActive ? ' active' : ''}`}
+          >
+            {Icon[item.icon!]}
+            <span className="tl">{tr(item.label)}</span>
+          </NavLink>
+        ),
+      )}
+    </nav>
+  )
+}
+
+export function AppShell() {
+  const bp = useBreakpoint()
   const mode = useThemeStore((s) => s.mode)
   const palette = useThemeStore((s) => s.palette)
   const chrome = useThemeStore((s) => s.chrome)
   const resolvedDark = useThemeStore((s) => s.resolvedDark)
 
-  // Repaint the native window controls whenever the header colours change.
   useEffect(() => {
     const id = requestAnimationFrame(syncTitleBarOverlay)
     return () => cancelAnimationFrame(id)
   }, [mode, palette, chrome, resolvedDark])
 
-  return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
-        <div className="app-drag flex h-16 items-center gap-3 border-b border-border px-5">
-          <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-primary text-primary-foreground">
-            <span className="font-serif text-[17px] leading-none">B</span>
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-heading-sm text-foreground">BizTrack CM</div>
-            <div className="text-label-sm uppercase tracking-[0.14em] text-muted-foreground">
-              Desktop v2
-            </div>
-          </div>
+  if (bp === 'mobile') {
+    return (
+      <div className="m-shell">
+        <MobileTopBar />
+        <div className="m-content">
+          <Outlet />
         </div>
-        <nav className="flex-1 space-y-1 p-3">
-          {NAV_ITEMS.map((item, i) => (
-            <div
-              key={item}
-              className={`rounded-lg px-3 py-2 text-body-md transition-colors ${
-                i === 0
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              {item}
-            </div>
-          ))}
-        </nav>
-        <div className="border-t border-border p-3 text-label-sm text-muted-foreground">
-          Offline-first · Vite + React
-        </div>
-      </aside>
+        <TabBar />
+      </div>
+    )
+  }
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header
-          className={`app-drag flex h-16 shrink-0 items-center justify-between border-b border-border bg-card pl-6 ${
-            isWindows ? 'pr-[138px]' : 'pr-6'
-          }`}
-        >
-          <h1 className="text-heading-md text-foreground">Walking skeleton</h1>
-          <div className="app-no-drag">
-            <ThemeControls />
-          </div>
-        </header>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+  return (
+    <div className="layout">
+      <Sidebar rail={bp === 'tablet'} />
+      <div className="maincol">
+        <TopBar />
+        <div className="content">
+          <Outlet />
+        </div>
       </div>
     </div>
   )
