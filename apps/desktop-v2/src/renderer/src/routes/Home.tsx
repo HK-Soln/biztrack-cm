@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { AppShell } from '@/components/layout/AppShell'
 import { HealthPanel } from '@/components/HealthPanel'
-import { dataClient } from '@/lib/data-client'
+import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 
 export function Home() {
   const { data: check, isPending } = useQuery({
     queryKey: queryKeys.skeletonCheck,
     queryFn: () => dataClient.skeleton.getCheck(),
+    enabled: isElectron,
   })
 
   return (
@@ -19,11 +20,13 @@ export function Home() {
             Fetched over a typed IPC call into the main-process service — no API, fully offline.
           </p>
           <p className="rounded-lg bg-muted px-4 py-3 font-mono text-body-md text-foreground">
-            {isPending
-              ? 'Loading…'
-              : check
-                ? `${check.value}  ·  ${check.checkedAt}`
-                : 'No _skeleton_check row.'}
+            {!isElectron
+              ? 'Browser preview — local SQLite is desktop-only (cloud build uses the API).'
+              : isPending
+                ? 'Loading…'
+                : check
+                  ? `${check.value}  ·  ${check.checkedAt}`
+                  : 'No _skeleton_check row.'}
           </p>
         </section>
 
