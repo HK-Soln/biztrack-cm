@@ -1,0 +1,163 @@
+:root {
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --bg: #ffffff;
+  --bg-soft: #f8fafc;
+  --primary: #1d9e75;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.store-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.store-header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.store-header__name {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.store-banner {
+  background: var(--bg-soft);
+  padding: 28px 16px;
+  text-align: center;
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 24px 0;
+}
+
+.product-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg);
+  transition: box-shadow 0.15s ease;
+}
+
+.product-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+
+.product-card__media {
+  aspect-ratio: 1;
+  background: var(--bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.product-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.product-card__body {
+  padding: 10px 12px;
+}
+
+.product-card__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.product-card__price {
+  margin-top: 4px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.badge-out {
+  display: inline-block;
+  font-size: 11px;
+  color: #a32d2d;
+  background: #fcebeb;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.pagination {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 16px 0 40px;
+}
+
+.pagination a,
+.pagination span {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.pagination span[aria-current] {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  padding: 28px 0;
+}
+
+@media (max-width: 720px) {
+  .detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.store-footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}

@@ -1,0 +1,23 @@
+{
+  "extends": "@biztrack/typescript-config/nextjs.json",
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "allowJs": true,
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@biztrack/types": ["../../packages/types/src"],
+      "@biztrack/http-client": ["../../packages/http-client/src"],
+      "@biztrack/http-client/browser": ["../../packages/http-client/src/browser"]
+    },
+    "noEmit": true,
+    "isolatedModules": true
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
