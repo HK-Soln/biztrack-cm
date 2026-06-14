@@ -19,6 +19,7 @@
     "@biztrack/types": "workspace:*",
     "@biztrack/utils": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
+    "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@biztrack/typescript-config": "workspace:*",
     "@electron/rebuild": "3.6.1",
+    "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",

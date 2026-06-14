@@ -1,9 +1,14 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'path'
-import { DatabaseService } from '@biztrack/electron-core'
+import { DatabaseService, SecureStoreService } from '@biztrack/electron-core'
 import { IPC, type TitleBarOverlayColors } from '../shared/ipc'
 import { SkeletonService } from './services/skeleton.service'
 import { registerIpc } from './ipc'
+import { TokenStore } from './services/token-store'
+import { LocalCache } from './services/local-cache'
+import { createAuthHttp } from './services/auth-http'
+import { AuthService } from './services/auth.service'
+import { registerAuthIpc } from './ipc/auth.ipc'
 
 const TITLEBAR_HEIGHT = 64
 
@@ -82,8 +87,16 @@ app.whenReady().then(() => {
   const db = new DatabaseService({ path: resolveDbPath(), migrate: true })
   const skeleton = new SkeletonService(db)
   skeleton.ensureSeed()
-
   registerIpc(skeleton)
+
+  // Auth BFF: tokens + offline cache live in main; renderer sees only session status.
+  const secureStore = new SecureStoreService()
+  const tokenStore = new TokenStore(secureStore)
+  const localCache = new LocalCache(db)
+  let authService: AuthService
+  const authHttp = createAuthHttp(tokenStore, () => authService?.onTokensCleared())
+  authService = new AuthService(authHttp, tokenStore, localCache)
+  registerAuthIpc(authService)
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {

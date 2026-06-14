@@ -4,7 +4,18 @@ import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore, useT } from '@/i18n'
+import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
+
+function initials(name?: string | null): string {
+  if (!name) return '—'
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('')
+}
 
 function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   const t = useT()
@@ -45,6 +56,8 @@ function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }
 
 function Sidebar({ rail }: { rail?: boolean }) {
   const t = useT()
+  const logout = useSessionStore((s) => s.logout)
+  const user = useSessionStore((s) => s.status.user)
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
       <div className="brandmark app-drag">
@@ -74,14 +87,14 @@ function Sidebar({ rail }: { rail?: boolean }) {
         )}
       </nav>
       <div className="sb-foot">
-        <button type="button" className="sb-user">
-          <span className="sb-av">HA</span>
+        <button type="button" className="sb-user" onClick={() => void logout()} title="Log out">
+          <span className="sb-av">{initials(user?.name)}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span className="nm" style={{ display: 'block' }}>
-              Henson Amah
+              {user?.name || '—'}
             </span>
             <span className="rl" style={{ display: 'block' }}>
-              Owner · Boutique Mballa
+              {user?.role ?? ''}
             </span>
           </span>
         </button>

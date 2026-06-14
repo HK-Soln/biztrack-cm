@@ -1,19 +1,28 @@
 import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthShell } from '@/components/layout/AuthShell'
+import { RequireAuth, RequireGuest } from '@/components/RouteGuards'
 import { Dashboard } from '@/routes/Dashboard'
 import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
 
-// Two layout groups: AuthShell for non-authenticated routes, AppShell for the app.
-// Auth gating arrives with the auth module; for now both are reachable.
+// Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
+// AppShell (RequireAuth) for the app.
 export const router = createHashRouter([
   {
-    element: <AuthShell />,
+    element: (
+      <RequireGuest>
+        <AuthShell />
+      </RequireGuest>
+    ),
     children: [{ path: '/signin', element: <SignIn /> }],
   },
   {
-    element: <AppShell />,
+    element: (
+      <RequireAuth>
+        <AppShell />
+      </RequireAuth>
+    ),
     children: [
       { path: '/', element: <Dashboard /> },
       { path: '/sell', element: <Placeholder titleKey="nav.sell" /> },

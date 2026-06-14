@@ -7,11 +7,14 @@ import { router } from './router'
 import { queryClient } from '@/lib/query'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore } from '@/i18n'
+import { useSessionStore } from '@/stores/session.store'
 
 // Sync the theme store with the attributes the no-flash script set in index.html.
 useThemeStore.getState().init()
 // Reflect the persisted language on <html lang>.
 document.documentElement.setAttribute('lang', useLangStore.getState().lang)
+// Hydrate the auth session from the main process (BFF) before the guards resolve.
+void useSessionStore.getState().refresh()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element not found')
