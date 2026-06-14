@@ -11,6 +11,7 @@ const PASSWORD_HASH_KEY = 'auth.passwordHash'
 const SYNC_CREDENTIAL_KEY = 'sync.deviceCredential'
 const LAST_USER_KEY = 'auth.lastUserId'
 const LAST_BUSINESS_KEY = 'auth.lastBusinessId'
+const LAST_NEXT_STEP_KEY = 'auth.lastNextStep'
 
 /**
  * Encrypted token vault, main-process only. The renderer has no IPC path to these
@@ -36,6 +37,18 @@ export class TokenStore {
   clearTokens(): void {
     this.secure.delete(TOKENS_KEY)
     this.secure.delete(SYNC_CREDENTIAL_KEY)
+    this.secure.delete(LAST_NEXT_STEP_KEY)
+  }
+
+  /** The last authoritative AuthNextStep returned by the API — restored on cold
+   * start so the session lands where the backend last said (not a local guess). */
+  getLastNextStep(): string | null {
+    return this.secure.get(LAST_NEXT_STEP_KEY)
+  }
+
+  setLastNextStep(step: string | null): void {
+    if (step) this.secure.set(LAST_NEXT_STEP_KEY, step)
+    else this.secure.delete(LAST_NEXT_STEP_KEY)
   }
 
   getPasswordHash(): string | null {
