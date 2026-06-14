@@ -26,6 +26,7 @@ const makeService = (opts: {
   const storesRepo = { findOne: jest.fn().mockResolvedValue(opts.store ?? null) }
   const productsRepo = { findOne: jest.fn().mockResolvedValue(opts.product ?? null) }
   const variantsRepo = { findOne: jest.fn() }
+  const salesService = { createFromSync: jest.fn(async () => ({ id: 'sale-1', saleNumber: 'V-1' })) }
   const i18n = { translate: jest.fn(async (key: string) => key) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
 
@@ -36,10 +37,11 @@ const makeService = (opts: {
     storesRepo as any,
     productsRepo as any,
     variantsRepo as any,
+    salesService as any,
     i18n as any,
     logger as any,
   )
-  return { service, cartsRepo, ordersRepo, eventsRepo }
+  return { service, cartsRepo, ordersRepo, eventsRepo, salesService }
 }
 
 describe('OnlineOrdersService.addItem', () => {
@@ -92,5 +94,41 @@ describe('OnlineOrdersService.checkout', () => {
       expect.objectContaining({ eventType: 'ORDER_PLACED', toStatus: 'PENDING' }),
     )
     expect(cartsRepo.delete).toHaveBeenCalledWith({ id: 'cart-1' })
+  })
+})
+
+describe('OnlineOrdersService.updateStatus (deferred sale)', () => {
+  it('creates the sale + marks PAID when an order is delivered', async () => {
+    const { service, ordersRepo, salesService } = makeService({ store })
+    const order = {
+      id: 'order-1',
+      businessId: 'biz-1',
+      status: 'DISPATCHED',
+      saleId: null,
+      orderNumber: 'ORD-1',
+      trackingToken: 'tok',
+      totalAmount: 1000,
+      customerName: 'Marie',
+      paymentMethod: null,
+      items: [{ productId: 'p1', quantity: 2, unitPrice: 500 }],
+    }
+    ordersRepo.findOne.mockResolvedValue(order)
+    ordersRepo.find = jest.fn().mockResolvedValue([])
+
+    await service.updateStatus(
+      'biz-1',
+      'order-1',
+      { status: 'DELIVERED' },
+      { id: 'user-1', name: 'Paul' },
+    )
+
+    expect(salesService.createFromSync).toHaveBeenCalledWith(
+      'biz-1',
+      expect.objectContaining({ clientId: 'order-1', cashierId: 'user-1' }),
+    )
+    expect(ordersRepo.update).toHaveBeenCalledWith(
+      'order-1',
+      expect.objectContaining({ status: 'DELIVERED', saleId: 'sale-1', paymentStatus: 'PAID' }),
+    )
   })
 })

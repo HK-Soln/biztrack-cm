@@ -2,14 +2,16 @@ import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
-import type {
-  AddCartItemRequest,
-  CheckoutRequest,
-  OnlineCart as OnlineCartShape,
-  OnlineCartItem,
-  OnlineOrderStatus,
-  PublicOrderTracking,
-  UpdateOrderStatusRequest,
+import {
+  PaymentMethod,
+  type AddCartItemRequest,
+  type CheckoutRequest,
+  type OnlineCart as OnlineCartShape,
+  type OnlineCartItem,
+  type OnlineOrderStatus,
+  type PublicOrderTracking,
+  type SaleSyncPayload,
+  type UpdateOrderStatusRequest,
 } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -26,6 +28,7 @@ import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { SalesService } from '@/modules/sales/services/sales.service'
 
 const cartItemKey = (item: { productId: string; variantId?: string | null; serialUnitId?: string | null }) =>
   `${item.productId}:${item.variantId ?? ''}:${item.serialUnitId ?? ''}`
@@ -55,6 +58,7 @@ export class OnlineOrdersService {
     private readonly productsRepo: Repository<Product>,
     @InjectRepository(ProductVariant)
     private readonly variantsRepo: Repository<ProductVariant>,
+    private readonly salesService: SalesService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -312,7 +316,31 @@ export class OnlineOrdersService {
       const patch: Partial<OnlineOrder> = { status: toStatus }
       if (toStatus === 'CONFIRMED') patch.confirmedAt = now
       if (toStatus === 'DISPATCHED') patch.dispatchedAt = now
-      if (toStatus === 'DELIVERED') patch.deliveredAt = now
+
+      // Deferred-sale policy: the financial sale is created only when the order is
+      // both paid AND delivered. COD cash is collected at delivery, so DELIVERED
+      // marks the order PAID and records the sale (deducting inventory) once.
+      if (toStatus === 'DELIVERED') {
+        patch.deliveredAt = now
+        if (!order.saleId) {
+          const sale = await this.createSaleForOrder(order, actor.id)
+          patch.saleId = sale.id
+          patch.paymentStatus = 'PAID'
+          await this.eventsRepo.save(
+            this.eventsRepo.create({
+              onlineOrderId: id,
+              businessId,
+              eventType: 'PAYMENT_RECEIVED',
+              triggeredBy: 'MERCHANT',
+              actorId: actor.id,
+              actorName: actor.name,
+              isCustomerVisible: false,
+              internalNote: `Sale ${sale.saleNumber} recorded on delivery.`,
+              trackingToken: order.trackingToken,
+            }),
+          )
+        }
+      }
       await this.ordersRepo.update(id, patch)
 
       const mapping = STATUS_EVENT[toStatus]
@@ -336,6 +364,56 @@ export class OnlineOrdersService {
       return this.getOrder(businessId, id)
     } catch (error) {
       return this.handleServiceError('updateStatus', error, { businessId, id })
+    }
+  }
+
+  /**
+   * Create the financial sale for a delivered+paid online order (deferred-sale
+   * policy). The delivering merchant is the cashier; payment is the full total.
+   * createFromSync is idempotent by clientId (= order id), so retries are safe.
+   */
+  private async createSaleForOrder(order: OnlineOrder, actorId: string | null) {
+    const payload: SaleSyncPayload = {
+      saleId: crypto.randomUUID(),
+      clientId: order.id,
+      saleNumber: order.orderNumber,
+      soldAt: new Date().toISOString(),
+      cashierId: actorId,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone ?? undefined,
+      notes: `Online order ${order.orderNumber}`,
+      payments: [
+        {
+          id: crypto.randomUUID(),
+          method: this.mapPaymentMethod(order.paymentMethod),
+          amount: order.totalAmount,
+        },
+      ],
+      items: (order.items ?? []).map((item) => ({
+        id: crypto.randomUUID(),
+        productId: item.productId,
+        variantId: item.variantId ?? undefined,
+        variantName: item.variantName ?? undefined,
+        serialUnitId: item.serialUnitId ?? undefined,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    }
+    return this.salesService.createFromSync(order.businessId, payload)
+  }
+
+  private mapPaymentMethod(method?: string | null): PaymentMethod {
+    switch ((method ?? '').toUpperCase()) {
+      case 'MTN_MOMO':
+      case 'MTN':
+        return PaymentMethod.MTN_MOMO
+      case 'ORANGE_MONEY':
+      case 'ORANGE':
+        return PaymentMethod.ORANGE_MONEY
+      case 'CARD':
+        return PaymentMethod.CARD
+      default:
+        return PaymentMethod.CASH
     }
   }
 
