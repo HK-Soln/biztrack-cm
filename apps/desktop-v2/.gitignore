@@ -1,0 +1,10 @@
+node_modules
+.next
+dist
+out
+*.db
+*.db-shm
+*.db-wal
+src/electron/generated/
+.env
+.DS_Store

@@ -1,0 +1,45 @@
+{
+  "name": "@biztrack/electron-core",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./database": {
+      "types": "./dist/services/database.service.d.ts",
+      "default": "./dist/services/database.service.js"
+    },
+    "./migrations": {
+      "types": "./dist/migrations/index.d.ts",
+      "default": "./dist/migrations/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint . --max-warnings 0",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@biztrack/http-client": "workspace:*",
+    "@biztrack/types": "workspace:*",
+    "better-sqlite3": "^11.7.0",
+    "socket.io-client": "4.8.3"
+  },
+  "devDependencies": {
+    "@biztrack/eslint-config": "workspace:*",
+    "@biztrack/typescript-config": "workspace:*",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "electron": "^33.3.1",
+    "eslint": "^9.32.0",
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "electron": ">=33"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "extends": "@biztrack/typescript-config/nextjs.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "types": ["react", "react-dom", "node"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@biztrack/types": ["../../packages/types/src"],
+      "@biztrack/utils": ["../../packages/utils/src"],
+      "@biztrack/electron-core": ["../../packages/electron-core/src"],
+      "@biztrack/electron-core/database": ["../../packages/electron-core/src/services/database.service"],
+      "@biztrack/electron-core/migrations": ["../../packages/electron-core/src/migrations/index"],
+      "@biztrack/http-client": ["../../packages/http-client/src"],
+      "@biztrack/http-client/browser": ["../../packages/http-client/src/browser"]
+    }
+  },
+  "include": ["next-env.d.ts", "src/**/*", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "src/electron"]
+}
