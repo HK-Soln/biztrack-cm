@@ -11,6 +11,9 @@ const api: BridgeApi = {
   theme: {
     set: (theme) => ipcRenderer.send(IPC.themeSet, theme),
   },
+  window: {
+    setTitleBarOverlay: (colors) => ipcRenderer.send(IPC.titlebarSetOverlay, colors),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -1,8 +1,30 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import { DatabaseService } from '@biztrack/electron-core'
+import { IPC, type TitleBarOverlayColors } from '../shared/ipc'
 import { SkeletonService } from './services/skeleton.service'
 import { registerIpc } from './ipc'
+
+const TITLEBAR_HEIGHT = 64
+
+// The renderer reports the resolved top-bar colours (palette + mode aware) so the
+// native window controls (− □ ×) blend with the header. Fallbacks are the Deep Ink
+// Blue defaults used before the renderer reports in.
+let overlayColors: TitleBarOverlayColors | null = null
+
+function getTitleBarOverlayOptions() {
+  const isDark = nativeTheme.shouldUseDarkColors
+  return {
+    color: overlayColors?.color ?? (isDark ? '#161D2B' : '#FFFFFF'),
+    symbolColor: overlayColors?.symbolColor ?? (isDark ? '#FFFFFF' : '#1A1A1A'),
+    height: TITLEBAR_HEIGHT,
+  }
+}
+
+function applyOverlayToAllWindows() {
+  if (process.platform === 'darwin') return
+  for (const w of BrowserWindow.getAllWindows()) w.setTitleBarOverlay(getTitleBarOverlayOptions())
+}
 
 function resolveDbPath(): string {
   if (process.env.DESKTOP_DB_PATH) return process.env.DESKTOP_DB_PATH
@@ -22,7 +44,9 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    ...(isMac ? { trafficLightPosition: { x: 14, y: 28 } } : { titleBarOverlay: true }),
+    ...(isMac
+      ? { trafficLightPosition: { x: 14, y: 22 } }
+      : { titleBarOverlay: getTitleBarOverlayOptions() }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -58,6 +82,17 @@ app.whenReady().then(() => {
   skeleton.ensureSeed()
 
   registerIpc(skeleton)
+
+  // Renderer pushes the resolved header colours so the native controls blend.
+  ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {
+    if (!colors?.color || !colors?.symbolColor) return
+    overlayColors = colors
+    applyOverlayToAllWindows()
+  })
+
+  // Keep controls correct when the OS theme flips while in `system` mode.
+  nativeTheme.on('updated', applyOverlayToAllWindows)
+
   createWindow()
 
   app.on('activate', () => {

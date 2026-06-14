@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { PALETTE_META, useThemeStore } from '@/stores/theme.store'
+import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
 
 const NAV_ITEMS = ['Dashboard', 'Sell', 'Products', 'Inventory', 'Sales', 'Reports', 'Settings']
 
@@ -40,10 +41,21 @@ function ThemeControls() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const mode = useThemeStore((s) => s.mode)
+  const palette = useThemeStore((s) => s.palette)
+  const chrome = useThemeStore((s) => s.chrome)
+  const resolvedDark = useThemeStore((s) => s.resolvedDark)
+
+  // Repaint the native window controls whenever the header colours change.
+  useEffect(() => {
+    const id = requestAnimationFrame(syncTitleBarOverlay)
+    return () => cancelAnimationFrame(id)
+  }, [mode, palette, chrome, resolvedDark])
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
-        <div className="flex h-16 items-center gap-3 border-b border-border px-5">
+        <div className="app-drag flex h-16 items-center gap-3 border-b border-border px-5">
           <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-primary text-primary-foreground">
             <span className="font-serif text-[17px] leading-none">B</span>
           </div>
@@ -74,9 +86,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6">
+        <header
+          className={`app-drag flex h-16 shrink-0 items-center justify-between border-b border-border bg-card pl-6 ${
+            isWindows ? 'pr-[138px]' : 'pr-6'
+          }`}
+        >
           <h1 className="text-heading-md text-foreground">Walking skeleton</h1>
-          <ThemeControls />
+          <div className="app-no-drag">
+            <ThemeControls />
+          </div>
         </header>
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>

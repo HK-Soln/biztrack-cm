@@ -6,7 +6,15 @@ export const IPC = {
   skeletonCheck: 'skeleton:check',
   skeletonHealth: 'skeleton:health',
   themeSet: 'theme:set',
+  titlebarSetOverlay: 'titlebar:set-overlay',
 } as const
+
+export interface TitleBarOverlayColors {
+  /** Background of the native caption-button band (hex). */
+  color: string
+  /** Symbol (− □ ×) colour (hex). */
+  symbolColor: string
+}
 
 export interface SkeletonCheckDTO {
   value: string
@@ -28,5 +36,9 @@ export interface BridgeApi {
   }
   theme: {
     set: (theme: 'light' | 'dark' | 'system') => void
+  }
+  window: {
+    /** Paint the native window controls to match the current top bar. */
+    setTitleBarOverlay: (colors: TitleBarOverlayColors) => void
   }
 }
