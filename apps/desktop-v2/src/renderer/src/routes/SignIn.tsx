@@ -193,7 +193,10 @@ export function SignIn() {
       </p>
 
       <div className="auth-foot">
-        {t('auth.newToBiztrack')} <a href="#">{t('auth.createBusiness')}</a>
+        {t('auth.newToBiztrack')}{' '}
+        <a onClick={() => navigate('/signup')} style={{ cursor: 'pointer' }}>
+          {t('auth.createBusiness')}
+        </a>
       </div>
     </div>
   )

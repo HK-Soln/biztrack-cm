@@ -82,6 +82,7 @@ const makeService = () => {
   const redis = {
     setex: jest.fn(),
     get: jest.fn(),
+    del: jest.fn(),
   }
   const jwt = { signAsync: jest.fn() }
   const config = {

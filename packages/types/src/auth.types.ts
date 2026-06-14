@@ -68,6 +68,8 @@ export interface RegisterRequest {
   phone: string
   email?: string
   password: string
+  /** Optional — names the business created for a new owner (captured at signup). */
+  businessName?: string
   language?: string
   locale?: string
   preferredPhoneChannel?: PrefferedPhoneChannel

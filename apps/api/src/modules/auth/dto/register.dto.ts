@@ -12,6 +12,12 @@ export class RegisterDto implements RegisterRequest {
   @MaxLength(100)
   name!: string
 
+  @ApiPropertyOptional({ example: 'Boutique Mballa' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  businessName?: string
+
   @ApiProperty({ example: '+237612345678' })
   @IsValidPhone()
   phone!: string

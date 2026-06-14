@@ -73,6 +73,7 @@ export interface RegisterPayload {
   phone: string
   email?: string
   password: string
+  businessName?: string
   preferredPhoneChannel?: 'SMS' | 'WHATSAPP'
   inviteToken?: string
 }
