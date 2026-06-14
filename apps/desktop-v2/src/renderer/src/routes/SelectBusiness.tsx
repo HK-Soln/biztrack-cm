@@ -14,6 +14,14 @@ const ROLE_KEY: Record<string, MessageKey> = {
   ACCOUNTANT: 'selectBiz.role.accountant',
 }
 
+const isOwner = (b: BusinessOption): boolean => (b.role ?? '').toUpperCase() === 'OWNER'
+// Known to be mid-setup (status present and not ACTIVE). null status = unknown
+// (offline) → not flagged; the backend stays the authority.
+const isIncomplete = (b: BusinessOption): boolean => !!b.status && b.status !== 'ACTIVE'
+// A non-owner can't enter a business that isn't set up — mirror the backend guard
+// in the UI so the row is disabled with a reason instead of erroring on click.
+const isLocked = (b: BusinessOption): boolean => isIncomplete(b) && !isOwner(b)
+
 // Phase1 → phase2: a logged-in (phase1) user picks which business to open. We list
 // the businesses they belong to and call selectBusiness, which mints the phase2
 // token and returns the onboarding/dashboard nextStep. Works offline — listBusinesses
@@ -57,8 +65,9 @@ export function SelectBusiness() {
     void window.api.auth.listBusinesses().then((list) => {
       if (!active) return
       setBusinesses(list)
-      // One business → skip the picker and open it straight away.
-      if (list.length === 1 && !autoTried.current) {
+      // One business the user can actually enter → skip the picker and open it.
+      // Never auto-open a locked (non-owner, not-set-up) business.
+      if (list.length === 1 && !autoTried.current && !isLocked(list[0]!)) {
         autoTried.current = true
         void select(list[0]!.id)
       }
@@ -96,28 +105,37 @@ export function SelectBusiness() {
         </>
       ) : (
         <div className="biz-list">
-          {businesses.map((b) => (
-            <button
-              key={b.id}
-              type="button"
-              className="biz-item"
-              disabled={!!selecting}
-              onClick={() => void select(b.id)}
-            >
-              <span className="ava">{b.name.trim().charAt(0) || 'B'}</span>
-              <span className="meta">
-                <span className="nm">{b.name}</span>
-                <span className="rl">{roleLabel(b.role)}</span>
-              </span>
-              {selecting === b.id ? (
-                <span className="spin" aria-hidden />
-              ) : (
-                <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path d="m9 18 6-6-6-6" />
-                </svg>
-              )}
-            </button>
-          ))}
+          {businesses.map((b) => {
+            const locked = isLocked(b)
+            return (
+              <button
+                key={b.id}
+                type="button"
+                className={`biz-item${locked ? ' locked' : ''}`}
+                disabled={!!selecting || locked}
+                onClick={() => void select(b.id)}
+              >
+                <span className="ava">{b.name.trim().charAt(0) || 'B'}</span>
+                <span className="meta">
+                  <span className="nm">{b.name}</span>
+                  <span className="rl">{locked ? t('selectBiz.askOwner') : roleLabel(b.role)}</span>
+                </span>
+                {isIncomplete(b) ? <span className="biz-badge">{t('selectBiz.setupIncomplete')}</span> : null}
+                {selecting === b.id ? (
+                  <span className="spin" aria-hidden />
+                ) : locked ? (
+                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <rect x="5" y="11" width="14" height="9" rx="2" />
+                    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                  </svg>
+                ) : (
+                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
         </div>
       )}
 

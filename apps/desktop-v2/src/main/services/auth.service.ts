@@ -189,8 +189,16 @@ export class AuthService {
       if (userId) this.cache.saveBusinesses(userId, options)
       return options
     } catch {
+      // Offline fallback (defensive; the real offline path is offlineLogin, which
+      // bypasses this screen). Status isn't cached, so leave it null.
       const userId = this.tokens.getLastUserId()
-      return userId ? this.cache.listBusinesses(userId) : []
+      if (!userId) return []
+      return this.cache.listBusinesses(userId).map((b) => ({
+        id: b.id,
+        name: b.name,
+        role: b.role,
+        status: null,
+      }))
     }
   }
 
@@ -321,7 +329,12 @@ export class AuthService {
     const id = biz.id as string | undefined
     const name = biz.name as string | undefined
     if (!id || !name) return null
-    return { id, name, role: (rec.role as string | undefined) ?? null }
+    return {
+      id,
+      name,
+      role: (rec.role as string | undefined) ?? null,
+      status: (biz.businessStatus as string | undefined) ?? null,
+    }
   }
 
   private async post<T>(path: string, body: unknown, opts?: RequestOptions): Promise<T> {

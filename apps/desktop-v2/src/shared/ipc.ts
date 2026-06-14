@@ -69,6 +69,9 @@ export interface BusinessOption {
   id: string
   name: string
   role: string | null
+  /** Business lifecycle: 'ONBOARDING' | 'PLAN_PENDING' | 'ACTIVE' (or null if unknown).
+   * A non-owner can only enter an ACTIVE business. */
+  status: string | null
 }
 
 export type OtpChannel = 'SMS' | 'WHATSAPP' | 'EMAIL'

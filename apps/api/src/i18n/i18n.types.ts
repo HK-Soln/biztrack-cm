@@ -53,6 +53,7 @@ export interface I18nTranslations {
     user_not_found: string
     business_not_found: string
     business_forbidden: string
+    business_setup_incomplete: string
     business_already_exists: string
     invite_invalid: string
     invite_contact_required: string
