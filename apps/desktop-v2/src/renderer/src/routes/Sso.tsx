@@ -5,6 +5,7 @@ import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { OtpChannel } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
+import { isValidEmail } from '@/lib/schemas'
 
 type Step = 'channel' | 'verify'
 
@@ -83,7 +84,7 @@ export function Sso() {
     return () => clearInterval(id)
   }, [step, resendIn])
 
-  const validContact = isEmail ? /.+@.+\..+/.test(identifier) : isValidPhone(identifier)
+  const validContact = isEmail ? isValidEmail(identifier) : isValidPhone(identifier)
 
   const sendCode = async (e: React.FormEvent) => {
     e.preventDefault()

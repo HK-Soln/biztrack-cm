@@ -22,3 +22,10 @@ export function signInSchema(mode: SignInMode) {
 }
 
 export type SignInValues = z.infer<typeof emailSignInSchema>
+
+/** Standalone identifier checks (used by screens with inline, per-channel validation). */
+export function isValidEmail(value: string): boolean {
+  return z.string().email().safeParse(value).success
+}
+
+export { isValidPhone }

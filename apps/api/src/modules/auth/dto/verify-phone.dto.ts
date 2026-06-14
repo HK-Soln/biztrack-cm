@@ -1,10 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { Matches, Length, IsOptional, IsString } from 'class-validator'
+import { Length, IsOptional, IsString } from 'class-validator'
 import type { VerifyPhoneRequest } from '@biztrack/types'
+import { IsValidPhone } from '@/common/validators/is-identifier.validator'
 
 export class VerifyPhoneDto implements VerifyPhoneRequest {
   @ApiProperty({ example: '+237612345678' })
-  @Matches(/^\+237[6-9]\d{8}$/, { message: 'Invalid Cameroonian phone number' })
+  @IsValidPhone()
   phone!: string
 
   @ApiProperty({ example: '123456' })
