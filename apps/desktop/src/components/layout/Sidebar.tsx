@@ -23,7 +23,9 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  ShoppingBag,
   ShoppingCart,
+  Store,
   Tag,
   UserCircle2,
   Users,
@@ -708,6 +710,19 @@ export function Sidebar() {
       },
       { to: 'inventory', label: t('inventory'), icon: Boxes, requiredResource: Resource.INVENTORY_VIEW },
       { to: 'sales', label: t('sales'), icon: Receipt, requiredResource: Resource.SALES_VIEW },
+      {
+        label: t('online'),
+        icon: Store,
+        roles: [BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER, BusinessMemberRole.CASHIER, BusinessMemberRole.STAFF],
+        children: [
+          {
+            to: 'online/orders',
+            label: t('online_orders'),
+            icon: ShoppingBag,
+            requiredResource: Resource.SALES_VIEW,
+          },
+        ],
+      },
       {
         label: t('contacts'),
         icon: Users,
