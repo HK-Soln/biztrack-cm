@@ -41,6 +41,23 @@ const CHANNELS: Array<{ id: OtpChannel; label: MessageKey; icon: ReactNode }> = 
   },
 ]
 
+// Client-side fallback masking (the API usually provides the masked value).
+function maskEmail(value: string): string {
+  const [local, domain] = value.split('@')
+  if (!domain || !local) return value
+  const head = local[0] ?? ''
+  const tail = local.length > 1 ? local.slice(-1) : ''
+  return `${head}${'•'.repeat(Math.max(2, local.length - 2))}${tail}@${domain}`
+}
+
+function maskPhone(value: string): string {
+  const digits = value.replace(/\D/g, '')
+  if (digits.length < 3) return value
+  const last = digits.slice(-2)
+  const lead = value.trim().startsWith('+') ? '+' : ''
+  return `${lead}••• ••• •${last}`
+}
+
 export function Sso() {
   const navigate = useNavigate()
   const t = useT()
@@ -55,6 +72,7 @@ export function Sso() {
   const [contactError, setContactError] = useState<MessageKey | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [resendIn, setResendIn] = useState(0)
+  const [maskedDest, setMaskedDest] = useState('')
 
   const isEmail = channel === 'EMAIL'
   const identifier = isEmail ? email.trim() : (phone ?? '')
@@ -83,6 +101,10 @@ export function Sso() {
       setError(res.error ?? 'Could not send the code.')
       return
     }
+    const masked = isEmail
+      ? (res.context?.maskedEmail ?? maskEmail(identifier))
+      : (res.context?.maskedPhone ?? maskPhone(identifier))
+    setMaskedDest(masked)
     setCode('')
     setStep('verify')
     setResendIn(30)
@@ -230,7 +252,7 @@ export function Sso() {
           <div className="auth-h">
             <h1>{t('sso.enterCode')}</h1>
             <p>
-              {t(sentVia)} <b style={{ color: 'var(--text)' }}>{identifier}</b>.
+              {t(sentVia)} <b style={{ color: 'var(--text)' }}>{maskedDest}</b>.
             </p>
           </div>
           <form
