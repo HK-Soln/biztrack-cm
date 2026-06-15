@@ -6,6 +6,7 @@ interface CategoryRow {
   id: string
   name: string
   slug: string | null
+  description: string | null
   color: string | null
   icon: string | null
   image_url: string | null
@@ -13,7 +14,11 @@ interface CategoryRow {
   parent_id: string | null
   depth: number
   is_active: number
+  show_online: number
 }
+
+const SELECT_COLS =
+  'id, name, slug, description, color, icon, image_url, sort_order, parent_id, depth, is_active, show_online'
 
 function slugify(name: string): string {
   return name
@@ -41,7 +46,7 @@ export class CategoriesService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const rows = this.db.query<CategoryRow>(
-      `SELECT id, name, slug, color, icon, image_url, sort_order, parent_id, depth, is_active
+      `SELECT ${SELECT_COLS}
        FROM product_categories
        WHERE business_id = ? AND is_deleted = 0
        ORDER BY sort_order ASC, name ASC`,
@@ -57,13 +62,14 @@ export class CategoriesService {
     const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
       `INSERT INTO product_categories
-        (id, business_id, name, slug, color, icon, image_url, sort_order, parent_id, depth, is_active, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        (id, business_id, name, slug, description, color, icon, image_url, sort_order, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
         input.name.trim(),
         slugify(input.name),
+        input.description?.trim() || null,
         input.color ?? null,
         input.icon ?? null,
         input.imageUrl ?? null,
@@ -71,6 +77,7 @@ export class CategoriesService {
         input.parentId ?? null,
         depth,
         input.isActive === false ? 0 : 1,
+        input.showOnline === false ? 0 : 1,
         now,
         now,
       ],
@@ -86,11 +93,12 @@ export class CategoriesService {
     const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
       `UPDATE product_categories
-       SET name = ?, slug = ?, color = ?, icon = ?, image_url = ?, sort_order = ?, parent_id = ?, depth = ?, is_active = ?, updated_at = ?
+       SET name = ?, slug = ?, description = ?, color = ?, icon = ?, image_url = ?, sort_order = ?, parent_id = ?, depth = ?, is_active = ?, show_online = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
         slugify(input.name),
+        input.description?.trim() || null,
         input.color ?? null,
         input.icon ?? null,
         input.imageUrl ?? null,
@@ -98,6 +106,7 @@ export class CategoriesService {
         input.parentId ?? null,
         depth,
         input.isActive === false ? 0 : 1,
+        input.showOnline === false ? 0 : 1,
         now,
         id,
         businessId,
@@ -123,7 +132,7 @@ export class CategoriesService {
 
   private getOne(id: string): LocalCategory | null {
     const row = this.db.get<CategoryRow>(
-      `SELECT id, name, slug, color, icon, image_url, sort_order, parent_id, depth, is_active
+      `SELECT ${SELECT_COLS}
        FROM product_categories WHERE id = ?`,
       [id],
     )
@@ -148,12 +157,14 @@ export class CategoriesService {
   private upsertPayload(input: CategoryInput): Record<string, unknown> {
     return {
       name: input.name.trim(),
+      description: input.description?.trim() || null,
       color: input.color ?? null,
       icon: input.icon ?? null,
       imageUrl: input.imageUrl ?? null,
       sortOrder: input.sortOrder ?? 0,
       parentId: input.parentId ?? null,
       isActive: input.isActive !== false,
+      showOnline: input.showOnline !== false,
     }
   }
 
@@ -181,6 +192,7 @@ function toLocalCategory(row: CategoryRow): LocalCategory {
     id: row.id,
     name: row.name,
     slug: row.slug,
+    description: row.description,
     color: row.color,
     icon: row.icon,
     imageUrl: row.image_url,
@@ -188,5 +200,6 @@ function toLocalCategory(row: CategoryRow): LocalCategory {
     parentId: row.parent_id,
     depth: row.depth,
     isActive: row.is_active === 1,
+    showOnline: row.show_online === 1,
   }
 }

@@ -49,7 +49,11 @@ export function Categories() {
       onClick={() => (bp === 'mobile' ? edit(c.id) : setSelectedId(c.id))}
     >
       <span className="ava" style={avatarStyle(c)}>
-        {c.name.trim().charAt(0) || 'C'}
+        {c.imageUrl ? (
+          <img src={c.imageUrl} alt="" className="ava-img" />
+        ) : (
+          c.name.trim().charAt(0) || 'C'
+        )}
       </span>
       <span className="meta">
         <span className="nm">{c.name}</span>
@@ -99,12 +103,17 @@ export function Categories() {
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
                   <span className="av" style={avatarStyle(selected)}>
-                    {selected.name.trim().charAt(0) || 'C'}
+                    {selected.imageUrl ? (
+                      <img src={selected.imageUrl} alt="" className="ava-img" />
+                    ) : (
+                      selected.name.trim().charAt(0) || 'C'
+                    )}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h1 style={{ fontSize: 20, fontWeight: 700 }}>{selected.name}</h1>
                     <p style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 2 }}>
                       {t('cat.level')} {selected.depth}
+                      {selected.showOnline ? ` · ${t('cat.showOnline')}` : ''}
                     </p>
                   </div>
                   <Button variant="soft" onClick={() => edit(selected.id)}>
@@ -114,6 +123,11 @@ export function Categories() {
                     {t('cat.delete')}
                   </Button>
                 </div>
+                {selected.description ? (
+                  <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 14 }}>
+                    {selected.description}
+                  </p>
+                ) : null}
                 <div className="cat-empty">{t('cat.noProducts')}</div>
               </>
             ) : (

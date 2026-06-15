@@ -28,6 +28,7 @@ import { migration_0026 } from './0026_product_type'
 import { migration_0027 } from './0027_bundle_components'
 import { migration_0028 } from './0028_serial_units'
 import { migration_0029 } from './0029_outbox_retry'
+import { migration_0030 } from './0030_category_description_show_online'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -63,6 +64,7 @@ export const MIGRATIONS: Migration[] = [
   migration_0027,
   migration_0028,
   migration_0029,
+  migration_0030,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

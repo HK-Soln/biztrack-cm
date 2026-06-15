@@ -7,6 +7,7 @@ export class CategoryDto implements ProductCategory {
   businessId!: string
   name!: string
   slug?: string
+  description?: string | null
   color?: string | null
   icon?: string | null
   imageUrl?: string | null
@@ -15,6 +16,7 @@ export class CategoryDto implements ProductCategory {
   depth?: number
   isLeaf?: boolean
   isActive?: boolean
+  showOnline?: boolean
   createdAt!: string
   updatedAt!: string
 
@@ -26,6 +28,7 @@ export class CategoryDto implements ProductCategory {
     dto.businessId = entity.businessId
     dto.name = entity.name
     dto.slug = entity.slug
+    dto.description = entity.description ?? null
     dto.color = entity.color ?? null
     dto.icon = entity.icon ?? null
     dto.imageUrl = entity.imageUrl ?? null
@@ -34,6 +37,7 @@ export class CategoryDto implements ProductCategory {
     dto.depth = entity.depth
     dto.isLeaf = entity.isLeaf
     dto.isActive = entity.isActive
+    dto.showOnline = entity.showOnline
     dto.createdAt = toIsoString(entity.createdAt) ?? ''
     dto.updatedAt = toIsoString(entity.updatedAt) ?? ''
     return dto

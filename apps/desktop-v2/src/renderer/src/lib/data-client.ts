@@ -1,4 +1,11 @@
-import type { CategoryInput, LocalCategory, SkeletonCheckDTO, SkeletonHealthDTO } from '@shared/ipc'
+import type {
+  CategoryInput,
+  LocalCategory,
+  SkeletonCheckDTO,
+  SkeletonHealthDTO,
+  UploadFileInput,
+  UploadedFile,
+} from '@shared/ipc'
 
 // The renderer's single data dependency. In Electron it resolves to the IPC bridge
 // (offline-first, local SQLite via main). In a plain browser / the future cloud
@@ -14,6 +21,9 @@ export interface DataClient {
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
+  }
+  uploads: {
+    file: (input: UploadFileInput) => Promise<UploadedFile>
   }
 }
 
@@ -32,6 +42,9 @@ function electronAdapter(): DataClient {
       update: (id, input) => window.api.categories.update(id, input),
       remove: (id) => window.api.categories.remove(id),
     },
+    uploads: {
+      file: (input) => window.api.uploads.file(input),
+    },
   }
 }
 
@@ -48,6 +61,7 @@ function cloudAdapter(): DataClient {
   return {
     skeleton: { getCheck: notWired, getHealth: notWired },
     categories: { list: notWired, create: notWired, update: notWired, remove: notWired },
+    uploads: { file: notWired },
   }
 }
 

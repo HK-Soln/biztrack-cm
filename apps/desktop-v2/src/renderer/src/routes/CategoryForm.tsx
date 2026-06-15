@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Select } from '@biztrack/ui/biztrack'
@@ -17,6 +17,8 @@ function slugify(s: string): string {
 }
 
 const LEVEL_KEY: MessageKey[] = ['cat.levelDept', 'cat.levelCat', 'cat.levelSub']
+
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 // Full-page add/edit category form (matches design-form-category): Details + live
 // slug + parent picker on the left; Placement (level + breadcrumb), Image, and
@@ -38,24 +40,59 @@ export function CategoryForm() {
   const current = id ? (categories.find((c) => c.id === id) ?? null) : null
 
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [parentId, setParentId] = useState('')
   const [sortOrder, setSortOrder] = useState('0')
   const [isActive, setIsActive] = useState(true)
+  const [showOnline, setShowOnline] = useState(true)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Populate once when editing (after the list resolves).
   useEffect(() => {
     if (!editing || loaded) return
     if (current) {
       setName(current.name)
+      setDescription(current.description ?? '')
       setParentId(current.parentId ?? '')
       setSortOrder(String(current.sortOrder))
       setIsActive(current.isActive)
+      setShowOnline(current.showOnline)
+      setImageUrl(current.imageUrl)
       setLoaded(true)
     }
   }, [editing, loaded, current])
+
+  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file after a remove
+    if (!file) return
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setImageError(t('cat.imageTypeError'))
+      return
+    }
+    setImageError(null)
+    setUploading(true)
+    try {
+      const bytes = await file.arrayBuffer()
+      const res = await dataClient.uploads.file({
+        bytes,
+        filename: file.name,
+        contentType: file.type,
+        folder: 'categories',
+      })
+      setImageUrl(res.url)
+    } catch {
+      setImageError(t('cat.imageError'))
+    } finally {
+      setUploading(false)
+    }
+  }
 
   // Valid parents: depth < 3, and not the category itself or its descendants.
   const descendantIds = useMemo(() => collectDescendants(categories, id ?? null), [categories, id])
@@ -88,9 +125,12 @@ export function CategoryForm() {
     setFormError(null)
     save.mutate({
       name: name.trim(),
+      description: description.trim() || null,
       parentId: parentId || null,
       sortOrder: Number(sortOrder) || 0,
       isActive,
+      showOnline,
+      imageUrl,
       color: current?.color ?? null,
     })
   }
@@ -169,6 +209,19 @@ export function CategoryForm() {
                     ))}
                   </Select>
                 </div>
+                <div className="ff">
+                  <label className="lbl2">
+                    {t('cat.description')} <span className="opt">{t('cat.optional')}</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    style={{ resize: 'vertical', paddingTop: 10 }}
+                    placeholder={t('cat.descriptionPh')}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
                 <div className="ff" style={{ maxWidth: 180 }}>
                   <label className="lbl2">{t('cat.sortOrder')}</label>
                   <Input value={sortOrder} inputMode="numeric" onChange={(e) => setSortOrder(e.target.value)} />
@@ -217,15 +270,57 @@ export function CategoryForm() {
               <div className="fsec-h" style={{ marginBottom: 10 }}>
                 {t('cat.image')}
               </div>
-              <div className="imgdrop">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="9" cy="9" r="2" />
-                  <path d="m21 15-5-5L5 21" />
-                </svg>
-                <div className="t">{t('cat.image')}</div>
-                <div className="s">{t('cat.imageSoon')}</div>
-              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ALLOWED_IMAGE_TYPES.join(',')}
+                style={{ display: 'none' }}
+                onChange={onPickImage}
+              />
+              {imageUrl ? (
+                <>
+                  <div className="imgpreview">
+                    <img src={imageUrl} alt={name || t('cat.image')} />
+                    {uploading ? <div className="imgpreview-overlay">{t('cat.imageUploading')}</div> : null}
+                  </div>
+                  <div className="img-acts">
+                    <Button variant="soft" type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                      {t('cat.imageReplace')}
+                    </Button>
+                    <Button
+                      variant="soft"
+                      type="button"
+                      onClick={() => {
+                        setImageUrl(null)
+                        setImageError(null)
+                      }}
+                      disabled={uploading}
+                    >
+                      {t('cat.imageRemove')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="imgdrop"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="9" cy="9" r="2" />
+                    <path d="m21 15-5-5L5 21" />
+                  </svg>
+                  <div className="t">{uploading ? t('cat.imageUploading') : t('cat.imageUpload')}</div>
+                  <div className="s">{t('cat.imageHint')}</div>
+                </button>
+              )}
+              {imageError ? (
+                <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
+                  {imageError}
+                </p>
+              ) : null}
             </div>
 
             <div className="card">
@@ -239,6 +334,18 @@ export function CategoryForm() {
                   className={`switch${isActive ? ' on' : ''}`}
                   aria-pressed={isActive}
                   onClick={() => setIsActive((v) => !v)}
+                />
+              </div>
+              <div className="set-line" style={{ borderBottom: 0 }}>
+                <div className="t">
+                  <div className="nm">{t('cat.showOnline')}</div>
+                  <div className="ds">{t('cat.showOnlineHint')}</div>
+                </div>
+                <button
+                  type="button"
+                  className={`switch${showOnline ? ' on' : ''}`}
+                  aria-pressed={showOnline}
+                  onClick={() => setShowOnline((v) => !v)}
                 />
               </div>
             </div>

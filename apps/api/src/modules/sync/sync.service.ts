@@ -130,7 +130,9 @@ type BatchProcessingResult = {
 
 type CategorySyncPayload = {
   name?: string
+  description?: string | null
   isActive?: boolean
+  showOnline?: boolean
   color?: string | null
   icon?: string | null
   imageUrl?: string | null
@@ -1169,10 +1171,12 @@ export class SyncService {
     const payload = this.readCategoryPayload(operation.payload)
     const dto = plainToInstance(CreateCategoryDto, {
       name: payload.name,
+      description: payload.description ?? undefined,
       color: payload.color ?? undefined,
       icon: payload.icon ?? undefined,
       imageUrl: payload.imageUrl ?? undefined,
       sortOrder: payload.sortOrder ?? undefined,
+      showOnline: payload.showOnline ?? undefined,
     })
     await this.ensureValidDto(dto)
 
@@ -1193,7 +1197,9 @@ export class SyncService {
       await this.categoriesRepo.update(operation.recordId, {
         name: payload.name!.trim(),
         slug,
+        description: this.normalizeOptionalString(payload.description),
         isActive: nextIsActive,
+        showOnline: payload.showOnline ?? existing.showOnline,
         color: this.normalizeOptionalString(payload.color),
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -1214,7 +1220,9 @@ export class SyncService {
         businessId,
         name: payload.name!.trim(),
         slug,
+        description: this.normalizeOptionalString(payload.description),
         isActive: payload.isActive ?? true,
+        showOnline: payload.showOnline ?? true,
         color: this.normalizeOptionalString(payload.color),
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.normalizeOptionalString(payload.imageUrl),
@@ -2628,7 +2636,9 @@ export class SyncService {
       businessId: record.businessId,
       name: record.name,
       slug: record.slug,
+      description: record.description ?? null,
       isActive: record.isActive,
+      showOnline: record.showOnline,
       color: record.color ?? null,
       icon: record.icon ?? null,
       imageUrl: record.imageUrl ?? null,

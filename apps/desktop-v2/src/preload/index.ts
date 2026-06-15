@@ -47,6 +47,9 @@ const api: BridgeApi = {
     update: (id, input) => ipcRenderer.invoke(IPC.categoriesUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.categoriesDelete, id),
   },
+  uploads: {
+    file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

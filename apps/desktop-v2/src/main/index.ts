@@ -13,6 +13,8 @@ import { registerAuthIpc } from './ipc/auth.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
 import { CategoriesService } from './services/categories.service'
 import { registerCategoriesIpc } from './ipc/categories.ipc'
+import { UploadService } from './services/upload.service'
+import { registerUploadsIpc } from './ipc/uploads.ipc'
 
 const SYNC_CURSOR_KEY = 'sync.cursor'
 
@@ -130,6 +132,10 @@ app.whenReady().then(() => {
     () => void sync.sync(),
   )
   registerCategoriesIpc(categories)
+
+  // File uploads: renderer hands bytes to main, which POSTs them to the API storage
+  // service with the phase2 token (tokens never reach the renderer).
+  registerUploadsIpc(new UploadService(authHttp))
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {

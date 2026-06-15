@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
 import type { CreateCategoryRequest } from '@biztrack/types'
 
 export class CreateCategoryDto implements CreateCategoryRequest {
@@ -8,6 +8,12 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   @IsString()
   @MaxLength(100)
   name!: string
+
+  @ApiPropertyOptional({ example: 'Boissons gazeuses et jus' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string
 
   @ApiPropertyOptional({ example: '#185FA5' })
   @IsOptional()
@@ -40,4 +46,9 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   @IsOptional()
   @IsUUID()
   parentId?: string
+
+  @ApiPropertyOptional({ default: true, description: 'Visible in the online store.' })
+  @IsOptional()
+  @IsBoolean()
+  showOnline?: boolean
 }
