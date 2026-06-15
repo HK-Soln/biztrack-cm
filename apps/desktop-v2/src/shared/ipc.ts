@@ -43,6 +43,13 @@ export const IPC = {
   unitsCreate: 'units:create',
   unitsUpdate: 'units:update',
   unitsDelete: 'units:delete',
+  brandsList: 'brands:list',
+  brandsCreate: 'brands:create',
+  brandsUpdate: 'brands:update',
+  brandsDelete: 'brands:delete',
+  brandsAddModel: 'brands:add-model',
+  brandsUpdateModel: 'brands:update-model',
+  brandsDeleteModel: 'brands:delete-model',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -269,6 +276,44 @@ export interface UnitInput {
   isActive?: boolean
 }
 
+// ---- Brands & Models ------------------------------------------------------
+/** A model under a brand, stored locally. */
+export interface LocalModel {
+  id: string
+  brandId: string
+  name: string
+  isActive: boolean
+  sortOrder: number
+}
+
+/** A brand with its category links (M2M) + models, stored locally. */
+export interface LocalBrand {
+  id: string
+  name: string
+  slug: string | null
+  logoUrl: string | null
+  description: string | null
+  isActive: boolean
+  sortOrder: number
+  categoryIds: string[]
+  models: LocalModel[]
+}
+
+export interface BrandInput {
+  name: string
+  logoUrl?: string | null
+  description?: string | null
+  /** Category ids to link (M2M). A brand must have at least one. */
+  categoryIds: string[]
+  sortOrder?: number
+  isActive?: boolean
+}
+
+export interface ModelInput {
+  name: string
+  isActive?: boolean
+}
+
 /** A file the renderer hands to main for upload to the API storage service. */
 export interface UploadFileInput {
   /** Raw file bytes (from File.arrayBuffer()). */
@@ -380,6 +425,15 @@ export interface BridgeApi {
     create: (input: UnitInput) => Promise<LocalUnit>
     update: (id: string, input: UnitInput) => Promise<LocalUnit>
     remove: (id: string) => Promise<void>
+  }
+  brands: {
+    list: () => Promise<LocalBrand[]>
+    create: (input: BrandInput) => Promise<LocalBrand>
+    update: (id: string, input: BrandInput) => Promise<LocalBrand>
+    remove: (id: string) => Promise<void>
+    addModel: (brandId: string, input: ModelInput) => Promise<LocalModel>
+    updateModel: (modelId: string, input: ModelInput) => Promise<LocalModel>
+    removeModel: (modelId: string) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

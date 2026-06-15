@@ -17,6 +17,8 @@ import { AttributesService } from './services/attributes.service'
 import { registerAttributesIpc } from './ipc/attributes.ipc'
 import { UnitsService } from './services/units.service'
 import { registerUnitsIpc } from './ipc/units.ipc'
+import { BrandsService } from './services/brands.service'
+import { registerBrandsIpc } from './ipc/brands.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 
@@ -154,6 +156,14 @@ app.whenReady().then(() => {
     () => void sync.sync(),
   )
   registerUnitsIpc(units)
+
+  // Brands & Models: offline-first; brands link categories M2M and own models.
+  const brands = new BrandsService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+  )
+  registerBrandsIpc(brands)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

@@ -14,4 +14,5 @@ export const queryKeys = {
   attributeGroups: ['attribute-groups'] as const,
   categoryAttributeLinks: (categoryId: string) => ['category-attribute-links', categoryId] as const,
   units: ['units'] as const,
+  brands: ['brands'] as const,
 }

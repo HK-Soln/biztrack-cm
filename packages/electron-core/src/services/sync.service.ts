@@ -71,6 +71,9 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   attributeGroups: 'attribute_group',
   attributeOptions: 'attribute_option',
   categoryAttributeGroups: 'category_attribute_group',
+  brands: 'brand',
+  models: 'model',
+  brandCategories: 'brand_category',
   expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
@@ -316,6 +319,16 @@ export class SyncService {
     for (const record of changes.unitOfMeasures ?? []) {
       ops.push(this.unitOfMeasureUpsert(record))
     }
+    // Parents before children: brands → models + brand-category links.
+    for (const record of changes.brands ?? []) {
+      ops.push(this.brandUpsert(record))
+    }
+    for (const record of changes.models ?? []) {
+      ops.push(this.modelUpsert(record))
+    }
+    for (const record of changes.brandCategories ?? []) {
+      ops.push(this.brandCategoryUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
@@ -450,6 +463,81 @@ export class SyncService {
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         r.isDeleted ? 1 : 0,
         c.isDefault === true ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private brandUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO brands
+        (id, business_id, name, slug, logo_url, description, is_active, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, slug = excluded.slug, logo_url = excluded.logo_url,
+          description = excluded.description, is_active = excluded.is_active, sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.name),
+        asStr(c.slug),
+        asStr(c.logoUrl),
+        asStr(c.description),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private modelUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO models
+        (id, business_id, brand_id, name, slug, is_active, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          brand_id = excluded.brand_id, name = excluded.name, slug = excluded.slug,
+          is_active = excluded.is_active, sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.brandId),
+        asStr(c.name),
+        asStr(c.slug),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private brandCategoryUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO brand_categories
+        (id, business_id, brand_id, category_id, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          brand_id = excluded.brand_id, category_id = excluded.category_id,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.brandId),
+        asStr(c.categoryId),
+        r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],

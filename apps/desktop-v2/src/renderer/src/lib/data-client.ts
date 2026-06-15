@@ -1,13 +1,17 @@
 import type {
   AttributeGroupInput,
   AttributeOptionInput,
+  BrandInput,
   CategoryAttributeLinkInput,
   CategoryInput,
   LocalAttributeGroup,
   LocalAttributeOption,
+  LocalBrand,
   LocalCategory,
   LocalCategoryAttributeGroup,
+  LocalModel,
   LocalUnit,
+  ModelInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
   UnitInput,
@@ -47,6 +51,15 @@ export interface DataClient {
     update: (id: string, input: UnitInput) => Promise<LocalUnit>
     remove: (id: string) => Promise<void>
   }
+  brands: {
+    list: () => Promise<LocalBrand[]>
+    create: (input: BrandInput) => Promise<LocalBrand>
+    update: (id: string, input: BrandInput) => Promise<LocalBrand>
+    remove: (id: string) => Promise<void>
+    addModel: (brandId: string, input: ModelInput) => Promise<LocalModel>
+    updateModel: (modelId: string, input: ModelInput) => Promise<LocalModel>
+    removeModel: (modelId: string) => Promise<void>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
@@ -84,6 +97,15 @@ function electronAdapter(): DataClient {
       update: (id, input) => window.api.units.update(id, input),
       remove: (id) => window.api.units.remove(id),
     },
+    brands: {
+      list: () => window.api.brands.list(),
+      create: (input) => window.api.brands.create(input),
+      update: (id, input) => window.api.brands.update(id, input),
+      remove: (id) => window.api.brands.remove(id),
+      addModel: (brandId, input) => window.api.brands.addModel(brandId, input),
+      updateModel: (modelId, input) => window.api.brands.updateModel(modelId, input),
+      removeModel: (modelId) => window.api.brands.removeModel(modelId),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -115,6 +137,15 @@ function cloudAdapter(): DataClient {
       setCategoryLinks: notWired,
     },
     units: { list: notWired, create: notWired, update: notWired, remove: notWired },
+    brands: {
+      list: notWired,
+      create: notWired,
+      update: notWired,
+      remove: notWired,
+      addModel: notWired,
+      updateModel: notWired,
+      removeModel: notWired,
+    },
     uploads: { file: notWired },
   }
 }

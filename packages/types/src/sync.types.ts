@@ -16,6 +16,9 @@ export type SyncEntity =
   | 'attribute_group'
   | 'attribute_option'
   | 'category_attribute_group'
+  | 'brand'
+  | 'model'
+  | 'brand_category'
   | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
@@ -70,9 +73,12 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   unit_of_measure: 0,
   product_category: 0,
   attribute_group: 0,
+  brand: 0,
   expense_category: 0,
   attribute_option: 1,
   category_attribute_group: 1,
+  model: 1,
+  brand_category: 1,
   product: 1,
   inventory_threshold: 2,
   inventory_restock: 2,
@@ -92,16 +98,19 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   attribute_group: 4,
   attribute_option: 5,
   category_attribute_group: 6,
-  expense_category: 7,
-  product: 8,
-  inventory_threshold: 9,
-  inventory_restock: 10,
-  inventory_adjustment: 11,
-  sale: 12,
-  expense: 13,
-  debt: 14,
-  savings: 15,
-  savings_transaction: 16,
+  brand: 7,
+  model: 8,
+  brand_category: 9,
+  expense_category: 10,
+  product: 11,
+  inventory_threshold: 12,
+  inventory_restock: 13,
+  inventory_adjustment: 14,
+  sale: 15,
+  expense: 16,
+  debt: 17,
+  savings: 18,
+  savings_transaction: 19,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -137,10 +146,13 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   unit_of_measure: [],
   product_category: [],
   attribute_group: [],
+  brand: [],
   expense_category: [],
   opening_balance: ['contact'],
   attribute_option: ['attribute_group'],
   category_attribute_group: ['product_category', 'attribute_group'],
+  model: ['brand'],
+  brand_category: ['brand', 'product_category'],
   product: ['product_category', 'unit_of_measure'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
@@ -498,6 +510,9 @@ export interface ChangeSet {
   attributeGroups?: SyncRecord[]
   attributeOptions?: SyncRecord[]
   categoryAttributeGroups?: SyncRecord[]
+  brands?: SyncRecord[]
+  models?: SyncRecord[]
+  brandCategories?: SyncRecord[]
   productVariants?: SyncRecord[]
   productVariantOptions?: SyncRecord[]
   productBundleComponents?: SyncRecord[]
@@ -716,12 +731,49 @@ export interface CategoryAttributeGroupSyncPayload {
   isDeleted?: boolean
 }
 
+export interface BrandSyncPayload {
+  name: string
+  slug?: string
+  logoUrl?: string | null
+  description?: string | null
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface ModelSyncPayload {
+  brandId: string
+  name: string
+  slug?: string | null
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface BrandCategorySyncPayload {
+  brandId: string
+  categoryId: string
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
 export type SyncPushPayload =
   | SyncRecord
   | ContactSyncPayload
   | AttributeGroupSyncPayload
   | AttributeOptionSyncPayload
   | CategoryAttributeGroupSyncPayload
+  | BrandSyncPayload
+  | ModelSyncPayload
+  | BrandCategorySyncPayload
   | OpeningBalanceSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload
