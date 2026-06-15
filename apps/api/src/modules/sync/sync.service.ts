@@ -48,9 +48,8 @@ import {
   DebtDirection,
   DebtSource,
   DebtStatus,
+  compareSyncEntityByDependency,
   deriveProductTypeFlags,
-  getSyncEntityDependencyTier,
-  getSyncEntityStableOrder,
   inferProductType,
   PaymentMethod,
   ProductType,
@@ -60,7 +59,7 @@ import {
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type { Queue } from 'bullmq'
 import { I18nService } from 'nestjs-i18n'
-import { DataSource, In, IsNull, Repository } from 'typeorm'
+import { DataSource, In, IsNull, QueryFailedError, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -123,7 +122,7 @@ import { PushSyncBatchDto } from './dto/push-sync-batch.dto'
 import { SyncRealtimeService } from './services/sync-realtime.service'
 
 type BatchProcessingResult = {
-  status: 'applied' | 'conflict' | 'failed'
+  status: 'applied' | 'conflict' | 'deferred' | 'failed'
   resolution?: 'server_wins' | 'client_wins' | null
   errorMessage?: string | null
   errorDetails?: SyncOperationFailureDetails | null
@@ -858,22 +857,21 @@ export class SyncService {
 
     await this.emitBatchStatus(batch.id)
 
+    // Process parents before children, driven by the shared dependency graph (the
+    // same one the client orders its push with), then oldest-first. Defensive: the
+    // client already sends in this order.
     const sortedOperations = [...(batch.operations ?? [])].sort((left, right) => {
-      const leftEntity = left.entity as SyncEntity
-      const rightEntity = right.entity as SyncEntity
-      const tierOrder = getSyncEntityDependencyTier(leftEntity) - getSyncEntityDependencyTier(rightEntity)
-      if (tierOrder !== 0) {
-        return tierOrder
+      const dependencyOrder = compareSyncEntityByDependency(
+        left.entity as SyncEntity,
+        right.entity as SyncEntity,
+      )
+      if (dependencyOrder !== 0) {
+        return dependencyOrder
       }
 
       const recordUpdatedAtOrder = left.recordUpdatedAt.getTime() - right.recordUpdatedAt.getTime()
       if (recordUpdatedAtOrder !== 0) {
         return recordUpdatedAtOrder
-      }
-
-      const entityOrder = getSyncEntityStableOrder(leftEntity) - getSyncEntityStableOrder(rightEntity)
-      if (entityOrder !== 0) {
-        return entityOrder
       }
 
       const createdAtOrder = left.createdAt.getTime() - right.createdAt.getTime()
@@ -944,6 +942,9 @@ export class SyncService {
           appliedCount += 1
         } else if (result.status === 'conflict') {
           conflictCount += 1
+        } else if (result.status === 'deferred') {
+          // Not a failure — the client keeps the record and retries once its
+          // dependency lands. Leaves the batch 'partial' (not 'failed').
         } else {
           failedCount += 1
           firstFailureMessage ??= result.errorMessage ?? null
@@ -1006,89 +1007,95 @@ export class SyncService {
     }
   }
 
+  // Entity → apply handler. Replaces the per-entity switch: adding an entity is one
+  // line here. Ordering (dependency graph) + error classification live in the generic
+  // processOperation below, so handlers only do the per-entity persistence.
+  private get operationHandlers(): Record<
+    string,
+    (businessId: string, operation: SyncOperation) => Promise<BatchProcessingResult>
+  > {
+    return {
+      product_category: (b, o) => this.applyCategoryOperation(b, o),
+      contact: (b, o) => this.applyContactOperation(b, o),
+      opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
+      product: (b, o) => this.applyProductOperation(b, o),
+      expense_category: (b, o) => this.applyExpenseCategoryOperation(b, o),
+      unit_of_measure: (b, o) => this.applyUnitOfMeasureOperation(b, o),
+      inventory_threshold: (b, o) => this.applyInventoryThresholdOperation(b, o),
+      inventory_adjustment: (b, o) => this.applyInventoryAdjustmentOperation(b, o),
+      inventory_restock: (b, o) => this.applyInventoryRestockOperation(b, o),
+      sale: (b, o) => this.applySaleOperation(b, o),
+      debt: (b, o) => this.applyDebtOperation(b, o),
+      expense: (b, o) => this.applyExpenseOperation(b, o),
+      savings: (b, o) => this.applySavingsAccountOperation(b, o),
+      savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
+    }
+  }
+
   private async processOperation(businessId: string, operation: SyncOperation): Promise<BatchProcessingResult> {
+    const handler = this.operationHandlers[operation.entity]
+    if (!handler) {
+      return { status: 'failed', errorMessage: `Unsupported sync entity: ${operation.entity}` }
+    }
     try {
-      if (operation.entity === 'product_category') {
-        return this.applyCategoryOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'contact') {
-        return this.applyContactOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'opening_balance') {
-        return this.applyOpeningBalanceOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'product') {
-        return this.applyProductOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'expense_category') {
-        return this.applyExpenseCategoryOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'unit_of_measure') {
-        return this.applyUnitOfMeasureOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'inventory_threshold') {
-        return this.applyInventoryThresholdOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'inventory_adjustment') {
-        return this.applyInventoryAdjustmentOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'inventory_restock') {
-        return this.applyInventoryRestockOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'sale') {
-        return this.applySaleOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'debt') {
-        return this.applyDebtOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'expense') {
-        return this.applyExpenseOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'savings') {
-        return this.applySavingsAccountOperation(businessId, operation)
-      }
-
-      if (operation.entity === 'savings_transaction') {
-        return this.applySavingsTransactionOperation(businessId, operation)
-      }
-
-      return {
-        status: 'failed',
-        errorMessage: `Unsupported sync entity: ${operation.entity}`,
-      }
+      return await handler(businessId, operation)
     } catch (error) {
-      if (error instanceof AppException) {
+      return this.classifyOperationError(businessId, operation, error)
+    }
+  }
+
+  /**
+   * Map a thrown error to a per-record outcome so one bad operation never fails the
+   * whole batch:
+   * - FK violation (PG 23503): the parent isn't on the server yet → 'deferred'
+   *   (the client retries once the parent syncs).
+   * - Unique violation (PG 23505): a record already exists for this key → 'conflict'.
+   * - AppException: an intentional rejection (quota/validation) → 'failed' with its code.
+   * - Anything else: 'failed'.
+   */
+  private classifyOperationError(
+    businessId: string,
+    operation: SyncOperation,
+    error: unknown,
+  ): BatchProcessingResult {
+    if (error instanceof QueryFailedError) {
+      const code = (error.driverError as { code?: string } | undefined)?.code
+      if (code === '23503') {
         return {
-          status: 'failed',
-          errorMessage: error.message,
-          errorDetails: (error.details as SyncOperationFailureDetails | undefined) ?? null,
+          status: 'deferred',
+          errorMessage: 'A dependency has not synced yet; will retry.',
+          errorDetails: { code: 'DEPENDENCY_MISSING' },
         }
       }
+      if (code === '23505') {
+        return {
+          status: 'conflict',
+          resolution: 'server_wins',
+          errorMessage: 'A record already exists for this key.',
+          errorDetails: { code: 'UNIQUE_VIOLATION' },
+        }
+      }
+    }
 
-      this.logger.error('Sync operation failed unexpectedly', 'SyncService', {
-        businessId,
-        operationId: operation.id,
-        entity: operation.entity,
-        message: error instanceof Error ? error.message : 'Unknown error',
-      })
-
+    if (error instanceof AppException) {
       return {
         status: 'failed',
-        errorMessage: error instanceof Error ? error.message : 'Unexpected sync failure',
-        errorDetails: null,
+        errorMessage: error.message,
+        errorDetails: (error.details as SyncOperationFailureDetails | undefined) ?? null,
       }
+    }
+
+    this.logger.error('Sync operation failed unexpectedly', 'SyncService', {
+      businessId,
+      operationId: operation.id,
+      entity: operation.entity,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    })
+
+    return {
+      status: 'failed',
+      errorMessage: error instanceof Error ? error.message : 'Unexpected sync failure',
+      errorDetails: null,
     }
   }
 

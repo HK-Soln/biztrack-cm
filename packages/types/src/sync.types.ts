@@ -196,7 +196,9 @@ export type SyncBatchStatus =
   | 'enqueue_failed'
   | 'skipped'
 
-export type SyncOperationStatus = 'pending' | 'applied' | 'conflict' | 'failed'
+// 'deferred' = the record couldn't apply yet because a dependency (FK parent) isn't
+// present on the server yet; the client keeps it and retries on a later batch.
+export type SyncOperationStatus = 'pending' | 'applied' | 'conflict' | 'deferred' | 'failed'
 
 export type SyncRealtimeBatchEventName =
   | 'sync.batch.queued'
