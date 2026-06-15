@@ -11,6 +11,8 @@ import { createAuthHttp } from './services/auth-http'
 import { AuthService } from './services/auth.service'
 import { registerAuthIpc } from './ipc/auth.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
+import { CategoriesService } from './services/categories.service'
+import { registerCategoriesIpc } from './ipc/categories.ipc'
 
 const SYNC_CURSOR_KEY = 'sync.cursor'
 
@@ -119,6 +121,15 @@ app.whenReady().then(() => {
   sync.start()
   registerSyncIpc(sync)
   app.on('before-quit', () => sync.stop())
+
+  // Categories: offline-first reads from local SQLite; writes go local + outbox and
+  // nudge a sync. Business scope comes from the active session, never the renderer.
+  const categories = new CategoriesService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+  )
+  registerCategoriesIpc(categories)
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {

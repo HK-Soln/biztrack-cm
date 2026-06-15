@@ -41,6 +41,12 @@ const api: BridgeApi = {
       return () => ipcRenderer.removeListener(IPC.syncStatusEvent, listener)
     },
   },
+  categories: {
+    list: () => ipcRenderer.invoke(IPC.categoriesList),
+    create: (input) => ipcRenderer.invoke(IPC.categoriesCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.categoriesUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC.categoriesDelete, id),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)
