@@ -2,9 +2,11 @@ import bcrypt from 'bcryptjs'
 import { HttpError, type HttpClient, type RequestOptions } from '@biztrack/http-client'
 import type {
   AuthFlowResult,
+  BillingCycle,
   BusinessOption,
   BusinessSetupPayload,
   OtpChannel,
+  PlanList,
   RegisterPayload,
   SessionStatus,
 } from '../../shared/ipc'
@@ -43,8 +45,7 @@ function deriveNextStep(phase: 'none' | 'phase1' | 'phase2', onboardingStep: str
       return 'setup_business'
     case 'SELECT_PLAN':
       return 'select_plan'
-    case 'ADD_FIRST_PRODUCT':
-      return 'add_first_product'
+    // ADD_FIRST_PRODUCT is no longer a forced step → treat as dashboard.
     default:
       return 'dashboard'
   }
@@ -170,6 +171,59 @@ export class AuthService {
       // The setup endpoint moves the business ONBOARDING → PLAN_PENDING but returns
       // the business, not a nextStep. Re-select to get the backend's authoritative
       // next step (now select_plan) and refresh the cached business profile.
+      return await this.selectBusiness(businessId)
+    } catch (e) {
+      return this.fail(e)
+    }
+  }
+
+  async listPlans(): Promise<PlanList> {
+    try {
+      const data = await this.get<{
+        plans: Array<{
+          name: string
+          displayName: string
+          priceXAF: number
+          priceAnnualXAF: number
+          trialDays: number
+          quotas?: { products?: number | null; contacts?: number | null; categories?: number | null; users?: number | null }
+          resources?: string[]
+          additionalResources?: string[]
+          inheritsFrom?: string | null
+        }>
+        currentPlan: string | null
+      }>('/plans')
+      return {
+        plans: (data.plans ?? []).map((p) => ({
+          name: p.name,
+          displayName: p.displayName,
+          priceXAF: p.priceXAF,
+          priceAnnualXAF: p.priceAnnualXAF,
+          trialDays: p.trialDays,
+          quotas: {
+            products: p.quotas?.products ?? null,
+            contacts: p.quotas?.contacts ?? null,
+            categories: p.quotas?.categories ?? null,
+            users: p.quotas?.users ?? null,
+          },
+          resources: p.resources ?? [],
+          additionalResources: p.additionalResources ?? [],
+          inheritsFrom: p.inheritsFrom ?? null,
+        })),
+        currentPlan: data.currentPlan ?? null,
+      }
+    } catch {
+      return { plans: [], currentPlan: null }
+    }
+  }
+
+  async selectPlan(plan: string, billingCycle?: BillingCycle): Promise<AuthFlowResult> {
+    const businessId = this.session.businessId
+    if (!businessId) return this.fail(new Error('No active business.'))
+    try {
+      await this.post('/plans/select', { plan, billingCycle })
+      // Plan selection flips the business to ACTIVE but returns no tokens. Re-select
+      // to refresh the session + pick up the backend's authoritative nextStep (→ dashboard).
       return await this.selectBusiness(businessId)
     } catch (e) {
       return this.fail(e)

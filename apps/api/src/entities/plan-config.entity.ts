@@ -24,6 +24,9 @@ export class PlanConfig extends BaseEntity {
   @Column({ name: 'price_xaf', type: 'int' })
   priceXAF!: number
 
+  @Column({ name: 'price_annual_xaf', type: 'int', default: 0 })
+  priceAnnualXAF!: number
+
   @Column({ name: 'updated_by' })
   updatedBy!: string
 }
