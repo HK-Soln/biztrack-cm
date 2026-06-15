@@ -28,8 +28,14 @@ export class ProductCategory extends BaseEntity {
   @Column()
   slug!: string
 
+  @Column({ nullable: true, type: 'text' })
+  description?: string | null
+
   @Column({ name: 'is_active', default: true })
   isActive!: boolean
+
+  @Column({ name: 'show_online', default: true })
+  showOnline!: boolean
 
   @Column({ nullable: true, type: 'varchar', length: 7 })
   color?: string | null // Hex color code (e.g., #FF5733)

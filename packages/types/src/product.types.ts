@@ -308,6 +308,7 @@ export interface ProductCategory {
   businessId: string
   name: string
   slug?: string
+  description?: string | null
   color?: string | null
   icon?: string | null
   imageUrl?: string | null
@@ -316,6 +317,8 @@ export interface ProductCategory {
   depth?: number
   isLeaf?: boolean
   isActive?: boolean
+  /** Visible in the online store (when the plan includes an online store). */
+  showOnline?: boolean
   createdAt: IsoDateString
   updatedAt: IsoDateString
 }
@@ -332,6 +335,7 @@ export interface CategoryTreeNode {
   isActive: boolean
   productCount: number
   imageUrl?: string | null
+  showOnline?: boolean
   // Attribute groups linked to this category (only populated on leaf categories).
   attributeGroups?: CategoryAttributeGroupNode[]
   children: CategoryTreeNode[]
@@ -457,12 +461,14 @@ export interface CategoriesQuery extends ListQuery {}
 
 export interface CreateCategoryRequest {
   name: string
+  description?: string
   color?: string
   icon?: string
   imageUrl?: string
   sortOrder?: number
   parentId?: string | null
   isActive?: boolean
+  showOnline?: boolean
 }
 
 export interface UpdateCategoryRequest extends Partial<CreateCategoryRequest> {

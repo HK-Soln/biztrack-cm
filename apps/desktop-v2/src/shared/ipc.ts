@@ -30,6 +30,7 @@ export const IPC = {
   categoriesCreate: 'categories:create',
   categoriesUpdate: 'categories:update',
   categoriesDelete: 'categories:delete',
+  uploadsFile: 'uploads:file',
 } as const
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -152,6 +153,7 @@ export interface LocalCategory {
   id: string
   name: string
   slug: string | null
+  description: string | null
   color: string | null
   icon: string | null
   imageUrl: string | null
@@ -159,17 +161,36 @@ export interface LocalCategory {
   parentId: string | null
   depth: number
   isActive: boolean
+  showOnline: boolean
 }
 
 /** Fields the user supplies when creating/editing a category. */
 export interface CategoryInput {
   name: string
+  description?: string | null
   color?: string | null
   icon?: string | null
   imageUrl?: string | null
   parentId?: string | null
   sortOrder?: number
   isActive?: boolean
+  showOnline?: boolean
+}
+
+/** A file the renderer hands to main for upload to the API storage service. */
+export interface UploadFileInput {
+  /** Raw file bytes (from File.arrayBuffer()). */
+  bytes: ArrayBuffer
+  filename: string
+  contentType: string
+  /** Logical folder/prefix within the business (e.g. 'categories'). */
+  folder?: string
+}
+
+/** Result of a successful upload — persist `url` on the owning record. */
+export interface UploadedFile {
+  key: string
+  url: string
 }
 
 /** Sync engine status surfaced to the renderer (no tokens, no payloads). */
@@ -249,5 +270,9 @@ export interface BridgeApi {
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
+  }
+  uploads: {
+    /** Upload a file (image/pdf) through the API storage service; returns its URL. */
+    file: (input: UploadFileInput) => Promise<UploadedFile>
   }
 }

@@ -64,7 +64,9 @@ export class CategoriesService {
         businessId,
         name: dto.name.trim(),
         slug,
+        description: dto.description?.trim() || null,
         isActive: true,
+        showOnline: dto.showOnline ?? true,
         color: dto.color?.trim() ?? null,
         icon: dto.icon?.trim() ?? null,
         imageUrl: dto.imageUrl?.trim() ?? null,
@@ -131,6 +133,7 @@ export class CategoriesService {
           isActive: category.isActive,
           productCount: productCounts.get(category.id) ?? 0,
           imageUrl: category.imageUrl ?? null,
+          showOnline: category.showOnline,
           children: [],
         })
       }
@@ -212,7 +215,10 @@ export class CategoriesService {
       await this.categoriesRepo.update(id, {
         name: dto.name?.trim() ?? category.name,
         slug,
+        description:
+          dto.description === undefined ? category.description : (dto.description?.trim() || null),
         isActive: dto.isActive ?? category.isActive,
+        showOnline: dto.showOnline ?? category.showOnline,
         color: dto.color === undefined ? category.color : (dto.color?.trim() ?? null),
         icon: dto.icon === undefined ? category.icon : (dto.icon?.trim() ?? null),
         imageUrl: dto.imageUrl === undefined ? category.imageUrl : (dto.imageUrl?.trim() ?? null),
