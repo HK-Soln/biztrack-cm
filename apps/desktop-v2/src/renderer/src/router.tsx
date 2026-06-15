@@ -46,6 +46,7 @@ export const router = createHashRouter([
       { path: '/inventory', element: <Placeholder titleKey="nav.inventory" /> },
       { path: '/sales', element: <Placeholder titleKey="nav.sales" /> },
       { path: '/online/orders', element: <Placeholder titleKey="nav.onlineOrders" /> },
+      { path: '/online/store', element: <Placeholder titleKey="nav.onlineStore" /> },
       { path: '/contacts', element: <Placeholder titleKey="nav.allContacts" /> },
       { path: '/contacts/debtors', element: <Placeholder titleKey="nav.debtors" /> },
       { path: '/contacts/creditors', element: <Placeholder titleKey="nav.creditors" /> },
