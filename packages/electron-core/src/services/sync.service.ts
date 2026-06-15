@@ -1,10 +1,12 @@
-import type {
-  ChangeSet,
-  SyncBatchStatus,
-  SyncBatchStatusResponse,
-  SyncPullResponse,
-  SyncPushResponse,
-  SyncRecord,
+import {
+  compareSyncEntityByDependency,
+  type ChangeSet,
+  type SyncBatchStatus,
+  type SyncBatchStatusResponse,
+  type SyncEntity,
+  type SyncPullResponse,
+  type SyncPushResponse,
+  type SyncRecord,
 } from '@biztrack/types'
 import type { DatabaseService } from './database.service'
 
@@ -70,20 +72,6 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   expenses: 'expense',
   savings: 'savings',
   savingsTransactions: 'savings_transaction',
-}
-
-// Push ordering: lower tier first (dependencies before dependents), then by
-// updatedAt, then a stable per-entity order. Mirrors the server's processing order.
-const ENTITY_TIER: Record<string, number> = {
-  contact: 0, opening_balance: 0, unit_of_measure: 0, product_category: 0, expense_category: 0,
-  product: 1,
-  inventory_threshold: 2, inventory_restock: 2, inventory_adjustment: 2, sale: 2, expense: 2,
-  debt: 3, savings: 3, savings_transaction: 3,
-}
-const ENTITY_STABLE_ORDER: Record<string, number> = {
-  contact: 0, opening_balance: 1, unit_of_measure: 2, product_category: 3, expense_category: 4,
-  product: 5, inventory_threshold: 6, inventory_restock: 7, inventory_adjustment: 8, sale: 9,
-  expense: 10, debt: 11, savings: 12, savings_transaction: 13,
 }
 
 const TERMINAL_BATCH_STATUSES: SyncBatchStatus[] = [
@@ -160,14 +148,16 @@ export class SyncService {
     )
     if (rows.length === 0) return
 
+    // Hierarchical order: parents before children (from the shared dependency graph),
+    // then oldest-first within an entity. The server can trust this order.
     const operations = rows
       .map((row) => this.toOperation(row))
       .filter((op): op is PushOperation => op !== null)
       .sort((a, b) => {
-        const tier = (ENTITY_TIER[a.entity] ?? 99) - (ENTITY_TIER[b.entity] ?? 99)
-        if (tier !== 0) return tier
+        const dep = compareSyncEntityByDependency(a.entity as SyncEntity, b.entity as SyncEntity)
+        if (dep !== 0) return dep
         if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? -1 : 1
-        return (ENTITY_STABLE_ORDER[a.entity] ?? 99) - (ENTITY_STABLE_ORDER[b.entity] ?? 99)
+        return 0
       })
     if (operations.length === 0) return
 

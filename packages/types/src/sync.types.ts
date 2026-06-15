@@ -112,6 +112,78 @@ export function compareSyncEntityExecutionOrder(left: SyncEntity, right: SyncEnt
   return getSyncEntityStableOrder(left) - getSyncEntityStableOrder(right)
 }
 
+/**
+ * CANONICAL dependency graph: for each sync entity, the entities it FK-references
+ * (and which must therefore be pushed/applied BEFORE it). This is the single source
+ * of truth — the client topologically sorts its outbox from it (parents → children),
+ * and the API processor builds its hierarchy from it instead of hand-ordered switches.
+ *
+ * Self-references (e.g. a product_category parent) are intra-entity and resolved by
+ * timestamp order within the entity, so they are not listed here.
+ *
+ * Declared in a already-valid topological order so the stable tiebreak is deterministic.
+ */
+export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
+  contact: [],
+  unit_of_measure: [],
+  product_category: [],
+  expense_category: [],
+  opening_balance: ['contact'],
+  product: ['product_category', 'unit_of_measure'],
+  inventory_threshold: ['product'],
+  inventory_restock: ['product'],
+  inventory_adjustment: ['product'],
+  sale: ['contact', 'product'],
+  expense: ['expense_category'],
+  debt: ['contact', 'sale'],
+  savings: ['contact'],
+  savings_transaction: ['savings'],
+}
+
+/**
+ * Topological order of sync entities derived from {@link SYNC_ENTITY_DEPENDENCIES}
+ * (dependencies first). Stable: ties break by declaration order. Throws on a cycle.
+ */
+export function topoSortSyncEntities(): SyncEntity[] {
+  const all = Object.keys(SYNC_ENTITY_DEPENDENCIES) as SyncEntity[]
+  const placed: SyncEntity[] = []
+  const placedSet = new Set<SyncEntity>()
+
+  let progressed = true
+  while (placed.length < all.length && progressed) {
+    progressed = false
+    for (const entity of all) {
+      if (placedSet.has(entity)) continue
+      const ready = SYNC_ENTITY_DEPENDENCIES[entity].every((dep) => dep === entity || placedSet.has(dep))
+      if (ready) {
+        placed.push(entity)
+        placedSet.add(entity)
+        progressed = true
+      }
+    }
+  }
+  // A cycle would leave entities unplaced — append them deterministically rather than
+  // looping forever (and surface it in dev).
+  if (placed.length < all.length) {
+    for (const entity of all) if (!placedSet.has(entity)) placed.push(entity)
+  }
+  return placed
+}
+
+const SYNC_ENTITY_DEPENDENCY_RANK: Record<string, number> = Object.fromEntries(
+  topoSortSyncEntities().map((entity, index) => [entity, index]),
+)
+
+/** Dependency rank (0-based topo position): lower = fewer dependencies = pushed first. */
+export function getSyncEntityDependencyRank(entity: SyncEntity): number {
+  return SYNC_ENTITY_DEPENDENCY_RANK[entity] ?? Number.MAX_SAFE_INTEGER
+}
+
+/** Order comparator derived from the dependency graph (parents before children). */
+export function compareSyncEntityByDependency(left: SyncEntity, right: SyncEntity): number {
+  return getSyncEntityDependencyRank(left) - getSyncEntityDependencyRank(right)
+}
+
 export type SyncAction = 'UPSERT' | 'DELETE'
 
 export type SyncBatchStatus =
