@@ -20,6 +20,7 @@ import type { ProductCategory } from '@/entities'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { QuotaService } from '@/modules/permissions/quota.service'
+import { StorageService } from '@/modules/storage/storage.service'
 import { ProductCategoriesRepository } from '../repositories/product-categories.repository'
 import { ProductsRepository } from '../repositories/products.repository'
 import { SlugService } from './slug.service'
@@ -33,15 +34,33 @@ export class CategoriesService {
     private readonly productsRepo: ProductsRepository,
     private readonly slugService: SlugService,
     private readonly quotaService: QuotaService,
+    private readonly storage: StorageService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('CategoriesService')
   }
 
+  /**
+   * Guard against persisting an image reference we don't actually serve: the URL must
+   * be one WE stored and the file must still exist. Rejects external URLs and dangling
+   * keys. No-op when no image is supplied.
+   */
+  private async assertImageExists(imageUrl?: string | null): Promise<void> {
+    const url = imageUrl?.trim()
+    if (!url) return
+    if (!(await this.storage.existsByUrl(url))) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.image_not_found'),
+        'IMAGE_NOT_FOUND',
+      )
+    }
+  }
+
   async create(businessId: string, dto: CreateCategoryRequest) {
     try {
       await this.quotaService.assertWithinQuota(businessId, 'categories')
+      await this.assertImageExists(dto.imageUrl)
 
       let parentId: string | null = null
       let depth = 1
@@ -168,6 +187,7 @@ export class CategoriesService {
   async update(id: string, businessId: string, dto: UpdateCategoryRequest) {
     try {
       const category = await this.findById(id, businessId)
+      if (dto.imageUrl !== undefined) await this.assertImageExists(dto.imageUrl)
 
       let parentId = category.parentId ?? null
       let depth = category.depth

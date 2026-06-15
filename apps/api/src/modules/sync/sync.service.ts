@@ -104,6 +104,7 @@ import { CreateUnitOfMeasureDto } from '@/modules/products/dto/create-unit-of-me
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
 import { ProductsRepository } from '@/modules/products/repositories/products.repository'
+import { StorageService } from '@/modules/storage/storage.service'
 import { BarcodeService } from '@/modules/products/services/barcode.service'
 import { ExpenseCategoriesService } from '@/modules/expenses/services/expense-categories.service'
 import { ExpensesService } from '@/modules/expenses/services/expenses.service'
@@ -301,6 +302,7 @@ export class SyncService {
     private readonly dataSource: DataSource,
     private readonly productsRepo: ProductsRepository,
     private readonly categoriesRepo: ProductCategoriesRepository,
+    private readonly storage: StorageService,
     @InjectRepository(Business)
     private readonly businessesRepo: Repository<Business>,
     @InjectRepository(BusinessMember)
@@ -1202,7 +1204,7 @@ export class SyncService {
         showOnline: payload.showOnline ?? existing.showOnline,
         color: this.normalizeOptionalString(payload.color),
         icon: this.normalizeOptionalString(payload.icon),
-        imageUrl: this.normalizeOptionalString(payload.imageUrl),
+        imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
@@ -1225,7 +1227,7 @@ export class SyncService {
         showOnline: payload.showOnline ?? true,
         color: this.normalizeOptionalString(payload.color),
         icon: this.normalizeOptionalString(payload.icon),
-        imageUrl: this.normalizeOptionalString(payload.imageUrl),
+        imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
@@ -3205,6 +3207,17 @@ export class SyncService {
   private normalizeOptionalString(value: string | null | undefined) {
     const trimmed = value?.trim()
     return trimmed ? trimmed : null
+  }
+
+  /**
+   * Only persist an image URL we actually serve. A synced record from an offline
+   * device could carry an external/foreign URL; we drop those (no I/O on the hot
+   * push path — the online upload already verified existence). External → null.
+   */
+  private sanitizeStoredImageUrl(value: string | null | undefined): string | null {
+    const url = this.normalizeOptionalString(value)
+    if (!url) return null
+    return this.storage.keyFromUrl(url) ? url : null
   }
 
   private normalizeMoney(value: number | string | null | undefined) {
