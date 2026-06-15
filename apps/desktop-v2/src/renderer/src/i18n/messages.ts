@@ -237,6 +237,11 @@ export const en = {
   'brand.catRequired': 'Pick at least one category',
   'brand.catEmpty': 'Create categories first — a brand must link to at least one.',
   'brand.saveError': 'Could not save. Please try again.',
+  'brand.search': 'Search brands…',
+  'cat.search': 'Search categories…',
+  'attr.search': 'Search groups…',
+  'common.prev': 'Previous',
+  'common.next': 'Next',
 
   'error.title': 'Something went wrong',
   'error.body': 'An unexpected error occurred. Try reloading the app.',
@@ -678,6 +683,11 @@ export const fr: Record<MessageKey, string> = {
   'brand.catRequired': 'Choisissez au moins une catégorie',
   'brand.catEmpty': 'Créez d’abord des catégories — une marque doit en lier au moins une.',
   'brand.saveError': 'Échec de l’enregistrement. Veuillez réessayer.',
+  'brand.search': 'Rechercher des marques…',
+  'cat.search': 'Rechercher des catégories…',
+  'attr.search': 'Rechercher des groupes…',
+  'common.prev': 'Précédent',
+  'common.next': 'Suivant',
 
   'error.title': 'Une erreur est survenue',
   'error.body': "Une erreur inattendue s'est produite. Essayez de recharger l'application.",

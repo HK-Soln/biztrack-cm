@@ -1,9 +1,16 @@
 import { ipcMain } from 'electron'
-import { IPC, type AttributeGroupInput, type AttributeOptionInput, type CategoryAttributeLinkInput } from '../../shared/ipc'
+import {
+  IPC,
+  type AttributeGroupInput,
+  type AttributeGroupListQuery,
+  type AttributeOptionInput,
+  type CategoryAttributeLinkInput,
+} from '../../shared/ipc'
 import type { AttributesService } from '../services/attributes.service'
 
 export function registerAttributesIpc(attributes: AttributesService): void {
-  ipcMain.handle(IPC.attributesListGroups, () => attributes.listGroups())
+  ipcMain.handle(IPC.attributesListGroups, (_e, query?: AttributeGroupListQuery) => attributes.listGroups(query))
+  ipcMain.handle(IPC.attributesListAllGroups, () => attributes.listAllGroups())
   ipcMain.handle(IPC.attributesCreateGroup, (_e, input: AttributeGroupInput) => attributes.createGroup(input))
   ipcMain.handle(IPC.attributesUpdateGroup, (_e, id: string, input: AttributeGroupInput) => attributes.updateGroup(id, input))
   ipcMain.handle(IPC.attributesDeleteGroup, (_e, id: string) => attributes.deleteGroup(id))

@@ -1,9 +1,12 @@
 import type {
   AttributeGroupInput,
+  AttributeGroupListQuery,
   AttributeOptionInput,
   BrandInput,
+  BrandListQuery,
   CategoryAttributeLinkInput,
   CategoryInput,
+  CategoryListQuery,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -12,9 +15,11 @@ import type {
   LocalModel,
   LocalUnit,
   ModelInput,
+  PaginatedResult,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
   UnitInput,
+  UnitListQuery,
   UploadFileInput,
   UploadedFile,
 } from '@shared/ipc'
@@ -29,13 +34,15 @@ export interface DataClient {
     getHealth: () => Promise<SkeletonHealthDTO>
   }
   categories: {
-    list: () => Promise<LocalCategory[]>
+    list: (query?: CategoryListQuery) => Promise<PaginatedResult<LocalCategory>>
+    listAll: () => Promise<LocalCategory[]>
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
   }
   attributes: {
-    listGroups: () => Promise<LocalAttributeGroup[]>
+    listGroups: (query?: AttributeGroupListQuery) => Promise<PaginatedResult<LocalAttributeGroup>>
+    listAllGroups: () => Promise<LocalAttributeGroup[]>
     createGroup: (input: AttributeGroupInput) => Promise<LocalAttributeGroup>
     updateGroup: (id: string, input: AttributeGroupInput) => Promise<LocalAttributeGroup>
     deleteGroup: (id: string) => Promise<void>
@@ -46,13 +53,13 @@ export interface DataClient {
     setCategoryLinks: (categoryId: string, links: CategoryAttributeLinkInput[]) => Promise<void>
   }
   units: {
-    list: () => Promise<LocalUnit[]>
+    list: (query?: UnitListQuery) => Promise<PaginatedResult<LocalUnit>>
     create: (input: UnitInput) => Promise<LocalUnit>
     update: (id: string, input: UnitInput) => Promise<LocalUnit>
     remove: (id: string) => Promise<void>
   }
   brands: {
-    list: () => Promise<LocalBrand[]>
+    list: (query?: BrandListQuery) => Promise<PaginatedResult<LocalBrand>>
     create: (input: BrandInput) => Promise<LocalBrand>
     update: (id: string, input: BrandInput) => Promise<LocalBrand>
     remove: (id: string) => Promise<void>
@@ -75,13 +82,15 @@ function electronAdapter(): DataClient {
       getHealth: () => window.api.skeleton.getHealth(),
     },
     categories: {
-      list: () => window.api.categories.list(),
+      list: (query) => window.api.categories.list(query),
+      listAll: () => window.api.categories.listAll(),
       create: (input) => window.api.categories.create(input),
       update: (id, input) => window.api.categories.update(id, input),
       remove: (id) => window.api.categories.remove(id),
     },
     attributes: {
-      listGroups: () => window.api.attributes.listGroups(),
+      listGroups: (query) => window.api.attributes.listGroups(query),
+      listAllGroups: () => window.api.attributes.listAllGroups(),
       createGroup: (input) => window.api.attributes.createGroup(input),
       updateGroup: (id, input) => window.api.attributes.updateGroup(id, input),
       deleteGroup: (id) => window.api.attributes.deleteGroup(id),
@@ -92,13 +101,13 @@ function electronAdapter(): DataClient {
       setCategoryLinks: (categoryId, links) => window.api.attributes.setCategoryLinks(categoryId, links),
     },
     units: {
-      list: () => window.api.units.list(),
+      list: (query) => window.api.units.list(query),
       create: (input) => window.api.units.create(input),
       update: (id, input) => window.api.units.update(id, input),
       remove: (id) => window.api.units.remove(id),
     },
     brands: {
-      list: () => window.api.brands.list(),
+      list: (query) => window.api.brands.list(query),
       create: (input) => window.api.brands.create(input),
       update: (id, input) => window.api.brands.update(id, input),
       remove: (id) => window.api.brands.remove(id),
@@ -124,9 +133,10 @@ function cloudAdapter(): DataClient {
   }
   return {
     skeleton: { getCheck: notWired, getHealth: notWired },
-    categories: { list: notWired, create: notWired, update: notWired, remove: notWired },
+    categories: { list: notWired, listAll: notWired, create: notWired, update: notWired, remove: notWired },
     attributes: {
       listGroups: notWired,
+      listAllGroups: notWired,
       createGroup: notWired,
       updateGroup: notWired,
       deleteGroup: notWired,

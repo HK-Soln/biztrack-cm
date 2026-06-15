@@ -79,9 +79,6 @@ export abstract class BaseRepository<T extends BaseEntity> {
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT)
     const skip = (page - 1) * limit
 
-    console.log('where clauses', where);
-
-
     const [data, total] = await this.repo.findAndCount({
       where,
       order: options?.order,

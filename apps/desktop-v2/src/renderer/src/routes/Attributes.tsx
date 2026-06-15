@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Select } from '@biztrack/ui/biztrack'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { AttributeDisplayType, LocalAttributeGroup } from '@shared/ipc'
@@ -19,9 +20,17 @@ export function Attributes() {
   const bp = useBreakpoint()
   const qc = useQueryClient()
 
-  const { data: groups = [], isPending } = useQuery({
-    queryKey: queryKeys.attributeGroups,
-    queryFn: () => dataClient.attributes.listGroups(),
+  const {
+    items: groups,
+    total,
+    page,
+    limit,
+    totalPages,
+    isPending,
+    search,
+    setSearch,
+    setPage,
+  } = usePaged<LocalAttributeGroup>(queryKeys.attributeGroups, (q) => dataClient.attributes.listGroups(q), {
     enabled: isElectron,
   })
 
@@ -73,7 +82,14 @@ export function Attributes() {
     <div className="panel">
       <div className="panel-head">
         <h3>{t('attr.groups')}</h3>
-        <span className="chip-tag">{groups.length}</span>
+        <span className="chip-tag">{total}</span>
+        <div className="spacer" style={{ flex: 1 }} />
+        <Input
+          value={search}
+          placeholder={t('attr.search')}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 180, height: 34 }}
+        />
       </div>
       <div className="slist">
         {groups.map((g) => (
@@ -106,6 +122,15 @@ export function Attributes() {
         ))}
         {groups.length === 0 ? <div className="cat-empty">{t('attr.empty')}</div> : null}
       </div>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        limit={limit}
+        onPage={setPage}
+        prevLabel={t('common.prev')}
+        nextLabel={t('common.next')}
+      />
     </div>
   )
 

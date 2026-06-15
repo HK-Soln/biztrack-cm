@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import type { LocalUnit, UnitInput, UnitType } from '../../shared/ipc'
+import type { LocalUnit, PaginatedResult, UnitInput, UnitListQuery, UnitType } from '../../shared/ipc'
+import { paginateRows, toPaginated } from './pagination'
 
 interface UnitRow {
   id: string
@@ -31,16 +32,30 @@ export class UnitsService {
     private readonly onMutated: () => void,
   ) {}
 
-  list(): LocalUnit[] {
+  /** Paginated list (system + business units), default 20, with search + type filter. */
+  list(query: UnitListQuery = {}): PaginatedResult<LocalUnit> {
     const businessId = this.getBusinessId()
-    const rows = this.db.query<UnitRow>(
-      `SELECT id, name, abbreviation, business_id, type, is_default, is_active
-       FROM unit_of_measures
-       WHERE is_deleted = 0 AND (business_id IS NULL OR business_id = ?)
-       ORDER BY is_default DESC, name ASC`,
-      [businessId],
+    let where = 'is_deleted = 0 AND (business_id IS NULL OR business_id = ?)'
+    const params: unknown[] = [businessId]
+    if (query.type) {
+      where += ' AND type = ?'
+      params.push(query.type.toUpperCase())
+    }
+
+    const { rows, ...meta } = paginateRows<UnitRow>(
+      this.db,
+      {
+        from: 'unit_of_measures',
+        columns: 'id, name, abbreviation, business_id, type, is_default, is_active',
+        where,
+        params,
+        searchColumns: ['name', 'abbreviation'],
+        defaultSort: 'is_default DESC, name ASC',
+        sortMap: { name: 'name', type: 'type' },
+      },
+      query,
     )
-    return rows.map(toLocalUnit)
+    return toPaginated(rows.map(toLocalUnit), meta)
   }
 
   create(input: UnitInput): LocalUnit {
