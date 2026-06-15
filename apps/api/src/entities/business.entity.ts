@@ -10,7 +10,7 @@ import { Expense } from './expense.entity'
 import { MonthlyExpenseSummary } from './monthly-expense-summary.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
-import { SubscriptionPlan, BusinessStatus } from '@biztrack/types'
+import { SubscriptionPlan, BusinessStatus, FiscalRegime } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
 import { SubscriptionEvent } from './subscription-event.entity'
 import { BusinessMember } from './business-member.entity'
@@ -106,6 +106,23 @@ export class Business extends BaseEntity {
 
   @Column({ name: 'cancel_at_period_end', default: false })
   cancelAtPeriodEnd!: boolean
+
+  // --- Fiscal / OHADA identifiers. Captured at setup; not yet used by any tax
+  // computation (deferred OHADA accounting feature). ---
+  @Column({ name: 'niu', type: 'varchar', nullable: true })
+  niu?: string | null
+
+  @Column({ name: 'rccm', type: 'varchar', nullable: true })
+  rccm?: string | null
+
+  @Column({ name: 'vat_registered', default: false })
+  vatRegistered!: boolean
+
+  @Column({ name: 'default_vat_rate', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  defaultVatRate?: number | null
+
+  @Column({ name: 'fiscal_regime', type: 'enum', enum: FiscalRegime, nullable: true })
+  fiscalRegime?: FiscalRegime | null
 
   @OneToMany(() => Product, (product) => product.business)
   products?: Product[]

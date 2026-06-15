@@ -22,6 +22,11 @@ export interface Business {
   currentPeriodStart?: IsoDateString | null
   currentPeriodEnd?: IsoDateString | null
   cancelAtPeriodEnd: boolean
+  niu?: string | null
+  rccm?: string | null
+  vatRegistered?: boolean
+  defaultVatRate?: number | null
+  fiscalRegime?: FiscalRegime | null
   createdAt: IsoDateString
   updatedAt: IsoDateString
 }
@@ -78,7 +83,29 @@ export enum BusinessStatus {
   ACTIVE = 'ACTIVE',
 }
 
-export interface CreateBusinessRequest {
+/** OHADA / Cameroon tax regime. Captured during setup; tax behaviour driven by it
+ * is part of the (deferred) OHADA accounting feature — stored, not yet applied. */
+export enum FiscalRegime {
+  IMPOT_LIBERATOIRE = 'IMPOT_LIBERATOIRE',
+  SIMPLIFIE = 'SIMPLIFIE',
+  REEL = 'REEL',
+}
+
+/** Fiscal/legal identifiers + tax settings. Persisted on the business; NOT consumed
+ * by any tax computation yet (see deferred OHADA feature plan). */
+export interface BusinessFiscalFields {
+  /** Numéro d'Identifiant Unique (taxpayer number). */
+  niu?: string | null
+  /** Registre du Commerce et du Crédit Mobilier. */
+  rccm?: string | null
+  /** Assujetti à la TVA. */
+  vatRegistered?: boolean
+  /** Default VAT/TVA rate, e.g. 19.25. */
+  defaultVatRate?: number | null
+  fiscalRegime?: FiscalRegime | null
+}
+
+export interface CreateBusinessRequest extends BusinessFiscalFields {
   name: string
   description?: string
   phone?: string

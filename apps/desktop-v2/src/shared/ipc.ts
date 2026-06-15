@@ -15,6 +15,7 @@ export const IPC = {
   authVerifyEmail: 'auth:verify-email',
   authResendOtp: 'auth:resend-otp',
   authRegister: 'auth:register',
+  authSetupBusiness: 'auth:setup-business',
   authSelectBusiness: 'auth:select-business',
   authListBusinesses: 'auth:list-businesses',
   authOfflineLogin: 'auth:offline-login',
@@ -87,6 +88,24 @@ export interface RegisterPayload {
   inviteToken?: string
 }
 
+/** Business setup (onboarding) payload → POST /businesses/setup. Fiscal fields are
+ * stored but not yet used by any tax logic. */
+export interface BusinessSetupPayload {
+  name: string
+  type?: string
+  description?: string
+  phone?: string
+  email?: string
+  address?: string
+  city?: string
+  country?: string
+  niu?: string
+  rccm?: string
+  vatRegistered?: boolean
+  defaultVatRate?: number
+  fiscalRegime?: string
+}
+
 export interface TitleBarOverlayColors {
   /** Background of the native caption-button band (hex). */
   color: string
@@ -128,6 +147,7 @@ export interface BridgeApi {
     verifyEmail: (email: string, code: string) => Promise<AuthFlowResult>
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     register: (payload: RegisterPayload) => Promise<AuthFlowResult>
+    setupBusiness: (payload: BusinessSetupPayload) => Promise<AuthFlowResult>
     selectBusiness: (businessId: string) => Promise<AuthFlowResult>
     listBusinesses: () => Promise<BusinessOption[]>
     offlineLogin: (password: string) => Promise<AuthFlowResult>
