@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core'
 import { VersioningType } from '@nestjs/common'
+import { NestExpressApplication } from '@nestjs/platform-express'
 import { ConfigService } from '@nestjs/config'
+import { join } from 'path'
 import { logger } from '@biztrack/logger'
 import { AppModule } from './app.module'
 import { mountBullBoard } from './common/queues/bull-board'
@@ -11,9 +13,14 @@ import cookieParser from 'cookie-parser'
 import crypto from 'crypto'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { rawBody: true })
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true })
 
   const config = app.get<ConfigService<AppConfig>>(ConfigService)
+
+  // Serve locally-stored uploads (local storage driver) at /uploads. Harmless when the
+  // S3/R2 driver is active (the folder is just empty and unused).
+  const uploadsDir = config.get('STORAGE_LOCAL_DIR', { infer: true }) ?? join(process.cwd(), 'uploads')
+  app.useStaticAssets(uploadsDir, { prefix: '/uploads/' })
   const redis = app.get<RedisService>(RedisService)
   const nodeEnv = config.get('NODE_ENV', { infer: true })
   const corsOriginsRaw = config.get('CORS_ORIGINS', { infer: true })
