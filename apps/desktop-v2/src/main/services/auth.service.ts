@@ -3,6 +3,7 @@ import { HttpError, type HttpClient, type RequestOptions } from '@biztrack/http-
 import type {
   AuthFlowResult,
   BusinessOption,
+  BusinessSetupPayload,
   OtpChannel,
   RegisterPayload,
   SessionStatus,
@@ -156,6 +157,20 @@ export class AuthService {
       // Cache the password hash now so offline login works after first verify.
       this.tokens.setPasswordHash(await bcrypt.hash(payload.password, 10))
       return this.ok(data)
+    } catch (e) {
+      return this.fail(e)
+    }
+  }
+
+  async setupBusiness(payload: BusinessSetupPayload): Promise<AuthFlowResult> {
+    const businessId = this.session.businessId
+    if (!businessId) return this.fail(new Error('No active business to set up.'))
+    try {
+      await this.post('/businesses/setup', payload)
+      // The setup endpoint moves the business ONBOARDING → PLAN_PENDING but returns
+      // the business, not a nextStep. Re-select to get the backend's authoritative
+      // next step (now select_plan) and refresh the cached business profile.
+      return await this.selectBusiness(businessId)
     } catch (e) {
       return this.fail(e)
     }

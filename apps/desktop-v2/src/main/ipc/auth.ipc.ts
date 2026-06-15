@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { IPC, type OtpChannel, type RegisterPayload } from '../../shared/ipc'
+import { IPC, type BusinessSetupPayload, type OtpChannel, type RegisterPayload } from '../../shared/ipc'
 import type { AuthService } from '../services/auth.service'
 
 export function registerAuthIpc(auth: AuthService): void {
@@ -15,6 +15,7 @@ export function registerAuthIpc(auth: AuthService): void {
     auth.resendOtp(identifier, type, channel),
   )
   ipcMain.handle(IPC.authRegister, (_e, payload: RegisterPayload) => auth.register(payload))
+  ipcMain.handle(IPC.authSetupBusiness, (_e, payload: BusinessSetupPayload) => auth.setupBusiness(payload))
   ipcMain.handle(IPC.authSelectBusiness, (_e, businessId: string) => auth.selectBusiness(businessId))
   ipcMain.handle(IPC.authListBusinesses, () => auth.listBusinesses())
   ipcMain.handle(IPC.authOfflineLogin, (_e, password: string) => auth.offlineLogin(password))

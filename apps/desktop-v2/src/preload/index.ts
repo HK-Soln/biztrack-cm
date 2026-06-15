@@ -23,6 +23,7 @@ const api: BridgeApi = {
     verifyEmail: (email, code) => ipcRenderer.invoke(IPC.authVerifyEmail, email, code),
     resendOtp: (identifier, type, channel) => ipcRenderer.invoke(IPC.authResendOtp, identifier, type, channel),
     register: (payload) => ipcRenderer.invoke(IPC.authRegister, payload),
+    setupBusiness: (payload) => ipcRenderer.invoke(IPC.authSetupBusiness, payload),
     selectBusiness: (businessId) => ipcRenderer.invoke(IPC.authSelectBusiness, businessId),
     listBusinesses: () => ipcRenderer.invoke(IPC.authListBusinesses),
     offlineLogin: (password) => ipcRenderer.invoke(IPC.authOfflineLogin, password),
