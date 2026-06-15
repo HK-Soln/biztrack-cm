@@ -82,7 +82,7 @@ export class CategoriesService {
         now,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input), now)
+    this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input, depth), now)
     this.onMutated()
     return this.getOne(id)!
   }
@@ -112,7 +112,7 @@ export class CategoriesService {
         businessId,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input), now)
+    this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input, depth), now)
     this.onMutated()
     return this.getOne(id)!
   }
@@ -154,7 +154,7 @@ export class CategoriesService {
     return businessId
   }
 
-  private upsertPayload(input: CategoryInput): Record<string, unknown> {
+  private upsertPayload(input: CategoryInput, depth: number): Record<string, unknown> {
     return {
       name: input.name.trim(),
       description: input.description?.trim() || null,
@@ -163,6 +163,7 @@ export class CategoriesService {
       imageUrl: input.imageUrl ?? null,
       sortOrder: input.sortOrder ?? 0,
       parentId: input.parentId ?? null,
+      depth,
       isActive: input.isActive !== false,
       showOnline: input.showOnline !== false,
     }

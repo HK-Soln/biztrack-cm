@@ -45,7 +45,7 @@ export function Categories() {
   const Row = ({ c }: { c: LocalCategory }) => (
     <button
       type="button"
-      className={`cat-row${selectedId === c.id ? ' sel' : ''}${c.depth > 1 ? ' child' : ''}`}
+      className={`cat-row${selectedId === c.id ? ' sel' : ''}`}
       onClick={() => (bp === 'mobile' ? edit(c.id) : setSelectedId(c.id))}
     >
       <span className="ava" style={avatarStyle(c)}>

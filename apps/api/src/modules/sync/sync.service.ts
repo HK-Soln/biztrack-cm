@@ -139,6 +139,8 @@ type CategorySyncPayload = {
   icon?: string | null
   imageUrl?: string | null
   sortOrder?: number | null
+  parentId?: string | null
+  depth?: number | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null
@@ -1216,6 +1218,16 @@ export class SyncService {
 
     const slug = await this.slugService.generateCategorySlug(payload.name!, businessId, existing?.id)
 
+    // Resolve hierarchy: prefer the authoritative depth from the parent when it's
+    // present; otherwise trust the client's computed depth (the parent FK will defer
+    // the op if the parent genuinely hasn't synced yet).
+    const parentId = this.normalizeOptionalString(payload.parentId)
+    let depth = payload.depth ?? 1
+    if (parentId) {
+      const parent = await this.categoriesRepo.findOne({ where: { id: parentId, businessId } })
+      if (parent) depth = parent.depth + 1
+    }
+
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
       const reactivatesQuotaConsumer =
@@ -1238,6 +1250,8 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        parentId,
+        depth,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -1261,6 +1275,8 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        parentId,
+        depth,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -2853,6 +2869,8 @@ export class SyncService {
       icon: record.icon ?? null,
       imageUrl: record.imageUrl ?? null,
       sortOrder: record.sortOrder,
+      parentId: record.parentId ?? null,
+      depth: record.depth,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
