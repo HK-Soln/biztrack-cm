@@ -15,6 +15,8 @@ import { CategoriesService } from './services/categories.service'
 import { registerCategoriesIpc } from './ipc/categories.ipc'
 import { AttributesService } from './services/attributes.service'
 import { registerAttributesIpc } from './ipc/attributes.ipc'
+import { UnitsService } from './services/units.service'
+import { registerUnitsIpc } from './ipc/units.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 
@@ -143,6 +145,15 @@ app.whenReady().then(() => {
     () => void sync.sync(),
   )
   registerAttributesIpc(attributes)
+
+  // Units of measure: offline-first reads (system + business units), local write +
+  // outbox push. System units are read-only (guarded in the service).
+  const units = new UnitsService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+  )
+  registerUnitsIpc(units)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).
