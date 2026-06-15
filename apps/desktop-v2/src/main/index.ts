@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'path'
-import { DatabaseService, SecureStoreService } from '@biztrack/electron-core'
-import { IPC, type TitleBarOverlayColors } from '../shared/ipc'
+import { DatabaseService, SecureStoreService, SyncService } from '@biztrack/electron-core'
+import { IPC, type SyncStatus, type TitleBarOverlayColors } from '../shared/ipc'
+import { API_BASE_URL } from './config'
 import { SkeletonService } from './services/skeleton.service'
 import { registerIpc } from './ipc'
 import { TokenStore } from './services/token-store'
@@ -9,6 +10,9 @@ import { LocalCache } from './services/local-cache'
 import { createAuthHttp } from './services/auth-http'
 import { AuthService } from './services/auth.service'
 import { registerAuthIpc } from './ipc/auth.ipc'
+import { registerSyncIpc } from './ipc/sync.ipc'
+
+const SYNC_CURSOR_KEY = 'sync.cursor'
 
 const TITLEBAR_HEIGHT = 64
 
@@ -97,6 +101,24 @@ app.whenReady().then(() => {
   const authHttp = createAuthHttp(tokenStore, () => authService?.onTokensCleared())
   authService = new AuthService(authHttp, tokenStore, localCache)
   registerAuthIpc(authService)
+
+  // Offline-first sync engine: drains the outbox + pulls catalog changes into local
+  // SQLite. Auth is the device sync token (issued at select-business); the cursor is
+  // persisted in the encrypted store. Renderer only ever sees SyncStatus.
+  const sync = new SyncService({
+    db,
+    apiBaseUrl: API_BASE_URL,
+    getSyncToken: () => tokenStore.getSyncCredential(),
+    getDeviceId: () => tokenStore.ensureDeviceId(),
+    getCursor: () => secureStore.get(SYNC_CURSOR_KEY),
+    setCursor: (cursor) => secureStore.set(SYNC_CURSOR_KEY, cursor),
+    onStatus: (status: SyncStatus) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send(IPC.syncStatusEvent, status)
+    },
+  })
+  sync.start()
+  registerSyncIpc(sync)
+  app.on('before-quit', () => sync.stop())
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {
