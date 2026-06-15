@@ -145,6 +145,9 @@ export class Product
   @Column({ name: 'model_id', type: 'uuid', nullable: true })
   modelId?: string | null
 
+  @Column({ name: 'is_featured', default: false })
+  isFeatured!: boolean
+
   @Column({ name: 'unit_of_measure_id' })
   unitOfMeasureId!: string
 

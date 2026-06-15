@@ -6,11 +6,13 @@ import type { CommandSelectOption } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
-import type { ProductInput } from '@shared/ipc'
+import type { ProductInput, ProductType, SerialType } from '@shared/ipc'
 
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const TVA_RATE = 19.25
 const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
+const PRODUCT_TYPES: ProductType[] = ['SIMPLE', 'SERVICE', 'VARIABLE_QUANTITY', 'COMPOSITE']
+const SERIAL_TYPES: SerialType[] = ['IMEI', 'SERIAL_NUMBER', 'BARCODE']
 
 // Full-page add/edit product form (design-form-product): Basics (name, brand →
 // category + model, sku, barcode), Pricing (cost/price/margin/taxable), type, image,
@@ -47,11 +49,21 @@ export function ProductForm() {
   const [cost, setCost] = useState('')
   const [price, setPrice] = useState('')
   const [taxable, setTaxable] = useState(true)
-  const [isService, setIsService] = useState(false)
+  const [productTypeV, setProductTypeV] = useState<ProductType>('SIMPLE')
   const [unitId, setUnitId] = useState('')
   const [unitLabel, setUnitLabel] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [isActive, setIsActive] = useState(true)
+  const [isFeatured, setIsFeatured] = useState(false)
+  const [openingStock, setOpeningStock] = useState('')
+  const [reorderPoint, setReorderPoint] = useState('')
+  const [lowStockThreshold, setLowStockThreshold] = useState('')
+  const [publishOnline, setPublishOnline] = useState(false)
+  const [onlineDescription, setOnlineDescription] = useState('')
+  const [onlineReserve, setOnlineReserve] = useState('')
+  const [isSerialized, setIsSerialized] = useState(false)
+  const [serialType, setSerialType] = useState<SerialType>('IMEI')
+  const [warrantyMonths, setWarrantyMonths] = useState('')
   const [uploading, setUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -80,11 +92,21 @@ export function ProductForm() {
     setCost(existing.costPrice != null ? String(existing.costPrice) : '')
     setPrice(String(existing.sellingPrice))
     setTaxable((existing.taxRate ?? 0) > 0)
-    setIsService(existing.isService)
+    setProductTypeV(existing.productType)
     setUnitId(existing.unitOfMeasureId ?? '')
     setUnitLabel(existing.unitAbbr)
     setImageUrl(existing.imageUrl)
     setIsActive(existing.isActive)
+    setIsFeatured(existing.isFeatured)
+    setReorderPoint(existing.reorderPoint != null ? String(existing.reorderPoint) : '')
+    setLowStockThreshold(existing.lowStockThreshold != null ? String(existing.lowStockThreshold) : '')
+    setPublishOnline(existing.isPublishedOnline)
+    setOnlineDescription(existing.onlineDescription ?? '')
+    setOnlineReserve(existing.onlineStockReserve ? String(existing.onlineStockReserve) : '')
+    setIsSerialized(existing.isSerialized)
+    if (existing.serialType) setSerialType(existing.serialType)
+    setWarrantyMonths(existing.warrantyMonths != null ? String(existing.warrantyMonths) : '')
+    // openingStock is create-only; on edit, current stock is owned by Inventory.
     setLoaded(true)
   }, [editing, loaded, existing])
 
@@ -154,6 +176,8 @@ export function ProductForm() {
   const costN = Number(cost.replace(/\s/g, '')) || 0
   const priceN = Number(price.replace(/\s/g, '')) || 0
   const marginPct = priceN > 0 && costN > 0 ? ((priceN - costN) / priceN) * 100 : null
+  const tracksInventory = productTypeV === 'SIMPLE' || productTypeV === 'VARIABLE_QUANTITY'
+  const numOrU = (v: string) => (v.trim() ? Number(v.replace(/\s/g, '')) : undefined)
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -205,8 +229,19 @@ export function ProductForm() {
       brandId: brandId || null,
       modelId: modelId || null,
       imageUrl,
-      isService,
+      productType: productTypeV,
+      isService: productTypeV === 'SERVICE',
       isActive,
+      isFeatured,
+      isPublishedOnline: publishOnline,
+      onlineDescription: onlineDescription.trim() || null,
+      onlineStockReserve: numOrU(onlineReserve) ?? 0,
+      isSerialized: tracksInventory ? isSerialized : false,
+      serialType: tracksInventory && isSerialized ? serialType : null,
+      warrantyMonths: tracksInventory && isSerialized ? (numOrU(warrantyMonths) ?? null) : null,
+      openingStock: tracksInventory ? (numOrU(openingStock) ?? 0) : 0,
+      lowStockThreshold: tracksInventory ? (numOrU(lowStockThreshold) ?? null) : null,
+      reorderPoint: tracksInventory ? (numOrU(reorderPoint) ?? null) : null,
     })
   }
 
@@ -251,6 +286,16 @@ export function ProductForm() {
                     {t('prodf.name')} <span className="req">*</span>
                   </label>
                   <Input value={name} placeholder={t('prodf.namePh')} onChange={(e) => { setName(e.target.value); setError(null) }} />
+                </div>
+                <div className="ff">
+                  <label className="lbl2">{t('prodf.type')}</label>
+                  <div className="seg-pick">
+                    {PRODUCT_TYPES.map((pt) => (
+                      <button key={pt} type="button" aria-pressed={pt === productTypeV} onClick={() => setProductTypeV(pt)}>
+                        {t(`prodf.type_${pt}` as Parameters<typeof t>[0])}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="form-2col">
                   <div className="ff">
@@ -371,6 +416,70 @@ export function ProductForm() {
                 </button>
               </div>
             </div>
+
+            {tracksInventory ? (
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="fsec-h">
+                  <span className="n">3</span>
+                  {t('prodf.stock')}
+                </div>
+                <div className="fform">
+                  <div className="form-2col">
+                    <div className="ff">
+                      <label className="lbl2">{editing ? t('prodf.lowStock') : t('prodf.openingStock')}</label>
+                      {editing ? (
+                        <Input value={lowStockThreshold} inputMode="numeric" placeholder="0" onChange={(e) => setLowStockThreshold(e.target.value)} />
+                      ) : (
+                        <Input value={openingStock} inputMode="numeric" placeholder="0" onChange={(e) => setOpeningStock(e.target.value)} />
+                      )}
+                    </div>
+                    <div className="ff">
+                      <label className="lbl2">{t('prodf.reorderPoint')}</label>
+                      <Input value={reorderPoint} inputMode="numeric" placeholder="0" onChange={(e) => setReorderPoint(e.target.value)} />
+                    </div>
+                  </div>
+                  {!editing ? <div className="hint">{t('prodf.lowStockHint')}</div> : null}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="fsec-h" style={{ justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span className="n">4</span>
+                  {t('prodf.online')}
+                </span>
+              </div>
+              <div className="set-line" style={{ paddingTop: 0 }}>
+                <div className="t">
+                  <div className="nm">{t('prodf.publish')}</div>
+                  <div className="ds">{t('prodf.publishHint')}</div>
+                </div>
+                <button type="button" className={`switch${publishOnline ? ' on' : ''}`} aria-pressed={publishOnline} onClick={() => setPublishOnline((v) => !v)} />
+              </div>
+              {publishOnline ? (
+                <div className="fform" style={{ marginTop: 12 }}>
+                  <div className="ff">
+                    <label className="lbl2">{t('prodf.onlineDesc')} <span className="opt">SEO</span></label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      style={{ resize: 'vertical', paddingTop: 10 }}
+                      placeholder={t('prodf.onlineDescPh')}
+                      value={onlineDescription}
+                      onChange={(e) => setOnlineDescription(e.target.value)}
+                    />
+                  </div>
+                  {tracksInventory ? (
+                    <div className="ff" style={{ maxWidth: 200 }}>
+                      <label className="lbl2">{t('prodf.reserve')}</label>
+                      <Input value={onlineReserve} inputMode="numeric" placeholder="0" onChange={(e) => setOnlineReserve(e.target.value)} />
+                      <div className="hint">{t('prodf.reserveHint')}</div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="fp-side">
@@ -409,19 +518,49 @@ export function ProductForm() {
             <div className="card">
               <div className="set-line" style={{ paddingTop: 0 }}>
                 <div className="t">
-                  <div className="nm">{t('prodf.service')}</div>
-                  <div className="ds">{t('prodf.serviceHint')}</div>
-                </div>
-                <button type="button" className={`switch${isService ? ' on' : ''}`} aria-pressed={isService} onClick={() => setIsService((v) => !v)} />
-              </div>
-              <div className="set-line" style={{ borderBottom: 0 }}>
-                <div className="t">
                   <div className="nm">{t('prodf.active')}</div>
                   <div className="ds">{t('prodf.activeHint')}</div>
                 </div>
                 <button type="button" className={`switch${isActive ? ' on' : ''}`} aria-pressed={isActive} onClick={() => setIsActive((v) => !v)} />
               </div>
+              <div className="set-line" style={{ borderBottom: 0 }}>
+                <div className="t">
+                  <div className="nm">{t('prodf.featured')}</div>
+                  <div className="ds">{t('prodf.featuredHint')}</div>
+                </div>
+                <button type="button" className={`switch${isFeatured ? ' on' : ''}`} aria-pressed={isFeatured} onClick={() => setIsFeatured((v) => !v)} />
+              </div>
             </div>
+
+            {productTypeV === 'SIMPLE' ? (
+              <div className="card">
+                <div className="set-line" style={{ paddingTop: 0, borderBottom: isSerialized ? '1px solid var(--border)' : 0 }}>
+                  <div className="t">
+                    <div className="nm">{t('prodf.serialized')}</div>
+                    <div className="ds">{t('prodf.serializedHint')}</div>
+                  </div>
+                  <button type="button" className={`switch${isSerialized ? ' on' : ''}`} aria-pressed={isSerialized} onClick={() => setIsSerialized((v) => !v)} />
+                </div>
+                {isSerialized ? (
+                  <div className="fform" style={{ marginTop: 12 }}>
+                    <div className="ff">
+                      <label className="lbl2">{t('prodf.serialType')}</label>
+                      <div className="seg-pick">
+                        {SERIAL_TYPES.map((st) => (
+                          <button key={st} type="button" aria-pressed={st === serialType} onClick={() => setSerialType(st)}>
+                            {t(`prodf.serial_${st}` as Parameters<typeof t>[0])}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="ff" style={{ maxWidth: 160 }}>
+                      <label className="lbl2">{t('prodf.warranty')}</label>
+                      <Input value={warrantyMonths} inputMode="numeric" placeholder="0" onChange={(e) => setWarrantyMonths(e.target.value)} />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="card">
               <div className="form-note">
@@ -429,7 +568,7 @@ export function ProductForm() {
                   <circle cx="12" cy="12" r="9" />
                   <path d="M12 11v5M12 8h.01" />
                 </svg>
-                <span>{t('prodf.deferredNote')}</span>
+                <span>{t('prodf.variantsNote')}</span>
               </div>
             </div>
 

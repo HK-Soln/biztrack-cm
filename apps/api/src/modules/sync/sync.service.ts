@@ -243,10 +243,18 @@ type ProductSyncPayload = {
   openingStock?: number | null
   currentStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   unitOfMeasureId?: string | null
   categoryId?: string | null
   brandId?: string | null
   modelId?: string | null
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number | null
+  isSerialized?: boolean
+  serialType?: string | null
+  warrantyMonths?: number | null
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
@@ -2110,6 +2118,13 @@ export class SyncService {
           productType,
           isService,
           trackInventory,
+          isFeatured: payload.isFeatured ?? existing.isFeatured,
+          isPublishedOnline: payload.isPublishedOnline ?? existing.isPublishedOnline,
+          onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
+          onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
+          isSerialized: payload.isSerialized ?? existing.isSerialized,
+          serialType: this.normalizeOptionalString(payload.serialType),
+          warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           deletedAt: null,
           updatedAt: operation.recordUpdatedAt,
@@ -2176,6 +2191,13 @@ export class SyncService {
           productType,
           isService,
           trackInventory,
+          isFeatured: payload.isFeatured ?? false,
+          isPublishedOnline: payload.isPublishedOnline ?? false,
+          onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
+          onlineStockReserve: payload.onlineStockReserve ?? 0,
+          isSerialized: payload.isSerialized ?? false,
+          serialType: this.normalizeOptionalString(payload.serialType),
+          warrantyMonths: payload.warrantyMonths ?? null,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           createdById: payload.createdById ?? null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -3083,6 +3105,10 @@ export class SyncService {
       categoryId: record.categoryId ?? null,
       brandId: record.brandId ?? null,
       modelId: record.modelId ?? null,
+      isFeatured: record.isFeatured,
+      isPublishedOnline: record.isPublishedOnline,
+      onlineDescription: record.onlineDescription ?? null,
+      onlineStockReserve: record.onlineStockReserve,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,
       createdById: record.createdById ?? null,

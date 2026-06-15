@@ -29,6 +29,15 @@ interface ProductRow {
   unit_of_measure_id: string | null
   image_url: string | null
   is_active: number
+  is_featured: number
+  is_published_online: number
+  online_description: string | null
+  online_stock_reserve: number | null
+  is_serialized: number
+  serial_type: string | null
+  warranty_months: number | null
+  low_stock_threshold: number | null
+  reorder_point: number | null
   stock_quantity: number | null
   category_name: string | null
   brand_name: string | null
@@ -38,7 +47,9 @@ interface ProductRow {
 const COLS =
   `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
-   p.unit_of_measure_id, p.image_url, p.is_active, p.stock_quantity,
+   p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
+   p.online_description, p.online_stock_reserve, p.is_serialized, p.serial_type, p.warranty_months,
+   p.low_stock_threshold, p.reorder_point, p.stock_quantity,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM =
   `products p
@@ -115,12 +126,15 @@ export class ProductsService {
     const now = new Date().toISOString()
     const type = productType(input)
     const isService = type === 'SERVICE'
+    const tracks = !isService
     this.db.run(
       `INSERT INTO products
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
          product_type, is_service, track_inventory, category_id, brand_id, model_id, unit_of_measure_id,
-         image_url, is_active, stock_quantity, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'XAF', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+         image_url, is_active, is_featured, is_published_online, online_description, online_stock_reserve,
+         is_serialized, serial_type, warranty_months, low_stock_threshold, reorder_point,
+         stock_quantity, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'XAF', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -134,13 +148,23 @@ export class ProductsService {
         input.taxRate ?? 0,
         type,
         isService ? 1 : 0,
-        isService ? 0 : 1,
+        tracks ? 1 : 0,
         input.categoryId ?? null,
         input.brandId ?? null,
         input.modelId ?? null,
         input.unitOfMeasureId,
         input.imageUrl ?? null,
         input.isActive === false ? 0 : 1,
+        input.isFeatured ? 1 : 0,
+        input.isPublishedOnline ? 1 : 0,
+        input.onlineDescription?.trim() || null,
+        input.onlineStockReserve ?? 0,
+        input.isSerialized ? 1 : 0,
+        input.serialType ?? null,
+        input.warrantyMonths ?? null,
+        input.lowStockThreshold ?? null,
+        input.reorderPoint ?? null,
+        tracks ? (input.openingStock ?? 0) : 0,
         now,
         now,
       ],
@@ -159,7 +183,9 @@ export class ProductsService {
       `UPDATE products SET
         name = ?, slug = ?, description = ?, sku = ?, barcode = ?, price = ?, cost_price = ?, tax_rate = ?,
         product_type = ?, is_service = ?, track_inventory = ?, category_id = ?, brand_id = ?, model_id = ?,
-        unit_of_measure_id = ?, image_url = ?, is_active = ?, updated_at = ?
+        unit_of_measure_id = ?, image_url = ?, is_active = ?, is_featured = ?, is_published_online = ?,
+        online_description = ?, online_stock_reserve = ?, is_serialized = ?, serial_type = ?,
+        warranty_months = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
@@ -179,6 +205,15 @@ export class ProductsService {
         input.unitOfMeasureId,
         input.imageUrl ?? null,
         input.isActive === false ? 0 : 1,
+        input.isFeatured ? 1 : 0,
+        input.isPublishedOnline ? 1 : 0,
+        input.onlineDescription?.trim() || null,
+        input.onlineStockReserve ?? 0,
+        input.isSerialized ? 1 : 0,
+        input.serialType ?? null,
+        input.warrantyMonths ?? null,
+        input.lowStockThreshold ?? null,
+        input.reorderPoint ?? null,
         now,
         id,
         businessId,
@@ -235,6 +270,17 @@ export class ProductsService {
       productType: type,
       isService: type === 'SERVICE',
       isActive: input.isActive !== false,
+      isFeatured: input.isFeatured === true,
+      isPublishedOnline: input.isPublishedOnline === true,
+      onlineDescription: input.onlineDescription?.trim() || null,
+      onlineStockReserve: input.onlineStockReserve ?? 0,
+      isSerialized: input.isSerialized === true,
+      serialType: input.serialType ?? null,
+      warrantyMonths: input.warrantyMonths ?? null,
+      // Inventory fields — the API uses these to seed the inventory level on create.
+      openingStock: input.openingStock ?? 0,
+      lowStockThreshold: input.lowStockThreshold ?? null,
+      reorderPoint: input.reorderPoint ?? null,
     }
   }
 
@@ -277,6 +323,15 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     unitOfMeasureId: row.unit_of_measure_id,
     imageUrl: row.image_url,
     isActive: row.is_active === 1,
+    isFeatured: row.is_featured === 1,
+    isPublishedOnline: row.is_published_online === 1,
+    onlineDescription: row.online_description,
+    onlineStockReserve: row.online_stock_reserve ?? 0,
+    isSerialized: row.is_serialized === 1,
+    serialType: (row.serial_type as LocalProduct['serialType']) ?? null,
+    warrantyMonths: row.warranty_months,
+    lowStockThreshold: row.low_stock_threshold,
+    reorderPoint: row.reorder_point,
     currentStock: row.stock_quantity ?? 0,
     categoryName: row.category_name,
     brandName: row.brand_name,

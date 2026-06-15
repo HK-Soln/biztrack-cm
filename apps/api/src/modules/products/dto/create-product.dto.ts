@@ -189,6 +189,38 @@ export class CreateProductDto implements CreateProductRequest {
   @IsUUID()
   modelId?: string
 
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_QUANTITY)
+  @Type(() => Number)
+  reorderPoint?: number
+
+  @ApiPropertyOptional({ description: 'Pin to top of lists / online store.' })
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean
+
+  @ApiPropertyOptional({ description: 'Visible in the online store.' })
+  @IsOptional()
+  @IsBoolean()
+  isPublishedOnline?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  onlineDescription?: string
+
+  @ApiPropertyOptional({ default: 0, description: 'Units held back from online sale.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_QUANTITY)
+  @Type(() => Number)
+  onlineStockReserve?: number
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

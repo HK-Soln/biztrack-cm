@@ -313,6 +313,7 @@ export interface UnitInput {
 
 // ---- Products -------------------------------------------------------------
 export type ProductType = 'SIMPLE' | 'SERVICE' | 'VARIABLE_QUANTITY' | 'COMPOSITE'
+export type SerialType = 'IMEI' | 'SERIAL_NUMBER' | 'BARCODE'
 
 /** A product as stored locally, enriched with category/brand/unit display names. */
 export interface LocalProduct {
@@ -335,7 +336,16 @@ export interface LocalProduct {
   unitOfMeasureId: string | null
   imageUrl: string | null
   isActive: boolean
-  /** Read-only stock (owned by the Inventory module; 0 until that syncs). */
+  isFeatured: boolean
+  isPublishedOnline: boolean
+  onlineDescription: string | null
+  onlineStockReserve: number
+  isSerialized: boolean
+  serialType: SerialType | null
+  warrantyMonths: number | null
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+  /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
   currentStock: number
   categoryName: string | null
   brandName: string | null
@@ -358,6 +368,16 @@ export interface ProductInput {
   productType?: ProductType
   isService?: boolean
   isActive?: boolean
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number
+  isSerialized?: boolean
+  serialType?: SerialType | null
+  warrantyMonths?: number | null
+  openingStock?: number
+  lowStockThreshold?: number | null
+  reorderPoint?: number | null
 }
 
 // ---- Brands & Models ------------------------------------------------------

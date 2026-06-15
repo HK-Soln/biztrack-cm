@@ -407,6 +407,10 @@ export interface Product {
   categoryId?: string | null
   brandId?: string | null
   modelId?: string | null
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number
   imageUrl?: string | null
   createdById?: string | null
   createdBy?: ProductUserSummary | null
@@ -438,6 +442,11 @@ export interface CreateProductRequest {
   categoryId?: string
   brandId?: string
   modelId?: string
+  reorderPoint?: number
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string
+  onlineStockReserve?: number
   imageUrl?: string
   productType?: ProductType
   isService?: boolean

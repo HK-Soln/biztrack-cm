@@ -556,8 +556,10 @@ export class SyncService {
         (id, business_id, name, slug, description, sku, barcode, barcode_type, is_barcode_generated,
          price, cost_price, currency, tax_rate, product_type, is_service, track_inventory,
          category_id, brand_id, model_id, unit_of_measure_id, image_url, created_by_id,
+         is_featured, is_published_online, online_description, online_stock_reserve,
+         is_serialized, serial_type, warranty_months,
          is_active, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, description = excluded.description,
           sku = excluded.sku, barcode = excluded.barcode, barcode_type = excluded.barcode_type,
@@ -567,8 +569,11 @@ export class SyncService {
           track_inventory = excluded.track_inventory, category_id = excluded.category_id,
           brand_id = excluded.brand_id, model_id = excluded.model_id,
           unit_of_measure_id = excluded.unit_of_measure_id, image_url = excluded.image_url,
-          created_by_id = excluded.created_by_id, is_active = excluded.is_active,
-          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          created_by_id = excluded.created_by_id, is_featured = excluded.is_featured,
+          is_published_online = excluded.is_published_online, online_description = excluded.online_description,
+          online_stock_reserve = excluded.online_stock_reserve, is_serialized = excluded.is_serialized,
+          serial_type = excluded.serial_type, warranty_months = excluded.warranty_months,
+          is_active = excluded.is_active, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(c.businessId),
@@ -592,6 +597,13 @@ export class SyncService {
         asStr(c.unitOfMeasureId),
         asStr(c.imageUrl),
         asStr(c.createdById),
+        c.isFeatured === true ? 1 : 0,
+        c.isPublishedOnline === true ? 1 : 0,
+        asStr(c.onlineDescription),
+        asNum(c.onlineStockReserve) ?? 0,
+        c.isSerialized === true ? 1 : 0,
+        asStr(c.serialType),
+        asNum(c.warrantyMonths),
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
