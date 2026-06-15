@@ -245,6 +245,8 @@ type ProductSyncPayload = {
   lowStockThreshold?: number | null
   unitOfMeasureId?: string | null
   categoryId?: string | null
+  brandId?: string | null
+  modelId?: string | null
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
@@ -2092,6 +2094,8 @@ export class SyncService {
       await this.dataSource.transaction(async (manager) => {
         await manager.getRepository(Product).update(operation.recordId, {
           categoryId: category?.id ?? null,
+          brandId: this.normalizeOptionalString(payload.brandId),
+          modelId: this.normalizeOptionalString(payload.modelId),
           unitOfMeasureId: unitOfMeasure.id,
           name: payload.name!.trim(),
           slug,
@@ -2154,6 +2158,8 @@ export class SyncService {
           id: operation.recordId,
           businessId,
           categoryId: category?.id ?? null,
+          brandId: this.normalizeOptionalString(payload.brandId),
+          modelId: this.normalizeOptionalString(payload.modelId),
           unitOfMeasureId: unitOfMeasure.id,
           name: payload.name!.trim(),
           slug,
@@ -3075,6 +3081,8 @@ export class SyncService {
       serialType: record.serialType ?? null,
       warrantyMonths: record.warrantyMonths ?? null,
       categoryId: record.categoryId ?? null,
+      brandId: record.brandId ?? null,
+      modelId: record.modelId ?? null,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,
       createdById: record.createdById ?? null,

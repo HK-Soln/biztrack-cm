@@ -569,6 +569,18 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .u-card .u-main{flex:1;min-width:0;}
 .u-card .u-sub{display:flex;align-items:center;gap:7px;margin-top:5px;}
 
+/* Toolbar (search + filters above a table) --------------------------------- */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+
+/* Two-column form rows + pricing calc + inline switch (product form) -------- */
+.form-2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media (max-width:560px){.form-2col{grid-template-columns:1fr;}}
+.calc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px;color:var(--text-2);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 13px;}
+.calc-row .big{font-size:16px;font-weight:700;color:var(--success,#2E7D32);}
+.switch-line{display:flex;align-items:center;gap:10px;background:none;border:0;cursor:pointer;font-family:inherit;
+  font-size:13px;color:var(--text);padding:2px 0;text-align:left;}
+
 /* Pagination footer ------------------------------------------------------- */
 .pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 15px;border-top:1px solid var(--border);flex-wrap:wrap;}
 .pager-range{font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;}
@@ -590,6 +602,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>") center/contain no-repeat;
   mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>") center/contain no-repeat;}
 .catpick-item.on{background:color-mix(in srgb,var(--brand-int) 8%,transparent);font-weight:600;}
+.brand-logo-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.brand-logo-row .av{flex-shrink:0;border-radius:12px;display:grid;place-items:center;font-size:16px;font-weight:700;background:var(--surface-2);color:var(--text-2);overflow:hidden;}
 
 /* Full-page form (add/edit category, business profile, …) ----------------- */
 .detail-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap;}

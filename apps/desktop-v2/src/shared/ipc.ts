@@ -52,6 +52,11 @@ export const IPC = {
   brandsAddModel: 'brands:add-model',
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
+  productsList: 'products:list',
+  productsGet: 'products:get',
+  productsCreate: 'products:create',
+  productsUpdate: 'products:update',
+  productsDelete: 'products:delete',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -74,6 +79,11 @@ export interface UnitListQuery extends ListQueryT {
   type?: string
 }
 export type AttributeGroupListQuery = ListQueryT
+export interface ProductListQuery extends ListQueryT {
+  categoryId?: string
+  brandId?: string
+  isActive?: boolean
+}
 
 // ---- Auth (Feature 1) -----------------------------------------------------
 // The renderer only ever sees SESSION STATUS — never tokens. Tokens live in the
@@ -298,6 +308,55 @@ export interface UnitInput {
   isActive?: boolean
 }
 
+// ---- Products -------------------------------------------------------------
+export type ProductType = 'SIMPLE' | 'SERVICE' | 'VARIABLE_QUANTITY' | 'COMPOSITE'
+
+/** A product as stored locally, enriched with category/brand/unit display names. */
+export interface LocalProduct {
+  id: string
+  name: string
+  slug: string | null
+  description: string | null
+  sku: string | null
+  barcode: string | null
+  sellingPrice: number
+  costPrice: number | null
+  currency: string
+  taxRate: number
+  productType: ProductType
+  isService: boolean
+  trackInventory: boolean
+  categoryId: string | null
+  brandId: string | null
+  modelId: string | null
+  unitOfMeasureId: string | null
+  imageUrl: string | null
+  isActive: boolean
+  /** Read-only stock (owned by the Inventory module; 0 until that syncs). */
+  currentStock: number
+  categoryName: string | null
+  brandName: string | null
+  unitAbbr: string | null
+}
+
+export interface ProductInput {
+  name: string
+  description?: string | null
+  sku?: string | null
+  barcode?: string | null
+  sellingPrice: number
+  costPrice?: number | null
+  taxRate?: number
+  unitOfMeasureId: string
+  categoryId?: string | null
+  brandId?: string | null
+  modelId?: string | null
+  imageUrl?: string | null
+  productType?: ProductType
+  isService?: boolean
+  isActive?: boolean
+}
+
 // ---- Brands & Models ------------------------------------------------------
 /** A model under a brand, stored locally. */
 export interface LocalModel {
@@ -460,6 +519,13 @@ export interface BridgeApi {
     addModel: (brandId: string, input: ModelInput) => Promise<LocalModel>
     updateModel: (modelId: string, input: ModelInput) => Promise<LocalModel>
     removeModel: (modelId: string) => Promise<void>
+  }
+  products: {
+    list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    get: (id: string) => Promise<LocalProduct | null>
+    create: (input: ProductInput) => Promise<LocalProduct>
+    update: (id: string, input: ProductInput) => Promise<LocalProduct>
+    remove: (id: string) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

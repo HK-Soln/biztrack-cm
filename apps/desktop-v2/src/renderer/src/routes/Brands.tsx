@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
@@ -7,6 +7,8 @@ import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { BrandInput, LocalBrand, LocalCategory } from '@shared/ipc'
+
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -318,16 +320,44 @@ function BrandModal({
   const [name, setName] = useState(brand?.name ?? '')
   const [description, setDescription] = useState(brand?.description ?? '')
   const [catIds, setCatIds] = useState<string[]>(brand?.categoryIds ?? [])
+  const [logoUrl, setLogoUrl] = useState<string | null>(brand?.logoUrl ?? null)
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // Brands attach only L3 (subcategory) categories.
+  const l3Categories = categories.filter((c) => c.depth === 3)
 
   const toggleCat = (id: string) =>
     setCatIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
+
+  async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setError(t('brand.logoTypeError'))
+      return
+    }
+    setError(null)
+    setUploading(true)
+    try {
+      const bytes = await file.arrayBuffer()
+      const res = await dataClient.uploads.file({ bytes, filename: file.name, contentType: file.type, folder: 'brands' })
+      setLogoUrl(res.url)
+    } catch {
+      setError(t('brand.logoError'))
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const save = useMutation({
     mutationFn: () => {
       const input: BrandInput = {
         name: name.trim(),
         description: description.trim() || null,
+        logoUrl,
         categoryIds: catIds,
       }
       return editing && brand ? dataClient.brands.update(brand.id, input) : dataClient.brands.create(input)
@@ -366,6 +396,23 @@ function BrandModal({
       }
     >
       <div className="ff" style={{ marginBottom: 12 }}>
+        <label className="lbl2">{t('brand.logo')}</label>
+        <input ref={fileRef} type="file" accept={ALLOWED_IMAGE_TYPES.join(',')} style={{ display: 'none' }} onChange={onPickLogo} />
+        <div className="brand-logo-row">
+          <span className="av" style={{ width: 52, height: 52 }}>
+            {logoUrl ? <img src={logoUrl} alt="" className="ava-img" /> : initials(name || '?')}
+          </span>
+          <Button variant="soft" type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+            {uploading ? t('brand.logoUploading') : logoUrl ? t('brand.logoReplace') : t('brand.logoUpload')}
+          </Button>
+          {logoUrl ? (
+            <Button variant="soft" type="button" onClick={() => setLogoUrl(null)} disabled={uploading}>
+              {t('brand.logoRemove')}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <div className="ff" style={{ marginBottom: 12 }}>
         <label className="lbl2">
           {t('brand.name')} <span className="req">*</span>
         </label>
@@ -388,17 +435,17 @@ function BrandModal({
         <label className="lbl2">
           {t('brand.categories')} <span className="req">*</span>
         </label>
-        {categories.length === 0 ? (
+        {l3Categories.length === 0 ? (
           <div className="form-note">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <circle cx="12" cy="12" r="9" />
               <path d="M12 11v5M12 8h.01" />
             </svg>
-            <span>{t('brand.catEmpty')}</span>
+            <span>{t('brand.catEmptyL3')}</span>
           </div>
         ) : (
           <div className="catpick">
-            {categories.map((c) => (
+            {l3Categories.map((c) => (
               <button
                 key={c.id}
                 type="button"

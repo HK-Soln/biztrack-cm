@@ -129,7 +129,7 @@ export class BrandsService {
 
   create(input: BrandInput): LocalBrand {
     const businessId = this.requireBusinessId()
-    const categoryIds = this.requireCategories(input.categoryIds)
+    const categoryIds = this.requireCategories(input.categoryIds, businessId)
     const id = randomUUID()
     const now = new Date().toISOString()
     const slug = slugify(input.name)
@@ -147,7 +147,7 @@ export class BrandsService {
 
   update(id: string, input: BrandInput): LocalBrand {
     const businessId = this.requireBusinessId()
-    const categoryIds = this.requireCategories(input.categoryIds)
+    const categoryIds = this.requireCategories(input.categoryIds, businessId)
     const now = new Date().toISOString()
     const slug = slugify(input.name)
     this.db.run(
@@ -253,9 +253,19 @@ export class BrandsService {
     }
   }
 
-  private requireCategories(categoryIds: string[] | undefined): string[] {
-    const ids = (categoryIds ?? []).filter(Boolean)
+  private requireCategories(categoryIds: string[] | undefined, businessId: string): string[] {
+    const ids = [...new Set((categoryIds ?? []).filter(Boolean))]
     if (ids.length === 0) throw new Error('A brand must have at least one category.')
+    // Brands attach only L3 (depth-3) categories.
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = this.db.query<{ id: string; depth: number }>(
+      `SELECT id, depth FROM product_categories WHERE business_id = ? AND is_deleted = 0 AND id IN (${placeholders})`,
+      [businessId, ...ids],
+    )
+    const byId = new Map(rows.map((r) => [r.id, r.depth]))
+    for (const id of ids) {
+      if (byId.get(id) !== 3) throw new Error('Brands can only be attached to L3 (subcategory) categories.')
+    }
     return ids
   }
 

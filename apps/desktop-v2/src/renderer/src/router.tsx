@@ -16,6 +16,8 @@ import { CategoryForm } from '@/routes/CategoryForm'
 import { Attributes } from '@/routes/Attributes'
 import { Units } from '@/routes/Units'
 import { Brands } from '@/routes/Brands'
+import { Products } from '@/routes/Products'
+import { ProductForm } from '@/routes/ProductForm'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -49,13 +51,15 @@ export const router = createHashRouter([
     children: [
       { path: '/', element: <Dashboard /> },
       { path: '/sell', element: <Placeholder titleKey="nav.sell" /> },
-      { path: '/products', element: <Placeholder titleKey="nav.allProducts" /> },
+      { path: '/products', element: <Products /> },
+      { path: '/products/new', element: <ProductForm /> },
       { path: '/products/categories', element: <Categories /> },
       { path: '/products/categories/new', element: <CategoryForm /> },
       { path: '/products/categories/:id', element: <CategoryForm /> },
       { path: '/products/brands', element: <Brands /> },
       { path: '/products/attributes', element: <Attributes /> },
       { path: '/products/units', element: <Units /> },
+      { path: '/products/:id', element: <ProductForm /> },
       { path: '/inventory', element: <Placeholder titleKey="nav.inventory" /> },
       { path: '/sales', element: <Placeholder titleKey="nav.sales" /> },
       { path: '/online/orders', element: <Placeholder titleKey="nav.onlineOrders" /> },

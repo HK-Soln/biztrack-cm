@@ -13,9 +13,12 @@ import type {
   LocalCategory,
   LocalCategoryAttributeGroup,
   LocalModel,
+  LocalProduct,
   LocalUnit,
   ModelInput,
   PaginatedResult,
+  ProductInput,
+  ProductListQuery,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
   UnitInput,
@@ -67,6 +70,13 @@ export interface DataClient {
     updateModel: (modelId: string, input: ModelInput) => Promise<LocalModel>
     removeModel: (modelId: string) => Promise<void>
   }
+  products: {
+    list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    get: (id: string) => Promise<LocalProduct | null>
+    create: (input: ProductInput) => Promise<LocalProduct>
+    update: (id: string, input: ProductInput) => Promise<LocalProduct>
+    remove: (id: string) => Promise<void>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
@@ -115,6 +125,13 @@ function electronAdapter(): DataClient {
       updateModel: (modelId, input) => window.api.brands.updateModel(modelId, input),
       removeModel: (modelId) => window.api.brands.removeModel(modelId),
     },
+    products: {
+      list: (query) => window.api.products.list(query),
+      get: (id) => window.api.products.get(id),
+      create: (input) => window.api.products.create(input),
+      update: (id, input) => window.api.products.update(id, input),
+      remove: (id) => window.api.products.remove(id),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -156,6 +173,7 @@ function cloudAdapter(): DataClient {
       updateModel: notWired,
       removeModel: notWired,
     },
+    products: { list: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
     uploads: { file: notWired },
   }
 }

@@ -329,6 +329,10 @@ export class SyncService {
     for (const record of changes.brandCategories ?? []) {
       ops.push(this.brandCategoryUpsert(record))
     }
+    // Products depend on category/unit/brand/model — applied after them.
+    for (const record of changes.products ?? []) {
+      ops.push(this.productUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
@@ -537,6 +541,58 @@ export class SyncService {
         asStr(c.businessId),
         asStr(c.brandId),
         asStr(c.categoryId),
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO products
+        (id, business_id, name, slug, description, sku, barcode, barcode_type, is_barcode_generated,
+         price, cost_price, currency, tax_rate, product_type, is_service, track_inventory,
+         category_id, brand_id, model_id, unit_of_measure_id, image_url, created_by_id,
+         is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, slug = excluded.slug, description = excluded.description,
+          sku = excluded.sku, barcode = excluded.barcode, barcode_type = excluded.barcode_type,
+          is_barcode_generated = excluded.is_barcode_generated, price = excluded.price,
+          cost_price = excluded.cost_price, currency = excluded.currency, tax_rate = excluded.tax_rate,
+          product_type = excluded.product_type, is_service = excluded.is_service,
+          track_inventory = excluded.track_inventory, category_id = excluded.category_id,
+          brand_id = excluded.brand_id, model_id = excluded.model_id,
+          unit_of_measure_id = excluded.unit_of_measure_id, image_url = excluded.image_url,
+          created_by_id = excluded.created_by_id, is_active = excluded.is_active,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.name),
+        asStr(c.slug),
+        asStr(c.description),
+        asStr(c.sku),
+        asStr(c.barcode),
+        asStr(c.barcodeType),
+        c.isBarcodeGenerated === true ? 1 : 0,
+        asNum(c.sellingPrice) ?? 0,
+        asNum(c.costPrice),
+        asStr(c.currency) ?? 'XAF',
+        asNum(c.taxRate) ?? 0,
+        asStr(c.productType) ?? 'SIMPLE',
+        c.isService === true ? 1 : 0,
+        r.isDeleted ? 0 : c.trackInventory === false ? 0 : 1,
+        asStr(c.categoryId),
+        asStr(c.brandId),
+        asStr(c.modelId),
+        asStr(c.unitOfMeasureId),
+        asStr(c.imageUrl),
+        asStr(c.createdById),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

@@ -181,6 +181,16 @@ export class CreateProductDto implements CreateProductRequest {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsUUID()
+  brandId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  modelId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   imageUrl?: string

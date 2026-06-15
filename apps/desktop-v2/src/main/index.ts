@@ -19,6 +19,8 @@ import { UnitsService } from './services/units.service'
 import { registerUnitsIpc } from './ipc/units.ipc'
 import { BrandsService } from './services/brands.service'
 import { registerBrandsIpc } from './ipc/brands.ipc'
+import { ProductsService } from './services/products.service'
+import { registerProductsIpc } from './ipc/products.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 
@@ -164,6 +166,14 @@ app.whenReady().then(() => {
     () => void sync.sync(),
   )
   registerBrandsIpc(brands)
+
+  // Products: offline-first catalog (brand→category, no stock yet — Inventory owns it).
+  const products = new ProductsService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+  )
+  registerProductsIpc(products)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

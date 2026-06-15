@@ -405,6 +405,8 @@ export interface Product {
   barcodeType?: string | null
   isBarcodeGenerated: boolean
   categoryId?: string | null
+  brandId?: string | null
+  modelId?: string | null
   imageUrl?: string | null
   createdById?: string | null
   createdBy?: ProductUserSummary | null
@@ -434,6 +436,8 @@ export interface CreateProductRequest {
   lowStockThreshold?: number
   unitOfMeasureId: string
   categoryId?: string
+  brandId?: string
+  modelId?: string
   imageUrl?: string
   productType?: ProductType
   isService?: boolean
