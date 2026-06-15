@@ -57,6 +57,13 @@ export const en = {
   'soon.title': 'coming soon',
   'soon.body': 'This screen is built next from the approved designs (desktop · tablet · mobile).',
 
+  'error.title': 'Something went wrong',
+  'error.body': 'An unexpected error occurred. Try reloading the app.',
+  'error.notFoundTitle': 'Page not found',
+  'error.notFoundBody': "This screen doesn't exist or has moved.",
+  'error.reload': 'Reload',
+  'error.goHome': 'Go to home',
+
   'auth.welcomeBack': 'Welcome back',
   'auth.signinSub': 'Sign in to your business account to keep selling.',
   'auth.email': 'Email',
@@ -309,6 +316,13 @@ export const fr: Record<MessageKey, string> = {
 
   'soon.title': 'à venir',
   'soon.body': 'Cet écran sera construit ensuite à partir des maquettes approuvées (bureau · tablette · mobile).',
+
+  'error.title': 'Une erreur est survenue',
+  'error.body': "Une erreur inattendue s'est produite. Essayez de recharger l'application.",
+  'error.notFoundTitle': 'Page introuvable',
+  'error.notFoundBody': "Cet écran n'existe pas ou a été déplacé.",
+  'error.reload': 'Recharger',
+  'error.goHome': "Aller à l'accueil",
 
   'auth.welcomeBack': 'Bon retour',
   'auth.signinSub': 'Connectez-vous à votre compte pour continuer à vendre.',

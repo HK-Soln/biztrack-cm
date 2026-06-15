@@ -2,6 +2,7 @@ import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthShell } from '@/components/layout/AuthShell'
 import { RequireAuth, RequireGuest } from '@/components/RouteGuards'
+import { RouteError } from '@/components/RouteError'
 import { Dashboard } from '@/routes/Dashboard'
 import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
@@ -14,6 +15,11 @@ import { SelectPlan } from '@/routes/SelectPlan'
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
 export const router = createHashRouter([
+  {
+    // Root error boundary: catches unmatched routes (404) + any error thrown in a
+    // descendant route, replacing React Router's dev-only default screen.
+    errorElement: <RouteError />,
+    children: [
   {
     element: (
       <RequireGuest>
@@ -59,6 +65,8 @@ export const router = createHashRouter([
       { path: '/settings/roles', element: <Placeholder titleKey="nav.roles" /> },
       { path: '/profile', element: <Placeholder titleKey="nav.profile" /> },
       { path: '/more', element: <Placeholder titleKey="nav.more" /> },
+    ],
+  },
     ],
   },
 ])
