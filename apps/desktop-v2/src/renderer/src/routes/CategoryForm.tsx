@@ -48,11 +48,15 @@ export function CategoryForm() {
     queryFn: () => dataClient.attributes.listGroups(),
     enabled: isElectron,
   })
-  const { data: existingLinks = [] } = useQuery({
+  const linksQuery = useQuery({
     queryKey: queryKeys.categoryAttributeLinks(id ?? 'new'),
     queryFn: () => dataClient.attributes.listCategoryLinks(id!),
     enabled: isElectron && editing,
   })
+  const existingLinks = linksQuery.data ?? []
+  // For a new category there are no links to load; for an existing one we must wait
+  // until the links query resolves before we can safely persist (see save below).
+  const linksReady = !editing || linksQuery.isSuccess
 
   // Ordered list of attached groups (the category's variant dimensions).
   const [attached, setAttached] = useState<Array<{ attributeGroupId: string; isRequired: boolean }>>([])
@@ -87,16 +91,17 @@ export function CategoryForm() {
     }
   }, [editing, loaded, current])
 
-  // Seed attached groups from the category's existing links (once, when editing).
+  // Seed attached groups from the category's existing links — once the query resolves
+  // (even if empty, so attachLoaded reliably means "we know the current links").
   useEffect(() => {
-    if (!editing || attachLoaded || existingLinks.length === 0) return
+    if (!editing || attachLoaded || !linksQuery.isSuccess) return
     setAttached(
       [...existingLinks]
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((l) => ({ attributeGroupId: l.attributeGroupId, isRequired: l.isRequired })),
     )
     setAttachLoaded(true)
-  }, [editing, attachLoaded, existingLinks])
+  }, [editing, attachLoaded, linksQuery.isSuccess, existingLinks])
 
   const attachedIds = new Set(attached.map((a) => a.attributeGroupId))
   const groupsById = new Map(allGroups.map((g) => [g.id, g]))
@@ -168,8 +173,9 @@ export function CategoryForm() {
     mutationFn: async (input: CategoryInput) => {
       const saved =
         editing && id ? await dataClient.categories.update(id, input) : await dataClient.categories.create(input)
-      // Persist variant-attribute links only for leaf categories.
-      if (isLeaf) {
+      // Persist variant-attribute links only for leaf categories — and only once the
+      // existing links have loaded, so a save before the seed can't wipe them.
+      if (isLeaf && linksReady) {
         await dataClient.attributes.setCategoryLinks(
           saved.id,
           attached.map((a, i) => ({ attributeGroupId: a.attributeGroupId, isRequired: a.isRequired, sortOrder: i })),
