@@ -39,6 +39,10 @@ export const IPC = {
   attributesDeleteOption: 'attributes:delete-option',
   attributesListCategoryLinks: 'attributes:list-category-links',
   attributesSetCategoryLinks: 'attributes:set-category-links',
+  unitsList: 'units:list',
+  unitsCreate: 'units:create',
+  unitsUpdate: 'units:update',
+  unitsDelete: 'units:delete',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -244,6 +248,27 @@ export interface CategoryAttributeLinkInput {
   sortOrder?: number
 }
 
+// ---- Units of measure -----------------------------------------------------
+export type UnitType = 'QUANTITY' | 'WEIGHT' | 'VOLUME' | 'LENGTH' | 'CUSTOM'
+
+/** A unit of measure as stored locally. `isSystem` units (no business) are read-only. */
+export interface LocalUnit {
+  id: string
+  name: string
+  abbreviation: string | null
+  type: UnitType
+  isDefault: boolean
+  isActive: boolean
+  isSystem: boolean
+}
+
+export interface UnitInput {
+  name: string
+  abbreviation: string
+  type?: UnitType
+  isActive?: boolean
+}
+
 /** A file the renderer hands to main for upload to the API storage service. */
 export interface UploadFileInput {
   /** Raw file bytes (from File.arrayBuffer()). */
@@ -349,6 +374,12 @@ export interface BridgeApi {
     listCategoryLinks: (categoryId: string) => Promise<LocalCategoryAttributeGroup[]>
     /** Replace a category's attached groups with `links` (diffs + enqueues changes). */
     setCategoryLinks: (categoryId: string, links: CategoryAttributeLinkInput[]) => Promise<void>
+  }
+  units: {
+    list: () => Promise<LocalUnit[]>
+    create: (input: UnitInput) => Promise<LocalUnit>
+    update: (id: string, input: UnitInput) => Promise<LocalUnit>
+    remove: (id: string) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

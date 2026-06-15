@@ -7,8 +7,10 @@ import type {
   LocalAttributeOption,
   LocalCategory,
   LocalCategoryAttributeGroup,
+  LocalUnit,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
+  UnitInput,
   UploadFileInput,
   UploadedFile,
 } from '@shared/ipc'
@@ -38,6 +40,12 @@ export interface DataClient {
     deleteOption: (optionId: string) => Promise<void>
     listCategoryLinks: (categoryId: string) => Promise<LocalCategoryAttributeGroup[]>
     setCategoryLinks: (categoryId: string, links: CategoryAttributeLinkInput[]) => Promise<void>
+  }
+  units: {
+    list: () => Promise<LocalUnit[]>
+    create: (input: UnitInput) => Promise<LocalUnit>
+    update: (id: string, input: UnitInput) => Promise<LocalUnit>
+    remove: (id: string) => Promise<void>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -70,6 +78,12 @@ function electronAdapter(): DataClient {
       listCategoryLinks: (categoryId) => window.api.attributes.listCategoryLinks(categoryId),
       setCategoryLinks: (categoryId, links) => window.api.attributes.setCategoryLinks(categoryId, links),
     },
+    units: {
+      list: () => window.api.units.list(),
+      create: (input) => window.api.units.create(input),
+      update: (id, input) => window.api.units.update(id, input),
+      remove: (id) => window.api.units.remove(id),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -100,6 +114,7 @@ function cloudAdapter(): DataClient {
       listCategoryLinks: notWired,
       setCategoryLinks: notWired,
     },
+    units: { list: notWired, create: notWired, update: notWired, remove: notWired },
     uploads: { file: notWired },
   }
 }

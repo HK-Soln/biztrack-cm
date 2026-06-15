@@ -14,6 +14,7 @@ import { SelectPlan } from '@/routes/SelectPlan'
 import { Categories } from '@/routes/Categories'
 import { CategoryForm } from '@/routes/CategoryForm'
 import { Attributes } from '@/routes/Attributes'
+import { Units } from '@/routes/Units'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -53,7 +54,7 @@ export const router = createHashRouter([
       { path: '/products/categories/:id', element: <CategoryForm /> },
       { path: '/products/brands', element: <Placeholder titleKey="nav.brands" /> },
       { path: '/products/attributes', element: <Attributes /> },
-      { path: '/products/units', element: <Placeholder titleKey="nav.units" /> },
+      { path: '/products/units', element: <Units /> },
       { path: '/inventory', element: <Placeholder titleKey="nav.inventory" /> },
       { path: '/sales', element: <Placeholder titleKey="nav.sales" /> },
       { path: '/online/orders', element: <Placeholder titleKey="nav.onlineOrders" /> },

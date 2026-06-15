@@ -313,6 +313,9 @@ export class SyncService {
     for (const record of changes.categoryAttributeGroups ?? []) {
       ops.push(this.categoryAttributeGroupUpsert(record))
     }
+    for (const record of changes.unitOfMeasures ?? []) {
+      ops.push(this.unitOfMeasureUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
@@ -421,6 +424,32 @@ export class SyncService {
         c.isRequired === false ? 0 : 1,
         asNum(c.sortOrder) ?? 0,
         r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private unitOfMeasureUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO unit_of_measures
+        (id, name, abbreviation, business_id, type, is_active, is_deleted, is_default, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, abbreviation = excluded.abbreviation, business_id = excluded.business_id,
+          type = excluded.type, is_active = excluded.is_active, is_deleted = excluded.is_deleted,
+          is_default = excluded.is_default, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.name),
+        asStr(c.abbreviation),
+        asStr(c.businessId),
+        asStr(c.type),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        c.isDefault === true ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
