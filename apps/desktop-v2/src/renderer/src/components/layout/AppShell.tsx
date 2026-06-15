@@ -1,11 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore, useT } from '@/i18n'
+import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
+
+const ROLE_LABEL: Record<string, MessageKey> = {
+  OWNER: 'selectBiz.role.owner',
+  MANAGER: 'selectBiz.role.manager',
+  CASHIER: 'selectBiz.role.cashier',
+  ACCOUNTANT: 'selectBiz.role.accountant',
+}
 
 function initials(name?: string | null): string {
   if (!name) return '—'
@@ -28,7 +36,15 @@ function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   )
 }
 
-function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }) {
+function NavGroup({
+  entry,
+  collapsedRail,
+  onExpand,
+}: {
+  entry: Extract<NavEntry, { children: unknown }>
+  collapsedRail?: boolean
+  onExpand?: () => void
+}) {
   const t = useT()
   const { pathname } = useLocation()
   const hasActiveChild = entry.children.some((c) => pathname === c.to || pathname.startsWith(c.to + '/'))
@@ -38,7 +54,18 @@ function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }
   }, [hasActiveChild])
   return (
     <div className={`nav-grp${open ? ' open' : ''}`}>
-      <button type="button" className="nav-item" onClick={() => setOpen((o) => !o)}>
+      <button
+        type="button"
+        className="nav-item"
+        onClick={() => {
+          // In the collapsed icon rail, children are hidden — expand the sidebar instead.
+          if (collapsedRail) {
+            onExpand?.()
+            return
+          }
+          setOpen((o) => !o)
+        }}
+      >
         {Icon[entry.icon]}
         <span className="lab">{t(entry.label)}</span>
         <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
@@ -54,12 +81,33 @@ function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }
   )
 }
 
-function Sidebar({ rail }: { rail?: boolean }) {
+function Sidebar({
+  rail,
+  collapsible,
+  collapsed,
+  onToggle,
+}: {
+  rail?: boolean
+  collapsible?: boolean
+  collapsed?: boolean
+  onToggle?: () => void
+}) {
   const t = useT()
-  const logout = useSessionStore((s) => s.logout)
-  const user = useSessionStore((s) => s.status.user)
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
+      {collapsible ? (
+        <button
+          type="button"
+          className="sb-collapse app-no-drag"
+          onClick={onToggle}
+          title={collapsed ? t('nav.expand') : t('nav.collapse')}
+          aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+            <path d="m14 6-6 6 6 6" />
+          </svg>
+        </button>
+      ) : null}
       <div className="brandmark app-drag">
         <div className="logo">
           B<span className="pip" />
@@ -80,26 +128,91 @@ function Sidebar({ rail }: { rail?: boolean }) {
       <nav className="nav">
         {NAV.map((entry, i) =>
           isGroup(entry) ? (
-            <NavGroup key={`g${i}`} entry={entry} />
+            <NavGroup
+              key={`g${i}`}
+              entry={entry}
+              collapsedRail={rail && collapsible}
+              onExpand={onToggle}
+            />
           ) : (
             <NavLeafLink key={entry.to} {...entry} />
           ),
         )}
       </nav>
-      <div className="sb-foot">
-        <button type="button" className="sb-user" onClick={() => void logout()} title="Log out">
-          <span className="sb-av">{initials(user?.name)}</span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span className="nm" style={{ display: 'block' }}>
-              {user?.name || '—'}
-            </span>
-            <span className="rl" style={{ display: 'block' }}>
-              {user?.role ?? ''}
-            </span>
-          </span>
-        </button>
-      </div>
+      <UserMenu />
     </aside>
+  )
+}
+
+function UserMenu() {
+  const t = useT()
+  const logout = useSessionStore((s) => s.logout)
+  const user = useSessionStore((s) => s.status.user)
+  const businessName = useSessionStore((s) => s.status.businessName)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const roleLabel = user?.role ? t(ROLE_LABEL[user.role.toUpperCase()] ?? 'selectBiz.role.member') : null
+  const secondary = roleLabel ? `${roleLabel} · ${businessName ?? ''}` : (businessName ?? '')
+  const contact = user?.email || user?.phone || ''
+
+  return (
+    <div className="sb-foot" ref={ref}>
+      {open ? (
+        <div className="sb-menu" role="menu">
+          <div className="sb-menu-head">
+            <span className="sb-av">{initials(user?.name)}</span>
+            <span className="meta">
+              <span className="nm">{user?.name || '—'}</span>
+              {contact ? <span className="ct">{contact}</span> : null}
+            </span>
+          </div>
+          {businessName ? <div className="sb-menu-biz">{businessName}</div> : null}
+          <NavLink to="/profile" className="sb-menu-item" role="menuitem" onClick={() => setOpen(false)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21a8 8 0 0 1 16 0" />
+            </svg>
+            {t('usermenu.profile')}
+          </NavLink>
+          <button type="button" className="sb-menu-item danger" role="menuitem" onClick={() => void logout()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="m16 17 5-5-5-5M21 12H9" />
+            </svg>
+            {t('usermenu.signOut')}
+          </button>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className={`sb-user${open ? ' open' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className="sb-av">{initials(user?.name)}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span className="nm" style={{ display: 'block' }}>
+            {user?.name || '—'}
+          </span>
+          <span className="rl" style={{ display: 'block' }}>
+            {secondary}
+          </span>
+        </span>
+        <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+    </div>
   )
 }
 
@@ -139,12 +252,13 @@ function LanguageToggle() {
 
 function TopBar() {
   const t = useT()
+  const businessName = useSessionStore((s) => s.status.businessName)
   return (
     <header className="topbar app-drag" style={isWindows ? { paddingRight: 138 } : undefined}>
       <button type="button" className="biz app-no-drag">
-        <span className="biz-tile">BM</span>
+        <span className="biz-tile">{initials(businessName)}</span>
         <span>
-          <span className="nm">Boutique Mballa</span>
+          <span className="nm">{businessName || 'BizTrack CM'}</span>
           <span className="sub">{t('top.lastSync')}</span>
         </span>
       </button>
@@ -166,13 +280,14 @@ function TopBar() {
 
 function MobileTopBar() {
   const t = useT()
+  const businessName = useSessionStore((s) => s.status.businessName)
   return (
     <header className="m-topbar app-drag">
       <div className="logo">
         B<span className="pip" />
       </div>
       <div className="m-tt">
-        <div className="m-title">Boutique Mballa</div>
+        <div className="m-title">{businessName || 'BizTrack CM'}</div>
         <div className="m-sub">BizTrack CM · {t('top.synced')}</div>
       </div>
       <LanguageToggle />
@@ -208,12 +323,29 @@ function TabBar() {
   )
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'biztrack.sidebar.collapsed'
+
 export function AppShell() {
   const bp = useBreakpoint()
   const mode = useThemeStore((s) => s.mode)
   const palette = useThemeStore((s) => s.palette)
   const chrome = useThemeStore((s) => s.chrome)
   const resolvedDark = useThemeStore((s) => s.resolvedDark)
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
 
   useEffect(() => {
     const id = requestAnimationFrame(syncTitleBarOverlay)
@@ -234,7 +366,12 @@ export function AppShell() {
 
   return (
     <div className="layout">
-      <Sidebar rail={bp === 'tablet'} />
+      <Sidebar
+        rail={bp === 'tablet' || collapsed}
+        collapsible={bp === 'desktop'}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((c) => !c)}
+      />
       <div className="maincol">
         <TopBar />
         <div className="content">
