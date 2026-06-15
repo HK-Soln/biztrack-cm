@@ -475,6 +475,61 @@ export interface UpdateCategoryRequest extends Partial<CreateCategoryRequest> {
   isActive?: boolean
 }
 
+// ---- Brands & Models ------------------------------------------------------
+
+/** A brand (e.g. Samsung). Linked many-to-many to categories; owns Models. */
+export interface Brand {
+  id: string
+  businessId: string
+  name: string
+  slug: string
+  logoUrl?: string | null
+  description?: string | null
+  isActive: boolean
+  sortOrder: number
+  /** Category ids this brand maps to (M2M) — populated on detail/list responses. */
+  categoryIds?: string[]
+  /** Models under this brand — populated on detail responses. */
+  models?: Model[]
+  createdAt?: IsoDateString
+  updatedAt?: IsoDateString
+}
+
+/** A model belonging to a brand (e.g. Galaxy S24 under Samsung). */
+export interface Model {
+  id: string
+  businessId: string
+  brandId: string
+  name: string
+  slug?: string
+  isActive: boolean
+  sortOrder: number
+  createdAt?: IsoDateString
+  updatedAt?: IsoDateString
+}
+
+export interface CreateBrandRequest {
+  name: string
+  logoUrl?: string
+  description?: string
+  sortOrder?: number
+  /** Category ids to link (M2M). */
+  categoryIds?: string[]
+}
+
+export interface UpdateBrandRequest extends Partial<CreateBrandRequest> {
+  isActive?: boolean
+}
+
+export interface CreateModelRequest {
+  name: string
+  sortOrder?: number
+}
+
+export interface UpdateModelRequest extends Partial<CreateModelRequest> {
+  isActive?: boolean
+}
+
 export interface ProductImagesQuery extends ListQuery {}
 
 export interface CreateProductImageRequest {

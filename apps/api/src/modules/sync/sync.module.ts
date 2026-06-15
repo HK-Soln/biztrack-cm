@@ -30,6 +30,9 @@ import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
+import { Brand } from '@/entities/brand.entity'
+import { Model } from '@/entities/model.entity'
+import { BrandCategory } from '@/entities/brand-category.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
@@ -81,6 +84,9 @@ import { SyncService } from './sync.service'
       AttributeGroup,
       AttributeOption,
       CategoryAttributeGroup,
+      Brand,
+      Model,
+      BrandCategory,
       ProductVariant,
       ProductVariantOption,
       ProductBundleComponent,

@@ -93,6 +93,9 @@ import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
+import { Brand } from '@/entities/brand.entity'
+import { Model } from '@/entities/model.entity'
+import { BrandCategory } from '@/entities/brand-category.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
@@ -171,6 +174,34 @@ type CategoryAttributeGroupPayload = {
   attributeGroupId?: string
   isRequired?: boolean
   sortOrder?: number | null
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type BrandPayload = {
+  name?: string
+  slug?: string
+  logoUrl?: string | null
+  description?: string | null
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ModelPayload = {
+  brandId?: string
+  name?: string
+  slug?: string | null
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type BrandCategoryPayload = {
+  brandId?: string
+  categoryId?: string
   createdAt?: string
   isDeleted?: boolean
 }
@@ -344,6 +375,12 @@ export class SyncService {
     private readonly openingBalancesRepo: Repository<ContactOpeningBalance>,
     @InjectRepository(Debt)
     private readonly debtsRepo: Repository<Debt>,
+    @InjectRepository(Brand)
+    private readonly brandsRepo: Repository<Brand>,
+    @InjectRepository(Model)
+    private readonly modelsRepo: Repository<Model>,
+    @InjectRepository(BrandCategory)
+    private readonly brandCategoriesRepo: Repository<BrandCategory>,
     @InjectRepository(ExpenseCategory)
     private readonly expenseCategoriesRepo: Repository<ExpenseCategory>,
     @InjectRepository(Expense)
@@ -548,6 +585,9 @@ export class SyncService {
         attributeGroups,
         attributeOptions,
         categoryAttributeGroups,
+        brands,
+        models,
+        brandCategories,
         productVariants,
         productVariantOptions,
         productBundleComponents,
@@ -709,6 +749,30 @@ export class SyncService {
           .andWhere('link.updated_at <= :pulledAt', { pulledAt })
           .orderBy('link.updated_at', 'ASC')
           .getMany(),
+        this.brandsRepo
+          .createQueryBuilder('brand')
+          .withDeleted()
+          .where('brand.business_id = :businessId', { businessId })
+          .andWhere('brand.updated_at > :since', { since })
+          .andWhere('brand.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('brand.updated_at', 'ASC')
+          .getMany(),
+        this.modelsRepo
+          .createQueryBuilder('model')
+          .withDeleted()
+          .where('model.business_id = :businessId', { businessId })
+          .andWhere('model.updated_at > :since', { since })
+          .andWhere('model.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('model.updated_at', 'ASC')
+          .getMany(),
+        this.brandCategoriesRepo
+          .createQueryBuilder('bc')
+          .withDeleted()
+          .where('bc.business_id = :businessId', { businessId })
+          .andWhere('bc.updated_at > :since', { since })
+          .andWhere('bc.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('bc.updated_at', 'ASC')
+          .getMany(),
         this.productVariantsRepo
           .createQueryBuilder('variant')
           .withDeleted()
@@ -810,6 +874,40 @@ export class SyncService {
           attributeGroupId: record.attributeGroupId,
           isRequired: record.isRequired,
           sortOrder: record.sortOrder,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        brands: brands.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          name: record.name,
+          slug: record.slug,
+          logoUrl: record.logoUrl ?? null,
+          description: record.description ?? null,
+          sortOrder: record.sortOrder,
+          isActive: record.isActive,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        models: models.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          brandId: record.brandId,
+          name: record.name,
+          slug: record.slug ?? null,
+          sortOrder: record.sortOrder,
+          isActive: record.isActive,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        brandCategories: brandCategories.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          brandId: record.brandId,
+          categoryId: record.categoryId,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -1067,6 +1165,9 @@ export class SyncService {
       attribute_group: (b, o) => this.applyAttributeGroupOperation(b, o),
       attribute_option: (b, o) => this.applyAttributeOptionOperation(b, o),
       category_attribute_group: (b, o) => this.applyCategoryAttributeGroupOperation(b, o),
+      brand: (b, o) => this.applyBrandOperation(b, o),
+      model: (b, o) => this.applyModelOperation(b, o),
+      brand_category: (b, o) => this.applyBrandCategoryOperation(b, o),
       contact: (b, o) => this.applyContactOperation(b, o),
       opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
       product: (b, o) => this.applyProductOperation(b, o),
@@ -1454,6 +1555,179 @@ export class SyncService {
         attributeGroupId,
         isRequired: payload.isRequired ?? true,
         sortOrder: payload.sortOrder ?? 0,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyBrandOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.brandsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.brandsRepo.update(operation.recordId, {
+          isActive: false,
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readBrandPayload(operation.payload)
+    const slug = payload.slug?.trim() || this.slugify(payload.name!)
+
+    if (existing) {
+      await this.brandsRepo.update(operation.recordId, {
+        name: payload.name!.trim(),
+        slug,
+        logoUrl: this.sanitizeStoredImageUrl(payload.logoUrl),
+        description: this.normalizeOptionalString(payload.description),
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        isActive: payload.isActive ?? existing.isActive,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.brandsRepo.save(
+      this.brandsRepo.create({
+        id: operation.recordId,
+        businessId,
+        name: payload.name!.trim(),
+        slug,
+        logoUrl: this.sanitizeStoredImageUrl(payload.logoUrl),
+        description: this.normalizeOptionalString(payload.description),
+        sortOrder: payload.sortOrder ?? 0,
+        isActive: payload.isActive ?? true,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyModelOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.modelsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.modelsRepo.update(operation.recordId, {
+          isActive: false,
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readModelPayload(operation.payload)
+    const brandId = payload.brandId ?? existing?.brandId
+    if (!brandId) {
+      throw new AppBadRequestException('Model requires a brandId.', 'SYNC_MODEL_BRAND_REQUIRED')
+    }
+
+    if (existing) {
+      await this.modelsRepo.update(operation.recordId, {
+        brandId,
+        name: payload.name!.trim(),
+        slug: this.normalizeOptionalString(payload.slug),
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        isActive: payload.isActive ?? existing.isActive,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.modelsRepo.save(
+      this.modelsRepo.create({
+        id: operation.recordId,
+        businessId,
+        brandId,
+        name: payload.name!.trim(),
+        slug: this.normalizeOptionalString(payload.slug),
+        sortOrder: payload.sortOrder ?? 0,
+        isActive: payload.isActive ?? true,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyBrandCategoryOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.brandCategoriesRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.brandCategoriesRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readBrandCategoryPayload(operation.payload)
+    const brandId = payload.brandId ?? existing?.brandId
+    const categoryId = payload.categoryId ?? existing?.categoryId
+    if (!brandId || !categoryId) {
+      throw new AppBadRequestException(
+        'Brand-category link requires brandId and categoryId.',
+        'SYNC_BRAND_CATEGORY_INVALID',
+      )
+    }
+
+    if (existing) {
+      await this.brandCategoriesRepo.update(operation.recordId, {
+        brandId,
+        categoryId,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.brandCategoriesRepo.save(
+      this.brandCategoriesRepo.create({
+        id: operation.recordId,
+        businessId,
+        brandId,
+        categoryId,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3280,6 +3554,50 @@ export class SyncService {
       )
     }
     return payload as CategoryAttributeGroupPayload
+  }
+
+  private readBrandPayload(payload: Record<string, unknown> | null): BrandPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Brand sync payload is required.', 'SYNC_BRAND_PAYLOAD_REQUIRED')
+    }
+    const typed = payload as BrandPayload
+    if (!typed.name?.trim()) {
+      throw new AppBadRequestException('Brand name is required.', 'SYNC_BRAND_NAME_REQUIRED')
+    }
+    return typed
+  }
+
+  private readModelPayload(payload: Record<string, unknown> | null): ModelPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Model sync payload is required.', 'SYNC_MODEL_PAYLOAD_REQUIRED')
+    }
+    const typed = payload as ModelPayload
+    if (!typed.name?.trim()) {
+      throw new AppBadRequestException('Model name is required.', 'SYNC_MODEL_NAME_REQUIRED')
+    }
+    return typed
+  }
+
+  private readBrandCategoryPayload(payload: Record<string, unknown> | null): BrandCategoryPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Brand-category link sync payload is required.',
+        'SYNC_BRAND_CATEGORY_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as BrandCategoryPayload
+  }
+
+  /** Fallback slug from a name (the client normally sends its own). */
+  private slugify(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 140)
   }
 
   /** Coerce a synced display type to a valid enum value (defends the DB CHECK constraint). */
