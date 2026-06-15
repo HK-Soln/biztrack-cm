@@ -49,6 +49,7 @@ export const IPC = {
   brandsCreate: 'brands:create',
   brandsUpdate: 'brands:update',
   brandsDelete: 'brands:delete',
+  brandsGet: 'brands:get',
   brandsAddModel: 'brands:add-model',
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
@@ -71,6 +72,8 @@ import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@bi
 export interface CategoryListQuery extends ListQueryT {
   parentId?: string | null
   isActive?: boolean
+  /** Filter by hierarchy level (1=L1 … 3=L3). */
+  depth?: number
 }
 export interface BrandListQuery extends ListQueryT {
   categoryId?: string
@@ -513,6 +516,7 @@ export interface BridgeApi {
   }
   brands: {
     list: (query?: BrandListQuery) => Promise<PaginatedT<LocalBrand>>
+    get: (id: string) => Promise<LocalBrand | null>
     create: (input: BrandInput) => Promise<LocalBrand>
     update: (id: string, input: BrandInput) => Promise<LocalBrand>
     remove: (id: string) => Promise<void>

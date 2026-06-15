@@ -269,6 +269,11 @@ export class BrandsService {
     return ids
   }
 
+  /** Single brand by id (with its category links + models) — for the product form. */
+  get(id: string): LocalBrand | null {
+    return this.getOne(id)
+  }
+
   private getOne(id: string): LocalBrand | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null

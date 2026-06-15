@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Select } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input } from '@biztrack/ui/biztrack'
+import type { CommandSelectOption } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
@@ -26,29 +27,21 @@ export function ProductForm() {
     queryFn: () => dataClient.products.get(id!),
     enabled: isElectron && editing,
   })
-  const { data: brandPage } = useQuery({
-    queryKey: [...queryKeys.brands, 'pick'],
-    queryFn: () => dataClient.brands.list({ limit: 100 }),
-    enabled: isElectron,
-  })
+  // Full category set (cached) — to resolve names for a brand's L3 category ids.
   const { data: categories = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
     enabled: isElectron,
   })
-  const { data: unitPage } = useQuery({
-    queryKey: [...queryKeys.units, 'pick'],
-    queryFn: () => dataClient.units.list({ limit: 100 }),
-    enabled: isElectron,
-  })
-  const brands = brandPage?.data ?? []
-  const units = unitPage?.data ?? []
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [brandId, setBrandId] = useState('')
+  const [brandLabel, setBrandLabel] = useState<string | null>(null)
   const [categoryId, setCategoryId] = useState('')
+  const [categoryLabel, setCategoryLabel] = useState<string | null>(null)
   const [modelId, setModelId] = useState('')
+  const [modelLabel, setModelLabel] = useState<string | null>(null)
   const [sku, setSku] = useState('')
   const [barcode, setBarcode] = useState('')
   const [cost, setCost] = useState('')
@@ -56,6 +49,7 @@ export function ProductForm() {
   const [taxable, setTaxable] = useState(true)
   const [isService, setIsService] = useState(false)
   const [unitId, setUnitId] = useState('')
+  const [unitLabel, setUnitLabel] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [isActive, setIsActive] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -64,13 +58,22 @@ export function ProductForm() {
   const [loaded, setLoaded] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Populate once when editing.
+  // The selected brand (its L3 categories + models constrain the pickers).
+  const { data: selectedBrand } = useQuery({
+    queryKey: [...queryKeys.brands, 'one', brandId],
+    queryFn: () => dataClient.brands.get(brandId),
+    enabled: isElectron && !!brandId,
+  })
+
+  // Populate once when editing (labels come from the joined names on the product).
   useEffect(() => {
     if (!editing || loaded || !existing) return
     setName(existing.name)
     setDescription(existing.description ?? '')
     setBrandId(existing.brandId ?? '')
+    setBrandLabel(existing.brandName)
     setCategoryId(existing.categoryId ?? '')
+    setCategoryLabel(existing.categoryName)
     setModelId(existing.modelId ?? '')
     setSku(existing.sku ?? '')
     setBarcode(existing.barcode ?? '')
@@ -79,32 +82,74 @@ export function ProductForm() {
     setTaxable((existing.taxRate ?? 0) > 0)
     setIsService(existing.isService)
     setUnitId(existing.unitOfMeasureId ?? '')
+    setUnitLabel(existing.unitAbbr)
     setImageUrl(existing.imageUrl)
     setIsActive(existing.isActive)
     setLoaded(true)
   }, [editing, loaded, existing])
 
-  const selectedBrand = brands.find((b) => b.id === brandId) ?? null
-  // Brand drives the category choice; without a brand, any L3 category is allowed.
-  const categoryOptions = useMemo(() => {
-    if (selectedBrand) {
-      const ids = new Set(selectedBrand.categoryIds)
-      return categories.filter((c) => ids.has(c.id))
+  // When the brand resolves: auto-pick its category if it has exactly one, and
+  // resolve the model label for an already-set model id.
+  useEffect(() => {
+    if (!selectedBrand) return
+    if (!categoryId && selectedBrand.categoryIds.length === 1) {
+      const only = selectedBrand.categoryIds[0]!
+      setCategoryId(only)
+      setCategoryLabel(categories.find((c) => c.id === only)?.name ?? null)
     }
-    return categories.filter((c) => c.depth === 3)
+    if (modelId && !modelLabel) {
+      setModelLabel(selectedBrand.models.find((m) => m.id === modelId)?.name ?? null)
+    }
   }, [selectedBrand, categories])
-  const modelOptions = selectedBrand?.models ?? []
 
-  const onBrandChange = (value: string) => {
-    setBrandId(value)
-    const brand = brands.find((b) => b.id === value) ?? null
-    // Keep category only if still valid; auto-pick when the brand has exactly one.
-    if (brand) {
-      if (brand.categoryIds.length === 1) setCategoryId(brand.categoryIds[0]!)
-      else if (!brand.categoryIds.includes(categoryId)) setCategoryId('')
-    }
-    if (!brand || !brand.models.some((m) => m.id === modelId)) setModelId('')
+  const onBrandChange = (value: string | null, option?: CommandSelectOption) => {
+    setBrandId(value ?? '')
+    setBrandLabel(option?.label ?? null)
+    setCategoryId('')
+    setCategoryLabel(null)
+    setModelId('')
+    setModelLabel(null)
   }
+
+  // DB-backed loaders (search reaches SQLite/API, not just the loaded page).
+  const loadBrands = useCallback(
+    (s: string) =>
+      dataClient.brands.list({ search: s, limit: 20 }).then((r) => r.data.map((b) => ({ value: b.id, label: b.name }))),
+    [],
+  )
+  const loadUnits = useCallback(
+    (s: string) =>
+      dataClient.units
+        .list({ search: s, limit: 20 })
+        .then((r) => r.data.map((u) => ({ value: u.id, label: u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name }))),
+    [],
+  )
+  const loadModels = useCallback(
+    (s: string) => {
+      const q = s.toLowerCase()
+      const models = (selectedBrand?.models ?? []).filter((m) => m.name.toLowerCase().includes(q))
+      return Promise.resolve(models.map((m) => ({ value: m.id, label: m.name })))
+    },
+    [selectedBrand],
+  )
+  const loadCategories = useCallback(
+    (s: string) => {
+      const q = s.toLowerCase()
+      if (selectedBrand) {
+        const ids = new Set(selectedBrand.categoryIds)
+        return Promise.resolve(
+          categories
+            .filter((c) => ids.has(c.id) && c.name.toLowerCase().includes(q))
+            .map((c) => ({ value: c.id, label: c.name })),
+        )
+      }
+      // No brand → search all L3 categories in the DB.
+      return dataClient.categories
+        .list({ search: s, depth: 3, limit: 20 })
+        .then((r) => r.data.map((c) => ({ value: c.id, label: c.name })))
+    },
+    [selectedBrand, categories],
+  )
 
   const costN = Number(cost.replace(/\s/g, '')) || 0
   const priceN = Number(price.replace(/\s/g, '')) || 0
@@ -210,44 +255,58 @@ export function ProductForm() {
                 <div className="form-2col">
                   <div className="ff">
                     <label className="lbl2">{t('prodf.brand')}</label>
-                    <Select value={brandId} onChange={(e) => onBrandChange(e.target.value)}>
-                      <option value="">{t('prodf.brandNone')}</option>
-                      {brands.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))}
-                    </Select>
+                    <CommandSelect
+                      value={brandId || null}
+                      valueLabel={brandLabel}
+                      onChange={onBrandChange}
+                      loadOptions={loadBrands}
+                      placeholder={t('prodf.brandNone')}
+                      searchPlaceholder={t('prodf.searchBrands')}
+                      clearLabel={t('prodf.brandNone')}
+                    />
                     <div className="hint">{t('prodf.brandHint')}</div>
                   </div>
                   <div className="ff">
                     <label className="lbl2">{t('prodf.category')}</label>
-                    <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                      <option value="">{t('prodf.categoryNone')}</option>
-                      {categoryOptions.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </Select>
+                    <CommandSelect
+                      value={categoryId || null}
+                      valueLabel={categoryLabel}
+                      onChange={(v, o) => { setCategoryId(v ?? ''); setCategoryLabel(o?.label ?? null) }}
+                      loadOptions={loadCategories}
+                      placeholder={t('prodf.categoryNone')}
+                      searchPlaceholder={t('prodf.searchCategories')}
+                      clearLabel={t('prodf.categoryNone')}
+                    />
                   </div>
                 </div>
                 <div className="form-2col">
                   <div className="ff">
                     <label className="lbl2">{t('prodf.model')}</label>
-                    <Select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={modelOptions.length === 0}>
-                      <option value="">{modelOptions.length === 0 ? t('prodf.modelNone') : t('prodf.modelPick')}</option>
-                      {modelOptions.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name}</option>
-                      ))}
-                    </Select>
+                    <CommandSelect
+                      value={modelId || null}
+                      valueLabel={modelLabel}
+                      onChange={(v, o) => { setModelId(v ?? ''); setModelLabel(o?.label ?? null) }}
+                      loadOptions={loadModels}
+                      placeholder={selectedBrand ? t('prodf.modelPick') : t('prodf.modelNoBrand')}
+                      searchPlaceholder={t('prodf.searchModels')}
+                      emptyText={t('prodf.modelNone')}
+                      clearLabel={t('prodf.modelClear')}
+                      disabled={!selectedBrand}
+                    />
                   </div>
                   <div className="ff">
                     <label className="lbl2">
                       {t('prodf.unit')} <span className="req">*</span>
                     </label>
-                    <Select value={unitId} onChange={(e) => { setUnitId(e.target.value); setError(null) }}>
-                      <option value="">{t('prodf.unitPick')}</option>
-                      {units.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}</option>
-                      ))}
-                    </Select>
+                    <CommandSelect
+                      value={unitId || null}
+                      valueLabel={unitLabel}
+                      onChange={(v, o) => { setUnitId(v ?? ''); setUnitLabel(o?.label ?? null); setError(null) }}
+                      loadOptions={loadUnits}
+                      placeholder={t('prodf.unitPick')}
+                      searchPlaceholder={t('prodf.searchUnits')}
+                      invalid={!!error && !unitId}
+                    />
                   </div>
                 </div>
                 <div className="form-2col">

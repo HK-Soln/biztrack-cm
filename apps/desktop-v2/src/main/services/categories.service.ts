@@ -62,6 +62,10 @@ export class CategoriesService {
       where += ' AND is_active = ?'
       params.push(query.isActive ? 1 : 0)
     }
+    if (query.depth !== undefined) {
+      where += ' AND depth = ?'
+      params.push(query.depth)
+    }
 
     const { rows, ...meta } = paginateRows<CategoryRow>(
       this.db,

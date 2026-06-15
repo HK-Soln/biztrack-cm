@@ -63,6 +63,7 @@ export interface DataClient {
   }
   brands: {
     list: (query?: BrandListQuery) => Promise<PaginatedResult<LocalBrand>>
+    get: (id: string) => Promise<LocalBrand | null>
     create: (input: BrandInput) => Promise<LocalBrand>
     update: (id: string, input: BrandInput) => Promise<LocalBrand>
     remove: (id: string) => Promise<void>
@@ -118,6 +119,7 @@ function electronAdapter(): DataClient {
     },
     brands: {
       list: (query) => window.api.brands.list(query),
+      get: (id) => window.api.brands.get(id),
       create: (input) => window.api.brands.create(input),
       update: (id, input) => window.api.brands.update(id, input),
       remove: (id) => window.api.brands.remove(id),
@@ -166,6 +168,7 @@ function cloudAdapter(): DataClient {
     units: { list: notWired, create: notWired, update: notWired, remove: notWired },
     brands: {
       list: notWired,
+      get: notWired,
       create: notWired,
       update: notWired,
       remove: notWired,
