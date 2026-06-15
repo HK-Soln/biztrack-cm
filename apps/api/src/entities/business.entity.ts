@@ -109,10 +109,10 @@ export class Business extends BaseEntity {
 
   // --- Fiscal / OHADA identifiers. Captured at setup; not yet used by any tax
   // computation (deferred OHADA accounting feature). ---
-  @Column({ name: 'niu', nullable: true })
+  @Column({ name: 'niu', type: 'varchar', nullable: true })
   niu?: string | null
 
-  @Column({ name: 'rccm', nullable: true })
+  @Column({ name: 'rccm', type: 'varchar', nullable: true })
   rccm?: string | null
 
   @Column({ name: 'vat_registered', default: false })
