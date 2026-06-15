@@ -44,6 +44,7 @@ import type {
   JwtPayload,
 } from '@biztrack/types'
 import {
+  AttributeDisplayType,
   ContactType,
   DebtDirection,
   DebtSource,
@@ -138,9 +139,39 @@ type CategorySyncPayload = {
   icon?: string | null
   imageUrl?: string | null
   sortOrder?: number | null
+  parentId?: string | null
+  depth?: number | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+type AttributeGroupPayload = {
+  name?: string
+  displayType?: string
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type AttributeOptionPayload = {
+  groupId?: string
+  value?: string
+  colorHex?: string | null
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type CategoryAttributeGroupPayload = {
+  categoryId?: string
+  attributeGroupId?: string
+  isRequired?: boolean
+  sortOrder?: number | null
+  createdAt?: string
   isDeleted?: boolean
 }
 
@@ -1033,6 +1064,9 @@ export class SyncService {
   > {
     return {
       product_category: (b, o) => this.applyCategoryOperation(b, o),
+      attribute_group: (b, o) => this.applyAttributeGroupOperation(b, o),
+      attribute_option: (b, o) => this.applyAttributeOptionOperation(b, o),
+      category_attribute_group: (b, o) => this.applyCategoryAttributeGroupOperation(b, o),
       contact: (b, o) => this.applyContactOperation(b, o),
       opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
       product: (b, o) => this.applyProductOperation(b, o),
@@ -1184,6 +1218,16 @@ export class SyncService {
 
     const slug = await this.slugService.generateCategorySlug(payload.name!, businessId, existing?.id)
 
+    // Resolve hierarchy: prefer the authoritative depth from the parent when it's
+    // present; otherwise trust the client's computed depth (the parent FK will defer
+    // the op if the parent genuinely hasn't synced yet).
+    const parentId = this.normalizeOptionalString(payload.parentId)
+    let depth = payload.depth ?? 1
+    if (parentId) {
+      const parent = await this.categoriesRepo.findOne({ where: { id: parentId, businessId } })
+      if (parent) depth = parent.depth + 1
+    }
+
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
       const reactivatesQuotaConsumer =
@@ -1206,6 +1250,8 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        parentId,
+        depth,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -1229,11 +1275,189 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        parentId,
+        depth,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
     )
 
+    return { status: 'applied' }
+  }
+
+  private async applyAttributeGroupOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.attributeGroupsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.attributeGroupsRepo.update(operation.recordId, {
+          isActive: false,
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readAttributeGroupPayload(operation.payload)
+    const displayType = this.normalizeDisplayType(payload.displayType)
+
+    if (existing) {
+      await this.attributeGroupsRepo.update(operation.recordId, {
+        name: payload.name!.trim(),
+        displayType,
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        isActive: payload.isActive ?? existing.isActive,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.attributeGroupsRepo.save(
+      this.attributeGroupsRepo.create({
+        id: operation.recordId,
+        businessId,
+        name: payload.name!.trim(),
+        displayType,
+        sortOrder: payload.sortOrder ?? 0,
+        isActive: payload.isActive ?? true,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyAttributeOptionOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.attributeOptionsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.attributeOptionsRepo.update(operation.recordId, {
+          isActive: false,
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readAttributeOptionPayload(operation.payload)
+    // Ownership: the parent group must belong to this business (also enforces the FK
+    // dependency — a missing group surfaces as a deferrable FK error).
+    const groupId = payload.groupId ?? existing?.groupId
+    if (!groupId) {
+      throw new AppBadRequestException('Attribute option requires a groupId.', 'SYNC_OPTION_GROUP_REQUIRED')
+    }
+
+    if (existing) {
+      await this.attributeOptionsRepo.update(operation.recordId, {
+        groupId,
+        value: payload.value!.trim(),
+        colorHex: this.normalizeOptionalString(payload.colorHex),
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        isActive: payload.isActive ?? existing.isActive,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.attributeOptionsRepo.save(
+      this.attributeOptionsRepo.create({
+        id: operation.recordId,
+        businessId,
+        groupId,
+        value: payload.value!.trim(),
+        colorHex: this.normalizeOptionalString(payload.colorHex),
+        sortOrder: payload.sortOrder ?? 0,
+        isActive: payload.isActive ?? true,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyCategoryAttributeGroupOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.categoryAttributeGroupsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        // Link records are hard concepts but soft-deleted for sync convergence.
+        await this.categoryAttributeGroupsRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readCategoryAttributeGroupPayload(operation.payload)
+    const categoryId = payload.categoryId ?? existing?.categoryId
+    const attributeGroupId = payload.attributeGroupId ?? existing?.attributeGroupId
+    if (!categoryId || !attributeGroupId) {
+      throw new AppBadRequestException(
+        'Category attribute link requires categoryId and attributeGroupId.',
+        'SYNC_CATEGORY_ATTR_LINK_INVALID',
+      )
+    }
+
+    if (existing) {
+      await this.categoryAttributeGroupsRepo.update(operation.recordId, {
+        categoryId,
+        attributeGroupId,
+        isRequired: payload.isRequired ?? existing.isRequired,
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.categoryAttributeGroupsRepo.save(
+      this.categoryAttributeGroupsRepo.create({
+        id: operation.recordId,
+        businessId,
+        categoryId,
+        attributeGroupId,
+        isRequired: payload.isRequired ?? true,
+        sortOrder: payload.sortOrder ?? 0,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
     return { status: 'applied' }
   }
 
@@ -2645,6 +2869,8 @@ export class SyncService {
       icon: record.icon ?? null,
       imageUrl: record.imageUrl ?? null,
       sortOrder: record.sortOrder,
+      parentId: record.parentId ?? null,
+      depth: record.depth,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -3014,6 +3240,59 @@ export class SyncService {
     }
 
     return payload as CategorySyncPayload
+  }
+
+  private readAttributeGroupPayload(payload: Record<string, unknown> | null): AttributeGroupPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Attribute group sync payload is required.',
+        'SYNC_ATTRIBUTE_GROUP_PAYLOAD_REQUIRED',
+      )
+    }
+    const typed = payload as AttributeGroupPayload
+    if (!typed.name?.trim()) {
+      throw new AppBadRequestException('Attribute group name is required.', 'SYNC_ATTRIBUTE_GROUP_NAME_REQUIRED')
+    }
+    return typed
+  }
+
+  private readAttributeOptionPayload(payload: Record<string, unknown> | null): AttributeOptionPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Attribute option sync payload is required.',
+        'SYNC_ATTRIBUTE_OPTION_PAYLOAD_REQUIRED',
+      )
+    }
+    const typed = payload as AttributeOptionPayload
+    if (!typed.value?.trim()) {
+      throw new AppBadRequestException('Attribute option value is required.', 'SYNC_ATTRIBUTE_OPTION_VALUE_REQUIRED')
+    }
+    return typed
+  }
+
+  private readCategoryAttributeGroupPayload(
+    payload: Record<string, unknown> | null,
+  ): CategoryAttributeGroupPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Category attribute link sync payload is required.',
+        'SYNC_CATEGORY_ATTR_LINK_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as CategoryAttributeGroupPayload
+  }
+
+  /** Coerce a synced display type to a valid enum value (defends the DB CHECK constraint). */
+  private normalizeDisplayType(value: string | null | undefined): AttributeDisplayType {
+    const upper = (value ?? '').toUpperCase()
+    if (
+      upper === AttributeDisplayType.SWATCHES ||
+      upper === AttributeDisplayType.DROPDOWN ||
+      upper === AttributeDisplayType.CHIPS
+    ) {
+      return upper as AttributeDisplayType
+    }
+    return AttributeDisplayType.CHIPS
   }
 
   private readContactPayload(payload: Record<string, unknown> | null): ContactPayload {

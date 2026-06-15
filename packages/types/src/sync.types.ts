@@ -13,6 +13,9 @@ export type SyncEntity =
   | 'opening_balance'
   | 'product'
   | 'product_category'
+  | 'attribute_group'
+  | 'attribute_option'
+  | 'category_attribute_group'
   | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
@@ -66,7 +69,10 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   opening_balance: 0,
   unit_of_measure: 0,
   product_category: 0,
+  attribute_group: 0,
   expense_category: 0,
+  attribute_option: 1,
+  category_attribute_group: 1,
   product: 1,
   inventory_threshold: 2,
   inventory_restock: 2,
@@ -83,16 +89,19 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   opening_balance: 1,
   unit_of_measure: 2,
   product_category: 3,
-  expense_category: 4,
-  product: 5,
-  inventory_threshold: 6,
-  inventory_restock: 7,
-  inventory_adjustment: 8,
-  sale: 9,
-  expense: 10,
-  debt: 11,
-  savings: 12,
-  savings_transaction: 13,
+  attribute_group: 4,
+  attribute_option: 5,
+  category_attribute_group: 6,
+  expense_category: 7,
+  product: 8,
+  inventory_threshold: 9,
+  inventory_restock: 10,
+  inventory_adjustment: 11,
+  sale: 12,
+  expense: 13,
+  debt: 14,
+  savings: 15,
+  savings_transaction: 16,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -127,8 +136,11 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   contact: [],
   unit_of_measure: [],
   product_category: [],
+  attribute_group: [],
   expense_category: [],
   opening_balance: ['contact'],
+  attribute_option: ['attribute_group'],
+  category_attribute_group: ['product_category', 'attribute_group'],
   product: ['product_category', 'unit_of_measure'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
@@ -670,9 +682,46 @@ export interface SavingsTransactionSyncPayload {
   createdAt: string
 }
 
+export interface AttributeGroupSyncPayload {
+  name: string
+  displayType: string
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface AttributeOptionSyncPayload {
+  groupId: string
+  value: string
+  colorHex?: string | null
+  sortOrder?: number | null
+  isActive?: boolean
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface CategoryAttributeGroupSyncPayload {
+  categoryId: string
+  attributeGroupId: string
+  isRequired?: boolean
+  sortOrder?: number | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
 export type SyncPushPayload =
   | SyncRecord
   | ContactSyncPayload
+  | AttributeGroupSyncPayload
+  | AttributeOptionSyncPayload
+  | CategoryAttributeGroupSyncPayload
   | OpeningBalanceSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload

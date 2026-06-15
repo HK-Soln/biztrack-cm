@@ -47,6 +47,17 @@ const api: BridgeApi = {
     update: (id, input) => ipcRenderer.invoke(IPC.categoriesUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.categoriesDelete, id),
   },
+  attributes: {
+    listGroups: () => ipcRenderer.invoke(IPC.attributesListGroups),
+    createGroup: (input) => ipcRenderer.invoke(IPC.attributesCreateGroup, input),
+    updateGroup: (id, input) => ipcRenderer.invoke(IPC.attributesUpdateGroup, id, input),
+    deleteGroup: (id) => ipcRenderer.invoke(IPC.attributesDeleteGroup, id),
+    addOption: (groupId, input) => ipcRenderer.invoke(IPC.attributesAddOption, groupId, input),
+    updateOption: (optionId, input) => ipcRenderer.invoke(IPC.attributesUpdateOption, optionId, input),
+    deleteOption: (optionId) => ipcRenderer.invoke(IPC.attributesDeleteOption, optionId),
+    listCategoryLinks: (categoryId) => ipcRenderer.invoke(IPC.attributesListCategoryLinks, categoryId),
+    setCategoryLinks: (categoryId, links) => ipcRenderer.invoke(IPC.attributesSetCategoryLinks, categoryId, links),
+  },
   uploads: {
     file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
   },

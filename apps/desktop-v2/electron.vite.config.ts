@@ -2,6 +2,20 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+// Dev-only: the local API serves uploaded images over http://localhost:<port>, which
+// the production CSP (https only) blocks. Loosen img-src to localhost in dev serve;
+// the packaged build keeps the strict policy (images come from R2 over https).
+const devImageCspPlugin = {
+  name: 'biztrack-dev-image-csp',
+  apply: 'serve' as const,
+  transformIndexHtml(html: string) {
+    return html.replace(
+      "img-src 'self' data: https:",
+      "img-src 'self' data: https: http://localhost:* http://127.0.0.1:*",
+    )
+  },
+}
+
 // electron-vite builds three targets: main (Electron main process), preload, and
 // renderer (the React SPA). externalizeDepsPlugin keeps node/native deps
 // (better-sqlite3, @biztrack/electron-core) external so they're required at runtime
@@ -40,6 +54,6 @@ export default defineConfig({
         input: { index: resolve(__dirname, 'src/renderer/index.html') },
       },
     },
-    plugins: [react()],
+    plugins: [react(), devImageCspPlugin],
   },
 })

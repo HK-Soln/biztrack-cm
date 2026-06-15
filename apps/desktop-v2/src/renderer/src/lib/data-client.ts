@@ -1,6 +1,12 @@
 import type {
+  AttributeGroupInput,
+  AttributeOptionInput,
+  CategoryAttributeLinkInput,
   CategoryInput,
+  LocalAttributeGroup,
+  LocalAttributeOption,
   LocalCategory,
+  LocalCategoryAttributeGroup,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
   UploadFileInput,
@@ -22,6 +28,17 @@ export interface DataClient {
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
   }
+  attributes: {
+    listGroups: () => Promise<LocalAttributeGroup[]>
+    createGroup: (input: AttributeGroupInput) => Promise<LocalAttributeGroup>
+    updateGroup: (id: string, input: AttributeGroupInput) => Promise<LocalAttributeGroup>
+    deleteGroup: (id: string) => Promise<void>
+    addOption: (groupId: string, input: AttributeOptionInput) => Promise<LocalAttributeOption>
+    updateOption: (optionId: string, input: AttributeOptionInput) => Promise<LocalAttributeOption>
+    deleteOption: (optionId: string) => Promise<void>
+    listCategoryLinks: (categoryId: string) => Promise<LocalCategoryAttributeGroup[]>
+    setCategoryLinks: (categoryId: string, links: CategoryAttributeLinkInput[]) => Promise<void>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
@@ -42,6 +59,17 @@ function electronAdapter(): DataClient {
       update: (id, input) => window.api.categories.update(id, input),
       remove: (id) => window.api.categories.remove(id),
     },
+    attributes: {
+      listGroups: () => window.api.attributes.listGroups(),
+      createGroup: (input) => window.api.attributes.createGroup(input),
+      updateGroup: (id, input) => window.api.attributes.updateGroup(id, input),
+      deleteGroup: (id) => window.api.attributes.deleteGroup(id),
+      addOption: (groupId, input) => window.api.attributes.addOption(groupId, input),
+      updateOption: (optionId, input) => window.api.attributes.updateOption(optionId, input),
+      deleteOption: (optionId) => window.api.attributes.deleteOption(optionId),
+      listCategoryLinks: (categoryId) => window.api.attributes.listCategoryLinks(categoryId),
+      setCategoryLinks: (categoryId, links) => window.api.attributes.setCategoryLinks(categoryId, links),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -61,6 +89,17 @@ function cloudAdapter(): DataClient {
   return {
     skeleton: { getCheck: notWired, getHealth: notWired },
     categories: { list: notWired, create: notWired, update: notWired, remove: notWired },
+    attributes: {
+      listGroups: notWired,
+      createGroup: notWired,
+      updateGroup: notWired,
+      deleteGroup: notWired,
+      addOption: notWired,
+      updateOption: notWired,
+      deleteOption: notWired,
+      listCategoryLinks: notWired,
+      setCategoryLinks: notWired,
+    },
     uploads: { file: notWired },
   }
 }

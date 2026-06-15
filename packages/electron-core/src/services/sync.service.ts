@@ -68,6 +68,9 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   openingBalances: 'opening_balance',
   unitOfMeasures: 'unit_of_measure',
   productCategories: 'product_category',
+  attributeGroups: 'attribute_group',
+  attributeOptions: 'attribute_option',
+  categoryAttributeGroups: 'category_attribute_group',
   expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
@@ -300,6 +303,16 @@ export class SyncService {
     for (const record of changes.productCategories ?? []) {
       ops.push(this.categoryUpsert(record))
     }
+    // Apply parents before children so a fresh device satisfies local FKs in one pass.
+    for (const record of changes.attributeGroups ?? []) {
+      ops.push(this.attributeGroupUpsert(record))
+    }
+    for (const record of changes.attributeOptions ?? []) {
+      ops.push(this.attributeOptionUpsert(record))
+    }
+    for (const record of changes.categoryAttributeGroups ?? []) {
+      ops.push(this.categoryAttributeGroupUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
@@ -332,6 +345,81 @@ export class SyncService {
         asNum(c.depth) ?? 1,
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         c.showOnline === false ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private attributeGroupUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO attribute_groups
+        (id, business_id, name, display_type, sort_order, is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, display_type = excluded.display_type, sort_order = excluded.sort_order,
+          is_active = excluded.is_active, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.name),
+        asStr(c.displayType) ?? 'CHIPS',
+        asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private attributeOptionUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO attribute_options
+        (id, group_id, business_id, value, color_hex, sort_order, is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          group_id = excluded.group_id, value = excluded.value, color_hex = excluded.color_hex,
+          sort_order = excluded.sort_order, is_active = excluded.is_active, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.groupId),
+        asStr(c.businessId),
+        asStr(c.value),
+        asStr(c.colorHex),
+        asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private categoryAttributeGroupUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO category_attribute_groups
+        (id, business_id, category_id, attribute_group_id, is_required, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          category_id = excluded.category_id, attribute_group_id = excluded.attribute_group_id,
+          is_required = excluded.is_required, sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.categoryId),
+        asStr(c.attributeGroupId),
+        c.isRequired === false ? 0 : 1,
+        asNum(c.sortOrder) ?? 0,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

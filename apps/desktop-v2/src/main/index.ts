@@ -13,6 +13,8 @@ import { registerAuthIpc } from './ipc/auth.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
 import { CategoriesService } from './services/categories.service'
 import { registerCategoriesIpc } from './ipc/categories.ipc'
+import { AttributesService } from './services/attributes.service'
+import { registerAttributesIpc } from './ipc/attributes.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 
@@ -132,6 +134,15 @@ app.whenReady().then(() => {
     () => void sync.sync(),
   )
   registerCategoriesIpc(categories)
+
+  // Attributes (variant dimensions): same offline-first pattern — local reads, local
+  // write + outbox push, business scope from the session.
+  const attributes = new AttributesService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+  )
+  registerAttributesIpc(attributes)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).
