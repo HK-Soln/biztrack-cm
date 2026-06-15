@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from 'fs/promises'
+import { access, mkdir, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { StorageDriver } from '../storage.types'
 
@@ -28,5 +28,21 @@ export class LocalStorageDriver implements StorageDriver {
     } catch {
       // already gone — fine
     }
+  }
+
+  async exists(key: string): Promise<boolean> {
+    try {
+      await access(join(this.baseDir, key))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  keyFromUrl(url: string): string | null {
+    const prefix = `${this.publicBaseUrl.replace(/\/$/, '')}/uploads/`
+    if (!url.startsWith(prefix)) return null
+    const key = url.slice(prefix.length)
+    return key.length > 0 ? key : null
   }
 }

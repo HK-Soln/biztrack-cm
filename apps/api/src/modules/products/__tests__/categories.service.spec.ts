@@ -27,6 +27,7 @@ const makeService = () => {
   const productsRepo = { createQueryBuilder: jest.fn(() => productQb) }
   const slugService = { generateCategorySlug: jest.fn().mockResolvedValue('slug') }
   const quotaService = { assertWithinQuota: jest.fn() }
+  const storage = { existsByUrl: jest.fn().mockResolvedValue(true) }
   const i18n = { translate: jest.fn(async (key: string) => key) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
 
@@ -35,6 +36,7 @@ const makeService = () => {
     productsRepo as any,
     slugService as any,
     quotaService as any,
+    storage as any,
     i18n as any,
     logger as any,
   )

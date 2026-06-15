@@ -35,6 +35,7 @@
   "category_parent_cycle": "Une categorie ne peut pas etre deplacee sous elle-meme ou l'un de ses descendants.",
   "category_reparent_has_children": "Deplacez ou supprimez les sous-categories de cette categorie avant de changer son parent.",
   "category_not_leaf": "Les produits ne peuvent etre assignes qu'a une categorie feuille (sans sous-categorie).",
+  "image_not_found": "L'image referencee est introuvable. Televersez a nouveau l'image avant d'enregistrer.",
   "attribute_group_not_found": "Groupe d'attributs introuvable.",
   "attribute_group_name_exists": "Un groupe d'attributs avec ce nom existe deja.",
   "attribute_group_in_use": "Ce groupe d'attributs est lie a une ou plusieurs categories et ne peut pas etre supprime.",

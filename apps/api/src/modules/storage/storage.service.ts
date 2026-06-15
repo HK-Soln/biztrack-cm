@@ -47,6 +47,27 @@ export class StorageService {
     return this.driver.url(key)
   }
 
+  /** True if an object with this key currently exists. */
+  exists(key: string): Promise<boolean> {
+    return this.driver.exists(key)
+  }
+
+  /** Storage key for a URL we produced, or null if the URL isn't served by us. */
+  keyFromUrl(url: string): string | null {
+    return this.driver.keyFromUrl(url)
+  }
+
+  /**
+   * True only if `url` is one WE stored AND the file still exists. External URLs and
+   * dangling references return false — callers reject records that point at them, so
+   * we never persist a reference to a file we don't actually serve.
+   */
+  async existsByUrl(url: string): Promise<boolean> {
+    const key = this.driver.keyFromUrl(url)
+    if (!key) return false
+    return this.driver.exists(key)
+  }
+
   delete(key: string): Promise<void> {
     return this.driver.delete(key)
   }

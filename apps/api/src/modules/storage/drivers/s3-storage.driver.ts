@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { StorageDriver } from '../storage.types'
 
@@ -26,6 +26,24 @@ export class S3StorageDriver implements StorageDriver {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
+  }
+
+  async exists(key: string): Promise<boolean> {
+    try {
+      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }))
+      return true
+    } catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+      if (status === 404 || (error as { name?: string })?.name === 'NotFound') return false
+      throw error
+    }
+  }
+
+  keyFromUrl(url: string): string | null {
+    const prefix = `${this.publicBaseUrl.replace(/\/$/, '')}/`
+    if (!url.startsWith(prefix)) return null
+    const key = url.slice(prefix.length)
+    return key.length > 0 ? key : null
   }
 
   presignPut(key: string, contentType: string, expiresInSeconds = 600): Promise<string> {
