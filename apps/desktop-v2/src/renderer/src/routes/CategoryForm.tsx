@@ -32,8 +32,8 @@ export function CategoryForm() {
   const qc = useQueryClient()
 
   const { data: categories = [] } = useQuery({
-    queryKey: queryKeys.categories,
-    queryFn: () => dataClient.categories.list(),
+    queryKey: [...queryKeys.categories, 'all'],
+    queryFn: () => dataClient.categories.listAll(),
     enabled: isElectron,
   })
 
@@ -44,8 +44,8 @@ export function CategoryForm() {
   const isLeaf = !categories.some((c) => c.parentId === id)
 
   const { data: allGroups = [] } = useQuery({
-    queryKey: queryKeys.attributeGroups,
-    queryFn: () => dataClient.attributes.listGroups(),
+    queryKey: [...queryKeys.attributeGroups, 'all'],
+    queryFn: () => dataClient.attributes.listAllGroups(),
     enabled: isElectron,
   })
   const linksQuery = useQuery({

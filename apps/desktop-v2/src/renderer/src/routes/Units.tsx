@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Select } from '@biztrack/ui/biztrack'
+import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalUnit, UnitType } from '@shared/ipc'
@@ -21,13 +22,18 @@ export function Units() {
   const bp = useBreakpoint()
   const qc = useQueryClient()
 
-  const { data: units = [], isPending } = useQuery({
-    queryKey: queryKeys.units,
-    queryFn: () => dataClient.units.list(),
-    enabled: isElectron,
-  })
+  const {
+    items: filtered,
+    total,
+    page,
+    limit,
+    totalPages,
+    isPending,
+    search,
+    setSearch,
+    setPage,
+  } = usePaged<LocalUnit>(queryKeys.units, (q) => dataClient.units.list(q), { enabled: isElectron })
 
-  const [search, setSearch] = useState('')
   const [edit, setEdit] = useState<{ unit?: LocalUnit } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<LocalUnit | null>(null)
 
@@ -37,14 +43,6 @@ export function Units() {
     mutationFn: (id: string) => dataClient.units.remove(id),
     onSuccess: invalidate,
   })
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return units
-    return units.filter(
-      (u) => u.name.toLowerCase().includes(q) || (u.abbreviation ?? '').toLowerCase().includes(q),
-    )
-  }, [units, search])
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
@@ -157,6 +155,15 @@ export function Units() {
             </tbody>
           </table>
         )}
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPage={setPage}
+          prevLabel={t('common.prev')}
+          nextLabel={t('common.next')}
+        />
       </div>
 
       {edit ? (

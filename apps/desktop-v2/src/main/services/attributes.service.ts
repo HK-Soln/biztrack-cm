@@ -3,12 +3,15 @@ import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   AttributeDisplayType,
   AttributeGroupInput,
+  AttributeGroupListQuery,
   AttributeOptionInput,
   CategoryAttributeLinkInput,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalCategoryAttributeGroup,
+  PaginatedResult,
 } from '../../shared/ipc'
+import { paginateRows, toPaginated } from './pagination'
 
 interface GroupRow {
   id: string
@@ -57,7 +60,28 @@ export class AttributesService {
 
   // ---- groups + options ----------------------------------------------------
 
-  listGroups(): LocalAttributeGroup[] {
+  /** Paginated groups (default 20) with search, each hydrated with options + usage count. */
+  listGroups(query: AttributeGroupListQuery = {}): PaginatedResult<LocalAttributeGroup> {
+    const businessId = this.getBusinessId()
+    if (!businessId) return toPaginated<LocalAttributeGroup>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    const { rows, ...meta } = paginateRows<GroupRow>(
+      this.db,
+      {
+        from: 'attribute_groups',
+        columns: 'id, name, display_type, sort_order, is_active',
+        where: 'business_id = ? AND is_deleted = 0',
+        params: [businessId],
+        searchColumns: ['name'],
+        defaultSort: 'sort_order ASC, name ASC',
+        sortMap: { name: 'name', sortOrder: 'sort_order' },
+      },
+      query,
+    )
+    return toPaginated(this.hydrateGroups(businessId, rows), meta)
+  }
+
+  /** Full set (no pagination) — for the category form's attribute attach list. */
+  listAllGroups(): LocalAttributeGroup[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const groups = this.db.query<GroupRow>(
@@ -67,19 +91,27 @@ export class AttributesService {
        ORDER BY sort_order ASC, name ASC`,
       [businessId],
     )
+    return this.hydrateGroups(businessId, groups)
+  }
+
+  /** Attach options + category-usage counts to a set of group rows. */
+  private hydrateGroups(businessId: string, groups: GroupRow[]): LocalAttributeGroup[] {
+    if (groups.length === 0) return []
+    const groupIds = groups.map((g) => g.id)
+    const placeholders = groupIds.map(() => '?').join(', ')
     const options = this.db.query<OptionRow>(
       `SELECT id, group_id, value, color_hex, sort_order, is_active
        FROM attribute_options
-       WHERE business_id = ? AND is_deleted = 0
+       WHERE business_id = ? AND is_deleted = 0 AND group_id IN (${placeholders})
        ORDER BY sort_order ASC, value ASC`,
-      [businessId],
+      [businessId, ...groupIds],
     )
     const counts = this.db.query<{ attribute_group_id: string; n: number }>(
       `SELECT attribute_group_id, COUNT(*) AS n
        FROM category_attribute_groups
-       WHERE business_id = ? AND is_deleted = 0
+       WHERE business_id = ? AND is_deleted = 0 AND attribute_group_id IN (${placeholders})
        GROUP BY attribute_group_id`,
-      [businessId],
+      [businessId, ...groupIds],
     )
     const countByGroup = new Map(counts.map((c) => [c.attribute_group_id, c.n]))
     const optionsByGroup = new Map<string, LocalAttributeOption[]>()
@@ -208,7 +240,7 @@ export class AttributesService {
       [businessId, categoryId],
     )
     if (links.length === 0) return []
-    const groups = new Map(this.listGroups().map((g) => [g.id, g]))
+    const groups = new Map(this.listAllGroups().map((g) => [g.id, g]))
     return links
       .map((l) => {
         const group = groups.get(l.attribute_group_id)
@@ -283,7 +315,7 @@ export class AttributesService {
   // ---- internals -----------------------------------------------------------
 
   private getGroup(id: string): LocalAttributeGroup | null {
-    return this.listGroups().find((g) => g.id === id) ?? null
+    return this.listAllGroups().find((g) => g.id === id) ?? null
   }
 
   private getOption(id: string): LocalAttributeOption | null {

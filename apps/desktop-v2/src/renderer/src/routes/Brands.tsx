@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal } from '@biztrack/ui/biztrack'
+import { Button, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { BrandInput, LocalBrand, LocalCategory } from '@shared/ipc'
@@ -19,14 +20,20 @@ export function Brands() {
   const bp = useBreakpoint()
   const qc = useQueryClient()
 
-  const { data: brands = [], isPending } = useQuery({
-    queryKey: queryKeys.brands,
-    queryFn: () => dataClient.brands.list(),
-    enabled: isElectron,
-  })
+  const {
+    items: brands,
+    total,
+    page,
+    limit,
+    totalPages,
+    isPending,
+    search,
+    setSearch,
+    setPage,
+  } = usePaged<LocalBrand>(queryKeys.brands, (q) => dataClient.brands.list(q), { enabled: isElectron })
   const { data: categories = [] } = useQuery({
-    queryKey: queryKeys.categories,
-    queryFn: () => dataClient.categories.list(),
+    queryKey: [...queryKeys.categories, 'all'],
+    queryFn: () => dataClient.categories.listAll(),
     enabled: isElectron,
   })
   const categoryName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories])
@@ -81,7 +88,14 @@ export function Brands() {
     <div className="panel">
       <div className="panel-head">
         <h3>{t('brand.all')}</h3>
-        <span className="chip-tag">{brands.length}</span>
+        <span className="chip-tag">{total}</span>
+        <div className="spacer" style={{ flex: 1 }} />
+        <Input
+          value={search}
+          placeholder={t('brand.search')}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 200, height: 34 }}
+        />
       </div>
       <div className="slist">
         {brands.map((b) => (
@@ -104,6 +118,15 @@ export function Brands() {
         ))}
         {brands.length === 0 ? <div className="cat-empty">{t('brand.empty')}</div> : null}
       </div>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        limit={limit}
+        onPage={setPage}
+        prevLabel={t('common.prev')}
+        nextLabel={t('common.next')}
+      />
     </div>
   )
 

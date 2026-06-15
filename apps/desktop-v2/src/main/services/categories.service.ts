@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import type { CategoryInput, LocalCategory } from '../../shared/ipc'
+import type { CategoryInput, CategoryListQuery, LocalCategory, PaginatedResult } from '../../shared/ipc'
+import { paginateRows, toPaginated } from './pagination'
 
 interface CategoryRow {
   id: string
@@ -42,7 +43,44 @@ export class CategoriesService {
     private readonly onMutated: () => void,
   ) {}
 
-  list(): LocalCategory[] {
+  /** Paginated list for the categories screen (default 20). Supports search + filters. */
+  list(query: CategoryListQuery = {}): PaginatedResult<LocalCategory> {
+    const businessId = this.getBusinessId()
+    if (!businessId) return toPaginated<LocalCategory>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+
+    let where = 'business_id = ? AND is_deleted = 0'
+    const params: unknown[] = [businessId]
+    if (query.parentId !== undefined) {
+      if (query.parentId === null) {
+        where += ' AND parent_id IS NULL'
+      } else {
+        where += ' AND parent_id = ?'
+        params.push(query.parentId)
+      }
+    }
+    if (query.isActive !== undefined) {
+      where += ' AND is_active = ?'
+      params.push(query.isActive ? 1 : 0)
+    }
+
+    const { rows, ...meta } = paginateRows<CategoryRow>(
+      this.db,
+      {
+        from: 'product_categories',
+        columns: SELECT_COLS,
+        where,
+        params,
+        searchColumns: ['name', 'slug'],
+        defaultSort: 'sort_order ASC, name ASC',
+        sortMap: { name: 'name', sortOrder: 'sort_order', createdAt: 'created_at' },
+      },
+      query,
+    )
+    return toPaginated(rows.map(toLocalCategory), meta)
+  }
+
+  /** Full set (no pagination) — for the parent picker / tree maths in the form. */
+  listAll(): LocalCategory[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const rows = this.db.query<CategoryRow>(

@@ -27,10 +27,12 @@ export const IPC = {
   syncGetStatus: 'sync:get-status',
   syncStatusEvent: 'sync:status-event',
   categoriesList: 'categories:list',
+  categoriesListAll: 'categories:list-all',
   categoriesCreate: 'categories:create',
   categoriesUpdate: 'categories:update',
   categoriesDelete: 'categories:delete',
   attributesListGroups: 'attributes:list-groups',
+  attributesListAllGroups: 'attributes:list-all-groups',
   attributesCreateGroup: 'attributes:create-group',
   attributesUpdateGroup: 'attributes:update-group',
   attributesDeleteGroup: 'attributes:delete-group',
@@ -52,6 +54,26 @@ export const IPC = {
   brandsDeleteModel: 'brands:delete-model',
   uploadsFile: 'uploads:file',
 } as const
+
+// ---- Pagination -----------------------------------------------------------
+// Re-exported from @biztrack/types so the desktop list contract matches the API
+// (default limit 20, max 100). Local list methods accept a ListQuery and return a
+// PaginatedResult; `listAll*` variants (for form pickers) return the full set.
+export type { ListQuery, PaginatedResult } from '@biztrack/types'
+import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
+
+/** Per-entity list query: the base ListQuery plus optional entity filters. */
+export interface CategoryListQuery extends ListQueryT {
+  parentId?: string | null
+  isActive?: boolean
+}
+export interface BrandListQuery extends ListQueryT {
+  categoryId?: string
+}
+export interface UnitListQuery extends ListQueryT {
+  type?: string
+}
+export type AttributeGroupListQuery = ListQueryT
 
 // ---- Auth (Feature 1) -----------------------------------------------------
 // The renderer only ever sees SESSION STATUS — never tokens. Tokens live in the
@@ -403,13 +425,17 @@ export interface BridgeApi {
     onStatus: (cb: (status: SyncStatus) => void) => () => void
   }
   categories: {
-    list: () => Promise<LocalCategory[]>
+    list: (query?: CategoryListQuery) => Promise<PaginatedT<LocalCategory>>
+    /** Full set (no pagination) — for tree/parent pickers. */
+    listAll: () => Promise<LocalCategory[]>
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
   }
   attributes: {
-    listGroups: () => Promise<LocalAttributeGroup[]>
+    listGroups: (query?: AttributeGroupListQuery) => Promise<PaginatedT<LocalAttributeGroup>>
+    /** Full set (no pagination) — for the category form's attribute attach list. */
+    listAllGroups: () => Promise<LocalAttributeGroup[]>
     createGroup: (input: AttributeGroupInput) => Promise<LocalAttributeGroup>
     updateGroup: (id: string, input: AttributeGroupInput) => Promise<LocalAttributeGroup>
     deleteGroup: (id: string) => Promise<void>
@@ -421,13 +447,13 @@ export interface BridgeApi {
     setCategoryLinks: (categoryId: string, links: CategoryAttributeLinkInput[]) => Promise<void>
   }
   units: {
-    list: () => Promise<LocalUnit[]>
+    list: (query?: UnitListQuery) => Promise<PaginatedT<LocalUnit>>
     create: (input: UnitInput) => Promise<LocalUnit>
     update: (id: string, input: UnitInput) => Promise<LocalUnit>
     remove: (id: string) => Promise<void>
   }
   brands: {
-    list: () => Promise<LocalBrand[]>
+    list: (query?: BrandListQuery) => Promise<PaginatedT<LocalBrand>>
     create: (input: BrandInput) => Promise<LocalBrand>
     update: (id: string, input: BrandInput) => Promise<LocalBrand>
     remove: (id: string) => Promise<void>

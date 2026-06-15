@@ -42,13 +42,15 @@ const api: BridgeApi = {
     },
   },
   categories: {
-    list: () => ipcRenderer.invoke(IPC.categoriesList),
+    list: (query) => ipcRenderer.invoke(IPC.categoriesList, query),
+    listAll: () => ipcRenderer.invoke(IPC.categoriesListAll),
     create: (input) => ipcRenderer.invoke(IPC.categoriesCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.categoriesUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.categoriesDelete, id),
   },
   attributes: {
-    listGroups: () => ipcRenderer.invoke(IPC.attributesListGroups),
+    listGroups: (query) => ipcRenderer.invoke(IPC.attributesListGroups, query),
+    listAllGroups: () => ipcRenderer.invoke(IPC.attributesListAllGroups),
     createGroup: (input) => ipcRenderer.invoke(IPC.attributesCreateGroup, input),
     updateGroup: (id, input) => ipcRenderer.invoke(IPC.attributesUpdateGroup, id, input),
     deleteGroup: (id) => ipcRenderer.invoke(IPC.attributesDeleteGroup, id),
@@ -59,13 +61,13 @@ const api: BridgeApi = {
     setCategoryLinks: (categoryId, links) => ipcRenderer.invoke(IPC.attributesSetCategoryLinks, categoryId, links),
   },
   units: {
-    list: () => ipcRenderer.invoke(IPC.unitsList),
+    list: (query) => ipcRenderer.invoke(IPC.unitsList, query),
     create: (input) => ipcRenderer.invoke(IPC.unitsCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.unitsUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.unitsDelete, id),
   },
   brands: {
-    list: () => ipcRenderer.invoke(IPC.brandsList),
+    list: (query) => ipcRenderer.invoke(IPC.brandsList, query),
     create: (input) => ipcRenderer.invoke(IPC.brandsCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.brandsUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.brandsDelete, id),

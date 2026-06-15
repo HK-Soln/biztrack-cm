@@ -1,6 +1,14 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import type { BrandInput, LocalBrand, LocalModel, ModelInput } from '../../shared/ipc'
+import type {
+  BrandInput,
+  BrandListQuery,
+  LocalBrand,
+  LocalModel,
+  ModelInput,
+  PaginatedResult,
+} from '../../shared/ipc'
+import { paginateRows, toPaginated } from './pagination'
 
 interface BrandRow {
   id: string
@@ -49,24 +57,50 @@ export class BrandsService {
     private readonly onMutated: () => void,
   ) {}
 
-  list(): LocalBrand[] {
+  /** Paginated brands (default 20) with search + optional category filter; each brand
+   * hydrated with its models + linked category ids. */
+  list(query: BrandListQuery = {}): PaginatedResult<LocalBrand> {
     const businessId = this.getBusinessId()
-    if (!businessId) return []
-    const brands = this.db.query<BrandRow>(
-      `SELECT id, name, slug, logo_url, description, is_active, sort_order
-       FROM brands WHERE business_id = ? AND is_deleted = 0
-       ORDER BY sort_order ASC, name ASC`,
-      [businessId],
+    if (!businessId) return toPaginated<LocalBrand>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+
+    let where = 'business_id = ? AND is_deleted = 0'
+    const params: unknown[] = [businessId]
+    if (query.categoryId) {
+      where += ' AND id IN (SELECT brand_id FROM brand_categories WHERE category_id = ? AND is_deleted = 0)'
+      params.push(query.categoryId)
+    }
+
+    const { rows, ...meta } = paginateRows<BrandRow>(
+      this.db,
+      {
+        from: 'brands',
+        columns: 'id, name, slug, logo_url, description, is_active, sort_order',
+        where,
+        params,
+        searchColumns: ['name', 'slug'],
+        defaultSort: 'sort_order ASC, name ASC',
+        sortMap: { name: 'name', sortOrder: 'sort_order' },
+      },
+      query,
     )
+    return toPaginated(this.hydrateBrands(businessId, rows), meta)
+  }
+
+  /** Attach models + linked category ids to a set of brand rows. */
+  private hydrateBrands(businessId: string, brandRows: BrandRow[]): LocalBrand[] {
+    if (brandRows.length === 0) return []
+    const brandIds = brandRows.map((b) => b.id)
+    const placeholders = brandIds.map(() => '?').join(', ')
     const models = this.db.query<ModelRow>(
       `SELECT id, brand_id, name, is_active, sort_order
-       FROM models WHERE business_id = ? AND is_deleted = 0
+       FROM models WHERE business_id = ? AND is_deleted = 0 AND brand_id IN (${placeholders})
        ORDER BY sort_order ASC, name ASC`,
-      [businessId],
+      [businessId, ...brandIds],
     )
     const links = this.db.query<LinkRow>(
-      `SELECT id, brand_id, category_id FROM brand_categories WHERE business_id = ? AND is_deleted = 0`,
-      [businessId],
+      `SELECT id, brand_id, category_id FROM brand_categories
+       WHERE business_id = ? AND is_deleted = 0 AND brand_id IN (${placeholders})`,
+      [businessId, ...brandIds],
     )
     const modelsByBrand = new Map<string, LocalModel[]>()
     for (const m of models) {
@@ -80,7 +114,7 @@ export class BrandsService {
       list.push(l.category_id)
       catsByBrand.set(l.brand_id, list)
     }
-    return brands.map((b) => ({
+    return brandRows.map((b) => ({
       id: b.id,
       name: b.name,
       slug: b.slug,
@@ -226,7 +260,13 @@ export class BrandsService {
   }
 
   private getOne(id: string): LocalBrand | null {
-    return this.list().find((b) => b.id === id) ?? null
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const row = this.db.get<BrandRow>(
+      `SELECT id, name, slug, logo_url, description, is_active, sort_order FROM brands WHERE id = ? AND business_id = ?`,
+      [id, businessId],
+    )
+    return row ? (this.hydrateBrands(businessId, [row])[0] ?? null) : null
   }
 
   private getModel(id: string): LocalModel | null {

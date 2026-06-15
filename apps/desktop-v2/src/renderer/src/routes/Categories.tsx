@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Modal } from '@biztrack/ui/biztrack'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalCategory } from '@shared/ipc'
@@ -18,11 +19,17 @@ export function Categories() {
   const navigate = useNavigate()
   const qc = useQueryClient()
 
-  const { data: categories = [], isPending } = useQuery({
-    queryKey: queryKeys.categories,
-    queryFn: () => dataClient.categories.list(),
-    enabled: isElectron,
-  })
+  const {
+    items: categories,
+    total,
+    page,
+    limit,
+    totalPages,
+    isPending,
+    search,
+    setSearch,
+    setPage,
+  } = usePaged<LocalCategory>(queryKeys.categories, (q) => dataClient.categories.list(q), { enabled: isElectron })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<LocalCategory | null>(null)
@@ -65,10 +72,29 @@ export function Categories() {
   )
 
   const list = (
-    <div className="cat-list">
-      {categories.map((c) => (
-        <Row key={c.id} c={c} />
-      ))}
+    <div>
+      <div className="cat-search">
+        <Input
+          value={search}
+          placeholder={t('cat.search')}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ height: 36 }}
+        />
+      </div>
+      <div className="cat-list">
+        {categories.map((c) => (
+          <Row key={c.id} c={c} />
+        ))}
+      </div>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        limit={limit}
+        onPage={setPage}
+        prevLabel={t('common.prev')}
+        nextLabel={t('common.next')}
+      />
     </div>
   )
 
