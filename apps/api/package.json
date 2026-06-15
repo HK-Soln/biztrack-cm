@@ -20,6 +20,8 @@
     "seed:plans": "ts-node -r tsconfig-paths/register src/database/seeds/seed-plan-configs.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1068.0",
+    "@aws-sdk/s3-request-presigner": "^3.1068.0",
     "@biztrack/http-client": "workspace:*",
     "@biztrack/logger": "workspace:*",
     "@biztrack/types": "workspace:*",
@@ -45,8 +47,8 @@
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.6",
     "dotenv": "^17.3.1",
-    "libphonenumber-js": "^1.12.10",
     "ioredis": "^5.10.1",
+    "libphonenumber-js": "^1.12.10",
     "nestjs-i18n": "^10.6.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

@@ -81,6 +81,17 @@ const envSchema = z.object({
   WHATSAPP_API_KEY: z.preprocess(normalizeEnvString, z.string()).optional(),
   WHATSAPP_SESSION: z.preprocess(normalizeEnvString, z.string()).default('default'),
   WHATSAPP_WEBHOOK_SECRET: z.preprocess(normalizeEnvString, z.string()).optional(),
+  // File storage. Default 'local' (writes to a served folder — dev/self-host). Set
+  // 's3' + the S3_* vars for Cloudflare R2 (or any S3-compatible: B2, Supabase, MinIO).
+  STORAGE_DRIVER: z.preprocess(normalizeEnvString, z.enum(['local', 's3'])).default('local'),
+  STORAGE_LOCAL_DIR: z.preprocess(normalizeEnvString, z.string()).optional(),
+  STORAGE_PUBLIC_URL: z.preprocess(normalizeEnvString, z.string()).optional(),
+  S3_ENDPOINT: z.preprocess(normalizeEnvString, z.string().url()).optional(),
+  S3_REGION: z.preprocess(normalizeEnvString, z.string()).default('auto'),
+  S3_BUCKET: z.preprocess(normalizeEnvString, z.string()).optional(),
+  S3_ACCESS_KEY_ID: z.preprocess(normalizeEnvString, z.string()).optional(),
+  S3_SECRET_ACCESS_KEY: z.preprocess(normalizeEnvString, z.string()).optional(),
+  S3_PUBLIC_URL: z.preprocess(normalizeEnvString, z.string()).optional(),
 })
 
 export type AppConfig = z.infer<typeof envSchema>

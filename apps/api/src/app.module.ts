@@ -15,6 +15,7 @@ import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { MarketingModule } from '@/modules/marketing/marketing.module'
+import { StorageModule } from '@/modules/storage/storage.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
@@ -109,6 +110,7 @@ function resolveI18nPath() {
     SubscriptionsModule,
     NotificationsModule,
     MarketingModule,
+    StorageModule,
     RedisModule,
   ],
   providers: [
