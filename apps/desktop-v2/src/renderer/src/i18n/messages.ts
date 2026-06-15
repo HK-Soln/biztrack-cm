@@ -32,6 +32,8 @@ export const en = {
   'nav.more': 'More',
   'usermenu.profile': 'Profile',
   'usermenu.signOut': 'Sign out',
+  'nav.collapse': 'Collapse sidebar',
+  'nav.expand': 'Expand sidebar',
 
   'top.synced': 'Synced',
   'top.businessPlan': 'BUSINESS plan',
@@ -283,6 +285,8 @@ export const fr: Record<MessageKey, string> = {
   'nav.more': 'Plus',
   'usermenu.profile': 'Profil',
   'usermenu.signOut': 'Se déconnecter',
+  'nav.collapse': 'Réduire le menu',
+  'nav.expand': 'Agrandir le menu',
 
   'top.synced': 'Synchronisé',
   'top.businessPlan': 'Forfait BUSINESS',

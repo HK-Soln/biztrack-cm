@@ -36,7 +36,15 @@ function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   )
 }
 
-function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }) {
+function NavGroup({
+  entry,
+  collapsedRail,
+  onExpand,
+}: {
+  entry: Extract<NavEntry, { children: unknown }>
+  collapsedRail?: boolean
+  onExpand?: () => void
+}) {
   const t = useT()
   const { pathname } = useLocation()
   const hasActiveChild = entry.children.some((c) => pathname === c.to || pathname.startsWith(c.to + '/'))
@@ -46,7 +54,18 @@ function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }
   }, [hasActiveChild])
   return (
     <div className={`nav-grp${open ? ' open' : ''}`}>
-      <button type="button" className="nav-item" onClick={() => setOpen((o) => !o)}>
+      <button
+        type="button"
+        className="nav-item"
+        onClick={() => {
+          // In the collapsed icon rail, children are hidden — expand the sidebar instead.
+          if (collapsedRail) {
+            onExpand?.()
+            return
+          }
+          setOpen((o) => !o)
+        }}
+      >
         {Icon[entry.icon]}
         <span className="lab">{t(entry.label)}</span>
         <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
@@ -62,10 +81,33 @@ function NavGroup({ entry }: { entry: Extract<NavEntry, { children: unknown }> }
   )
 }
 
-function Sidebar({ rail }: { rail?: boolean }) {
+function Sidebar({
+  rail,
+  collapsible,
+  collapsed,
+  onToggle,
+}: {
+  rail?: boolean
+  collapsible?: boolean
+  collapsed?: boolean
+  onToggle?: () => void
+}) {
   const t = useT()
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
+      {collapsible ? (
+        <button
+          type="button"
+          className="sb-collapse app-no-drag"
+          onClick={onToggle}
+          title={collapsed ? t('nav.expand') : t('nav.collapse')}
+          aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+            <path d="m14 6-6 6 6 6" />
+          </svg>
+        </button>
+      ) : null}
       <div className="brandmark app-drag">
         <div className="logo">
           B<span className="pip" />
@@ -86,7 +128,12 @@ function Sidebar({ rail }: { rail?: boolean }) {
       <nav className="nav">
         {NAV.map((entry, i) =>
           isGroup(entry) ? (
-            <NavGroup key={`g${i}`} entry={entry} />
+            <NavGroup
+              key={`g${i}`}
+              entry={entry}
+              collapsedRail={rail && collapsible}
+              onExpand={onToggle}
+            />
           ) : (
             <NavLeafLink key={entry.to} {...entry} />
           ),
@@ -276,12 +323,29 @@ function TabBar() {
   )
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'biztrack.sidebar.collapsed'
+
 export function AppShell() {
   const bp = useBreakpoint()
   const mode = useThemeStore((s) => s.mode)
   const palette = useThemeStore((s) => s.palette)
   const chrome = useThemeStore((s) => s.chrome)
   const resolvedDark = useThemeStore((s) => s.resolvedDark)
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
 
   useEffect(() => {
     const id = requestAnimationFrame(syncTitleBarOverlay)
@@ -302,7 +366,12 @@ export function AppShell() {
 
   return (
     <div className="layout">
-      <Sidebar rail={bp === 'tablet'} />
+      <Sidebar
+        rail={bp === 'tablet' || collapsed}
+        collapsible={bp === 'desktop'}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((c) => !c)}
+      />
       <div className="maincol">
         <TopBar />
         <div className="content">
