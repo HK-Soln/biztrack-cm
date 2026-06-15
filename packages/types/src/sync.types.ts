@@ -22,6 +22,7 @@ export type SyncEntity =
   | 'product_image'
   | 'product_variant'
   | 'product_variant_option'
+  | 'product_serial_unit'
   | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
@@ -86,6 +87,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   product_image: 2,
   product_variant: 2,
   product_variant_option: 3,
+  product_serial_unit: 3,
   inventory_threshold: 2,
   inventory_restock: 2,
   inventory_adjustment: 2,
@@ -112,14 +114,15 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   product_image: 12,
   product_variant: 13,
   product_variant_option: 14,
-  inventory_threshold: 15,
-  inventory_restock: 16,
-  inventory_adjustment: 17,
-  sale: 18,
-  expense: 19,
-  debt: 20,
-  savings: 21,
-  savings_transaction: 22,
+  product_serial_unit: 15,
+  inventory_threshold: 16,
+  inventory_restock: 17,
+  inventory_adjustment: 18,
+  sale: 19,
+  expense: 20,
+  debt: 21,
+  savings: 22,
+  savings_transaction: 23,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -166,6 +169,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   product_image: ['product'],
   product_variant: ['product'],
   product_variant_option: ['product_variant', 'attribute_option'],
+  product_serial_unit: ['product'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
   inventory_adjustment: ['product'],
@@ -818,6 +822,18 @@ export interface ProductVariantOptionSyncPayload {
   isDeleted?: boolean
 }
 
+export interface ProductSerialUnitSyncPayload {
+  productId: string
+  variantId?: string | null
+  serialNumber: string
+  serialType: string
+  status?: string | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
 export type SyncPushPayload =
   | SyncRecord
   | ContactSyncPayload
@@ -830,6 +846,7 @@ export type SyncPushPayload =
   | ProductImageSyncPayload
   | ProductVariantSyncPayload
   | ProductVariantOptionSyncPayload
+  | ProductSerialUnitSyncPayload
   | OpeningBalanceSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload

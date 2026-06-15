@@ -15,6 +15,7 @@ import type {
   LocalModel,
   LocalProduct,
   LocalProductImage,
+  LocalSerialUnit,
   LocalUnit,
   LocalVariant,
   ModelInput,
@@ -22,6 +23,7 @@ import type {
   ProductImageInput,
   ProductInput,
   ProductListQuery,
+  SerialUnitInput,
   VariantInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
@@ -85,6 +87,8 @@ export interface DataClient {
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
+    listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -145,6 +149,8 @@ function electronAdapter(): DataClient {
       setImages: (productId, images) => window.api.products.setImages(productId, images),
       listVariants: (productId) => window.api.products.listVariants(productId),
       setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
+      listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
+      setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -198,6 +204,8 @@ function cloudAdapter(): DataClient {
       setImages: notWired,
       listVariants: notWired,
       setVariants: notWired,
+      listSerialUnits: notWired,
+      setSerialUnits: notWired,
     },
     uploads: { file: notWired },
   }

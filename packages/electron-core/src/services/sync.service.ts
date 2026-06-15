@@ -77,6 +77,7 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   productImages: 'product_image',
   productVariants: 'product_variant',
   productVariantOptions: 'product_variant_option',
+  productSerialUnits: 'product_serial_unit',
   expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
@@ -344,6 +345,9 @@ export class SyncService {
     }
     for (const record of changes.productVariantOptions ?? []) {
       ops.push(this.productVariantOptionUpsert(record))
+    }
+    for (const record of changes.productSerialUnits ?? []) {
+      ops.push(this.productSerialUnitUpsert(record))
     }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
@@ -704,6 +708,33 @@ export class SyncService {
         asStr(c.variantId),
         asStr(c.attributeGroupId),
         asStr(c.attributeOptionId),
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productSerialUnitUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_serial_units
+        (id, business_id, product_id, variant_id, serial_number, serial_type, status, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          product_id = excluded.product_id, variant_id = excluded.variant_id,
+          serial_number = excluded.serial_number, serial_type = excluded.serial_type,
+          status = excluded.status, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.productId),
+        asStr(c.variantId),
+        asStr(c.serialNumber),
+        asStr(c.serialType),
+        asStr(c.status) ?? 'IN_STOCK',
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

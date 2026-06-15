@@ -3,12 +3,14 @@ import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   LocalProduct,
   LocalProductImage,
+  LocalSerialUnit,
   LocalVariant,
   PaginatedResult,
   ProductImageInput,
   ProductInput,
   ProductListQuery,
   ProductType,
+  SerialUnitInput,
   VariantInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
@@ -75,6 +77,15 @@ interface VariantOptionRow {
   variant_id: string
   attribute_group_id: string
   attribute_option_id: string
+}
+
+interface SerialUnitRow {
+  id: string
+  product_id: string
+  variant_id: string | null
+  serial_number: string
+  serial_type: string
+  status: string
 }
 
 /** Stable signature of a variant = its sorted attribute-option ids. */
@@ -434,6 +445,89 @@ export class ProductsService {
       this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
     }
     this.onMutated()
+  }
+
+  listSerialUnits(productId: string): LocalSerialUnit[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.db.query<SerialUnitRow>(
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+       FROM product_serial_units
+       WHERE business_id = ? AND product_id = ? AND is_deleted = 0
+       ORDER BY created_at ASC`,
+      [businessId, productId],
+    )
+    return rows.map((r) => ({
+      id: r.id,
+      productId: r.product_id,
+      variantId: r.variant_id,
+      serialNumber: r.serial_number,
+      serialType: r.serial_type as LocalSerialUnit['serialType'],
+      status: r.status,
+    }))
+  }
+
+  /** Replace a product's serial units. Matches live units by serialNumber so their
+   * id (and synced state) survives edits; adds new serials, soft-deletes removed. */
+  setSerialUnits(productId: string, units: SerialUnitInput[]): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.listSerialUnits(productId)
+    const existingBySerial = new Map(existing.map((u) => [u.serialNumber, u]))
+    const keepIds = new Set<string>()
+
+    for (const u of units) {
+      const serial = u.serialNumber.trim()
+      if (!serial) continue
+      const prior = existingBySerial.get(serial)
+      const id = prior?.id ?? randomUUID()
+      keepIds.add(id)
+      const variantId = u.variantId ?? null
+      if (prior) {
+        this.db.run(
+          `UPDATE product_serial_units SET variant_id = ?, serial_type = ?, is_deleted = 0, updated_at = ?
+           WHERE id = ? AND business_id = ?`,
+          [variantId, u.serialType, now, id, businessId],
+        )
+      } else {
+        this.db.run(
+          `INSERT INTO product_serial_units (id, business_id, product_id, variant_id, serial_number, serial_type, status, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'IN_STOCK', 0, ?, ?)`,
+          [id, businessId, productId, variantId, serial, u.serialType, now, now],
+        )
+      }
+      this.enqueueSerialUnit(
+        id,
+        'UPSERT',
+        businessId,
+        { productId, variantId, serialNumber: serial, serialType: u.serialType, status: 'IN_STOCK' },
+        now,
+      )
+    }
+
+    for (const u of existing) {
+      if (keepIds.has(u.id)) continue
+      this.db.run(`UPDATE product_serial_units SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, u.id])
+      this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
+    }
+    this.onMutated()
+  }
+
+  private enqueueSerialUnit(
+    recordId: string,
+    operation: 'UPSERT' | 'DELETE',
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
+    this.db.run(
+      `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
+       VALUES (?, 'productSerialUnits', ?, ?, ?, 'pending', 0, ?, ?)
+       ON CONFLICT(entity, record_id) DO UPDATE SET
+         operation = excluded.operation, payload = excluded.payload, status = 'pending',
+         attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+    )
   }
 
   private enqueueVariant(

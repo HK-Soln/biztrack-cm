@@ -54,6 +54,8 @@ import {
   inferProductType,
   PaymentMethod,
   ProductType,
+  SerialType,
+  SerialUnitStatus,
   StockAdjustmentType,
   UnitOfMeasureType,
 } from '@biztrack/types'
@@ -236,6 +238,16 @@ type ProductVariantOptionPayload = {
   variantId?: string
   attributeGroupId?: string
   attributeOptionId?: string
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ProductSerialUnitPayload = {
+  productId?: string
+  variantId?: string | null
+  serialNumber?: string
+  serialType?: string
+  status?: string | null
   createdAt?: string
   isDeleted?: boolean
 }
@@ -1253,6 +1265,7 @@ export class SyncService {
       product_image: (b, o) => this.applyProductImageOperation(b, o),
       product_variant: (b, o) => this.applyProductVariantOperation(b, o),
       product_variant_option: (b, o) => this.applyProductVariantOptionOperation(b, o),
+      product_serial_unit: (b, o) => this.applyProductSerialUnitOperation(b, o),
       contact: (b, o) => this.applyContactOperation(b, o),
       opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
       product: (b, o) => this.applyProductOperation(b, o),
@@ -2008,6 +2021,73 @@ export class SyncService {
         variantId,
         attributeGroupId,
         attributeOptionId,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyProductSerialUnitOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productSerialUnitsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productSerialUnitsRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductSerialUnitPayload(operation.payload)
+    const productId = payload.productId ?? existing?.productId
+    const serialNumber = (payload.serialNumber ?? existing?.serialNumber)?.trim()
+    const serialType = (payload.serialType ?? existing?.serialType) as SerialType | undefined
+    if (!productId || !serialNumber || !serialType) {
+      throw new AppBadRequestException(
+        'Serial unit requires productId, serialNumber and serialType.',
+        'SYNC_SERIAL_UNIT_INVALID',
+      )
+    }
+
+    const variantId =
+      payload.variantId === undefined ? existing?.variantId ?? null : payload.variantId
+    const status = (payload.status ?? existing?.status ?? SerialUnitStatus.IN_STOCK) as SerialUnitStatus
+
+    if (existing) {
+      await this.productSerialUnitsRepo.update(operation.recordId, {
+        productId,
+        variantId,
+        serialNumber,
+        serialType,
+        status,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productSerialUnitsRepo.save(
+      this.productSerialUnitsRepo.create({
+        id: operation.recordId,
+        businessId,
+        productId,
+        variantId,
+        serialNumber,
+        serialType,
+        status,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3928,6 +4008,16 @@ export class SyncService {
       )
     }
     return payload as ProductVariantOptionPayload
+  }
+
+  private readProductSerialUnitPayload(payload: Record<string, unknown> | null): ProductSerialUnitPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Serial unit sync payload is required.',
+        'SYNC_SERIAL_UNIT_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as ProductSerialUnitPayload
   }
 
   /** Fallback slug from a name (the client normally sends its own). */

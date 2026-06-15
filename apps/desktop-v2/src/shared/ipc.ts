@@ -62,6 +62,8 @@ export const IPC = {
   productsSetImages: 'products:set-images',
   productsListVariants: 'products:list-variants',
   productsSetVariants: 'products:set-variants',
+  productsListSerialUnits: 'products:list-serial-units',
+  productsSetSerialUnits: 'products:set-serial-units',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -392,6 +394,23 @@ export interface VariantInput {
   options: VariantOptionRef[]
 }
 
+/** One serialised unit (IMEI/SN/Barcode) of a product, optionally tied to a variant. */
+export interface LocalSerialUnit {
+  id: string
+  productId: string
+  variantId: string | null
+  serialNumber: string
+  serialType: SerialType
+  status: string
+}
+
+/** Desired serial unit on save (matched by serialNumber so live units keep their id). */
+export interface SerialUnitInput {
+  variantId?: string | null
+  serialNumber: string
+  serialType: SerialType
+}
+
 /** A product gallery image (the main image stays on the product's imageUrl). */
 export interface LocalProductImage {
   id: string
@@ -614,6 +633,9 @@ export interface BridgeApi {
     listVariants: (productId: string) => Promise<LocalVariant[]>
     /** Replace a product's variants (matched by option combination). */
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
+    listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    /** Replace a product's serial units (matched by serialNumber). */
+    setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

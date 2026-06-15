@@ -1,5 +1,12 @@
 import { ipcMain } from 'electron'
-import { IPC, type ProductImageInput, type ProductInput, type ProductListQuery, type VariantInput } from '../../shared/ipc'
+import {
+  IPC,
+  type ProductImageInput,
+  type ProductInput,
+  type ProductListQuery,
+  type SerialUnitInput,
+  type VariantInput,
+} from '../../shared/ipc'
 import type { ProductsService } from '../services/products.service'
 
 export function registerProductsIpc(products: ProductsService): void {
@@ -15,5 +22,11 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsListVariants, (_e, productId: string) => products.listVariants(productId))
   ipcMain.handle(IPC.productsSetVariants, (_e, productId: string, variants: VariantInput[]) =>
     products.setVariants(productId, variants),
+  )
+  ipcMain.handle(IPC.productsListSerialUnits, (_e, productId: string) =>
+    products.listSerialUnits(productId),
+  )
+  ipcMain.handle(IPC.productsSetSerialUnits, (_e, productId: string, units: SerialUnitInput[]) =>
+    products.setSerialUnits(productId, units),
   )
 }
