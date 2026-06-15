@@ -92,6 +92,19 @@ export const Icon = {
       <circle cx="19" cy="12" r="1.6" />
     </>,
   ),
+  store: s(
+    <>
+      <path d="M3 9 4.5 4h15L21 9" />
+      <path d="M4 9v11h16V9" />
+      <path d="M9 20v-6h6v6" />
+    </>,
+  ),
+  card: s(
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M3 10h18" />
+    </>,
+  ),
   bell: s(
     <>
       <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -131,6 +144,11 @@ export const NAV: NavEntry[] = [
   { to: '/inventory', label: 'nav.inventory', icon: 'inventory' },
   { to: '/sales', label: 'nav.sales', icon: 'sales' },
   {
+    label: 'nav.online',
+    icon: 'store',
+    children: [{ to: '/online/orders', label: 'nav.onlineOrders', icon: 'sell' }],
+  },
+  {
     label: 'nav.contacts',
     icon: 'contacts',
     children: [
@@ -148,6 +166,7 @@ export const NAV: NavEntry[] = [
     children: [
       { to: '/settings', label: 'nav.general', icon: 'settings' },
       { to: '/settings/appearance', label: 'nav.appearance', icon: 'settings' },
+      { to: '/settings/subscription', label: 'nav.subscription', icon: 'card' },
       { to: '/settings/team', label: 'nav.team', icon: 'contacts' },
       { to: '/settings/roles', label: 'nav.roles', icon: 'settings' },
     ],

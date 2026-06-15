@@ -2,9 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
+import { useSessionStore } from '@/stores/session.store'
 
 export function Dashboard() {
   const t = useT()
+  const businessName = useSessionStore((s) => s.status.businessName)
   const { data, isPending, isError, error } = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => dataClient.skeleton.getHealth(),
@@ -16,7 +18,7 @@ export function Dashboard() {
       <div className="page-head">
         <div>
           <h1>{t('dash.title')}</h1>
-          <p>{t('dash.welcome')}</p>
+          <p>{businessName ? `${t('dash.welcome')} — ${businessName}` : t('dash.welcome')}</p>
         </div>
       </div>
 
