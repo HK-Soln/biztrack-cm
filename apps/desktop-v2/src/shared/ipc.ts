@@ -30,6 +30,15 @@ export const IPC = {
   categoriesCreate: 'categories:create',
   categoriesUpdate: 'categories:update',
   categoriesDelete: 'categories:delete',
+  attributesListGroups: 'attributes:list-groups',
+  attributesCreateGroup: 'attributes:create-group',
+  attributesUpdateGroup: 'attributes:update-group',
+  attributesDeleteGroup: 'attributes:delete-group',
+  attributesAddOption: 'attributes:add-option',
+  attributesUpdateOption: 'attributes:update-option',
+  attributesDeleteOption: 'attributes:delete-option',
+  attributesListCategoryLinks: 'attributes:list-category-links',
+  attributesSetCategoryLinks: 'attributes:set-category-links',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -177,6 +186,64 @@ export interface CategoryInput {
   showOnline?: boolean
 }
 
+// ---- Attributes (variant dimensions) --------------------------------------
+export type AttributeDisplayType = 'CHIPS' | 'SWATCHES' | 'DROPDOWN'
+
+/** An attribute option (e.g. "Black", "128GB") as stored locally. */
+export interface LocalAttributeOption {
+  id: string
+  groupId: string
+  value: string
+  colorHex: string | null
+  sortOrder: number
+  isActive: boolean
+}
+
+/** An attribute group (e.g. Color, Storage) with its options. */
+export interface LocalAttributeGroup {
+  id: string
+  name: string
+  displayType: AttributeDisplayType
+  sortOrder: number
+  isActive: boolean
+  /** How many (non-deleted) categories this group is attached to. */
+  categoryCount: number
+  options: LocalAttributeOption[]
+}
+
+/** A category↔group link, enriched with the group + its options for display. */
+export interface LocalCategoryAttributeGroup {
+  id: string
+  categoryId: string
+  attributeGroupId: string
+  isRequired: boolean
+  sortOrder: number
+  name: string
+  displayType: AttributeDisplayType
+  options: Array<{ id: string; value: string; colorHex: string | null }>
+}
+
+export interface AttributeGroupInput {
+  name: string
+  displayType?: AttributeDisplayType
+  sortOrder?: number
+  isActive?: boolean
+}
+
+export interface AttributeOptionInput {
+  value: string
+  colorHex?: string | null
+  sortOrder?: number
+  isActive?: boolean
+}
+
+/** One desired category↔group attachment (used by the bulk set-links call). */
+export interface CategoryAttributeLinkInput {
+  attributeGroupId: string
+  isRequired?: boolean
+  sortOrder?: number
+}
+
 /** A file the renderer hands to main for upload to the API storage service. */
 export interface UploadFileInput {
   /** Raw file bytes (from File.arrayBuffer()). */
@@ -270,6 +337,18 @@ export interface BridgeApi {
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
+  }
+  attributes: {
+    listGroups: () => Promise<LocalAttributeGroup[]>
+    createGroup: (input: AttributeGroupInput) => Promise<LocalAttributeGroup>
+    updateGroup: (id: string, input: AttributeGroupInput) => Promise<LocalAttributeGroup>
+    deleteGroup: (id: string) => Promise<void>
+    addOption: (groupId: string, input: AttributeOptionInput) => Promise<LocalAttributeOption>
+    updateOption: (optionId: string, input: AttributeOptionInput) => Promise<LocalAttributeOption>
+    deleteOption: (optionId: string) => Promise<void>
+    listCategoryLinks: (categoryId: string) => Promise<LocalCategoryAttributeGroup[]>
+    /** Replace a category's attached groups with `links` (diffs + enqueues changes). */
+    setCategoryLinks: (categoryId: string, links: CategoryAttributeLinkInput[]) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

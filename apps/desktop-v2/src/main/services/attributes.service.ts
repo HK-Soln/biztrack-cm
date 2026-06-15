@@ -1,0 +1,370 @@
+import { randomUUID } from 'crypto'
+import type { DatabaseService } from '@biztrack/electron-core'
+import type {
+  AttributeDisplayType,
+  AttributeGroupInput,
+  AttributeOptionInput,
+  CategoryAttributeLinkInput,
+  LocalAttributeGroup,
+  LocalAttributeOption,
+  LocalCategoryAttributeGroup,
+} from '../../shared/ipc'
+
+interface GroupRow {
+  id: string
+  name: string
+  display_type: string
+  sort_order: number
+  is_active: number
+}
+
+interface OptionRow {
+  id: string
+  group_id: string
+  value: string
+  color_hex: string | null
+  sort_order: number
+  is_active: number
+}
+
+interface LinkRow {
+  id: string
+  category_id: string
+  attribute_group_id: string
+  is_required: number
+  sort_order: number
+}
+
+const DISPLAY_TYPES: AttributeDisplayType[] = ['CHIPS', 'SWATCHES', 'DROPDOWN']
+function normalizeDisplayType(value: string | undefined): AttributeDisplayType {
+  const upper = (value ?? '').toUpperCase() as AttributeDisplayType
+  return DISPLAY_TYPES.includes(upper) ? upper : 'CHIPS'
+}
+
+/**
+ * Offline-first product attributes (groups, options, category links). Reads come from
+ * local SQLite (synced via pull); writes go to local SQLite + sync_outbox in one step,
+ * then nudge a sync. Outbox entity names match the server SyncEntity mapping
+ * (attributeGroups / attributeOptions / categoryAttributeGroups). Business scope is
+ * resolved from the active session — never passed by the renderer.
+ */
+export class AttributesService {
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly getBusinessId: () => string | null,
+    private readonly onMutated: () => void,
+  ) {}
+
+  // ---- groups + options ----------------------------------------------------
+
+  listGroups(): LocalAttributeGroup[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const groups = this.db.query<GroupRow>(
+      `SELECT id, name, display_type, sort_order, is_active
+       FROM attribute_groups
+       WHERE business_id = ? AND is_deleted = 0
+       ORDER BY sort_order ASC, name ASC`,
+      [businessId],
+    )
+    const options = this.db.query<OptionRow>(
+      `SELECT id, group_id, value, color_hex, sort_order, is_active
+       FROM attribute_options
+       WHERE business_id = ? AND is_deleted = 0
+       ORDER BY sort_order ASC, value ASC`,
+      [businessId],
+    )
+    const counts = this.db.query<{ attribute_group_id: string; n: number }>(
+      `SELECT attribute_group_id, COUNT(*) AS n
+       FROM category_attribute_groups
+       WHERE business_id = ? AND is_deleted = 0
+       GROUP BY attribute_group_id`,
+      [businessId],
+    )
+    const countByGroup = new Map(counts.map((c) => [c.attribute_group_id, c.n]))
+    const optionsByGroup = new Map<string, LocalAttributeOption[]>()
+    for (const o of options) {
+      const list = optionsByGroup.get(o.group_id) ?? []
+      list.push(toOption(o))
+      optionsByGroup.set(o.group_id, list)
+    }
+    return groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      displayType: normalizeDisplayType(g.display_type),
+      sortOrder: g.sort_order,
+      isActive: g.is_active === 1,
+      categoryCount: countByGroup.get(g.id) ?? 0,
+      options: optionsByGroup.get(g.id) ?? [],
+    }))
+  }
+
+  createGroup(input: AttributeGroupInput): LocalAttributeGroup {
+    const businessId = this.requireBusinessId()
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const sortOrder = input.sortOrder ?? this.nextGroupOrder(businessId)
+    const displayType = normalizeDisplayType(input.displayType)
+    this.db.run(
+      `INSERT INTO attribute_groups
+        (id, business_id, name, display_type, sort_order, is_active, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, businessId, input.name.trim(), displayType, sortOrder, input.isActive === false ? 0 : 1, now, now],
+    )
+    this.enqueue('attributeGroups', id, 'UPSERT', businessId, this.groupPayload(input, displayType, sortOrder), now)
+    this.onMutated()
+    return this.getGroup(id)!
+  }
+
+  updateGroup(id: string, input: AttributeGroupInput): LocalAttributeGroup {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.db.get<GroupRow>(
+      `SELECT id, name, display_type, sort_order, is_active FROM attribute_groups WHERE id = ? AND business_id = ?`,
+      [id, businessId],
+    )
+    if (!existing) throw new Error('Attribute group not found.')
+    const displayType = normalizeDisplayType(input.displayType ?? existing.display_type)
+    const sortOrder = input.sortOrder ?? existing.sort_order
+    this.db.run(
+      `UPDATE attribute_groups
+       SET name = ?, display_type = ?, sort_order = ?, is_active = ?, updated_at = ?
+       WHERE id = ? AND business_id = ?`,
+      [input.name.trim(), displayType, sortOrder, input.isActive === false ? 0 : 1, now, id, businessId],
+    )
+    this.enqueue('attributeGroups', id, 'UPSERT', businessId, this.groupPayload(input, displayType, sortOrder), now)
+    this.onMutated()
+    return this.getGroup(id)!
+  }
+
+  deleteGroup(id: string): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [now, id, businessId],
+    )
+    this.enqueue('attributeGroups', id, 'DELETE', businessId, { isDeleted: true }, now)
+    this.onMutated()
+  }
+
+  addOption(groupId: string, input: AttributeOptionInput): LocalAttributeOption {
+    const businessId = this.requireBusinessId()
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const sortOrder = input.sortOrder ?? this.nextOptionOrder(businessId, groupId)
+    this.db.run(
+      `INSERT INTO attribute_options
+        (id, group_id, business_id, value, color_hex, sort_order, is_active, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, groupId, businessId, input.value.trim(), input.colorHex ?? null, sortOrder, input.isActive === false ? 0 : 1, now, now],
+    )
+    this.enqueue('attributeOptions', id, 'UPSERT', businessId, this.optionPayload(groupId, input, sortOrder), now)
+    this.onMutated()
+    return this.getOption(id)!
+  }
+
+  updateOption(optionId: string, input: AttributeOptionInput): LocalAttributeOption {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.db.get<OptionRow>(
+      `SELECT id, group_id, value, color_hex, sort_order, is_active FROM attribute_options WHERE id = ? AND business_id = ?`,
+      [optionId, businessId],
+    )
+    if (!existing) throw new Error('Attribute option not found.')
+    const sortOrder = input.sortOrder ?? existing.sort_order
+    this.db.run(
+      `UPDATE attribute_options
+       SET value = ?, color_hex = ?, sort_order = ?, is_active = ?, updated_at = ?
+       WHERE id = ? AND business_id = ?`,
+      [input.value.trim(), input.colorHex ?? null, sortOrder, input.isActive === false ? 0 : 1, now, optionId, businessId],
+    )
+    this.enqueue('attributeOptions', optionId, 'UPSERT', businessId, this.optionPayload(existing.group_id, input, sortOrder), now)
+    this.onMutated()
+    return this.getOption(optionId)!
+  }
+
+  deleteOption(optionId: string): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE attribute_options SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [now, optionId, businessId],
+    )
+    this.enqueue('attributeOptions', optionId, 'DELETE', businessId, { isDeleted: true }, now)
+    this.onMutated()
+  }
+
+  // ---- category links ------------------------------------------------------
+
+  listCategoryLinks(categoryId: string): LocalCategoryAttributeGroup[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const links = this.db.query<LinkRow>(
+      `SELECT id, category_id, attribute_group_id, is_required, sort_order
+       FROM category_attribute_groups
+       WHERE business_id = ? AND category_id = ? AND is_deleted = 0
+       ORDER BY sort_order ASC`,
+      [businessId, categoryId],
+    )
+    if (links.length === 0) return []
+    const groups = new Map(this.listGroups().map((g) => [g.id, g]))
+    return links
+      .map((l) => {
+        const group = groups.get(l.attribute_group_id)
+        if (!group) return null
+        return {
+          id: l.id,
+          categoryId: l.category_id,
+          attributeGroupId: l.attribute_group_id,
+          isRequired: l.is_required === 1,
+          sortOrder: l.sort_order,
+          name: group.name,
+          displayType: group.displayType,
+          options: group.options.map((o) => ({ id: o.id, value: o.value, colorHex: o.colorHex })),
+        } satisfies LocalCategoryAttributeGroup
+      })
+      .filter((x): x is LocalCategoryAttributeGroup => x !== null)
+  }
+
+  /** Replace a category's attachments with `links`: upsert desired, soft-delete removed. */
+  setCategoryLinks(categoryId: string, links: CategoryAttributeLinkInput[]): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.db.query<LinkRow>(
+      `SELECT id, category_id, attribute_group_id, is_required, sort_order
+       FROM category_attribute_groups
+       WHERE business_id = ? AND category_id = ? AND is_deleted = 0`,
+      [businessId, categoryId],
+    )
+    const existingByGroup = new Map(existing.map((l) => [l.attribute_group_id, l]))
+    const desiredGroupIds = new Set(links.map((l) => l.attributeGroupId))
+
+    links.forEach((link, index) => {
+      const isRequired = link.isRequired !== false
+      const sortOrder = link.sortOrder ?? index
+      const prior = existingByGroup.get(link.attributeGroupId)
+      const id = prior?.id ?? randomUUID()
+      if (prior) {
+        this.db.run(
+          `UPDATE category_attribute_groups SET is_required = ?, sort_order = ?, updated_at = ? WHERE id = ?`,
+          [isRequired ? 1 : 0, sortOrder, now, id],
+        )
+      } else {
+        this.db.run(
+          `INSERT INTO category_attribute_groups
+            (id, business_id, category_id, attribute_group_id, is_required, sort_order, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, businessId, categoryId, link.attributeGroupId, isRequired ? 1 : 0, sortOrder, now, now],
+        )
+      }
+      this.enqueue(
+        'categoryAttributeGroups',
+        id,
+        'UPSERT',
+        businessId,
+        { categoryId, attributeGroupId: link.attributeGroupId, isRequired, sortOrder },
+        now,
+      )
+    })
+
+    for (const prior of existing) {
+      if (desiredGroupIds.has(prior.attribute_group_id)) continue
+      this.db.run(
+        `UPDATE category_attribute_groups SET is_deleted = 1, updated_at = ? WHERE id = ?`,
+        [now, prior.id],
+      )
+      this.enqueue('categoryAttributeGroups', prior.id, 'DELETE', businessId, { isDeleted: true }, now)
+    }
+
+    this.onMutated()
+  }
+
+  // ---- internals -----------------------------------------------------------
+
+  private getGroup(id: string): LocalAttributeGroup | null {
+    return this.listGroups().find((g) => g.id === id) ?? null
+  }
+
+  private getOption(id: string): LocalAttributeOption | null {
+    const row = this.db.get<OptionRow>(
+      `SELECT id, group_id, value, color_hex, sort_order, is_active FROM attribute_options WHERE id = ?`,
+      [id],
+    )
+    return row ? toOption(row) : null
+  }
+
+  private nextGroupOrder(businessId: string): number {
+    const row = this.db.get<{ n: number | null }>(
+      `SELECT MAX(sort_order) AS n FROM attribute_groups WHERE business_id = ? AND is_deleted = 0`,
+      [businessId],
+    )
+    return (row?.n ?? -1) + 1
+  }
+
+  private nextOptionOrder(businessId: string, groupId: string): number {
+    const row = this.db.get<{ n: number | null }>(
+      `SELECT MAX(sort_order) AS n FROM attribute_options WHERE business_id = ? AND group_id = ? AND is_deleted = 0`,
+      [businessId, groupId],
+    )
+    return (row?.n ?? -1) + 1
+  }
+
+  private requireBusinessId(): string {
+    const businessId = this.getBusinessId()
+    if (!businessId) throw new Error('No active business.')
+    return businessId
+  }
+
+  private groupPayload(
+    input: AttributeGroupInput,
+    displayType: AttributeDisplayType,
+    sortOrder: number,
+  ): Record<string, unknown> {
+    return { name: input.name.trim(), displayType, sortOrder, isActive: input.isActive !== false }
+  }
+
+  private optionPayload(
+    groupId: string,
+    input: AttributeOptionInput,
+    sortOrder: number,
+  ): Record<string, unknown> {
+    return {
+      groupId,
+      value: input.value.trim(),
+      colorHex: input.colorHex ?? null,
+      sortOrder,
+      isActive: input.isActive !== false,
+    }
+  }
+
+  /** Local write + sync_outbox enqueue, coalesced per (entity, record_id). */
+  private enqueue(
+    entity: 'attributeGroups' | 'attributeOptions' | 'categoryAttributeGroups',
+    recordId: string,
+    operation: 'UPSERT' | 'DELETE',
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
+    this.db.run(
+      `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+       ON CONFLICT(entity, record_id) DO UPDATE SET
+         operation = excluded.operation, payload = excluded.payload, status = 'pending',
+         attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+      [randomUUID(), entity, recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+    )
+  }
+}
+
+function toOption(row: OptionRow): LocalAttributeOption {
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    value: row.value,
+    colorHex: row.color_hex,
+    sortOrder: row.sort_order,
+    isActive: row.is_active === 1,
+  }
+}

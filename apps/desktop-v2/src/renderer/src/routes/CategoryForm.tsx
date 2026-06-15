@@ -6,7 +6,7 @@ import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
-import type { CategoryInput, LocalCategory } from '@shared/ipc'
+import type { CategoryInput, LocalAttributeGroup, LocalCategory } from '@shared/ipc'
 
 function slugify(s: string): string {
   return s
@@ -20,10 +20,10 @@ const LEVEL_KEY: MessageKey[] = ['cat.levelDept', 'cat.levelCat', 'cat.levelSub'
 
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
-// Full-page add/edit category form (matches design-form-category): Details + live
-// slug + parent picker on the left; Placement (level + breadcrumb), Image, and
-// Settings on the right. Variant attributes + image upload are shown as deferred
-// (they need the Attributes module / media handling).
+// Full-page add/edit category form (matches design-form-category): Details (name +
+// live slug + parent + description) and variant attributes on the left; Placement
+// (level + breadcrumb), Image upload, and Settings (active / show-online) on the
+// right. Variant attributes attach/reorder/require apply to leaf categories.
 export function CategoryForm() {
   const t = useT()
   const navigate = useNavigate()
@@ -38,6 +38,25 @@ export function CategoryForm() {
   })
 
   const current = id ? (categories.find((c) => c.id === id) ?? null) : null
+
+  // Variant attributes apply only to leaf categories (no sub-categories). A brand-new
+  // category is a leaf; an existing one is a leaf when nothing is parented under it.
+  const isLeaf = !categories.some((c) => c.parentId === id)
+
+  const { data: allGroups = [] } = useQuery({
+    queryKey: queryKeys.attributeGroups,
+    queryFn: () => dataClient.attributes.listGroups(),
+    enabled: isElectron,
+  })
+  const { data: existingLinks = [] } = useQuery({
+    queryKey: queryKeys.categoryAttributeLinks(id ?? 'new'),
+    queryFn: () => dataClient.attributes.listCategoryLinks(id!),
+    enabled: isElectron && editing,
+  })
+
+  // Ordered list of attached groups (the category's variant dimensions).
+  const [attached, setAttached] = useState<Array<{ attributeGroupId: string; isRequired: boolean }>>([])
+  const [attachLoaded, setAttachLoaded] = useState(false)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -67,6 +86,45 @@ export function CategoryForm() {
       setLoaded(true)
     }
   }, [editing, loaded, current])
+
+  // Seed attached groups from the category's existing links (once, when editing).
+  useEffect(() => {
+    if (!editing || attachLoaded || existingLinks.length === 0) return
+    setAttached(
+      [...existingLinks]
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((l) => ({ attributeGroupId: l.attributeGroupId, isRequired: l.isRequired })),
+    )
+    setAttachLoaded(true)
+  }, [editing, attachLoaded, existingLinks])
+
+  const attachedIds = new Set(attached.map((a) => a.attributeGroupId))
+  const groupsById = new Map(allGroups.map((g) => [g.id, g]))
+  // Attached groups first (in their order), then the rest available to attach.
+  const orderedGroups = [
+    ...attached.map((a) => groupsById.get(a.attributeGroupId)).filter((g): g is LocalAttributeGroup => !!g),
+    ...allGroups.filter((g) => !attachedIds.has(g.id)),
+  ]
+
+  const toggleAttach = (groupId: string) =>
+    setAttached((prev) =>
+      prev.some((a) => a.attributeGroupId === groupId)
+        ? prev.filter((a) => a.attributeGroupId !== groupId)
+        : [...prev, { attributeGroupId: groupId, isRequired: true }],
+    )
+  const toggleRequired = (groupId: string) =>
+    setAttached((prev) =>
+      prev.map((a) => (a.attributeGroupId === groupId ? { ...a, isRequired: !a.isRequired } : a)),
+    )
+  const moveAttached = (groupId: string, dir: -1 | 1) =>
+    setAttached((prev) => {
+      const i = prev.findIndex((a) => a.attributeGroupId === groupId)
+      const j = i + dir
+      if (i < 0 || j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      ;[next[i], next[j]] = [next[j]!, next[i]!]
+      return next
+    })
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -107,10 +165,21 @@ export function CategoryForm() {
   const slug = [...path.map((p) => slugify(p.name)), slugify(name) || '…'].join('/')
 
   const save = useMutation({
-    mutationFn: (input: CategoryInput) =>
-      editing && id ? dataClient.categories.update(id, input) : dataClient.categories.create(input),
-    onSuccess: () => {
+    mutationFn: async (input: CategoryInput) => {
+      const saved =
+        editing && id ? await dataClient.categories.update(id, input) : await dataClient.categories.create(input)
+      // Persist variant-attribute links only for leaf categories.
+      if (isLeaf) {
+        await dataClient.attributes.setCategoryLinks(
+          saved.id,
+          attached.map((a, i) => ({ attributeGroupId: a.attributeGroupId, isRequired: a.isRequired, sortOrder: i })),
+        )
+      }
+      return saved
+    },
+    onSuccess: (saved) => {
       void qc.invalidateQueries({ queryKey: queryKeys.categories })
+      void qc.invalidateQueries({ queryKey: queryKeys.categoryAttributeLinks(saved.id) })
       navigate('/products/categories')
     },
     onError: () => setFormError(t('cat.error')),
@@ -230,17 +299,112 @@ export function CategoryForm() {
             </div>
 
             <div className="card">
-              <div className="fsec-h">
-                <span className="n">2</span>
-                {t('cat.attrTitle')}
+              <div className="fsec-h" style={{ justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span className="n">2</span>
+                  {t('cat.attrTitle')}
+                </span>
+                {isLeaf ? (
+                  <span className="chip-tag">{t('cat.attrAttached').replace('{n}', String(attached.length))}</span>
+                ) : null}
               </div>
-              <div className="form-note">
+
+              {!isLeaf ? (
+                <div className="form-note">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 11v5M12 8h.01" />
+                  </svg>
+                  <span>{t('cat.attrLeafOnly')}</span>
+                </div>
+              ) : allGroups.length === 0 ? (
+                <div className="form-note">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 11v5M12 8h.01" />
+                  </svg>
+                  <span>{t('cat.attrEmpty')}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="form-note" style={{ marginBottom: 4 }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v5M12 8h.01" />
+                    </svg>
+                    <span>{t('cat.attrNote')}</span>
+                  </div>
+                  <div className="attr-rows">
+                    {orderedGroups.map((g) => {
+                      const att = attached.find((a) => a.attributeGroupId === g.id)
+                      const on = !!att
+                      const pos = attached.findIndex((a) => a.attributeGroupId === g.id)
+                      return (
+                        <div key={g.id} className={`attr-row${on ? ' on' : ''}`}>
+                          <button
+                            type="button"
+                            className={`switch${on ? ' on' : ''}`}
+                            aria-pressed={on}
+                            onClick={() => toggleAttach(g.id)}
+                          />
+                          <div className="attr-main">
+                            <div className="attr-name">
+                              {g.name} <span className="attr-type">{t(`attr.${g.displayType.toLowerCase()}` as MessageKey)}</span>
+                            </div>
+                            <div className="attr-preview">
+                              {g.displayType === 'SWATCHES'
+                                ? g.options.slice(0, 6).map((o) => (
+                                    <span key={o.id} className="attr-sw" style={{ background: o.colorHex ?? '#ccc' }} />
+                                  ))
+                                : g.options.slice(0, 5).map((o) => (
+                                    <span key={o.id} className="attr-cp">
+                                      {o.value}
+                                    </span>
+                                  ))}
+                              {g.options.length === 0 ? <span className="muted">—</span> : null}
+                            </div>
+                          </div>
+                          {on ? (
+                            <div className="attr-ctl">
+                              <button
+                                type="button"
+                                className={`reqpill${att!.isRequired ? ' on' : ''}`}
+                                onClick={() => toggleRequired(g.id)}
+                              >
+                                {att!.isRequired ? t('cat.attrRequired') : t('cat.attrOptional')}
+                              </button>
+                              <div className="attr-reorder">
+                                <button type="button" disabled={pos === 0} onClick={() => moveAttached(g.id, -1)} aria-label="up">
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                    <path d="m6 15 6-6 6 6" />
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={pos === attached.length - 1}
+                                  onClick={() => moveAttached(g.id, 1)}
+                                  aria-label="down"
+                                >
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                    <path d="m6 9 6 6 6-6" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+
+              <button type="button" className="ab" style={{ marginTop: 10 }} onClick={() => navigate('/products/attributes')}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 11v5M12 8h.01" />
+                  <path d="M12 5v14M5 12h14" />
                 </svg>
-                <span>{t('cat.attrNote')}</span>
-              </div>
+                {t('cat.attrManage')}
+              </button>
             </div>
           </div>
 
