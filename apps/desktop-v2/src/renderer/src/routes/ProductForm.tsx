@@ -64,12 +64,16 @@ export function ProductForm() {
   const [publishOnline, setPublishOnline] = useState(false)
   const [onlineDescription, setOnlineDescription] = useState('')
   const [onlineReserve, setOnlineReserve] = useState('')
+  const [metaTitle, setMetaTitle] = useState('')
+  const [metaDescription, setMetaDescription] = useState('')
   const [isSerialized, setIsSerialized] = useState(false)
   const [serialType, setSerialType] = useState<SerialType>('IMEI')
   const [warrantyMonths, setWarrantyMonths] = useState('')
   // Variants: which options are selected per attribute group + per-combination overrides.
   const [selectedOpts, setSelectedOpts] = useState<Record<string, string[]>>({})
-  const [variantOverrides, setVariantOverrides] = useState<Record<string, { price: string; active: boolean }>>({})
+  const [variantOverrides, setVariantOverrides] = useState<
+    Record<string, { price: string; cost: string; stock: string; active: boolean }>
+  >({})
   const [variantsLoaded, setVariantsLoaded] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -112,13 +116,18 @@ export function ProductForm() {
   useEffect(() => {
     if (!editing || variantsLoaded || !existingVariants || existingVariants.length === 0) return
     const sel: Record<string, string[]> = {}
-    const ov: Record<string, { price: string; active: boolean }> = {}
+    const ov: Record<string, { price: string; cost: string; stock: string; active: boolean }> = {}
     for (const v of existingVariants) {
       for (const o of v.options) {
         sel[o.attributeGroupId] = [...new Set([...(sel[o.attributeGroupId] ?? []), o.attributeOptionId])]
       }
       const sig = [...v.options.map((o) => o.attributeOptionId)].sort().join('|')
-      ov[sig] = { price: v.priceOverride != null ? String(v.priceOverride) : '', active: v.isActive }
+      ov[sig] = {
+        price: v.priceOverride != null ? String(v.priceOverride) : '',
+        cost: v.costPriceOverride != null ? String(v.costPriceOverride) : '',
+        stock: String(v.stockQuantity ?? 0),
+        active: v.isActive,
+      }
     }
     setSelectedOpts(sel)
     setVariantOverrides(ov)
@@ -200,6 +209,8 @@ export function ProductForm() {
     setPublishOnline(existing.isPublishedOnline)
     setOnlineDescription(existing.onlineDescription ?? '')
     setOnlineReserve(existing.onlineStockReserve ? String(existing.onlineStockReserve) : '')
+    setMetaTitle(existing.metaTitle ?? '')
+    setMetaDescription(existing.metaDescription ?? '')
     setIsSerialized(existing.isSerialized)
     if (existing.serialType) setSerialType(existing.serialType)
     setWarrantyMonths(existing.warrantyMonths != null ? String(existing.warrantyMonths) : '')
@@ -306,12 +317,18 @@ export function ProductForm() {
       if (productTypeV === 'SIMPLE') {
         await dataClient.products.setVariants(
           saved.id,
-          variantMatrix.map((m) => ({
-            name: m.label,
-            priceOverride: variantOverrides[m.sig]?.price?.trim() ? Number(variantOverrides[m.sig]!.price.replace(/\s/g, '')) : null,
-            isActive: variantOverrides[m.sig]?.active !== false,
-            options: m.options,
-          })),
+          variantMatrix.map((m) => {
+            const ov = variantOverrides[m.sig]
+            const num = (s?: string) => (s?.trim() ? Number(s.replace(/\s/g, '')) : null)
+            return {
+              name: m.label,
+              priceOverride: num(ov?.price),
+              costPriceOverride: num(ov?.cost),
+              openingStock: isSerialized ? 0 : num(ov?.stock) ?? 0,
+              isActive: ov?.active !== false,
+              options: m.options,
+            }
+          }),
         )
       }
       return saved
@@ -328,6 +345,8 @@ export function ProductForm() {
     if (!name.trim()) return setError(t('prodf.nameRequired'))
     if (priceN <= 0) return setError(t('prodf.priceRequired'))
     if (!unitId) return setError(t('prodf.unitRequired'))
+    // A variant product needs ≥2 variants (spec); 1 selected combination is invalid.
+    if (productTypeV === 'SIMPLE' && variantMatrix.length === 1) return setError(t('prodf.variantsMinTwo'))
     setError(null)
     save.mutate({
       name: name.trim(),
@@ -341,6 +360,8 @@ export function ProductForm() {
       categoryId: categoryId || null,
       brandId: brandId || null,
       modelId: modelId || null,
+      metaTitle: metaTitle.trim() || null,
+      metaDescription: metaDescription.trim() || null,
       imageUrl,
       productType: productTypeV,
       isService: productTypeV === 'SERVICE',
@@ -569,23 +590,30 @@ export function ProductForm() {
                     ))}
                     {variantMatrix.length > 0 ? (
                       <div className="vmatrix">
+                        <div className="vrow vrow-head">
+                          <span className="vrow-name">{t('prodf.vColVariant').replace('{n}', String(variantMatrix.length))}</span>
+                          <span className="vcol">{t('prodf.vColPrice')}</span>
+                          <span className="vcol">{t('prodf.vColCost')}</span>
+                          {!isSerialized ? <span className="vcol">{t('prodf.vColStock')}</span> : null}
+                          <span className="vcol-sw">{t('prodf.vColInclude')}</span>
+                        </div>
                         {variantMatrix.map((m) => {
-                          const ov = variantOverrides[m.sig] ?? { price: '', active: true }
+                          const ov = variantOverrides[m.sig] ?? { price: '', cost: '', stock: '', active: true }
+                          const set = (patch: Partial<typeof ov>) =>
+                            setVariantOverrides((p) => ({ ...p, [m.sig]: { ...ov, ...patch } }))
                           return (
                             <div key={m.sig} className="vrow">
                               <span className="vrow-name">{m.label}</span>
-                              <Input
-                                value={ov.price}
-                                inputMode="decimal"
-                                placeholder={price || t('prodf.basePrice')}
-                                onChange={(e) => setVariantOverrides((p) => ({ ...p, [m.sig]: { ...ov, price: e.target.value } }))}
-                                style={{ maxWidth: 120, height: 34 }}
-                              />
+                              <Input value={ov.price} inputMode="decimal" placeholder={price || t('prodf.basePrice')} onChange={(e) => set({ price: e.target.value })} style={{ height: 34 }} />
+                              <Input value={ov.cost} inputMode="decimal" placeholder={cost || '0'} onChange={(e) => set({ cost: e.target.value })} style={{ height: 34 }} />
+                              {!isSerialized ? (
+                                <Input value={ov.stock} inputMode="numeric" placeholder="0" onChange={(e) => set({ stock: e.target.value })} style={{ height: 34 }} />
+                              ) : null}
                               <button
                                 type="button"
                                 className={`switch${ov.active !== false ? ' on' : ''}`}
                                 aria-pressed={ov.active !== false}
-                                onClick={() => setVariantOverrides((p) => ({ ...p, [m.sig]: { ...ov, active: !(ov.active !== false) } }))}
+                                onClick={() => set({ active: !(ov.active !== false) })}
                               />
                             </div>
                           )
@@ -657,6 +685,23 @@ export function ProductForm() {
                       <div className="hint">{t('prodf.reserveHint')}</div>
                     </div>
                   ) : null}
+                  <div className="ff">
+                    <label className="lbl2">{t('prodf.metaTitle')} <span className="opt">SEO</span></label>
+                    <Input value={metaTitle} placeholder={name || t('prodf.metaTitlePh')} onChange={(e) => setMetaTitle(e.target.value)} />
+                    <div className="hint">{t('prodf.metaTitleHint')}</div>
+                  </div>
+                  <div className="ff">
+                    <label className="lbl2">{t('prodf.metaDescription')} <span className="opt">SEO</span></label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      style={{ resize: 'vertical', paddingTop: 10 }}
+                      placeholder={t('prodf.metaDescriptionPh')}
+                      value={metaDescription}
+                      onChange={(e) => setMetaDescription(e.target.value)}
+                    />
+                    <div className="hint">{t('prodf.metaDescriptionHint')}</div>
+                  </div>
                 </div>
               ) : null}
             </div>

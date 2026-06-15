@@ -213,6 +213,18 @@ export class CreateProductDto implements CreateProductRequest {
   @MaxLength(2000)
   onlineDescription?: string
 
+  @ApiPropertyOptional({ description: 'SEO meta title for the online store product page.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  metaTitle?: string
+
+  @ApiPropertyOptional({ description: 'SEO meta description for the online store product page.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  metaDescription?: string
+
   @ApiPropertyOptional({ default: 0, description: 'Units held back from online sale.' })
   @IsOptional()
   @IsInt()

@@ -37,6 +37,8 @@ interface ProductRow {
   is_published_online: number
   online_description: string | null
   online_stock_reserve: number | null
+  meta_title: string | null
+  meta_description: string | null
   is_serialized: number
   serial_type: string | null
   warranty_months: number | null
@@ -64,6 +66,8 @@ interface VariantRow {
   sku: string | null
   is_active: number
   sort_order: number
+  stock_quantity: number | null
+  low_stock_threshold: number | null
 }
 
 interface VariantOptionRow {
@@ -82,7 +86,8 @@ const COLS =
   `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
    p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
-   p.online_description, p.online_stock_reserve, p.is_serialized, p.serial_type, p.warranty_months,
+   p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
+   p.is_serialized, p.serial_type, p.warranty_months,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM =
@@ -166,9 +171,9 @@ export class ProductsService {
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
          product_type, is_service, track_inventory, category_id, brand_id, model_id, unit_of_measure_id,
          image_url, is_active, is_featured, is_published_online, online_description, online_stock_reserve,
-         is_serialized, serial_type, warranty_months, low_stock_threshold, reorder_point,
+         meta_title, meta_description, is_serialized, serial_type, warranty_months, low_stock_threshold, reorder_point,
          stock_quantity, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'XAF', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'XAF', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -193,6 +198,8 @@ export class ProductsService {
         input.isPublishedOnline ? 1 : 0,
         input.onlineDescription?.trim() || null,
         input.onlineStockReserve ?? 0,
+        input.metaTitle?.trim() || null,
+        input.metaDescription?.trim() || null,
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
@@ -218,7 +225,8 @@ export class ProductsService {
         name = ?, slug = ?, description = ?, sku = ?, barcode = ?, price = ?, cost_price = ?, tax_rate = ?,
         product_type = ?, is_service = ?, track_inventory = ?, category_id = ?, brand_id = ?, model_id = ?,
         unit_of_measure_id = ?, image_url = ?, is_active = ?, is_featured = ?, is_published_online = ?,
-        online_description = ?, online_stock_reserve = ?, is_serialized = ?, serial_type = ?,
+        online_description = ?, online_stock_reserve = ?, meta_title = ?, meta_description = ?,
+        is_serialized = ?, serial_type = ?,
         warranty_months = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
@@ -243,6 +251,8 @@ export class ProductsService {
         input.isPublishedOnline ? 1 : 0,
         input.onlineDescription?.trim() || null,
         input.onlineStockReserve ?? 0,
+        input.metaTitle?.trim() || null,
+        input.metaDescription?.trim() || null,
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
@@ -333,7 +343,7 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const variants = this.db.query<VariantRow>(
-      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order
+      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold
        FROM product_variants WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY sort_order ASC`,
       [businessId, productId],
@@ -359,6 +369,8 @@ export class ProductsService {
       sku: v.sku,
       isActive: v.is_active === 1,
       sortOrder: v.sort_order,
+      stockQuantity: v.stock_quantity ?? 0,
+      lowStockThreshold: v.low_stock_threshold,
       options: (optsByVariant.get(v.id) ?? []).map((o) => ({
         attributeGroupId: o.attribute_group_id,
         attributeOptionId: o.attribute_option_id,
@@ -382,16 +394,17 @@ export class ProductsService {
       const id = prior?.id ?? randomUUID()
       keepIds.add(id)
       if (prior) {
+        // Stock is owned by inventory after create — only the threshold is editable here.
         this.db.run(
-          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, updated_at = ?
+          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, low_stock_threshold = ?, updated_at = ?
            WHERE id = ? AND business_id = ?`,
-          [v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, now, id, businessId],
+          [v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, v.lowStockThreshold ?? null, now, id, businessId],
         )
       } else {
         this.db.run(
-          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, is_deleted, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, businessId, productId, v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, now, now],
+          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, businessId, productId, v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, Math.max(v.openingStock ?? 0, 0), v.lowStockThreshold ?? null, now, now],
         )
         // Insert this variant's option links (new combos only).
         for (const opt of v.options) {
@@ -409,7 +422,7 @@ export class ProductsService {
         id,
         'UPSERT',
         businessId,
-        { productId, name: v.name, priceOverride: v.priceOverride ?? null, costPriceOverride: v.costPriceOverride ?? null, sku: v.sku ?? null, isActive: v.isActive !== false, sortOrder: index },
+        { productId, name: v.name, priceOverride: v.priceOverride ?? null, costPriceOverride: v.costPriceOverride ?? null, sku: v.sku ?? null, isActive: v.isActive !== false, sortOrder: index, openingStock: prior ? undefined : (v.openingStock ?? 0), lowStockThreshold: v.lowStockThreshold ?? null },
         now,
       )
     })
@@ -492,6 +505,8 @@ export class ProductsService {
       isPublishedOnline: input.isPublishedOnline === true,
       onlineDescription: input.onlineDescription?.trim() || null,
       onlineStockReserve: input.onlineStockReserve ?? 0,
+      metaTitle: input.metaTitle?.trim() || null,
+      metaDescription: input.metaDescription?.trim() || null,
       isSerialized: input.isSerialized === true,
       serialType: input.serialType ?? null,
       warrantyMonths: input.warrantyMonths ?? null,
@@ -545,6 +560,8 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     isPublishedOnline: row.is_published_online === 1,
     onlineDescription: row.online_description,
     onlineStockReserve: row.online_stock_reserve ?? 0,
+    metaTitle: row.meta_title,
+    metaDescription: row.meta_description,
     isSerialized: row.is_serialized === 1,
     serialType: (row.serial_type as LocalProduct['serialType']) ?? null,
     warrantyMonths: row.warranty_months,

@@ -799,6 +799,9 @@ export interface ProductVariantSyncPayload {
   barcode?: string | null
   isActive?: boolean
   sortOrder?: number | null
+  /** Opening stock to seed the variant's inventory level (non-serialised only). */
+  openingStock?: number | null
+  lowStockThreshold?: number | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null

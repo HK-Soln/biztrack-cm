@@ -226,6 +226,8 @@ type ProductVariantPayload = {
   barcode?: string | null
   isActive?: boolean
   sortOrder?: number | null
+  openingStock?: number | null
+  lowStockThreshold?: number | null
   createdAt?: string
   isDeleted?: boolean
 }
@@ -284,6 +286,8 @@ type ProductSyncPayload = {
   isPublishedOnline?: boolean
   onlineDescription?: string | null
   onlineStockReserve?: number | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   isSerialized?: boolean
   serialType?: string | null
   warrantyMonths?: number | null
@@ -870,6 +874,18 @@ export class SyncService {
           .map((record) => [`${record.referenceId}:${record.productId}`, record.quantityAfter] as const),
       )
 
+      // Per-variant stock for the variant records being emitted (so the desktop's
+      // denormalised variant stock stays correct across pulls).
+      const variantStock = new Map<string, { quantity: number; lowStockThreshold: number | null }>()
+      if (productVariants.length > 0) {
+        const levels = await this.inventoryLevelsRepo.find({
+          where: { businessId, variantId: In(productVariants.map((v) => v.id)) },
+        })
+        for (const l of levels) {
+          if (l.variantId) variantStock.set(l.variantId, { quantity: l.quantity, lowStockThreshold: l.lowStockThreshold ?? null })
+        }
+      }
+
       const changes: ChangeSet = {
         contacts: contacts.map((record) => this.toContactSyncRecord(record)),
         openingBalances: openingBalances.map((record) => this.toOpeningBalanceSyncRecord(record)),
@@ -988,6 +1004,8 @@ export class SyncService {
           barcode: record.barcode ?? null,
           isActive: record.isActive,
           sortOrder: record.sortOrder,
+          stockQuantity: variantStock.get(record.id)?.quantity ?? 0,
+          lowStockThreshold: variantStock.get(record.id)?.lowStockThreshold ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -1917,6 +1935,24 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       }),
     )
+    // Seed the variant's inventory level from opening stock (non-serialised products).
+    const parentProduct = await this.productsRepo.findOne({ where: { id: productId, businessId } })
+    if (parentProduct && !parentProduct.isSerialized && parentProduct.trackInventory) {
+      const level = await this.inventoryLevelsRepo.findOne({ where: { businessId, productId, variantId: operation.recordId } })
+      if (!level) {
+        await this.inventoryLevelsRepo.save(
+          this.inventoryLevelsRepo.create({
+            businessId,
+            productId,
+            variantId: operation.recordId,
+            quantity: Math.max(payload.openingStock ?? 0, 0),
+            lowStockThreshold: payload.lowStockThreshold ?? null,
+          }),
+        )
+      } else if (payload.lowStockThreshold !== undefined) {
+        await this.inventoryLevelsRepo.update(level.id, { lowStockThreshold: payload.lowStockThreshold })
+      }
+    }
     return { status: 'applied' }
   }
 
@@ -2356,6 +2392,8 @@ export class SyncService {
           isPublishedOnline: payload.isPublishedOnline ?? existing.isPublishedOnline,
           onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
           onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
+          metaTitle: this.normalizeOptionalString(payload.metaTitle),
+          metaDescription: this.normalizeOptionalString(payload.metaDescription),
           isSerialized: payload.isSerialized ?? existing.isSerialized,
           serialType: this.normalizeOptionalString(payload.serialType),
           warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
@@ -2429,6 +2467,8 @@ export class SyncService {
           isPublishedOnline: payload.isPublishedOnline ?? false,
           onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
           onlineStockReserve: payload.onlineStockReserve ?? 0,
+          metaTitle: this.normalizeOptionalString(payload.metaTitle),
+          metaDescription: this.normalizeOptionalString(payload.metaDescription),
           isSerialized: payload.isSerialized ?? false,
           serialType: this.normalizeOptionalString(payload.serialType),
           warrantyMonths: payload.warrantyMonths ?? null,
@@ -3343,6 +3383,8 @@ export class SyncService {
       isPublishedOnline: record.isPublishedOnline,
       onlineDescription: record.onlineDescription ?? null,
       onlineStockReserve: record.onlineStockReserve,
+      metaTitle: record.metaTitle ?? null,
+      metaDescription: record.metaDescription ?? null,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,
       createdById: record.createdById ?? null,

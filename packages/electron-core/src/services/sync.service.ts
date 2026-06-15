@@ -569,9 +569,9 @@ export class SyncService {
          price, cost_price, currency, tax_rate, product_type, is_service, track_inventory,
          category_id, brand_id, model_id, unit_of_measure_id, image_url, created_by_id,
          is_featured, is_published_online, online_description, online_stock_reserve,
-         is_serialized, serial_type, warranty_months,
+         meta_title, meta_description, is_serialized, serial_type, warranty_months,
          is_active, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, description = excluded.description,
           sku = excluded.sku, barcode = excluded.barcode, barcode_type = excluded.barcode_type,
@@ -583,7 +583,8 @@ export class SyncService {
           unit_of_measure_id = excluded.unit_of_measure_id, image_url = excluded.image_url,
           created_by_id = excluded.created_by_id, is_featured = excluded.is_featured,
           is_published_online = excluded.is_published_online, online_description = excluded.online_description,
-          online_stock_reserve = excluded.online_stock_reserve, is_serialized = excluded.is_serialized,
+          online_stock_reserve = excluded.online_stock_reserve, meta_title = excluded.meta_title,
+          meta_description = excluded.meta_description, is_serialized = excluded.is_serialized,
           serial_type = excluded.serial_type, warranty_months = excluded.warranty_months,
           is_active = excluded.is_active, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
@@ -613,6 +614,8 @@ export class SyncService {
         c.isPublishedOnline === true ? 1 : 0,
         asStr(c.onlineDescription),
         asNum(c.onlineStockReserve) ?? 0,
+        asStr(c.metaTitle),
+        asStr(c.metaDescription),
         c.isSerialized === true ? 1 : 0,
         asStr(c.serialType),
         asNum(c.warrantyMonths),
@@ -654,13 +657,14 @@ export class SyncService {
     return {
       sql: `INSERT INTO product_variants
         (id, business_id, product_id, name, display_name_override, price_override, cost_price_override,
-         sku, barcode, is_active, sort_order, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           product_id = excluded.product_id, name = excluded.name,
           display_name_override = excluded.display_name_override, price_override = excluded.price_override,
           cost_price_override = excluded.cost_price_override, sku = excluded.sku, barcode = excluded.barcode,
           is_active = excluded.is_active, sort_order = excluded.sort_order,
+          stock_quantity = excluded.stock_quantity, low_stock_threshold = excluded.low_stock_threshold,
           is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
@@ -674,6 +678,8 @@ export class SyncService {
         asStr(c.barcode),
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         asNum(c.sortOrder) ?? 0,
+        asNum(c.stockQuantity) ?? 0,
+        asNum(c.lowStockThreshold),
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

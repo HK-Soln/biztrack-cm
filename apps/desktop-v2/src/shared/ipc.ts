@@ -344,6 +344,8 @@ export interface LocalProduct {
   isPublishedOnline: boolean
   onlineDescription: string | null
   onlineStockReserve: number
+  metaTitle: string | null
+  metaDescription: string | null
   isSerialized: boolean
   serialType: SerialType | null
   warrantyMonths: number | null
@@ -371,6 +373,9 @@ export interface LocalVariant {
   sku: string | null
   isActive: boolean
   sortOrder: number
+  /** Read-only per-variant stock (from the variant's inventory level). */
+  stockQuantity: number
+  lowStockThreshold: number | null
   options: VariantOptionRef[]
 }
 
@@ -381,6 +386,9 @@ export interface VariantInput {
   costPriceOverride?: number | null
   sku?: string | null
   isActive?: boolean
+  /** Opening stock to seed the variant's inventory on create (non-serialised). */
+  openingStock?: number | null
+  lowStockThreshold?: number | null
   options: VariantOptionRef[]
 }
 
@@ -420,6 +428,8 @@ export interface ProductInput {
   isPublishedOnline?: boolean
   onlineDescription?: string | null
   onlineStockReserve?: number
+  metaTitle?: string | null
+  metaDescription?: string | null
   isSerialized?: boolean
   serialType?: SerialType | null
   warrantyMonths?: number | null

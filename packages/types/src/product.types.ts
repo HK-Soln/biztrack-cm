@@ -411,6 +411,8 @@ export interface Product {
   isPublishedOnline?: boolean
   onlineDescription?: string | null
   onlineStockReserve?: number
+  metaTitle?: string | null
+  metaDescription?: string | null
   imageUrl?: string | null
   createdById?: string | null
   createdBy?: ProductUserSummary | null
@@ -447,6 +449,8 @@ export interface CreateProductRequest {
   isPublishedOnline?: boolean
   onlineDescription?: string
   onlineStockReserve?: number
+  metaTitle?: string
+  metaDescription?: string
   imageUrl?: string
   productType?: ProductType
   isService?: boolean
