@@ -967,6 +967,19 @@ export class SyncService {
         lastError: firstFailureMessage,
       })
 
+      // Metrics: one structured line per processed batch (deferred is whatever wasn't
+      // applied/conflict/failed).
+      this.logger.log('Sync batch processed', 'SyncService', {
+        batchId: batch.id,
+        businessId: batch.businessId,
+        status,
+        processed: processedCount,
+        applied: appliedCount,
+        conflict: conflictCount,
+        deferred: processedCount - appliedCount - conflictCount - failedCount,
+        failed: failedCount,
+      })
+
       await this.emitBatchStatus(batch.id)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected sync batch processing failure.'
@@ -1033,6 +1046,13 @@ export class SyncService {
   }
 
   private async processOperation(businessId: string, operation: SyncOperation): Promise<BatchProcessingResult> {
+    // Idempotency: if this exact client operation was already applied in a prior batch
+    // (e.g. the client resent it after missing the ack), skip — avoids double side
+    // effects for non-idempotent ops like sales/inventory movements.
+    if (await this.isDuplicateOfApplied(operation)) {
+      return { status: 'applied' }
+    }
+
     const handler = this.operationHandlers[operation.entity]
     if (!handler) {
       return { status: 'failed', errorMessage: `Unsupported sync entity: ${operation.entity}` }
@@ -1044,11 +1064,25 @@ export class SyncService {
     }
   }
 
+  /** True if another operation with the same client operation id + device already applied. */
+  private async isDuplicateOfApplied(operation: SyncOperation): Promise<boolean> {
+    const prior = await this.syncOperationsRepo.findOne({
+      where: {
+        deviceId: operation.deviceId,
+        clientOperationId: operation.clientOperationId,
+        status: 'applied',
+      },
+    })
+    return Boolean(prior && prior.id !== operation.id)
+  }
+
   /**
    * Map a thrown error to a per-record outcome so one bad operation never fails the
    * whole batch:
    * - FK violation (PG 23503): the parent isn't on the server yet → 'deferred'
    *   (the client retries once the parent syncs).
+   * - NotFound during apply: the apply methods upsert the record itself, so a
+   *   not-found here is always a referenced parent (FK dependency) → 'deferred'.
    * - Unique violation (PG 23505): a record already exists for this key → 'conflict'.
    * - AppException: an intentional rejection (quota/validation) → 'failed' with its code.
    * - Anything else: 'failed'.
@@ -1074,6 +1108,14 @@ export class SyncService {
           errorMessage: 'A record already exists for this key.',
           errorDetails: { code: 'UNIQUE_VIOLATION' },
         }
+      }
+    }
+
+    if (error instanceof AppNotFoundException) {
+      return {
+        status: 'deferred',
+        errorMessage: error.message,
+        errorDetails: { code: 'DEPENDENCY_MISSING' },
       }
     }
 
