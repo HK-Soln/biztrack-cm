@@ -24,6 +24,8 @@ enum SyncEntityDto {
   MODEL = 'model',
   BRAND_CATEGORY = 'brand_category',
   PRODUCT_IMAGE = 'product_image',
+  PRODUCT_VARIANT = 'product_variant',
+  PRODUCT_VARIANT_OPTION = 'product_variant_option',
   EXPENSE_CATEGORY = 'expense_category',
   UNIT_OF_MEASURE = 'unit_of_measure',
   INVENTORY_THRESHOLD = 'inventory_threshold',

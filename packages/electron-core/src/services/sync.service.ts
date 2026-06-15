@@ -75,6 +75,8 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   models: 'model',
   brandCategories: 'brand_category',
   productImages: 'product_image',
+  productVariants: 'product_variant',
+  productVariantOptions: 'product_variant_option',
   expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
@@ -336,6 +338,12 @@ export class SyncService {
     }
     for (const record of changes.productImages ?? []) {
       ops.push(this.productImageUpsert(record))
+    }
+    for (const record of changes.productVariants ?? []) {
+      ops.push(this.productVariantUpsert(record))
+    }
+    for (const record of changes.productVariantOptions ?? []) {
+      ops.push(this.productVariantOptionUpsert(record))
     }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
@@ -633,6 +641,63 @@ export class SyncService {
         asStr(c.url),
         asStr(c.altText),
         asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productVariantUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_variants
+        (id, business_id, product_id, name, display_name_override, price_override, cost_price_override,
+         sku, barcode, is_active, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          product_id = excluded.product_id, name = excluded.name,
+          display_name_override = excluded.display_name_override, price_override = excluded.price_override,
+          cost_price_override = excluded.cost_price_override, sku = excluded.sku, barcode = excluded.barcode,
+          is_active = excluded.is_active, sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.productId),
+        asStr(c.name),
+        asStr(c.displayNameOverride),
+        asNum(c.priceOverride),
+        asNum(c.costPriceOverride),
+        asStr(c.sku),
+        asStr(c.barcode),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productVariantOptionUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_variant_options
+        (id, business_id, variant_id, attribute_group_id, attribute_option_id, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          variant_id = excluded.variant_id, attribute_group_id = excluded.attribute_group_id,
+          attribute_option_id = excluded.attribute_option_id, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.variantId),
+        asStr(c.attributeGroupId),
+        asStr(c.attributeOptionId),
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

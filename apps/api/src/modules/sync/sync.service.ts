@@ -216,6 +216,28 @@ type ProductImagePayload = {
   isDeleted?: boolean
 }
 
+type ProductVariantPayload = {
+  productId?: string
+  name?: string
+  displayNameOverride?: string | null
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  barcode?: string | null
+  isActive?: boolean
+  sortOrder?: number | null
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ProductVariantOptionPayload = {
+  variantId?: string
+  attributeGroupId?: string
+  attributeOptionId?: string
+  createdAt?: string
+  isDeleted?: boolean
+}
+
 type ContactPayload = {
   type?: ContactType
   name?: string
@@ -1211,6 +1233,8 @@ export class SyncService {
       model: (b, o) => this.applyModelOperation(b, o),
       brand_category: (b, o) => this.applyBrandCategoryOperation(b, o),
       product_image: (b, o) => this.applyProductImageOperation(b, o),
+      product_variant: (b, o) => this.applyProductVariantOperation(b, o),
+      product_variant_option: (b, o) => this.applyProductVariantOptionOperation(b, o),
       contact: (b, o) => this.applyContactOperation(b, o),
       opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
       product: (b, o) => this.applyProductOperation(b, o),
@@ -1827,6 +1851,127 @@ export class SyncService {
         url: payload.url!.trim(),
         altText: this.normalizeOptionalString(payload.altText),
         sortOrder: payload.sortOrder ?? 0,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyProductVariantOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productVariantsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productVariantsRepo.update(operation.recordId, {
+          isActive: false,
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductVariantPayload(operation.payload)
+    const productId = payload.productId ?? existing?.productId
+    if (!productId) {
+      throw new AppBadRequestException('Product variant requires a productId.', 'SYNC_VARIANT_PRODUCT_REQUIRED')
+    }
+    const fields = {
+      productId,
+      name: payload.name!.trim(),
+      displayNameOverride: this.normalizeOptionalString(payload.displayNameOverride),
+      priceOverride: payload.priceOverride ?? null,
+      costPriceOverride: payload.costPriceOverride ?? null,
+      sku: this.normalizeOptionalString(payload.sku),
+      barcode: this.normalizeOptionalString(payload.barcode),
+      isActive: payload.isActive ?? existing?.isActive ?? true,
+      sortOrder: payload.sortOrder ?? existing?.sortOrder ?? 0,
+    }
+
+    if (existing) {
+      await this.productVariantsRepo.update(operation.recordId, {
+        ...fields,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productVariantsRepo.save(
+      this.productVariantsRepo.create({
+        id: operation.recordId,
+        businessId,
+        ...fields,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyProductVariantOptionOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productVariantOptionsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productVariantOptionsRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductVariantOptionPayload(operation.payload)
+    const variantId = payload.variantId ?? existing?.variantId
+    const attributeGroupId = payload.attributeGroupId ?? existing?.attributeGroupId
+    const attributeOptionId = payload.attributeOptionId ?? existing?.attributeOptionId
+    if (!variantId || !attributeGroupId || !attributeOptionId) {
+      throw new AppBadRequestException(
+        'Variant option requires variantId, attributeGroupId and attributeOptionId.',
+        'SYNC_VARIANT_OPTION_INVALID',
+      )
+    }
+
+    if (existing) {
+      await this.productVariantOptionsRepo.update(operation.recordId, {
+        variantId,
+        attributeGroupId,
+        attributeOptionId,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productVariantOptionsRepo.save(
+      this.productVariantOptionsRepo.create({
+        id: operation.recordId,
+        businessId,
+        variantId,
+        attributeGroupId,
+        attributeOptionId,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3720,6 +3865,27 @@ export class SyncService {
       throw new AppBadRequestException('Product image url is required.', 'SYNC_PRODUCT_IMAGE_URL_REQUIRED')
     }
     return typed
+  }
+
+  private readProductVariantPayload(payload: Record<string, unknown> | null): ProductVariantPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Product variant sync payload is required.', 'SYNC_VARIANT_PAYLOAD_REQUIRED')
+    }
+    const typed = payload as ProductVariantPayload
+    if (!typed.name?.trim()) {
+      throw new AppBadRequestException('Product variant name is required.', 'SYNC_VARIANT_NAME_REQUIRED')
+    }
+    return typed
+  }
+
+  private readProductVariantOptionPayload(payload: Record<string, unknown> | null): ProductVariantOptionPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Variant option sync payload is required.',
+        'SYNC_VARIANT_OPTION_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as ProductVariantOptionPayload
   }
 
   /** Fallback slug from a name (the client normally sends its own). */

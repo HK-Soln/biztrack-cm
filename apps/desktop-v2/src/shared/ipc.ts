@@ -60,6 +60,8 @@ export const IPC = {
   productsDelete: 'products:delete',
   productsListImages: 'products:list-images',
   productsSetImages: 'products:set-images',
+  productsListVariants: 'products:list-variants',
+  productsSetVariants: 'products:set-variants',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -354,6 +356,34 @@ export interface LocalProduct {
   unitAbbr: string | null
 }
 
+/** One attribute-option link of a variant (e.g. Color=Black). */
+export interface VariantOptionRef {
+  attributeGroupId: string
+  attributeOptionId: string
+}
+
+/** A generated product variant (a sellable attribute combination). */
+export interface LocalVariant {
+  id: string
+  name: string
+  priceOverride: number | null
+  costPriceOverride: number | null
+  sku: string | null
+  isActive: boolean
+  sortOrder: number
+  options: VariantOptionRef[]
+}
+
+/** Desired variant from the matrix (no id — matched by option combination on save). */
+export interface VariantInput {
+  name: string
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  isActive?: boolean
+  options: VariantOptionRef[]
+}
+
 /** A product gallery image (the main image stays on the product's imageUrl). */
 export interface LocalProductImage {
   id: string
@@ -571,6 +601,9 @@ export interface BridgeApi {
     listImages: (productId: string) => Promise<LocalProductImage[]>
     /** Replace a product's gallery (diff + enqueues changes). */
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    listVariants: (productId: string) => Promise<LocalVariant[]>
+    /** Replace a product's variants (matched by option combination). */
+    setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

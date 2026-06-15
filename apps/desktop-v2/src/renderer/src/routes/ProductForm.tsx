@@ -67,6 +67,10 @@ export function ProductForm() {
   const [isSerialized, setIsSerialized] = useState(false)
   const [serialType, setSerialType] = useState<SerialType>('IMEI')
   const [warrantyMonths, setWarrantyMonths] = useState('')
+  // Variants: which options are selected per attribute group + per-combination overrides.
+  const [selectedOpts, setSelectedOpts] = useState<Record<string, string[]>>({})
+  const [variantOverrides, setVariantOverrides] = useState<Record<string, { price: string; active: boolean }>>({})
+  const [variantsLoaded, setVariantsLoaded] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -91,6 +95,65 @@ export function ProductForm() {
     setGallery(existingImages.map((g) => ({ id: g.id, url: g.url, altText: g.altText })))
     setGalleryLoaded(true)
   }, [editing, galleryLoaded, existingImages])
+
+  // The category's attribute groups drive the variant dimensions.
+  const { data: categoryLinks = [] } = useQuery({
+    queryKey: queryKeys.categoryAttributeLinks(categoryId || 'none'),
+    queryFn: () => dataClient.attributes.listCategoryLinks(categoryId),
+    enabled: isElectron && !!categoryId,
+  })
+  const { data: existingVariants } = useQuery({
+    queryKey: [...queryKeys.products, 'variants', id],
+    queryFn: () => dataClient.products.listVariants(id!),
+    enabled: isElectron && editing,
+  })
+
+  // Seed variant selections/overrides once (when editing).
+  useEffect(() => {
+    if (!editing || variantsLoaded || !existingVariants || existingVariants.length === 0) return
+    const sel: Record<string, string[]> = {}
+    const ov: Record<string, { price: string; active: boolean }> = {}
+    for (const v of existingVariants) {
+      for (const o of v.options) {
+        sel[o.attributeGroupId] = [...new Set([...(sel[o.attributeGroupId] ?? []), o.attributeOptionId])]
+      }
+      const sig = [...v.options.map((o) => o.attributeOptionId)].sort().join('|')
+      ov[sig] = { price: v.priceOverride != null ? String(v.priceOverride) : '', active: v.isActive }
+    }
+    setSelectedOpts(sel)
+    setVariantOverrides(ov)
+    setVariantsLoaded(true)
+  }, [editing, variantsLoaded, existingVariants])
+
+  const toggleOpt = (groupId: string, optionId: string) =>
+    setSelectedOpts((prev) => {
+      const cur = prev[groupId] ?? []
+      return { ...prev, [groupId]: cur.includes(optionId) ? cur.filter((x) => x !== optionId) : [...cur, optionId] }
+    })
+
+  // Cartesian product of selected options across groups that have ≥1 selection.
+  const variantMatrix = (() => {
+    const dims = categoryLinks
+      .map((g) => ({ group: g, optionIds: (selectedOpts[g.attributeGroupId] ?? []) }))
+      .filter((d) => d.optionIds.length > 0)
+    if (dims.length === 0) return [] as Array<{ sig: string; label: string; options: { attributeGroupId: string; attributeOptionId: string }[] }>
+    let combos: { attributeGroupId: string; attributeOptionId: string; value: string }[][] = [[]]
+    for (const d of dims) {
+      const next: typeof combos = []
+      for (const combo of combos) {
+        for (const optId of d.optionIds) {
+          const opt = d.group.options.find((o) => o.id === optId)
+          next.push([...combo, { attributeGroupId: d.group.attributeGroupId, attributeOptionId: optId, value: opt?.value ?? '?' }])
+        }
+      }
+      combos = next
+    }
+    return combos.map((combo) => ({
+      sig: [...combo.map((c) => c.attributeOptionId)].sort().join('|'),
+      label: combo.map((c) => c.value).join(' / '),
+      options: combo.map((c) => ({ attributeGroupId: c.attributeGroupId, attributeOptionId: c.attributeOptionId })),
+    }))
+  })()
 
   async function onPickGallery(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -239,6 +302,18 @@ export function ProductForm() {
       const saved = editing && id ? await dataClient.products.update(id, input) : await dataClient.products.create(input)
       // Persist the gallery against the (now-existing) product id.
       await dataClient.products.setImages(saved.id, gallery)
+      // Persist variants (SIMPLE products only) — matrix from the selected options.
+      if (productTypeV === 'SIMPLE') {
+        await dataClient.products.setVariants(
+          saved.id,
+          variantMatrix.map((m) => ({
+            name: m.label,
+            priceOverride: variantOverrides[m.sig]?.price?.trim() ? Number(variantOverrides[m.sig]!.price.replace(/\s/g, '')) : null,
+            isActive: variantOverrides[m.sig]?.active !== false,
+            options: m.options,
+          })),
+        )
+      }
       return saved
     },
     onSuccess: () => {
@@ -455,6 +530,73 @@ export function ProductForm() {
               </div>
             </div>
 
+            {productTypeV === 'SIMPLE' ? (
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="fsec-h" style={{ justifyContent: 'space-between' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <span className="n">V</span>
+                    {t('prodf.variants')}
+                  </span>
+                  {variantMatrix.length > 0 ? <span className="chip-tag">{t('prodf.variantCount').replace('{n}', String(variantMatrix.length))}</span> : null}
+                </div>
+                {!categoryId ? (
+                  <div className="form-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg><span>{t('prodf.variantsPickCategory')}</span></div>
+                ) : categoryLinks.length === 0 ? (
+                  <div className="form-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg><span>{t('prodf.variantsNoGroups')}</span></div>
+                ) : (
+                  <>
+                    <div className="form-note" style={{ marginBottom: 10 }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg><span>{t('prodf.variantsHint')}</span></div>
+                    {categoryLinks.map((g) => (
+                      <div className="ff" key={g.id} style={{ marginBottom: 10 }}>
+                        <label className="lbl2">{g.name}</label>
+                        <div className="attr-preview">
+                          {g.options.map((o) => {
+                            const on = (selectedOpts[g.attributeGroupId] ?? []).includes(o.id)
+                            return (
+                              <button
+                                key={o.id}
+                                type="button"
+                                className={`vopt${on ? ' on' : ''}`}
+                                onClick={() => toggleOpt(g.attributeGroupId, o.id)}
+                              >
+                                {o.colorHex ? <span className="vopt-sw" style={{ background: o.colorHex }} /> : null}
+                                {o.value}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    {variantMatrix.length > 0 ? (
+                      <div className="vmatrix">
+                        {variantMatrix.map((m) => {
+                          const ov = variantOverrides[m.sig] ?? { price: '', active: true }
+                          return (
+                            <div key={m.sig} className="vrow">
+                              <span className="vrow-name">{m.label}</span>
+                              <Input
+                                value={ov.price}
+                                inputMode="decimal"
+                                placeholder={price || t('prodf.basePrice')}
+                                onChange={(e) => setVariantOverrides((p) => ({ ...p, [m.sig]: { ...ov, price: e.target.value } }))}
+                                style={{ maxWidth: 120, height: 34 }}
+                              />
+                              <button
+                                type="button"
+                                className={`switch${ov.active !== false ? ' on' : ''}`}
+                                aria-pressed={ov.active !== false}
+                                onClick={() => setVariantOverrides((p) => ({ ...p, [m.sig]: { ...ov, active: !(ov.active !== false) } }))}
+                              />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : null}
+
             {tracksInventory ? (
               <div className="card" style={{ marginTop: 16 }}>
                 <div className="fsec-h">
@@ -631,16 +773,6 @@ export function ProductForm() {
                 ) : null}
               </div>
             ) : null}
-
-            <div className="card">
-              <div className="form-note">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 11v5M12 8h.01" />
-                </svg>
-                <span>{t('prodf.variantsNote')}</span>
-              </div>
-            </div>
 
             {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5 }} role="alert">{error}</p> : null}
 

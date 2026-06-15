@@ -3,11 +3,13 @@ import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   LocalProduct,
   LocalProductImage,
+  LocalVariant,
   PaginatedResult,
   ProductImageInput,
   ProductInput,
   ProductListQuery,
   ProductType,
+  VariantInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 
@@ -52,6 +54,28 @@ interface ProductImageRow {
   url: string
   alt_text: string | null
   sort_order: number
+}
+
+interface VariantRow {
+  id: string
+  name: string
+  price_override: number | null
+  cost_price_override: number | null
+  sku: string | null
+  is_active: number
+  sort_order: number
+}
+
+interface VariantOptionRow {
+  id: string
+  variant_id: string
+  attribute_group_id: string
+  attribute_option_id: string
+}
+
+/** Stable signature of a variant = its sorted attribute-option ids. */
+function variantSignature(optionIds: string[]): string {
+  return [...optionIds].sort().join('|')
 }
 
 const COLS =
@@ -301,6 +325,120 @@ export class ProductsService {
       this.enqueueImage(e.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     this.onMutated()
+  }
+
+  // ---- variants ------------------------------------------------------------
+
+  listVariants(productId: string): LocalVariant[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const variants = this.db.query<VariantRow>(
+      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order
+       FROM product_variants WHERE business_id = ? AND product_id = ? AND is_deleted = 0
+       ORDER BY sort_order ASC`,
+      [businessId, productId],
+    )
+    if (variants.length === 0) return []
+    const ph = variants.map(() => '?').join(', ')
+    const opts = this.db.query<VariantOptionRow>(
+      `SELECT id, variant_id, attribute_group_id, attribute_option_id FROM product_variant_options
+       WHERE business_id = ? AND is_deleted = 0 AND variant_id IN (${ph})`,
+      [businessId, ...variants.map((v) => v.id)],
+    )
+    const optsByVariant = new Map<string, VariantOptionRow[]>()
+    for (const o of opts) {
+      const list = optsByVariant.get(o.variant_id) ?? []
+      list.push(o)
+      optsByVariant.set(o.variant_id, list)
+    }
+    return variants.map((v) => ({
+      id: v.id,
+      name: v.name,
+      priceOverride: v.price_override,
+      costPriceOverride: v.cost_price_override,
+      sku: v.sku,
+      isActive: v.is_active === 1,
+      sortOrder: v.sort_order,
+      options: (optsByVariant.get(v.id) ?? []).map((o) => ({
+        attributeGroupId: o.attribute_group_id,
+        attributeOptionId: o.attribute_option_id,
+      })),
+    }))
+  }
+
+  /** Replace a product's variants. Matches by attribute-option combination so an
+   * existing variant's id (and its synced state) survives edits; adds new combos,
+   * soft-deletes removed ones. */
+  setVariants(productId: string, variants: VariantInput[]): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.listVariants(productId)
+    const existingBySig = new Map(existing.map((v) => [variantSignature(v.options.map((o) => o.attributeOptionId)), v]))
+    const keepIds = new Set<string>()
+
+    variants.forEach((v, index) => {
+      const sig = variantSignature(v.options.map((o) => o.attributeOptionId))
+      const prior = existingBySig.get(sig)
+      const id = prior?.id ?? randomUUID()
+      keepIds.add(id)
+      if (prior) {
+        this.db.run(
+          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, updated_at = ?
+           WHERE id = ? AND business_id = ?`,
+          [v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, now, id, businessId],
+        )
+      } else {
+        this.db.run(
+          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, businessId, productId, v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, now, now],
+        )
+        // Insert this variant's option links (new combos only).
+        for (const opt of v.options) {
+          const optId = randomUUID()
+          this.db.run(
+            `INSERT INTO product_variant_options (id, business_id, variant_id, attribute_group_id, attribute_option_id, is_deleted, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+            [optId, businessId, id, opt.attributeGroupId, opt.attributeOptionId, now, now],
+          )
+          this.enqueueVariant('productVariantOptions', optId, 'UPSERT', businessId, { variantId: id, attributeGroupId: opt.attributeGroupId, attributeOptionId: opt.attributeOptionId }, now)
+        }
+      }
+      this.enqueueVariant(
+        'productVariants',
+        id,
+        'UPSERT',
+        businessId,
+        { productId, name: v.name, priceOverride: v.priceOverride ?? null, costPriceOverride: v.costPriceOverride ?? null, sku: v.sku ?? null, isActive: v.isActive !== false, sortOrder: index },
+        now,
+      )
+    })
+
+    for (const v of existing) {
+      if (keepIds.has(v.id)) continue
+      this.db.run(`UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`, [now, v.id])
+      this.enqueueVariant('productVariants', v.id, 'DELETE', businessId, { isDeleted: true }, now)
+      this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
+    }
+    this.onMutated()
+  }
+
+  private enqueueVariant(
+    entity: 'productVariants' | 'productVariantOptions',
+    recordId: string,
+    operation: 'UPSERT' | 'DELETE',
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
+    this.db.run(
+      `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+       ON CONFLICT(entity, record_id) DO UPDATE SET
+         operation = excluded.operation, payload = excluded.payload, status = 'pending',
+         attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+      [randomUUID(), entity, recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+    )
   }
 
   private enqueueImage(

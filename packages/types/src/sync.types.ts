@@ -20,6 +20,8 @@ export type SyncEntity =
   | 'model'
   | 'brand_category'
   | 'product_image'
+  | 'product_variant'
+  | 'product_variant_option'
   | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
@@ -82,6 +84,8 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   brand_category: 1,
   product: 1,
   product_image: 2,
+  product_variant: 2,
+  product_variant_option: 3,
   inventory_threshold: 2,
   inventory_restock: 2,
   inventory_adjustment: 2,
@@ -106,14 +110,16 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   expense_category: 10,
   product: 11,
   product_image: 12,
-  inventory_threshold: 13,
-  inventory_restock: 14,
-  inventory_adjustment: 15,
-  sale: 16,
-  expense: 17,
-  debt: 18,
-  savings: 19,
-  savings_transaction: 20,
+  product_variant: 13,
+  product_variant_option: 14,
+  inventory_threshold: 15,
+  inventory_restock: 16,
+  inventory_adjustment: 17,
+  sale: 18,
+  expense: 19,
+  debt: 20,
+  savings: 21,
+  savings_transaction: 22,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -158,6 +164,8 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   brand_category: ['brand', 'product_category'],
   product: ['product_category', 'unit_of_measure'],
   product_image: ['product'],
+  product_variant: ['product'],
+  product_variant_option: ['product_variant', 'attribute_option'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
   inventory_adjustment: ['product'],
@@ -781,6 +789,32 @@ export interface ProductImageSyncPayload {
   isDeleted?: boolean
 }
 
+export interface ProductVariantSyncPayload {
+  productId: string
+  name: string
+  displayNameOverride?: string | null
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  barcode?: string | null
+  isActive?: boolean
+  sortOrder?: number | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface ProductVariantOptionSyncPayload {
+  variantId: string
+  attributeGroupId: string
+  attributeOptionId: string
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
 export type SyncPushPayload =
   | SyncRecord
   | ContactSyncPayload
@@ -791,6 +825,8 @@ export type SyncPushPayload =
   | ModelSyncPayload
   | BrandCategorySyncPayload
   | ProductImageSyncPayload
+  | ProductVariantSyncPayload
+  | ProductVariantOptionSyncPayload
   | OpeningBalanceSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload

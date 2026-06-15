@@ -16,11 +16,13 @@ import type {
   LocalProduct,
   LocalProductImage,
   LocalUnit,
+  LocalVariant,
   ModelInput,
   PaginatedResult,
   ProductImageInput,
   ProductInput,
   ProductListQuery,
+  VariantInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
   UnitInput,
@@ -81,6 +83,8 @@ export interface DataClient {
     remove: (id: string) => Promise<void>
     listImages: (productId: string) => Promise<LocalProductImage[]>
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    listVariants: (productId: string) => Promise<LocalVariant[]>
+    setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -139,6 +143,8 @@ function electronAdapter(): DataClient {
       remove: (id) => window.api.products.remove(id),
       listImages: (productId) => window.api.products.listImages(productId),
       setImages: (productId, images) => window.api.products.setImages(productId, images),
+      listVariants: (productId) => window.api.products.listVariants(productId),
+      setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -190,6 +196,8 @@ function cloudAdapter(): DataClient {
       remove: notWired,
       listImages: notWired,
       setImages: notWired,
+      listVariants: notWired,
+      setVariants: notWired,
     },
     uploads: { file: notWired },
   }

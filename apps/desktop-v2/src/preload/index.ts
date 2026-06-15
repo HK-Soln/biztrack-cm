@@ -84,6 +84,8 @@ const api: BridgeApi = {
     remove: (id) => ipcRenderer.invoke(IPC.productsDelete, id),
     listImages: (productId) => ipcRenderer.invoke(IPC.productsListImages, productId),
     setImages: (productId, images) => ipcRenderer.invoke(IPC.productsSetImages, productId, images),
+    listVariants: (productId) => ipcRenderer.invoke(IPC.productsListVariants, productId),
+    setVariants: (productId, variants) => ipcRenderer.invoke(IPC.productsSetVariants, productId, variants),
   },
   uploads: {
     file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
