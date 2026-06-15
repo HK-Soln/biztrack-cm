@@ -44,6 +44,12 @@ export interface SyncStatus {
   state: 'idle' | 'syncing' | 'offline' | 'error'
   lastSyncedAt: string | null
   pendingCount: number
+  /** Records waiting on a dependency to sync first (auto-retried). */
+  deferredCount: number
+  /** Records that errored and are backing off for retry. */
+  failedCount: number
+  /** Records that exhausted retries — need manual retry. */
+  deadCount: number
   lastError: string | null
 }
 
@@ -82,6 +88,17 @@ const PUSH_LIMIT = 100
 const BATCH_POLL_INTERVAL_MS = 800
 const BATCH_POLL_TIMEOUT_MS = 30_000
 const DEFAULT_INTERVAL_MS = 45_000
+// Retry policy for failed records: exponential backoff up to a cap, then dead-letter.
+const MAX_PUSH_ATTEMPTS = 8
+const BASE_BACKOFF_MS = 5_000
+const MAX_BACKOFF_MS = 60 * 60 * 1000
+// 'deferred' (waiting on a dependency) retries on a short fixed delay and never dies.
+const DEFERRED_RETRY_MS = 20_000
+
+function backoffAt(attempts: number): string {
+  const delay = Math.min(BASE_BACKOFF_MS * 2 ** Math.max(0, attempts - 1), MAX_BACKOFF_MS)
+  return new Date(Date.now() + delay).toISOString()
+}
 
 interface PushOperation {
   operationId: string
@@ -98,7 +115,15 @@ const asNum = (v: unknown): number | null => (v === null || v === undefined ? nu
 export class SyncService {
   private timer: ReturnType<typeof setInterval> | null = null
   private running = false
-  private status: SyncStatus = { state: 'idle', lastSyncedAt: null, pendingCount: 0, lastError: null }
+  private status: SyncStatus = {
+    state: 'idle',
+    lastSyncedAt: null,
+    pendingCount: 0,
+    deferredCount: 0,
+    failedCount: 0,
+    deadCount: 0,
+    lastError: null,
+  }
 
   constructor(private readonly opts: SyncEngineOptions) {}
 
@@ -114,7 +139,18 @@ export class SyncService {
   }
 
   getStatus(): SyncStatus {
-    return { ...this.status, pendingCount: this.countPending() }
+    return { ...this.status, ...this.countOutbox() }
+  }
+
+  /** Manually requeue dead/failed/deferred records now (clears backoff), then sync. */
+  async retryFailed(): Promise<void> {
+    this.opts.db.run(
+      `UPDATE sync_outbox
+       SET status = 'pending', attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = ?
+       WHERE status IN ('dead', 'failed', 'deferred')`,
+      [new Date().toISOString()],
+    )
+    await this.sync()
   }
 
   /** Run one push+pull cycle now. Safe to call concurrently — overlapping calls are ignored. */
@@ -141,10 +177,15 @@ export class SyncService {
   // ---- push ----------------------------------------------------------------
 
   private async push(): Promise<void> {
+    // Pending + retryable (failed/deferred whose backoff has elapsed). 'dead' is never
+    // auto-selected — it waits for a manual retry.
     const rows = this.opts.db.query<OutboxRow>(
       `SELECT id, entity, operation, record_id, payload, updated_at
-       FROM sync_outbox WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`,
-      [PUSH_LIMIT],
+       FROM sync_outbox
+       WHERE status = 'pending'
+          OR (status IN ('failed', 'deferred') AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
+       ORDER BY created_at ASC LIMIT ?`,
+      [new Date().toISOString(), PUSH_LIMIT],
     )
     if (rows.length === 0) return
 
@@ -210,13 +251,36 @@ export class SyncService {
     for (const result of batch.results ?? []) {
       if (result.status === 'applied' || result.status === 'conflict') {
         this.opts.db.run('DELETE FROM sync_outbox WHERE id = ?', [result.operationId])
-      } else if (result.status === 'failed') {
+      } else if (result.status === 'deferred') {
+        // Waiting on a dependency to sync first — keep it, retry on a short delay,
+        // and don't count it as a failure (never dead-letters).
         this.opts.db.run(
-          `UPDATE sync_outbox
-           SET status = 'failed', attempt_count = attempt_count + 1, last_error = ?, updated_at = ?
-           WHERE id = ?`,
-          [result.errorMessage ?? 'Sync failed', now, result.operationId],
+          `UPDATE sync_outbox SET status = 'deferred', last_error = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?`,
+          [
+            result.errorMessage ?? 'Waiting for a dependency',
+            new Date(Date.now() + DEFERRED_RETRY_MS).toISOString(),
+            now,
+            result.operationId,
+          ],
         )
+      } else if (result.status === 'failed') {
+        const row = this.opts.db.get<{ attempt_count: number }>(
+          'SELECT attempt_count FROM sync_outbox WHERE id = ?',
+          [result.operationId],
+        )
+        const attempts = (row?.attempt_count ?? 0) + 1
+        if (attempts >= MAX_PUSH_ATTEMPTS) {
+          // Dead-letter: stop auto-retrying; surfaced for manual retry.
+          this.opts.db.run(
+            `UPDATE sync_outbox SET status = 'dead', attempt_count = ?, last_error = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?`,
+            [attempts, result.errorMessage ?? 'Sync failed', now, result.operationId],
+          )
+        } else {
+          this.opts.db.run(
+            `UPDATE sync_outbox SET status = 'failed', attempt_count = ?, last_error = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?`,
+            [attempts, result.errorMessage ?? 'Sync failed', backoffAt(attempts), now, result.operationId],
+          )
+        }
       }
     }
   }
@@ -294,19 +358,26 @@ export class SyncService {
     return (json && typeof json === 'object' && 'data' in json ? json.data : json) as T
   }
 
-  private countPending(): number {
+  private countOutbox(): Pick<SyncStatus, 'pendingCount' | 'deferredCount' | 'failedCount' | 'deadCount'> {
+    const counts = { pendingCount: 0, deferredCount: 0, failedCount: 0, deadCount: 0 }
     try {
-      const row = this.opts.db.get<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM sync_outbox WHERE status = 'pending'",
+      const rows = this.opts.db.query<{ status: string; n: number }>(
+        'SELECT status, COUNT(*) AS n FROM sync_outbox GROUP BY status',
       )
-      return row?.n ?? 0
+      for (const r of rows) {
+        if (r.status === 'pending') counts.pendingCount = r.n
+        else if (r.status === 'deferred') counts.deferredCount = r.n
+        else if (r.status === 'failed') counts.failedCount = r.n
+        else if (r.status === 'dead') counts.deadCount = r.n
+      }
     } catch {
-      return 0
+      /* ignore — counts default to 0 */
     }
+    return counts
   }
 
   private setStatus(patch: Partial<SyncStatus>): void {
-    this.status = { ...this.status, ...patch, pendingCount: this.countPending() }
+    this.status = { ...this.status, ...patch, ...this.countOutbox() }
     this.opts.onStatus?.(this.status)
   }
 }

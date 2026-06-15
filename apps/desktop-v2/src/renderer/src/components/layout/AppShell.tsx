@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { useSyncStatus } from '@/lib/useSyncStatus'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
@@ -264,17 +265,45 @@ function TopBar() {
       </button>
       <span className="tb-chip">{t('top.businessPlan')}</span>
       <div className="tb-right">
-        <span className="tb-sync">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
-            <path d="M16 3v4h-4M4 17v-4h4" />
-            <path d="M15 8A6 6 0 0 0 5 5L4 7M5 12a6 6 0 0 0 10 3l1-2" />
-          </svg>
-          {t('top.synced')}
-        </span>
+        <SyncIndicator />
         <LanguageToggle />
         <ModeToggle />
       </div>
     </header>
+  )
+}
+
+function SyncIndicator() {
+  const t = useT()
+  const s = useSyncStatus()
+
+  if (s.deadCount > 0) {
+    return (
+      <button
+        type="button"
+        className="tb-sync app-no-drag"
+        style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer', font: 'inherit' }}
+        title={t('sync.retry')}
+        onClick={() => void window.api?.sync?.retry()}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
+          <path d="M12 9v4M12 17h.01" />
+        </svg>
+        {t('sync.needsAttention').replace('{n}', String(s.deadCount))}
+      </button>
+    )
+  }
+
+  const label = s.state === 'syncing' ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
+  return (
+    <span className="tb-sync" style={s.state === 'error' ? { color: 'var(--danger)' } : undefined}>
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+        <path d="M16 3v4h-4M4 17v-4h4" />
+        <path d="M15 8A6 6 0 0 0 5 5L4 7M5 12a6 6 0 0 0 10 3l1-2" />
+      </svg>
+      {label}
+    </span>
   )
 }
 

@@ -33,6 +33,7 @@ const api: BridgeApi = {
   },
   sync: {
     trigger: () => ipcRenderer.invoke(IPC.syncTrigger),
+    retry: () => ipcRenderer.invoke(IPC.syncRetry),
     getStatus: () => ipcRenderer.invoke(IPC.syncGetStatus),
     onStatus: (cb) => {
       const listener = (_e: unknown, status: Parameters<typeof cb>[0]) => cb(status)
