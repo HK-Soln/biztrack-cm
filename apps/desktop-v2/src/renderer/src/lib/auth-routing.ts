@@ -10,7 +10,9 @@ const ALIASES: Record<string, string> = {
   select_business: 'select_business',
   select_plan: 'select_plan',
   setup_business: 'setup_business',
-  add_first_product: 'add_first_product',
+  // No forced add-first-product step — once the plan is chosen the business is
+  // active; first-product guidance is a (future) dismissible dashboard nudge.
+  add_first_product: 'dashboard',
   dashboard: 'dashboard',
   register: 'register',
   login: 'login',
@@ -33,8 +35,6 @@ export function routeForNextStep(step: string | null | undefined): string {
       return '/setup-business'
     case 'select_plan':
       return '/select-plan'
-    case 'add_first_product':
-      return '/add-first-product'
     case 'dashboard':
       return '/'
     case 'register':

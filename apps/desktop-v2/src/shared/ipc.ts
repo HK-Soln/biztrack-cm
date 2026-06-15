@@ -16,6 +16,8 @@ export const IPC = {
   authResendOtp: 'auth:resend-otp',
   authRegister: 'auth:register',
   authSetupBusiness: 'auth:setup-business',
+  authListPlans: 'auth:list-plans',
+  authSelectPlan: 'auth:select-plan',
   authSelectBusiness: 'auth:select-business',
   authListBusinesses: 'auth:list-businesses',
   authOfflineLogin: 'auth:offline-login',
@@ -76,6 +78,37 @@ export interface BusinessOption {
 }
 
 export type OtpChannel = 'SMS' | 'WHATSAPP' | 'EMAIL'
+
+export type BillingCycle = 'MONTHLY' | 'ANNUAL'
+
+export interface PlanQuotas {
+  products: number | null
+  contacts: number | null
+  categories: number | null
+  users: number | null
+}
+
+export interface PlanSummary {
+  name: string
+  displayName: string
+  /** Monthly price (XAF). */
+  priceXAF: number
+  /** Annual price (XAF) — typically 10× monthly (two months free). */
+  priceAnnualXAF: number
+  trialDays: number
+  quotas: PlanQuotas
+  /** Full Resource codes granted by this plan. */
+  resources: string[]
+  /** Resource codes this plan adds over the one it inherits from. */
+  additionalResources: string[]
+  /** The plan this one builds on (for "Everything in X, plus…"), or null. */
+  inheritsFrom: string | null
+}
+
+export interface PlanList {
+  plans: PlanSummary[]
+  currentPlan: string | null
+}
 
 export interface RegisterPayload {
   name: string
@@ -148,6 +181,8 @@ export interface BridgeApi {
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     register: (payload: RegisterPayload) => Promise<AuthFlowResult>
     setupBusiness: (payload: BusinessSetupPayload) => Promise<AuthFlowResult>
+    listPlans: () => Promise<PlanList>
+    selectPlan: (plan: string, billingCycle?: BillingCycle) => Promise<AuthFlowResult>
     selectBusiness: (businessId: string) => Promise<AuthFlowResult>
     listBusinesses: () => Promise<BusinessOption[]>
     offlineLogin: (password: string) => Promise<AuthFlowResult>

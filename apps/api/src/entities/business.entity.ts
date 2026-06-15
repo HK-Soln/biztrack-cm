@@ -10,7 +10,7 @@ import { Expense } from './expense.entity'
 import { MonthlyExpenseSummary } from './monthly-expense-summary.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
-import { SubscriptionPlan, BusinessStatus, FiscalRegime } from '@biztrack/types'
+import { SubscriptionPlan, BusinessStatus, FiscalRegime, BillingCycle } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
 import { SubscriptionEvent } from './subscription-event.entity'
 import { BusinessMember } from './business-member.entity'
@@ -88,6 +88,9 @@ export class Business extends BaseEntity {
 
   @Column({ name: 'subscription_status', type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIAL })
   subscriptionStatus!: SubscriptionStatus
+
+  @Column({ name: 'billing_cycle', type: 'enum', enum: BillingCycle, default: BillingCycle.MONTHLY })
+  billingCycle!: BillingCycle
 
   @Column({ name: 'business_status', type: 'enum', enum: BusinessStatus, default: BusinessStatus.ONBOARDING })
   businessStatus!: BusinessStatus

@@ -53,7 +53,7 @@ export class PlansController {
   ): Promise<SelectPlanResponse> {
     return serializeDto(
       SelectPlanResponseDto.fromModel(
-        await this.plansService.selectPlan(user.businessId as string, dto.plan),
+        await this.plansService.selectPlan(user.businessId as string, dto.plan, dto.billingCycle),
       ),
     )
   }

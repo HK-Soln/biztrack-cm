@@ -1,12 +1,15 @@
 import type { AuthNextStep } from './auth.types'
-import type { SubscriptionPlan, SubscriptionStatus } from './business.types'
+import type { SubscriptionPlan, SubscriptionStatus, BillingCycle } from './business.types'
 import type { IsoDateString } from './http.types'
 import type { AuthPermissions, PlanQuotaMap, PlanQuotaUsage } from './permissions.types'
 
 export interface PlanResourceSummary {
   name: SubscriptionPlan
   displayName: string
+  /** Monthly price in XAF. */
   priceXAF: number
+  /** Annual price in XAF (typically 10× monthly — two months free). */
+  priceAnnualXAF: number
   trialDays: number
   resources: string[]
   quotas: PlanQuotaMap
@@ -21,6 +24,7 @@ export interface ListPlansResponse {
 
 export interface SelectPlanRequest {
   plan: SubscriptionPlan
+  billingCycle?: BillingCycle
 }
 
 export interface SelectPlanResponse {

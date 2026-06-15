@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { AuthNextStep, BusinessStatus, DEFAULT_PLAN_QUOTAS, SubscriptionPlan, type PlanQuotaMap } from '@biztrack/types'
+import { AuthNextStep, BillingCycle, BusinessStatus, DEFAULT_PLAN_QUOTAS, SubscriptionPlan, type PlanQuotaMap } from '@biztrack/types'
 import type {
   ListPlansResponse,
   PlanStateResponse,
@@ -49,6 +49,7 @@ export class PlansService {
             name: plan!.plan,
             displayName: plan!.displayName,
             priceXAF: plan!.priceXAF,
+            priceAnnualXAF: plan!.priceAnnualXAF,
             trialDays: plan!.plan === SubscriptionPlan.FREE ? 0 : paidTrialDays,
             resources: plan!.resources,
             quotas: awaitableQuotaMap(plan!.plan, plan!.quotas),
@@ -60,7 +61,7 @@ export class PlansService {
     }
   }
 
-  async selectPlan(businessId: string, plan: SubscriptionPlan) {
+  async selectPlan(businessId: string, plan: SubscriptionPlan, billingCycle: BillingCycle = BillingCycle.MONTHLY) {
     const business = await this.businessesRepo.findOne({ where: { id: businessId } })
     if (!business) {
       throw new Error(await this.i18n.translate('errors.business_not_found'))
@@ -68,11 +69,14 @@ export class PlansService {
 
     const paidTrialDays = this.getPaidPlanTrialDays()
     const now = new Date()
+    // FREE has no cycle; force MONTHLY so the stored value is meaningful.
+    const cycle = plan === SubscriptionPlan.FREE ? BillingCycle.MONTHLY : billingCycle
     const subscriptionState = this.buildSubscriptionStateForPlanChange(
       business,
       plan,
       now,
       paidTrialDays,
+      cycle,
     )
     await this.businessesRepo.update(business.id, subscriptionState.persistedFields)
 
@@ -134,6 +138,7 @@ export class PlansService {
       plan,
       new Date(),
       this.getPaidPlanTrialDays(),
+      business.billingCycle ?? BillingCycle.MONTHLY,
     )
     await this.businessesRepo.update(business.id, subscriptionState.persistedFields)
     await this.subscriptionEventsRepo.createOne({
@@ -231,6 +236,7 @@ export class PlansService {
     plan: SubscriptionPlan,
     now: Date,
     paidTrialDays: number,
+    billingCycle: BillingCycle = BillingCycle.MONTHLY,
   ) {
     if (plan === SubscriptionPlan.FREE) {
       return {
@@ -240,6 +246,7 @@ export class PlansService {
         persistedFields: {
           plan,
           subscriptionStatus: SubscriptionStatus.ACTIVE,
+          billingCycle: BillingCycle.MONTHLY,
           trialStartedAt: null,
           trialEndsAt: null,
           currentPeriodStart: null,
@@ -267,6 +274,7 @@ export class PlansService {
         persistedFields: {
           plan,
           subscriptionStatus: SubscriptionStatus.TRIAL,
+          billingCycle,
           trialStartedAt: business.trialStartedAt ?? now,
           trialEndsAt: business.trialEndsAt ?? null,
           currentPeriodStart: null,
@@ -291,6 +299,7 @@ export class PlansService {
         persistedFields: {
           plan,
           subscriptionStatus: business.subscriptionStatus,
+          billingCycle,
           trialStartedAt: business.trialStartedAt ?? null,
           trialEndsAt: business.trialEndsAt ?? null,
           currentPeriodStart: business.currentPeriodStart ?? null,
@@ -309,6 +318,7 @@ export class PlansService {
       persistedFields: {
         plan,
         subscriptionStatus: SubscriptionStatus.TRIAL,
+        billingCycle,
         trialStartedAt: now,
         trialEndsAt,
         currentPeriodStart: null,

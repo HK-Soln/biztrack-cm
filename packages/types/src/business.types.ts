@@ -16,6 +16,7 @@ export interface Business {
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
+  billingCycle?: BillingCycle
   businessStatus: BusinessStatus
   trialStartedAt?: IsoDateString | null
   trialEndsAt?: IsoDateString | null
@@ -60,6 +61,11 @@ export enum SubscriptionStatus {
   PAST_DUE = 'PAST_DUE',
   CANCELLED = 'CANCELLED',
   SUSPENDED = 'SUSPENDED',
+}
+
+export enum BillingCycle {
+  MONTHLY = 'MONTHLY',
+  ANNUAL = 'ANNUAL',
 }
 
 export enum BusinessMemberRole {

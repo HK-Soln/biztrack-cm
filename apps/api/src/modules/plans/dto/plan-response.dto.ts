@@ -14,6 +14,7 @@ export class PlanResourceSummaryDto implements PlanResourceSummary {
   name!: PlanResourceSummary['name']
   displayName!: string
   priceXAF!: number
+  priceAnnualXAF!: number
   trialDays!: number
   resources!: string[]
   quotas!: PlanResourceSummary['quotas']
