@@ -26,6 +26,10 @@ export const IPC = {
   syncRetry: 'sync:retry',
   syncGetStatus: 'sync:get-status',
   syncStatusEvent: 'sync:status-event',
+  categoriesList: 'categories:list',
+  categoriesCreate: 'categories:create',
+  categoriesUpdate: 'categories:update',
+  categoriesDelete: 'categories:delete',
 } as const
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -143,6 +147,31 @@ export interface BusinessSetupPayload {
   fiscalRegime?: string
 }
 
+/** A product category as stored locally (mirrors the synced server record). */
+export interface LocalCategory {
+  id: string
+  name: string
+  slug: string | null
+  color: string | null
+  icon: string | null
+  imageUrl: string | null
+  sortOrder: number
+  parentId: string | null
+  depth: number
+  isActive: boolean
+}
+
+/** Fields the user supplies when creating/editing a category. */
+export interface CategoryInput {
+  name: string
+  color?: string | null
+  icon?: string | null
+  imageUrl?: string | null
+  parentId?: string | null
+  sortOrder?: number
+  isActive?: boolean
+}
+
 /** Sync engine status surfaced to the renderer (no tokens, no payloads). */
 export interface SyncStatus {
   state: 'idle' | 'syncing' | 'offline' | 'error'
@@ -214,5 +243,11 @@ export interface BridgeApi {
     getStatus: () => Promise<SyncStatus>
     /** Subscribe to status changes; returns an unsubscribe fn. */
     onStatus: (cb: (status: SyncStatus) => void) => () => void
+  }
+  categories: {
+    list: () => Promise<LocalCategory[]>
+    create: (input: CategoryInput) => Promise<LocalCategory>
+    update: (id: string, input: CategoryInput) => Promise<LocalCategory>
+    remove: (id: string) => Promise<void>
   }
 }

@@ -10,4 +10,5 @@ export const queryClient = new QueryClient({
 export const queryKeys = {
   health: ['health'] as const,
   skeletonCheck: ['skeleton-check'] as const,
+  categories: ['categories'] as const,
 }
