@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -7,6 +8,12 @@ import { useSessionStore } from '@/stores/session.store'
 export function Dashboard() {
   const t = useT()
   const businessName = useSessionStore((s) => s.status.businessName)
+
+  // Kick a sync when the workspace opens so freshly-onboarded data lands promptly
+  // (the engine also runs on its own interval).
+  useEffect(() => {
+    void window.api?.sync?.trigger()
+  }, [])
   const { data, isPending, isError, error } = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => dataClient.skeleton.getHealth(),

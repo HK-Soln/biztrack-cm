@@ -31,6 +31,15 @@ const api: BridgeApi = {
     offlineLogin: (password) => ipcRenderer.invoke(IPC.authOfflineLogin, password),
     logout: () => ipcRenderer.invoke(IPC.authLogout),
   },
+  sync: {
+    trigger: () => ipcRenderer.invoke(IPC.syncTrigger),
+    getStatus: () => ipcRenderer.invoke(IPC.syncGetStatus),
+    onStatus: (cb) => {
+      const listener = (_e: unknown, status: Parameters<typeof cb>[0]) => cb(status)
+      ipcRenderer.on(IPC.syncStatusEvent, listener)
+      return () => ipcRenderer.removeListener(IPC.syncStatusEvent, listener)
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

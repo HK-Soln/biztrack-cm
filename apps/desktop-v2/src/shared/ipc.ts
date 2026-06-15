@@ -22,6 +22,9 @@ export const IPC = {
   authListBusinesses: 'auth:list-businesses',
   authOfflineLogin: 'auth:offline-login',
   authLogout: 'auth:logout',
+  syncTrigger: 'sync:trigger',
+  syncGetStatus: 'sync:get-status',
+  syncStatusEvent: 'sync:status-event',
 } as const
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -139,6 +142,14 @@ export interface BusinessSetupPayload {
   fiscalRegime?: string
 }
 
+/** Sync engine status surfaced to the renderer (no tokens, no payloads). */
+export interface SyncStatus {
+  state: 'idle' | 'syncing' | 'offline' | 'error'
+  lastSyncedAt: string | null
+  pendingCount: number
+  lastError: string | null
+}
+
 export interface TitleBarOverlayColors {
   /** Background of the native caption-button band (hex). */
   color: string
@@ -187,5 +198,12 @@ export interface BridgeApi {
     listBusinesses: () => Promise<BusinessOption[]>
     offlineLogin: (password: string) => Promise<AuthFlowResult>
     logout: () => Promise<SessionStatus>
+  }
+  sync: {
+    /** Run a push+pull cycle now. */
+    trigger: () => Promise<void>
+    getStatus: () => Promise<SyncStatus>
+    /** Subscribe to status changes; returns an unsubscribe fn. */
+    onStatus: (cb: (status: SyncStatus) => void) => () => void
   }
 }
