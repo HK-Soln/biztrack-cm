@@ -74,6 +74,7 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   brands: 'brand',
   models: 'model',
   brandCategories: 'brand_category',
+  productImages: 'product_image',
   expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
@@ -332,6 +333,9 @@ export class SyncService {
     // Products depend on category/unit/brand/model — applied after them.
     for (const record of changes.products ?? []) {
       ops.push(this.productUpsert(record))
+    }
+    for (const record of changes.productImages ?? []) {
+      ops.push(this.productImageUpsert(record))
     }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
@@ -605,6 +609,30 @@ export class SyncService {
         asStr(c.serialType),
         asNum(c.warrantyMonths),
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productImageUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_images
+        (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          product_id = excluded.product_id, url = excluded.url, alt_text = excluded.alt_text,
+          sort_order = excluded.sort_order, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.productId),
+        asStr(c.url),
+        asStr(c.altText),
+        asNum(c.sortOrder) ?? 0,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

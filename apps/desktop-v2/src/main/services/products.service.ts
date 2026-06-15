@@ -2,7 +2,9 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   LocalProduct,
+  LocalProductImage,
   PaginatedResult,
+  ProductImageInput,
   ProductInput,
   ProductListQuery,
   ProductType,
@@ -42,6 +44,14 @@ interface ProductRow {
   category_name: string | null
   brand_name: string | null
   unit_abbr: string | null
+}
+
+interface ProductImageRow {
+  id: string
+  product_id: string
+  url: string
+  alt_text: string | null
+  sort_order: number
 }
 
 const COLS =
@@ -238,6 +248,76 @@ export class ProductsService {
   /** Single product by id (for the edit form). */
   get(id: string): LocalProduct | null {
     return this.getOne(id)
+  }
+
+  // ---- gallery images ------------------------------------------------------
+
+  listImages(productId: string): LocalProductImage[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.db.query<ProductImageRow>(
+      `SELECT id, product_id, url, alt_text, sort_order FROM product_images
+       WHERE business_id = ? AND product_id = ? AND is_deleted = 0
+       ORDER BY sort_order ASC`,
+      [businessId, productId],
+    )
+    return rows.map((r) => ({ id: r.id, productId: r.product_id, url: r.url, altText: r.alt_text, sortOrder: r.sort_order }))
+  }
+
+  /** Replace a product's gallery with `images` (diff: add new, soft-delete removed, reindex). */
+  setImages(productId: string, images: ProductImageInput[]): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.db.query<ProductImageRow>(
+      `SELECT id, product_id, url, alt_text, sort_order FROM product_images
+       WHERE business_id = ? AND product_id = ? AND is_deleted = 0`,
+      [businessId, productId],
+    )
+    const keepIds = new Set(images.map((i) => i.id).filter(Boolean) as string[])
+
+    images.forEach((img, index) => {
+      const id = img.id ?? randomUUID()
+      if (img.id && existing.some((e) => e.id === img.id)) {
+        this.db.run(`UPDATE product_images SET url = ?, alt_text = ?, sort_order = ?, updated_at = ? WHERE id = ?`, [
+          img.url,
+          img.altText ?? null,
+          index,
+          now,
+          id,
+        ])
+      } else {
+        this.db.run(
+          `INSERT INTO product_images (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, businessId, productId, img.url, img.altText ?? null, index, now, now],
+        )
+      }
+      this.enqueueImage(id, 'UPSERT', businessId, { productId, url: img.url, altText: img.altText ?? null, sortOrder: index }, now)
+    })
+
+    for (const e of existing) {
+      if (keepIds.has(e.id)) continue
+      this.db.run(`UPDATE product_images SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, e.id])
+      this.enqueueImage(e.id, 'DELETE', businessId, { isDeleted: true }, now)
+    }
+    this.onMutated()
+  }
+
+  private enqueueImage(
+    recordId: string,
+    operation: 'UPSERT' | 'DELETE',
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
+    this.db.run(
+      `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
+       VALUES (?, 'productImages', ?, ?, ?, 'pending', 0, ?, ?)
+       ON CONFLICT(entity, record_id) DO UPDATE SET
+         operation = excluded.operation, payload = excluded.payload, status = 'pending',
+         attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+    )
   }
 
   // ---- internals -----------------------------------------------------------

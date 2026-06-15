@@ -58,6 +58,8 @@ export const IPC = {
   productsCreate: 'products:create',
   productsUpdate: 'products:update',
   productsDelete: 'products:delete',
+  productsListImages: 'products:list-images',
+  productsSetImages: 'products:set-images',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -352,6 +354,22 @@ export interface LocalProduct {
   unitAbbr: string | null
 }
 
+/** A product gallery image (the main image stays on the product's imageUrl). */
+export interface LocalProductImage {
+  id: string
+  productId: string
+  url: string
+  altText: string | null
+  sortOrder: number
+}
+
+/** One desired gallery image (id present = existing; absent = newly uploaded). */
+export interface ProductImageInput {
+  id?: string
+  url: string
+  altText?: string | null
+}
+
 export interface ProductInput {
   name: string
   description?: string | null
@@ -550,6 +568,9 @@ export interface BridgeApi {
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>
     remove: (id: string) => Promise<void>
+    listImages: (productId: string) => Promise<LocalProductImage[]>
+    /** Replace a product's gallery (diff + enqueues changes). */
+    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

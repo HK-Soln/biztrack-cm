@@ -96,6 +96,7 @@ import { CategoryAttributeGroup } from '@/entities/category-attribute-group.enti
 import { Brand } from '@/entities/brand.entity'
 import { Model } from '@/entities/model.entity'
 import { BrandCategory } from '@/entities/brand-category.entity'
+import { ProductImage } from '@/entities/product-image.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
@@ -202,6 +203,15 @@ type ModelPayload = {
 type BrandCategoryPayload = {
   brandId?: string
   categoryId?: string
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ProductImagePayload = {
+  productId?: string
+  url?: string
+  altText?: string | null
+  sortOrder?: number | null
   createdAt?: string
   isDeleted?: boolean
 }
@@ -391,6 +401,8 @@ export class SyncService {
     private readonly modelsRepo: Repository<Model>,
     @InjectRepository(BrandCategory)
     private readonly brandCategoriesRepo: Repository<BrandCategory>,
+    @InjectRepository(ProductImage)
+    private readonly productImagesRepo: Repository<ProductImage>,
     @InjectRepository(ExpenseCategory)
     private readonly expenseCategoriesRepo: Repository<ExpenseCategory>,
     @InjectRepository(Expense)
@@ -598,6 +610,7 @@ export class SyncService {
         brands,
         models,
         brandCategories,
+        productImages,
         productVariants,
         productVariantOptions,
         productBundleComponents,
@@ -783,6 +796,14 @@ export class SyncService {
           .andWhere('bc.updated_at <= :pulledAt', { pulledAt })
           .orderBy('bc.updated_at', 'ASC')
           .getMany(),
+        this.productImagesRepo
+          .createQueryBuilder('pi')
+          .withDeleted()
+          .where('pi.business_id = :businessId', { businessId })
+          .andWhere('pi.updated_at > :since', { since })
+          .andWhere('pi.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('pi.updated_at', 'ASC')
+          .getMany(),
         this.productVariantsRepo
           .createQueryBuilder('variant')
           .withDeleted()
@@ -918,6 +939,17 @@ export class SyncService {
           businessId: record.businessId,
           brandId: record.brandId,
           categoryId: record.categoryId,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        productImages: productImages.map((record) => ({
+          id: record.id,
+          businessId: record.businessId ?? null,
+          productId: record.productId,
+          url: record.url,
+          altText: record.altText ?? null,
+          sortOrder: record.sortOrder,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -1178,6 +1210,7 @@ export class SyncService {
       brand: (b, o) => this.applyBrandOperation(b, o),
       model: (b, o) => this.applyModelOperation(b, o),
       brand_category: (b, o) => this.applyBrandCategoryOperation(b, o),
+      product_image: (b, o) => this.applyProductImageOperation(b, o),
       contact: (b, o) => this.applyContactOperation(b, o),
       opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
       product: (b, o) => this.applyProductOperation(b, o),
@@ -1738,6 +1771,62 @@ export class SyncService {
         businessId,
         brandId,
         categoryId,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyProductImageOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productImagesRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productImagesRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductImagePayload(operation.payload)
+    const productId = payload.productId ?? existing?.productId
+    if (!productId) {
+      throw new AppBadRequestException('Product image requires a productId.', 'SYNC_PRODUCT_IMAGE_PRODUCT_REQUIRED')
+    }
+
+    if (existing) {
+      await this.productImagesRepo.update(operation.recordId, {
+        productId,
+        url: payload.url!.trim(),
+        altText: this.normalizeOptionalString(payload.altText),
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productImagesRepo.save(
+      this.productImagesRepo.create({
+        id: operation.recordId,
+        businessId,
+        productId,
+        url: payload.url!.trim(),
+        altText: this.normalizeOptionalString(payload.altText),
+        sortOrder: payload.sortOrder ?? 0,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3620,6 +3709,17 @@ export class SyncService {
       )
     }
     return payload as BrandCategoryPayload
+  }
+
+  private readProductImagePayload(payload: Record<string, unknown> | null): ProductImagePayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Product image sync payload is required.', 'SYNC_PRODUCT_IMAGE_PAYLOAD_REQUIRED')
+    }
+    const typed = payload as ProductImagePayload
+    if (!typed.url?.trim()) {
+      throw new AppBadRequestException('Product image url is required.', 'SYNC_PRODUCT_IMAGE_URL_REQUIRED')
+    }
+    return typed
   }
 
   /** Fallback slug from a name (the client normally sends its own). */

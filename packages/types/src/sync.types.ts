@@ -19,6 +19,7 @@ export type SyncEntity =
   | 'brand'
   | 'model'
   | 'brand_category'
+  | 'product_image'
   | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
@@ -80,6 +81,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   model: 1,
   brand_category: 1,
   product: 1,
+  product_image: 2,
   inventory_threshold: 2,
   inventory_restock: 2,
   inventory_adjustment: 2,
@@ -103,14 +105,15 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   brand_category: 9,
   expense_category: 10,
   product: 11,
-  inventory_threshold: 12,
-  inventory_restock: 13,
-  inventory_adjustment: 14,
-  sale: 15,
-  expense: 16,
-  debt: 17,
-  savings: 18,
-  savings_transaction: 19,
+  product_image: 12,
+  inventory_threshold: 13,
+  inventory_restock: 14,
+  inventory_adjustment: 15,
+  sale: 16,
+  expense: 17,
+  debt: 18,
+  savings: 19,
+  savings_transaction: 20,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -154,6 +157,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   model: ['brand'],
   brand_category: ['brand', 'product_category'],
   product: ['product_category', 'unit_of_measure'],
+  product_image: ['product'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
   inventory_adjustment: ['product'],
@@ -513,6 +517,7 @@ export interface ChangeSet {
   brands?: SyncRecord[]
   models?: SyncRecord[]
   brandCategories?: SyncRecord[]
+  productImages?: SyncRecord[]
   productVariants?: SyncRecord[]
   productVariantOptions?: SyncRecord[]
   productBundleComponents?: SyncRecord[]
@@ -765,6 +770,17 @@ export interface BrandCategorySyncPayload {
   isDeleted?: boolean
 }
 
+export interface ProductImageSyncPayload {
+  productId: string
+  url: string
+  altText?: string | null
+  sortOrder?: number | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
 export type SyncPushPayload =
   | SyncRecord
   | ContactSyncPayload
@@ -774,6 +790,7 @@ export type SyncPushPayload =
   | BrandSyncPayload
   | ModelSyncPayload
   | BrandCategorySyncPayload
+  | ProductImageSyncPayload
   | OpeningBalanceSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload

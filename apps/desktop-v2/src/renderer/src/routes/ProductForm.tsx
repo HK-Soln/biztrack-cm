@@ -6,7 +6,7 @@ import type { CommandSelectOption } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
-import type { ProductInput, ProductType, SerialType } from '@shared/ipc'
+import type { ProductImageInput, ProductInput, ProductType, SerialType } from '@shared/ipc'
 
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const TVA_RATE = 19.25
@@ -53,6 +53,9 @@ export function ProductForm() {
   const [unitId, setUnitId] = useState('')
   const [unitLabel, setUnitLabel] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [gallery, setGallery] = useState<ProductImageInput[]>([])
+  const [galleryLoaded, setGalleryLoaded] = useState(false)
+  const galleryRef = useRef<HTMLInputElement>(null)
   const [isActive, setIsActive] = useState(true)
   const [isFeatured, setIsFeatured] = useState(false)
   const [openingStock, setOpeningStock] = useState('')
@@ -76,6 +79,37 @@ export function ProductForm() {
     queryFn: () => dataClient.brands.get(brandId),
     enabled: isElectron && !!brandId,
   })
+  const { data: existingImages } = useQuery({
+    queryKey: [...queryKeys.products, 'images', id],
+    queryFn: () => dataClient.products.listImages(id!),
+    enabled: isElectron && editing,
+  })
+
+  // Seed the gallery once (when editing).
+  useEffect(() => {
+    if (!editing || galleryLoaded || !existingImages) return
+    setGallery(existingImages.map((g) => ({ id: g.id, url: g.url, altText: g.altText })))
+    setGalleryLoaded(true)
+  }, [editing, galleryLoaded, existingImages])
+
+  async function onPickGallery(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    const valid = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type))
+    if (valid.length === 0) return
+    setUploading(true)
+    try {
+      for (const file of valid) {
+        const bytes = await file.arrayBuffer()
+        const res = await dataClient.uploads.file({ bytes, filename: file.name, contentType: file.type, folder: 'products' })
+        setGallery((prev) => [...prev, { url: res.url }])
+      }
+    } catch {
+      setImageError(t('prodf.imageError'))
+    } finally {
+      setUploading(false)
+    }
+  }
 
   // Populate once when editing (labels come from the joined names on the product).
   useEffect(() => {
@@ -201,8 +235,12 @@ export function ProductForm() {
   }
 
   const save = useMutation({
-    mutationFn: (input: ProductInput) =>
-      editing && id ? dataClient.products.update(id, input) : dataClient.products.create(input),
+    mutationFn: async (input: ProductInput) => {
+      const saved = editing && id ? await dataClient.products.update(id, input) : await dataClient.products.create(input)
+      // Persist the gallery against the (now-existing) product id.
+      await dataClient.products.setImages(saved.id, gallery)
+      return saved
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.products })
       navigate('/products')
@@ -513,6 +551,38 @@ export function ProductForm() {
                 </button>
               )}
               {imageError ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">{imageError}</p> : null}
+
+              <div className="gallery-head">
+                <span>{t('prodf.gallery')}</span>
+                <button type="button" className="gallery-add" onClick={() => galleryRef.current?.click()} disabled={uploading}>
+                  + {t('prodf.galleryAdd')}
+                </button>
+              </div>
+              <input ref={galleryRef} type="file" accept={ALLOWED_IMAGE_TYPES.join(',')} multiple style={{ display: 'none' }} onChange={onPickGallery} />
+              {gallery.length === 0 ? (
+                <div className="gallery-empty">{t('prodf.galleryEmpty')}</div>
+              ) : (
+                <div className="gallery-grid">
+                  {gallery.map((g, i) => (
+                    <div key={g.id ?? `new-${i}`} className="gallery-thumb">
+                      <img src={g.url} alt="" />
+                      <div className="gallery-acts">
+                        <button type="button" title={t('prodf.setMain')} onClick={() => setImageUrl(g.url)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                            <path d="m12 3 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.3 6.8 19l1-5.8L3.6 9.1l5.8-.8L12 3Z" />
+                          </svg>
+                        </button>
+                        <button type="button" title={t('prodf.galleryRemove')} onClick={() => setGallery((prev) => prev.filter((_, idx) => idx !== i))}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                            <path d="M6 6l12 12M18 6 6 18" />
+                          </svg>
+                        </button>
+                      </div>
+                      {imageUrl === g.url ? <span className="gallery-main-tag">{t('prodf.main')}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="card">

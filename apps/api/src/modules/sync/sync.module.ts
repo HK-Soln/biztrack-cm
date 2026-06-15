@@ -16,6 +16,7 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductImage } from '@/entities/product-image.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
@@ -87,6 +88,7 @@ import { SyncService } from './sync.service'
       Brand,
       Model,
       BrandCategory,
+      ProductImage,
       ProductVariant,
       ProductVariantOption,
       ProductBundleComponent,
