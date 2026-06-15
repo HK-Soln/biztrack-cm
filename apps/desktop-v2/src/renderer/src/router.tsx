@@ -9,7 +9,7 @@ import { SignUp } from '@/routes/SignUp'
 import { Sso } from '@/routes/Sso'
 import { SelectBusiness } from '@/routes/SelectBusiness'
 import { SetupBusiness } from '@/routes/SetupBusiness'
-import { AuthPlaceholder } from '@/routes/AuthPlaceholder'
+import { SelectPlan } from '@/routes/SelectPlan'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -26,8 +26,7 @@ export const router = createHashRouter([
       { path: '/sso', element: <Sso /> },
       { path: '/select-business', element: <SelectBusiness /> },
       { path: '/setup-business', element: <SetupBusiness /> },
-      { path: '/select-plan', element: <AuthPlaceholder titleKey="onboarding.selectPlan" /> },
-      { path: '/add-first-product', element: <AuthPlaceholder titleKey="onboarding.addFirstProduct" /> },
+      { path: '/select-plan', element: <SelectPlan /> },
     ],
   },
   {
