@@ -146,7 +146,10 @@ export const NAV: NavEntry[] = [
   {
     label: 'nav.online',
     icon: 'store',
-    children: [{ to: '/online/orders', label: 'nav.onlineOrders', icon: 'sell' }],
+    children: [
+      { to: '/online/orders', label: 'nav.onlineOrders', icon: 'sell' },
+      { to: '/online/store', label: 'nav.onlineStore', icon: 'settings' },
+    ],
   },
   {
     label: 'nav.contacts',
