@@ -40,6 +40,10 @@ export const en = {
   'top.businessPlan': 'BUSINESS plan',
   'top.lastSync': 'Last sync 2 min ago',
   'top.toggleTheme': 'Toggle light/dark',
+  'sync.syncing': 'Syncing…',
+  'sync.error': 'Sync error',
+  'sync.needsAttention': '{n} need attention',
+  'sync.retry': 'Retry sync',
 
   'dash.title': 'Dashboard',
   'dash.welcome': 'Welcome back',
@@ -301,6 +305,10 @@ export const fr: Record<MessageKey, string> = {
   'top.businessPlan': 'Forfait BUSINESS',
   'top.lastSync': 'Dernière synchro il y a 2 min',
   'top.toggleTheme': 'Basculer clair/sombre',
+  'sync.syncing': 'Synchronisation…',
+  'sync.error': 'Erreur de synchro',
+  'sync.needsAttention': '{n} à corriger',
+  'sync.retry': 'Réessayer la synchro',
 
   'dash.title': 'Tableau de bord',
   'dash.welcome': 'Bon retour',

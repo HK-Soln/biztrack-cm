@@ -23,6 +23,7 @@ export const IPC = {
   authOfflineLogin: 'auth:offline-login',
   authLogout: 'auth:logout',
   syncTrigger: 'sync:trigger',
+  syncRetry: 'sync:retry',
   syncGetStatus: 'sync:get-status',
   syncStatusEvent: 'sync:status-event',
 } as const
@@ -147,6 +148,12 @@ export interface SyncStatus {
   state: 'idle' | 'syncing' | 'offline' | 'error'
   lastSyncedAt: string | null
   pendingCount: number
+  /** Records waiting on a dependency to sync first (auto-retried). */
+  deferredCount: number
+  /** Records that errored and are backing off for retry. */
+  failedCount: number
+  /** Records that exhausted retries — need manual retry. */
+  deadCount: number
   lastError: string | null
 }
 
@@ -202,6 +209,8 @@ export interface BridgeApi {
   sync: {
     /** Run a push+pull cycle now. */
     trigger: () => Promise<void>
+    /** Requeue dead/failed/deferred records and sync now. */
+    retry: () => Promise<void>
     getStatus: () => Promise<SyncStatus>
     /** Subscribe to status changes; returns an unsubscribe fn. */
     onStatus: (cb: (status: SyncStatus) => void) => () => void
