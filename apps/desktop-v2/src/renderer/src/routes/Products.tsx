@@ -188,12 +188,22 @@ export function Products() {
               : t('prod.subtitle')}
           </p>
         </div>
-        <Button variant="primary" onClick={() => navigate('/products/new')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          {t('prod.new')}
-        </Button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* CSV import isn't built yet — shown per design, disabled + flagged. */}
+          <Button variant="default" disabled title={t('prod.importSoon')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 3v12M7 10l5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+            {t('prod.import')}
+          </Button>
+          <Button variant="primary" onClick={() => navigate('/products/new')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            {t('prod.new')}
+          </Button>
+        </div>
       </div>
 
       <div className="minihead">
