@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { LocalUnit, PaginatedResult, UnitInput, UnitListQuery, UnitType } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import type { AuditLogger } from './audit.service'
 
 interface UnitRow {
   id: string
@@ -30,6 +31,7 @@ export class UnitsService {
     private readonly db: DatabaseService,
     private readonly getBusinessId: () => string | null,
     private readonly onMutated: () => void,
+    private readonly audit?: AuditLogger,
   ) {}
 
   /** Paginated list (system + business units), default 20, with search + type filter. */
@@ -71,7 +73,9 @@ export class UnitsService {
     )
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
     this.onMutated()
-    return this.getOne(id)!
+    const created = this.getOne(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'unit_of_measure', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    return created
   }
 
   update(id: string, input: UnitInput): LocalUnit {
@@ -87,19 +91,23 @@ export class UnitsService {
     )
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type, existing.is_default === 1), now)
     this.onMutated()
-    return this.getOne(id)!
+    const updated = this.getOne(id)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'unit_of_measure', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    return updated
   }
 
   remove(id: string): void {
     const businessId = this.requireBusinessId()
     this.requireOwnedUnit(id, businessId)
     const now = new Date().toISOString()
+    const before = this.getOne(id)
     this.db.run(
       `UPDATE unit_of_measures SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'unit_of_measure', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
   }
 
   // ---- internals -----------------------------------------------------------

@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Button, DataTable } from '@biztrack/ui/biztrack'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, DataTable, Modal } from '@biztrack/ui/biztrack'
 import type { DataTableColumn } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -22,6 +23,8 @@ export function ProductDetail() {
   const t = useT()
   const navigate = useNavigate()
   const { id } = useParams()
+  const qc = useQueryClient()
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const { data: product, isPending } = useQuery({
     queryKey: [...queryKeys.products, 'one', id],
@@ -37,6 +40,19 @@ export function ProductDetail() {
     queryKey: [...queryKeys.products, 'serials', id],
     queryFn: () => dataClient.products.listSerialUnits(id!),
     enabled: isElectron && !!id && !!product?.isSerialized,
+  })
+  const { data: images = [] } = useQuery({
+    queryKey: [...queryKeys.products, 'images', id],
+    queryFn: () => dataClient.products.listImages(id!),
+    enabled: isElectron && !!id,
+  })
+
+  const removeM = useMutation({
+    mutationFn: () => dataClient.products.remove(id!),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.products })
+      navigate('/products')
+    },
   })
 
   if (isPending) return <div className="frame"><div className="cat-empty">{t('pdv.loading')}</div></div>
@@ -88,6 +104,10 @@ export function ProductDetail() {
           <Button variant="primary" onClick={() => navigate(`/products/${p.id}/edit`)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="M14 6l4 4" /></svg>
             {t('pdv.edit')}
+          </Button>
+          <Button variant="soft" onClick={() => setConfirmOpen(true)} style={{ color: 'var(--danger)' }} title={t('pdv.delete')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
+            {t('pdv.delete')}
           </Button>
         </div>
       </div>
@@ -217,6 +237,51 @@ export function ProductDetail() {
           )}
         </div>
       ) : null}
+
+      {/* Extra: online store & SEO (not in the base design, added per request). */}
+      {p.isPublishedOnline ? (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="card-h"><div><h3>{t('pdv.onlineSeo')}</h3></div><span className="st st-ok"><span className="d" />{t('pdv.online')}</span></div>
+          <div className="fields-grid">
+            <div className="fld"><div className="fl">{t('pdv.metaTitle')}</div><div className="fv">{p.metaTitle || p.name}</div></div>
+            <div className="fld"><div className="fl">{t('pdv.reserve')}</div><div className="fv">{p.onlineStockReserve}</div></div>
+            {p.onlineDescription ? <div className="fld full"><div className="fl">{t('prodf.onlineDesc')}</div><div className="fv" style={{ fontWeight: 400, color: 'var(--text-2)' }}>{p.onlineDescription}</div></div> : null}
+            {p.metaDescription ? <div className="fld full"><div className="fl">{t('prodf.metaDescription')}</div><div className="fv" style={{ fontWeight: 400, color: 'var(--text-2)' }}>{p.metaDescription}</div></div> : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Extra: gallery (not in the base design, added per request). */}
+      {images.length > 0 ? (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="card-h"><div><h3>{t('pdv.gallery')}</h3></div><span className="chip-tag">{images.length}</span></div>
+          <div className="detail-gallery">
+            {images.map((g) => (
+              <img key={g.id} src={g.url} alt="" />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={t('prod.deleteTitle')}
+        footer={
+          <>
+            <Button variant="soft" onClick={() => setConfirmOpen(false)} disabled={removeM.isPending}>
+              {t('prod.cancel')}
+            </Button>
+            <Button variant="primary" loading={removeM.isPending} style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => removeM.mutate()}>
+              {t('prod.delete')}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+          {t('prod.deleteBody').replace('{name}', p.name)}
+        </p>
+      </Modal>
     </div>
   )
 }

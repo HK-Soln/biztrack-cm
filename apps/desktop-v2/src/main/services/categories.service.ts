@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { CategoryInput, CategoryListQuery, LocalCategory, PaginatedResult } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import type { AuditLogger } from './audit.service'
 
 interface CategoryRow {
   id: string
@@ -41,6 +42,7 @@ export class CategoriesService {
     private readonly db: DatabaseService,
     private readonly getBusinessId: () => string | null,
     private readonly onMutated: () => void,
+    private readonly audit?: AuditLogger,
   ) {}
 
   /** Paginated list for the categories screen (default 20). Supports search + filters. */
@@ -126,7 +128,9 @@ export class CategoriesService {
     )
     this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input, depth), now)
     this.onMutated()
-    return this.getOne(id)!
+    const created = this.getOne(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'product_category', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    return created
   }
 
   update(id: string, input: CategoryInput): LocalCategory {
@@ -156,18 +160,22 @@ export class CategoriesService {
     )
     this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input, depth), now)
     this.onMutated()
-    return this.getOne(id)!
+    const updated = this.getOne(id)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'product_category', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    return updated
   }
 
   remove(id: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const before = this.getOne(id)
     this.db.run(
       `UPDATE product_categories SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'product_category', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
   }
 
   // ---- internals -----------------------------------------------------------

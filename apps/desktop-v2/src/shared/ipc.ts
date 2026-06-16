@@ -65,6 +65,7 @@ export const IPC = {
   productsSetVariants: 'products:set-variants',
   productsListSerialUnits: 'products:list-serial-units',
   productsSetSerialUnits: 'products:set-serial-units',
+  auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
 
@@ -108,6 +109,28 @@ export interface ProductStats {
   blendedMarginPct: number
   lowStock: number
   outOfStock: number
+}
+
+// ---- Audit trail ----------------------------------------------------------
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE'
+
+/** One append-only audit row (who changed what, when). */
+export interface LocalAuditLog {
+  id: string
+  action: AuditAction
+  entityType: string
+  entityId: string
+  entityLabel: string | null
+  actorName: string | null
+  actorRole: string | null
+  changes: { before: unknown; after: unknown } | null
+  createdAt: string
+}
+
+export interface AuditListQuery extends ListQueryT {
+  entityType?: string
+  entityId?: string
+  action?: AuditAction
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -653,6 +676,10 @@ export interface BridgeApi {
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     /** Replace a product's serial units (matched by serialNumber). */
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+  }
+  audit: {
+    /** Read the local audit trail (newest first), optionally scoped to an entity. */
+    list: (query?: AuditListQuery) => Promise<PaginatedT<LocalAuditLog>>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */

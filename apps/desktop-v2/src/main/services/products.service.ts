@@ -15,6 +15,7 @@ import type {
   VariantInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import type { AuditLogger } from './audit.service'
 
 interface ProductRow {
   id: string
@@ -141,6 +142,26 @@ function productType(input: ProductInput): ProductType {
   return input.productType ?? 'SIMPLE'
 }
 
+/** Field-level before/after diff for the audit trail (only changed scalars). */
+const AUDITED_FIELDS: (keyof LocalProduct)[] = [
+  'name', 'description', 'sku', 'barcode', 'sellingPrice', 'costPrice', 'taxRate',
+  'productType', 'categoryId', 'brandId', 'modelId', 'unitOfMeasureId', 'imageUrl',
+  'isActive', 'isFeatured', 'isPublishedOnline', 'onlineDescription', 'onlineStockReserve',
+  'metaTitle', 'metaDescription', 'isSerialized', 'serialType', 'warrantyMonths',
+  'lowStockThreshold', 'reorderPoint',
+]
+function diffProduct(before: LocalProduct | null, after: LocalProduct): { before: Record<string, unknown>; after: Record<string, unknown> } {
+  const b: Record<string, unknown> = {}
+  const a: Record<string, unknown> = {}
+  for (const f of AUDITED_FIELDS) {
+    if (!before || before[f] !== after[f]) {
+      b[f] = before ? before[f] : null
+      a[f] = after[f]
+    }
+  }
+  return { before: b, after: a }
+}
+
 /**
  * Offline-first products. Reads come from local SQLite (synced via pull), joined with
  * category / brand / unit names for display. Writes go local + sync_outbox ('products')
@@ -152,6 +173,7 @@ export class ProductsService {
     private readonly db: DatabaseService,
     private readonly getBusinessId: () => string | null,
     private readonly onMutated: () => void,
+    private readonly audit?: AuditLogger,
   ) {}
 
   list(query: ProductListQuery = {}): PaginatedResult<LocalProduct> {
@@ -293,7 +315,9 @@ export class ProductsService {
     )
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
     this.onMutated()
-    return this.getOne(id)!
+    const created = this.getOne(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'product', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    return created
   }
 
   update(id: string, input: ProductInput): LocalProduct {
@@ -301,6 +325,7 @@ export class ProductsService {
     const now = new Date().toISOString()
     const type = productType(input)
     const isService = type === 'SERVICE'
+    const before = this.getOne(id)
     this.db.run(
       `UPDATE products SET
         name = ?, slug = ?, description = ?, sku = ?, barcode = ?, price = ?, cost_price = ?, tax_rate = ?,
@@ -346,18 +371,22 @@ export class ProductsService {
     )
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
     this.onMutated()
-    return this.getOne(id)!
+    const after = this.getOne(id)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: id, entityLabel: after.name, changes: diffProduct(before, after) })
+    return after
   }
 
   remove(id: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const before = this.getOne(id)
     this.db.run(
       `UPDATE products SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'product', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
   }
 
   /** Single product by id (for the edit form). */
@@ -416,6 +445,7 @@ export class ProductsService {
       this.enqueueImage(e.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     this.onMutated()
+    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { gallery: images.length } } })
   }
 
   // ---- variants ------------------------------------------------------------
@@ -515,6 +545,7 @@ export class ProductsService {
       this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
     }
     this.onMutated()
+    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { variants: variants.length } } })
   }
 
   listSerialUnits(productId: string): LocalSerialUnit[] {
@@ -581,6 +612,7 @@ export class ProductsService {
       this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     this.onMutated()
+    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { serials: units.length } } })
   }
 
   private enqueueSerialUnit(

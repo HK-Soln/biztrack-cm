@@ -23,6 +23,8 @@ import { ProductsService } from './services/products.service'
 import { registerProductsIpc } from './ipc/products.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
+import { AuditService } from './services/audit.service'
+import { registerAuditIpc } from './ipc/audit.ipc'
 
 const SYNC_CURSOR_KEY = 'sync.cursor'
 
@@ -132,12 +134,27 @@ app.whenReady().then(() => {
   registerSyncIpc(sync)
   app.on('before-quit', () => sync.stop())
 
+  // Append-only local audit trail: every mutating service action records who/what/when.
+  // Actor + device are snapshotted from the active session at write time.
+  const audit = new AuditService(db, () => {
+    const session = authService.getSession()
+    return {
+      businessId: session.businessId,
+      actorId: session.user?.id ?? null,
+      actorName: session.user?.name ?? null,
+      actorRole: session.user?.role ?? null,
+      deviceId: tokenStore.ensureDeviceId(),
+    }
+  })
+  registerAuditIpc(audit)
+
   // Categories: offline-first reads from local SQLite; writes go local + outbox and
   // nudge a sync. Business scope comes from the active session, never the renderer.
   const categories = new CategoriesService(
     db,
     () => authService.getSession().businessId,
     () => void sync.sync(),
+    audit,
   )
   registerCategoriesIpc(categories)
 
@@ -147,6 +164,7 @@ app.whenReady().then(() => {
     db,
     () => authService.getSession().businessId,
     () => void sync.sync(),
+    audit,
   )
   registerAttributesIpc(attributes)
 
@@ -156,6 +174,7 @@ app.whenReady().then(() => {
     db,
     () => authService.getSession().businessId,
     () => void sync.sync(),
+    audit,
   )
   registerUnitsIpc(units)
 
@@ -164,6 +183,7 @@ app.whenReady().then(() => {
     db,
     () => authService.getSession().businessId,
     () => void sync.sync(),
+    audit,
   )
   registerBrandsIpc(brands)
 
@@ -172,6 +192,7 @@ app.whenReady().then(() => {
     db,
     () => authService.getSession().businessId,
     () => void sync.sync(),
+    audit,
   )
   registerProductsIpc(products)
 

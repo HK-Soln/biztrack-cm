@@ -13,6 +13,8 @@ import type {
   LocalCategory,
   LocalCategoryAttributeGroup,
   LocalModel,
+  AuditListQuery,
+  LocalAuditLog,
   LocalProduct,
   LocalProductImage,
   LocalSerialUnit,
@@ -92,6 +94,9 @@ export interface DataClient {
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
   }
+  audit: {
+    list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
@@ -155,6 +160,9 @@ function electronAdapter(): DataClient {
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
       setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
     },
+    audit: {
+      list: (query) => window.api.audit.list(query),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -211,6 +219,7 @@ function cloudAdapter(): DataClient {
       listSerialUnits: notWired,
       setSerialUnits: notWired,
     },
+    audit: { list: notWired },
     uploads: { file: notWired },
   }
 }

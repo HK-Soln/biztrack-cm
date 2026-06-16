@@ -90,6 +90,9 @@ const api: BridgeApi = {
     listSerialUnits: (productId) => ipcRenderer.invoke(IPC.productsListSerialUnits, productId),
     setSerialUnits: (productId, units) => ipcRenderer.invoke(IPC.productsSetSerialUnits, productId, units),
   },
+  audit: {
+    list: (query) => ipcRenderer.invoke(IPC.auditList, query),
+  },
   uploads: {
     file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
   },
