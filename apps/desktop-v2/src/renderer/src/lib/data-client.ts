@@ -23,6 +23,7 @@ import type {
   ProductImageInput,
   ProductInput,
   ProductListQuery,
+  ProductStats,
   SerialUnitInput,
   VariantInput,
   SkeletonCheckDTO,
@@ -79,6 +80,7 @@ export interface DataClient {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>
@@ -141,6 +143,7 @@ function electronAdapter(): DataClient {
     },
     products: {
       list: (query) => window.api.products.list(query),
+      stats: () => window.api.products.stats(),
       get: (id) => window.api.products.get(id),
       create: (input) => window.api.products.create(input),
       update: (id, input) => window.api.products.update(id, input),
@@ -196,6 +199,7 @@ function cloudAdapter(): DataClient {
     },
     products: {
       list: notWired,
+      stats: notWired,
       get: notWired,
       create: notWired,
       update: notWired,

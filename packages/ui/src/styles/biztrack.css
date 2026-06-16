@@ -803,3 +803,34 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .serial-pill button{background:none;border:0;cursor:pointer;color:inherit;opacity:.6;width:18px;height:18px;display:grid;place-items:center;}
 .serial-pill button:hover{opacity:1;}
 .serial-pill button svg{width:12px;height:12px;}
+
+/* =========================================================
+   Products list — KPI strip, stock-status pills, search field.
+   ========================================================= */
+.minihead{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+.minihead .m{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 15px;box-shadow:var(--shadow);}
+.minihead .k{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--text-muted);margin-bottom:7px;}
+.minihead .v{font-size:19px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;}
+.minihead .h{font-size:11px;color:var(--text-muted);margin-top:3px;}
+@media(max-width:980px){.minihead{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:560px){.minihead{grid-template-columns:1fr;}}
+
+/* Stock-status pills (in / low / out) with a leading dot. */
+.st .d{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.st-ok{background:var(--success-soft);color:var(--success);}
+.st-low{background:var(--warning-soft);color:var(--warning);}
+.st-out{background:var(--danger-soft);color:var(--danger);}
+
+/* Search field with a leading icon (wraps the design's .field/.input.ic). */
+.field{position:relative;display:flex;align-items:center;}
+.field.grow{flex:1;min-width:200px;}
+.field svg{position:absolute;left:12px;width:17px;height:17px;color:var(--text-muted);pointer-events:none;}
+.field .input.ic{padding-left:36px;}
+
+.icon-btn{width:42px;height:42px;flex-shrink:0;display:grid;place-items:center;border:1px solid var(--border);
+  border-radius:10px;background:var(--surface);color:var(--text-2);cursor:pointer;}
+.icon-btn:hover{background:var(--inset);}
+.icon-btn svg{width:18px;height:18px;}
+
+.panel-foot{display:flex;align-items:center;gap:10px;padding:12px 15px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text-muted);}
+.panel-foot .spacer{flex:1;}

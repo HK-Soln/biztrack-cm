@@ -58,6 +58,7 @@ export const IPC = {
   productsCreate: 'products:create',
   productsUpdate: 'products:update',
   productsDelete: 'products:delete',
+  productsStats: 'products:stats',
   productsListImages: 'products:list-images',
   productsSetImages: 'products:set-images',
   productsListVariants: 'products:list-variants',
@@ -88,10 +89,25 @@ export interface UnitListQuery extends ListQueryT {
   type?: string
 }
 export type AttributeGroupListQuery = ListQueryT
+/** Derived stock state, computed from current stock vs the reorder/low threshold. */
+export type StockStatus = 'all' | 'in' | 'low' | 'out'
+
 export interface ProductListQuery extends ListQueryT {
   categoryId?: string
   brandId?: string
   isActive?: boolean
+  stockStatus?: StockStatus
+}
+
+/** Catalog KPI roll-up for the products list header (computed from local SQLite). */
+export interface ProductStats {
+  totalSkus: number
+  categories: number
+  catalogValueCost: number
+  retailValue: number
+  blendedMarginPct: number
+  lowStock: number
+  outOfStock: number
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -623,6 +639,7 @@ export interface BridgeApi {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>

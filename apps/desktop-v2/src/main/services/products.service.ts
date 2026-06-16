@@ -9,6 +9,7 @@ import type {
   ProductImageInput,
   ProductInput,
   ProductListQuery,
+  ProductStats,
   ProductType,
   SerialUnitInput,
   VariantInput,
@@ -153,6 +154,16 @@ export class ProductsService {
       where += ' AND p.is_active = ?'
       params.push(query.isActive ? 1 : 0)
     }
+    if (query.stockStatus && query.stockStatus !== 'all') {
+      const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
+      if (query.stockStatus === 'out') {
+        where += ' AND p.track_inventory = 1 AND p.stock_quantity <= 0'
+      } else if (query.stockStatus === 'low') {
+        where += ` AND p.track_inventory = 1 AND p.stock_quantity > 0 AND ${thr} > 0 AND p.stock_quantity <= ${thr}`
+      } else if (query.stockStatus === 'in') {
+        where += ` AND p.track_inventory = 1 AND p.stock_quantity > 0 AND (${thr} = 0 OR p.stock_quantity > ${thr})`
+      }
+    }
 
     const { rows, ...meta } = paginateRows<ProductRow>(
       this.db,
@@ -168,6 +179,45 @@ export class ProductsService {
       query,
     )
     return toPaginated(rows.map(toLocalProduct), meta)
+  }
+
+  /** Catalog KPI roll-up for the list header. Aggregated over local SQLite so it
+   * works offline; stock metrics consider only inventory-tracked products. */
+  stats(): ProductStats {
+    const empty: ProductStats = {
+      totalSkus: 0,
+      categories: 0,
+      catalogValueCost: 0,
+      retailValue: 0,
+      blendedMarginPct: 0,
+      lowStock: 0,
+      outOfStock: 0,
+    }
+    const businessId = this.getBusinessId()
+    if (!businessId) return empty
+    const thr = 'COALESCE(reorder_point, low_stock_threshold, 0)'
+    const row = this.db.get<{
+      totalSkus: number
+      categories: number
+      catalogValueCost: number
+      retailValue: number
+      lowStock: number
+      outOfStock: number
+    }>(
+      `SELECT
+         COUNT(*) AS totalSkus,
+         COUNT(DISTINCT category_id) AS categories,
+         COALESCE(SUM(COALESCE(cost_price, 0) * stock_quantity), 0) AS catalogValueCost,
+         COALESCE(SUM(price * stock_quantity), 0) AS retailValue,
+         COALESCE(SUM(CASE WHEN track_inventory = 1 AND stock_quantity > 0
+           AND ${thr} > 0 AND stock_quantity <= ${thr} THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN track_inventory = 1 AND stock_quantity <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+       FROM products WHERE business_id = ? AND is_deleted = 0`,
+      [businessId],
+    )
+    if (!row) return empty
+    const blendedMarginPct = row.retailValue > 0 ? ((row.retailValue - row.catalogValueCost) / row.retailValue) * 100 : 0
+    return { ...row, blendedMarginPct }
   }
 
   create(input: ProductInput): LocalProduct {
@@ -214,7 +264,7 @@ export class ProductsService {
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
-        input.lowStockThreshold ?? null,
+        input.lowStockThreshold ?? 0, // column is NOT NULL; 0 = no low-stock alert
         input.reorderPoint ?? null,
         tracks ? (input.openingStock ?? 0) : 0,
         now,
@@ -267,7 +317,7 @@ export class ProductsService {
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
-        input.lowStockThreshold ?? null,
+        input.lowStockThreshold ?? 0, // column is NOT NULL; 0 = no low-stock alert
         input.reorderPoint ?? null,
         now,
         id,

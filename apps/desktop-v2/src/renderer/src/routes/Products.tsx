@@ -7,17 +7,28 @@ import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
-import type { LocalProduct } from '@shared/ipc'
+import type { LocalProduct, StockStatus } from '@shared/ipc'
 
 const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
-function formatXAF(n: number): string {
+const formatXAF = (n: number) => `${XAF.format(n)} FCFA`
+function compactXAF(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M FCFA`
+  if (n >= 10_000) return `${Math.round(n / 1000)}K FCFA`
   return `${XAF.format(n)} FCFA`
 }
 
 function margin(p: LocalProduct): string {
   if (p.costPrice == null || p.costPrice <= 0 || p.sellingPrice <= 0) return '—'
-  const pct = ((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100
-  return `${pct.toFixed(1)}%`
+  return `${(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(1)}%`
+}
+
+/** Derived stock state for the status pill (mirrors the API/list-filter logic). */
+function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
+  if (!p.trackInventory) return 'none'
+  const threshold = p.reorderPoint ?? p.lowStockThreshold ?? 0
+  if (p.currentStock <= 0) return 'out'
+  if (threshold > 0 && p.currentStock <= threshold) return 'low'
+  return 'in'
 }
 
 export function Products() {
@@ -27,6 +38,7 @@ export function Products() {
   const qc = useQueryClient()
 
   const [categoryId, setCategoryId] = useState('')
+  const [stockStatus, setStockStatus] = useState<StockStatus>('all')
   const {
     items: products,
     total,
@@ -39,9 +51,17 @@ export function Products() {
     setPage,
   } = usePaged<LocalProduct>(queryKeys.products, (q) => dataClient.products.list(q), {
     enabled: isElectron,
-    extra: categoryId ? { categoryId } : {},
+    extra: {
+      ...(categoryId ? { categoryId } : {}),
+      ...(stockStatus !== 'all' ? { stockStatus } : {}),
+    },
   })
 
+  const { data: stats } = useQuery({
+    queryKey: [...queryKeys.products, 'stats'],
+    queryFn: () => dataClient.products.stats(),
+    enabled: isElectron,
+  })
   const { data: categories = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
@@ -60,6 +80,15 @@ export function Products() {
     await removeM.mutateAsync(deleteTarget.id)
     setDeleteTarget(null)
   }
+
+  const statusPill = (p: LocalProduct) => {
+    const s = stockState(p)
+    if (s === 'out') return <span className="st st-out"><span className="d" />{t('prod.stockOut')}</span>
+    if (s === 'low') return <span className="st st-low"><span className="d" />{t('prod.stockLow')}</span>
+    if (s === 'in') return <span className="st st-ok"><span className="d" />{t('prod.stockIn')}</span>
+    return p.isActive ? <span className="st st-brand">{t('prod.active')}</span> : <span className="st st-neutral">{t('prod.inactive')}</span>
+  }
+  const stockCell = (p: LocalProduct) => (p.trackInventory ? String(p.currentStock) : '—')
 
   const actions = (p: LocalProduct) => (
     <span className="acts">
@@ -82,7 +111,11 @@ export function Products() {
       <div className="page-head">
         <div>
           <h1>{t('prod.title')}</h1>
-          <p>{t('prod.subtitle')}</p>
+          <p>
+            {stats
+              ? t('prod.subtitleStats').replace('{n}', String(stats.totalSkus)).replace('{c}', String(stats.categories))
+              : t('prod.subtitle')}
+          </p>
         </div>
         <Button variant="primary" onClick={() => navigate('/products/new')}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -92,13 +125,43 @@ export function Products() {
         </Button>
       </div>
 
+      <div className="minihead">
+        <div className="m">
+          <div className="k">{t('prod.kpiCatalog')}</div>
+          <div className="v">{stats ? compactXAF(stats.catalogValueCost) : '—'}</div>
+          <div className="h">{t('prod.kpiCatalogHint').replace('{n}', String(stats?.totalSkus ?? 0))}</div>
+        </div>
+        <div className="m">
+          <div className="k">{t('prod.kpiRetail')}</div>
+          <div className="v">{stats ? compactXAF(stats.retailValue) : '—'}</div>
+          <div className="h">{t('prod.kpiRetailHint').replace('{p}', (stats?.blendedMarginPct ?? 0).toFixed(1))}</div>
+        </div>
+        <div className="m">
+          <div className="k">
+            {t('prod.kpiLow')}
+            {stats && stats.lowStock > 0 ? <span className="badge b-warn">{stats.lowStock}</span> : null}
+          </div>
+          <div className="v">{stats?.lowStock ?? 0}</div>
+          <div className="h">{t('prod.kpiLowHint')}</div>
+        </div>
+        <div className="m">
+          <div className="k">
+            {t('prod.kpiOut')}
+            {stats && stats.outOfStock > 0 ? <span className="badge b-down">{stats.outOfStock}</span> : null}
+          </div>
+          <div className="v">{stats?.outOfStock ?? 0}</div>
+          <div className="h">{t('prod.kpiOutHint')}</div>
+        </div>
+      </div>
+
       <div className="toolbar">
-        <Input
-          value={search}
-          placeholder={t('prod.search')}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ flex: 1, minWidth: 200 }}
-        />
+        <div className="field grow">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+            <circle cx="9" cy="9" r="6" />
+            <path d="m14 14 3 3" />
+          </svg>
+          <Input className="ic" value={search} placeholder={t('prod.search')} onChange={(e) => setSearch(e.target.value)} />
+        </div>
         <Select
           value={categoryId}
           onChange={(e) => {
@@ -112,6 +175,18 @@ export function Products() {
               {c.name}
             </option>
           ))}
+        </Select>
+        <Select
+          value={stockStatus}
+          onChange={(e) => {
+            setStockStatus(e.target.value as StockStatus)
+            setPage(1)
+          }}
+        >
+          <option value="all">{t('prod.allStock')}</option>
+          <option value="in">{t('prod.stockIn')}</option>
+          <option value="low">{t('prod.stockLow')}</option>
+          <option value="out">{t('prod.stockOut')}</option>
         </Select>
       </div>
 
@@ -130,12 +205,15 @@ export function Products() {
           <div className="u-cards">
             {products.map((p) => (
               <div key={p.id} className="u-card">
-                <span className="u-abbr">{p.name.slice(0, 2).toUpperCase()}</span>
+                <span className="u-abbr">
+                  {p.imageUrl ? <img src={p.imageUrl} alt="" className="ava-img" /> : p.name.slice(0, 2).toUpperCase()}
+                </span>
                 <div className="u-main">
                   <div className="u-nm">{p.name}</div>
                   <div className="u-sub">
                     {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
                     <span className="mono">{formatXAF(p.sellingPrice)}</span>
+                    {statusPill(p)}
                   </div>
                 </div>
                 {actions(p)}
@@ -152,6 +230,7 @@ export function Products() {
                 <th className="right">{t('prod.colCost')}</th>
                 <th className="right">{t('prod.colPrice')}</th>
                 <th className="right">{t('prod.colMargin')}</th>
+                <th className="right">{t('prod.colStock')}</th>
                 <th>{t('prod.colStatus')}</th>
                 <th className="right">{t('prod.colActions')}</th>
               </tr>
@@ -177,13 +256,8 @@ export function Products() {
                   <td className="right mono">{p.costPrice != null ? formatXAF(p.costPrice) : '—'}</td>
                   <td className="right mono">{formatXAF(p.sellingPrice)}</td>
                   <td className="right mono">{margin(p)}</td>
-                  <td>
-                    {p.isActive ? (
-                      <span className="st st-brand">{t('prod.active')}</span>
-                    ) : (
-                      <span className="st st-neutral">{t('prod.inactive')}</span>
-                    )}
-                  </td>
+                  <td className="right mono">{stockCell(p)}</td>
+                  <td>{statusPill(p)}</td>
                   <td className="right">{actions(p)}</td>
                 </tr>
               ))}
