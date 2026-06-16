@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
+import { Button, DataTable, Input, Modal, Select } from '@biztrack/ui/biztrack'
+import type { DataTableColumn } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
@@ -89,7 +90,8 @@ export function Products() {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.products }),
   })
 
-  const edit = (id: string) => navigate(`/products/${id}`)
+  const openDetail = (id: string) => navigate(`/products/${id}`)
+  const edit = (id: string) => navigate(`/products/${id}/edit`)
   const confirmDelete = async () => {
     if (!deleteTarget) return
     await removeM.mutateAsync(deleteTarget.id)
@@ -124,6 +126,55 @@ export function Products() {
         </svg>
       </button>
     </span>
+  )
+
+  const productCell = (p: LocalProduct) => (
+    <div className="cell">
+      <span className="th">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}</span>
+      <div>
+        <div className="nm">{p.name}</div>
+        <div className="sub">{p.sku ? `SKU · ${p.sku}` : t('prod.noSku')}</div>
+      </div>
+    </div>
+  )
+
+  const columns: DataTableColumn<LocalProduct>[] = [
+    { key: 'product', header: t('prod.colProduct'), render: productCell },
+    {
+      key: 'category',
+      header: t('prod.colCategory'),
+      render: (p) => (p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'),
+    },
+    { key: 'cost', header: t('prod.colCost'), align: 'right', tdClassName: 'num', render: (p) => (p.costPrice != null ? formatXAF(p.costPrice) : '—') },
+    { key: 'price', header: t('prod.colPrice'), align: 'right', tdClassName: 'num', render: (p) => formatXAF(p.sellingPrice) },
+    {
+      key: 'margin',
+      header: t('prod.colMargin'),
+      align: 'right',
+      tdClassName: 'num',
+      render: (p) => {
+        const m = marginInfo(p)
+        return <span style={m.good ? { color: 'var(--success)' } : undefined}>{m.text}</span>
+      },
+    },
+    { key: 'stock', header: t('prod.colStock'), align: 'right', tdClassName: 'num', render: stockCell },
+    { key: 'status', header: t('prod.colStatus'), render: statusPill },
+    { key: 'actions', header: t('prod.colActions'), align: 'right', render: actions },
+  ]
+
+  const mobileCard = (p: LocalProduct) => (
+    <div className="u-card clickable" onClick={() => openDetail(p.id)}>
+      <span className="th">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}</span>
+      <div className="u-main">
+        <div className="u-nm">{p.name}</div>
+        <div className="u-sub">
+          {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
+          <span className="num">{formatXAF(p.sellingPrice)}</span>
+          {statusPill(p)}
+        </div>
+      </div>
+      {actions(p)}
+    </div>
   )
 
   return (
@@ -270,90 +321,28 @@ export function Products() {
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <h3>{t('prod.all')}</h3>
-          <div className="spacer" style={{ flex: 1 }} />
-          <span className="chip-tag">{t('prod.count').replace('{n}', String(total))}</span>
-        </div>
-
-        {isPending ? (
-          <div className="cat-empty">{t('prod.loading')}</div>
-        ) : products.length === 0 ? (
-          <div className="cat-empty">{t('prod.empty')}</div>
-        ) : bp === 'mobile' ? (
-          <div className="u-cards">
-            {products.map((p) => (
-              <div key={p.id} className="u-card" onClick={() => edit(p.id)}>
-                <span className="th">
-                  {p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}
-                </span>
-                <div className="u-main">
-                  <div className="u-nm">{p.name}</div>
-                  <div className="u-sub">
-                    {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
-                    <span className="num">{formatXAF(p.sellingPrice)}</span>
-                    {statusPill(p)}
-                  </div>
-                </div>
-                {actions(p)}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <table className="ltbl">
-            <thead>
-              <tr>
-                <th>{t('prod.colProduct')}</th>
-                <th>{t('prod.colCategory')}</th>
-                <th className="right">{t('prod.colCost')}</th>
-                <th className="right">{t('prod.colPrice')}</th>
-                <th className="right">{t('prod.colMargin')}</th>
-                <th className="right">{t('prod.colStock')}</th>
-                <th>{t('prod.colStatus')}</th>
-                <th className="right">{t('prod.colActions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => {
-                const m = marginInfo(p)
-                return (
-                  <tr key={p.id} onClick={() => edit(p.id)}>
-                    <td>
-                      <div className="cell">
-                        <span className="th">
-                          {p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}
-                        </span>
-                        <div>
-                          <div className="nm">{p.name}</div>
-                          <div className="sub">{p.sku ? `SKU · ${p.sku}` : t('prod.noSku')}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>{p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'}</td>
-                    <td className="right num">{p.costPrice != null ? formatXAF(p.costPrice) : '—'}</td>
-                    <td className="right num">{formatXAF(p.sellingPrice)}</td>
-                    <td className="right num" style={m.good ? { color: 'var(--success)' } : undefined}>{m.text}</td>
-                    <td className="right num">{stockCell(p)}</td>
-                    <td>{statusPill(p)}</td>
-                    <td className="right">{actions(p)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          total={total}
-          limit={limit}
-          onPage={setPage}
-          prevLabel={t('common.prev')}
-          nextLabel={t('common.next')}
-        />
-      </div>
+      <DataTable<LocalProduct>
+        columns={columns}
+        rows={products}
+        rowKey={(p) => p.id}
+        onRowClick={(p) => openDetail(p.id)}
+        loading={isPending}
+        loadingText={t('prod.loading')}
+        empty={t('prod.empty')}
+        title={t('prod.all')}
+        countLabel={t('prod.count').replace('{n}', String(total))}
+        mobile={bp === 'mobile'}
+        renderMobileCard={mobileCard}
+        pagination={{
+          page,
+          totalPages,
+          total,
+          limit,
+          onPage: setPage,
+          prevLabel: t('common.prev'),
+          nextLabel: t('common.next'),
+        }}
+      />
 
       <Modal
         open={!!deleteTarget}
