@@ -48,6 +48,7 @@ interface ProductRow {
   low_stock_threshold: number | null
   reorder_point: number | null
   stock_quantity: number | null
+  effective_stock: number | null
   category_name: string | null
   brand_name: string | null
   unit_abbr: string | null
@@ -94,13 +95,30 @@ function variantSignature(optionIds: string[]): string {
   return [...optionIds].sort().join('|')
 }
 
+/**
+ * Effective on-hand stock per product (the number the UI shows):
+ * - serialized   → count of IN_STOCK serial units (stock is the unit count)
+ * - has variants → sum of the variants' stock
+ * - otherwise    → the product's own stock_quantity
+ * `p` must be the products alias in the surrounding query.
+ */
+const STOCK_EXPR = `(CASE
+    WHEN p.is_serialized = 1 THEN (
+      SELECT COUNT(*) FROM product_serial_units su
+      WHERE su.product_id = p.id AND su.is_deleted = 0 AND su.status = 'IN_STOCK')
+    WHEN EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) THEN (
+      SELECT COALESCE(SUM(pv.stock_quantity), 0) FROM product_variants pv
+      WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+    ELSE p.stock_quantity
+  END)`
+
 const COLS =
   `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
    p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
    p.is_serialized, p.serial_type, p.warranty_months,
-   p.low_stock_threshold, p.reorder_point, p.stock_quantity,
+   p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM =
   `products p
@@ -156,12 +174,13 @@ export class ProductsService {
     }
     if (query.stockStatus && query.stockStatus !== 'all') {
       const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
+      const stock = STOCK_EXPR
       if (query.stockStatus === 'out') {
-        where += ' AND p.track_inventory = 1 AND p.stock_quantity <= 0'
+        where += ` AND p.track_inventory = 1 AND ${stock} <= 0`
       } else if (query.stockStatus === 'low') {
-        where += ` AND p.track_inventory = 1 AND p.stock_quantity > 0 AND ${thr} > 0 AND p.stock_quantity <= ${thr}`
+        where += ` AND p.track_inventory = 1 AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`
       } else if (query.stockStatus === 'in') {
-        where += ` AND p.track_inventory = 1 AND p.stock_quantity > 0 AND (${thr} = 0 OR p.stock_quantity > ${thr})`
+        where += ` AND p.track_inventory = 1 AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`
       }
     }
 
@@ -195,7 +214,8 @@ export class ProductsService {
     }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
-    const thr = 'COALESCE(reorder_point, low_stock_threshold, 0)'
+    const thr = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
+    const stock = STOCK_EXPR
     const row = this.db.get<{
       totalSkus: number
       categories: number
@@ -206,13 +226,13 @@ export class ProductsService {
     }>(
       `SELECT
          COUNT(*) AS totalSkus,
-         COUNT(DISTINCT category_id) AS categories,
-         COALESCE(SUM(COALESCE(cost_price, 0) * stock_quantity), 0) AS catalogValueCost,
-         COALESCE(SUM(price * stock_quantity), 0) AS retailValue,
-         COALESCE(SUM(CASE WHEN track_inventory = 1 AND stock_quantity > 0
-           AND ${thr} > 0 AND stock_quantity <= ${thr} THEN 1 ELSE 0 END), 0) AS lowStock,
-         COALESCE(SUM(CASE WHEN track_inventory = 1 AND stock_quantity <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
-       FROM products WHERE business_id = ? AND is_deleted = 0`,
+         COUNT(DISTINCT p.category_id) AS categories,
+         COALESCE(SUM(COALESCE(p.cost_price, 0) * ${stock}), 0) AS catalogValueCost,
+         COALESCE(SUM(p.price * ${stock}), 0) AS retailValue,
+         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} > 0
+           AND ${thr} > 0 AND ${stock} <= ${thr} THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+       FROM products p WHERE p.business_id = ? AND p.is_deleted = 0`,
       [businessId],
     )
     if (!row) return empty
@@ -711,7 +731,7 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     warrantyMonths: row.warranty_months,
     lowStockThreshold: row.low_stock_threshold,
     reorderPoint: row.reorder_point,
-    currentStock: row.stock_quantity ?? 0,
+    currentStock: row.effective_stock ?? row.stock_quantity ?? 0,
     categoryName: row.category_name,
     brandName: row.brand_name,
     unitAbbr: row.unit_abbr,

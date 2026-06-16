@@ -17,9 +17,10 @@ function compactXAF(n: number): string {
   return `${XAF.format(n)} FCFA`
 }
 
-function margin(p: LocalProduct): string {
-  if (p.costPrice == null || p.costPrice <= 0 || p.sellingPrice <= 0) return '—'
-  return `${(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(1)}%`
+function marginInfo(p: LocalProduct): { text: string; good: boolean } {
+  if (p.costPrice == null || p.costPrice <= 0 || p.sellingPrice <= 0) return { text: '—', good: false }
+  const pct = ((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100
+  return { text: `${pct.toFixed(1)}%`, good: pct > 0 }
 }
 
 /** Derived stock state for the status pill (mirrors the API/list-filter logic). */
@@ -31,6 +32,8 @@ function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
   return 'in'
 }
 
+type StatusFilter = 'all' | 'active' | 'inactive'
+
 export function Products() {
   const t = useT()
   const bp = useBreakpoint()
@@ -39,6 +42,11 @@ export function Products() {
 
   const [categoryId, setCategoryId] = useState('')
   const [stockStatus, setStockStatus] = useState<StockStatus>('all')
+  const [brandId, setBrandId] = useState('')
+  const [status, setStatus] = useState<StatusFilter>('all')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const moreCount = (brandId ? 1 : 0) + (status !== 'all' ? 1 : 0)
+
   const {
     items: products,
     total,
@@ -54,6 +62,8 @@ export function Products() {
     extra: {
       ...(categoryId ? { categoryId } : {}),
       ...(stockStatus !== 'all' ? { stockStatus } : {}),
+      ...(brandId ? { brandId } : {}),
+      ...(status !== 'all' ? { isActive: status === 'active' } : {}),
     },
   })
 
@@ -66,6 +76,11 @@ export function Products() {
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
     enabled: isElectron,
+  })
+  const { data: brandPage } = useQuery({
+    queryKey: [...queryKeys.brands, 'filter-list'],
+    queryFn: () => dataClient.brands.list({ limit: 100, sortBy: 'name' }),
+    enabled: isElectron && filtersOpen,
   })
 
   const [deleteTarget, setDeleteTarget] = useState<LocalProduct | null>(null)
@@ -80,6 +95,11 @@ export function Products() {
     await removeM.mutateAsync(deleteTarget.id)
     setDeleteTarget(null)
   }
+  const resetMore = () => {
+    setBrandId('')
+    setStatus('all')
+    setPage(1)
+  }
 
   const statusPill = (p: LocalProduct) => {
     const s = stockState(p)
@@ -91,7 +111,7 @@ export function Products() {
   const stockCell = (p: LocalProduct) => (p.trackInventory ? String(p.currentStock) : '—')
 
   const actions = (p: LocalProduct) => (
-    <span className="acts">
+    <span className="acts" onClick={(e) => e.stopPropagation()}>
       <button title={t('prod.edit')} onClick={() => edit(p.id)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
@@ -188,6 +208,66 @@ export function Products() {
           <option value="low">{t('prod.stockLow')}</option>
           <option value="out">{t('prod.stockOut')}</option>
         </Select>
+
+        <div className="flt-wrap">
+          <button
+            type="button"
+            className={`icon-btn${moreCount > 0 || filtersOpen ? ' on' : ''}`}
+            title={t('prod.moreFilters')}
+            onClick={() => setFiltersOpen((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M3 5h18M6 12h12M10 19h4" />
+            </svg>
+            {moreCount > 0 ? <span className="dot">{moreCount}</span> : null}
+          </button>
+          {filtersOpen ? (
+            <>
+              <div className="flt-backdrop" onClick={() => setFiltersOpen(false)} />
+              <div className="flt-pop" role="dialog">
+                <div className="ff">
+                  <label className="lbl2">{t('prod.colBrand')}</label>
+                  <Select
+                    value={brandId}
+                    onChange={(e) => {
+                      setBrandId(e.target.value)
+                      setPage(1)
+                    }}
+                  >
+                    <option value="">{t('prod.allBrands')}</option>
+                    {(brandPage?.data ?? []).map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="ff">
+                  <label className="lbl2">{t('prod.colStatus')}</label>
+                  <Select
+                    value={status}
+                    onChange={(e) => {
+                      setStatus(e.target.value as StatusFilter)
+                      setPage(1)
+                    }}
+                  >
+                    <option value="all">{t('prod.statusAll')}</option>
+                    <option value="active">{t('prod.active')}</option>
+                    <option value="inactive">{t('prod.inactive')}</option>
+                  </Select>
+                </div>
+                <div className="flt-foot">
+                  <button type="button" className="flt-clear" onClick={resetMore}>
+                    {t('prod.clearFilters')}
+                  </button>
+                  <Button variant="soft" onClick={() => setFiltersOpen(false)}>
+                    {t('prod.done')}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <div className="panel">
@@ -204,15 +284,15 @@ export function Products() {
         ) : bp === 'mobile' ? (
           <div className="u-cards">
             {products.map((p) => (
-              <div key={p.id} className="u-card">
-                <span className="u-abbr">
-                  {p.imageUrl ? <img src={p.imageUrl} alt="" className="ava-img" /> : p.name.slice(0, 2).toUpperCase()}
+              <div key={p.id} className="u-card" onClick={() => edit(p.id)}>
+                <span className="th">
+                  {p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}
                 </span>
                 <div className="u-main">
                   <div className="u-nm">{p.name}</div>
                   <div className="u-sub">
                     {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
-                    <span className="mono">{formatXAF(p.sellingPrice)}</span>
+                    <span className="num">{formatXAF(p.sellingPrice)}</span>
                     {statusPill(p)}
                   </div>
                 </div>
@@ -221,12 +301,11 @@ export function Products() {
             ))}
           </div>
         ) : (
-          <table className="utbl">
+          <table className="ltbl">
             <thead>
               <tr>
                 <th>{t('prod.colProduct')}</th>
                 <th>{t('prod.colCategory')}</th>
-                <th>{t('prod.colBrand')}</th>
                 <th className="right">{t('prod.colCost')}</th>
                 <th className="right">{t('prod.colPrice')}</th>
                 <th className="right">{t('prod.colMargin')}</th>
@@ -236,31 +315,31 @@ export function Products() {
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <div className="u-cell">
-                      <span className="u-abbr">
-                        {p.imageUrl ? <img src={p.imageUrl} alt="" className="ava-img" /> : p.name.slice(0, 2).toUpperCase()}
-                      </span>
-                      <div>
-                        <div className="u-nm">{p.name}</div>
-                        <div className="sub" style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                          {p.sku ? `SKU · ${p.sku}` : t('prod.noSku')}
+              {products.map((p) => {
+                const m = marginInfo(p)
+                return (
+                  <tr key={p.id} onClick={() => edit(p.id)}>
+                    <td>
+                      <div className="cell">
+                        <span className="th">
+                          {p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}
+                        </span>
+                        <div>
+                          <div className="nm">{p.name}</div>
+                          <div className="sub">{p.sku ? `SKU · ${p.sku}` : t('prod.noSku')}</div>
                         </div>
                       </div>
-                    </div>
-                  </td>
-                  <td>{p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'}</td>
-                  <td className="mono">{p.brandName ?? '—'}</td>
-                  <td className="right mono">{p.costPrice != null ? formatXAF(p.costPrice) : '—'}</td>
-                  <td className="right mono">{formatXAF(p.sellingPrice)}</td>
-                  <td className="right mono">{margin(p)}</td>
-                  <td className="right mono">{stockCell(p)}</td>
-                  <td>{statusPill(p)}</td>
-                  <td className="right">{actions(p)}</td>
-                </tr>
-              ))}
+                    </td>
+                    <td>{p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'}</td>
+                    <td className="right num">{p.costPrice != null ? formatXAF(p.costPrice) : '—'}</td>
+                    <td className="right num">{formatXAF(p.sellingPrice)}</td>
+                    <td className="right num" style={m.good ? { color: 'var(--success)' } : undefined}>{m.text}</td>
+                    <td className="right num">{stockCell(p)}</td>
+                    <td>{statusPill(p)}</td>
+                    <td className="right">{actions(p)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
