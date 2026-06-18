@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, DataTable, Modal } from '@biztrack/ui/biztrack'
-import type { DataTableColumn } from '@biztrack/ui/biztrack'
+import { Button, Modal } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
+import { ManageVariants } from '@/components/products/ManageVariants'
 import { useT } from '@/i18n'
-import type { LocalProduct, LocalVariant, StockMovementType } from '@shared/ipc'
+import type { LocalProduct, StockMovementType } from '@shared/ipc'
 
 const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
 const formatXAF = (n: number) => `${XAF.format(n)} FCFA`
@@ -50,16 +50,6 @@ export function ProductDetail() {
     queryFn: () => dataClient.products.get(id!),
     enabled: isElectron && !!id,
   })
-  const { data: variants = [] } = useQuery({
-    queryKey: [...queryKeys.products, 'variants', id],
-    queryFn: () => dataClient.products.listVariants(id!),
-    enabled: isElectron && !!id,
-  })
-  const { data: serials = [] } = useQuery({
-    queryKey: [...queryKeys.products, 'serials', id],
-    queryFn: () => dataClient.products.listSerialUnits(id!),
-    enabled: isElectron && !!id && !!product?.isSerialized,
-  })
   const { data: images = [] } = useQuery({
     queryKey: [...queryKeys.products, 'images', id],
     queryFn: () => dataClient.products.listImages(id!),
@@ -96,14 +86,6 @@ export function ProductDetail() {
     if (ss === 'in') return <span className="st st-ok"><span className="d" />{t('prod.stockIn')}</span>
     return p.isActive ? <span className="st st-brand">{t('prod.active')}</span> : <span className="st st-neutral">{t('prod.inactive')}</span>
   }
-
-  const variantColumns: DataTableColumn<LocalVariant>[] = [
-    { key: 'name', header: t('pdv.colVariant'), render: (v) => <span className="nm">{v.name}</span> },
-    { key: 'price', header: t('pdv.colPrice'), align: 'right', tdClassName: 'num', render: (v) => formatXAF(v.priceOverride ?? p.sellingPrice) },
-    { key: 'cost', header: t('pdv.cost'), align: 'right', tdClassName: 'num', render: (v) => (v.costPriceOverride != null ? formatXAF(v.costPriceOverride) : '—') },
-    { key: 'stock', header: t('pdv.colStock'), align: 'right', tdClassName: 'num', render: (v) => (p.isSerialized ? serials.filter((s) => s.variantId === v.id).length : v.stockQuantity) },
-    { key: 'status', header: t('prod.colStatus'), render: (v) => (v.isActive ? <span className="st st-ok"><span className="d" />{t('prod.active')}</span> : <span className="st st-neutral">{t('prod.inactive')}</span>) },
-  ]
 
   return (
     <div className="frame">
@@ -273,16 +255,8 @@ export function ProductDetail() {
         </div>
       </div>
 
-      {/* Beyond the design: variants breakdown (kept per request). */}
-      {variants.length > 0 ? (
-        <DataTable<LocalVariant>
-          columns={variantColumns}
-          rows={variants}
-          rowKey={(v) => v.id}
-          title={t('pdv.variants')}
-          countLabel={t('prod.count').replace('{n}', String(variants.length))}
-        />
-      ) : null}
+      {/* Variant management (movement-based): add / edit info / remove. */}
+      {p.productType === 'SIMPLE' ? <ManageVariants product={p} /> : null}
 
       {/* Serial units management (movement-based): add / retire / correct. */}
       {p.isSerialized ? <ManageSerialUnits product={p} /> : null}
