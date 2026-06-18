@@ -270,6 +270,44 @@ export interface RestockSerialResult {
   detail?: string
 }
 
+// ---- Serial-unit management (REST + offline twin) -------------------------
+// Stock for a serialised product = count of IN_STOCK units. Adding/retiring a
+// unit is a quantity change → it writes a stock movement. Editing a unit's
+// serial number is a correction → no movement.
+
+/** One unit to add to stock. */
+export interface AddSerialUnitInput {
+  serialNumber: string
+  serialType: SerialType
+  /** Variant to attach to (required when the product has variants). */
+  variantId?: string | null
+}
+
+/** Add one or more serial units (each becomes IN_STOCK → a stock-in movement). */
+export interface AddSerialUnitsRequest {
+  units: AddSerialUnitInput[]
+  /** Optional note recorded on the resulting stock-in movement. */
+  notes?: string | null
+}
+
+/** Correct a unit's serial number (no quantity change → no movement). */
+export interface UpdateSerialUnitRequest {
+  serialNumber: string
+}
+
+/** Retire a unit from stock (a stock-out). The reason is recorded on the
+ * movement and the audit trail. */
+export interface RetireSerialUnitRequest {
+  reason: string
+}
+
+export interface SerialUnitsQuery {
+  page?: number
+  limit?: number
+  status?: SerialUnitStatus
+  variantId?: string
+}
+
 // ---- Composite / bundle products (Phase 3F) -------------------------------
 
 export interface ProductBundleComponent {

@@ -19,6 +19,7 @@ import { AuditModule } from '@/modules/audit/audit.module'
 import { AttributeGroupsController } from './controllers/attribute-groups.controller'
 import { CategoriesController } from './controllers/categories.controller'
 import { ProductImagesController } from './controllers/product-images.controller'
+import { ProductSerialUnitsController } from './controllers/product-serial-units.controller'
 import { ProductsController } from './controllers/products.controller'
 import { UnitOfMeasuresController } from './controllers/unit-of-measures.controller'
 import { ProductsRepository } from './repositories/products.repository'
@@ -27,6 +28,7 @@ import { AttributeGroupsService } from './services/attribute-groups.service'
 import { BarcodeService } from './services/barcode.service'
 import { CategoriesService } from './services/categories.service'
 import { ProductImagesService } from './services/product-images.service'
+import { ProductSerialUnitsService } from './services/product-serial-units.service'
 import { ProductsService } from './services/products.service'
 import { ProductVariantsService } from './services/product-variants.service'
 import { SlugService } from './services/slug.service'
@@ -60,6 +62,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     CategoriesController,
     AttributeGroupsController,
     ProductsController,
+    ProductSerialUnitsController,
   ],
   providers: [
     ProductsRepository,
@@ -68,6 +71,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     BarcodeService,
     CategoriesService,
     ProductImagesService,
+    ProductSerialUnitsService,
     ProductsService,
     ProductVariantsService,
     SlugService,
