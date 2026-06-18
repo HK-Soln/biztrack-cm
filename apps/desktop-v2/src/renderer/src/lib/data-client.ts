@@ -92,6 +92,9 @@ export interface DataClient {
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
+    addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
+    updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
+    removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
     addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
@@ -162,6 +165,9 @@ function electronAdapter(): DataClient {
       setImages: (productId, images) => window.api.products.setImages(productId, images),
       listVariants: (productId) => window.api.products.listVariants(productId),
       setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
+      addVariant: (productId, input) => window.api.products.addVariant(productId, input),
+      updateVariant: (productId, variantId, input) => window.api.products.updateVariant(productId, variantId, input),
+      removeVariant: (productId, variantId, reason) => window.api.products.removeVariant(productId, variantId, reason),
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
       setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
       addSerialUnits: (productId, units, notes) => window.api.products.addSerialUnits(productId, units, notes),
@@ -226,6 +232,9 @@ function cloudAdapter(): DataClient {
       setImages: notWired,
       listVariants: notWired,
       setVariants: notWired,
+      addVariant: notWired,
+      updateVariant: notWired,
+      removeVariant: notWired,
       listSerialUnits: notWired,
       setSerialUnits: notWired,
       addSerialUnits: notWired,

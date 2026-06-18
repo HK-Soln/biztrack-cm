@@ -567,6 +567,123 @@ export class ProductsService {
     this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { variants: variants.length } } })
   }
 
+  // ---- variant management (movement-based, post-creation) -------------------
+  // The variant SET is structure, but adding one (with opening stock) is a stock-in
+  // and removing one writes off its remaining stock (a stock-out). Editing a
+  // variant's catalog info writes no movement. Offline twin of products/:id/variants.
+
+  /** Add a variant (a stock-in for its opening stock). Serialised variants are
+   * created at 0 — their stock comes from serial units. */
+  addVariant(productId: string, input: VariantInput): LocalVariant {
+    const businessId = this.requireBusinessId()
+    const product = this.getOne(productId)
+    if (!product) throw new Error('Product not found.')
+    const now = new Date().toISOString()
+    const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
+    if (this.listVariants(productId).some((v) => variantSignature(v.options.map((o) => o.attributeOptionId)) === sig)) {
+      throw new Error('A variant with this combination already exists.')
+    }
+    const id = randomUUID()
+    const sortOrder = this.listVariants(productId).length
+    const stock = product.isSerialized ? 0 : Math.max(input.openingStock ?? 0, 0)
+    this.db.run(
+      `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, businessId, productId, input.name, input.priceOverride ?? null, input.costPriceOverride ?? null, input.sku ?? null, input.isActive === false ? 0 : 1, sortOrder, stock, input.lowStockThreshold ?? null, now, now],
+    )
+    for (const opt of input.options) {
+      const optId = randomUUID()
+      this.db.run(
+        `INSERT INTO product_variant_options (id, business_id, variant_id, attribute_group_id, attribute_option_id, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+        [optId, businessId, id, opt.attributeGroupId, opt.attributeOptionId, now, now],
+      )
+      this.enqueueVariant('productVariantOptions', optId, 'UPSERT', businessId, { variantId: id, attributeGroupId: opt.attributeGroupId, attributeOptionId: opt.attributeOptionId }, now)
+    }
+    this.enqueueVariant(
+      'productVariants',
+      id,
+      'UPSERT',
+      businessId,
+      { productId, name: input.name, priceOverride: input.priceOverride ?? null, costPriceOverride: input.costPriceOverride ?? null, sku: input.sku ?? null, isActive: input.isActive !== false, sortOrder, openingStock: stock, lowStockThreshold: input.lowStockThreshold ?? null },
+      now,
+    )
+    if (!product.isSerialized && stock > 0) {
+      this.recordStockMovement(productId, businessId, stock, { referenceType: 'product_variant', referenceId: id, notes: `Added variant "${input.name}" (+${stock})` }, now)
+    }
+    this.audit?.log({ action: 'CREATE', entityType: 'product_variant', entityId: id, entityLabel: input.name, changes: { before: null, after: { productId, name: input.name, openingStock: stock } } })
+    this.onMutated()
+    return this.listVariants(productId).find((v) => v.id === id)!
+  }
+
+  /** Edit a variant's catalog info (name/price/cost/sku/active/threshold). No movement. */
+  updateVariant(productId: string, variantId: string, input: VariantInput): LocalVariant {
+    const businessId = this.requireBusinessId()
+    const prior = this.listVariants(productId).find((v) => v.id === variantId)
+    if (!prior) throw new Error('Variant not found.')
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, updated_at = ?
+       WHERE id = ? AND business_id = ?`,
+      [input.name, input.priceOverride ?? null, input.costPriceOverride ?? null, input.sku ?? null, input.isActive === false ? 0 : 1, input.lowStockThreshold ?? null, now, variantId, businessId],
+    )
+    this.enqueueVariant(
+      'productVariants',
+      variantId,
+      'UPSERT',
+      businessId,
+      { productId, name: input.name, priceOverride: input.priceOverride ?? null, costPriceOverride: input.costPriceOverride ?? null, sku: input.sku ?? null, isActive: input.isActive !== false, sortOrder: prior.sortOrder, lowStockThreshold: input.lowStockThreshold ?? null },
+      now,
+    )
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product_variant',
+      entityId: variantId,
+      entityLabel: input.name,
+      changes: { before: { name: prior.name, priceOverride: prior.priceOverride, costPriceOverride: prior.costPriceOverride, sku: prior.sku, isActive: prior.isActive }, after: { name: input.name, priceOverride: input.priceOverride ?? null, costPriceOverride: input.costPriceOverride ?? null, sku: input.sku ?? null, isActive: input.isActive !== false } },
+    })
+    this.onMutated()
+    return this.listVariants(productId).find((v) => v.id === variantId)!
+  }
+
+  /** Remove a variant (writes off its remaining stock). For serialised products,
+   * retires the variant's IN_STOCK serial units too. */
+  removeVariant(productId: string, variantId: string, reason: string): void {
+    const businessId = this.requireBusinessId()
+    const product = this.getOne(productId)
+    if (!product) throw new Error('Product not found.')
+    const variant = this.listVariants(productId).find((v) => v.id === variantId)
+    if (!variant) throw new Error('Variant not found.')
+    const trimmed = reason.trim()
+    if (!trimmed) throw new Error('A reason is required to remove a variant.')
+    const now = new Date().toISOString()
+
+    let writeOff: number
+    if (product.isSerialized) {
+      const units = this.db.query<{ id: string }>(
+        `SELECT id FROM product_serial_units WHERE business_id = ? AND product_id = ? AND variant_id = ? AND is_deleted = 0 AND status = 'IN_STOCK'`,
+        [businessId, productId, variantId],
+      )
+      writeOff = units.length
+      for (const u of units) {
+        this.db.run(`UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`, [now, u.id])
+        this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
+      }
+    } else {
+      writeOff = variant.stockQuantity
+    }
+
+    this.db.run(`UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`, [now, variantId])
+    this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, variantId])
+    this.enqueueVariant('productVariants', variantId, 'DELETE', businessId, { isDeleted: true }, now)
+
+    if (writeOff > 0) {
+      this.recordStockMovement(productId, businessId, -writeOff, { referenceType: 'product_variant', referenceId: variantId, notes: trimmed }, now)
+    }
+    this.audit?.log({ action: 'DELETE', entityType: 'product_variant', entityId: variantId, entityLabel: variant.name, changes: { before: { name: variant.name, removeReason: trimmed }, after: null } })
+    this.onMutated()
+  }
+
   listSerialUnits(productId: string): LocalSerialUnit[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []

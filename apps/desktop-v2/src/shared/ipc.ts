@@ -63,6 +63,9 @@ export const IPC = {
   productsSetImages: 'products:set-images',
   productsListVariants: 'products:list-variants',
   productsSetVariants: 'products:set-variants',
+  productsAddVariant: 'products:add-variant',
+  productsUpdateVariant: 'products:update-variant',
+  productsRemoveVariant: 'products:remove-variant',
   productsListSerialUnits: 'products:list-serial-units',
   productsSetSerialUnits: 'products:set-serial-units',
   productsAddSerialUnits: 'products:add-serial-units',
@@ -699,8 +702,14 @@ export interface BridgeApi {
     /** Replace a product's gallery (diff + enqueues changes). */
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
-    /** Replace a product's variants (matched by option combination). */
+    /** Set a product's initial variants at creation. */
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
+    /** Add a variant post-creation (opening stock → stock-in movement). */
+    addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
+    /** Edit a variant's catalog info (no movement). */
+    updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
+    /** Remove a variant (writes off its stock) with a reason. */
+    removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     /** Set a product's initial serial units at creation (opening stock). */
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>

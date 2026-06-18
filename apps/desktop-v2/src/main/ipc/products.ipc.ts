@@ -24,6 +24,15 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsSetVariants, (_e, productId: string, variants: VariantInput[]) =>
     products.setVariants(productId, variants),
   )
+  ipcMain.handle(IPC.productsAddVariant, (_e, productId: string, input: VariantInput) =>
+    products.addVariant(productId, input),
+  )
+  ipcMain.handle(IPC.productsUpdateVariant, (_e, productId: string, variantId: string, input: VariantInput) =>
+    products.updateVariant(productId, variantId, input),
+  )
+  ipcMain.handle(IPC.productsRemoveVariant, (_e, productId: string, variantId: string, reason: string) =>
+    products.removeVariant(productId, variantId, reason),
+  )
   ipcMain.handle(IPC.productsListSerialUnits, (_e, productId: string) =>
     products.listSerialUnits(productId),
   )
