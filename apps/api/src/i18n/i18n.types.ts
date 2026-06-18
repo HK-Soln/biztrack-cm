@@ -91,6 +91,8 @@ export interface I18nTranslations {
     variant_min_two: string
     variant_required: string
     variant_not_found: string
+    variant_options_required: string
+    variant_duplicate_combination: string
     quantity_must_be_integer: string
     bundle_components_required: string
     bundle_component_nested: string

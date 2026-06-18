@@ -20,6 +20,7 @@ import { AttributeGroupsController } from './controllers/attribute-groups.contro
 import { CategoriesController } from './controllers/categories.controller'
 import { ProductImagesController } from './controllers/product-images.controller'
 import { ProductSerialUnitsController } from './controllers/product-serial-units.controller'
+import { ProductVariantsController } from './controllers/product-variants.controller'
 import { ProductsController } from './controllers/products.controller'
 import { UnitOfMeasuresController } from './controllers/unit-of-measures.controller'
 import { ProductsRepository } from './repositories/products.repository'
@@ -31,6 +32,7 @@ import { ProductImagesService } from './services/product-images.service'
 import { ProductSerialUnitsService } from './services/product-serial-units.service'
 import { ProductsService } from './services/products.service'
 import { ProductVariantsService } from './services/product-variants.service'
+import { ProductVariantManagementService } from './services/product-variant-management.service'
 import { SlugService } from './services/slug.service'
 import { SkuService } from './services/sku.service'
 import { UnitOfMeasuresService } from './services/unit-of-measures.service'
@@ -63,6 +65,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     AttributeGroupsController,
     ProductsController,
     ProductSerialUnitsController,
+    ProductVariantsController,
   ],
   providers: [
     ProductsRepository,
@@ -74,6 +77,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     ProductSerialUnitsService,
     ProductsService,
     ProductVariantsService,
+    ProductVariantManagementService,
     SlugService,
     SkuService,
     UnitOfMeasuresService,

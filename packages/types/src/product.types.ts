@@ -308,6 +308,38 @@ export interface SerialUnitsQuery {
   variantId?: string
 }
 
+// ---- Variant management (REST + offline twin) -----------------------------
+// A variant's stock is its own quantity (non-serialised) or the count of its
+// serial units. Adding a variant with opening stock is a stock-in; removing one
+// writes off its remaining stock (a stock-out). Editing name/price/sku/active is
+// a catalog change → no movement.
+
+/** Add one variant from a specific option combination. */
+export interface AddProductVariantRequest {
+  options: { attributeGroupId: string; attributeOptionId: string }[]
+  name?: string
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  isActive?: boolean
+  /** Opening stock for the new variant (non-serialised only) → stock-in movement. */
+  openingStock?: number | null
+}
+
+/** Edit a variant's catalog info. No quantity change → no movement. */
+export interface UpdateProductVariantRequest {
+  name?: string
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  isActive?: boolean
+}
+
+/** Remove a variant from the catalog; writes off its remaining stock. */
+export interface RemoveProductVariantRequest {
+  reason: string
+}
+
 // ---- Composite / bundle products (Phase 3F) -------------------------------
 
 export interface ProductBundleComponent {
