@@ -89,6 +89,10 @@ const api: BridgeApi = {
     setVariants: (productId, variants) => ipcRenderer.invoke(IPC.productsSetVariants, productId, variants),
     listSerialUnits: (productId) => ipcRenderer.invoke(IPC.productsListSerialUnits, productId),
     setSerialUnits: (productId, units) => ipcRenderer.invoke(IPC.productsSetSerialUnits, productId, units),
+    addSerialUnits: (productId, units, notes) => ipcRenderer.invoke(IPC.productsAddSerialUnits, productId, units, notes),
+    retireSerialUnit: (productId, unitId, reason) => ipcRenderer.invoke(IPC.productsRetireSerialUnit, productId, unitId, reason),
+    updateSerialNumber: (productId, unitId, serialNumber) =>
+      ipcRenderer.invoke(IPC.productsUpdateSerialNumber, productId, unitId, serialNumber),
     listMovements: (productId) => ipcRenderer.invoke(IPC.productsListMovements, productId),
   },
   audit: {

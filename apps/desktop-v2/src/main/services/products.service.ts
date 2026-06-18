@@ -635,6 +635,149 @@ export class ProductsService {
     this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { serials: units.length } } })
   }
 
+  // ---- serial-unit management (movement-based, post-creation) ---------------
+  // Stock for a serialised product = count of IN_STOCK units, so adding a unit is a
+  // stock-in and retiring one is a stock-out (each writes a movement + local audit);
+  // correcting a serial number is a catalog edit → no movement. These are the
+  // offline twin of products/:productId/serial-units; serial rows still sync.
+
+  /** Add serial units to stock (a stock-in). New numbers become IN_STOCK; a
+   * previously retired number is revived. Writes one stock movement + a local
+   * audit row per unit (with the active actor). */
+  addSerialUnits(productId: string, units: SerialUnitInput[], notes: string | null = null): LocalSerialUnit[] {
+    const businessId = this.requireBusinessId()
+    const product = this.getOne(productId)
+    if (!product) throw new Error('Product not found.')
+    if (!product.isSerialized) throw new Error('This product does not track serial numbers.')
+    const now = new Date().toISOString()
+    const created: LocalSerialUnit[] = []
+    const seen = new Set<string>()
+
+    for (const u of units) {
+      const serial = u.serialNumber.trim()
+      if (!serial || seen.has(serial)) continue
+      seen.add(serial)
+      const variantId = u.variantId ?? null
+      const existing = this.db.get<SerialUnitRow & { is_deleted: number }>(
+        `SELECT id, product_id, variant_id, serial_number, serial_type, status, is_deleted
+         FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+        [businessId, serial],
+      )
+      let id: string
+      if (existing) {
+        const live = existing.is_deleted === 0 && (existing.status === 'IN_STOCK' || existing.status === 'RESERVED')
+        if (live) throw new Error(`${serial} is already in stock.`)
+        id = existing.id
+        this.db.run(
+          `UPDATE product_serial_units SET status = 'IN_STOCK', is_deleted = 0, variant_id = ?, serial_type = ?, updated_at = ? WHERE id = ?`,
+          [variantId, u.serialType, now, id],
+        )
+      } else {
+        id = randomUUID()
+        this.db.run(
+          `INSERT INTO product_serial_units (id, business_id, product_id, variant_id, serial_number, serial_type, status, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'IN_STOCK', 0, ?, ?)`,
+          [id, businessId, productId, variantId, serial, u.serialType, now, now],
+        )
+      }
+      this.enqueueSerialUnit(id, 'UPSERT', businessId, { productId, variantId, serialNumber: serial, serialType: u.serialType, status: 'IN_STOCK' }, now)
+      created.push({ id, productId, variantId, serialNumber: serial, serialType: u.serialType, status: 'IN_STOCK' })
+    }
+
+    if (created.length > 0) {
+      this.recordStockMovement(
+        productId,
+        businessId,
+        created.length,
+        { referenceType: 'serial_unit', referenceId: productId, notes: notes?.trim() || `Added ${created.length} serial unit(s)` },
+        now,
+      )
+      for (const u of created) {
+        this.audit?.log({
+          action: 'CREATE',
+          entityType: 'product_serial_unit',
+          entityId: u.id,
+          entityLabel: u.serialNumber,
+          changes: { before: null, after: { productId, variantId: u.variantId, serialNumber: u.serialNumber, status: 'IN_STOCK' } },
+        })
+      }
+      this.onMutated()
+    }
+    return created
+  }
+
+  /** Retire a unit from stock (a stock-out) with a required reason. Only IN_STOCK
+   * units can be retired. Writes a −1 movement + a local audit row. */
+  retireSerialUnit(productId: string, unitId: string, reason: string): void {
+    const businessId = this.requireBusinessId()
+    const unit = this.db.get<SerialUnitRow>(
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+       FROM product_serial_units WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
+      [unitId, productId, businessId],
+    )
+    if (!unit) throw new Error('Serial unit not found.')
+    if (unit.status !== 'IN_STOCK') throw new Error('Only in-stock units can be retired.')
+    const trimmed = reason.trim()
+    if (!trimmed) throw new Error('A reason is required to retire a unit.')
+    const now = new Date().toISOString()
+    this.db.run(`UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`, [now, unitId])
+    this.enqueueSerialUnit(unitId, 'DELETE', businessId, { isDeleted: true }, now)
+    this.recordStockMovement(productId, businessId, -1, { referenceType: 'serial_unit', referenceId: unitId, notes: trimmed }, now)
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'product_serial_unit',
+      entityId: unitId,
+      entityLabel: unit.serial_number,
+      changes: { before: { serialNumber: unit.serial_number, status: unit.status, retireReason: trimmed }, after: null },
+    })
+    this.onMutated()
+  }
+
+  /** Correct a unit's serial number (a typo fix). No quantity change → no movement. */
+  updateSerialNumber(productId: string, unitId: string, serialNumber: string): LocalSerialUnit {
+    const businessId = this.requireBusinessId()
+    const unit = this.db.get<SerialUnitRow>(
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+       FROM product_serial_units WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
+      [unitId, productId, businessId],
+    )
+    if (!unit) throw new Error('Serial unit not found.')
+    const serial = serialNumber.trim()
+    if (!serial) throw new Error('Serial number is required.')
+    if (serial !== unit.serial_number) {
+      const clash = this.db.get<{ id: string }>(
+        `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+        [businessId, serial],
+      )
+      if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
+    }
+    const now = new Date().toISOString()
+    this.db.run(`UPDATE product_serial_units SET serial_number = ?, updated_at = ? WHERE id = ?`, [serial, now, unitId])
+    this.enqueueSerialUnit(
+      unitId,
+      'UPSERT',
+      businessId,
+      { productId, variantId: unit.variant_id, serialNumber: serial, serialType: unit.serial_type, status: unit.status },
+      now,
+    )
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product_serial_unit',
+      entityId: unitId,
+      entityLabel: serial,
+      changes: { before: { serialNumber: unit.serial_number }, after: { serialNumber: serial } },
+    })
+    this.onMutated()
+    return {
+      id: unitId,
+      productId,
+      variantId: unit.variant_id,
+      serialNumber: serial,
+      serialType: unit.serial_type as LocalSerialUnit['serialType'],
+      status: unit.status,
+    }
+  }
+
   // ---- stock movements (read-only ledger) ----------------------------------
 
   /** Stock-ledger entries for the detail card, newest first. Until the Inventory
@@ -671,35 +814,19 @@ export class ProductsService {
     return Math.max(0, row?.s ?? 0)
   }
 
-  /**
-   * Keep the single OPENING_STOCK movement (+ inventory level) in step with the
-   * product's effective stock, so the detail stock card opens with an entry. Only
-   * touched while no "real" movement (sale/restock/adjustment) exists yet — once
-   * real history starts, opening stock is frozen. Serial/variant stock is only
-   * known after setSerialUnits/setVariants, so this runs at the end of each.
-   *
-   * Local projection only: NOT enqueued to the outbox — the server derives its own
-   * inventory from the synced product/variant/serial payloads (no double-count).
-   */
-  private syncOpeningStock(productId: string, businessId: string, now: string): void {
-    const prod = this.db.get<{ track_inventory: number }>(
-      `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
-      [productId, businessId],
+  /** How many movements a product has (used to detect the opening one). */
+  private movementCount(productId: string, businessId: string): number {
+    return (
+      this.db.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM inventory_movements WHERE business_id = ? AND product_id = ?`,
+        [businessId, productId],
+      )?.n ?? 0
     )
-    if (!prod || prod.track_inventory !== 1) return
+  }
 
-    const real = this.db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM inventory_movements
-       WHERE business_id = ? AND product_id = ? AND type <> 'OPENING_STOCK'`,
-      [businessId, productId],
-    )
-    if ((real?.n ?? 0) > 0) return
-
-    const qty = this.effectiveStock(productId)
-
-    // Mirror the product-level level row (variant_id NULL) so the future Inventory
-    // module / restock has it to update. The table has partial-unique indexes
-    // (per migration 0025), so upsert explicitly rather than via ON CONFLICT.
+  /** Upsert the product-level inventory_level row (variant_id NULL) to `qty`. The
+   * table has partial-unique indexes (migration 0025), so upsert explicitly. */
+  private setInventoryLevel(productId: string, businessId: string, qty: number, now: string): void {
     const level = this.db.get<{ id: string }>(
       `SELECT id FROM inventory_levels WHERE business_id = ? AND product_id = ? AND variant_id IS NULL LIMIT 1`,
       [businessId, productId],
@@ -713,31 +840,64 @@ export class ProductsService {
         [randomUUID(), businessId, productId, qty, now, now],
       )
     }
+  }
 
-    const existing = this.db.get<{ id: string }>(
-      `SELECT id FROM inventory_movements
-       WHERE business_id = ? AND product_id = ? AND type = 'OPENING_STOCK' LIMIT 1`,
-      [businessId, productId],
+  /**
+   * Seed the one-and-only OPENING_STOCK movement at product creation, so the detail
+   * stock card opens with an entry. Creation-only + write-once: if ANY movement
+   * already exists it does nothing — opening is never rewritten by a later edit
+   * (post-creation quantity changes are their own movements, see recordStockMovement).
+   * Serial/variant stock is only known after setSerialUnits/setVariants, so this
+   * runs at the end of create()/setVariants()/setSerialUnits().
+   *
+   * Local projection only: NOT enqueued — the server derives inventory from the
+   * synced product/variant/serial payloads (no double-count).
+   */
+  private syncOpeningStock(productId: string, businessId: string, now: string): void {
+    const prod = this.db.get<{ track_inventory: number }>(
+      `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
+      [productId, businessId],
     )
-    if (qty > 0) {
-      if (existing) {
-        this.db.run(
-          `UPDATE inventory_movements SET quantity_change = ?, quantity_before = 0, quantity_after = ?, created_at = ? WHERE id = ?`,
-          [qty, qty, now, existing.id],
-        )
-      } else {
-        this.db.run(
-          `INSERT INTO inventory_movements
-            (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
-             reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
-           VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?)`,
-          [randomUUID(), businessId, productId, qty, qty, productId, OPENING_STOCK_NOTE, now],
-        )
-      }
-    } else if (existing) {
-      // Effective stock fell back to 0 before any real movement — drop the stale entry.
-      this.db.run(`DELETE FROM inventory_movements WHERE id = ?`, [existing.id])
-    }
+    if (!prod || prod.track_inventory !== 1) return
+    if (this.movementCount(productId, businessId) > 0) return // creation recorded / history started
+
+    const qty = this.effectiveStock(productId)
+    if (qty <= 0) return
+    this.setInventoryLevel(productId, businessId, qty, now)
+    this.db.run(
+      `INSERT INTO inventory_movements
+        (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
+         reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
+       VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?)`,
+      [randomUUID(), businessId, productId, qty, qty, productId, OPENING_STOCK_NOTE, now],
+    )
+  }
+
+  /**
+   * Record a post-creation stock delta as a movement; the running balance is the
+   * product's effective stock after the change. The first-ever positive movement is
+   * the OPENING_STOCK, everything after is a MANUAL_ADJUSTMENT. Local projection.
+   */
+  private recordStockMovement(
+    productId: string,
+    businessId: string,
+    change: number,
+    opts: { referenceType: string; referenceId: string; notes: string },
+    now: string,
+  ): void {
+    if (change === 0) return
+    const after = this.effectiveStock(productId)
+    const before = after - change
+    const type: StockMovementType =
+      change > 0 && this.movementCount(productId, businessId) === 0 ? 'OPENING_STOCK' : 'MANUAL_ADJUSTMENT'
+    this.setInventoryLevel(productId, businessId, after, now)
+    this.db.run(
+      `INSERT INTO inventory_movements
+        (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
+         reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+      [randomUUID(), businessId, productId, type, change, before, after, opts.referenceType, opts.referenceId, opts.notes, now],
+    )
   }
 
   private enqueueSerialUnit(

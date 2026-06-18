@@ -30,5 +30,14 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsSetSerialUnits, (_e, productId: string, units: SerialUnitInput[]) =>
     products.setSerialUnits(productId, units),
   )
+  ipcMain.handle(IPC.productsAddSerialUnits, (_e, productId: string, units: SerialUnitInput[], notes?: string | null) =>
+    products.addSerialUnits(productId, units, notes ?? null),
+  )
+  ipcMain.handle(IPC.productsRetireSerialUnit, (_e, productId: string, unitId: string, reason: string) =>
+    products.retireSerialUnit(productId, unitId, reason),
+  )
+  ipcMain.handle(IPC.productsUpdateSerialNumber, (_e, productId: string, unitId: string, serialNumber: string) =>
+    products.updateSerialNumber(productId, unitId, serialNumber),
+  )
   ipcMain.handle(IPC.productsListMovements, (_e, productId: string) => products.listMovements(productId))
 }

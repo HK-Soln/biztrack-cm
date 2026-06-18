@@ -65,6 +65,9 @@ export const IPC = {
   productsSetVariants: 'products:set-variants',
   productsListSerialUnits: 'products:list-serial-units',
   productsSetSerialUnits: 'products:set-serial-units',
+  productsAddSerialUnits: 'products:add-serial-units',
+  productsRetireSerialUnit: 'products:retire-serial-unit',
+  productsUpdateSerialNumber: 'products:update-serial-number',
   productsListMovements: 'products:list-movements',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
@@ -699,8 +702,14 @@ export interface BridgeApi {
     /** Replace a product's variants (matched by option combination). */
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
-    /** Replace a product's serial units (matched by serialNumber). */
+    /** Set a product's initial serial units at creation (opening stock). */
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+    /** Add units to stock post-creation (a stock-in movement); revives retired numbers. */
+    addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
+    /** Retire a unit from stock (a stock-out movement) with a reason. */
+    retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
+    /** Correct a unit's serial number (no movement). */
+    updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
     /** Stock-ledger entries for the detail stock card (newest first). */
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }

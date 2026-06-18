@@ -94,6 +94,9 @@ export interface DataClient {
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+    addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
+    retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
+    updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
   audit: {
@@ -161,6 +164,10 @@ function electronAdapter(): DataClient {
       setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
       setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
+      addSerialUnits: (productId, units, notes) => window.api.products.addSerialUnits(productId, units, notes),
+      retireSerialUnit: (productId, unitId, reason) => window.api.products.retireSerialUnit(productId, unitId, reason),
+      updateSerialNumber: (productId, unitId, serialNumber) =>
+        window.api.products.updateSerialNumber(productId, unitId, serialNumber),
       listMovements: (productId) => window.api.products.listMovements(productId),
     },
     audit: {
@@ -221,6 +228,9 @@ function cloudAdapter(): DataClient {
       setVariants: notWired,
       listSerialUnits: notWired,
       setSerialUnits: notWired,
+      addSerialUnits: notWired,
+      retireSerialUnit: notWired,
+      updateSerialNumber: notWired,
       listMovements: notWired,
     },
     audit: { list: notWired },
