@@ -5,6 +5,7 @@ import { Button, DataTable, Modal } from '@biztrack/ui/biztrack'
 import type { DataTableColumn } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
 import { useT } from '@/i18n'
 import type { LocalProduct, LocalVariant, StockMovementType } from '@shared/ipc'
 
@@ -283,21 +284,8 @@ export function ProductDetail() {
         />
       ) : null}
 
-      {/* Beyond the design: serial numbers for serialized products. */}
-      {p.isSerialized ? (
-        <div className="card" style={{ marginTop: 14 }}>
-          <div className="card-h"><div><h3>{t('pdv.serials')}</h3></div><span className="chip-tag">{serials.length}</span></div>
-          {serials.length === 0 ? (
-            <div className="hint">{t('pdv.noSerials')}</div>
-          ) : (
-            <div className="serials-list">
-              {serials.map((s) => (
-                <span key={s.id} className="serial-pill">{s.serialNumber}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
+      {/* Serial units management (movement-based): add / retire / correct. */}
+      {p.isSerialized ? <ManageSerialUnits product={p} /> : null}
 
       {/* Extra: online store & SEO (not in the base design, added per request). */}
       {p.isPublishedOnline ? (

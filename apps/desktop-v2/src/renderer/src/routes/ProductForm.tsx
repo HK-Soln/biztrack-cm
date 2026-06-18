@@ -5,6 +5,7 @@ import { Button, CommandSelect, Input, Select, Stepper } from '@biztrack/ui/bizt
 import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { SERIAL_TYPES, validateSerial } from '@/lib/serial'
 import { useT } from '@/i18n'
 import type {
   ProductImageInput,
@@ -19,35 +20,7 @@ const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif
 const TVA_RATE = 19.25
 const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
 const PRODUCT_TYPES: ProductType[] = ['SIMPLE', 'SERVICE', 'VARIABLE_QUANTITY', 'COMPOSITE']
-const SERIAL_TYPES: SerialType[] = ['IMEI', 'SERIAL_NUMBER', 'BARCODE']
 const DRAFT_KEY = 'biztrack:product-draft:new'
-
-// --- serial validation (mirrors @biztrack/validators imei.validators) ---------
-function validateImei(imei: string): boolean {
-  if (!/^\d{15}$/.test(imei)) return false
-  let sum = 0
-  for (let i = 0; i < 15; i++) {
-    let digit = Number.parseInt(imei[i]!, 10)
-    if (i % 2 === 1) {
-      digit *= 2
-      if (digit > 9) digit -= 9
-    }
-    sum += digit
-  }
-  return sum % 10 === 0
-}
-function validateSerial(serial: string, type: SerialType): boolean {
-  switch (type) {
-    case 'IMEI':
-      return validateImei(serial)
-    case 'SERIAL_NUMBER':
-      return /^[A-Za-z0-9\-_]{1,30}$/.test(serial)
-    case 'BARCODE':
-      return serial.length >= 1 && serial.length <= 30
-    default:
-      return false
-  }
-}
 
 const sigOf = (optionIds: string[]) => [...optionIds].sort().join('|')
 
@@ -481,10 +454,11 @@ export function ProductForm() {
         return null
       case 'variants':
         if (d.variants.length === 1) return t('prodf.variantsMinTwo')
-        if (d.isSerialized && hasVariants && d.variants.some((v) => v.serials.length === 0)) return t('prodf.variantSerialsRequired')
+        // Serials are only captured at creation; on edit they're managed on the detail page.
+        if (!editing && d.isSerialized && hasVariants && d.variants.some((v) => v.serials.length === 0)) return t('prodf.variantSerialsRequired')
         return null
       case 'stock':
-        if (d.isSerialized && !hasVariants && d.productSerials.length === 0) return t('prodf.serialsRequired')
+        if (!editing && d.isSerialized && !hasVariants && d.productSerials.length === 0) return t('prodf.serialsRequired')
         return null
       default:
         return null
@@ -561,8 +535,10 @@ export function ProductForm() {
         await dataClient.products.setVariants(saved.id, variantInputs)
       }
 
-      // Serial units: resolve server-assigned variant ids by combination signature.
-      if (tracksInventory && d.isSerialized) {
+      // Serial units are captured only at CREATION (the product's opening stock).
+      // After creation they're managed from the detail page (add/retire/correct),
+      // each writing a stock movement — so editing never touches them here.
+      if (!editing && tracksInventory && d.isSerialized) {
         const units: SerialUnitInput[] = []
         if (hasVariants) {
           const live = await dataClient.products.listVariants(saved.id)
@@ -575,8 +551,6 @@ export function ProductForm() {
           for (const sn of d.productSerials) units.push({ variantId: null, serialNumber: sn, serialType: d.serialType })
         }
         await dataClient.products.setSerialUnits(saved.id, units)
-      } else if (editing) {
-        await dataClient.products.setSerialUnits(saved.id, [])
       }
       return saved
     },
@@ -831,8 +805,10 @@ export function ProductForm() {
                               </div>
                             )}
                           </div>
-                          {d.isSerialized ? (
+                          {d.isSerialized && !editing ? (
                             <SerialsEditor serials={v.serials} type={d.serialType} onChange={(serials) => updateVariant(v.key, { serials })} t={t} />
+                          ) : d.isSerialized && editing ? (
+                            <div className="hint" style={{ marginTop: 8 }}>{t('prodf.serialsManageHint')}</div>
                           ) : null}
                         </div>
                       ))}
@@ -845,7 +821,9 @@ export function ProductForm() {
 
           {stepKey === 'stock' ? (
             <div className="fform">
-              {d.isSerialized && !hasVariants ? (
+              {d.isSerialized && !hasVariants && editing ? (
+                <div className="form-note"><span>{t('prodf.serialsManageHint')}</span></div>
+              ) : d.isSerialized && !hasVariants ? (
                 <>
                   <div className="form-note"><span>{t('prodf.stockSerialNote')}</span></div>
                   <div className="ff">
