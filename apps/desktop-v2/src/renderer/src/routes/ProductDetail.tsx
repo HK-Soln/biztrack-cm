@@ -6,10 +6,28 @@ import type { DataTableColumn } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
-import type { LocalProduct, LocalVariant } from '@shared/ipc'
+import type { LocalProduct, LocalVariant, StockMovementType } from '@shared/ipc'
 
 const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
 const formatXAF = (n: number) => `${XAF.format(n)} FCFA`
+
+const MV_DATE = new Intl.DateTimeFormat('fr-CM', { day: 'numeric', month: 'short' })
+const MV_TIME = new Intl.DateTimeFormat('fr-CM', { hour: '2-digit', minute: '2-digit' })
+const formatMovementDate = (iso: string): string => {
+  const d = new Date(iso)
+  return `${MV_DATE.format(d)} · ${MV_TIME.format(d)}`
+}
+
+/** Stock-movement type → ledger pill colour (mirrors the design .et-* palette). */
+const MV_PILL: Record<StockMovementType, string> = {
+  OPENING_STOCK: 'et-sale',
+  RESTOCK_IN: 'et-pay',
+  TRANSFER_IN: 'et-pay',
+  VOID_REVERSAL: 'et-pay',
+  SALE: 'et-debt',
+  TRANSFER_OUT: 'et-debt',
+  MANUAL_ADJUSTMENT: 'et-woff',
+}
 
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
   if (!p.trackInventory) return 'none'
@@ -45,6 +63,11 @@ export function ProductDetail() {
     queryKey: [...queryKeys.products, 'images', id],
     queryFn: () => dataClient.products.listImages(id!),
     enabled: isElectron && !!id,
+  })
+  const { data: movements = [] } = useQuery({
+    queryKey: [...queryKeys.products, 'movements', id],
+    queryFn: () => dataClient.products.listMovements(id!),
+    enabled: isElectron && !!id && !!product?.trackInventory,
   })
 
   const removeM = useMutation({
@@ -173,7 +196,45 @@ export function ProductDetail() {
             <div className="c"><div className="l">{t('pdv.reserved')}</div><div className="v">—</div></div>
             <div className="c"><div className="l">{t('pdv.avgDay')}</div><div className="v">—</div></div>
           </div>
-          <div className="bin-empty">{t('pdv.movementsSoon')}</div>
+          {!p.trackInventory ? (
+            <div className="bin-empty">{t('pdv.noTracking')}</div>
+          ) : movements.length === 0 ? (
+            <div className="bin-empty">{t('pdv.noMovements')}</div>
+          ) : (
+            <>
+              <table className="ltbl">
+                <thead>
+                  <tr>
+                    <th>{t('pdv.mvDate')}</th>
+                    <th>{t('pdv.mvMovement')}</th>
+                    <th>{t('pdv.mvReference')}</th>
+                    <th className="right">{t('pdv.mvChange')}</th>
+                    <th className="right">{t('pdv.mvBalance')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.map((m) => {
+                    const positive = m.quantityChange >= 0
+                    return (
+                      <tr key={m.id}>
+                        <td className="num">{formatMovementDate(m.createdAt)}</td>
+                        <td><span className={`et ${MV_PILL[m.type] ?? 'et-sale'}`}>{t(`pdv.mv_${m.type}` as Parameters<typeof t>[0])}</span></td>
+                        <td>{m.type === 'OPENING_STOCK' ? t('pdv.mvInitial') : m.notes || t('pdv.none')}</td>
+                        <td className={`right ${positive ? 't-credit' : 't-debit'}`}>{positive ? '+' : '−'}{Math.abs(m.quantityChange)}</td>
+                        <td className="right t-bal">{m.quantityAfter}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <div className="panel-foot">
+                <span>{t('pdv.mvShowing').replace('{n}', String(movements.length))}</span>
+                <div className="spacer" />
+                {/* Full history view arrives with the Inventory module — flagged. */}
+                <span className="link" aria-disabled="true" title={t('pdv.inventorySoon')}>{t('pdv.mvViewAll')}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Details + pricing (design right column). */}

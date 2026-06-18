@@ -18,6 +18,7 @@ import type {
   LocalProduct,
   LocalProductImage,
   LocalSerialUnit,
+  LocalStockMovement,
   LocalUnit,
   LocalVariant,
   ModelInput,
@@ -93,6 +94,7 @@ export interface DataClient {
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+    listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
@@ -159,6 +161,7 @@ function electronAdapter(): DataClient {
       setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
       setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
+      listMovements: (productId) => window.api.products.listMovements(productId),
     },
     audit: {
       list: (query) => window.api.audit.list(query),
@@ -218,6 +221,7 @@ function cloudAdapter(): DataClient {
       setVariants: notWired,
       listSerialUnits: notWired,
       setSerialUnits: notWired,
+      listMovements: notWired,
     },
     audit: { list: notWired },
     uploads: { file: notWired },

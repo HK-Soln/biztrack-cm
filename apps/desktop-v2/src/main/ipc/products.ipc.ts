@@ -30,4 +30,5 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsSetSerialUnits, (_e, productId: string, units: SerialUnitInput[]) =>
     products.setSerialUnits(productId, units),
   )
+  ipcMain.handle(IPC.productsListMovements, (_e, productId: string) => products.listMovements(productId))
 }

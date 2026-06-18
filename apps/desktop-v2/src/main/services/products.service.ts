@@ -4,6 +4,7 @@ import type {
   LocalProduct,
   LocalProductImage,
   LocalSerialUnit,
+  LocalStockMovement,
   LocalVariant,
   PaginatedResult,
   ProductImageInput,
@@ -12,6 +13,7 @@ import type {
   ProductStats,
   ProductType,
   SerialUnitInput,
+  StockMovementType,
   VariantInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
@@ -90,6 +92,21 @@ interface SerialUnitRow {
   serial_type: string
   status: string
 }
+
+interface MovementRow {
+  id: string
+  type: string
+  quantity_change: number
+  quantity_before: number
+  quantity_after: number
+  reference_type: string | null
+  reference_id: string | null
+  notes: string | null
+  performed_by_name: string | null
+  created_at: string
+}
+
+const OPENING_STOCK_NOTE = 'Opening stock recorded at product creation.'
 
 /** Stable signature of a variant = its sorted attribute-option ids. */
 function variantSignature(optionIds: string[]): string {
@@ -314,6 +331,7 @@ export class ProductsService {
       ],
     )
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
+    this.syncOpeningStock(id, businessId, now)
     this.onMutated()
     const created = this.getOne(id)!
     this.audit?.log({ action: 'CREATE', entityType: 'product', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
@@ -544,6 +562,7 @@ export class ProductsService {
       this.enqueueVariant('productVariants', v.id, 'DELETE', businessId, { isDeleted: true }, now)
       this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
     }
+    this.syncOpeningStock(productId, businessId, now)
     this.onMutated()
     this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { variants: variants.length } } })
   }
@@ -611,8 +630,114 @@ export class ProductsService {
       this.db.run(`UPDATE product_serial_units SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, u.id])
       this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
+    this.syncOpeningStock(productId, businessId, now)
     this.onMutated()
     this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { serials: units.length } } })
+  }
+
+  // ---- stock movements (read-only ledger) ----------------------------------
+
+  /** Stock-ledger entries for the detail card, newest first. Until the Inventory
+   * module lands the only entry is the opening stock seeded at creation. */
+  listMovements(productId: string, limit = 50): LocalStockMovement[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.db.query<MovementRow>(
+      `SELECT id, type, quantity_change, quantity_before, quantity_after,
+              reference_type, reference_id, notes, performed_by_name, created_at
+       FROM inventory_movements
+       WHERE business_id = ? AND product_id = ?
+       ORDER BY created_at DESC, rowid DESC
+       LIMIT ?`,
+      [businessId, productId, limit],
+    )
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type as StockMovementType,
+      quantityChange: r.quantity_change,
+      quantityBefore: r.quantity_before,
+      quantityAfter: r.quantity_after,
+      referenceType: r.reference_type,
+      referenceId: r.reference_id,
+      notes: r.notes,
+      performedByName: r.performed_by_name,
+      createdAt: r.created_at,
+    }))
+  }
+
+  /** Effective on-hand stock for one product (serial count / variant sum / own qty). */
+  private effectiveStock(productId: string): number {
+    const row = this.db.get<{ s: number | null }>(`SELECT ${STOCK_EXPR} AS s FROM products p WHERE p.id = ?`, [productId])
+    return Math.max(0, row?.s ?? 0)
+  }
+
+  /**
+   * Keep the single OPENING_STOCK movement (+ inventory level) in step with the
+   * product's effective stock, so the detail stock card opens with an entry. Only
+   * touched while no "real" movement (sale/restock/adjustment) exists yet — once
+   * real history starts, opening stock is frozen. Serial/variant stock is only
+   * known after setSerialUnits/setVariants, so this runs at the end of each.
+   *
+   * Local projection only: NOT enqueued to the outbox — the server derives its own
+   * inventory from the synced product/variant/serial payloads (no double-count).
+   */
+  private syncOpeningStock(productId: string, businessId: string, now: string): void {
+    const prod = this.db.get<{ track_inventory: number }>(
+      `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
+      [productId, businessId],
+    )
+    if (!prod || prod.track_inventory !== 1) return
+
+    const real = this.db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM inventory_movements
+       WHERE business_id = ? AND product_id = ? AND type <> 'OPENING_STOCK'`,
+      [businessId, productId],
+    )
+    if ((real?.n ?? 0) > 0) return
+
+    const qty = this.effectiveStock(productId)
+
+    // Mirror the product-level level row (variant_id NULL) so the future Inventory
+    // module / restock has it to update. The table has partial-unique indexes
+    // (per migration 0025), so upsert explicitly rather than via ON CONFLICT.
+    const level = this.db.get<{ id: string }>(
+      `SELECT id FROM inventory_levels WHERE business_id = ? AND product_id = ? AND variant_id IS NULL LIMIT 1`,
+      [businessId, productId],
+    )
+    if (level) {
+      this.db.run(`UPDATE inventory_levels SET quantity = ?, updated_at = ? WHERE id = ?`, [qty, now, level.id])
+    } else {
+      this.db.run(
+        `INSERT INTO inventory_levels (id, business_id, product_id, variant_id, quantity, low_stock_threshold, reorder_point, last_restock_at, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, ?, NULL, NULL, NULL, ?, ?)`,
+        [randomUUID(), businessId, productId, qty, now, now],
+      )
+    }
+
+    const existing = this.db.get<{ id: string }>(
+      `SELECT id FROM inventory_movements
+       WHERE business_id = ? AND product_id = ? AND type = 'OPENING_STOCK' LIMIT 1`,
+      [businessId, productId],
+    )
+    if (qty > 0) {
+      if (existing) {
+        this.db.run(
+          `UPDATE inventory_movements SET quantity_change = ?, quantity_before = 0, quantity_after = ?, created_at = ? WHERE id = ?`,
+          [qty, qty, now, existing.id],
+        )
+      } else {
+        this.db.run(
+          `INSERT INTO inventory_movements
+            (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
+             reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
+           VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?)`,
+          [randomUUID(), businessId, productId, qty, qty, productId, OPENING_STOCK_NOTE, now],
+        )
+      }
+    } else if (existing) {
+      // Effective stock fell back to 0 before any real movement — drop the stale entry.
+      this.db.run(`DELETE FROM inventory_movements WHERE id = ?`, [existing.id])
+    }
   }
 
   private enqueueSerialUnit(

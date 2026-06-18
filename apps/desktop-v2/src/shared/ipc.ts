@@ -65,6 +65,7 @@ export const IPC = {
   productsSetVariants: 'products:set-variants',
   productsListSerialUnits: 'products:list-serial-units',
   productsSetSerialUnits: 'products:set-serial-units',
+  productsListMovements: 'products:list-movements',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -450,6 +451,30 @@ export interface SerialUnitInput {
   serialType: SerialType
 }
 
+/** Why a stock level changed (mirrors the API's MovementType). */
+export type StockMovementType =
+  | 'OPENING_STOCK'
+  | 'SALE'
+  | 'RESTOCK_IN'
+  | 'MANUAL_ADJUSTMENT'
+  | 'VOID_REVERSAL'
+  | 'TRANSFER_IN'
+  | 'TRANSFER_OUT'
+
+/** One stock-ledger entry shown in the product detail stock card (newest first). */
+export interface LocalStockMovement {
+  id: string
+  type: StockMovementType
+  quantityChange: number
+  quantityBefore: number
+  quantityAfter: number
+  referenceType: string | null
+  referenceId: string | null
+  notes: string | null
+  performedByName: string | null
+  createdAt: string
+}
+
 /** A product gallery image (the main image stays on the product's imageUrl). */
 export interface LocalProductImage {
   id: string
@@ -676,6 +701,8 @@ export interface BridgeApi {
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     /** Replace a product's serial units (matched by serialNumber). */
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+    /** Stock-ledger entries for the detail stock card (newest first). */
+    listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */
