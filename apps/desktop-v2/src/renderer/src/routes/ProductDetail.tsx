@@ -109,20 +109,19 @@ export function ProductDetail() {
           {t('pdv.back')}
         </button>
         <div className="acts2">
-          {/* Restock / Adjust stock act on product-level quantity, so they only apply
-              to direct products. Variant/serialised stock is managed in their panels.
-              Part of the Inventory module (not built yet) — disabled + flagged. */}
+          {/* Restock is a purchase (adds stock via the inventory restock flow) — applies
+              to every product. Adjust acts on product-level quantity, so it only applies
+              to direct products (variant/serialised stock is adjusted in their panels).
+              Both part of the Inventory module (not built yet) — disabled + flagged. */}
+          <Button variant="default" disabled title={t('pdv.inventorySoon')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
+            {t('pdv.restock')}
+          </Button>
           {isDirect ? (
-            <>
-              <Button variant="default" disabled title={t('pdv.inventorySoon')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
-                {t('pdv.restock')}
-              </Button>
-              <Button variant="default" disabled title={t('pdv.inventorySoon')}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" /></svg>
-                {t('pdv.adjustStock')}
-              </Button>
-            </>
+            <Button variant="default" disabled title={t('pdv.inventorySoon')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" /></svg>
+              {t('pdv.adjustStock')}
+            </Button>
           ) : null}
           <Button variant="primary" onClick={() => navigate(`/products/${p.id}/edit`)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="M14 6l4 4" /></svg>

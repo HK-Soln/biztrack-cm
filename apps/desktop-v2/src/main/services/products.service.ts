@@ -396,17 +396,60 @@ export class ProductsService {
     return after
   }
 
+  /**
+   * Delete a product. Soft-deletes the product AND cascades to its children
+   * (variants + options, serial units, images, inventory level), then writes off
+   * any remaining stock as a stock-out movement so the ledger balances to zero.
+   * Each child change is enqueued for sync; the whole thing is audited.
+   */
   remove(id: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOne(id)
+    if (!before) return
+    const stockBefore = this.effectiveStock(id)
+
+    // Cascade soft-delete the children (each enqueued for sync).
+    const serials = this.db.query<{ id: string }>(
+      `SELECT id FROM product_serial_units WHERE business_id = ? AND product_id = ? AND is_deleted = 0`,
+      [businessId, id],
+    )
+    for (const s of serials) {
+      this.db.run(`UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`, [now, s.id])
+      this.enqueueSerialUnit(s.id, 'DELETE', businessId, { isDeleted: true }, now)
+    }
+    const variants = this.db.query<{ id: string }>(
+      `SELECT id FROM product_variants WHERE business_id = ? AND product_id = ? AND is_deleted = 0`,
+      [businessId, id],
+    )
+    for (const v of variants) {
+      this.db.run(`UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`, [now, v.id])
+      this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
+      this.enqueueVariant('productVariants', v.id, 'DELETE', businessId, { isDeleted: true }, now)
+    }
+    const images = this.db.query<{ id: string }>(
+      `SELECT id FROM product_images WHERE business_id = ? AND product_id = ? AND is_deleted = 0`,
+      [businessId, id],
+    )
+    for (const im of images) {
+      this.db.run(`UPDATE product_images SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, im.id])
+      this.enqueueImage(im.id, 'DELETE', businessId, { isDeleted: true }, now)
+    }
+
+    // Soft-delete the product + zero its own quantity.
     this.db.run(
-      `UPDATE products SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+      `UPDATE products SET is_deleted = 1, is_active = 0, stock_quantity = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
+
+    // Write off any remaining stock (ledger → 0). effectiveStock is 0 now, so
+    // recordStockMovement records before=stockBefore, after=0.
+    if (stockBefore > 0) {
+      this.recordStockMovement(id, businessId, -stockBefore, { referenceType: 'product', referenceId: id, notes: 'Product deleted' }, now)
+    }
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'product', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
+    this.audit?.log({ action: 'DELETE', entityType: 'product', entityId: id, entityLabel: before.name, changes: { before, after: null } })
   }
 
   /** Single product by id (for the edit form). */
