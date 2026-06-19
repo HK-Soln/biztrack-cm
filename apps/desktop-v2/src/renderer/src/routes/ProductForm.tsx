@@ -599,7 +599,7 @@ export function ProductForm() {
       <div className="page-head wiz-head">
         <div>
           <h1>{editing ? t('prodf.editTitle') : t('prodf.addTitle')}</h1>
-          <p>{t('prodf.subtitle')}</p>
+          <p>{editing ? t('prodf.editSubtitle') : t('prodf.subtitle')}</p>
         </div>
       </div>
 
@@ -706,9 +706,9 @@ export function ProductForm() {
                 <div className="set-line" style={{ paddingTop: 0, borderBottom: d.isSerialized ? '1px solid var(--border)' : 0 }}>
                   <div className="t">
                     <div className="nm">{t('prodf.serialized')}</div>
-                    <div className="ds">{t('prodf.serializedHint')}</div>
+                    <div className="ds">{editing ? t('prodf.serializedLocked') : t('prodf.serializedHint')}</div>
                   </div>
-                  <button type="button" className={`switch${d.isSerialized ? ' on' : ''}`} aria-pressed={d.isSerialized} onClick={() => patch({ isSerialized: !d.isSerialized })} />
+                  <button type="button" className={`switch${d.isSerialized ? ' on' : ''}`} aria-pressed={d.isSerialized} disabled={editing} title={editing ? t('prodf.serializedLocked') : undefined} onClick={() => { if (!editing) patch({ isSerialized: !d.isSerialized }) }} />
                 </div>
                 {d.isSerialized ? (
                   <div className="form-2col" style={{ marginTop: 12 }}>
@@ -716,7 +716,7 @@ export function ProductForm() {
                       <label className="lbl2">{t('prodf.serialType')}</label>
                       <div className="seg-pick">
                         {SERIAL_TYPES.map((st) => (
-                          <button key={st} type="button" aria-pressed={st === d.serialType} onClick={() => patch({ serialType: st })}>
+                          <button key={st} type="button" aria-pressed={st === d.serialType} disabled={editing} onClick={() => { if (!editing) patch({ serialType: st }) }}>
                             {t(`prodf.serial_${st}` as Parameters<typeof t>[0])}
                           </button>
                         ))}
