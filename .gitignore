@@ -70,3 +70,14 @@ test_conn.js
 .tmp_plan_permissions.zip
 .tmp_docx_permissions
 .claude
+
+# Local upload files
+uploads/
+AUDIT_REPORT.md
+apps/api/src/generated/i18n.generated.ts
+apps/desktop/src/electron/generated/*
+AUDIT_AND_EVENTS_SPEC.md
+CLAUDE_CLI_MASTER_PROMPT.md
+PRODUCT_CATEGORIES_AND_ONLINE_SPEC.md
+PRODUCT_REVAMP_SPEC.md
+PRODUCT_VARIANTS_SERIALIZATION_SPEC.md
