@@ -5,6 +5,7 @@ import type {
   InventoryListQuery,
   InventoryStats,
   LocalInventoryItem,
+  LocalReorderSuggestion,
   LocalStockMovement,
   MovementsQuery,
   PaginatedResult,
@@ -123,6 +124,38 @@ export class InventoryService {
       [businessId],
     )
     return row ?? empty
+  }
+
+  /** Direct products at/below their reorder threshold, with a suggested restock qty.
+   * Drives the "needs reordering" banner + the Generate-PO (auto-filled restock). */
+  reorderSuggestions(): LocalReorderSuggestion[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.db.query<{
+      id: string
+      name: string
+      sku: string | null
+      cost_price: number | null
+      currency: string | null
+      stock: number | null
+      target: number | null
+    }>(
+      `SELECT p.id, p.name, p.sku, p.cost_price, p.currency, ${STOCK_EXPR} AS stock, ${INV_THRESHOLD} AS target
+       FROM products p
+       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1 AND p.is_serialized = 0
+         AND NOT EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+         AND (${STOCK_EXPR} <= 0 OR (${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}))
+       ORDER BY ${STOCK_EXPR} ASC`,
+      [businessId],
+    )
+    return rows.map((r) => {
+      const stock = Math.max(0, r.stock ?? 0)
+      const target = r.target ?? 0
+      // Restock to a par level of 2× the reorder point so the order actually clears
+      // the alert (restocking to exactly the reorder point leaves it still flagged).
+      const suggestedQty = target > 0 ? Math.max(target * 2 - stock, 1) : 1
+      return { productId: r.id, name: r.name, sku: r.sku, currentStock: stock, target, suggestedQty, unitCost: r.cost_price ?? null, currency: r.currency ?? 'XAF' }
+    })
   }
 
   /** Manually adjust a direct product's stock. Only direct products (no variants,

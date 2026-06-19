@@ -101,6 +101,7 @@ const api: BridgeApi = {
   inventory: {
     list: (query) => ipcRenderer.invoke(IPC.inventoryList, query),
     stats: () => ipcRenderer.invoke(IPC.inventoryStats),
+    reorderSuggestions: () => ipcRenderer.invoke(IPC.inventoryReorderSuggestions),
     restock: (input) => ipcRenderer.invoke(IPC.inventoryRestock, input),
     adjust: (productId, input) => ipcRenderer.invoke(IPC.inventoryAdjust, productId, input),
     setThreshold: (productId, input) => ipcRenderer.invoke(IPC.inventorySetThreshold, productId, input),

@@ -74,6 +74,7 @@ export const IPC = {
   productsListMovements: 'products:list-movements',
   inventoryList: 'inventory:list',
   inventoryStats: 'inventory:stats',
+  inventoryReorderSuggestions: 'inventory:reorder-suggestions',
   inventoryRestock: 'inventory:restock',
   inventoryAdjust: 'inventory:adjust',
   inventorySetThreshold: 'inventory:set-threshold',
@@ -523,6 +524,19 @@ export interface InventoryListQuery extends ListQueryT {
   stockStatus?: StockStatus
 }
 
+/** A direct product below its reorder threshold + suggested restock quantity. */
+export interface LocalReorderSuggestion {
+  productId: string
+  name: string
+  sku: string | null
+  currentStock: number
+  /** Reorder point (or low-stock threshold) used as the target. */
+  target: number
+  suggestedQty: number
+  unitCost: number | null
+  currency: string
+}
+
 /** One line of a restock (a purchase that adds stock). Direct products only for now. */
 export interface RestockItemInput {
   productId: string
@@ -807,6 +821,8 @@ export interface BridgeApi {
     list: (query?: InventoryListQuery) => Promise<PaginatedT<LocalInventoryItem>>
     /** KPI roll-up for the inventory header. */
     stats: () => Promise<InventoryStats>
+    /** Direct products needing reorder + suggested quantities (for the Generate-PO flow). */
+    reorderSuggestions: () => Promise<LocalReorderSuggestion[]>
     /** Restock (cash/cost) — adds stock + a RESTOCK_IN movement. Direct products only. */
     restock: (input: RestockInput) => Promise<void>
     /** Manually adjust a direct product's stock (set/add/remove) → a movement. */
