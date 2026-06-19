@@ -223,6 +223,12 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
 .input.err,.input[aria-invalid="true"]{border-color:var(--danger);}
 
+/* Multi-line text input (textarea) — matches .input chrome. */
+.ta{width:100%;min-height:64px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);
+  font:inherit;font-size:14px;padding:10px 13px;outline:none;transition:border-color .12s,box-shadow .12s;}
+.ta::placeholder{color:var(--text-muted);}
+.ta:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);}
+
 /* Native select (design-system) ------------------------------------------- */
 .select-wrap{position:relative;display:block;}
 .select{height:42px;width:100%;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);
@@ -820,6 +826,21 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .field.grow{flex:1;min-width:220px;}
 .field>svg{position:absolute;left:12px;width:16px;height:16px;color:var(--text-muted);pointer-events:none;}
 .field .input.ic{padding-left:38px;}
+
+/* Scan input: text field with a trailing camera-scan button (ScanInput). */
+.scan-field{position:relative;display:block;}
+.scan-field.has-cam .input{padding-right:40px;}
+.scan-field .scan-btn{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:grid;place-items:center;
+  width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--text-muted);cursor:pointer;}
+.scan-field .scan-btn:hover{background:var(--surface-2);color:var(--brand-int);}
+.scan-field .scan-btn svg{width:17px;height:17px;}
+.scan-cam-modal{max-width:380px;}
+.scan-cam-frame{position:relative;width:100%;aspect-ratio:4/3;background:#000;border-radius:12px;overflow:hidden;}
+.scan-cam-frame video{width:100%;height:100%;object-fit:cover;}
+.scan-cam-reticle{position:absolute;inset:18% 12%;border:2px solid rgba(255,255,255,.85);border-radius:10px;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.28);pointer-events:none;}
+.scan-cam-hint{margin-top:10px;text-align:center;font-size:12.5px;color:var(--text-2);}
+.scan-cam-err{padding:24px 8px;text-align:center;font-size:13px;color:var(--danger);}
 
 /* Filter tabs (design .tabs) — All / Low stock / Out of stock … */
 .tabs{display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
