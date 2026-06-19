@@ -49,6 +49,8 @@
   "variant_not_found": "La variante selectionnee n'est pas disponible.",
   "variant_options_required": "Selectionnez au moins une option pour la variante.",
   "variant_duplicate_combination": "Une variante avec cette combinaison existe deja.",
+  "brand_not_found": "Marque introuvable.",
+  "model_not_found": "Modele introuvable.",
   "quantity_must_be_integer": "\"{name}\" ne peut etre vendu qu'en unites entieres.",
   "bundle_components_required": "Un produit composite doit avoir au moins un composant.",
   "bundle_component_nested": "Un produit composite ne peut pas contenir un autre produit composite.",

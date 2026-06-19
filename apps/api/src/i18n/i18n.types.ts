@@ -93,6 +93,8 @@ export interface I18nTranslations {
     variant_not_found: string
     variant_options_required: string
     variant_duplicate_combination: string
+    brand_not_found: string
+    model_not_found: string
     quantity_must_be_integer: string
     bundle_components_required: string
     bundle_component_nested: string

@@ -49,6 +49,8 @@
   "variant_not_found": "The selected variant is not available.",
   "variant_options_required": "Select at least one option for the variant.",
   "variant_duplicate_combination": "A variant with this combination already exists.",
+  "brand_not_found": "Brand not found.",
+  "model_not_found": "Model not found.",
   "quantity_must_be_integer": "\"{name}\" can only be sold in whole units.",
   "bundle_components_required": "A composite product must have at least one component.",
   "bundle_component_nested": "A composite product cannot contain another composite product.",

@@ -6,6 +6,7 @@ import { AuthModule } from '@/modules/auth/auth.module'
 import { UsersModule } from '@/modules/users/users.module'
 import { BusinessModule } from '@/modules/business/business.module'
 import { ProductsModule } from '@/modules/products/products.module'
+import { BrandsModule } from '@/modules/brands/brands.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { OnlineModule } from '@/modules/online/online.module'
 import { SyncModule } from '@/modules/sync/sync.module'
@@ -96,6 +97,7 @@ function resolveI18nPath() {
     BusinessModule,
     QueuesModule,
     ProductsModule,
+    BrandsModule,
     InventoryModule,
     ExpensesModule,
     DebtsModule,

@@ -9,7 +9,7 @@ import { ProductImage } from '@/entities/product-image.entity'
 import { ProductsService } from '../services/products.service'
 
 const qb = (rawOne: unknown) => {
-  const chain = {
+  const chain: any = {
     select: jest.fn(() => chain),
     where: jest.fn(() => chain),
     update: jest.fn(() => chain),

@@ -617,6 +617,12 @@ export interface UpdateModelRequest extends Partial<CreateModelRequest> {
   isActive?: boolean
 }
 
+/** List query for brands (shared by the API + desktop). */
+export interface BrandsQuery extends ListQuery {
+  /** Only brands linked to this category. */
+  categoryId?: string
+}
+
 export interface ProductImagesQuery extends ListQuery {}
 
 export interface CreateProductImageRequest {
