@@ -307,6 +307,11 @@ export class SyncService {
 
   private applyChanges(changes: ChangeSet): void {
     const ops: Array<{ sql: string; params: unknown[] }> = []
+    // Contacts are tier-0 roots (suppliers/customers) — apply before anything that
+    // references them.
+    for (const record of changes.contacts ?? []) {
+      ops.push(this.contactUpsert(record))
+    }
     for (const record of changes.productCategories ?? []) {
       ops.push(this.categoryUpsert(record))
     }
@@ -352,6 +357,34 @@ export class SyncService {
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
+  }
+
+  private contactUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO contacts
+        (id, business_id, type, name, phone, phone_alt, address, notes, is_active, created_by_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          type = excluded.type, name = excluded.name, phone = excluded.phone,
+          phone_alt = excluded.phone_alt, address = excluded.address, notes = excluded.notes,
+          is_active = excluded.is_active, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.type),
+        asStr(c.name),
+        asStr(c.phone),
+        asStr(c.phoneAlt),
+        asStr(c.address),
+        asStr(c.notes),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        asStr(c.createdById),
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
   }
 
   private categoryUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
