@@ -214,14 +214,6 @@ app.whenReady().then(() => {
   )
   registerProductsIpc(products)
 
-  const inventory = new InventoryService(
-    db,
-    () => authService.getSession().businessId,
-    () => void sync.sync(),
-    audit,
-  )
-  registerInventoryIpc(inventory)
-
   // Contacts (customers & suppliers): offline-first; suppliers back the PO/RFQ flow,
   // customers back sales/debts. Local write + outbox (entity `contacts`).
   const contacts = new ContactsService(
@@ -269,6 +261,20 @@ app.whenReady().then(() => {
     audit,
   )
   registerPurchaseOrderIpc(purchaseOrders, documents)
+
+  // Inventory: adjust/threshold/movements + restock (goods receipt). Restock reuses
+  // products (serial receipts), debts (credit→payable), and purchase orders (receive
+  // against a PO), so it's constructed after them.
+  const inventory = new InventoryService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    products,
+    debts,
+    purchaseOrders,
+    audit,
+  )
+  registerInventoryIpc(inventory)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

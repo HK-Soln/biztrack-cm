@@ -658,6 +658,8 @@ export interface InventoryAdjustmentSyncPayload {
 export interface InventoryRestockSyncItemPayload {
   id: string
   productId: string
+  /** Target variant for variant products (null/omitted for direct/serialized). */
+  variantId?: string | null
   quantity: number
   unitCost?: number
   movementId: string
@@ -673,8 +675,12 @@ export interface InventoryRestockSyncPayload {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
+  /** Purchase order this receipt fulfils (updates received quantities + status). */
+  purchaseOrderId?: string | null
   totalAmount?: number | null
   totalCost?: number | null
+  /** Amount paid now; remainder (total − paid) becomes a supplier payable. */
+  amountPaid?: number | null
   notes?: string | null
   createdAt: string
   payments?: InventoryRestockSyncPaymentPayload[]

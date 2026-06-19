@@ -734,16 +734,28 @@ export interface LocalReorderSuggestion {
   currency: string
 }
 
-/** One line of a restock (a purchase that adds stock). Direct products only for now. */
+/** One line of a restock (a purchase that adds stock). */
 export interface RestockItemInput {
   productId: string
-  quantity: number
+  /** Target variant (for variant products); null/omitted for direct/serialized. */
+  variantId?: string | null
+  /** Quantity received (direct/variant). Omitted for serialized — derived from serialNumbers. */
+  quantity?: number
   unitCost?: number | null
+  /** Serial numbers received (for serialized products) — each becomes an in-stock unit. */
+  serialNumbers?: string[]
 }
 
-/** Cash/cost-only restock (supplier credit/payables deferred — see issue #83). */
+/** A restock (goods receipt). Optionally fulfils a purchase order and/or is on
+ * supplier credit (amountPaid < total → a payable). */
 export interface RestockInput {
   items: RestockItemInput[]
+  /** PO this receipt fulfils; updates each line's received qty + the PO status. */
+  purchaseOrderId?: string | null
+  /** Supplier (contact) — required when on credit. */
+  supplierId?: string | null
+  /** Amount paid now; when < total cost the remainder becomes a supplier payable. Defaults to fully paid. */
+  amountPaid?: number | null
   reference?: string | null
   notes?: string | null
 }

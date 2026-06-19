@@ -20,6 +20,9 @@
     "src/main/services/rfq.service.ts",
     "src/main/services/purchase-order.smoke.ts",
     "src/main/services/purchase-order.service.ts",
+    "src/main/services/inventory.smoke.ts",
+    "src/main/services/inventory.service.ts",
+    "src/main/services/products.service.ts",
     "src/main/services/pagination.ts"
   ]
 }

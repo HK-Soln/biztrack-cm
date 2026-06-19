@@ -10,12 +10,16 @@ import type {
   MovementsQuery,
   PaginatedResult,
   RestockInput,
+  SerialType,
   StockMovementType,
   ThresholdInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
-import { COST_EXPR, STOCK_EXPR, recordStockMovement } from './stock-ledger'
+import { COST_EXPR, STOCK_EXPR, effectiveStock, recordStockMovement } from './stock-ledger'
 import type { AuditLogger } from './audit.service'
+import type { ProductsService } from './products.service'
+import type { DebtsService } from './debts.service'
+import type { PurchaseOrderService } from './purchase-order.service'
 
 interface MovementRow {
   id: string
@@ -34,6 +38,7 @@ interface ProductMeta {
   name: string
   trackInventory: boolean
   isSerialized: boolean
+  serialType: SerialType | null
   hasVariants: boolean
   stock: number
 }
@@ -72,6 +77,9 @@ export class InventoryService {
     private readonly db: DatabaseService,
     private readonly getBusinessId: () => string | null,
     private readonly onMutated: () => void,
+    private readonly products: ProductsService,
+    private readonly debts: DebtsService,
+    private readonly purchaseOrders: PurchaseOrderService,
     private readonly audit?: AuditLogger,
   ) {}
 
@@ -211,10 +219,11 @@ export class InventoryService {
   }
 
   /**
-   * Restock (a purchase that adds stock) — cash/cost-only: records a restock with
-   * unit costs, adds quantity, and writes a RESTOCK_IN movement per item. Direct
-   * products only (serialized → serial panel; variant restock deferred). Supplier
-   * credit/payables deferred to issue #83 — restock is treated as fully paid.
+   * Restock (a goods receipt that adds stock). Handles direct, variant and serialized
+   * products; optionally fulfils a purchase order and/or is on supplier credit. Each
+   * item adds stock the right way (product qty / variant qty / new serial units),
+   * records a RESTOCK_IN movement, and links the restock record. A PO link updates
+   * received quantities + status; credit (amountPaid < total) creates a supplier payable.
    */
   restock(input: RestockInput): void {
     const businessId = this.requireBusinessId()
@@ -222,65 +231,110 @@ export class InventoryService {
     const now = new Date().toISOString()
     const restockId = randomUUID()
 
-    // Validate everything before writing.
-    const lines = input.items.map((item) => {
+    type Line =
+      | { kind: 'direct'; productId: string; name: string; quantity: number; unitCost: number | null }
+      | { kind: 'variant'; productId: string; name: string; variantId: string; quantity: number; unitCost: number | null }
+      | { kind: 'serial'; productId: string; name: string; variantId: string | null; serialType: SerialType; serials: string[]; quantity: number; unitCost: number | null }
+
+    // Validate + classify everything before writing.
+    const lines: Line[] = input.items.map((item) => {
       const meta = this.requireProduct(item.productId, businessId)
       if (!meta.trackInventory) throw new Error(`“${meta.name}” does not track stock.`)
-      if (meta.isSerialized) throw new Error(`Restock “${meta.name}” by adding serial units from its panel.`)
-      if (meta.hasVariants) throw new Error(`Per-variant restock for “${meta.name}” is not available yet.`)
-      if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new Error('Quantity must be greater than 0.')
       const unitCost = item.unitCost != null && Number.isFinite(item.unitCost) && item.unitCost >= 0 ? item.unitCost : null
-      return { productId: item.productId, name: meta.name, quantity: item.quantity, unitCost, before: meta.stock }
+      if (meta.isSerialized) {
+        const serials = (item.serialNumbers ?? []).map((s) => s.trim()).filter(Boolean)
+        if (serials.length === 0) throw new Error(`Add the serial numbers received for “${meta.name}”.`)
+        return { kind: 'serial', productId: item.productId, name: meta.name, variantId: item.variantId ?? null, serialType: meta.serialType ?? 'SERIAL_NUMBER', serials, quantity: serials.length, unitCost }
+      }
+      const qty = item.quantity ?? 0
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
+      if (meta.hasVariants) {
+        if (!item.variantId) throw new Error(`Select a variant for “${meta.name}”.`)
+        const variant = this.db.get<{ id: string }>(`SELECT id FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`, [item.variantId, item.productId])
+        if (!variant) throw new Error(`Variant not found for “${meta.name}”.`)
+        return { kind: 'variant', productId: item.productId, name: meta.name, variantId: item.variantId, quantity: qty, unitCost }
+      }
+      return { kind: 'direct', productId: item.productId, name: meta.name, quantity: qty, unitCost }
     })
 
-    const totalCost = lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0)
+    const totalCost = round2(lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0))
+    const amountPaid = input.amountPaid != null && Number.isFinite(input.amountPaid) ? Math.max(0, Math.min(input.amountPaid, totalCost)) : totalCost
+    const creditAmount = round2(totalCost - amountPaid)
+    if (creditAmount > 0 && !input.supplierId) throw new Error('Select a supplier for a restock on credit.')
     const reference = input.reference?.trim() || null
     const notes = input.notes?.trim() || null
+    const supplierName = input.supplierId ? this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [input.supplierId])?.name ?? null : null
+    const movementNote = reference ? `Restock ${reference}` : 'Restock'
 
     this.db.run(
-      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, total_amount, total_cost, amount_paid, credit_amount, notes, performed_by_id, created_at)
-       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, 0, ?, NULL, ?)`,
-      [restockId, businessId, reference, totalCost, totalCost, totalCost, notes, now],
+      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, amount_paid, credit_amount, notes, performed_by_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      [restockId, businessId, reference, input.supplierId ?? null, supplierName, input.purchaseOrderId ?? null, totalCost, totalCost, amountPaid, creditAmount, notes, now],
     )
 
-    const syncItems: Array<{ id: string; productId: string; quantity: number; unitCost?: number; movementId: string }> = []
+    const syncItems: Array<{ id: string; productId: string; variantId?: string | null; quantity: number; unitCost?: number; movementId: string }> = []
+    const receipts: Array<{ productId: string; variantId: string | null; quantity: number }> = []
+
     for (const line of lines) {
-      // Direct product: add to its own quantity, then record the RESTOCK_IN movement.
-      this.db.run(`UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`, [
-        line.quantity,
-        now,
-        line.productId,
-        businessId,
-      ])
-      const movementId =
-        recordStockMovement(
-          this.db,
-          businessId,
+      let movementId: string
+      if (line.kind === 'serial') {
+        // Reuse the serial-add path: inserts in-stock units (stable ids), enqueues
+        // product_serial_unit events, and records a stock movement.
+        this.products.addSerialUnits(
           line.productId,
-          line.quantity,
-          { referenceType: 'restock', referenceId: restockId, notes: reference ? `Restock ${reference}` : 'Restock', type: 'RESTOCK_IN' },
-          now,
-        ) ?? randomUUID()
+          line.serials.map((sn) => ({ serialNumber: sn, serialType: line.serialType, variantId: line.variantId })),
+          movementNote,
+        )
+        movementId = randomUUID()
+      } else if (line.kind === 'variant') {
+        this.db.run(`UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`, [line.quantity, now, line.variantId])
+        movementId = recordStockMovement(this.db, businessId, line.productId, line.quantity, { referenceType: 'restock', referenceId: restockId, notes: movementNote, type: 'RESTOCK_IN' }, now) ?? randomUUID()
+      } else {
+        this.db.run(`UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`, [line.quantity, now, line.productId, businessId])
+        movementId = recordStockMovement(this.db, businessId, line.productId, line.quantity, { referenceType: 'restock', referenceId: restockId, notes: movementNote, type: 'RESTOCK_IN' }, now) ?? randomUUID()
+      }
+      const variantId = line.kind === 'direct' ? null : line.variantId
       this.db.run(
-        `UPDATE inventory_levels SET last_restock_at = ?, updated_at = ? WHERE business_id = ? AND product_id = ? AND variant_id IS NULL`,
-        [now, now, businessId, line.productId],
+        `INSERT INTO restock_items (id, restock_record_id, product_id, variant_id, quantity, unit_cost, new_quantity, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), restockId, line.productId, variantId, line.quantity, line.unitCost, effectiveStock(this.db, line.productId), now],
       )
       const itemId = randomUUID()
-      this.db.run(
-        `INSERT INTO restock_items (id, restock_record_id, product_id, quantity, unit_cost, new_quantity, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [itemId, restockId, line.productId, line.quantity, line.unitCost, line.before + line.quantity, now],
-      )
-      syncItems.push({ id: itemId, productId: line.productId, quantity: line.quantity, ...(line.unitCost != null ? { unitCost: line.unitCost } : {}), movementId })
+      syncItems.push({ id: itemId, productId: line.productId, ...(variantId ? { variantId } : {}), quantity: line.quantity, ...(line.unitCost != null ? { unitCost: line.unitCost } : {}), movementId })
+      receipts.push({ productId: line.productId, variantId, quantity: line.quantity })
     }
 
-    this.enqueue('inventoryRestocks', restockId, businessId, { referenceNumber: reference, supplierId: null, supplierName: null, totalAmount: totalCost, totalCost, notes, createdAt: now, items: syncItems }, now)
+    this.enqueue(
+      'inventoryRestocks',
+      restockId,
+      businessId,
+      { referenceNumber: reference, supplierId: input.supplierId ?? null, supplierName, purchaseOrderId: input.purchaseOrderId ?? null, totalAmount: totalCost, totalCost, amountPaid, notes, createdAt: now, items: syncItems },
+      now,
+    )
+
+    // Credit → a supplier payable (idempotent per restock source).
+    if (creditAmount > 0 && input.supplierId) {
+      this.debts.createSourceDebt({
+        contactId: input.supplierId,
+        direction: 'PAYABLE',
+        sourceType: 'RESTOCK',
+        sourceId: restockId,
+        sourceReference: reference ?? restockId,
+        originalAmount: creditAmount,
+        notes,
+        createdAt: now,
+      })
+    }
+
+    // Fulfil the PO: bump received quantities + status.
+    if (input.purchaseOrderId) this.purchaseOrders.applyReceipt(input.purchaseOrderId, receipts)
+
     this.audit?.log({
       action: 'CREATE',
       entityType: 'restock',
       entityId: restockId,
       entityLabel: reference ?? `${lines.length} item(s)`,
-      changes: { before: null, after: { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })), totalCost } },
+      changes: { before: null, after: { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })), totalCost, amountPaid, creditAmount, purchaseOrderId: input.purchaseOrderId ?? null } },
     })
     this.onMutated()
   }
@@ -372,10 +426,11 @@ export class InventoryService {
       name: string
       track_inventory: number
       is_serialized: number
+      serial_type: string | null
       has_variants: number
       stock: number | null
     }>(
-      `SELECT p.name, p.track_inventory, p.is_serialized,
+      `SELECT p.name, p.track_inventory, p.is_serialized, p.serial_type,
               EXISTS(SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) AS has_variants,
               ${STOCK_EXPR} AS stock
        FROM products p WHERE p.id = ? AND p.business_id = ? AND p.is_deleted = 0`,
@@ -386,6 +441,7 @@ export class InventoryService {
       name: row.name,
       trackInventory: row.track_inventory === 1,
       isSerialized: row.is_serialized === 1,
+      serialType: (row.serial_type as SerialType | null) ?? null,
       hasVariants: row.has_variants === 1,
       stock: Math.max(0, row.stock ?? 0),
     }
@@ -434,6 +490,10 @@ function toInventoryItem(r: InventoryRow): LocalInventoryItem {
     stockValueCost: (r.cost_price ?? 0) * stock,
     lastRestockAt: r.last_restock_at,
   }
+}
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
 function normalizeThreshold(v: number | null): number | null {

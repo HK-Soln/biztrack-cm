@@ -192,6 +192,30 @@ export class PurchaseOrderService {
     return this.get(poId)!
   }
 
+  /** Receive quantities against a PO (called by restock). Increments each matched
+   * line's received_quantity, recomputes status (PARTIALLY_RECEIVED/RECEIVED), syncs. */
+  applyReceipt(poId: string, receipts: Array<{ productId: string; variantId: string | null; quantity: number }>): void {
+    const businessId = this.requireBusinessId()
+    const po = this.get(poId)
+    if (!po) return
+    const now = new Date().toISOString()
+    for (const r of receipts) {
+      if (r.quantity <= 0) continue
+      const line = po.items.find((i) => i.productId === r.productId && (i.variantId ?? null) === (r.variantId ?? null))
+      if (!line) continue
+      this.db.run(`UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE id = ?`, [r.quantity, line.id])
+    }
+    // Recompute status from the (now updated) lines.
+    const lines = this.items(poId)
+    const anyReceived = lines.some((l) => l.receivedQuantity > 0)
+    const allReceived = lines.length > 0 && lines.every((l) => l.receivedQuantity >= l.quantity)
+    const nextStatus = allReceived ? 'RECEIVED' : anyReceived ? 'PARTIALLY_RECEIVED' : po.status
+    this.db.run(`UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ? AND business_id = ?`, [nextStatus, now, poId, businessId])
+    this.enqueue(poId, businessId, now)
+    this.onMutated()
+    this.audit?.log({ action: 'UPDATE', entityType: 'purchase_order', entityId: poId, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: nextStatus, received: receipts } } })
+  }
+
   buildDocument(poId: string): PurchaseOrderDocument {
     const businessId = this.requireBusinessId()
     const po = this.db.get<PoRow>(`SELECT ${COLS} FROM purchase_orders p WHERE p.id = ? AND p.business_id = ?`, [poId, businessId])
