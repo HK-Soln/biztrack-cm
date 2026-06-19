@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, Select, Stepper } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input, ScanInput, Select, Stepper } from '@biztrack/ui/biztrack'
 import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -664,7 +664,16 @@ export function ProductForm() {
                 </div>
                 <div className="ff">
                   <label className="lbl2">{t('prodf.barcode')}</label>
-                  <Input value={d.barcode} placeholder={t('prodf.barcodePh')} onChange={(e) => patch({ barcode: e.target.value })} />
+                  <ScanInput
+                    value={d.barcode}
+                    placeholder={t('prodf.barcodePh')}
+                    onChange={(e) => patch({ barcode: e.target.value })}
+                    onScan={(v) => patch({ barcode: v })}
+                    scanTitle={t('scan.title')}
+                    cameraTitle={t('scan.camTitle')}
+                    cameraHint={t('scan.camHint')}
+                    cameraError={t('scan.camError')}
+                  />
                 </div>
               </div>
               <div className="ff">
@@ -1004,8 +1013,8 @@ function SerialsEditor({
 }) {
   const [val, setVal] = useState('')
   const [err, setErr] = useState<string | null>(null)
-  const add = () => {
-    const v = val.trim()
+  const addValue = (raw: string) => {
+    const v = raw.trim()
     if (!v) return
     if (serials.includes(v)) return setErr(t('prodf.serialDup'))
     if (!validateSerial(v, type)) return setErr(t('prodf.serialInvalid').replace('{type}', t(`prodf.serial_${type}` as Parameters<typeof t>[0])))
@@ -1013,6 +1022,7 @@ function SerialsEditor({
     setVal('')
     setErr(null)
   }
+  const add = () => addValue(val)
   return (
     <div className="serials">
       <div className="serials-head">
@@ -1020,12 +1030,17 @@ function SerialsEditor({
         <span className="cnt">{t('prodf.serialsCount').replace('{n}', String(serials.length))}</span>
       </div>
       <div className="serials-add">
-        <Input
+        <ScanInput
           value={val}
           placeholder={t(`prodf.serialPh_${type}` as Parameters<typeof t>[0])}
           inputMode={type === 'IMEI' ? 'numeric' : 'text'}
           onChange={(e) => { setVal(e.target.value); setErr(null) }}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          onScan={addValue}
+          scanTitle={t('scan.title')}
+          cameraTitle={t('scan.camTitle')}
+          cameraHint={t('scan.camHint')}
+          cameraError={t('scan.camError')}
         />
         <Button type="button" variant="soft" onClick={add}>{t('prodf.serialAdd')}</Button>
       </div>

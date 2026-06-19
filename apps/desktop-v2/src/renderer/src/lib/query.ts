@@ -17,4 +17,5 @@ export const queryKeys = {
   brands: ['brands'] as const,
   products: ['products'] as const,
   inventory: ['inventory'] as const,
+  contacts: ['contacts'] as const,
 }

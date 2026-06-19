@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron'
 import { join } from 'path'
 import { DatabaseService, SecureStoreService, SyncService } from '@biztrack/electron-core'
 import { IPC, type SyncStatus, type TitleBarOverlayColors } from '../shared/ipc'
@@ -23,6 +23,8 @@ import { ProductsService } from './services/products.service'
 import { registerProductsIpc } from './ipc/products.ipc'
 import { InventoryService } from './services/inventory.service'
 import { registerInventoryIpc } from './ipc/inventory.ipc'
+import { ContactsService } from './services/contacts.service'
+import { registerContactsIpc } from './ipc/contacts.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { AuditService } from './services/audit.service'
@@ -101,6 +103,13 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('cm.biztrack.desktop.v2')
+
+  // Barcode/QR scanning uses the device camera (getUserMedia). Grant the camera
+  // permission for our own renderer; deny anything else. The OS still gates the
+  // first physical camera access.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media')
+  })
 
   // Electron main owns the SQLite connection (the trusted store). Migrations run
   // once here, before any IPC handler can read.
@@ -205,6 +214,16 @@ app.whenReady().then(() => {
     audit,
   )
   registerInventoryIpc(inventory)
+
+  // Contacts (customers & suppliers): offline-first; suppliers back the PO/RFQ flow,
+  // customers back sales/debts. Local write + outbox (entity `contacts`).
+  const contacts = new ContactsService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    audit,
+  )
+  registerContactsIpc(contacts)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

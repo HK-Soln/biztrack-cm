@@ -107,6 +107,15 @@ const api: BridgeApi = {
     setThreshold: (productId, input) => ipcRenderer.invoke(IPC.inventorySetThreshold, productId, input),
     listMovements: (productId, query) => ipcRenderer.invoke(IPC.inventoryListMovements, productId, query),
   },
+  contacts: {
+    list: (query) => ipcRenderer.invoke(IPC.contactsList, query),
+    listAllSuppliers: () => ipcRenderer.invoke(IPC.contactsListAllSuppliers),
+    listAllCustomers: () => ipcRenderer.invoke(IPC.contactsListAllCustomers),
+    get: (id) => ipcRenderer.invoke(IPC.contactsGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.contactsCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.contactsUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC.contactsDelete, id),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
   },

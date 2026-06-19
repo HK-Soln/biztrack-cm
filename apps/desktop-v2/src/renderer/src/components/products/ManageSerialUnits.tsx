@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Select } from '@biztrack/ui/biztrack'
+import { Button, Input, Modal, ScanInput, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useBreakpoint } from '@/lib/useBreakpoint'
@@ -41,6 +41,9 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
   const [serial, setSerial] = useState('')
   const [variantId, setVariantId] = useState('')
   const [addErr, setAddErr] = useState<string | null>(null)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkErr, setBulkErr] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editVal, setEditVal] = useState('')
   const [editErr, setEditErr] = useState<string | null>(null)
@@ -77,14 +80,61 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     },
   })
 
-  const submitAdd = () => {
-    const v = serial.trim()
+  const addSerial = (raw: string) => {
+    const v = raw.trim()
     if (!v) return
     if (!validateSerial(v, type)) return setAddErr(t('psu.invalid').replace('{type}', typeLabel))
     if (hasVariants && !variantId) return setAddErr(t('psu.variantRequired'))
     // Pre-check against the loaded in-stock units so we don't round-trip on a known duplicate.
     if (serials.some((s) => s.serialNumber.toLowerCase() === v.toLowerCase())) return setAddErr(t('psu.dupSerial').replace('{serial}', v))
     addM.mutate({ serialNumber: v, variantId: hasVariants ? variantId : null })
+  }
+  const submitAdd = () => addSerial(serial)
+
+  // --- bulk add (paste / scan) ----------------------------------------------
+  // Split on newlines, commas, semicolons or whitespace; classify each entry so
+  // the user sees valid / duplicate / invalid before committing. A barcode scanner
+  // sends each code + Enter, so scanning straight into the textarea just works.
+  const bulkTokens = useMemo(() => {
+    const existing = new Set(serials.map((s) => s.serialNumber.toLowerCase()))
+    const seen = new Set<string>()
+    return bulkText
+      .split(/[\n,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((value) => {
+        const key = value.toLowerCase()
+        const status: 'ok' | 'dup' | 'invalid' = !validateSerial(value, type)
+          ? 'invalid'
+          : existing.has(key) || seen.has(key)
+            ? 'dup'
+            : 'ok'
+        seen.add(key)
+        return { value, status }
+      })
+  }, [bulkText, serials, type])
+  const validTokens = bulkTokens.filter((tk) => tk.status === 'ok')
+
+  const bulkM = useMutation({
+    mutationFn: () =>
+      dataClient.products.addSerialUnits(
+        id,
+        validTokens.map((tk) => ({ serialNumber: tk.value, serialType: type, variantId: hasVariants ? variantId : null })),
+        'Bulk add',
+      ),
+    onSuccess: () => {
+      setBulkText('')
+      setVariantId('')
+      setBulkErr(null)
+      setBulkMode(false)
+      invalidate()
+    },
+    onError: (e) => setBulkErr(errorMessage(e, t('psu.addError'))),
+  })
+  const submitBulk = () => {
+    if (hasVariants && !variantId) return setBulkErr(t('psu.bulkVariantRequired'))
+    if (validTokens.length === 0) return setBulkErr(t('psu.bulkNone'))
+    bulkM.mutate()
   }
   const startEdit = (u: LocalSerialUnit) => {
     setEditId(u.id)
@@ -109,7 +159,7 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
 
   const editingCell = (u: LocalSerialUnit) => (
     <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-      <Input
+      <ScanInput
         autoFocus
         value={editVal}
         onChange={(e) => {
@@ -120,6 +170,11 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           if (e.key === 'Enter') saveEdit(u)
           if (e.key === 'Escape') setEditId(null)
         }}
+        onScan={(v) => { setEditVal(v); setEditErr(null) }}
+        scanTitle={t('scan.title')}
+        cameraTitle={t('scan.camTitle')}
+        cameraHint={t('scan.camHint')}
+        cameraError={t('scan.camError')}
         style={{ height: 32, maxWidth: 200 }}
       />
       <span className="acts" style={{ display: 'inline-flex', gap: 4 }}>
@@ -150,37 +205,106 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
         <span className="chip-tag">{t('psu.count').replace('{n}', String(serials.length))}</span>
       </div>
 
-      {/* Add unit (a stock-in). */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 14 }}>
-        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-          <Input
-            value={serial}
-            placeholder={t(`prodf.serialPh_${type}` as Parameters<typeof t>[0])}
-            inputMode={type === 'IMEI' ? 'numeric' : 'text'}
-            onChange={(e) => {
-              setSerial(e.target.value)
-              setAddErr(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submitAdd()
-            }}
-          />
-        </div>
-        {hasVariants ? (
-          <div style={{ flex: '0 1 180px' }}>
-            <Select value={variantId} onChange={(e) => setVariantId(e.target.value)}>
-              <option value="">{t('psu.variantPick')}</option>
-              {variants.map((v) => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </Select>
-          </div>
-        ) : null}
-        <Button variant="primary" onClick={submitAdd} loading={addM.isPending}>
-          + {t('psu.add')}
-        </Button>
+      {/* Add unit (a stock-in). Two modes: one-at-a-time, or paste/scan many. */}
+      <div className="seg-pick" style={{ marginBottom: 12 }}>
+        <button type="button" aria-pressed={!bulkMode} onClick={() => { setBulkMode(false); setBulkErr(null) }}>
+          {t('psu.modeOne')}
+        </button>
+        <button type="button" aria-pressed={bulkMode} onClick={() => { setBulkMode(true); setAddErr(null) }}>
+          {t('psu.modeBulk')}
+        </button>
       </div>
-      {addErr ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: -6, marginBottom: 12 }} role="alert">{addErr}</p> : null}
+
+      {!bulkMode ? (
+        <>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 14 }}>
+            <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+              <ScanInput
+                value={serial}
+                placeholder={t(`prodf.serialPh_${type}` as Parameters<typeof t>[0])}
+                inputMode={type === 'IMEI' ? 'numeric' : 'text'}
+                onChange={(e) => {
+                  setSerial(e.target.value)
+                  setAddErr(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitAdd()
+                }}
+                onScan={addSerial}
+                scanTitle={t('scan.title')}
+                cameraTitle={t('scan.camTitle')}
+                cameraHint={t('scan.camHint')}
+                cameraError={t('scan.camError')}
+              />
+            </div>
+            {hasVariants ? (
+              <div style={{ flex: '0 1 180px' }}>
+                <Select value={variantId} onChange={(e) => setVariantId(e.target.value)}>
+                  <option value="">{t('psu.variantPick')}</option>
+                  {variants.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
+            <Button variant="primary" onClick={submitAdd} loading={addM.isPending}>
+              + {t('psu.add')}
+            </Button>
+          </div>
+          {addErr ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: -6, marginBottom: 12 }} role="alert">{addErr}</p> : null}
+        </>
+      ) : (
+        <div style={{ marginBottom: 14 }}>
+          <p style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 8 }}>{t('psu.bulkHint')}</p>
+          {hasVariants ? (
+            <div style={{ marginBottom: 8, maxWidth: 240 }}>
+              <Select value={variantId} onChange={(e) => { setVariantId(e.target.value); setBulkErr(null) }}>
+                <option value="">{t('psu.variantPick')}</option>
+                {variants.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
+          <textarea
+            className="ta"
+            rows={6}
+            value={bulkText}
+            placeholder={t('psu.bulkPh')}
+            onChange={(e) => {
+              setBulkText(e.target.value)
+              setBulkErr(null)
+            }}
+            style={{ width: '100%', resize: 'vertical', fontFamily: 'var(--font-mono, monospace)', fontSize: 13 }}
+          />
+          {bulkTokens.length > 0 ? (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+              <span className="chip-tag" style={{ background: 'var(--success-soft)', color: 'var(--success)' }}>
+                {t('psu.bulkValid').replace('{n}', String(validTokens.length))}
+              </span>
+              {bulkTokens.some((tk) => tk.status === 'dup') ? (
+                <span className="chip-tag" style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}>
+                  {t('psu.bulkDup').replace('{n}', String(bulkTokens.filter((tk) => tk.status === 'dup').length))}
+                </span>
+              ) : null}
+              {bulkTokens.some((tk) => tk.status === 'invalid') ? (
+                <span className="chip-tag" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>
+                  {t('psu.bulkInvalid').replace('{n}', String(bulkTokens.filter((tk) => tk.status === 'invalid').length))}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <Button variant="primary" onClick={submitBulk} loading={bulkM.isPending} disabled={validTokens.length === 0}>
+              {t('psu.bulkAdd').replace('{n}', String(validTokens.length))}
+            </Button>
+            {bulkText ? (
+              <Button variant="ghost" onClick={() => { setBulkText(''); setBulkErr(null) }}>{t('common.clear')}</Button>
+            ) : null}
+          </div>
+          {bulkErr ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">{bulkErr}</p> : null}
+        </div>
+      )}
 
       {serials.length === 0 ? (
         <div className="hint">{t('psu.empty')}</div>

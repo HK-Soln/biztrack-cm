@@ -79,6 +79,13 @@ export const IPC = {
   inventoryAdjust: 'inventory:adjust',
   inventorySetThreshold: 'inventory:set-threshold',
   inventoryListMovements: 'inventory:list-movements',
+  contactsList: 'contacts:list',
+  contactsListAllSuppliers: 'contacts:list-all-suppliers',
+  contactsListAllCustomers: 'contacts:list-all-customers',
+  contactsGet: 'contacts:get',
+  contactsCreate: 'contacts:create',
+  contactsUpdate: 'contacts:update',
+  contactsDelete: 'contacts:delete',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -145,6 +152,39 @@ export interface AuditListQuery extends ListQueryT {
   entityType?: string
   entityId?: string
   action?: AuditAction
+}
+
+// ---- Contacts (customers & suppliers) -------------------------------------
+// Request/query shapes are the shared @biztrack/types contracts so desktop ↔ API
+// stay aligned. ContactType is a runtime enum — import it from '@biztrack/types'
+// directly in components that need its values.
+export type { ContactType, CreateContactRequest, UpdateContactRequest, ContactsQuery } from '@biztrack/types'
+import type {
+  ContactType as ContactTypeT,
+  CreateContactRequest,
+  UpdateContactRequest,
+  ContactsQuery,
+} from '@biztrack/types'
+
+/** A contact (customer/supplier) as stored locally. */
+export interface LocalContact {
+  id: string
+  type: ContactTypeT
+  name: string
+  phone: string | null
+  phoneAlt: string | null
+  address: string | null
+  notes: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** A contact row enriched with outstanding balances (computed from local debts). */
+export interface LocalContactListItem extends LocalContact {
+  totalReceivable: number
+  totalPayable: number
+  openDebts: number
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -837,6 +877,19 @@ export interface BridgeApi {
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
     /** Paginated stock-movement ledger for a product. */
     listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
+  }
+  contacts: {
+    /** Paginated contacts with outstanding balances (default 20). */
+    list: (query?: ContactsQuery) => Promise<PaginatedT<LocalContactListItem>>
+    /** Full active supplier set (type SUPPLIER|BOTH) — for PO/RFQ pickers. */
+    listAllSuppliers: () => Promise<LocalContact[]>
+    /** Full active customer set (type CUSTOMER|BOTH) — for sale/debt pickers. */
+    listAllCustomers: () => Promise<LocalContact[]>
+    get: (id: string) => Promise<LocalContactListItem | null>
+    create: (input: CreateContactRequest) => Promise<LocalContact>
+    update: (id: string, input: UpdateContactRequest) => Promise<LocalContact>
+    /** Deactivate a contact (blocked if it has open debts). */
+    remove: (id: string) => Promise<void>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

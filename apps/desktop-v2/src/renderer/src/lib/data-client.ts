@@ -7,6 +7,11 @@ import type {
   CategoryAttributeLinkInput,
   CategoryInput,
   CategoryListQuery,
+  ContactsQuery,
+  CreateContactRequest,
+  UpdateContactRequest,
+  LocalContact,
+  LocalContactListItem,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -119,6 +124,15 @@ export interface DataClient {
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
     listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
   }
+  contacts: {
+    list: (query?: ContactsQuery) => Promise<PaginatedResult<LocalContactListItem>>
+    listAllSuppliers: () => Promise<LocalContact[]>
+    listAllCustomers: () => Promise<LocalContact[]>
+    get: (id: string) => Promise<LocalContactListItem | null>
+    create: (input: CreateContactRequest) => Promise<LocalContact>
+    update: (id: string, input: UpdateContactRequest) => Promise<LocalContact>
+    remove: (id: string) => Promise<void>
+  }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
   }
@@ -202,6 +216,15 @@ function electronAdapter(): DataClient {
       setThreshold: (productId, input) => window.api.inventory.setThreshold(productId, input),
       listMovements: (productId, query) => window.api.inventory.listMovements(productId, query),
     },
+    contacts: {
+      list: (query) => window.api.contacts.list(query),
+      listAllSuppliers: () => window.api.contacts.listAllSuppliers(),
+      listAllCustomers: () => window.api.contacts.listAllCustomers(),
+      get: (id) => window.api.contacts.get(id),
+      create: (input) => window.api.contacts.create(input),
+      update: (id, input) => window.api.contacts.update(id, input),
+      remove: (id) => window.api.contacts.remove(id),
+    },
     audit: {
       list: (query) => window.api.audit.list(query),
     },
@@ -269,6 +292,7 @@ function cloudAdapter(): DataClient {
       listMovements: notWired,
     },
     inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
+    contacts: { list: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
   }
