@@ -74,6 +74,7 @@ export const IPC = {
   productsListMovements: 'products:list-movements',
   inventoryList: 'inventory:list',
   inventoryStats: 'inventory:stats',
+  inventoryRestock: 'inventory:restock',
   inventoryAdjust: 'inventory:adjust',
   inventorySetThreshold: 'inventory:set-threshold',
   inventoryListMovements: 'inventory:list-movements',
@@ -522,6 +523,20 @@ export interface InventoryListQuery extends ListQueryT {
   stockStatus?: StockStatus
 }
 
+/** One line of a restock (a purchase that adds stock). Direct products only for now. */
+export interface RestockItemInput {
+  productId: string
+  quantity: number
+  unitCost?: number | null
+}
+
+/** Cash/cost-only restock (supplier credit/payables deferred — see issue #83). */
+export interface RestockInput {
+  items: RestockItemInput[]
+  reference?: string | null
+  notes?: string | null
+}
+
 /** Why a stock level changed (mirrors the API's MovementType). */
 export type StockMovementType =
   | 'OPENING_STOCK'
@@ -792,6 +807,8 @@ export interface BridgeApi {
     list: (query?: InventoryListQuery) => Promise<PaginatedT<LocalInventoryItem>>
     /** KPI roll-up for the inventory header. */
     stats: () => Promise<InventoryStats>
+    /** Restock (cash/cost) — adds stock + a RESTOCK_IN movement. Direct products only. */
+    restock: (input: RestockInput) => Promise<void>
     /** Manually adjust a direct product's stock (set/add/remove) → a movement. */
     adjust: (productId: string, input: AdjustStockInput) => Promise<void>
     /** Set reorder/low-stock thresholds (no movement). */

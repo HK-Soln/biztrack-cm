@@ -8,6 +8,7 @@ import type {
   LocalStockMovement,
   MovementsQuery,
   PaginatedResult,
+  RestockInput,
   StockMovementType,
   ThresholdInput,
 } from '../../shared/ipc'
@@ -176,6 +177,81 @@ export class InventoryService {
     this.onMutated()
   }
 
+  /**
+   * Restock (a purchase that adds stock) — cash/cost-only: records a restock with
+   * unit costs, adds quantity, and writes a RESTOCK_IN movement per item. Direct
+   * products only (serialized → serial panel; variant restock deferred). Supplier
+   * credit/payables deferred to issue #83 — restock is treated as fully paid.
+   */
+  restock(input: RestockInput): void {
+    const businessId = this.requireBusinessId()
+    if (!input.items?.length) throw new Error('Add at least one item to restock.')
+    const now = new Date().toISOString()
+    const restockId = randomUUID()
+
+    // Validate everything before writing.
+    const lines = input.items.map((item) => {
+      const meta = this.requireProduct(item.productId, businessId)
+      if (!meta.trackInventory) throw new Error(`“${meta.name}” does not track stock.`)
+      if (meta.isSerialized) throw new Error(`Restock “${meta.name}” by adding serial units from its panel.`)
+      if (meta.hasVariants) throw new Error(`Per-variant restock for “${meta.name}” is not available yet.`)
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new Error('Quantity must be greater than 0.')
+      const unitCost = item.unitCost != null && Number.isFinite(item.unitCost) && item.unitCost >= 0 ? item.unitCost : null
+      return { productId: item.productId, name: meta.name, quantity: item.quantity, unitCost, before: meta.stock }
+    })
+
+    const totalCost = lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0)
+    const reference = input.reference?.trim() || null
+    const notes = input.notes?.trim() || null
+
+    this.db.run(
+      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, total_amount, total_cost, amount_paid, credit_amount, notes, performed_by_id, created_at)
+       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, 0, ?, NULL, ?)`,
+      [restockId, businessId, reference, totalCost, totalCost, totalCost, notes, now],
+    )
+
+    const syncItems: Array<{ id: string; productId: string; quantity: number; unitCost?: number; movementId: string }> = []
+    for (const line of lines) {
+      // Direct product: add to its own quantity, then record the RESTOCK_IN movement.
+      this.db.run(`UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`, [
+        line.quantity,
+        now,
+        line.productId,
+        businessId,
+      ])
+      const movementId =
+        recordStockMovement(
+          this.db,
+          businessId,
+          line.productId,
+          line.quantity,
+          { referenceType: 'restock', referenceId: restockId, notes: reference ? `Restock ${reference}` : 'Restock', type: 'RESTOCK_IN' },
+          now,
+        ) ?? randomUUID()
+      this.db.run(
+        `UPDATE inventory_levels SET last_restock_at = ?, updated_at = ? WHERE business_id = ? AND product_id = ? AND variant_id IS NULL`,
+        [now, now, businessId, line.productId],
+      )
+      const itemId = randomUUID()
+      this.db.run(
+        `INSERT INTO restock_items (id, restock_record_id, product_id, quantity, unit_cost, new_quantity, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [itemId, restockId, line.productId, line.quantity, line.unitCost, line.before + line.quantity, now],
+      )
+      syncItems.push({ id: itemId, productId: line.productId, quantity: line.quantity, ...(line.unitCost != null ? { unitCost: line.unitCost } : {}), movementId })
+    }
+
+    this.enqueue('inventoryRestocks', restockId, businessId, { referenceNumber: reference, supplierId: null, supplierName: null, totalAmount: totalCost, totalCost, notes, createdAt: now, items: syncItems }, now)
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'restock',
+      entityId: restockId,
+      entityLabel: reference ?? `${lines.length} item(s)`,
+      changes: { before: null, after: { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })), totalCost } },
+    })
+    this.onMutated()
+  }
+
   /** Set reorder / low-stock thresholds. No movement. */
   setThreshold(productId: string, input: ThresholdInput): void {
     const businessId = this.requireBusinessId()
@@ -289,7 +365,7 @@ export class InventoryService {
   }
 
   private enqueue(
-    entity: 'inventoryAdjustments' | 'inventoryThresholds',
+    entity: 'inventoryAdjustments' | 'inventoryThresholds' | 'inventoryRestocks',
     recordId: string,
     businessId: string,
     payload: Record<string, unknown>,

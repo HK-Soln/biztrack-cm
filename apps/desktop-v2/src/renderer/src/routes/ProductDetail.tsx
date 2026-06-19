@@ -11,6 +11,7 @@ import { MV_PILL, formatMovementDate } from '@/lib/movements'
 import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
 import { ThresholdModal } from '@/components/inventory/ThresholdModal'
 import { MovementHistoryModal } from '@/components/inventory/MovementHistoryModal'
+import { RestockModal } from '@/components/inventory/RestockModal'
 import { useT } from '@/i18n'
 import type { LocalProduct } from '@shared/ipc'
 
@@ -32,6 +33,7 @@ export function ProductDetail() {
   const [adjustOpen, setAdjustOpen] = useState(false)
   const [thresholdOpen, setThresholdOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [restockOpen, setRestockOpen] = useState(false)
 
   const { data: product, isPending } = useQuery({
     queryKey: [...queryKeys.products, 'one', id],
@@ -102,10 +104,12 @@ export function ProductDetail() {
               to every product. Adjust acts on product-level quantity, so it only applies
               to direct products (variant/serialised stock is adjusted in their panels).
               Both part of the Inventory module (not built yet) — disabled + flagged. */}
-          <Button variant="default" disabled title={t('pdv.inventorySoon')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
-            {t('pdv.restock')}
-          </Button>
+          {p.trackInventory ? (
+            <Button variant="default" onClick={() => setRestockOpen(true)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
+              {t('pdv.restock')}
+            </Button>
+          ) : null}
           {isDirect ? (
             <Button variant="default" onClick={() => setAdjustOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" /></svg>
@@ -327,6 +331,14 @@ export function ProductDetail() {
 
       {isDirect ? <AdjustStockModal product={p} open={adjustOpen} onClose={() => setAdjustOpen(false)} /> : null}
       {p.trackInventory ? <ThresholdModal product={p} open={thresholdOpen} onClose={() => setThresholdOpen(false)} /> : null}
+      {p.trackInventory ? (
+        <RestockModal
+          product={p}
+          kind={p.isSerialized ? 'serialized' : variants.length > 0 ? 'variant' : 'direct'}
+          open={restockOpen}
+          onClose={() => setRestockOpen(false)}
+        />
+      ) : null}
       <MovementHistoryModal product={p} open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>
   )
