@@ -67,7 +67,10 @@ export function Inventory() {
   })
 
   const open = (id: string) => navigate(`/products/${id}`)
-  const reorderCount = suggestions.length
+  // Banner visibility tracks the low/out KPI (all products), not just the direct
+  // auto-PO subset — so it shows whenever there's low stock. The PO auto-fills the
+  // restockable (direct) products; if none, the PO modal explains.
+  const attention = (stats?.lowStock ?? 0) + (stats?.outOfStock ?? 0)
   const estRestockCost = suggestions.reduce((s, x) => s + x.suggestedQty * (x.unitCost ?? 0), 0)
 
   const onHandCell = (it: LocalInventoryItem) => (
@@ -134,11 +137,13 @@ export function Inventory() {
         <div className="m"><div className="k">{t('inv.kOut')} {stats && stats.outOfStock > 0 ? <span className="badge b-down">{stats.outOfStock}</span> : null}</div><div className="v">{stats?.outOfStock ?? 0}</div><div className="h">{t('inv.kLostSales')}</div></div>
       </div>
 
-      {reorderCount > 0 ? (
+      {attention > 0 ? (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--warning-soft)', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 650, color: 'var(--warning)' }}>{t('inv.bannerTitle').replace('{n}', String(reorderCount))}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 2 }}>{t('inv.bannerSub').replace('{cost}', money.compact(estRestockCost))}</div>
+            <div style={{ fontSize: 14, fontWeight: 650, color: 'var(--warning)' }}>{t('inv.bannerTitle').replace('{n}', String(attention))}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 2 }}>
+              {estRestockCost > 0 ? t('inv.bannerSub').replace('{cost}', money.compact(estRestockCost)) : t('inv.bannerSubReview')}
+            </div>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => setPoOpen(true)}>{t('inv.bannerAction')}</button>
         </div>
