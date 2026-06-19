@@ -5,10 +5,12 @@ import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useCurrency } from '@/lib/currency'
+import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import type { LocalProduct, LocalVariant, VariantInput } from '@shared/ipc'
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : null)
+const sigOf = (optionIds: string[]) => [...optionIds].sort().join('|')
 
 /**
  * Manage a product's variants (movement-based). Add (opening stock → stock-in),
@@ -56,7 +58,7 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
       setAddErr(null)
       invalidate()
     },
-    onError: (e) => setAddErr(e instanceof Error ? e.message : t('pvar.addError')),
+    onError: (e) => setAddErr(errorMessage(e, t('pvar.addError'))),
   })
   const updateM = useMutation({
     mutationFn: (input: { variantId: string; data: VariantInput }) => dataClient.products.updateVariant(id, input.variantId, input.data),
@@ -77,6 +79,9 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const submitAdd = () => {
     if (links.some((g) => !sel[g.attributeGroupId])) return setAddErr(t('pvar.pickAll'))
     const options = links.map((g) => ({ attributeGroupId: g.attributeGroupId, attributeOptionId: sel[g.attributeGroupId]! }))
+    // Pre-check against the loaded variants so we don't round-trip on a known duplicate.
+    const sig = sigOf(options.map((o) => o.attributeOptionId))
+    if (variants.some((v) => sigOf(v.options.map((o) => o.attributeOptionId)) === sig)) return setAddErr(t('pvar.dupCombo'))
     const name = links.map((g) => g.options.find((o) => o.id === sel[g.attributeGroupId])?.value ?? '?').join(' / ')
     addM.mutate({ name, openingStock: product.isSerialized ? 0 : num(opening) ?? 0, isActive: true, options })
   }

@@ -4,6 +4,7 @@ import { Button, Input, Modal, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { validateSerial } from '@/lib/serial'
 import type { LocalProduct, LocalSerialUnit } from '@shared/ipc'
@@ -55,7 +56,7 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       setAddErr(null)
       invalidate()
     },
-    onError: (e) => setAddErr(e instanceof Error ? e.message : t('psu.addError')),
+    onError: (e) => setAddErr(errorMessage(e, t('psu.addError'))),
   })
   const renameM = useMutation({
     mutationFn: (input: { unitId: string; serialNumber: string }) =>
@@ -65,7 +66,7 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       setEditErr(null)
       invalidate()
     },
-    onError: (e) => setEditErr(e instanceof Error ? e.message : t('psu.editError')),
+    onError: (e) => setEditErr(errorMessage(e, t('psu.editError'))),
   })
   const retireM = useMutation({
     mutationFn: (input: { unitId: string; reason: string }) => dataClient.products.retireSerialUnit(id, input.unitId, input.reason),
@@ -81,6 +82,8 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     if (!v) return
     if (!validateSerial(v, type)) return setAddErr(t('psu.invalid').replace('{type}', typeLabel))
     if (hasVariants && !variantId) return setAddErr(t('psu.variantRequired'))
+    // Pre-check against the loaded in-stock units so we don't round-trip on a known duplicate.
+    if (serials.some((s) => s.serialNumber.toLowerCase() === v.toLowerCase())) return setAddErr(t('psu.dupSerial').replace('{serial}', v))
     addM.mutate({ serialNumber: v, variantId: hasVariants ? variantId : null })
   }
   const startEdit = (u: LocalSerialUnit) => {
@@ -92,6 +95,8 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     const v = editVal.trim()
     if (!v || v === u.serialNumber) return setEditId(null)
     if (!validateSerial(v, type)) return setEditErr(t('psu.invalid').replace('{type}', typeLabel))
+    // Pre-check against the other loaded units (excluding this one).
+    if (serials.some((s) => s.id !== u.id && s.serialNumber.toLowerCase() === v.toLowerCase())) return setEditErr(t('psu.dupSerial').replace('{serial}', v))
     renameM.mutate({ unitId: u.id, serialNumber: v })
   }
 
