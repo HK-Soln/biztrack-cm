@@ -7,26 +7,12 @@ import { queryKeys } from '@/lib/query'
 import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
 import { ManageVariants } from '@/components/products/ManageVariants'
 import { useCurrency } from '@/lib/currency'
+import { MV_PILL, formatMovementDate } from '@/lib/movements'
+import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
+import { ThresholdModal } from '@/components/inventory/ThresholdModal'
+import { MovementHistoryModal } from '@/components/inventory/MovementHistoryModal'
 import { useT } from '@/i18n'
-import type { LocalProduct, StockMovementType } from '@shared/ipc'
-
-const MV_DATE = new Intl.DateTimeFormat('fr-CM', { day: 'numeric', month: 'short' })
-const MV_TIME = new Intl.DateTimeFormat('fr-CM', { hour: '2-digit', minute: '2-digit' })
-const formatMovementDate = (iso: string): string => {
-  const d = new Date(iso)
-  return `${MV_DATE.format(d)} · ${MV_TIME.format(d)}`
-}
-
-/** Stock-movement type → ledger pill colour (mirrors the design .et-* palette). */
-const MV_PILL: Record<StockMovementType, string> = {
-  OPENING_STOCK: 'et-sale',
-  RESTOCK_IN: 'et-pay',
-  TRANSFER_IN: 'et-pay',
-  VOID_REVERSAL: 'et-pay',
-  SALE: 'et-debt',
-  TRANSFER_OUT: 'et-debt',
-  MANUAL_ADJUSTMENT: 'et-woff',
-}
+import type { LocalProduct } from '@shared/ipc'
 
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
   if (!p.trackInventory) return 'none'
@@ -43,6 +29,9 @@ export function ProductDetail() {
   const qc = useQueryClient()
   const money = useCurrency()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [thresholdOpen, setThresholdOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const { data: product, isPending } = useQuery({
     queryKey: [...queryKeys.products, 'one', id],
@@ -118,7 +107,7 @@ export function ProductDetail() {
             {t('pdv.restock')}
           </Button>
           {isDirect ? (
-            <Button variant="default" disabled title={t('pdv.inventorySoon')}>
+            <Button variant="default" onClick={() => setAdjustOpen(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" /></svg>
               {t('pdv.adjustStock')}
             </Button>
@@ -189,7 +178,22 @@ export function ProductDetail() {
             </div>
           </div>
           <div className="binmeta">
-            <div className="c"><div className="l">{t('pdv.reorderPt')}</div><div className="v">{threshold > 0 ? threshold : '—'}</div></div>
+            <div className="c">
+              <div className="l">{t('pdv.reorderPt')}</div>
+              <div className="v" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {threshold > 0 ? threshold : '—'}
+                {p.trackInventory ? (
+                  <button
+                    type="button"
+                    title={t('inv.editThresholds')}
+                    onClick={() => setThresholdOpen(true)}
+                    style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', color: 'var(--brand)', display: 'inline-grid', placeItems: 'center' }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="M14 6l4 4" /></svg>
+                  </button>
+                ) : null}
+              </div>
+            </div>
             {/* Incoming / Reserved / Avg per day require Inventory + Sales — flagged. */}
             <div className="c"><div className="l">{t('pdv.incoming')}</div><div className="v">—</div></div>
             <div className="c"><div className="l">{t('pdv.reserved')}</div><div className="v">—</div></div>
@@ -229,8 +233,7 @@ export function ProductDetail() {
               <div className="panel-foot">
                 <span>{t('pdv.mvShowing').replace('{n}', String(movements.length))}</span>
                 <div className="spacer" />
-                {/* Full history view arrives with the Inventory module — flagged. */}
-                <span className="link" aria-disabled="true" title={t('pdv.inventorySoon')}>{t('pdv.mvViewAll')}</span>
+                <span className="link" role="button" tabIndex={0} onClick={() => setHistoryOpen(true)} onKeyDown={(e) => { if (e.key === 'Enter') setHistoryOpen(true) }}>{t('pdv.mvViewAll')}</span>
               </div>
             </>
           )}
@@ -321,6 +324,10 @@ export function ProductDetail() {
           {t('prod.deleteBody').replace('{name}', p.name)}
         </p>
       </Modal>
+
+      {isDirect ? <AdjustStockModal product={p} open={adjustOpen} onClose={() => setAdjustOpen(false)} /> : null}
+      {p.trackInventory ? <ThresholdModal product={p} open={thresholdOpen} onClose={() => setThresholdOpen(false)} /> : null}
+      <MovementHistoryModal product={p} open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>
   )
 }
