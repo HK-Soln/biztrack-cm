@@ -16,7 +16,9 @@
   "dependencies": {
     "@biztrack/electron-core": "workspace:*",
     "@biztrack/http-client": "workspace:*",
+    "@biztrack/templates": "workspace:*",
     "@biztrack/types": "workspace:*",
+    "@biztrack/ui": "workspace:*",
     "@biztrack/utils": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "bcryptjs": "^2.4.3",

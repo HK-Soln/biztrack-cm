@@ -88,6 +88,12 @@ export const IPC = {
   contactsDelete: 'contacts:delete',
   debtsListByContact: 'debts:list-by-contact',
   debtsRecordPayment: 'debts:record-payment',
+  rfqList: 'rfq:list',
+  rfqGet: 'rfq:get',
+  rfqCreate: 'rfq:create',
+  rfqRecordQuote: 'rfq:record-quote',
+  rfqBuildDocument: 'rfq:build-document',
+  rfqSend: 'rfq:send',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -214,6 +220,58 @@ export interface LocalDebt {
   notes: string | null
   createdAt: string
   settledAt: string | null
+}
+
+// ---- RFQ (request for quotation) ------------------------------------------
+export type { CreateRfqRequest, RfqsQuery, RecordRfqQuoteRequest, RfqDocument, RfqSendChannel } from '@biztrack/types'
+import type {
+  CreateRfqRequest,
+  RfqsQuery,
+  RecordRfqQuoteRequest,
+  RfqDocument,
+  RfqSendChannel,
+  RfqStatus,
+  RfqSupplierStatus,
+} from '@biztrack/types'
+
+export interface LocalRfqItem {
+  id: string
+  productId: string
+  variantId: string | null
+  description: string
+  quantity: number
+}
+
+export interface LocalRfqSupplier {
+  id: string
+  supplierId: string
+  supplierName: string | null
+  status: RfqSupplierStatus
+  quotedTotal: number | null
+  quoteNotes: string | null
+  respondedAt: string | null
+}
+
+export interface LocalRfq {
+  id: string
+  number: string
+  title: string | null
+  messageBody: string | null
+  status: RfqStatus
+  currency: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LocalRfqListItem extends LocalRfq {
+  itemCount: number
+  supplierCount: number
+  quoteCount: number
+}
+
+export interface LocalRfqDetail extends LocalRfq {
+  items: LocalRfqItem[]
+  suppliers: LocalRfqSupplier[]
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -925,6 +983,17 @@ export interface BridgeApi {
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedT<LocalDebt>>
     /** Record a payment against a debt; returns the updated debt. */
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+  }
+  rfqs: {
+    list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>
+    get: (id: string) => Promise<LocalRfqDetail | null>
+    create: (input: CreateRfqRequest) => Promise<LocalRfqDetail>
+    /** Record a supplier's quote against an RFQ. */
+    recordQuote: (rfqId: string, input: RecordRfqQuoteRequest) => Promise<LocalRfqDetail>
+    /** Build the printable document view-model for an RFQ addressed to one supplier. */
+    buildDocument: (rfqId: string, supplierId: string) => Promise<RfqDocument>
+    /** Generate the PDF + open the WhatsApp/email composer for one supplier; marks sent. */
+    send: (rfqId: string, supplierId: string, channel: RfqSendChannel) => Promise<LocalRfqDetail>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

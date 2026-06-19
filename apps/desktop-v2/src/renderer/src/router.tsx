@@ -22,6 +22,9 @@ import { Inventory } from '@/routes/Inventory'
 import { ProductDetail } from '@/routes/ProductDetail'
 import { Contacts } from '@/routes/Contacts'
 import { ContactDetail } from '@/routes/ContactDetail'
+import { Rfqs } from '@/routes/Rfqs'
+import { RfqForm } from '@/routes/RfqForm'
+import { RfqDetail } from '@/routes/RfqDetail'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -73,6 +76,9 @@ export const router = createHashRouter([
       { path: '/contacts/debtors', element: <Placeholder titleKey="nav.debtors" /> },
       { path: '/contacts/creditors', element: <Placeholder titleKey="nav.creditors" /> },
       { path: '/contacts/:id', element: <ContactDetail /> },
+      { path: '/purchasing/rfqs', element: <Rfqs /> },
+      { path: '/purchasing/rfqs/new', element: <RfqForm /> },
+      { path: '/purchasing/rfqs/:id', element: <RfqDetail /> },
       { path: '/expenses', element: <Placeholder titleKey="nav.expenses" /> },
       { path: '/deposits', element: <Placeholder titleKey="nav.deposits" /> },
       { path: '/reports', element: <Placeholder titleKey="nav.reports" /> },

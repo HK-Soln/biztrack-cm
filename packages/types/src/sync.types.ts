@@ -8,6 +8,7 @@ import type {
   SaleStatus,
 } from './sale.types'
 import type { SavingsTransactionType, SavingsTransactionDirection } from './savings.types'
+import type { RfqStatus, RfqSupplierStatus } from './rfq.types'
 export type SyncEntity =
   | 'contact'
   | 'opening_balance'
@@ -33,6 +34,7 @@ export type SyncEntity =
   | 'expense'
   | 'savings'
   | 'savings_transaction'
+  | 'rfq'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -96,6 +98,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   debt: 3,
   savings: 3,
   savings_transaction: 3,
+  rfq: 2,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -123,6 +126,7 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   debt: 21,
   savings: 22,
   savings_transaction: 23,
+  rfq: 24,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -178,6 +182,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   debt: ['contact', 'sale'],
   savings: ['contact'],
   savings_transaction: ['savings'],
+  rfq: ['contact', 'product'],
 }
 
 /**
@@ -430,6 +435,40 @@ export interface DebtSyncRecord extends SyncRecord, DebtSyncPayload {
   businessId: string
 }
 
+export interface RfqItemSyncPayload {
+  id: string
+  productId: string
+  variantId?: string | null
+  description: string
+  quantity: number
+}
+
+export interface RfqSupplierSyncPayload {
+  id: string
+  supplierId: string
+  status: RfqSupplierStatus
+  quotedTotal?: number | null
+  quoteNotes?: string | null
+  respondedAt?: string | null
+}
+
+export interface RfqSyncPayload {
+  number: string
+  title?: string | null
+  messageBody?: string | null
+  status: RfqStatus
+  currency: string
+  createdById?: string | null
+  createdAt: string
+  updatedAt: string
+  items?: RfqItemSyncPayload[]
+  suppliers?: RfqSupplierSyncPayload[]
+}
+
+export interface RfqSyncRecord extends SyncRecord, RfqSyncPayload {
+  businessId: string
+}
+
 export interface ExpenseCategorySyncRecord extends SyncRecord {
   businessId?: string | null
   name: string
@@ -544,6 +583,7 @@ export interface ChangeSet {
   saleItems?: SaleItemSyncRecord[]
   salePayments?: SalePaymentSyncRecord[]
   debts?: DebtSyncRecord[]
+  rfqs?: RfqSyncRecord[]
   expenses?: ExpenseSyncRecord[]
   teamMembers?: TeamMemberSyncRecord[]
   roles?: RoleSyncRecord[]
@@ -852,6 +892,7 @@ export type SyncPushPayload =
   | InventoryAdjustmentSyncPayload
   | InventoryRestockSyncPayload
   | DebtSyncPayload
+  | RfqSyncPayload
   | SaleSyncPayload
   | ExpenseCategorySyncPayload
   | ExpenseSyncPayload

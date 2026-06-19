@@ -522,9 +522,15 @@ importers:
       '@biztrack/http-client':
         specifier: workspace:*
         version: link:../../packages/http-client
+      '@biztrack/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       '@biztrack/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@biztrack/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@biztrack/utils':
         specifier: workspace:*
         version: link:../../packages/utils

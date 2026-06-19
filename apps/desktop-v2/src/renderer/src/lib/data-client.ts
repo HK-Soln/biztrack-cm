@@ -15,6 +15,13 @@ import type {
   DebtsQuery,
   RecordDebtPaymentRequest,
   LocalDebt,
+  CreateRfqRequest,
+  RfqsQuery,
+  RecordRfqQuoteRequest,
+  RfqDocument,
+  RfqSendChannel,
+  LocalRfqDetail,
+  LocalRfqListItem,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -140,6 +147,14 @@ export interface DataClient {
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
   }
+  rfqs: {
+    list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
+    get: (id: string) => Promise<LocalRfqDetail | null>
+    create: (input: CreateRfqRequest) => Promise<LocalRfqDetail>
+    recordQuote: (rfqId: string, input: RecordRfqQuoteRequest) => Promise<LocalRfqDetail>
+    buildDocument: (rfqId: string, supplierId: string) => Promise<RfqDocument>
+    send: (rfqId: string, supplierId: string, channel: RfqSendChannel) => Promise<LocalRfqDetail>
+  }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
   }
@@ -236,6 +251,14 @@ function electronAdapter(): DataClient {
       listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
     },
+    rfqs: {
+      list: (query) => window.api.rfqs.list(query),
+      get: (id) => window.api.rfqs.get(id),
+      create: (input) => window.api.rfqs.create(input),
+      recordQuote: (rfqId, input) => window.api.rfqs.recordQuote(rfqId, input),
+      buildDocument: (rfqId, supplierId) => window.api.rfqs.buildDocument(rfqId, supplierId),
+      send: (rfqId, supplierId, channel) => window.api.rfqs.send(rfqId, supplierId, channel),
+    },
     audit: {
       list: (query) => window.api.audit.list(query),
     },
@@ -305,6 +328,7 @@ function cloudAdapter(): DataClient {
     inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
     contacts: { list: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
     debts: { listByContact: notWired, recordPayment: notWired },
+    rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
   }

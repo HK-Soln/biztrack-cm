@@ -16,6 +16,8 @@
     "src/main/services/contacts.service.ts",
     "src/main/services/debts.smoke.ts",
     "src/main/services/debts.service.ts",
+    "src/main/services/rfq.smoke.ts",
+    "src/main/services/rfq.service.ts",
     "src/main/services/pagination.ts"
   ]
 }

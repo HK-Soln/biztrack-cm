@@ -120,6 +120,14 @@ const api: BridgeApi = {
     listByContact: (contactId, query) => ipcRenderer.invoke(IPC.debtsListByContact, contactId, query),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
   },
+  rfqs: {
+    list: (query) => ipcRenderer.invoke(IPC.rfqList, query),
+    get: (id) => ipcRenderer.invoke(IPC.rfqGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.rfqCreate, input),
+    recordQuote: (rfqId, input) => ipcRenderer.invoke(IPC.rfqRecordQuote, rfqId, input),
+    buildDocument: (rfqId, supplierId) => ipcRenderer.invoke(IPC.rfqBuildDocument, rfqId, supplierId),
+    send: (rfqId, supplierId, channel) => ipcRenderer.invoke(IPC.rfqSend, rfqId, supplierId, channel),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
   },

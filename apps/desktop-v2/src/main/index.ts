@@ -27,6 +27,9 @@ import { ContactsService } from './services/contacts.service'
 import { registerContactsIpc } from './ipc/contacts.ipc'
 import { DebtsService } from './services/debts.service'
 import { registerDebtsIpc } from './ipc/debts.ipc'
+import { DocumentService } from './services/document.service'
+import { RfqService } from './services/rfq.service'
+import { registerRfqIpc } from './ipc/rfq.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { AuditService } from './services/audit.service'
@@ -237,6 +240,21 @@ app.whenReady().then(() => {
     audit,
   )
   registerDebtsIpc(debts)
+
+  // Procurement documents: renders RFQ/PO PDFs (offscreen Chromium) + opens the
+  // WhatsApp/email composer. Shared by RFQ + PO.
+  const documents = new DocumentService()
+
+  // RFQ (request for quotation): offline-first; suppliers are contacts, items are
+  // products/variants. Local write + outbox (entity `rfqs`); send = PDF + share.
+  const rfqs = new RfqService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    audit,
+  )
+  registerRfqIpc(rfqs, documents)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).
