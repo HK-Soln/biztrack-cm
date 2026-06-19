@@ -38,6 +38,9 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { Rfq } from '@/entities/rfq.entity'
+import { RfqItem } from '@/entities/rfq-item.entity'
+import { RfqSupplier } from '@/entities/rfq-supplier.entity'
 import { User } from '@/entities/user.entity'
 import { RedisModule } from '@/common/redis/redis.module'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
@@ -93,6 +96,9 @@ import { SyncService } from './sync.service'
       ProductVariantOption,
       ProductBundleComponent,
       ProductSerialUnit,
+      Rfq,
+      RfqItem,
+      RfqSupplier,
       BusinessMember,
       Business,
       Contact,

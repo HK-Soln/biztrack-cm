@@ -54,6 +54,8 @@ import {
   inferProductType,
   PaymentMethod,
   ProductType,
+  RfqStatus,
+  RfqSupplierStatus,
   SerialType,
   SerialUnitStatus,
   StockAdjustmentType,
@@ -103,6 +105,9 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { Rfq } from '@/entities/rfq.entity'
+import { RfqItem } from '@/entities/rfq-item.entity'
+import { RfqSupplier } from '@/entities/rfq-supplier.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -481,6 +486,12 @@ export class SyncService {
     private readonly productBundleComponentsRepo: Repository<ProductBundleComponent>,
     @InjectRepository(ProductSerialUnit)
     private readonly productSerialUnitsRepo: Repository<ProductSerialUnit>,
+    @InjectRepository(Rfq)
+    private readonly rfqsRepo: Repository<Rfq>,
+    @InjectRepository(RfqItem)
+    private readonly rfqItemsRepo: Repository<RfqItem>,
+    @InjectRepository(RfqSupplier)
+    private readonly rfqSuppliersRepo: Repository<RfqSupplier>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -1276,6 +1287,7 @@ export class SyncService {
       inventory_restock: (b, o) => this.applyInventoryRestockOperation(b, o),
       sale: (b, o) => this.applySaleOperation(b, o),
       debt: (b, o) => this.applyDebtOperation(b, o),
+      rfq: (b, o) => this.applyRfqOperation(b, o),
       expense: (b, o) => this.applyExpenseOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
@@ -2174,6 +2186,90 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       }),
     )
+
+    return { status: 'applied' }
+  }
+
+  private async applyRfqOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.rfqsRepo.findOne({ where: { id: operation.recordId, businessId } })
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE') {
+      if (existing) await this.rfqsRepo.softDelete({ id: operation.recordId })
+      return { status: 'applied' }
+    }
+
+    const payload = operation.payload as {
+      number?: string
+      title?: string | null
+      messageBody?: string | null
+      status?: string
+      currency?: string
+      createdById?: string | null
+      createdAt?: string
+      items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number }>
+      suppliers?: Array<{ id: string; supplierId: string; status: string; quotedTotal?: number | null; quoteNotes?: string | null; respondedAt?: string | null }>
+    }
+
+    if (existing) {
+      await this.rfqsRepo.update(operation.recordId, {
+        number: payload.number ?? existing.number,
+        title: this.normalizeOptionalString(payload.title),
+        messageBody: this.normalizeOptionalString(payload.messageBody),
+        status: (payload.status as RfqStatus) ?? existing.status,
+        currency: payload.currency ?? existing.currency,
+        updatedAt: operation.recordUpdatedAt,
+      })
+    } else {
+      await this.rfqsRepo.save(
+        this.rfqsRepo.create({
+          id: operation.recordId,
+          businessId,
+          number: payload.number ?? 'RFQ',
+          title: this.normalizeOptionalString(payload.title),
+          messageBody: this.normalizeOptionalString(payload.messageBody),
+          status: (payload.status as RfqStatus) ?? RfqStatus.DRAFT,
+          currency: payload.currency ?? 'XAF',
+          createdById: payload.createdById ?? null,
+          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        }),
+      )
+    }
+
+    // The client always pushes the complete nested state, so full-replace the children.
+    await this.rfqItemsRepo.delete({ rfqId: operation.recordId })
+    for (const it of payload.items ?? []) {
+      await this.rfqItemsRepo.save(
+        this.rfqItemsRepo.create({
+          id: it.id,
+          rfqId: operation.recordId,
+          productId: it.productId,
+          variantId: it.variantId ?? null,
+          description: it.description,
+          quantity: it.quantity,
+        }),
+      )
+    }
+    await this.rfqSuppliersRepo.delete({ rfqId: operation.recordId })
+    for (const s of payload.suppliers ?? []) {
+      await this.rfqSuppliersRepo.save(
+        this.rfqSuppliersRepo.create({
+          id: s.id,
+          rfqId: operation.recordId,
+          supplierId: s.supplierId,
+          status: (s.status as RfqSupplierStatus) ?? RfqSupplierStatus.PENDING,
+          quotedTotal: s.quotedTotal ?? null,
+          quoteNotes: this.normalizeOptionalString(s.quoteNotes),
+          respondedAt: this.parseOptionalDate(s.respondedAt) ?? null,
+        }),
+      )
+    }
 
     return { status: 'applied' }
   }
