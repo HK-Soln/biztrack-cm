@@ -169,7 +169,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   product_image: ['product'],
   product_variant: ['product'],
   product_variant_option: ['product_variant', 'attribute_option'],
-  product_serial_unit: ['product'],
+  product_serial_unit: ['product', 'product_variant'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
   inventory_adjustment: ['product'],
