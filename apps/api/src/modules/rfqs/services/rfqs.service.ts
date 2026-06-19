@@ -143,6 +143,7 @@ export class RfqsService {
         status: RfqSupplierStatus.QUOTED,
         quotedTotal: dto.quotedTotal,
         quoteNotes: dto.quoteNotes?.trim() || null,
+        ...(dto.quoteFileUrl !== undefined ? { quoteFileUrl: dto.quoteFileUrl } : {}),
         respondedAt: new Date(),
       })
       if (rfq.status === RfqStatus.DRAFT || rfq.status === RfqStatus.SENT) {

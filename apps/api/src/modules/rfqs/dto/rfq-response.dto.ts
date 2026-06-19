@@ -24,6 +24,7 @@ function mapSupplier(e: RfqSupplierEntity): RfqSupplier {
     status: e.status as RfqSupplierStatus,
     quotedTotal: e.quotedTotal != null ? Number(e.quotedTotal) : null,
     quoteNotes: e.quoteNotes ?? null,
+    quoteFileUrl: e.quoteFileUrl ?? null,
     respondedAt: toIsoString(e.respondedAt) ?? null,
   }
 }

@@ -29,6 +29,9 @@ export class RfqSupplier extends BaseEntity {
   @Column({ name: 'quote_notes', nullable: true, type: 'text' })
   quoteNotes?: string | null
 
+  @Column({ name: 'quote_file_url', nullable: true, type: 'varchar' })
+  quoteFileUrl?: string | null
+
   @Column({ name: 'responded_at', nullable: true, type: 'timestamptz', transformer: dateTransformer })
   respondedAt?: Date | null
 }

@@ -2221,7 +2221,7 @@ export class SyncService {
       createdById?: string | null
       createdAt?: string
       items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number }>
-      suppliers?: Array<{ id: string; supplierId: string; status: string; quotedTotal?: number | null; quoteNotes?: string | null; respondedAt?: string | null }>
+      suppliers?: Array<{ id: string; supplierId: string; status: string; quotedTotal?: number | null; quoteNotes?: string | null; quoteFileUrl?: string | null; respondedAt?: string | null }>
     }
 
     if (existing) {
@@ -2274,6 +2274,7 @@ export class SyncService {
           status: (s.status as RfqSupplierStatus) ?? RfqSupplierStatus.PENDING,
           quotedTotal: s.quotedTotal ?? null,
           quoteNotes: this.normalizeOptionalString(s.quoteNotes),
+          quoteFileUrl: this.normalizeOptionalString(s.quoteFileUrl),
           respondedAt: this.parseOptionalDate(s.respondedAt) ?? null,
         }),
       )

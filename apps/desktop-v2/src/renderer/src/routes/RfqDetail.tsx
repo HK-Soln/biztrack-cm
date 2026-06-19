@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal } from '@biztrack/ui/biztrack'
 import { renderRfqHtml } from '@biztrack/templates'
-import { RfqSupplierStatus } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
@@ -101,7 +100,16 @@ export function RfqDetail() {
               <tr key={s.id}>
                 <td>{s.supplierName ?? '—'}</td>
                 <td><span className={`st ${SUP_STATUS_CLASS[s.status] ?? 'st-neutral'}`}>{t(`rfq.supStatus_${s.status}` as Parameters<typeof t>[0])}</span></td>
-                <td className="right num">{s.quotedTotal != null ? money.format(s.quotedTotal) : '—'}</td>
+                <td className="right num">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                    {s.quotedTotal != null ? money.format(s.quotedTotal) : '—'}
+                    {s.quoteFileUrl ? (
+                      <a href={s.quoteFileUrl} target="_blank" rel="noreferrer" title={t('rfq.quoteFileView')} style={{ color: 'var(--brand-int)', display: 'inline-flex' }}>
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M21 12.5 12.5 21a4 4 0 0 1-5.7-5.7l8.5-8.5a2.5 2.5 0 0 1 3.5 3.5l-8 8" /></svg>
+                      </a>
+                    ) : null}
+                  </span>
+                </td>
                 <td className="right">
                   <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                     <button type="button" className="icon-btn" title={t('rfq.preview')} aria-label={t('rfq.preview')} onClick={() => void preview(s.supplierId)}>
@@ -110,9 +118,8 @@ export function RfqDetail() {
                     <ActionMenu
                       items={[
                         { label: t('rfq.share'), onClick: () => setShareTarget(s) },
-                        s.status !== RfqSupplierStatus.QUOTED
-                          ? { label: t('rfq.recordQuote'), onClick: () => setQuoteTarget(s) }
-                          : { label: t('rfq.convert'), onClick: () => setConvertTarget(s) },
+                        { label: t('rfq.recordQuote'), onClick: () => setQuoteTarget(s) },
+                        { label: t('rfq.createPo'), onClick: () => setConvertTarget(s) },
                       ]}
                     />
                   </span>
@@ -157,10 +164,27 @@ function QuoteModal({ rfqId, supplier, onClose, onSaved }: { rfqId: string; supp
   const t = useT()
   const [amount, setAmount] = useState(supplier.quotedTotal != null ? String(supplier.quotedTotal) : '')
   const [notes, setNotes] = useState(supplier.quoteNotes ?? '')
+  const [fileUrl, setFileUrl] = useState<string | null>(supplier.quoteFileUrl ?? null)
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const onPickFile = async (file: File | undefined) => {
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      const bytes = await file.arrayBuffer()
+      const res = await dataClient.uploads.file({ bytes, filename: file.name, contentType: file.type || 'application/pdf', folder: 'quotes' })
+      setFileUrl(res.url)
+    } catch (e) {
+      setError(errorMessage(e, t('rfq.quoteUploadError')))
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const save = useMutation({
-    mutationFn: () => dataClient.rfqs.recordQuote(rfqId, { rfqSupplierId: supplier.id, quotedTotal: Number(amount.replace(/\s/g, '')), quoteNotes: notes.trim() || undefined }),
+    mutationFn: () => dataClient.rfqs.recordQuote(rfqId, { rfqSupplierId: supplier.id, quotedTotal: Number(amount.replace(/\s/g, '')), quoteNotes: notes.trim() || undefined, quoteFileUrl: fileUrl }),
     onSuccess: onSaved,
     onError: (e) => setError(errorMessage(e, t('rfq.quoteError'))),
   })
@@ -189,9 +213,26 @@ function QuoteModal({ rfqId, supplier, onClose, onSaved }: { rfqId: string; supp
         <label className="lbl2">{t('rfq.quoteTotal')}</label>
         <Input value={amount} inputMode="decimal" onChange={(e) => { setAmount(e.target.value); setError(null) }} />
       </div>
-      <div className="ff">
+      <div className="ff" style={{ marginBottom: 12 }}>
         <label className="lbl2">{t('rfq.quoteNotes')}</label>
         <textarea className="ta" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', resize: 'vertical' }} />
+      </div>
+      <div className="ff">
+        <label className="lbl2">{t('rfq.quoteFile')}</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label className="btn btn-soft" style={{ cursor: 'pointer' }}>
+            {uploading ? t('rfq.quoteUploading') : t('rfq.quoteUpload')}
+            <input type="file" accept="application/pdf,image/*" hidden onChange={(e) => void onPickFile(e.target.files?.[0])} />
+          </label>
+          {fileUrl ? (
+            <>
+              <a href={fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: 'var(--brand-int)' }}>{t('rfq.quoteFileView')}</a>
+              <button type="button" onClick={() => setFileUrl(null)} style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer', fontSize: 12.5 }}>{t('rfq.remove')}</button>
+            </>
+          ) : (
+            <span className="hint" style={{ fontSize: 12 }}>{t('rfq.quoteFileHint')}</span>
+          )}
+        </div>
       </div>
       {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
     </Modal>

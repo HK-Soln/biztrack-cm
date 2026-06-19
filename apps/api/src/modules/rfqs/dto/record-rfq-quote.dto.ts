@@ -19,4 +19,10 @@ export class RecordRfqQuoteDto implements RecordRfqQuoteRequest {
   @IsString()
   @MaxLength(2000)
   quoteNotes?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  quoteFileUrl?: string | null
 }

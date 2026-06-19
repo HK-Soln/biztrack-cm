@@ -141,8 +141,8 @@ export class RfqService {
 
     const now = new Date().toISOString()
     this.db.run(
-      `UPDATE rfq_suppliers SET status = 'QUOTED', quoted_total = ?, quote_notes = ?, responded_at = ? WHERE id = ?`,
-      [total, input.quoteNotes?.trim() || null, now, input.rfqSupplierId],
+      `UPDATE rfq_suppliers SET status = 'QUOTED', quoted_total = ?, quote_notes = ?, quote_file_url = ?, responded_at = ? WHERE id = ?`,
+      [total, input.quoteNotes?.trim() || null, input.quoteFileUrl ?? null, now, input.rfqSupplierId],
     )
     if (rfq.status === 'DRAFT' || rfq.status === 'SENT') {
       this.db.run(`UPDATE rfqs SET status = 'QUOTED', updated_at = ? WHERE id = ? AND business_id = ?`, [now, rfqId, businessId])
@@ -230,8 +230,8 @@ export class RfqService {
 
   private suppliers(rfqId: string): LocalRfqSupplier[] {
     return this.db
-      .query<{ id: string; supplier_id: string; supplier_name: string | null; status: string; quoted_total: number | null; quote_notes: string | null; responded_at: string | null }>(
-        `SELECT id, supplier_id, supplier_name, status, quoted_total, quote_notes, responded_at FROM rfq_suppliers WHERE rfq_id = ? ORDER BY created_at ASC`,
+      .query<{ id: string; supplier_id: string; supplier_name: string | null; status: string; quoted_total: number | null; quote_notes: string | null; quote_file_url: string | null; responded_at: string | null }>(
+        `SELECT id, supplier_id, supplier_name, status, quoted_total, quote_notes, quote_file_url, responded_at FROM rfq_suppliers WHERE rfq_id = ? ORDER BY created_at ASC`,
         [rfqId],
       )
       .map((r) => ({
@@ -241,6 +241,7 @@ export class RfqService {
         status: r.status as LocalRfqSupplier['status'],
         quotedTotal: r.quoted_total,
         quoteNotes: r.quote_notes,
+        quoteFileUrl: r.quote_file_url,
         respondedAt: r.responded_at,
       }))
   }
@@ -295,7 +296,7 @@ export class RfqService {
       createdAt: r.created_at,
       updatedAt: now,
       items: this.items(rfqId).map((i) => ({ id: i.id, productId: i.productId, variantId: i.variantId, description: i.description, quantity: i.quantity })),
-      suppliers: this.suppliers(rfqId).map((s) => ({ id: s.id, supplierId: s.supplierId, status: s.status, quotedTotal: s.quotedTotal, quoteNotes: s.quoteNotes, respondedAt: s.respondedAt })),
+      suppliers: this.suppliers(rfqId).map((s) => ({ id: s.id, supplierId: s.supplierId, status: s.status, quotedTotal: s.quotedTotal, quoteNotes: s.quoteNotes, quoteFileUrl: s.quoteFileUrl, respondedAt: s.respondedAt })),
     }
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)

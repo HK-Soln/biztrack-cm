@@ -258,6 +258,7 @@ export interface LocalRfqSupplier {
   status: RfqSupplierStatus
   quotedTotal: number | null
   quoteNotes: string | null
+  quoteFileUrl: string | null
   respondedAt: string | null
 }
 

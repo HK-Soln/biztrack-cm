@@ -35,6 +35,8 @@ export interface RfqSupplier {
   status: RfqSupplierStatus
   quotedTotal?: number | null
   quoteNotes?: string | null
+  /** Uploaded quotation document (PDF) from the supplier, if any. */
+  quoteFileUrl?: string | null
   respondedAt?: IsoDateString | null
 }
 
@@ -90,6 +92,8 @@ export interface RecordRfqQuoteRequest {
   rfqSupplierId: string
   quotedTotal: number
   quoteNotes?: string
+  /** URL of the supplier's uploaded quotation document (PDF). */
+  quoteFileUrl?: string | null
 }
 
 export interface ConvertRfqToPoRequest {
