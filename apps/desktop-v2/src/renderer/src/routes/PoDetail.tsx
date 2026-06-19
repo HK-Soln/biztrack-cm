@@ -9,6 +9,7 @@ import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
+import { ReceivePoModal } from '@/components/inventory/ReceivePoModal'
 
 const STATUS_CLASS: Record<string, string> = {
   DRAFT: 'st-neutral', SENT: 'st-brand', CONFIRMED: 'st-brand', PARTIALLY_RECEIVED: 'st-low', RECEIVED: 'st-ok', CANCELLED: 'st-out',
@@ -22,6 +23,7 @@ export function PoDetail() {
   const qc = useQueryClient()
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [receiving, setReceiving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   const { data: po, isPending } = useQuery({
@@ -59,6 +61,7 @@ export function PoDetail() {
   if (!po) return <div className="frame"><div className="cat-empty">{t('po.notFound')}</div></div>
 
   const canCancel = po.status !== PurchaseOrderStatus.RECEIVED && po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED && po.status !== PurchaseOrderStatus.CANCELLED
+  const canReceive = po.status !== PurchaseOrderStatus.RECEIVED && po.status !== PurchaseOrderStatus.CANCELLED && po.status !== PurchaseOrderStatus.DRAFT
 
   return (
     <div className="frame">
@@ -73,6 +76,7 @@ export function PoDetail() {
           <p>{po.supplierName ?? '—'}{po.expectedDate ? ` · ${t('po.expectedShort')} ${new Date(po.expectedDate).toLocaleDateString()}` : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {canReceive ? <Button variant="primary" onClick={() => setReceiving(true)}>{t('po.receive')}</Button> : null}
           <Button variant="soft" onClick={() => void preview()}>{t('po.preview')}</Button>
           <Button variant="soft" loading={sendM.isPending} onClick={() => sendM.mutate('whatsapp')}>{t('po.whatsapp')}</Button>
           <Button variant="soft" loading={sendM.isPending} onClick={() => sendM.mutate('email')}>{t('po.email')}</Button>
@@ -115,6 +119,7 @@ export function PoDetail() {
       <Modal open={!!previewHtml} onClose={() => setPreviewHtml(null)} title={t('po.previewTitle')} className="modal-lg">
         <iframe title="preview" srcDoc={previewHtml ?? ''} style={{ width: '100%', height: '60vh', border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }} />
       </Modal>
+      {receiving ? <ReceivePoModal po={po} open onClose={() => setReceiving(false)} /> : null}
     </div>
   )
 }
