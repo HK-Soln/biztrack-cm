@@ -128,6 +128,15 @@ const api: BridgeApi = {
     buildDocument: (rfqId, supplierId) => ipcRenderer.invoke(IPC.rfqBuildDocument, rfqId, supplierId),
     send: (rfqId, supplierId, channel) => ipcRenderer.invoke(IPC.rfqSend, rfqId, supplierId, channel),
   },
+  purchaseOrders: {
+    list: (query) => ipcRenderer.invoke(IPC.poList, query),
+    get: (id) => ipcRenderer.invoke(IPC.poGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.poCreate, input),
+    createFromRfq: (rfqId, input) => ipcRenderer.invoke(IPC.poCreateFromRfq, rfqId, input),
+    buildDocument: (poId) => ipcRenderer.invoke(IPC.poBuildDocument, poId),
+    send: (poId, channel) => ipcRenderer.invoke(IPC.poSend, poId, channel),
+    cancel: (poId) => ipcRenderer.invoke(IPC.poCancel, poId),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
   },

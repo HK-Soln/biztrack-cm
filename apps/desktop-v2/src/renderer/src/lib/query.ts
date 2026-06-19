@@ -19,4 +19,5 @@ export const queryKeys = {
   inventory: ['inventory'] as const,
   contacts: ['contacts'] as const,
   rfqs: ['rfqs'] as const,
+  purchaseOrders: ['purchase-orders'] as const,
 }

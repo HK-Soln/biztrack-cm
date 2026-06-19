@@ -176,6 +176,15 @@ export class RfqService {
     return this.get(rfqId)!
   }
 
+  /** Mark an RFQ as CONVERTED (a PO was created from one of its quotes). */
+  markConverted(rfqId: string): void {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    this.db.run(`UPDATE rfqs SET status = 'CONVERTED', updated_at = ? WHERE id = ? AND business_id = ?`, [now, rfqId, businessId])
+    this.enqueue(rfqId, businessId, now)
+    this.onMutated()
+  }
+
   /** Build the printable document view-model for an RFQ addressed to one supplier. */
   buildDocument(rfqId: string, supplierId: string): RfqDocument {
     const businessId = this.requireBusinessId()

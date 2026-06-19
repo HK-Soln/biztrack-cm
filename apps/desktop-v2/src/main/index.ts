@@ -30,6 +30,8 @@ import { registerDebtsIpc } from './ipc/debts.ipc'
 import { DocumentService } from './services/document.service'
 import { RfqService } from './services/rfq.service'
 import { registerRfqIpc } from './ipc/rfq.ipc'
+import { PurchaseOrderService } from './services/purchase-order.service'
+import { registerPurchaseOrderIpc } from './ipc/purchase-order.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { AuditService } from './services/audit.service'
@@ -255,6 +257,18 @@ app.whenReady().then(() => {
     audit,
   )
   registerRfqIpc(rfqs, documents)
+
+  // Purchase Orders: created from scratch or a chosen RFQ quote; sent as a PDF + share.
+  // Restock will later receive against a PO (Slice 5).
+  const purchaseOrders = new PurchaseOrderService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    rfqs,
+    audit,
+  )
+  registerPurchaseOrderIpc(purchaseOrders, documents)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

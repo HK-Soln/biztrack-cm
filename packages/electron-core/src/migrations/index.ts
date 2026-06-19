@@ -38,6 +38,7 @@ import { migration_0036 } from './0036_product_meta_variant_stock'
 import { migration_0037 } from './0037_product_serial_units'
 import { migration_0038 } from './0038_local_audit_logs'
 import { migration_0039 } from './0039_rfqs'
+import { migration_0040 } from './0040_purchase_orders'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -83,6 +84,7 @@ export const MIGRATIONS: Migration[] = [
   migration_0037,
   migration_0038,
   migration_0039,
+  migration_0040,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

@@ -94,6 +94,13 @@ export const IPC = {
   rfqRecordQuote: 'rfq:record-quote',
   rfqBuildDocument: 'rfq:build-document',
   rfqSend: 'rfq:send',
+  poList: 'po:list',
+  poGet: 'po:get',
+  poCreate: 'po:create',
+  poCreateFromRfq: 'po:create-from-rfq',
+  poBuildDocument: 'po:build-document',
+  poSend: 'po:send',
+  poCancel: 'po:cancel',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -272,6 +279,63 @@ export interface LocalRfqListItem extends LocalRfq {
 export interface LocalRfqDetail extends LocalRfq {
   items: LocalRfqItem[]
   suppliers: LocalRfqSupplier[]
+}
+
+// ---- Purchase orders ------------------------------------------------------
+export type {
+  CreatePurchaseOrderRequest,
+  UpdatePurchaseOrderRequest,
+  PurchaseOrdersQuery,
+  SendPurchaseOrderRequest,
+  PurchaseOrderSendChannel,
+  PurchaseOrderDocument,
+  ConvertRfqToPoRequest,
+} from '@biztrack/types'
+import type {
+  CreatePurchaseOrderRequest,
+  PurchaseOrdersQuery,
+  SendPurchaseOrderRequest,
+  PurchaseOrderSendChannel,
+  PurchaseOrderDocument,
+  ConvertRfqToPoRequest,
+  PurchaseOrderStatus,
+} from '@biztrack/types'
+
+export interface LocalPurchaseOrderItem {
+  id: string
+  productId: string
+  variantId: string | null
+  description: string
+  quantity: number
+  unitPrice: number
+  receivedQuantity: number
+}
+
+export interface LocalPurchaseOrder {
+  id: string
+  number: string
+  rfqId: string | null
+  supplierId: string
+  supplierName: string | null
+  title: string | null
+  messageBody: string | null
+  status: PurchaseOrderStatus
+  currency: string
+  expectedDate: string | null
+  totalAmount: number
+  sentAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LocalPurchaseOrderListItem extends LocalPurchaseOrder {
+  itemCount: number
+  /** Fraction (0..1) of ordered quantity received so far. */
+  receivedRatio: number
+}
+
+export interface LocalPurchaseOrderDetail extends LocalPurchaseOrder {
+  items: LocalPurchaseOrderItem[]
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -994,6 +1058,17 @@ export interface BridgeApi {
     buildDocument: (rfqId: string, supplierId: string) => Promise<RfqDocument>
     /** Generate the PDF + open the WhatsApp/email composer for one supplier; marks sent. */
     send: (rfqId: string, supplierId: string, channel: RfqSendChannel) => Promise<LocalRfqDetail>
+  }
+  purchaseOrders: {
+    list: (query?: PurchaseOrdersQuery) => Promise<PaginatedT<LocalPurchaseOrderListItem>>
+    get: (id: string) => Promise<LocalPurchaseOrderDetail | null>
+    create: (input: CreatePurchaseOrderRequest) => Promise<LocalPurchaseOrderDetail>
+    /** Create a PO from a chosen RFQ supplier quote (marks the RFQ converted). */
+    createFromRfq: (rfqId: string, input: ConvertRfqToPoRequest) => Promise<LocalPurchaseOrderDetail>
+    buildDocument: (poId: string) => Promise<PurchaseOrderDocument>
+    /** Generate the PDF + open the WhatsApp/email composer for the supplier; marks sent. */
+    send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
+    cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

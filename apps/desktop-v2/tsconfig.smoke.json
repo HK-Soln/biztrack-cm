@@ -18,6 +18,8 @@
     "src/main/services/debts.service.ts",
     "src/main/services/rfq.smoke.ts",
     "src/main/services/rfq.service.ts",
+    "src/main/services/purchase-order.smoke.ts",
+    "src/main/services/purchase-order.service.ts",
     "src/main/services/pagination.ts"
   ]
 }

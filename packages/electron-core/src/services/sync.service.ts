@@ -85,6 +85,7 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   inventoryAdjustments: 'inventory_adjustment',
   debts: 'debt',
   rfqs: 'rfq',
+  purchaseOrders: 'purchase_order',
   sales: 'sale',
   expenses: 'expense',
   savings: 'savings',

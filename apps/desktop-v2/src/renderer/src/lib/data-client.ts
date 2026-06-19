@@ -22,6 +22,13 @@ import type {
   RfqSendChannel,
   LocalRfqDetail,
   LocalRfqListItem,
+  CreatePurchaseOrderRequest,
+  ConvertRfqToPoRequest,
+  PurchaseOrdersQuery,
+  PurchaseOrderSendChannel,
+  PurchaseOrderDocument,
+  LocalPurchaseOrderDetail,
+  LocalPurchaseOrderListItem,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -155,6 +162,15 @@ export interface DataClient {
     buildDocument: (rfqId: string, supplierId: string) => Promise<RfqDocument>
     send: (rfqId: string, supplierId: string, channel: RfqSendChannel) => Promise<LocalRfqDetail>
   }
+  purchaseOrders: {
+    list: (query?: PurchaseOrdersQuery) => Promise<PaginatedResult<LocalPurchaseOrderListItem>>
+    get: (id: string) => Promise<LocalPurchaseOrderDetail | null>
+    create: (input: CreatePurchaseOrderRequest) => Promise<LocalPurchaseOrderDetail>
+    createFromRfq: (rfqId: string, input: ConvertRfqToPoRequest) => Promise<LocalPurchaseOrderDetail>
+    buildDocument: (poId: string) => Promise<PurchaseOrderDocument>
+    send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
+    cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
+  }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
   }
@@ -259,6 +275,15 @@ function electronAdapter(): DataClient {
       buildDocument: (rfqId, supplierId) => window.api.rfqs.buildDocument(rfqId, supplierId),
       send: (rfqId, supplierId, channel) => window.api.rfqs.send(rfqId, supplierId, channel),
     },
+    purchaseOrders: {
+      list: (query) => window.api.purchaseOrders.list(query),
+      get: (id) => window.api.purchaseOrders.get(id),
+      create: (input) => window.api.purchaseOrders.create(input),
+      createFromRfq: (rfqId, input) => window.api.purchaseOrders.createFromRfq(rfqId, input),
+      buildDocument: (poId) => window.api.purchaseOrders.buildDocument(poId),
+      send: (poId, channel) => window.api.purchaseOrders.send(poId, channel),
+      cancel: (poId) => window.api.purchaseOrders.cancel(poId),
+    },
     audit: {
       list: (query) => window.api.audit.list(query),
     },
@@ -329,6 +354,7 @@ function cloudAdapter(): DataClient {
     contacts: { list: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
     debts: { listByContact: notWired, recordPayment: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
+    purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
   }

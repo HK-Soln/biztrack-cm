@@ -9,6 +9,7 @@ import type {
 } from './sale.types'
 import type { SavingsTransactionType, SavingsTransactionDirection } from './savings.types'
 import type { RfqStatus, RfqSupplierStatus } from './rfq.types'
+import type { PurchaseOrderStatus } from './purchase-order.types'
 export type SyncEntity =
   | 'contact'
   | 'opening_balance'
@@ -35,6 +36,7 @@ export type SyncEntity =
   | 'savings'
   | 'savings_transaction'
   | 'rfq'
+  | 'purchase_order'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -99,6 +101,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   savings: 3,
   savings_transaction: 3,
   rfq: 2,
+  purchase_order: 2,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -127,6 +130,7 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   savings: 22,
   savings_transaction: 23,
   rfq: 24,
+  purchase_order: 25,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -183,6 +187,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   savings: ['contact'],
   savings_transaction: ['savings'],
   rfq: ['contact', 'product'],
+  purchase_order: ['contact', 'product', 'rfq'],
 }
 
 /**
@@ -469,6 +474,38 @@ export interface RfqSyncRecord extends SyncRecord, RfqSyncPayload {
   businessId: string
 }
 
+export interface PurchaseOrderItemSyncPayload {
+  id: string
+  productId: string
+  variantId?: string | null
+  description: string
+  quantity: number
+  unitPrice: number
+  receivedQuantity?: number
+}
+
+export interface PurchaseOrderSyncPayload {
+  number: string
+  rfqId?: string | null
+  supplierId: string
+  supplierName?: string | null
+  title?: string | null
+  messageBody?: string | null
+  status: PurchaseOrderStatus
+  currency: string
+  expectedDate?: string | null
+  totalAmount: number
+  sentAt?: string | null
+  createdById?: string | null
+  createdAt: string
+  updatedAt: string
+  items?: PurchaseOrderItemSyncPayload[]
+}
+
+export interface PurchaseOrderSyncRecord extends SyncRecord, PurchaseOrderSyncPayload {
+  businessId: string
+}
+
 export interface ExpenseCategorySyncRecord extends SyncRecord {
   businessId?: string | null
   name: string
@@ -584,6 +621,7 @@ export interface ChangeSet {
   salePayments?: SalePaymentSyncRecord[]
   debts?: DebtSyncRecord[]
   rfqs?: RfqSyncRecord[]
+  purchaseOrders?: PurchaseOrderSyncRecord[]
   expenses?: ExpenseSyncRecord[]
   teamMembers?: TeamMemberSyncRecord[]
   roles?: RoleSyncRecord[]
@@ -893,6 +931,7 @@ export type SyncPushPayload =
   | InventoryRestockSyncPayload
   | DebtSyncPayload
   | RfqSyncPayload
+  | PurchaseOrderSyncPayload
   | SaleSyncPayload
   | ExpenseCategorySyncPayload
   | ExpenseSyncPayload

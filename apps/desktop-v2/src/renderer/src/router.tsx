@@ -25,6 +25,9 @@ import { ContactDetail } from '@/routes/ContactDetail'
 import { Rfqs } from '@/routes/Rfqs'
 import { RfqForm } from '@/routes/RfqForm'
 import { RfqDetail } from '@/routes/RfqDetail'
+import { PurchaseOrders } from '@/routes/PurchaseOrders'
+import { PoForm } from '@/routes/PoForm'
+import { PoDetail } from '@/routes/PoDetail'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -79,6 +82,9 @@ export const router = createHashRouter([
       { path: '/purchasing/rfqs', element: <Rfqs /> },
       { path: '/purchasing/rfqs/new', element: <RfqForm /> },
       { path: '/purchasing/rfqs/:id', element: <RfqDetail /> },
+      { path: '/purchasing/orders', element: <PurchaseOrders /> },
+      { path: '/purchasing/orders/new', element: <PoForm /> },
+      { path: '/purchasing/orders/:id', element: <PoDetail /> },
       { path: '/expenses', element: <Placeholder titleKey="nav.expenses" /> },
       { path: '/deposits', element: <Placeholder titleKey="nav.deposits" /> },
       { path: '/reports', element: <Placeholder titleKey="nav.reports" /> },
