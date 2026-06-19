@@ -86,6 +86,8 @@ export const IPC = {
   contactsCreate: 'contacts:create',
   contactsUpdate: 'contacts:update',
   contactsDelete: 'contacts:delete',
+  debtsListByContact: 'debts:list-by-contact',
+  debtsRecordPayment: 'debts:record-payment',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -185,6 +187,33 @@ export interface LocalContactListItem extends LocalContact {
   totalReceivable: number
   totalPayable: number
   openDebts: number
+}
+
+// ---- Debts & payments ------------------------------------------------------
+export type { DebtsQuery, RecordDebtPaymentRequest } from '@biztrack/types'
+import type {
+  DebtsQuery,
+  RecordDebtPaymentRequest,
+  DebtDirection,
+  DebtSource,
+  DebtStatus,
+} from '@biztrack/types'
+
+/** A debt (receivable/payable) as stored locally, with computed paid/outstanding. */
+export interface LocalDebt {
+  id: string
+  contactId: string
+  direction: DebtDirection
+  sourceType: DebtSource
+  sourceReference: string
+  originalAmount: number
+  paidAmount: number
+  outstandingAmount: number
+  status: DebtStatus
+  dueDate: string | null
+  notes: string | null
+  createdAt: string
+  settledAt: string | null
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -890,6 +919,12 @@ export interface BridgeApi {
     update: (id: string, input: UpdateContactRequest) => Promise<LocalContact>
     /** Deactivate a contact (blocked if it has open debts). */
     remove: (id: string) => Promise<void>
+  }
+  debts: {
+    /** Paginated debts for a contact (the contact-detail ledger). */
+    listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedT<LocalDebt>>
+    /** Record a payment against a debt; returns the updated debt. */
+    recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

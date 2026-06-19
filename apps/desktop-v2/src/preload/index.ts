@@ -116,6 +116,10 @@ const api: BridgeApi = {
     update: (id, input) => ipcRenderer.invoke(IPC.contactsUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.contactsDelete, id),
   },
+  debts: {
+    listByContact: (contactId, query) => ipcRenderer.invoke(IPC.debtsListByContact, contactId, query),
+    recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
   },

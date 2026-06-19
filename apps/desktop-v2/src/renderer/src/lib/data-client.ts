@@ -12,6 +12,9 @@ import type {
   UpdateContactRequest,
   LocalContact,
   LocalContactListItem,
+  DebtsQuery,
+  RecordDebtPaymentRequest,
+  LocalDebt,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -133,6 +136,10 @@ export interface DataClient {
     update: (id: string, input: UpdateContactRequest) => Promise<LocalContact>
     remove: (id: string) => Promise<void>
   }
+  debts: {
+    listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
+    recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+  }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
   }
@@ -225,6 +232,10 @@ function electronAdapter(): DataClient {
       update: (id, input) => window.api.contacts.update(id, input),
       remove: (id) => window.api.contacts.remove(id),
     },
+    debts: {
+      listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
+      recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
+    },
     audit: {
       list: (query) => window.api.audit.list(query),
     },
@@ -293,6 +304,7 @@ function cloudAdapter(): DataClient {
     },
     inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
     contacts: { list: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
+    debts: { listByContact: notWired, recordPayment: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
   }

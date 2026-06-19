@@ -25,6 +25,8 @@ import { InventoryService } from './services/inventory.service'
 import { registerInventoryIpc } from './ipc/inventory.ipc'
 import { ContactsService } from './services/contacts.service'
 import { registerContactsIpc } from './ipc/contacts.ipc'
+import { DebtsService } from './services/debts.service'
+import { registerDebtsIpc } from './ipc/debts.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { AuditService } from './services/audit.service'
@@ -224,6 +226,17 @@ app.whenReady().then(() => {
     audit,
   )
   registerContactsIpc(contacts)
+
+  // Debts & supplier payables: offline-first. Credit restocks/sales create source
+  // debts; payments reduce them. Local write + outbox (entity `debts`, payments nested).
+  const debts = new DebtsService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    audit,
+  )
+  registerDebtsIpc(debts)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).
