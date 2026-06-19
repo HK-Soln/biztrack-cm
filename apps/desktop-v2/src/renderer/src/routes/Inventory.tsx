@@ -145,7 +145,11 @@ export function Inventory() {
               {estRestockCost > 0 ? t('inv.bannerSub').replace('{cost}', money.compact(estRestockCost)) : t('inv.bannerSubReview')}
             </div>
           </div>
-          <button type="button" className="btn btn-primary" onClick={() => setPoOpen(true)}>{t('inv.bannerAction')}</button>
+          {suggestions.length > 0 ? (
+            <button type="button" className="btn btn-primary" onClick={() => setPoOpen(true)}>{t('inv.bannerAction')}</button>
+          ) : (
+            <button type="button" className="btn" style={{ background: 'var(--surface)' }} onClick={() => { setTab('low'); setPage(1) }}>{t('inv.bannerReview')}</button>
+          )}
         </div>
       ) : null}
 
