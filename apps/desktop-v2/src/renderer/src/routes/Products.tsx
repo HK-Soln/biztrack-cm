@@ -12,8 +12,10 @@ import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalProduct, StockStatus } from '@shared/ipc'
 
 function marginInfo(p: LocalProduct): { text: string; good: boolean } {
-  if (p.costPrice == null || p.costPrice <= 0 || p.sellingPrice <= 0) return { text: '—', good: false }
-  const pct = ((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100
+  const cost = p.effectiveCostPrice
+  const price = p.effectiveSellingPrice
+  if (cost == null || cost <= 0 || price <= 0) return { text: '—', good: false }
+  const pct = ((price - cost) / price) * 100
   return { text: `${pct.toFixed(1)}%`, good: pct > 0 }
 }
 
@@ -139,8 +141,8 @@ export function Products() {
       header: t('prod.colCategory'),
       render: (p) => (p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'),
     },
-    { key: 'cost', header: t('prod.colCost'), align: 'right', tdClassName: 'num', render: (p) => (p.costPrice != null ? money.format(p.costPrice) : '—') },
-    { key: 'price', header: t('prod.colPrice'), align: 'right', tdClassName: 'num', render: (p) => money.format(p.sellingPrice) },
+    { key: 'cost', header: t('prod.colCost'), align: 'right', tdClassName: 'num', render: (p) => (p.effectiveCostPrice != null ? money.format(p.effectiveCostPrice) : '—') },
+    { key: 'price', header: t('prod.colPrice'), align: 'right', tdClassName: 'num', render: (p) => money.format(p.effectiveSellingPrice) },
     {
       key: 'margin',
       header: t('prod.colMargin'),
@@ -163,7 +165,7 @@ export function Products() {
         <div className="u-nm">{p.name}</div>
         <div className="u-sub">
           {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
-          <span className="num">{money.format(p.sellingPrice)}</span>
+          <span className="num">{money.format(p.effectiveSellingPrice)}</span>
           {statusPill(p)}
         </div>
       </div>

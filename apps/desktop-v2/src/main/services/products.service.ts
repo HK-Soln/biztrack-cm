@@ -18,6 +18,8 @@ import type {
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import {
+  COST_EXPR,
+  PRICE_EXPR,
   STOCK_EXPR,
   effectiveStock as effectiveStockFn,
   movementCount as movementCountFn,
@@ -59,6 +61,8 @@ interface ProductRow {
   reorder_point: number | null
   stock_quantity: number | null
   effective_stock: number | null
+  effective_price: number | null
+  effective_cost: number | null
   category_name: string | null
   brand_name: string | null
   unit_abbr: string | null
@@ -127,6 +131,7 @@ const COLS =
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
    p.is_serialized, p.serial_type, p.warranty_months,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
+   ${PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM =
   `products p
@@ -256,8 +261,8 @@ export class ProductsService {
       `SELECT
          COUNT(*) AS totalSkus,
          COUNT(DISTINCT p.category_id) AS categories,
-         COALESCE(SUM(COALESCE(p.cost_price, 0) * ${stock}), 0) AS catalogValueCost,
-         COALESCE(SUM(p.price * ${stock}), 0) AS retailValue,
+         COALESCE(SUM(COALESCE(${COST_EXPR}, 0) * ${stock}), 0) AS catalogValueCost,
+         COALESCE(SUM(${PRICE_EXPR} * ${stock}), 0) AS retailValue,
          COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} > 0
            AND ${thr} > 0 AND ${stock} <= ${thr} THEN 1 ELSE 0 END), 0) AS lowStock,
          COALESCE(SUM(CASE WHEN p.track_inventory = 1 AND ${stock} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
@@ -1154,6 +1159,8 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     barcode: row.barcode,
     sellingPrice: row.price,
     costPrice: row.cost_price,
+    effectiveSellingPrice: row.effective_price ?? row.price,
+    effectiveCostPrice: row.effective_cost ?? row.cost_price,
     currency: row.currency ?? 'XAF',
     taxRate: row.tax_rate,
     productType: (row.product_type as ProductType) ?? 'SIMPLE',

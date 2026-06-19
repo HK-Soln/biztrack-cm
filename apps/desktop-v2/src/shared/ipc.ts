@@ -385,8 +385,14 @@ export interface LocalProduct {
   description: string | null
   sku: string | null
   barcode: string | null
+  /** Base price set at the pricing stage — the inherit default for variants + the
+   * edit-form value. For display use effectiveSellingPrice/effectiveCostPrice. */
   sellingPrice: number
   costPrice: number | null
+  /** Displayed price: for variant products this is the AVERAGE of the variants'
+   * effective prices (override ?? base); otherwise equals the base. Computed live. */
+  effectiveSellingPrice: number
+  effectiveCostPrice: number | null
   currency: string
   taxRate: number
   productType: ProductType

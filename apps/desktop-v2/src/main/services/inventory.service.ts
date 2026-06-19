@@ -14,7 +14,7 @@ import type {
   ThresholdInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
-import { STOCK_EXPR, recordStockMovement } from './stock-ledger'
+import { COST_EXPR, STOCK_EXPR, recordStockMovement } from './stock-ledger'
 import type { AuditLogger } from './audit.service'
 
 interface MovementRow {
@@ -57,7 +57,7 @@ const INV_FROM = `products p
    LEFT JOIN product_categories c ON c.id = p.category_id
    LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id
    LEFT JOIN inventory_levels il ON il.product_id = p.id AND il.variant_id IS NULL`
-const INV_COLS = `p.id, p.name, p.sku, p.image_url, p.cost_price, p.currency, p.low_stock_threshold, p.reorder_point,
+const INV_COLS = `p.id, p.name, p.sku, p.image_url, ${COST_EXPR} AS cost_price, p.currency, p.low_stock_threshold, p.reorder_point,
    ${STOCK_EXPR} AS effective_stock, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
 const INV_THRESHOLD = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
 
@@ -117,7 +117,7 @@ export class InventoryService {
       `SELECT
          COUNT(*) AS trackedSkus,
          COALESCE(SUM(${STOCK_EXPR}), 0) AS unitsOnHand,
-         COALESCE(SUM(COALESCE(p.cost_price, 0) * ${STOCK_EXPR}), 0) AS stockValueCost,
+         COALESCE(SUM(COALESCE(${COST_EXPR}, 0) * ${STOCK_EXPR}), 0) AS stockValueCost,
          COALESCE(SUM(CASE WHEN ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD} THEN 1 ELSE 0 END), 0) AS lowStock,
          COALESCE(SUM(CASE WHEN ${STOCK_EXPR} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
        FROM products p WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1`,

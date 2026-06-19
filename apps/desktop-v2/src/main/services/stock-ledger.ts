@@ -22,6 +22,27 @@ export const STOCK_EXPR = `(CASE
     ELSE p.stock_quantity
   END)`
 
+/**
+ * Effective selling / cost price for display (the number the UI shows):
+ * - has variants → the AVERAGE of the variants' effective prices (override ?? base)
+ * - otherwise    → the product's own price / cost_price
+ * The product's own p.price / p.cost_price remain the BASE (the inherit default for
+ * variants + the edit-form value); these are computed live so they reflect variant
+ * price changes immediately. `p` must be the products alias in the surrounding query.
+ */
+export const PRICE_EXPR = `(CASE
+    WHEN EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) THEN (
+      SELECT AVG(COALESCE(pv.price_override, p.price)) FROM product_variants pv
+      WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+    ELSE p.price
+  END)`
+export const COST_EXPR = `(CASE
+    WHEN EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) THEN (
+      SELECT AVG(COALESCE(pv.cost_price_override, p.cost_price)) FROM product_variants pv
+      WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+    ELSE p.cost_price
+  END)`
+
 /** Effective on-hand stock for one product (serial count / variant sum / own qty). */
 export function effectiveStock(db: DatabaseService, productId: string): number {
   const row = db.get<{ s: number | null }>(`SELECT ${STOCK_EXPR} AS s FROM products p WHERE p.id = ?`, [productId])

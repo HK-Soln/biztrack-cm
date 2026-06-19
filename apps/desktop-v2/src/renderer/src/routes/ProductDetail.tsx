@@ -77,9 +77,12 @@ export function ProductDetail() {
   const isDirect = p.trackInventory && !p.isSerialized && variants.length === 0
   const threshold = p.reorderPoint ?? p.lowStockThreshold ?? 0
   const ss = stockState(p)
-  const stockValue = (p.costPrice ?? 0) * p.currentStock
-  const unitMargin = p.costPrice != null && p.costPrice > 0 && p.sellingPrice > 0 ? p.sellingPrice - p.costPrice : null
-  const marginPct = unitMargin != null && p.sellingPrice > 0 ? (unitMargin / p.sellingPrice) * 100 : null
+  // Display uses the effective (variant-average) price/cost so it reflects variants.
+  const effCost = p.effectiveCostPrice
+  const effPrice = p.effectiveSellingPrice
+  const stockValue = (effCost ?? 0) * p.currentStock
+  const unitMargin = effCost != null && effCost > 0 && effPrice > 0 ? effPrice - effCost : null
+  const marginPct = unitMargin != null && effPrice > 0 ? (unitMargin / effPrice) * 100 : null
   const onHandClass = ss === 'low' ? ' warn' : ss === 'out' ? ' bad' : ''
 
   const statusPill = () => {
@@ -259,8 +262,8 @@ export function ProductDetail() {
           <div className="card">
             <div className="card-h"><div><h3>{t('pdv.pricing')}</h3></div></div>
             <div className="kv">
-              <div className="row"><span>{t('pdv.sellingPrice')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(p.sellingPrice)}</span></div>
-              <div className="row"><span>{t('pdv.cost')}</span><span className="neg">{p.costPrice != null ? `−${money.format(p.costPrice)}` : '—'}</span></div>
+              <div className="row"><span>{t('pdv.sellingPrice')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(effPrice)}</span></div>
+              <div className="row"><span>{t('pdv.cost')}</span><span className="neg">{effCost != null ? `−${money.format(effCost)}` : '—'}</span></div>
               <div className="row total"><span>{t('pdv.margin')}</span><span>{unitMargin != null ? money.format(unitMargin) : '—'}</span></div>
             </div>
             {marginPct != null ? (
