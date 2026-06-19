@@ -237,15 +237,13 @@ export function ContactModal({
         <label className="lbl2">{t('ct.name')} <span className="req">*</span></label>
         <Input value={name} error={!!error && !name.trim()} placeholder={t('ct.namePh')} onChange={(e) => { setName(e.target.value); setError(null) }} />
       </div>
-      <div className="form-2col">
-        <div className="ff" style={{ marginBottom: 12 }}>
-          <label className="lbl2">{t('ct.phone')}</label>
-          <PhoneInput value={phone} placeholder={t('ct.phonePh')} onChange={(v) => setPhone(v ?? '')} />
-        </div>
-        <div className="ff" style={{ marginBottom: 12 }}>
-          <label className="lbl2">{t('ct.phoneAlt')}</label>
-          <PhoneInput value={phoneAlt} placeholder={t('ct.phonePh')} onChange={(v) => setPhoneAlt(v ?? '')} />
-        </div>
+      <div className="ff" style={{ marginBottom: 12 }}>
+        <label className="lbl2">{t('ct.phone')}</label>
+        <PhoneInput value={phone} placeholder={t('ct.phonePh')} onChange={(v) => setPhone(v ?? '')} />
+      </div>
+      <div className="ff" style={{ marginBottom: 12 }}>
+        <label className="lbl2">{t('ct.phoneAlt')}</label>
+        <PhoneInput value={phoneAlt} placeholder={t('ct.phonePh')} onChange={(v) => setPhoneAlt(v ?? '')} />
       </div>
       <div className="ff" style={{ marginBottom: 12 }}>
         <label className="lbl2">{t('ct.address')}</label>
