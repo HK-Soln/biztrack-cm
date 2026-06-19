@@ -46,6 +46,7 @@ export function CommandSelect({
   invalid,
 }: CommandSelectProps) {
   const [open, setOpen] = React.useState(false)
+  const [dropUp, setDropUp] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [options, setOptions] = React.useState<CommandSelectOption[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -74,9 +75,16 @@ export function CommandSelect({
     return () => clearTimeout(handle)
   }, [open, search, loadOptions])
 
-  // Close on outside click / Esc; focus the search on open.
+  // Close on outside click / Esc; focus the search on open; flip the popover above the
+  // trigger when there isn't enough room below (so it never gets clipped off-screen).
   React.useEffect(() => {
     if (!open) return
+    const rect = rootRef.current?.getBoundingClientRect()
+    if (rect) {
+      const POPOVER_MAX = 320
+      const below = window.innerHeight - rect.bottom
+      setDropUp(below < POPOVER_MAX && rect.top > below)
+    }
     const onDown = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
     }
@@ -128,7 +136,7 @@ export function CommandSelect({
       </button>
 
       {open ? (
-        <div className="cmdsel-pop" role="listbox">
+        <div className={`cmdsel-pop${dropUp ? ' up' : ''}`} role="listbox">
           <div className="cmdsel-search">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
               <circle cx="9" cy="9" r="6" />
