@@ -6,6 +6,7 @@ import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { SERIAL_TYPES, validateSerial } from '@/lib/serial'
+import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import type {
   ProductImageInput,
@@ -18,7 +19,6 @@ import type {
 
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const TVA_RATE = 19.25
-const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
 const PRODUCT_TYPES: ProductType[] = ['SIMPLE', 'SERVICE', 'VARIABLE_QUANTITY', 'COMPOSITE']
 const DRAFT_KEY = 'biztrack:product-draft:new'
 
@@ -137,6 +137,7 @@ function readDraft(): Draft | null {
 // attribute group, confirm) + per-variant/product serial numbers when serialized.
 export function ProductForm() {
   const t = useT()
+  const money = useCurrency()
   const navigate = useNavigate()
   const { id } = useParams()
   const editing = Boolean(id)
@@ -689,7 +690,7 @@ export function ProductForm() {
                 <span>{t('prodf.margin')}</span>
                 <span>
                   <span className="big">{marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}</span>
-                  {marginPct != null ? <> · {XAF.format(priceN - costN)} FCFA</> : null}
+                  {marginPct != null ? <> · {money.format(priceN - costN)}</> : null}
                 </span>
               </div>
               <button type="button" className={`switch-line${d.taxable ? ' on' : ''}`} onClick={() => patch({ taxable: !d.taxable })} aria-pressed={d.taxable}>

@@ -6,11 +6,9 @@ import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
 import { ManageVariants } from '@/components/products/ManageVariants'
+import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import type { LocalProduct, StockMovementType } from '@shared/ipc'
-
-const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
-const formatXAF = (n: number) => `${XAF.format(n)} FCFA`
 
 const MV_DATE = new Intl.DateTimeFormat('fr-CM', { day: 'numeric', month: 'short' })
 const MV_TIME = new Intl.DateTimeFormat('fr-CM', { hour: '2-digit', minute: '2-digit' })
@@ -43,6 +41,7 @@ export function ProductDetail() {
   const navigate = useNavigate()
   const { id } = useParams()
   const qc = useQueryClient()
+  const money = useCurrency()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const { data: product, isPending } = useQuery({
@@ -143,13 +142,13 @@ export function ProductDetail() {
         </div>
         <div className="mc">
           <div className="l">{t('pdv.stockValue')}</div>
-          <div className="v">{formatXAF(stockValue)}</div>
+          <div className="v">{money.format(stockValue)}</div>
           <div className="s">{t('pdv.atCost')}</div>
         </div>
         <div className="mc">
           <div className="l">{t('pdv.unitMargin')}</div>
           <div className={`v${marginPct != null ? ' ok' : ''}`}>{marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}</div>
-          <div className="s">{unitMargin != null ? t('pdv.perUnit').replace('{v}', formatXAF(unitMargin)) : '—'}</div>
+          <div className="s">{unitMargin != null ? t('pdv.perUnit').replace('{v}', money.format(unitMargin)) : '—'}</div>
         </div>
         {/* Sold/30d needs the Sales module — shown per design but flagged until then. */}
         <div className="mc">
@@ -236,9 +235,9 @@ export function ProductDetail() {
           <div className="card">
             <div className="card-h"><div><h3>{t('pdv.pricing')}</h3></div></div>
             <div className="kv">
-              <div className="row"><span>{t('pdv.sellingPrice')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{formatXAF(p.sellingPrice)}</span></div>
-              <div className="row"><span>{t('pdv.cost')}</span><span className="neg">{p.costPrice != null ? `−${formatXAF(p.costPrice)}` : '—'}</span></div>
-              <div className="row total"><span>{t('pdv.margin')}</span><span>{unitMargin != null ? formatXAF(unitMargin) : '—'}</span></div>
+              <div className="row"><span>{t('pdv.sellingPrice')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(p.sellingPrice)}</span></div>
+              <div className="row"><span>{t('pdv.cost')}</span><span className="neg">{p.costPrice != null ? `−${money.format(p.costPrice)}` : '—'}</span></div>
+              <div className="row total"><span>{t('pdv.margin')}</span><span>{unitMargin != null ? money.format(unitMargin) : '—'}</span></div>
             </div>
             {marginPct != null ? (
               <div style={{ marginTop: 14 }}>

@@ -4,11 +4,10 @@ import { Button, Input, Modal, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import type { LocalProduct, LocalVariant, VariantInput } from '@shared/ipc'
 
-const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
-const fmt = (n: number | null | undefined) => (n != null ? `${XAF.format(n)} FCFA` : '—')
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : null)
 
 /**
@@ -20,6 +19,7 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const t = useT()
   const qc = useQueryClient()
   const bp = useBreakpoint()
+  const money = useCurrency()
   const id = product.id
 
   const { data: variants = [] } = useQuery({
@@ -157,7 +157,7 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
                 {statusPill(v)}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 12.5, color: 'var(--text-2)' }}>
-                <span>{fmt(v.priceOverride ?? product.sellingPrice)} · {t('pvar.stockN').replace('{n}', String(variantStock(v)))}</span>
+                <span>{money.format(v.priceOverride ?? product.sellingPrice)} · {t('pvar.stockN').replace('{n}', String(variantStock(v)))}</span>
                 {actions(v)}
               </div>
             </div>
@@ -178,7 +178,7 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             {variants.map((v) => (
               <tr key={v.id}>
                 <td><span className="nm">{v.name}</span></td>
-                <td className="right num">{fmt(v.priceOverride ?? product.sellingPrice)}</td>
+                <td className="right num">{money.format(v.priceOverride ?? product.sellingPrice)}</td>
                 <td className="right num">{variantStock(v)}</td>
                 <td>{statusPill(v)}</td>
                 <td className="right">{actions(v)}</td>

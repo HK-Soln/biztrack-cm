@@ -6,17 +6,10 @@ import type { DataTableColumn } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
+import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalProduct, StockStatus } from '@shared/ipc'
-
-const XAF = new Intl.NumberFormat('fr-CM', { maximumFractionDigits: 0 })
-const formatXAF = (n: number) => `${XAF.format(n)} FCFA`
-function compactXAF(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M FCFA`
-  if (n >= 10_000) return `${Math.round(n / 1000)}K FCFA`
-  return `${XAF.format(n)} FCFA`
-}
 
 function marginInfo(p: LocalProduct): { text: string; good: boolean } {
   if (p.costPrice == null || p.costPrice <= 0 || p.sellingPrice <= 0) return { text: '—', good: false }
@@ -38,6 +31,7 @@ type StatusFilter = 'all' | 'active' | 'inactive'
 export function Products() {
   const t = useT()
   const bp = useBreakpoint()
+  const money = useCurrency()
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -145,8 +139,8 @@ export function Products() {
       header: t('prod.colCategory'),
       render: (p) => (p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'),
     },
-    { key: 'cost', header: t('prod.colCost'), align: 'right', tdClassName: 'num', render: (p) => (p.costPrice != null ? formatXAF(p.costPrice) : '—') },
-    { key: 'price', header: t('prod.colPrice'), align: 'right', tdClassName: 'num', render: (p) => formatXAF(p.sellingPrice) },
+    { key: 'cost', header: t('prod.colCost'), align: 'right', tdClassName: 'num', render: (p) => (p.costPrice != null ? money.format(p.costPrice) : '—') },
+    { key: 'price', header: t('prod.colPrice'), align: 'right', tdClassName: 'num', render: (p) => money.format(p.sellingPrice) },
     {
       key: 'margin',
       header: t('prod.colMargin'),
@@ -169,7 +163,7 @@ export function Products() {
         <div className="u-nm">{p.name}</div>
         <div className="u-sub">
           {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
-          <span className="num">{formatXAF(p.sellingPrice)}</span>
+          <span className="num">{money.format(p.sellingPrice)}</span>
           {statusPill(p)}
         </div>
       </div>
@@ -209,12 +203,12 @@ export function Products() {
       <div className="minihead">
         <div className="m">
           <div className="k">{t('prod.kpiCatalog')}</div>
-          <div className="v">{stats ? compactXAF(stats.catalogValueCost) : '—'}</div>
+          <div className="v">{stats ? money.compact(stats.catalogValueCost) : '—'}</div>
           <div className="h">{t('prod.kpiCatalogHint').replace('{n}', String(stats?.totalSkus ?? 0))}</div>
         </div>
         <div className="m">
           <div className="k">{t('prod.kpiRetail')}</div>
-          <div className="v">{stats ? compactXAF(stats.retailValue) : '—'}</div>
+          <div className="v">{stats ? money.compact(stats.retailValue) : '—'}</div>
           <div className="h">{t('prod.kpiRetailHint').replace('{p}', (stats?.blendedMarginPct ?? 0).toFixed(1))}</div>
         </div>
         <div className="m">

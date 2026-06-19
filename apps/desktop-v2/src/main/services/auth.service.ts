@@ -31,6 +31,7 @@ const EMPTY: SessionStatus = {
   user: null,
   businessId: null,
   businessName: null,
+  businessCurrency: null,
   nextStep: null,
 }
 
@@ -291,6 +292,7 @@ export class AuthService {
       user: cu ? { id: cu.id, name: cu.name ?? '', email: cu.email, phone: cu.phone, role: cu.role } : null,
       businessId,
       businessName: cb?.name ?? null,
+      businessCurrency: cb?.currency ?? null,
       nextStep,
     }
     return { ok: true, nextStep, session: this.session, context: null, error: null }
@@ -348,6 +350,7 @@ export class AuthService {
       },
       businessId,
       businessName: cb?.name ?? null,
+      businessCurrency: cb?.currency ?? null,
       nextStep,
     }
     this.tokens.setLastSession(payload.sub, businessId)

@@ -163,6 +163,9 @@ export interface SessionStatus {
   user: SessionUser | null
   businessId: string | null
   businessName: string | null
+  /** Active business currency (ISO 4217, e.g. XAF, NGN, USD). Drives all money
+   * formatting in the UI. null until a business is selected. */
+  businessCurrency: string | null
   /** The AuthNextStep that drives routing: which screen this session should be on
    * (e.g. 'select_business', 'setup_business', 'dashboard'). null = signed out. */
   nextStep: string | null

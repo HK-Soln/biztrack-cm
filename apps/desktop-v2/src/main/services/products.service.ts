@@ -286,6 +286,7 @@ export class ProductsService {
     const type = productType(input)
     const isService = type === 'SERVICE'
     const tracks = !isService
+    const currency = this.businessCurrency(businessId)
     this.db.run(
       `INSERT INTO products
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
@@ -293,7 +294,7 @@ export class ProductsService {
          image_url, is_active, is_featured, is_published_online, online_description, online_stock_reserve,
          meta_title, meta_description, is_serialized, serial_type, warranty_months, low_stock_threshold, reorder_point,
          stock_quantity, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'XAF', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -304,6 +305,7 @@ export class ProductsService {
         input.barcode?.trim() || null,
         input.sellingPrice,
         input.costPrice ?? null,
+        currency,
         input.taxRate ?? 0,
         type,
         isService ? 1 : 0,
@@ -923,6 +925,14 @@ export class ProductsService {
       performedByName: r.performed_by_name,
       createdAt: r.created_at,
     }))
+  }
+
+  /** The active business's currency (ISO 4217), defaulting to XAF if unknown. */
+  private businessCurrency(businessId: string): string {
+    return (
+      this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [businessId])?.currency ??
+      'XAF'
+    )
   }
 
   /** Effective on-hand stock for one product (serial count / variant sum / own qty). */

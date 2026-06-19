@@ -8,6 +8,7 @@ const EMPTY: SessionStatus = {
   user: null,
   businessId: null,
   businessName: null,
+  businessCurrency: null,
   nextStep: null,
 }
 
