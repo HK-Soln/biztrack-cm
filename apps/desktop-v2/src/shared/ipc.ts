@@ -101,6 +101,8 @@ export const IPC = {
   poBuildDocument: 'po:build-document',
   poSend: 'po:send',
   poCancel: 'po:cancel',
+  documentsSend: 'documents:send',
+  documentsDownload: 'documents:download',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -336,6 +338,33 @@ export interface LocalPurchaseOrderListItem extends LocalPurchaseOrder {
 
 export interface LocalPurchaseOrderDetail extends LocalPurchaseOrder {
   items: LocalPurchaseOrderItem[]
+}
+
+// ---- Document send / download (RFQ + PO share) ----------------------------
+export type { DocumentRecipient, DocumentSendChannel } from '@biztrack/types'
+import type { DocumentRecipient, DocumentSendChannel } from '@biztrack/types'
+
+export type DocumentKind = 'rfq' | 'po'
+
+export interface DocumentSendInput {
+  kind: DocumentKind
+  id: string
+  /** Required for RFQ (the supplier copy); ignored for PO. */
+  supplierId?: string | null
+  channel: DocumentSendChannel
+  /** Override recipient when the contact has no stored email/phone. */
+  recipient?: DocumentRecipient
+}
+
+export interface DocumentDownloadInput {
+  kind: DocumentKind
+  id: string
+  supplierId?: string | null
+}
+
+export interface DocumentDownloadResult {
+  saved: boolean
+  path?: string
 }
 
 // ---- Auth (Feature 1) -----------------------------------------------------
@@ -1081,6 +1110,12 @@ export interface BridgeApi {
     /** Generate the PDF + open the WhatsApp/email composer for the supplier; marks sent. */
     send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
     cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
+  }
+  documents: {
+    /** Online: server renders the PDF + dispatches (WhatsApp/email) to the recipient. */
+    send: (input: DocumentSendInput) => Promise<void>
+    /** Render the PDF locally and save it via a native dialog. Works offline. */
+    downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

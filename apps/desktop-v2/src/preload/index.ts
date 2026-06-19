@@ -137,6 +137,10 @@ const api: BridgeApi = {
     send: (poId, channel) => ipcRenderer.invoke(IPC.poSend, poId, channel),
     cancel: (poId) => ipcRenderer.invoke(IPC.poCancel, poId),
   },
+  documents: {
+    send: (input) => ipcRenderer.invoke(IPC.documentsSend, input),
+    downloadPdf: (input) => ipcRenderer.invoke(IPC.documentsDownload, input),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
   },

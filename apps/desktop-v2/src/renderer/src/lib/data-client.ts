@@ -29,6 +29,9 @@ import type {
   PurchaseOrderDocument,
   LocalPurchaseOrderDetail,
   LocalPurchaseOrderListItem,
+  DocumentSendInput,
+  DocumentDownloadInput,
+  DocumentDownloadResult,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -171,6 +174,10 @@ export interface DataClient {
     send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
     cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
   }
+  documents: {
+    send: (input: DocumentSendInput) => Promise<void>
+    downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
+  }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
   }
@@ -284,6 +291,10 @@ function electronAdapter(): DataClient {
       send: (poId, channel) => window.api.purchaseOrders.send(poId, channel),
       cancel: (poId) => window.api.purchaseOrders.cancel(poId),
     },
+    documents: {
+      send: (input) => window.api.documents.send(input),
+      downloadPdf: (input) => window.api.documents.downloadPdf(input),
+    },
     audit: {
       list: (query) => window.api.audit.list(query),
     },
@@ -355,6 +366,7 @@ function cloudAdapter(): DataClient {
     debts: { listByContact: notWired, recordPayment: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
+    documents: { send: notWired, downloadPdf: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
   }

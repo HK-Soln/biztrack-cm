@@ -9,6 +9,8 @@ import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
+import { ActionMenu } from '@/components/ActionMenu'
+import { ShareDialog } from '@/components/procurement/ShareDialog'
 import type { LocalRfqItem, LocalRfqSupplier } from '@shared/ipc'
 
 const RFQ_STATUS_CLASS: Record<string, string> = {
@@ -27,6 +29,7 @@ export function RfqDetail() {
 
   const [quoteTarget, setQuoteTarget] = useState<LocalRfqSupplier | null>(null)
   const [convertTarget, setConvertTarget] = useState<LocalRfqSupplier | null>(null)
+  const [shareTarget, setShareTarget] = useState<LocalRfqSupplier | null>(null)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [sendErr, setSendErr] = useState<string | null>(null)
 
@@ -40,12 +43,6 @@ export function RfqDetail() {
     void qc.invalidateQueries({ queryKey: [...queryKeys.rfqs, id] })
     void qc.invalidateQueries({ queryKey: queryKeys.rfqs })
   }
-
-  const sendM = useMutation({
-    mutationFn: ({ supplierId, channel }: { supplierId: string; channel: 'whatsapp' | 'email' }) => dataClient.rfqs.send(id, supplierId, channel),
-    onSuccess: () => { invalidate(); setSendErr(null) },
-    onError: (e) => setSendErr(errorMessage(e, t('rfq.sendError'))),
-  })
 
   const preview = async (supplierId: string) => {
     try {
@@ -106,15 +103,18 @@ export function RfqDetail() {
                 <td><span className={`st ${SUP_STATUS_CLASS[s.status] ?? 'st-neutral'}`}>{t(`rfq.supStatus_${s.status}` as Parameters<typeof t>[0])}</span></td>
                 <td className="right num">{s.quotedTotal != null ? money.format(s.quotedTotal) : '—'}</td>
                 <td className="right">
-                  <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
-                    <Button variant="soft" style={{ height: 30 }} onClick={() => void preview(s.supplierId)}>{t('rfq.preview')}</Button>
-                    <Button variant="soft" style={{ height: 30 }} loading={sendM.isPending} onClick={() => sendM.mutate({ supplierId: s.supplierId, channel: 'whatsapp' })}>{t('rfq.whatsapp')}</Button>
-                    <Button variant="soft" style={{ height: 30 }} loading={sendM.isPending} onClick={() => sendM.mutate({ supplierId: s.supplierId, channel: 'email' })}>{t('rfq.email')}</Button>
-                    {s.status !== RfqSupplierStatus.QUOTED ? (
-                      <Button variant="soft" style={{ height: 30 }} onClick={() => setQuoteTarget(s)}>{t('rfq.recordQuote')}</Button>
-                    ) : (
-                      <Button variant="primary" style={{ height: 30 }} onClick={() => setConvertTarget(s)}>{t('rfq.convert')}</Button>
-                    )}
+                  <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <button type="button" className="icon-btn" title={t('rfq.preview')} aria-label={t('rfq.preview')} onClick={() => void preview(s.supplierId)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+                    </button>
+                    <ActionMenu
+                      items={[
+                        { label: t('rfq.share'), onClick: () => setShareTarget(s) },
+                        s.status !== RfqSupplierStatus.QUOTED
+                          ? { label: t('rfq.recordQuote'), onClick: () => setQuoteTarget(s) }
+                          : { label: t('rfq.convert'), onClick: () => setConvertTarget(s) },
+                      ]}
+                    />
                   </span>
                 </td>
               </tr>
@@ -139,6 +139,16 @@ export function RfqDetail() {
       <Modal open={!!previewHtml} onClose={() => setPreviewHtml(null)} title={t('rfq.previewTitle')} className="modal-lg">
         <iframe title="preview" srcDoc={previewHtml ?? ''} style={{ width: '100%', height: '60vh', border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }} />
       </Modal>
+      {shareTarget ? (
+        <ShareDialog
+          kind="rfq"
+          id={id}
+          supplierId={shareTarget.supplierId}
+          supplierName={shareTarget.supplierName}
+          onClose={() => setShareTarget(null)}
+          onSent={() => { invalidate(); setShareTarget(null) }}
+        />
+      ) : null}
     </div>
   )
 }

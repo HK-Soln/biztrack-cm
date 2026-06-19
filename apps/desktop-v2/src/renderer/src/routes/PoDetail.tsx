@@ -10,6 +10,8 @@ import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ReceivePoModal } from '@/components/inventory/ReceivePoModal'
+import { ActionMenu } from '@/components/ActionMenu'
+import { ShareDialog } from '@/components/procurement/ShareDialog'
 
 const STATUS_CLASS: Record<string, string> = {
   DRAFT: 'st-neutral', SENT: 'st-brand', CONFIRMED: 'st-brand', PARTIALLY_RECEIVED: 'st-low', RECEIVED: 'st-ok', CANCELLED: 'st-out',
@@ -24,6 +26,7 @@ export function PoDetail() {
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [receiving, setReceiving] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   const { data: po, isPending } = useQuery({
@@ -37,11 +40,6 @@ export function PoDetail() {
     void qc.invalidateQueries({ queryKey: queryKeys.purchaseOrders })
   }
 
-  const sendM = useMutation({
-    mutationFn: (channel: 'whatsapp' | 'email') => dataClient.purchaseOrders.send(id, channel),
-    onSuccess: () => { invalidate(); setErr(null) },
-    onError: (e) => setErr(errorMessage(e, t('po.sendError'))),
-  })
   const cancelM = useMutation({
     mutationFn: () => dataClient.purchaseOrders.cancel(id),
     onSuccess: () => { invalidate(); setErr(null) },
@@ -75,12 +73,17 @@ export function PoDetail() {
           <h1>{po.number} <span className={`st ${STATUS_CLASS[po.status] ?? 'st-neutral'}`}>{t(`po.status_${po.status}` as Parameters<typeof t>[0])}</span></h1>
           <p>{po.supplierName ?? '—'}{po.expectedDate ? ` · ${t('po.expectedShort')} ${new Date(po.expectedDate).toLocaleDateString()}` : ''}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {canReceive ? <Button variant="primary" onClick={() => setReceiving(true)}>{t('po.receive')}</Button> : null}
-          <Button variant="soft" onClick={() => void preview()}>{t('po.preview')}</Button>
-          <Button variant="soft" loading={sendM.isPending} onClick={() => sendM.mutate('whatsapp')}>{t('po.whatsapp')}</Button>
-          <Button variant="soft" loading={sendM.isPending} onClick={() => sendM.mutate('email')}>{t('po.email')}</Button>
-          {canCancel ? <Button variant="soft" style={{ color: 'var(--danger)' }} loading={cancelM.isPending} onClick={() => cancelM.mutate()}>{t('po.cancelPo')}</Button> : null}
+          <button type="button" className="icon-btn" title={t('po.preview')} aria-label={t('po.preview')} onClick={() => void preview()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+          </button>
+          <ActionMenu
+            items={[
+              { label: t('po.share'), onClick: () => setShareOpen(true) },
+              ...(canCancel ? [{ label: t('po.cancelPo'), danger: true, onClick: () => cancelM.mutate() }] : []),
+            ]}
+          />
         </div>
       </div>
 
@@ -120,6 +123,9 @@ export function PoDetail() {
         <iframe title="preview" srcDoc={previewHtml ?? ''} style={{ width: '100%', height: '60vh', border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }} />
       </Modal>
       {receiving ? <ReceivePoModal po={po} open onClose={() => setReceiving(false)} /> : null}
+      {shareOpen ? (
+        <ShareDialog kind="po" id={id} supplierName={po.supplierName} onClose={() => setShareOpen(false)} onSent={() => { invalidate(); setShareOpen(false) }} />
+      ) : null}
     </div>
   )
 }

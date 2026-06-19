@@ -32,6 +32,7 @@ import { RfqService } from './services/rfq.service'
 import { registerRfqIpc } from './ipc/rfq.ipc'
 import { PurchaseOrderService } from './services/purchase-order.service'
 import { registerPurchaseOrderIpc } from './ipc/purchase-order.ipc'
+import { registerDocumentsIpc } from './ipc/documents.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { AuditService } from './services/audit.service'
@@ -261,6 +262,9 @@ app.whenReady().then(() => {
     audit,
   )
   registerPurchaseOrderIpc(purchaseOrders, documents)
+
+  // Document send (online → API render+dispatch) + download (local PDF render → save).
+  registerDocumentsIpc(rfqs, purchaseOrders, documents, authHttp)
 
   // Inventory: adjust/threshold/movements + restock (goods receipt). Restock reuses
   // products (serial receipts), debts (credit→payable), and purchase orders (receive
