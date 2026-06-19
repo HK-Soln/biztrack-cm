@@ -33,6 +33,8 @@ enum SyncEntityDto {
   INVENTORY_ADJUSTMENT = 'inventory_adjustment',
   INVENTORY_RESTOCK = 'inventory_restock',
   DEBT = 'debt',
+  RFQ = 'rfq',
+  PURCHASE_ORDER = 'purchase_order',
   SALE = 'sale',
   EXPENSE = 'expense',
   SAVINGS = 'savings',
