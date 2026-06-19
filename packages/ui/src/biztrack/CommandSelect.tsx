@@ -5,6 +5,9 @@ export interface CommandSelectOption {
   value: string
   label: string
   sublabel?: string
+  /** Optional thumbnail. When the property is present the row shows an image (or a
+   * label-initials fallback if the url is null/empty) — e.g. product pickers. */
+  imageUrl?: string | null
 }
 
 export interface CommandSelectProps {
@@ -158,6 +161,11 @@ export function CommandSelect({
                     onMouseEnter={() => setActive(i)}
                     onClick={() => pick(row)}
                   >
+                    {!isClear && row.imageUrl !== undefined ? (
+                      <span className="cmdsel-thumb">
+                        {row.imageUrl ? <img src={row.imageUrl} alt="" /> : row.label.slice(0, 2).toUpperCase()}
+                      </span>
+                    ) : null}
                     <span className="cmdsel-opt-main">
                       <span className="cmdsel-opt-label">{isClear ? clearLabel : row.label}</span>
                       {!isClear && row.sublabel ? <span className="cmdsel-opt-sub">{row.sublabel}</span> : null}

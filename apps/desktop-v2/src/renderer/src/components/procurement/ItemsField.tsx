@@ -38,7 +38,7 @@ export function ItemsField({
 
   const loadOptions = useCallback(async (search: string) => {
     const res = await dataClient.products.list({ search: search || undefined, limit: 20 })
-    return res.data.map((p) => ({ value: p.id, label: p.name, sublabel: p.sku ?? undefined }))
+    return res.data.map((p) => ({ value: p.id, label: p.name, sublabel: p.sku ?? undefined, imageUrl: p.imageUrl }))
   }, [])
 
   const add = (id: string | null, opt?: { label: string }) => {
