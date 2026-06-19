@@ -77,6 +77,10 @@ export class RestockRecord extends ImmutableBaseEntity {
   @JoinColumn({ name: 'supplier_id', foreignKeyConstraintName: 'fk_restock_records_supplier_id' })
   supplier?: Contact | null
 
+  /** The purchase order this receipt fulfils (if any). */
+  @Column({ name: 'purchase_order_id', nullable: true, type: 'uuid' })
+  purchaseOrderId?: string | null
+
   @Column({ nullable: true, type: 'text' })
   notes?: string | null
 

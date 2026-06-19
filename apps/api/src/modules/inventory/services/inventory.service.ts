@@ -74,8 +74,11 @@ type RestockCreationInput = {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
+  purchaseOrderId?: string | null
   totalAmount?: number | null
   totalCost?: number | null
+  /** Amount paid now; when < total the remainder becomes a supplier payable. */
+  amountPaid?: number | null
   notes?: string | null
   performedById?: string | null
   createdAt: Date
@@ -335,8 +338,10 @@ export class InventoryService {
           referenceNumber: payload.referenceNumber?.trim() ?? null,
           supplierId: this.normalizeOptionalUuid(payload.supplierId),
           supplierName: payload.supplierName?.trim() ?? null,
+          purchaseOrderId: this.normalizeOptionalUuid(payload.purchaseOrderId),
           totalAmount: payload.totalAmount ?? null,
           totalCost: payload.totalCost ?? null,
+          amountPaid: payload.amountPaid ?? null,
           notes: payload.notes?.trim() ?? null,
           performedById: null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? recordUpdatedAt,
@@ -345,6 +350,7 @@ export class InventoryService {
           items: payload.items.map((item) => ({
             id: item.id,
             productId: item.productId,
+            variantId: item.variantId ?? null,
             quantity: item.quantity,
             unitCost: item.unitCost ?? null,
             movementId: item.movementId,
@@ -833,9 +839,11 @@ export class InventoryService {
     })
 
     const amountPaid =
-      input.payments === undefined
-        ? totalComputation.totalAmount
-        : this.roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
+      input.amountPaid != null
+        ? this.roundMoney(Math.max(0, Math.min(input.amountPaid, totalComputation.totalAmount)))
+        : input.payments === undefined
+          ? totalComputation.totalAmount
+          : this.roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
 
     if (amountPaid > totalComputation.totalAmount) {
       throw new AppBadRequestException(
@@ -877,6 +885,7 @@ export class InventoryService {
         referenceNumber: input.referenceNumber ?? null,
         supplierId: input.supplierId ?? null,
         supplierName: input.supplierName ?? null,
+        purchaseOrderId: input.purchaseOrderId ?? null,
         totalAmount: totalComputation.totalAmount,
         totalCost: totalComputation.totalAmount,
         amountPaid,
@@ -928,6 +937,7 @@ export class InventoryService {
             id: item.id,
             restockRecordId: record.id,
             productId: product.id,
+            variantId: item.variantId ?? null,
             quantity: created,
             unitCost: item.unitCost,
             createdAt: input.createdAt,
@@ -972,6 +982,7 @@ export class InventoryService {
           id: item.id,
           restockRecordId: record.id,
           productId: product.id,
+          variantId: item.variantId ?? null,
           quantity: item.quantity,
           unitCost: item.unitCost,
           createdAt: input.createdAt,
