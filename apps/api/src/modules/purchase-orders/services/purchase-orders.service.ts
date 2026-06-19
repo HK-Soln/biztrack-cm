@@ -3,16 +3,20 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, IsNull, Repository } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
 import { PurchaseOrderStatus } from '@biztrack/types'
-import type { AuditContext, ConvertRfqToPoRequest, CreatePurchaseOrderRequest, PurchaseOrdersQuery, SendPurchaseOrderRequest } from '@biztrack/types'
+import type { AuditContext, ConvertRfqToPoRequest, CreatePurchaseOrderRequest, PurchaseOrderDocument, PurchaseOrdersQuery, SendPurchaseOrderRequest } from '@biztrack/types'
+import { purchaseOrderMessageText, renderPurchaseOrderHtml } from '@biztrack/templates'
 import { AppException } from '@/common/exceptions/app.exception'
 import { AppBadRequestException, AppInternalServerException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { PurchaseOrder } from '@/entities/purchase-order.entity'
 import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { Product } from '@/entities/product.entity'
 import { Contact } from '@/entities/contact.entity'
+import { Business } from '@/entities/business.entity'
+import { toIsoString } from '@/common/http/serialization'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
 import { RfqsService } from '@/modules/rfqs/services/rfqs.service'
+import { ProcurementSendService } from '@/modules/documents/procurement-send.service'
 
 interface PoLineInput {
   productId: string
@@ -34,8 +38,10 @@ export class PurchaseOrdersService {
     @InjectRepository(PurchaseOrderItem) private readonly itemsRepo: Repository<PurchaseOrderItem>,
     @InjectRepository(Product) private readonly productsRepo: Repository<Product>,
     @InjectRepository(Contact) private readonly contactsRepo: Repository<Contact>,
+    @InjectRepository(Business) private readonly businessRepo: Repository<Business>,
     private readonly dataSource: DataSource,
     private readonly rfqsService: RfqsService,
+    private readonly procurementSend: ProcurementSendService,
     private readonly auditService: AuditService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -140,13 +146,22 @@ export class PurchaseOrdersService {
   async send(id: string, businessId: string, _dto: SendPurchaseOrderRequest, context: AuditContext): Promise<PurchaseOrder> {
     try {
       const po = await this.findById(id, businessId)
+      const doc = await this.buildDocument(po, businessId)
+      await this.procurementSend.dispatch({
+        businessId,
+        html: renderPurchaseOrderHtml(doc),
+        message: purchaseOrderMessageText(doc),
+        filename: doc.number,
+        subject: `${doc.business.name} — ${doc.number}`,
+        channels: _dto.channels,
+        phone: doc.supplier.phone,
+        email: doc.supplier.email,
+      })
       await this.poRepo.update(po.id, {
         status: po.status === PurchaseOrderStatus.DRAFT ? PurchaseOrderStatus.SENT : po.status,
         sentAt: new Date(),
       })
-      // TODO(send pipeline): render the shared PO template → PDF (chromium) → upload →
-      // dispatch via NotificationsService (WhatsApp link / email).
-      this.auditService.log(context, { action: 'UPDATE', entityType: 'purchase_order', entityId: id, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'SENT' } } })
+      this.auditService.log(context, { action: 'UPDATE', entityType: 'purchase_order', entityId: id, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'SENT', channels: _dto.channels } } })
       return this.findById(id, businessId)
     } catch (error) {
       return this.handleServiceError('send', error, { businessId, id })
@@ -232,6 +247,33 @@ export class PurchaseOrdersService {
   private async contactName(contactId: string): Promise<string | null> {
     const c = await this.contactsRepo.findOne({ where: { id: contactId }, select: { id: true, name: true } })
     return c?.name ?? null
+  }
+
+  private async buildDocument(po: PurchaseOrder, businessId: string): Promise<PurchaseOrderDocument> {
+    const biz = await this.businessRepo.findOne({ where: { id: businessId } })
+    const supplier = await this.contactsRepo.findOne({ where: { id: po.supplierId, businessId } })
+    const items = (po.items ?? []).map((i) => ({
+      description: i.description,
+      sku: null,
+      quantity: Number(i.quantity),
+      unitPrice: Number(i.unitPrice),
+      lineTotal: Number(i.quantity) * Number(i.unitPrice),
+    }))
+    const subtotal = items.reduce((s, i) => s + i.lineTotal, 0)
+    return {
+      number: po.number,
+      title: po.title ?? null,
+      status: po.status,
+      issuedDate: (toIsoString(po.createdAt) ?? '').slice(0, 10),
+      expectedDate: po.expectedDate ? (toIsoString(po.expectedDate) ?? '').slice(0, 10) : null,
+      currency: po.currency,
+      business: { name: biz?.name ?? 'BizTrack', phone: biz?.phone ?? null, email: biz?.email ?? null, address: biz?.address ?? null, logoUrl: biz?.logoUrl ?? null },
+      supplier: { name: supplier?.name ?? po.supplierName ?? '', phone: supplier?.phone ?? null, email: null, address: supplier?.address ?? null },
+      items,
+      subtotal,
+      total: Number(po.totalAmount),
+      messageBody: po.messageBody ?? null,
+    }
   }
 
   private handleServiceError(operation: string, error: unknown, meta: Record<string, unknown>): never {
