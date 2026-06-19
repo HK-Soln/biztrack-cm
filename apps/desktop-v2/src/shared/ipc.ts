@@ -72,6 +72,8 @@ export const IPC = {
   productsRetireSerialUnit: 'products:retire-serial-unit',
   productsUpdateSerialNumber: 'products:update-serial-number',
   productsListMovements: 'products:list-movements',
+  inventoryList: 'inventory:list',
+  inventoryStats: 'inventory:stats',
   inventoryAdjust: 'inventory:adjust',
   inventorySetThreshold: 'inventory:set-threshold',
   inventoryListMovements: 'inventory:list-movements',
@@ -487,6 +489,39 @@ export interface MovementsQuery extends ListQueryT {
   dateTo?: string
 }
 
+/** One row in the inventory (stock-levels) list. */
+export interface LocalInventoryItem {
+  productId: string
+  name: string
+  sku: string | null
+  imageUrl: string | null
+  categoryName: string | null
+  unitAbbr: string | null
+  currency: string
+  currentStock: number
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+  /** Derived state from stock vs reorder/low threshold. */
+  stockStatus: 'in' | 'low' | 'out'
+  /** cost_price × current stock (this product's currency). */
+  stockValueCost: number
+  lastRestockAt: string | null
+}
+
+/** KPI roll-up for the inventory page header. */
+export interface InventoryStats {
+  trackedSkus: number
+  unitsOnHand: number
+  stockValueCost: number
+  lowStock: number
+  outOfStock: number
+}
+
+export interface InventoryListQuery extends ListQueryT {
+  categoryId?: string
+  stockStatus?: StockStatus
+}
+
 /** Why a stock level changed (mirrors the API's MovementType). */
 export type StockMovementType =
   | 'OPENING_STOCK'
@@ -753,6 +788,10 @@ export interface BridgeApi {
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
   inventory: {
+    /** Tracked products with stock levels + thresholds (paginated). */
+    list: (query?: InventoryListQuery) => Promise<PaginatedT<LocalInventoryItem>>
+    /** KPI roll-up for the inventory header. */
+    stats: () => Promise<InventoryStats>
     /** Manually adjust a direct product's stock (set/add/remove) → a movement. */
     adjust: (productId: string, input: AdjustStockInput) => Promise<void>
     /** Set reorder/low-stock thresholds (no movement). */

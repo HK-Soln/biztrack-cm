@@ -2,6 +2,9 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   AdjustStockInput,
+  InventoryListQuery,
+  InventoryStats,
+  LocalInventoryItem,
   LocalStockMovement,
   MovementsQuery,
   PaginatedResult,
@@ -33,6 +36,29 @@ interface ProductMeta {
   stock: number
 }
 
+interface InventoryRow {
+  id: string
+  name: string
+  sku: string | null
+  image_url: string | null
+  cost_price: number | null
+  currency: string | null
+  low_stock_threshold: number | null
+  reorder_point: number | null
+  effective_stock: number | null
+  category_name: string | null
+  unit_abbr: string | null
+  last_restock_at: string | null
+}
+
+const INV_FROM = `products p
+   LEFT JOIN product_categories c ON c.id = p.category_id
+   LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id
+   LEFT JOIN inventory_levels il ON il.product_id = p.id AND il.variant_id IS NULL`
+const INV_COLS = `p.id, p.name, p.sku, p.image_url, p.cost_price, p.currency, p.low_stock_threshold, p.reorder_point,
+   ${STOCK_EXPR} AS effective_stock, c.name AS category_name, u.abbreviation AS unit_abbr, il.last_restock_at`
+const INV_THRESHOLD = 'COALESCE(p.reorder_point, p.low_stock_threshold, 0)'
+
 /**
  * Offline-first inventory operations over the shared stock-ledger. Adjust writes a
  * MANUAL_ADJUSTMENT movement; thresholds write no movement. Both update local SQLite
@@ -46,6 +72,57 @@ export class InventoryService {
     private readonly onMutated: () => void,
     private readonly audit?: AuditLogger,
   ) {}
+
+  /** Tracked products with stock levels + thresholds (paginated). */
+  list(query: InventoryListQuery = {}): PaginatedResult<LocalInventoryItem> {
+    const businessId = this.getBusinessId()
+    if (!businessId) return toPaginated<LocalInventoryItem>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+
+    let where = 'p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1'
+    const params: unknown[] = [businessId]
+    if (query.categoryId) {
+      where += ' AND p.category_id = ?'
+      params.push(query.categoryId)
+    }
+    if (query.stockStatus && query.stockStatus !== 'all') {
+      if (query.stockStatus === 'out') where += ` AND ${STOCK_EXPR} <= 0`
+      else if (query.stockStatus === 'low') where += ` AND ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}`
+      else if (query.stockStatus === 'in') where += ` AND ${STOCK_EXPR} > 0 AND (${INV_THRESHOLD} = 0 OR ${STOCK_EXPR} > ${INV_THRESHOLD})`
+    }
+
+    const { rows, ...meta } = paginateRows<InventoryRow>(
+      this.db,
+      {
+        from: INV_FROM,
+        columns: INV_COLS,
+        where,
+        params,
+        searchColumns: ['p.name', 'p.sku', 'p.barcode'],
+        defaultSort: 'p.name ASC',
+        sortMap: { name: 'p.name', stock: 'effective_stock', updatedAt: 'p.updated_at' },
+      },
+      query,
+    )
+    return toPaginated(rows.map(toInventoryItem), meta)
+  }
+
+  /** KPI roll-up for the inventory header (tracked products only). */
+  stats(): InventoryStats {
+    const empty: InventoryStats = { trackedSkus: 0, unitsOnHand: 0, stockValueCost: 0, lowStock: 0, outOfStock: 0 }
+    const businessId = this.getBusinessId()
+    if (!businessId) return empty
+    const row = this.db.get<InventoryStats>(
+      `SELECT
+         COUNT(*) AS trackedSkus,
+         COALESCE(SUM(${STOCK_EXPR}), 0) AS unitsOnHand,
+         COALESCE(SUM(COALESCE(p.cost_price, 0) * ${STOCK_EXPR}), 0) AS stockValueCost,
+         COALESCE(SUM(CASE WHEN ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD} THEN 1 ELSE 0 END), 0) AS lowStock,
+         COALESCE(SUM(CASE WHEN ${STOCK_EXPR} <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+       FROM products p WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1`,
+      [businessId],
+    )
+    return row ?? empty
+  }
 
   /** Manually adjust a direct product's stock. Only direct products (no variants,
    * not serialized) — variant/serial stock is changed in their own tables. */
@@ -226,6 +303,27 @@ export class InventoryService {
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
       [randomUUID(), entity, recordId, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
     )
+  }
+}
+
+function toInventoryItem(r: InventoryRow): LocalInventoryItem {
+  const stock = Math.max(0, r.effective_stock ?? 0)
+  const threshold = r.reorder_point ?? r.low_stock_threshold ?? 0
+  const stockStatus: LocalInventoryItem['stockStatus'] = stock <= 0 ? 'out' : threshold > 0 && stock <= threshold ? 'low' : 'in'
+  return {
+    productId: r.id,
+    name: r.name,
+    sku: r.sku,
+    imageUrl: r.image_url,
+    categoryName: r.category_name,
+    unitAbbr: r.unit_abbr,
+    currency: r.currency ?? 'XAF',
+    currentStock: stock,
+    lowStockThreshold: r.low_stock_threshold,
+    reorderPoint: r.reorder_point,
+    stockStatus,
+    stockValueCost: (r.cost_price ?? 0) * stock,
+    lastRestockAt: r.last_restock_at,
   }
 }
 

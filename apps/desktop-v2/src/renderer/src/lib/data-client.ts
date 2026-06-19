@@ -16,6 +16,9 @@ import type {
   AuditListQuery,
   LocalAuditLog,
   AdjustStockInput,
+  InventoryListQuery,
+  InventoryStats,
+  LocalInventoryItem,
   LocalProduct,
   LocalProductImage,
   LocalSerialUnit,
@@ -106,6 +109,8 @@ export interface DataClient {
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
   inventory: {
+    list: (query?: InventoryListQuery) => Promise<PaginatedResult<LocalInventoryItem>>
+    stats: () => Promise<InventoryStats>
     adjust: (productId: string, input: AdjustStockInput) => Promise<void>
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
     listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
@@ -185,6 +190,8 @@ function electronAdapter(): DataClient {
       listMovements: (productId) => window.api.products.listMovements(productId),
     },
     inventory: {
+      list: (query) => window.api.inventory.list(query),
+      stats: () => window.api.inventory.stats(),
       adjust: (productId, input) => window.api.inventory.adjust(productId, input),
       setThreshold: (productId, input) => window.api.inventory.setThreshold(productId, input),
       listMovements: (productId, query) => window.api.inventory.listMovements(productId, query),
@@ -255,7 +262,7 @@ function cloudAdapter(): DataClient {
       updateSerialNumber: notWired,
       listMovements: notWired,
     },
-    inventory: { adjust: notWired, setThreshold: notWired, listMovements: notWired },
+    inventory: { list: notWired, stats: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
   }
