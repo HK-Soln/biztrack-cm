@@ -1,21 +1,16 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Button, Input, Select } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
+import { ItemsField, type ItemLine } from '@/components/procurement/ItemsField'
 import type { CreatePurchaseOrderRequest } from '@shared/ipc'
 
-interface Line {
-  productId: string
-  name: string
-  quantity: string
-  unitPrice: string
-}
-const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : 0)
+const num = (s: string | undefined) => (s && s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 
 export function PoForm() {
   const t = useT()
@@ -24,14 +19,14 @@ export function PoForm() {
   const money = useCurrency()
 
   // Pre-seeded from the inventory reorder banner ("Generate PO").
-  const seedItems = (location.state as { seedItems?: Line[] } | null)?.seedItems
+  const seedItems = (location.state as { seedItems?: ItemLine[] } | null)?.seedItems
 
-  const [supplierId, setSupplierId] = useState('')
+  const [supplierId, setSupplierId] = useState<string | null>(null)
+  const [supplierName, setSupplierName] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [expectedDate, setExpectedDate] = useState('')
-  const [lines, setLines] = useState<Line[]>(() => seedItems ?? [])
-  const [pickProduct, setPickProduct] = useState('')
+  const [items, setItems] = useState<ItemLine[]>(() => seedItems ?? [])
   const [error, setError] = useState<string | null>(null)
 
   const { data: suppliers = [] } = useQuery({
@@ -39,33 +34,27 @@ export function PoForm() {
     queryFn: () => dataClient.contacts.listAllSuppliers(),
     enabled: isElectron,
   })
-  const { data: products } = useQuery({
-    queryKey: [...queryKeys.products, 'picker'],
-    queryFn: () => dataClient.products.list({ limit: 100 }),
-    enabled: isElectron,
-  })
-  const productOptions = products?.data ?? []
+  const loadSuppliers = useCallback(
+    async (search: string) => {
+      const q = search.trim().toLowerCase()
+      return suppliers
+        .filter((s) => !q || s.name.toLowerCase().includes(q) || (s.phone ?? '').includes(q))
+        .slice(0, 30)
+        .map((s) => ({ value: s.id, label: s.name, sublabel: s.phone ?? undefined }))
+    },
+    [suppliers],
+  )
 
-  const total = lines.reduce((s, l) => s + num(l.quantity) * num(l.unitPrice), 0)
-
-  const addLine = () => {
-    if (!pickProduct || lines.some((l) => l.productId === pickProduct)) return
-    const p = productOptions.find((x) => x.id === pickProduct)
-    if (!p) return
-    setLines((ls) => [...ls, { productId: p.id, name: p.name, quantity: '1', unitPrice: p.effectiveCostPrice != null ? String(p.effectiveCostPrice) : '' }])
-    setPickProduct('')
-    setError(null)
-  }
-  const patch = (id: string, p: Partial<Line>) => setLines((ls) => ls.map((l) => (l.productId === id ? { ...l, ...p } : l)))
+  const total = items.reduce((s, l) => s + num(l.quantity) * num(l.unitPrice), 0)
 
   const create = useMutation({
     mutationFn: () => {
       const payload: CreatePurchaseOrderRequest = {
-        supplierId,
+        supplierId: supplierId!,
         title: title.trim() || undefined,
         messageBody: message.trim() || undefined,
         expectedDate: expectedDate || undefined,
-        items: lines.map((l) => ({ productId: l.productId, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) })),
+        items: items.map((l) => ({ productId: l.productId, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) })),
       }
       return dataClient.purchaseOrders.create(payload)
     },
@@ -75,7 +64,7 @@ export function PoForm() {
 
   const submit = () => {
     if (!supplierId) return setError(t('po.supplierRequired'))
-    if (lines.length === 0) return setError(t('po.itemsRequired'))
+    if (items.length === 0) return setError(t('po.itemsRequired'))
     setError(null)
     create.mutate()
   }
@@ -99,10 +88,15 @@ export function PoForm() {
         <div className="form-2col">
           <div className="ff" style={{ marginBottom: 12 }}>
             <label className="lbl2">{t('po.supplier')} <span className="req">*</span></label>
-            <Select value={supplierId} error={!!error && !supplierId} onChange={(e) => { setSupplierId(e.target.value); setError(null) }}>
-              <option value="">{t('po.pickSupplier')}</option>
-              {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </Select>
+            <CommandSelect
+              value={supplierId}
+              valueLabel={supplierName}
+              onChange={(id, opt) => { setSupplierId(id); setSupplierName(opt?.label ?? null); setError(null) }}
+              loadOptions={loadSuppliers}
+              placeholder={t('po.pickSupplier')}
+              searchPlaceholder={t('field.searchSuppliers')}
+              invalid={!!error && !supplierId}
+            />
           </div>
           <div className="ff" style={{ marginBottom: 12 }}>
             <label className="lbl2">{t('po.expected')}</label>
@@ -121,40 +115,12 @@ export function PoForm() {
 
       <div className="card" style={{ marginTop: 14 }}>
         <div className="card-h"><div><h3>{t('po.items')}</h3></div></div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-            <Select value={pickProduct} onChange={(e) => setPickProduct(e.target.value)}>
-              <option value="">{t('po.pickProduct')}</option>
-              {productOptions.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-            </Select>
+        <ItemsField value={items} onChange={(v) => { setItems(v); setError(null) }} withPrice />
+        {items.length > 0 ? (
+          <div className="totals" style={{ marginLeft: 'auto', width: 260, marginTop: 12 }}>
+            <div className="row grand" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>{t('po.total')}</span><span>{money.format(total)}</span></div>
           </div>
-          <Button variant="soft" onClick={addLine}>+ {t('po.addItem')}</Button>
-        </div>
-        {lines.length === 0 ? (
-          <div className="hint">{t('po.noItems')}</div>
-        ) : (
-          <table className="ltbl">
-            <thead><tr><th>{t('po.colItem')}</th><th className="right" style={{ width: 90 }}>{t('po.colQty')}</th><th className="right" style={{ width: 120 }}>{t('po.colUnitPrice')}</th><th className="right">{t('po.colLineTotal')}</th><th /></tr></thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={l.productId}>
-                  <td>{l.name}</td>
-                  <td className="right"><Input value={l.quantity} inputMode="numeric" onChange={(e) => patch(l.productId, { quantity: e.target.value })} style={{ height: 32, textAlign: 'right' }} /></td>
-                  <td className="right"><Input value={l.unitPrice} inputMode="decimal" placeholder="0" onChange={(e) => patch(l.productId, { unitPrice: e.target.value })} style={{ height: 32, textAlign: 'right' }} /></td>
-                  <td className="right num">{money.format(num(l.quantity) * num(l.unitPrice))}</td>
-                  <td className="right">
-                    <button type="button" title={t('po.remove')} onClick={() => setLines((ls) => ls.filter((x) => x.productId !== l.productId))} style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer' }}>
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <div className="totals" style={{ marginLeft: 'auto', width: 260, marginTop: 8 }}>
-          <div className="row grand" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>{t('po.total')}</span><span>{money.format(total)}</span></div>
-        </div>
+        ) : null}
       </div>
 
       {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 12 }} role="alert">{error}</p> : null}
