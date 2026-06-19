@@ -15,53 +15,90 @@ export interface ItemLine {
 const num = (s: string | undefined) => (s && s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 
 /**
- * Reusable line-items picker for RFQ/PO forms. Adding is a searchable CommandSelect
- * (DB-backed, scales to many products). Added items collapse to a single "N items"
- * summary; clicking it opens a dialog to review/edit quantities (+ unit price) and
+ * Reusable line-items picker for RFQ/PO forms. A full inline row adds a product with its
+ * quantity (+ unit price for POs) in one go via a DB-backed searchable CommandSelect.
+ * Added items collapse to a "N items" summary chip that opens a dialog to review/edit/
  * remove — so the form stays compact even with dozens of lines.
  */
 export function ItemsField({
   value,
   onChange,
   withPrice,
-  defaultCost,
 }: {
   value: ItemLine[]
   onChange: (lines: ItemLine[]) => void
   withPrice?: boolean
-  /** Optional (productId → cost) to prefill unit price on add. */
-  defaultCost?: (productId: string) => string | undefined
 }) {
   const t = useT()
   const money = useCurrency()
   const [open, setOpen] = useState(false)
+
+  // Draft (inline add) row.
+  const [draftId, setDraftId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState<string | null>(null)
+  const [draftQty, setDraftQty] = useState('1')
+  const [draftPrice, setDraftPrice] = useState('')
 
   const loadOptions = useCallback(async (search: string) => {
     const res = await dataClient.products.list({ search: search || undefined, limit: 20 })
     return res.data.map((p) => ({ value: p.id, label: p.name, sublabel: p.sku ?? undefined, imageUrl: p.imageUrl }))
   }, [])
 
-  const add = (id: string | null, opt?: { label: string }) => {
-    if (!id || value.some((l) => l.productId === id)) return
-    onChange([...value, { productId: id, name: opt?.label ?? '', quantity: '1', unitPrice: withPrice ? (defaultCost?.(id) ?? '') : undefined }])
+  const pickProduct = (id: string | null, opt?: { label: string }) => {
+    setDraftId(id)
+    setDraftName(opt?.label ?? null)
+    if (withPrice && id) {
+      // Prefill the unit price with the product's cost as a starting point.
+      void dataClient.products.get(id).then((p) => {
+        if (p?.effectiveCostPrice != null) setDraftPrice(String(p.effectiveCostPrice))
+      })
+    }
   }
+
+  const resetDraft = () => {
+    setDraftId(null)
+    setDraftName(null)
+    setDraftQty('1')
+    setDraftPrice('')
+  }
+
+  const addDraft = () => {
+    if (!draftId || num(draftQty) <= 0) return
+    const existing = value.find((l) => l.productId === draftId)
+    if (existing) {
+      // Same product picked again → merge quantities instead of duplicating.
+      onChange(value.map((l) => (l.productId === draftId ? { ...l, quantity: String(num(l.quantity) + num(draftQty)), unitPrice: withPrice ? draftPrice || l.unitPrice : undefined } : l)))
+    } else {
+      onChange([...value, { productId: draftId, name: draftName ?? '', quantity: draftQty, unitPrice: withPrice ? draftPrice : undefined }])
+    }
+    resetDraft()
+  }
+
   const patch = (id: string, p: Partial<ItemLine>) => onChange(value.map((l) => (l.productId === id ? { ...l, ...p } : l)))
   const remove = (id: string) => onChange(value.filter((l) => l.productId !== id))
-
   const total = value.reduce((s, l) => s + num(l.quantity) * num(l.unitPrice), 0)
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-        <CommandSelect
-          value={null}
-          onChange={(id, opt) => add(id, opt)}
-          loadOptions={loadOptions}
-          placeholder={t('field.addProduct')}
-          searchPlaceholder={t('field.searchProducts')}
-        />
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+          <CommandSelect
+            value={draftId}
+            valueLabel={draftName}
+            onChange={(id, opt) => pickProduct(id, opt)}
+            loadOptions={loadOptions}
+            placeholder={t('field.addProduct')}
+            searchPlaceholder={t('field.searchProducts')}
+          />
+        </div>
+        <Input value={draftQty} inputMode="numeric" aria-label={t('field.colQty')} onChange={(e) => setDraftQty(e.target.value)} style={{ width: 80, textAlign: 'right' }} />
+        {withPrice ? (
+          <Input value={draftPrice} inputMode="decimal" placeholder={t('field.colUnitPrice')} aria-label={t('field.colUnitPrice')} onChange={(e) => setDraftPrice(e.target.value)} style={{ width: 120, textAlign: 'right' }} />
+        ) : null}
+        <Button variant="soft" onClick={addDraft} disabled={!draftId || num(draftQty) <= 0}>+ {t('field.add')}</Button>
       </div>
-      <button type="button" className="count-chip" disabled={value.length === 0} onClick={() => setOpen(true)}>
+
+      <button type="button" className="count-chip" style={{ marginTop: 10 }} disabled={value.length === 0} onClick={() => setOpen(true)}>
         <span className="n">{value.length}</span>
         {t('field.itemsAdded')}
         {withPrice && value.length > 0 ? <span className="sub"> · {money.compact(total)}</span> : null}

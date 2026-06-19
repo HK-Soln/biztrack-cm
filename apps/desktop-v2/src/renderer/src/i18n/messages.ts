@@ -260,7 +260,8 @@ export const en = {
   'scan.camHint': 'Point the camera at the barcode or QR code.',
   'scan.camError': 'Could not access the camera. Check permissions, or type the code instead.',
 
-  'field.addProduct': 'Search a product to add…',
+  'field.add': 'Add',
+  'field.addProduct': 'Search a product…',
   'field.searchProducts': 'Search products…',
   'field.itemsAdded': 'items',
   'field.itemsTitle': 'Items',
@@ -1391,7 +1392,8 @@ export const fr: Record<MessageKey, string> = {
   'scan.camHint': 'Pointez la caméra vers le code-barres ou le QR code.',
   'scan.camError': "Impossible d'accéder à la caméra. Vérifiez les autorisations, ou saisissez le code manuellement.",
 
-  'field.addProduct': 'Rechercher un produit à ajouter…',
+  'field.add': 'Ajouter',
+  'field.addProduct': 'Rechercher un produit…',
   'field.searchProducts': 'Rechercher des produits…',
   'field.itemsAdded': 'articles',
   'field.itemsTitle': 'Articles',
