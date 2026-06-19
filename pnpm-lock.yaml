@@ -962,6 +962,24 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/templates:
+    devDependencies:
+      '@biztrack/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@biztrack/types':
+        specifier: workspace:*
+        version: link:../types
+      '@biztrack/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      eslint:
+        specifier: ^9.32.0
+        version: 9.39.4(jiti@1.21.7)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/theme:
     dependencies:
       react:
