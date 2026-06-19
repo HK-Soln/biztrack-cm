@@ -59,6 +59,13 @@ export function ProductDetail() {
     queryFn: () => dataClient.products.listMovements(id!),
     enabled: isElectron && !!id && !!product?.trackInventory,
   })
+  // Deduped with ManageVariants (same query key) — used only to tell whether the
+  // product is "direct" (no variants), so product-level stock actions apply.
+  const { data: variants = [] } = useQuery({
+    queryKey: [...queryKeys.products, 'variants', id],
+    queryFn: () => dataClient.products.listVariants(id!),
+    enabled: isElectron && !!id,
+  })
 
   const removeM = useMutation({
     mutationFn: () => dataClient.products.remove(id!),
@@ -72,6 +79,11 @@ export function ProductDetail() {
   if (!product) return <div className="frame"><div className="cat-empty">{t('pdv.notFound')}</div></div>
 
   const p = product
+  // A "direct" product holds stock itself (no variants, not serialised), so its
+  // quantity is adjusted at the product level. Variant/serialised stock is
+  // adjusted from their own tables (the Manage panels), so product-level
+  // Restock/Adjust don't apply there.
+  const isDirect = p.trackInventory && !p.isSerialized && variants.length === 0
   const threshold = p.reorderPoint ?? p.lowStockThreshold ?? 0
   const ss = stockState(p)
   const stockValue = (p.costPrice ?? 0) * p.currentStock
@@ -97,15 +109,21 @@ export function ProductDetail() {
           {t('pdv.back')}
         </button>
         <div className="acts2">
-          {/* Restock / Adjust stock are part of the Inventory module (not built yet) — disabled + flagged. */}
-          <Button variant="default" disabled title={t('pdv.inventorySoon')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
-            {t('pdv.restock')}
-          </Button>
-          <Button variant="default" disabled title={t('pdv.inventorySoon')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" /></svg>
-            {t('pdv.adjustStock')}
-          </Button>
+          {/* Restock / Adjust stock act on product-level quantity, so they only apply
+              to direct products. Variant/serialised stock is managed in their panels.
+              Part of the Inventory module (not built yet) — disabled + flagged. */}
+          {isDirect ? (
+            <>
+              <Button variant="default" disabled title={t('pdv.inventorySoon')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
+                {t('pdv.restock')}
+              </Button>
+              <Button variant="default" disabled title={t('pdv.inventorySoon')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9M3 20l4-1L18 8l-3-3L4 16l-1 4Z" /></svg>
+                {t('pdv.adjustStock')}
+              </Button>
+            </>
+          ) : null}
           <Button variant="primary" onClick={() => navigate(`/products/${p.id}/edit`)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="M14 6l4 4" /></svg>
             {t('pdv.edit')}
