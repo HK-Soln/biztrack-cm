@@ -21,6 +21,7 @@ import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { RfqsModule } from '@/modules/rfqs/rfqs.module'
+import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
 import { LoggerModule } from './logger/logger.module'
@@ -103,6 +104,7 @@ function resolveI18nPath() {
     ExpensesModule,
     DebtsModule,
     RfqsModule,
+    PurchaseOrdersModule,
     SalesModule,
     SyncModule,
     DepositsModule,

@@ -54,6 +54,7 @@ import {
   inferProductType,
   PaymentMethod,
   ProductType,
+  PurchaseOrderStatus,
   RfqStatus,
   RfqSupplierStatus,
   SerialType,
@@ -108,6 +109,8 @@ import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { Rfq } from '@/entities/rfq.entity'
 import { RfqItem } from '@/entities/rfq-item.entity'
 import { RfqSupplier } from '@/entities/rfq-supplier.entity'
+import { PurchaseOrder } from '@/entities/purchase-order.entity'
+import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -492,6 +495,10 @@ export class SyncService {
     private readonly rfqItemsRepo: Repository<RfqItem>,
     @InjectRepository(RfqSupplier)
     private readonly rfqSuppliersRepo: Repository<RfqSupplier>,
+    @InjectRepository(PurchaseOrder)
+    private readonly purchaseOrdersRepo: Repository<PurchaseOrder>,
+    @InjectRepository(PurchaseOrderItem)
+    private readonly purchaseOrderItemsRepo: Repository<PurchaseOrderItem>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -1288,6 +1295,7 @@ export class SyncService {
       sale: (b, o) => this.applySaleOperation(b, o),
       debt: (b, o) => this.applyDebtOperation(b, o),
       rfq: (b, o) => this.applyRfqOperation(b, o),
+      purchase_order: (b, o) => this.applyPurchaseOrderOperation(b, o),
       expense: (b, o) => this.applyExpenseOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
@@ -2267,6 +2275,95 @@ export class SyncService {
           quotedTotal: s.quotedTotal ?? null,
           quoteNotes: this.normalizeOptionalString(s.quoteNotes),
           respondedAt: this.parseOptionalDate(s.respondedAt) ?? null,
+        }),
+      )
+    }
+
+    return { status: 'applied' }
+  }
+
+  private async applyPurchaseOrderOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.purchaseOrdersRepo.findOne({ where: { id: operation.recordId, businessId } })
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE') {
+      if (existing) await this.purchaseOrdersRepo.softDelete({ id: operation.recordId })
+      return { status: 'applied' }
+    }
+
+    const payload = operation.payload as {
+      number?: string
+      rfqId?: string | null
+      supplierId?: string
+      supplierName?: string | null
+      title?: string | null
+      messageBody?: string | null
+      status?: string
+      currency?: string
+      expectedDate?: string | null
+      totalAmount?: number
+      sentAt?: string | null
+      createdById?: string | null
+      createdAt?: string
+      items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number; unitPrice: number; receivedQuantity?: number }>
+    }
+
+    if (existing) {
+      await this.purchaseOrdersRepo.update(operation.recordId, {
+        number: payload.number ?? existing.number,
+        rfqId: payload.rfqId ?? existing.rfqId,
+        supplierId: payload.supplierId ?? existing.supplierId,
+        supplierName: this.normalizeOptionalString(payload.supplierName),
+        title: this.normalizeOptionalString(payload.title),
+        messageBody: this.normalizeOptionalString(payload.messageBody),
+        status: (payload.status as PurchaseOrderStatus) ?? existing.status,
+        currency: payload.currency ?? existing.currency,
+        expectedDate: this.parseOptionalDate(payload.expectedDate) ?? null,
+        totalAmount: payload.totalAmount ?? existing.totalAmount,
+        sentAt: this.parseOptionalDate(payload.sentAt) ?? null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+    } else {
+      await this.purchaseOrdersRepo.save(
+        this.purchaseOrdersRepo.create({
+          id: operation.recordId,
+          businessId,
+          number: payload.number ?? 'PO',
+          rfqId: payload.rfqId ?? null,
+          supplierId: payload.supplierId ?? '',
+          supplierName: this.normalizeOptionalString(payload.supplierName),
+          title: this.normalizeOptionalString(payload.title),
+          messageBody: this.normalizeOptionalString(payload.messageBody),
+          status: (payload.status as PurchaseOrderStatus) ?? PurchaseOrderStatus.DRAFT,
+          currency: payload.currency ?? 'XAF',
+          expectedDate: this.parseOptionalDate(payload.expectedDate) ?? null,
+          totalAmount: payload.totalAmount ?? 0,
+          sentAt: this.parseOptionalDate(payload.sentAt) ?? null,
+          createdById: payload.createdById ?? null,
+          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        }),
+      )
+    }
+
+    // The client always pushes the complete nested state, so full-replace the items.
+    await this.purchaseOrderItemsRepo.delete({ purchaseOrderId: operation.recordId })
+    for (const it of payload.items ?? []) {
+      await this.purchaseOrderItemsRepo.save(
+        this.purchaseOrderItemsRepo.create({
+          id: it.id,
+          purchaseOrderId: operation.recordId,
+          productId: it.productId,
+          variantId: it.variantId ?? null,
+          description: it.description,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          receivedQuantity: it.receivedQuantity ?? 0,
         }),
       )
     }

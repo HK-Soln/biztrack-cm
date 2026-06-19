@@ -180,6 +180,11 @@ export class RfqsService {
     }
   }
 
+  /** Mark an RFQ as CONVERTED (a PO was created from one of its quotes). */
+  async markConverted(id: string, businessId: string): Promise<void> {
+    await this.rfqsRepo.update({ id, businessId }, { status: RfqStatus.CONVERTED })
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private async nextNumber(businessId: string): Promise<string> {

@@ -41,6 +41,8 @@ import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { Rfq } from '@/entities/rfq.entity'
 import { RfqItem } from '@/entities/rfq-item.entity'
 import { RfqSupplier } from '@/entities/rfq-supplier.entity'
+import { PurchaseOrder } from '@/entities/purchase-order.entity'
+import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { User } from '@/entities/user.entity'
 import { RedisModule } from '@/common/redis/redis.module'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
@@ -99,6 +101,8 @@ import { SyncService } from './sync.service'
       Rfq,
       RfqItem,
       RfqSupplier,
+      PurchaseOrder,
+      PurchaseOrderItem,
       BusinessMember,
       Business,
       Contact,
