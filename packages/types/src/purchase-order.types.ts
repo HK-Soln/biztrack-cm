@@ -82,6 +82,8 @@ export type PurchaseOrderSendChannel = 'email' | 'whatsapp'
 
 export interface SendPurchaseOrderRequest {
   channels: PurchaseOrderSendChannel[]
+  /** Override recipient when the supplier contact has no stored email/phone. */
+  recipient?: import('./document.types').DocumentRecipient
 }
 
 // --- document view model (consumed by @biztrack/templates) -------------------

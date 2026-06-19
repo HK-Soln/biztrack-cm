@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Query, StreamableFile, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
 import type { AuditContext, JwtPayload, PaginatedResult, Rfq, RfqListItem } from '@biztrack/types'
@@ -57,6 +57,14 @@ export class RfqsController {
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<Rfq> {
     return serializeDto(RfqResponseDto.fromEntity(await this.rfqsService.recordQuote(id, user.businessId as string, dto, auditContext))!)
+  }
+
+  @Get(':id/document')
+  @RequireResource(Resource.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Render the RFQ PDF (for one supplier) for download/share' })
+  async document(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Query('supplierId') supplierId: string): Promise<StreamableFile> {
+    const pdf = await this.rfqsService.getDocumentPdf(id, user.businessId as string, supplierId)
+    return new StreamableFile(pdf, { type: 'application/pdf' })
   }
 
   @Post(':id/send')

@@ -106,6 +106,8 @@ export interface SendRfqRequest {
   channels: RfqSendChannel[]
   /** Optional subset of supplier ids to (re)send to; defaults to all pending. */
   supplierIds?: string[]
+  /** Override recipient when the supplier contact has no stored email/phone. */
+  recipient?: import('./document.types').DocumentRecipient
 }
 
 // --- document view model (consumed by @biztrack/templates) -------------------

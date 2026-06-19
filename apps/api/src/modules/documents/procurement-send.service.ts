@@ -39,6 +39,11 @@ export class ProcurementSendService {
     this.logger.setContext('ProcurementSendService')
   }
 
+  /** Render a document's HTML to a PDF buffer (for download / blob endpoints). */
+  renderPdf(html: string): Promise<Buffer> {
+    return this.pdf.render(html)
+  }
+
   async dispatch(input: ProcurementDispatchInput): Promise<{ pdfUrl: string }> {
     const pdf = await this.pdf.render(input.html)
     const stored = await this.storage.upload({

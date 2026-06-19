@@ -24,3 +24,13 @@ export interface DocumentMoneyContext {
   currency: string
   locale?: string
 }
+
+/** Channels a procurement document (RFQ/PO) can be sent through. */
+export type DocumentSendChannel = 'email' | 'whatsapp'
+
+/** Explicit recipient override used when the supplier contact has no stored
+ * email/phone for the chosen channel (the user is prompted for it). */
+export interface DocumentRecipient {
+  email?: string
+  phone?: string
+}

@@ -143,7 +143,14 @@ export class PurchaseOrdersService {
     }
   }
 
-  async send(id: string, businessId: string, _dto: SendPurchaseOrderRequest, context: AuditContext): Promise<PurchaseOrder> {
+  /** Render the PO to a PDF buffer (download / blob endpoint). */
+  async getDocumentPdf(id: string, businessId: string): Promise<Buffer> {
+    const po = await this.findById(id, businessId)
+    const doc = await this.buildDocument(po, businessId)
+    return this.procurementSend.renderPdf(renderPurchaseOrderHtml(doc))
+  }
+
+  async send(id: string, businessId: string, dto: SendPurchaseOrderRequest, context: AuditContext): Promise<PurchaseOrder> {
     try {
       const po = await this.findById(id, businessId)
       const doc = await this.buildDocument(po, businessId)
@@ -153,15 +160,15 @@ export class PurchaseOrdersService {
         message: purchaseOrderMessageText(doc),
         filename: doc.number,
         subject: `${doc.business.name} — ${doc.number}`,
-        channels: _dto.channels,
-        phone: doc.supplier.phone,
-        email: doc.supplier.email,
+        channels: dto.channels,
+        phone: dto.recipient?.phone ?? doc.supplier.phone,
+        email: dto.recipient?.email ?? doc.supplier.email,
       })
       await this.poRepo.update(po.id, {
         status: po.status === PurchaseOrderStatus.DRAFT ? PurchaseOrderStatus.SENT : po.status,
         sentAt: new Date(),
       })
-      this.auditService.log(context, { action: 'UPDATE', entityType: 'purchase_order', entityId: id, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'SENT', channels: _dto.channels } } })
+      this.auditService.log(context, { action: 'UPDATE', entityType: 'purchase_order', entityId: id, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'SENT', channels: dto.channels } } })
       return this.findById(id, businessId)
     } catch (error) {
       return this.handleServiceError('send', error, { businessId, id })

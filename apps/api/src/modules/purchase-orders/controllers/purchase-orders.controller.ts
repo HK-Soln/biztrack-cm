@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Query, StreamableFile, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
 import type { AuditContext, JwtPayload, PaginatedResult, PurchaseOrder, PurchaseOrderListItem } from '@biztrack/types'
@@ -57,6 +57,14 @@ export class PurchaseOrdersController {
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<PurchaseOrder> {
     return serializeDto(PurchaseOrderResponseDto.fromEntity(await this.service.createFromRfq(user.businessId as string, rfqId, dto, auditContext))!)
+  }
+
+  @Get(':id/document')
+  @RequireResource(Resource.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Render the PO PDF for download/share' })
+  async document(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<StreamableFile> {
+    const pdf = await this.service.getDocumentPdf(id, user.businessId as string)
+    return new StreamableFile(pdf, { type: 'application/pdf' })
   }
 
   @Post(':id/send')

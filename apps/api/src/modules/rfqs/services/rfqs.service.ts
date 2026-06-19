@@ -178,8 +178,8 @@ export class RfqsService {
           filename: `${doc.number}-${doc.supplier.name || 'supplier'}`,
           subject: `${doc.business.name} — ${doc.number}`,
           channels: dto.channels,
-          phone: doc.supplier.phone,
-          email: doc.supplier.email,
+          phone: dto.recipient?.phone ?? doc.supplier.phone,
+          email: dto.recipient?.email ?? doc.supplier.email,
         })
         if (s.status === RfqSupplierStatus.PENDING) await this.suppliersRepo.update(s.id, { status: RfqSupplierStatus.SENT })
       }
@@ -195,6 +195,14 @@ export class RfqsService {
     } catch (error) {
       return this.handleServiceError('send', error, { businessId, id })
     }
+  }
+
+  /** Render the RFQ (addressed to one supplier) to a PDF buffer (download / blob). */
+  async getDocumentPdf(id: string, businessId: string, supplierId: string): Promise<Buffer> {
+    const rfq = await this.findById(id, businessId)
+    const biz = await this.businessRepo.findOne({ where: { id: businessId } })
+    const doc = await this.buildDocument(rfq, supplierId, biz)
+    return this.procurementSend.renderPdf(renderRfqHtml(doc))
   }
 
   /** Mark an RFQ as CONVERTED (a PO was created from one of its quotes). */
