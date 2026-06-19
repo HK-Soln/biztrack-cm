@@ -21,6 +21,8 @@ import { BrandsService } from './services/brands.service'
 import { registerBrandsIpc } from './ipc/brands.ipc'
 import { ProductsService } from './services/products.service'
 import { registerProductsIpc } from './ipc/products.ipc'
+import { InventoryService } from './services/inventory.service'
+import { registerInventoryIpc } from './ipc/inventory.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { AuditService } from './services/audit.service'
@@ -195,6 +197,14 @@ app.whenReady().then(() => {
     audit,
   )
   registerProductsIpc(products)
+
+  const inventory = new InventoryService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    audit,
+  )
+  registerInventoryIpc(inventory)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

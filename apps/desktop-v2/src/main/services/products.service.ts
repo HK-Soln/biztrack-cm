@@ -17,6 +17,13 @@ import type {
   VariantInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import {
+  STOCK_EXPR,
+  effectiveStock as effectiveStockFn,
+  movementCount as movementCountFn,
+  recordStockMovement as recordStockMovementFn,
+  setInventoryLevel as setInventoryLevelFn,
+} from './stock-ledger'
 import type { AuditLogger } from './audit.service'
 
 interface ProductRow {
@@ -112,23 +119,6 @@ const OPENING_STOCK_NOTE = 'Opening stock recorded at product creation.'
 function variantSignature(optionIds: string[]): string {
   return [...optionIds].sort().join('|')
 }
-
-/**
- * Effective on-hand stock per product (the number the UI shows):
- * - serialized   → count of IN_STOCK serial units (stock is the unit count)
- * - has variants → sum of the variants' stock
- * - otherwise    → the product's own stock_quantity
- * `p` must be the products alias in the surrounding query.
- */
-const STOCK_EXPR = `(CASE
-    WHEN p.is_serialized = 1 THEN (
-      SELECT COUNT(*) FROM product_serial_units su
-      WHERE su.product_id = p.id AND su.is_deleted = 0 AND su.status = 'IN_STOCK')
-    WHEN EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) THEN (
-      SELECT COALESCE(SUM(pv.stock_quantity), 0) FROM product_variants pv
-      WHERE pv.product_id = p.id AND pv.is_deleted = 0)
-    ELSE p.stock_quantity
-  END)`
 
 const COLS =
   `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
@@ -979,37 +969,17 @@ export class ProductsService {
   }
 
   /** Effective on-hand stock for one product (serial count / variant sum / own qty). */
+  // Thin delegations to the shared stock-ledger (one implementation, also used by inventory.service).
   private effectiveStock(productId: string): number {
-    const row = this.db.get<{ s: number | null }>(`SELECT ${STOCK_EXPR} AS s FROM products p WHERE p.id = ?`, [productId])
-    return Math.max(0, row?.s ?? 0)
+    return effectiveStockFn(this.db, productId)
   }
 
-  /** How many movements a product has (used to detect the opening one). */
   private movementCount(productId: string, businessId: string): number {
-    return (
-      this.db.get<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM inventory_movements WHERE business_id = ? AND product_id = ?`,
-        [businessId, productId],
-      )?.n ?? 0
-    )
+    return movementCountFn(this.db, businessId, productId)
   }
 
-  /** Upsert the product-level inventory_level row (variant_id NULL) to `qty`. The
-   * table has partial-unique indexes (migration 0025), so upsert explicitly. */
   private setInventoryLevel(productId: string, businessId: string, qty: number, now: string): void {
-    const level = this.db.get<{ id: string }>(
-      `SELECT id FROM inventory_levels WHERE business_id = ? AND product_id = ? AND variant_id IS NULL LIMIT 1`,
-      [businessId, productId],
-    )
-    if (level) {
-      this.db.run(`UPDATE inventory_levels SET quantity = ?, updated_at = ? WHERE id = ?`, [qty, now, level.id])
-    } else {
-      this.db.run(
-        `INSERT INTO inventory_levels (id, business_id, product_id, variant_id, quantity, low_stock_threshold, reorder_point, last_restock_at, created_at, updated_at)
-         VALUES (?, ?, ?, NULL, ?, NULL, NULL, NULL, ?, ?)`,
-        [randomUUID(), businessId, productId, qty, now, now],
-      )
-    }
+    setInventoryLevelFn(this.db, businessId, productId, qty, now)
   }
 
   /**
@@ -1055,19 +1025,7 @@ export class ProductsService {
     opts: { referenceType: string; referenceId: string; notes: string },
     now: string,
   ): void {
-    if (change === 0) return
-    const after = this.effectiveStock(productId)
-    const before = after - change
-    const type: StockMovementType =
-      change > 0 && this.movementCount(productId, businessId) === 0 ? 'OPENING_STOCK' : 'MANUAL_ADJUSTMENT'
-    this.setInventoryLevel(productId, businessId, after, now)
-    this.db.run(
-      `INSERT INTO inventory_movements
-        (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
-         reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
-      [randomUUID(), businessId, productId, type, change, before, after, opts.referenceType, opts.referenceId, opts.notes, now],
-    )
+    recordStockMovementFn(this.db, businessId, productId, change, opts, now)
   }
 
   private enqueueSerialUnit(

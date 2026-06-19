@@ -72,6 +72,9 @@ export const IPC = {
   productsRetireSerialUnit: 'products:retire-serial-unit',
   productsUpdateSerialNumber: 'products:update-serial-number',
   productsListMovements: 'products:list-movements',
+  inventoryAdjust: 'inventory:adjust',
+  inventorySetThreshold: 'inventory:set-threshold',
+  inventoryListMovements: 'inventory:list-movements',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
 } as const
@@ -460,6 +463,30 @@ export interface SerialUnitInput {
   serialType: SerialType
 }
 
+/** How a manual stock adjustment changes the quantity (mirrors API StockAdjustmentType). */
+export type StockAdjustmentType = 'ADD' | 'REMOVE' | 'SET'
+
+/** Manual stock adjustment for a direct product → a MANUAL_ADJUSTMENT movement. */
+export interface AdjustStockInput {
+  type: StockAdjustmentType
+  quantity: number
+  /** Reason (>= 3 chars) — recorded on the movement + audit. */
+  notes: string
+}
+
+/** Reorder/low-stock thresholds (no movement). */
+export interface ThresholdInput {
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+}
+
+/** Movement-ledger query (paginated). */
+export interface MovementsQuery extends ListQueryT {
+  type?: StockMovementType
+  dateFrom?: string
+  dateTo?: string
+}
+
 /** Why a stock level changed (mirrors the API's MovementType). */
 export type StockMovementType =
   | 'OPENING_STOCK'
@@ -724,6 +751,14 @@ export interface BridgeApi {
     updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
     /** Stock-ledger entries for the detail stock card (newest first). */
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
+  }
+  inventory: {
+    /** Manually adjust a direct product's stock (set/add/remove) → a movement. */
+    adjust: (productId: string, input: AdjustStockInput) => Promise<void>
+    /** Set reorder/low-stock thresholds (no movement). */
+    setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
+    /** Paginated stock-movement ledger for a product. */
+    listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */
