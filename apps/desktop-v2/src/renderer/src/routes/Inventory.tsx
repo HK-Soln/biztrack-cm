@@ -7,7 +7,6 @@ import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
-import { GeneratePOModal } from '@/components/inventory/GeneratePOModal'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalInventoryItem, StockStatus } from '@shared/ipc'
@@ -30,7 +29,6 @@ export function Inventory() {
 
   const [tab, setTab] = useState<Tab>('all')
   const [categoryId, setCategoryId] = useState('')
-  const [poOpen, setPoOpen] = useState(false)
 
   const {
     items,
@@ -146,7 +144,24 @@ export function Inventory() {
             </div>
           </div>
           {suggestions.length > 0 ? (
-            <button type="button" className="btn btn-primary" onClick={() => setPoOpen(true)}>{t('inv.bannerAction')}</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() =>
+                navigate('/purchasing/orders/new', {
+                  state: {
+                    seedItems: suggestions.map((s) => ({
+                      productId: s.productId,
+                      name: s.name,
+                      quantity: String(s.suggestedQty),
+                      unitPrice: s.unitCost != null ? String(s.unitCost) : '',
+                    })),
+                  },
+                })
+              }
+            >
+              {t('inv.bannerAction')}
+            </button>
           ) : (
             <button type="button" className="btn" style={{ background: 'var(--surface)' }} onClick={() => { setTab('low'); setPage(1) }}>{t('inv.bannerReview')}</button>
           )}
@@ -188,7 +203,6 @@ export function Inventory() {
         pagination={{ page, limit, total, totalPages, onPage: setPage, prevLabel: t('common.prev'), nextLabel: t('common.next') }}
       />
 
-      <GeneratePOModal suggestions={suggestions} open={poOpen} onClose={() => setPoOpen(false)} />
     </div>
   )
 }

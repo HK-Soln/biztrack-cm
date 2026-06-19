@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, Input, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
@@ -20,13 +20,17 @@ const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 export function PoForm() {
   const t = useT()
   const navigate = useNavigate()
+  const location = useLocation()
   const money = useCurrency()
+
+  // Pre-seeded from the inventory reorder banner ("Generate PO").
+  const seedItems = (location.state as { seedItems?: Line[] } | null)?.seedItems
 
   const [supplierId, setSupplierId] = useState('')
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [expectedDate, setExpectedDate] = useState('')
-  const [lines, setLines] = useState<Line[]>([])
+  const [lines, setLines] = useState<Line[]>(() => seedItems ?? [])
   const [pickProduct, setPickProduct] = useState('')
   const [error, setError] = useState<string | null>(null)
 
