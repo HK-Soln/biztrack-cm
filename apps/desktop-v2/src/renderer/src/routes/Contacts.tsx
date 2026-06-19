@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
+import { Button, Input, Modal, Pagination, PhoneInput, Select } from '@biztrack/ui/biztrack'
 import { ContactType } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -240,11 +240,11 @@ export function ContactModal({
       <div className="form-2col">
         <div className="ff" style={{ marginBottom: 12 }}>
           <label className="lbl2">{t('ct.phone')}</label>
-          <Input value={phone} placeholder={t('ct.phonePh')} onChange={(e) => setPhone(e.target.value)} />
+          <PhoneInput value={phone} placeholder={t('ct.phonePh')} onChange={(v) => setPhone(v ?? '')} />
         </div>
         <div className="ff" style={{ marginBottom: 12 }}>
           <label className="lbl2">{t('ct.phoneAlt')}</label>
-          <Input value={phoneAlt} placeholder={t('ct.phonePh')} onChange={(e) => setPhoneAlt(e.target.value)} />
+          <PhoneInput value={phoneAlt} placeholder={t('ct.phonePh')} onChange={(v) => setPhoneAlt(v ?? '')} />
         </div>
       </div>
       <div className="ff" style={{ marginBottom: 12 }}>
