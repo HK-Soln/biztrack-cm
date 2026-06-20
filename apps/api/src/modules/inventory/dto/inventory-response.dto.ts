@@ -297,14 +297,22 @@ export class RestockResponseDto implements RestockResponse {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
+  subtotalAmount?: number | null
+  discountAmount?: number | null
+  chargesAmount?: number | null
   totalAmount!: number
   amountPaid!: number
   creditAmount!: number
   totalCost?: number | null
   notes?: string | null
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceFileUrl?: string | null
   performedById?: string | null
   createdAt!: string
   payments?: RestockPaymentRequest[]
+  charges?: RestockResponse['charges']
+  discounts?: RestockResponse['discounts']
   items!: RestockResponse['items']
 
   static fromModel(model: {
@@ -313,14 +321,21 @@ export class RestockResponseDto implements RestockResponse {
     referenceNumber?: string | null
     supplierId?: string | null
     supplierName?: string | null
+    discountAmount?: number | null
+    chargesAmount?: number | null
     totalAmount: number
     amountPaid: number
     creditAmount: number
     totalCost?: number | null
     notes?: string | null
+    invoiceNumber?: string | null
+    invoiceDate?: string | null
+    invoiceFileUrl?: string | null
     performedById?: string | null
     createdAt: Date | string
     payments?: RestockPaymentRequest[]
+    charges?: RestockResponse['charges']
+    discounts?: RestockResponse['discounts']
     items: RestockResponse['items']
   }): RestockResponseDto {
     const dto = new RestockResponseDto()
@@ -329,14 +344,22 @@ export class RestockResponseDto implements RestockResponse {
     dto.referenceNumber = model.referenceNumber ?? null
     dto.supplierId = model.supplierId ?? null
     dto.supplierName = model.supplierName ?? null
+    dto.subtotalAmount = model.totalCost ?? null
+    dto.discountAmount = model.discountAmount ?? null
+    dto.chargesAmount = model.chargesAmount ?? null
     dto.totalAmount = model.totalAmount
     dto.amountPaid = model.amountPaid
     dto.creditAmount = model.creditAmount
     dto.totalCost = model.totalCost ?? null
     dto.notes = model.notes ?? null
+    dto.invoiceNumber = model.invoiceNumber ?? null
+    dto.invoiceDate = model.invoiceDate ?? null
+    dto.invoiceFileUrl = model.invoiceFileUrl ?? null
     dto.performedById = model.performedById ?? null
     dto.createdAt = toIsoString(model.createdAt) ?? ''
     dto.payments = model.payments ?? []
+    dto.charges = model.charges ?? []
+    dto.discounts = model.discounts ?? []
     dto.items = model.items
     return dto
   }

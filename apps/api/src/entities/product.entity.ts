@@ -139,6 +139,15 @@ export class Product
   @JoinColumn({ name: 'category_id', foreignKeyConstraintName: 'fk_products_category_id' })
   category?: ProductCategory | null
 
+  @Column({ name: 'brand_id', type: 'uuid', nullable: true })
+  brandId?: string | null
+
+  @Column({ name: 'model_id', type: 'uuid', nullable: true })
+  modelId?: string | null
+
+  @Column({ name: 'is_featured', default: false })
+  isFeatured!: boolean
+
   @Column({ name: 'unit_of_measure_id' })
   unitOfMeasureId!: string
 

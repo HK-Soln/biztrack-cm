@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
+import { BrandCategory } from '@/entities/brand-category.entity'
 import { Business } from '@/entities/business.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
@@ -19,6 +20,8 @@ import { AuditModule } from '@/modules/audit/audit.module'
 import { AttributeGroupsController } from './controllers/attribute-groups.controller'
 import { CategoriesController } from './controllers/categories.controller'
 import { ProductImagesController } from './controllers/product-images.controller'
+import { ProductSerialUnitsController } from './controllers/product-serial-units.controller'
+import { ProductVariantsController } from './controllers/product-variants.controller'
 import { ProductsController } from './controllers/products.controller'
 import { UnitOfMeasuresController } from './controllers/unit-of-measures.controller'
 import { ProductsRepository } from './repositories/products.repository'
@@ -27,8 +30,10 @@ import { AttributeGroupsService } from './services/attribute-groups.service'
 import { BarcodeService } from './services/barcode.service'
 import { CategoriesService } from './services/categories.service'
 import { ProductImagesService } from './services/product-images.service'
+import { ProductSerialUnitsService } from './services/product-serial-units.service'
 import { ProductsService } from './services/products.service'
 import { ProductVariantsService } from './services/product-variants.service'
+import { ProductVariantManagementService } from './services/product-variant-management.service'
 import { SlugService } from './services/slug.service'
 import { SkuService } from './services/sku.service'
 import { UnitOfMeasuresService } from './services/unit-of-measures.service'
@@ -40,6 +45,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     TypeOrmModule.forFeature([
       AttributeGroup,
       AttributeOption,
+      BrandCategory,
       Business,
       CategoryAttributeGroup,
       InventoryLevel,
@@ -60,6 +66,8 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     CategoriesController,
     AttributeGroupsController,
     ProductsController,
+    ProductSerialUnitsController,
+    ProductVariantsController,
   ],
   providers: [
     ProductsRepository,
@@ -68,8 +76,10 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     BarcodeService,
     CategoriesService,
     ProductImagesService,
+    ProductSerialUnitsService,
     ProductsService,
     ProductVariantsService,
+    ProductVariantManagementService,
     SlugService,
     SkuService,
     UnitOfMeasuresService,

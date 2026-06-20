@@ -28,6 +28,8 @@ export const IPC = {
   syncStatusEvent: 'sync:status-event',
   categoriesList: 'categories:list',
   categoriesListAll: 'categories:list-all',
+  categoriesSelectable: 'categories:list-selectable',
+  categoriesParentOptions: 'categories:list-parent-options',
   categoriesCreate: 'categories:create',
   categoriesUpdate: 'categories:update',
   categoriesDelete: 'categories:delete',
@@ -49,10 +51,75 @@ export const IPC = {
   brandsCreate: 'brands:create',
   brandsUpdate: 'brands:update',
   brandsDelete: 'brands:delete',
+  brandsGet: 'brands:get',
   brandsAddModel: 'brands:add-model',
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
+  productsList: 'products:list',
+  productsGet: 'products:get',
+  productsCreate: 'products:create',
+  productsUpdate: 'products:update',
+  productsDelete: 'products:delete',
+  productsStats: 'products:stats',
+  productsListImages: 'products:list-images',
+  productsSetImages: 'products:set-images',
+  productsListVariants: 'products:list-variants',
+  productsSetVariants: 'products:set-variants',
+  productsAddVariant: 'products:add-variant',
+  productsUpdateVariant: 'products:update-variant',
+  productsRemoveVariant: 'products:remove-variant',
+  productsListSerialUnits: 'products:list-serial-units',
+  productsListInStockSerials: 'products:list-in-stock-serials',
+  productsResolveScan: 'products:resolve-scan',
+  productsSetSerialUnits: 'products:set-serial-units',
+  productsAddSerialUnits: 'products:add-serial-units',
+  productsRetireSerialUnit: 'products:retire-serial-unit',
+  productsUpdateSerialNumber: 'products:update-serial-number',
+  productsListMovements: 'products:list-movements',
+  inventoryList: 'inventory:list',
+  inventoryStats: 'inventory:stats',
+  inventoryReorderSuggestions: 'inventory:reorder-suggestions',
+  inventoryRestock: 'inventory:restock',
+  inventoryAdjust: 'inventory:adjust',
+  inventorySetThreshold: 'inventory:set-threshold',
+  inventoryListMovements: 'inventory:list-movements',
+  contactsList: 'contacts:list',
+  contactsSummary: 'contacts:summary',
+  contactsListAllSuppliers: 'contacts:list-all-suppliers',
+  contactsListAllCustomers: 'contacts:list-all-customers',
+  contactsGet: 'contacts:get',
+  contactsCreate: 'contacts:create',
+  contactsUpdate: 'contacts:update',
+  contactsDelete: 'contacts:delete',
+  debtsListByContact: 'debts:list-by-contact',
+  debtsStatement: 'debts:statement',
+  debtsRecordPayment: 'debts:record-payment',
+  rfqList: 'rfq:list',
+  rfqGet: 'rfq:get',
+  rfqCreate: 'rfq:create',
+  rfqRecordQuote: 'rfq:record-quote',
+  rfqBuildDocument: 'rfq:build-document',
+  rfqSend: 'rfq:send',
+  poList: 'po:list',
+  poGet: 'po:get',
+  poCreate: 'po:create',
+  poCreateFromRfq: 'po:create-from-rfq',
+  poBuildDocument: 'po:build-document',
+  poSend: 'po:send',
+  poCancel: 'po:cancel',
+  documentsSend: 'documents:send',
+  documentsDownload: 'documents:download',
+  auditList: 'audit:list',
   uploadsFile: 'uploads:file',
+  chargesListActive: 'charges:list-active',
+  salesCreate: 'sales:create',
+  salesList: 'sales:list',
+  salesGet: 'sales:get',
+  salesSendReceipt: 'sales:send-receipt',
+  salesPrintReceipt: 'sales:print-receipt',
+  salesReceiptHtml: 'sales:receipt-html',
+  salesDownloadReceipt: 'sales:download-receipt',
+  savingsGetForCustomer: 'savings:get-for-customer',
 } as const
 
 // ---- Pagination -----------------------------------------------------------
@@ -60,12 +127,34 @@ export const IPC = {
 // (default limit 20, max 100). Local list methods accept a ListQuery and return a
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
+export type { ChargeType } from '@biztrack/types'
 import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
+import type { ChargeType as ChargeTypeT } from '@biztrack/types'
+import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
   parentId?: string | null
   isActive?: boolean
+  /** Filter by hierarchy level (1=L1 … 3=L3). */
+  depth?: number
+}
+/**
+ * Categories a product can target: terminal/leaf categories (no active children),
+ * at any depth. Optionally scoped to a brand — each linked category is expanded to
+ * the leaves in its subtree. Eligibility is computed in the service, never the client.
+ */
+export interface CategorySelectableQuery {
+  brandId?: string
+  search?: string
+}
+/**
+ * Categories eligible to be a parent (depth < 3, no products attached, no variant
+ * options attached), excluding a given category and its descendants. Service-computed.
+ */
+export interface CategoryParentOptionsQuery {
+  excludeId?: string
+  search?: string
 }
 export interface BrandListQuery extends ListQueryT {
   categoryId?: string
@@ -74,6 +163,258 @@ export interface UnitListQuery extends ListQueryT {
   type?: string
 }
 export type AttributeGroupListQuery = ListQueryT
+/** Derived stock state, computed from current stock vs the reorder/low threshold. */
+export type StockStatus = 'all' | 'in' | 'low' | 'out'
+
+export interface ProductListQuery extends ListQueryT {
+  categoryId?: string
+  brandId?: string
+  isActive?: boolean
+  stockStatus?: StockStatus
+}
+
+/** Catalog KPI roll-up for the products list header (computed from local SQLite). */
+export interface ProductStats {
+  totalSkus: number
+  categories: number
+  catalogValueCost: number
+  retailValue: number
+  blendedMarginPct: number
+  lowStock: number
+  outOfStock: number
+}
+
+// ---- Audit trail ----------------------------------------------------------
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE'
+
+/** One append-only audit row (who changed what, when). */
+export interface LocalAuditLog {
+  id: string
+  action: AuditAction
+  entityType: string
+  entityId: string
+  entityLabel: string | null
+  actorName: string | null
+  actorRole: string | null
+  changes: { before: unknown; after: unknown } | null
+  createdAt: string
+}
+
+export interface AuditListQuery extends ListQueryT {
+  entityType?: string
+  entityId?: string
+  action?: AuditAction
+}
+
+// ---- Contacts (customers & suppliers) -------------------------------------
+// Request/query shapes are the shared @biztrack/types contracts so desktop ↔ API
+// stay aligned. ContactType is a runtime enum — import it from '@biztrack/types'
+// directly in components that need its values.
+export type { ContactType, CreateContactRequest, UpdateContactRequest, ContactsQuery, ContactsSummary } from '@biztrack/types'
+export { IdDocumentType } from '@biztrack/types'
+import type {
+  ContactType as ContactTypeT,
+  IdDocumentType as IdDocumentTypeT,
+  CreateContactRequest,
+  UpdateContactRequest,
+  ContactsQuery,
+  ContactsSummary,
+} from '@biztrack/types'
+
+/** A contact (customer/supplier) as stored locally. */
+export interface LocalContact {
+  id: string
+  type: ContactTypeT
+  name: string
+  phone: string | null
+  phoneAlt: string | null
+  email: string | null
+  address: string | null
+  notes: string | null
+  idType: IdDocumentTypeT | null
+  idNumber: string | null
+  idIssueDate: string | null
+  idExpiryDate: string | null
+  idDocuments: string[]
+  selfieUrl: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** A contact row enriched with outstanding balances (computed from local debts). */
+export interface LocalContactListItem extends LocalContact {
+  totalReceivable: number
+  totalPayable: number
+  openDebts: number
+  /** Created date of the oldest still-open debt (for the age-of-debt indicator). */
+  oldestUnpaidAt: string | null
+}
+
+// ---- Debts & payments ------------------------------------------------------
+export type { DebtsQuery, RecordDebtPaymentRequest, ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
+import type {
+  DebtsQuery,
+  RecordDebtPaymentRequest,
+  ContactStatement,
+  DebtDirection,
+  DebtSource,
+  DebtStatus,
+} from '@biztrack/types'
+
+/** A debt (receivable/payable) as stored locally, with computed paid/outstanding. */
+export interface LocalDebt {
+  id: string
+  contactId: string
+  direction: DebtDirection
+  sourceType: DebtSource
+  sourceReference: string
+  originalAmount: number
+  paidAmount: number
+  outstandingAmount: number
+  status: DebtStatus
+  dueDate: string | null
+  notes: string | null
+  createdAt: string
+  settledAt: string | null
+}
+
+// ---- RFQ (request for quotation) ------------------------------------------
+export type { CreateRfqRequest, RfqsQuery, RecordRfqQuoteRequest, RfqDocument, RfqSendChannel } from '@biztrack/types'
+import type {
+  CreateRfqRequest,
+  RfqsQuery,
+  RecordRfqQuoteRequest,
+  RfqDocument,
+  RfqSendChannel,
+  RfqStatus,
+  RfqSupplierStatus,
+} from '@biztrack/types'
+
+export interface LocalRfqItem {
+  id: string
+  productId: string
+  variantId: string | null
+  description: string
+  quantity: number
+}
+
+export interface LocalRfqSupplier {
+  id: string
+  supplierId: string
+  supplierName: string | null
+  status: RfqSupplierStatus
+  quotedTotal: number | null
+  quoteNotes: string | null
+  quoteFileUrl: string | null
+  respondedAt: string | null
+}
+
+export interface LocalRfq {
+  id: string
+  number: string
+  title: string | null
+  messageBody: string | null
+  status: RfqStatus
+  currency: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LocalRfqListItem extends LocalRfq {
+  itemCount: number
+  supplierCount: number
+  quoteCount: number
+}
+
+export interface LocalRfqDetail extends LocalRfq {
+  items: LocalRfqItem[]
+  suppliers: LocalRfqSupplier[]
+}
+
+// ---- Purchase orders ------------------------------------------------------
+export type {
+  CreatePurchaseOrderRequest,
+  UpdatePurchaseOrderRequest,
+  PurchaseOrdersQuery,
+  SendPurchaseOrderRequest,
+  PurchaseOrderSendChannel,
+  PurchaseOrderDocument,
+  ConvertRfqToPoRequest,
+} from '@biztrack/types'
+import type {
+  CreatePurchaseOrderRequest,
+  PurchaseOrdersQuery,
+  SendPurchaseOrderRequest,
+  PurchaseOrderSendChannel,
+  PurchaseOrderDocument,
+  ConvertRfqToPoRequest,
+  PurchaseOrderStatus,
+} from '@biztrack/types'
+
+export interface LocalPurchaseOrderItem {
+  id: string
+  productId: string
+  variantId: string | null
+  description: string
+  quantity: number
+  unitPrice: number
+  receivedQuantity: number
+}
+
+export interface LocalPurchaseOrder {
+  id: string
+  number: string
+  rfqId: string | null
+  supplierId: string
+  supplierName: string | null
+  title: string | null
+  messageBody: string | null
+  status: PurchaseOrderStatus
+  currency: string
+  expectedDate: string | null
+  totalAmount: number
+  sentAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LocalPurchaseOrderListItem extends LocalPurchaseOrder {
+  itemCount: number
+  /** Fraction (0..1) of ordered quantity received so far. */
+  receivedRatio: number
+}
+
+export interface LocalPurchaseOrderDetail extends LocalPurchaseOrder {
+  items: LocalPurchaseOrderItem[]
+}
+
+// ---- Document send / download (RFQ + PO share) ----------------------------
+export type { DocumentRecipient, DocumentSendChannel } from '@biztrack/types'
+import type { DocumentRecipient, DocumentSendChannel } from '@biztrack/types'
+
+export type DocumentKind = 'rfq' | 'po'
+
+export interface DocumentSendInput {
+  kind: DocumentKind
+  id: string
+  /** Required for RFQ (the supplier copy); ignored for PO. */
+  supplierId?: string | null
+  channel: DocumentSendChannel
+  /** Override recipient when the contact has no stored email/phone. */
+  recipient?: DocumentRecipient
+}
+
+export interface DocumentDownloadInput {
+  kind: DocumentKind
+  id: string
+  supplierId?: string | null
+}
+
+export interface DocumentDownloadResult {
+  saved: boolean
+  path?: string
+}
 
 // ---- Auth (Feature 1) -----------------------------------------------------
 // The renderer only ever sees SESSION STATUS — never tokens. Tokens live in the
@@ -98,6 +439,9 @@ export interface SessionStatus {
   user: SessionUser | null
   businessId: string | null
   businessName: string | null
+  /** Active business currency (ISO 4217, e.g. XAF, NGN, USD). Drives all money
+   * formatting in the UI. null until a business is selected. */
+  businessCurrency: string | null
   /** The AuthNextStep that drives routing: which screen this session should be on
    * (e.g. 'select_business', 'setup_business', 'dashboard'). null = signed out. */
   nextStep: string | null
@@ -298,6 +642,425 @@ export interface UnitInput {
   isActive?: boolean
 }
 
+// ---- Products -------------------------------------------------------------
+export type ProductType = 'SIMPLE' | 'SERVICE' | 'VARIABLE_QUANTITY' | 'COMPOSITE'
+export type SerialType = 'IMEI' | 'SERIAL_NUMBER' | 'BARCODE'
+
+/** A product as stored locally, enriched with category/brand/unit display names. */
+export interface LocalProduct {
+  id: string
+  name: string
+  slug: string | null
+  description: string | null
+  sku: string | null
+  barcode: string | null
+  /** Base price set at the pricing stage — the inherit default for variants + the
+   * edit-form value. For display use effectiveSellingPrice/effectiveCostPrice. */
+  sellingPrice: number
+  costPrice: number | null
+  /** Displayed price: for variant products this is the AVERAGE of the variants'
+   * effective prices (override ?? base); otherwise equals the base. Computed live. */
+  effectiveSellingPrice: number
+  effectiveCostPrice: number | null
+  currency: string
+  taxRate: number
+  productType: ProductType
+  isService: boolean
+  trackInventory: boolean
+  categoryId: string | null
+  brandId: string | null
+  modelId: string | null
+  unitOfMeasureId: string | null
+  imageUrl: string | null
+  isActive: boolean
+  isFeatured: boolean
+  isPublishedOnline: boolean
+  onlineDescription: string | null
+  onlineStockReserve: number
+  metaTitle: string | null
+  metaDescription: string | null
+  isSerialized: boolean
+  serialType: SerialType | null
+  warrantyMonths: number | null
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+  /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
+  currentStock: number
+  categoryName: string | null
+  brandName: string | null
+  unitAbbr: string | null
+}
+
+/** One attribute-option link of a variant (e.g. Color=Black). */
+export interface VariantOptionRef {
+  attributeGroupId: string
+  attributeOptionId: string
+}
+
+/** A generated product variant (a sellable attribute combination). */
+export interface LocalVariant {
+  id: string
+  name: string
+  priceOverride: number | null
+  costPriceOverride: number | null
+  sku: string | null
+  isActive: boolean
+  sortOrder: number
+  /** Read-only per-variant stock (from the variant's inventory level). */
+  stockQuantity: number
+  lowStockThreshold: number | null
+  options: VariantOptionRef[]
+}
+
+/** Desired variant from the matrix (no id — matched by option combination on save). */
+export interface VariantInput {
+  name: string
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  isActive?: boolean
+  /** Opening stock to seed the variant's inventory on create (non-serialised). */
+  openingStock?: number | null
+  lowStockThreshold?: number | null
+  options: VariantOptionRef[]
+}
+
+/** One serialised unit (IMEI/SN/Barcode) of a product, optionally tied to a variant. */
+export interface LocalSerialUnit {
+  id: string
+  productId: string
+  variantId: string | null
+  serialNumber: string
+  serialType: SerialType
+  status: string
+}
+
+/** Desired serial unit on save (matched by serialNumber so live units keep their id). */
+export interface SerialUnitInput {
+  variantId?: string | null
+  serialNumber: string
+  serialType: SerialType
+}
+
+/** How a manual stock adjustment changes the quantity (mirrors API StockAdjustmentType). */
+export type StockAdjustmentType = 'ADD' | 'REMOVE' | 'SET'
+
+/** Manual stock adjustment for a direct product → a MANUAL_ADJUSTMENT movement. */
+export interface AdjustStockInput {
+  type: StockAdjustmentType
+  quantity: number
+  /** Reason (>= 3 chars) — recorded on the movement + audit. */
+  notes: string
+}
+
+/** Reorder/low-stock thresholds (no movement). */
+export interface ThresholdInput {
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+}
+
+/** Movement-ledger query (paginated). */
+export interface MovementsQuery extends ListQueryT {
+  type?: StockMovementType
+  dateFrom?: string
+  dateTo?: string
+}
+
+/** One row in the inventory (stock-levels) list. */
+export interface LocalInventoryItem {
+  productId: string
+  name: string
+  sku: string | null
+  imageUrl: string | null
+  categoryName: string | null
+  unitAbbr: string | null
+  currency: string
+  currentStock: number
+  lowStockThreshold: number | null
+  reorderPoint: number | null
+  /** Derived state from stock vs reorder/low threshold. */
+  stockStatus: 'in' | 'low' | 'out'
+  /** cost_price × current stock (this product's currency). */
+  stockValueCost: number
+  lastRestockAt: string | null
+}
+
+/** KPI roll-up for the inventory page header. */
+export interface InventoryStats {
+  trackedSkus: number
+  unitsOnHand: number
+  stockValueCost: number
+  lowStock: number
+  outOfStock: number
+}
+
+export interface InventoryListQuery extends ListQueryT {
+  categoryId?: string
+  stockStatus?: StockStatus
+}
+
+/** A direct product below its reorder threshold + suggested restock quantity. */
+export interface LocalReorderSuggestion {
+  productId: string
+  name: string
+  sku: string | null
+  currentStock: number
+  /** Reorder point (or low-stock threshold) used as the target. */
+  target: number
+  suggestedQty: number
+  unitCost: number | null
+  currency: string
+}
+
+/** One line of a restock (a purchase that adds stock). */
+export interface RestockItemInput {
+  productId: string
+  /** Target variant (for variant products); null/omitted for direct/serialized. */
+  variantId?: string | null
+  /** Quantity received (direct/variant). Omitted for serialized — derived from serialNumbers. */
+  quantity?: number
+  unitCost?: number | null
+  /** Serial numbers received (for serialized products) — each becomes an in-stock unit. */
+  serialNumbers?: string[]
+}
+
+/** A supplier charge line applied at receive (tax/transport/packaging). */
+export interface RestockChargeLineInput {
+  id?: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+
+/** A supplier discount line applied at receive (remise). */
+export interface RestockDiscountLineInput {
+  id?: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+
+/** A split payment line at receive. */
+export interface RestockPaymentLineInput {
+  method: PaymentMethodT
+  amount: number
+  mobileMoneyReference?: string | null
+}
+
+/** A restock (goods receipt). Optionally fulfils a purchase order and/or is on
+ * supplier credit (paid < invoice total → a payable). Settlement mirrors the sell
+ * flow: goods subtotal − discounts + charges = invoice total, settled by payments. */
+export interface RestockInput {
+  items: RestockItemInput[]
+  /** PO this receipt fulfils; updates each line's received qty + the PO status. */
+  purchaseOrderId?: string | null
+  /** Supplier (contact) — required when on credit. */
+  supplierId?: string | null
+  /** Split payments. When omitted, falls back to `amountPaid` (or fully paid). */
+  payments?: RestockPaymentLineInput[]
+  /** Legacy single-amount path; superseded by `payments`. */
+  amountPaid?: number | null
+  /** Supplier discount lines (reduce the invoice total). */
+  discounts?: RestockDiscountLineInput[]
+  /** Additional charge lines (raise the invoice total). */
+  charges?: RestockChargeLineInput[]
+  /** Supplier invoice (audit proof). File required when a credit balance remains. */
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceFileUrl?: string | null
+  reference?: string | null
+  notes?: string | null
+}
+
+// ---- Sales (POS checkout) -------------------------------------------------
+/** One cart line at checkout. Serialized products pass the chosen in-stock serial
+ * unit ids (quantity = their count); variant products pass the variantId. */
+export interface SaleLineInput {
+  productId: string
+  variantId?: string | null
+  variantName?: string | null
+  serialUnitIds?: string[]
+  quantity: number
+  unitPrice: number
+  discountAmount?: number
+  costPrice?: number | null
+}
+/** A charge line on the sale (transport, service, payment fee…). Mirrors restock. */
+export interface SaleChargeLineInput {
+  id?: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+/** A discount line on the sale (remise). */
+export interface SaleDiscountLineInput {
+  id?: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+/** A split-payment line. `SAVINGS` draws from the customer's deposit balance. */
+export interface SalePaymentLineInput {
+  method: PaymentMethodT
+  amount: number
+  mobileMoneyReference?: string | null
+  savingsAccountId?: string | null
+}
+/** A checkout. `clientId` is the renderer-generated idempotency key. Goods subtotal
+ * − discounts + charges = total, settled by payments; any shortfall on a registered
+ * customer becomes a receivable (credit). No tax line (prices are inclusive). */
+export interface SaleInput {
+  clientId: string
+  soldAt?: string
+  customerId?: string | null
+  customerName?: string | null
+  customerPhone?: string | null
+  notes?: string | null
+  items: SaleLineInput[]
+  payments: SalePaymentLineInput[]
+  charges?: SaleChargeLineInput[]
+  discounts?: SaleDiscountLineInput[]
+}
+export interface SalesListQuery extends ListQueryT {
+  customerId?: string
+  status?: string
+  dateFrom?: string
+  dateTo?: string
+}
+export interface LocalSaleItem {
+  id: string
+  productId: string
+  productName: string
+  variantId: string | null
+  variantName: string | null
+  serialNumber: string | null
+  quantity: number
+  unitPrice: number
+  discountAmount: number
+  lineTotal: number
+}
+export interface LocalSalePayment {
+  id: string
+  method: PaymentMethodT
+  amount: number
+  mobileMoneyReference: string | null
+}
+/** A sale summary row (for the list / receipt header). */
+export interface LocalSale {
+  id: string
+  saleNumber: string
+  receiptNumber: string
+  status: string
+  customerId: string | null
+  customerName: string | null
+  customerPhone: string | null
+  subtotal: number
+  discountAmount: number
+  chargesAmount: number
+  totalAmount: number
+  amountPaid: number
+  creditAmount: number
+  changeGiven: number
+  currency: string
+  paymentMethod: string | null
+  notes: string | null
+  soldAt: string
+  createdAt: string
+  itemCount: number
+}
+/** A full sale with its lines + payments (for get()/receipt/success screen). */
+export interface LocalSaleDetail extends LocalSale {
+  items: LocalSaleItem[]
+  payments: LocalSalePayment[]
+}
+/** A customer's deposit balance available to pay from at checkout. */
+export interface LocalSavingsBalance {
+  id: string
+  accountNumber: string
+  balance: number
+}
+/** Result of resolving a scanned/typed code (barcode, SKU, or serial) to something sellable. */
+export type ScanHit =
+  | { kind: 'product'; product: LocalProduct }
+  | { kind: 'variant'; product: LocalProduct; variant: LocalVariant }
+  | { kind: 'serial'; product: LocalProduct; serial: LocalSerialUnit }
+
+/** Why a stock level changed (mirrors the API's MovementType). */
+export type StockMovementType =
+  | 'OPENING_STOCK'
+  | 'SALE'
+  | 'RESTOCK_IN'
+  | 'MANUAL_ADJUSTMENT'
+  | 'VOID_REVERSAL'
+  | 'TRANSFER_IN'
+  | 'TRANSFER_OUT'
+
+/** One stock-ledger entry shown in the product detail stock card (newest first). */
+export interface LocalStockMovement {
+  id: string
+  type: StockMovementType
+  quantityChange: number
+  quantityBefore: number
+  quantityAfter: number
+  referenceType: string | null
+  referenceId: string | null
+  notes: string | null
+  performedByName: string | null
+  createdAt: string
+}
+
+/** A product gallery image (the main image stays on the product's imageUrl). */
+export interface LocalProductImage {
+  id: string
+  productId: string
+  url: string
+  altText: string | null
+  sortOrder: number
+}
+
+/** One desired gallery image (id present = existing; absent = newly uploaded). */
+export interface ProductImageInput {
+  id?: string
+  url: string
+  altText?: string | null
+}
+
+export interface ProductInput {
+  name: string
+  description?: string | null
+  sku?: string | null
+  barcode?: string | null
+  sellingPrice: number
+  costPrice?: number | null
+  taxRate?: number
+  unitOfMeasureId: string
+  categoryId?: string | null
+  brandId?: string | null
+  modelId?: string | null
+  imageUrl?: string | null
+  productType?: ProductType
+  isService?: boolean
+  isActive?: boolean
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number
+  metaTitle?: string | null
+  metaDescription?: string | null
+  isSerialized?: boolean
+  serialType?: SerialType | null
+  warrantyMonths?: number | null
+  openingStock?: number
+  lowStockThreshold?: number | null
+  reorderPoint?: number | null
+}
+
 // ---- Brands & Models ------------------------------------------------------
 /** A model under a brand, stored locally. */
 export interface LocalModel {
@@ -428,6 +1191,10 @@ export interface BridgeApi {
     list: (query?: CategoryListQuery) => Promise<PaginatedT<LocalCategory>>
     /** Full set (no pagination) — for tree/parent pickers. */
     listAll: () => Promise<LocalCategory[]>
+    /** Terminal/leaf categories a product can target (optionally brand-scoped). */
+    listSelectable: (query?: CategorySelectableQuery) => Promise<LocalCategory[]>
+    /** Categories eligible to be a parent (depth<3, no products, no variant options). */
+    listParentOptions: (query?: CategoryParentOptionsQuery) => Promise<LocalCategory[]>
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
@@ -454,6 +1221,7 @@ export interface BridgeApi {
   }
   brands: {
     list: (query?: BrandListQuery) => Promise<PaginatedT<LocalBrand>>
+    get: (id: string) => Promise<LocalBrand | null>
     create: (input: BrandInput) => Promise<LocalBrand>
     update: (id: string, input: BrandInput) => Promise<LocalBrand>
     remove: (id: string) => Promise<void>
@@ -461,8 +1229,141 @@ export interface BridgeApi {
     updateModel: (modelId: string, input: ModelInput) => Promise<LocalModel>
     removeModel: (modelId: string) => Promise<void>
   }
+  products: {
+    list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    stats: () => Promise<ProductStats>
+    get: (id: string) => Promise<LocalProduct | null>
+    create: (input: ProductInput) => Promise<LocalProduct>
+    update: (id: string, input: ProductInput) => Promise<LocalProduct>
+    remove: (id: string) => Promise<void>
+    listImages: (productId: string) => Promise<LocalProductImage[]>
+    /** Replace a product's gallery (diff + enqueues changes). */
+    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    listVariants: (productId: string) => Promise<LocalVariant[]>
+    /** Set a product's initial variants at creation. */
+    setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
+    /** Add a variant post-creation (opening stock → stock-in movement). */
+    addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
+    /** Edit a variant's catalog info (no movement). */
+    updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
+    /** Remove a variant (writes off its stock) with a reason. */
+    removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
+    listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    /** IN_STOCK serial units a sale can consume (optionally scoped to a variant + serial search). */
+    listInStockSerials: (productId: string, variantId?: string | null, search?: string) => Promise<LocalSerialUnit[]>
+    /** Resolve a scanned/typed code (barcode, SKU, serial) to something sellable. */
+    resolveScan: (code: string) => Promise<ScanHit | null>
+    /** Set a product's initial serial units at creation (opening stock). */
+    setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+    /** Add units to stock post-creation (a stock-in movement); revives retired numbers. */
+    addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
+    /** Retire a unit from stock (a stock-out movement) with a reason. */
+    retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
+    /** Correct a unit's serial number (no movement). */
+    updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
+    /** Stock-ledger entries for the detail stock card (newest first). */
+    listMovements: (productId: string) => Promise<LocalStockMovement[]>
+  }
+  inventory: {
+    /** Tracked products with stock levels + thresholds (paginated). */
+    list: (query?: InventoryListQuery) => Promise<PaginatedT<LocalInventoryItem>>
+    /** KPI roll-up for the inventory header. */
+    stats: () => Promise<InventoryStats>
+    /** Direct products needing reorder + suggested quantities (for the Generate-PO flow). */
+    reorderSuggestions: () => Promise<LocalReorderSuggestion[]>
+    /** Restock (cash/cost) — adds stock + a RESTOCK_IN movement. Direct products only. */
+    restock: (input: RestockInput) => Promise<void>
+    /** Manually adjust a direct product's stock (set/add/remove) → a movement. */
+    adjust: (productId: string, input: AdjustStockInput) => Promise<void>
+    /** Set reorder/low-stock thresholds (no movement). */
+    setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
+    /** Paginated stock-movement ledger for a product. */
+    listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
+  }
+  contacts: {
+    /** Paginated contacts with outstanding balances (default 20). */
+    list: (query?: ContactsQuery) => Promise<PaginatedT<LocalContactListItem>>
+    /** Aggregate balances + per-tab counts for the list header. */
+    summary: () => Promise<ContactsSummary>
+    /** Full active supplier set (type SUPPLIER|BOTH) — for PO/RFQ pickers. */
+    listAllSuppliers: () => Promise<LocalContact[]>
+    /** Full active customer set (type CUSTOMER|BOTH) — for sale/debt pickers. */
+    listAllCustomers: () => Promise<LocalContact[]>
+    get: (id: string) => Promise<LocalContactListItem | null>
+    create: (input: CreateContactRequest) => Promise<LocalContact>
+    update: (id: string, input: UpdateContactRequest) => Promise<LocalContact>
+    /** Deactivate a contact (blocked if it has open debts). */
+    remove: (id: string) => Promise<void>
+  }
+  debts: {
+    /** Paginated debts for a contact (the contact-detail ledger). */
+    listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedT<LocalDebt>>
+    /** Chronological account statement (debits/credits/running balance) for a direction. */
+    statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
+    /** Record a payment against a debt; returns the updated debt. */
+    recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+  }
+  rfqs: {
+    list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>
+    get: (id: string) => Promise<LocalRfqDetail | null>
+    create: (input: CreateRfqRequest) => Promise<LocalRfqDetail>
+    /** Record a supplier's quote against an RFQ. */
+    recordQuote: (rfqId: string, input: RecordRfqQuoteRequest) => Promise<LocalRfqDetail>
+    /** Build the printable document view-model for an RFQ addressed to one supplier. */
+    buildDocument: (rfqId: string, supplierId: string) => Promise<RfqDocument>
+    /** Generate the PDF + open the WhatsApp/email composer for one supplier; marks sent. */
+    send: (rfqId: string, supplierId: string, channel: RfqSendChannel) => Promise<LocalRfqDetail>
+  }
+  purchaseOrders: {
+    list: (query?: PurchaseOrdersQuery) => Promise<PaginatedT<LocalPurchaseOrderListItem>>
+    get: (id: string) => Promise<LocalPurchaseOrderDetail | null>
+    create: (input: CreatePurchaseOrderRequest) => Promise<LocalPurchaseOrderDetail>
+    /** Create a PO from a chosen RFQ supplier quote (marks the RFQ converted). */
+    createFromRfq: (rfqId: string, input: ConvertRfqToPoRequest) => Promise<LocalPurchaseOrderDetail>
+    buildDocument: (poId: string) => Promise<PurchaseOrderDocument>
+    /** Generate the PDF + open the WhatsApp/email composer for the supplier; marks sent. */
+    send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
+    cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
+  }
+  documents: {
+    /** Online: server renders the PDF + dispatches (WhatsApp/email) to the recipient. */
+    send: (input: DocumentSendInput) => Promise<void>
+    /** Render the PDF locally and save it via a native dialog. Works offline. */
+    downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
+  }
+  audit: {
+    /** Read the local audit trail (newest first), optionally scoped to an entity. */
+    list: (query?: AuditListQuery) => Promise<PaginatedT<LocalAuditLog>>
+  }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */
     file: (input: UploadFileInput) => Promise<UploadedFile>
+  }
+  charges: {
+    /** Active charge types (system + business) for the receive/settle charge picker. */
+    listActive: () => Promise<ChargeTypeT[]>
+  }
+  sales: {
+    /** Ring up a checkout (idempotent on clientId). Returns the saved sale + lines. */
+    create: (input: SaleInput) => Promise<LocalSaleDetail>
+    list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
+    get: (id: string) => Promise<LocalSaleDetail | null>
+    /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
+    sendReceipt: (
+      saleId: string,
+      channel: DocumentSendChannel,
+      locale: string,
+      opts?: { recipient?: DocumentRecipient; online?: boolean },
+    ) => Promise<void>
+    /** Print the receipt directly to the connected printer; falls back to saving a PDF. */
+    printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    /** Render the receipt to a PDF and save it via the native dialog. */
+    downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
+    /** The compiled receipt HTML (for the success-screen preview). */
+    receiptHtml: (saleId: string, locale: string) => Promise<string | null>
+  }
+  savings: {
+    /** A customer's deposit balance (null if none) — for the Sell "Deposit" tender. */
+    getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
   }
 }

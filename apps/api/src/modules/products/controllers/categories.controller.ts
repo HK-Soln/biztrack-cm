@@ -106,6 +106,30 @@ export class CategoriesController {
     return { tree }
   }
 
+  @Get('selectable')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'List terminal (leaf) categories a product can target, optionally brand-scoped' })
+  async selectable(
+    @CurrentUser() user: JwtPayload,
+    @Query('brandId') brandId?: string,
+    @Query('search') search?: string,
+  ): Promise<ProductCategory[]> {
+    const rows = await this.categoriesService.listSelectable(user.businessId as string, { brandId, search })
+    return rows.map((category) => serializeDto(CategoryDto.fromEntity(category)!))
+  }
+
+  @Get('parent-options')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'List categories eligible to be a parent (depth<3, no products, no variant options)' })
+  async parentOptions(
+    @CurrentUser() user: JwtPayload,
+    @Query('excludeId') excludeId?: string,
+    @Query('search') search?: string,
+  ): Promise<ProductCategory[]> {
+    const rows = await this.categoriesService.listParentOptions(user.businessId as string, { excludeId, search })
+    return rows.map((category) => serializeDto(CategoryDto.fromEntity(category)!))
+  }
+
   @Patch(':id')
   @RequireResource(Resource.PRODUCTS_EDIT)
   @ApiOperation({ summary: 'Update a product category' })

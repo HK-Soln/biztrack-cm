@@ -270,6 +270,76 @@ export interface RestockSerialResult {
   detail?: string
 }
 
+// ---- Serial-unit management (REST + offline twin) -------------------------
+// Stock for a serialised product = count of IN_STOCK units. Adding/retiring a
+// unit is a quantity change → it writes a stock movement. Editing a unit's
+// serial number is a correction → no movement.
+
+/** One unit to add to stock. */
+export interface AddSerialUnitInput {
+  serialNumber: string
+  serialType: SerialType
+  /** Variant to attach to (required when the product has variants). */
+  variantId?: string | null
+}
+
+/** Add one or more serial units (each becomes IN_STOCK → a stock-in movement). */
+export interface AddSerialUnitsRequest {
+  units: AddSerialUnitInput[]
+  /** Optional note recorded on the resulting stock-in movement. */
+  notes?: string | null
+}
+
+/** Correct a unit's serial number (no quantity change → no movement). */
+export interface UpdateSerialUnitRequest {
+  serialNumber: string
+}
+
+/** Retire a unit from stock (a stock-out). The reason is recorded on the
+ * movement and the audit trail. */
+export interface RetireSerialUnitRequest {
+  reason: string
+}
+
+export interface SerialUnitsQuery {
+  page?: number
+  limit?: number
+  status?: SerialUnitStatus
+  variantId?: string
+}
+
+// ---- Variant management (REST + offline twin) -----------------------------
+// A variant's stock is its own quantity (non-serialised) or the count of its
+// serial units. Adding a variant with opening stock is a stock-in; removing one
+// writes off its remaining stock (a stock-out). Editing name/price/sku/active is
+// a catalog change → no movement.
+
+/** Add one variant from a specific option combination. */
+export interface AddProductVariantRequest {
+  options: { attributeGroupId: string; attributeOptionId: string }[]
+  name?: string
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  isActive?: boolean
+  /** Opening stock for the new variant (non-serialised only) → stock-in movement. */
+  openingStock?: number | null
+}
+
+/** Edit a variant's catalog info. No quantity change → no movement. */
+export interface UpdateProductVariantRequest {
+  name?: string
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  isActive?: boolean
+}
+
+/** Remove a variant from the catalog; writes off its remaining stock. */
+export interface RemoveProductVariantRequest {
+  reason: string
+}
+
 // ---- Composite / bundle products (Phase 3F) -------------------------------
 
 export interface ProductBundleComponent {
@@ -405,6 +475,14 @@ export interface Product {
   barcodeType?: string | null
   isBarcodeGenerated: boolean
   categoryId?: string | null
+  brandId?: string | null
+  modelId?: string | null
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number
+  metaTitle?: string | null
+  metaDescription?: string | null
   imageUrl?: string | null
   createdById?: string | null
   createdBy?: ProductUserSummary | null
@@ -434,6 +512,15 @@ export interface CreateProductRequest {
   lowStockThreshold?: number
   unitOfMeasureId: string
   categoryId?: string
+  brandId?: string
+  modelId?: string
+  reorderPoint?: number
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string
+  onlineStockReserve?: number
+  metaTitle?: string
+  metaDescription?: string
   imageUrl?: string
   productType?: ProductType
   isService?: boolean
@@ -528,6 +615,12 @@ export interface CreateModelRequest {
 
 export interface UpdateModelRequest extends Partial<CreateModelRequest> {
   isActive?: boolean
+}
+
+/** List query for brands (shared by the API + desktop). */
+export interface BrandsQuery extends ListQuery {
+  /** Only brands linked to this category. */
+  categoryId?: string
 }
 
 export interface ProductImagesQuery extends ListQuery {}

@@ -76,6 +76,7 @@ export interface I18nTranslations {
     category_parent_not_found: string
     category_max_depth_exceeded: string
     category_parent_has_products: string
+    category_parent_has_variant_options: string
     category_parent_cycle: string
     category_reparent_has_children: string
     category_not_leaf: string
@@ -91,6 +92,10 @@ export interface I18nTranslations {
     variant_min_two: string
     variant_required: string
     variant_not_found: string
+    variant_options_required: string
+    variant_duplicate_combination: string
+    brand_not_found: string
+    model_not_found: string
     quantity_must_be_integer: string
     bundle_components_required: string
     bundle_component_nested: string
@@ -100,6 +105,13 @@ export interface I18nTranslations {
     serial_unit_required: string
     serial_unit_unavailable: string
     serial_unit_variant_mismatch: string
+    product_not_serialized: string
+    serial_variant_required: string
+    serial_variant_invalid: string
+    serial_unit_not_found: string
+    serial_unit_not_in_stock: string
+    serial_duplicate_in_stock: string
+    serial_invalid_format: string
     online_store_exists: string
     online_store_not_found: string
     online_cart_not_found: string

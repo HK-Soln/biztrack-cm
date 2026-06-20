@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
+import { BackButton, Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
@@ -68,6 +68,11 @@ export function Attributes() {
   })
   const removeOption = useMutation({
     mutationFn: (optionId: string) => dataClient.attributes.deleteOption(optionId),
+    onSuccess: invalidate,
+  })
+  const updateOption = useMutation({
+    mutationFn: ({ optionId, value, colorHex }: { optionId: string; value: string; colorHex?: string | null }) =>
+      dataClient.attributes.updateOption(optionId, { value, colorHex }),
     onSuccess: invalidate,
   })
 
@@ -145,6 +150,7 @@ export function Attributes() {
       onSetDisplayType={(displayType) => setDisplayType.mutate({ group: selected, displayType })}
       onAddOption={(value, colorHex) => addOption.mutate({ groupId: selected.id, value, colorHex })}
       onRemoveOption={(optionId) => removeOption.mutate(optionId)}
+      onUpdateOption={(optionId, value, colorHex) => updateOption.mutate({ optionId, value, colorHex })}
     />
   ) : (
     <div className="card mddetail">
@@ -232,6 +238,7 @@ function GroupDetail({
   onSetDisplayType,
   onAddOption,
   onRemoveOption,
+  onUpdateOption,
 }: {
   group: LocalAttributeGroup
   busy: boolean
@@ -241,11 +248,13 @@ function GroupDetail({
   onSetDisplayType: (t: AttributeDisplayType) => void
   onAddOption: (value: string, colorHex?: string | null) => void
   onRemoveOption: (optionId: string) => void
+  onUpdateOption: (optionId: string, value: string, colorHex?: string | null) => void
 }) {
   const t = useT()
   const isSwatch = group.displayType === 'SWATCHES'
   const [value, setValue] = useState('')
   const [color, setColor] = useState('#1565C0')
+  const [editing, setEditing] = useState<{ id: string; value: string; colorHex: string } | null>(null)
 
   const submitOption = () => {
     const v = value.trim()
@@ -254,16 +263,17 @@ function GroupDetail({
     setValue('')
   }
 
+  const saveEdit = () => {
+    const v = editing?.value.trim()
+    if (!editing || !v) return
+    onUpdateOption(editing.id, v, isSwatch ? editing.colorHex : null)
+    setEditing(null)
+  }
+
   return (
     <div className="mddetail">
       {onBack ? (
-        <button type="button" className="back-btn" onClick={onBack} style={{ marginBottom: 12 }}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7 3-5 5 5 5" />
-            <path d="M2 8h12" />
-          </svg>
-          {t('attr.back')}
-        </button>
+        <BackButton onClick={onBack} style={{ marginBottom: 12 }}>{t('attr.back')}</BackButton>
       ) : null}
 
       <div className="card" style={{ marginBottom: 14 }}>
@@ -319,18 +329,58 @@ function GroupDetail({
           </div>
         </div>
         <div className="opt-list">
-          {group.options.map((o) => (
-            <div key={o.id} className="opt-edit">
-              {isSwatch ? <span className="sw-dot" style={{ background: o.colorHex ?? '#ccc' }} /> : null}
-              <span className="ov">{o.value}</span>
-              {isSwatch && o.colorHex ? <span className="hx">{o.colorHex.toUpperCase()}</span> : null}
-              <button type="button" className="opt-del" title={t('attr.removeOption')} onClick={() => onRemoveOption(o.id)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-            </div>
-          ))}
+          {group.options.map((o) =>
+            editing?.id === o.id ? (
+              <div key={o.id} className="opt-edit">
+                {isSwatch ? (
+                  <input
+                    type="color"
+                    value={editing.colorHex}
+                    onChange={(e) => setEditing({ ...editing, colorHex: e.target.value })}
+                    className="opt-color"
+                  />
+                ) : null}
+                <Input
+                  autoFocus
+                  value={editing.value}
+                  onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); saveEdit() }
+                    if (e.key === 'Escape') { e.preventDefault(); setEditing(null) }
+                  }}
+                  style={{ flex: 1, height: 32 }}
+                />
+                <button type="button" className="opt-ok" title={t('attr.save')} disabled={busy || !editing.value.trim()} onClick={saveEdit}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path d="m5 12 5 5L20 7" />
+                  </svg>
+                </button>
+                <button type="button" className="opt-del" title={t('attr.cancel')} onClick={() => setEditing(null)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div key={o.id} className="opt-edit">
+                {isSwatch ? <span className="sw-dot" style={{ background: o.colorHex ?? '#ccc' }} /> : null}
+                <button
+                  type="button"
+                  className="ov"
+                  title={t('attr.editOption')}
+                  onClick={() => setEditing({ id: o.id, value: o.value, colorHex: o.colorHex ?? '#1565C0' })}
+                >
+                  {o.value}
+                </button>
+                {isSwatch && o.colorHex ? <span className="hx">{o.colorHex.toUpperCase()}</span> : null}
+                <button type="button" className="opt-del" title={t('attr.removeOption')} onClick={() => onRemoveOption(o.id)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              </div>
+            ),
+          )}
           {group.options.length === 0 ? <div className="cat-empty">{t('attr.noOptions')}</div> : null}
         </div>
         <div className="opt-add">

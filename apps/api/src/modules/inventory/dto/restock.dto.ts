@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,7 +13,17 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator'
-import { PaymentMethod, type RestockItemRequest, type RestockPaymentRequest, type RestockRequest } from '@biztrack/types'
+import {
+  PaymentMethod,
+  type RestockChargeLineRequest,
+  type RestockDiscountLineRequest,
+  type RestockItemRequest,
+  type RestockPaymentRequest,
+  type RestockRequest,
+} from '@biztrack/types'
+
+const CHARGE_RATE_TYPES = ['PERCENT', 'FIXED'] as const
+const DISCOUNT_TYPES = ['PERCENTAGE', 'FIXED_AMOUNT'] as const
 
 const RESTOCK_PAYMENT_METHODS = [
   PaymentMethod.CASH,
@@ -79,6 +90,68 @@ export class RestockPaymentDto implements RestockPaymentRequest {
   mobileMoneyReference?: string
 }
 
+export class RestockChargeDto implements RestockChargeLineRequest {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  id!: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  chargeTypeId?: string | null
+
+  @ApiProperty()
+  @IsString()
+  @MaxLength(200)
+  name!: string
+
+  @ApiProperty({ enum: CHARGE_RATE_TYPES })
+  @IsIn(CHARGE_RATE_TYPES)
+  rateType!: 'PERCENT' | 'FIXED'
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  rateValue!: number
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  amount!: number
+}
+
+export class RestockDiscountDto implements RestockDiscountLineRequest {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  id!: string
+
+  @ApiProperty()
+  @IsString()
+  @MaxLength(200)
+  description!: string
+
+  @ApiProperty({ enum: DISCOUNT_TYPES })
+  @IsIn(DISCOUNT_TYPES)
+  discountType!: 'PERCENTAGE' | 'FIXED_AMOUNT'
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  rate?: number | null
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  amount!: number
+}
+
 export class RestockDto implements RestockRequest {
   @ApiPropertyOptional()
   @IsOptional()
@@ -115,12 +188,64 @@ export class RestockDto implements RestockRequest {
   @IsString()
   notes?: string
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  subtotalAmount?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  discountAmount?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  chargesAmount?: number
+
   @ApiPropertyOptional({ type: [RestockPaymentDto] })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RestockPaymentDto)
   payments?: RestockPaymentDto[]
+
+  @ApiPropertyOptional({ type: [RestockChargeDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RestockChargeDto)
+  charges?: RestockChargeDto[]
+
+  @ApiPropertyOptional({ type: [RestockDiscountDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RestockDiscountDto)
+  discounts?: RestockDiscountDto[]
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  invoiceNumber?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsISO8601()
+  invoiceDate?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  invoiceFileUrl?: string | null
 
   @ApiProperty({ type: [RestockItemDto] })
   @IsArray()

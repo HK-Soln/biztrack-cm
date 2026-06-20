@@ -17,6 +17,7 @@ import {
   Resource,
   type ContactDetail,
   type ContactListResult,
+  type ContactsSummary,
   type ContactNetPosition,
   type ContactOpeningBalance,
   type ContactStatement,
@@ -53,6 +54,14 @@ export class ContactsController {
     @Query() query: ListContactsQueryDto,
   ): Promise<ContactListResult> {
     return this.contactsService.findAll(user.businessId as string, query)
+  }
+
+  // Declared before ':id' so the static path isn't captured as an id param.
+  @Get('summary')
+  @RequireResource(Resource.CONTACTS_VIEW)
+  @ApiOperation({ summary: 'Aggregate contact balances + per-tab counts' })
+  summary(@CurrentUser() user: JwtPayload): Promise<ContactsSummary> {
+    return this.contactsService.summary(user.businessId as string)
   }
 
   @Get(':id')

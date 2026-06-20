@@ -39,6 +39,8 @@ function makeService() {
     {} as any, // dataSource
     {} as any, // businessesRepo
     {} as any, // salesRepo
+    {} as any, // contactsRepo
+    {} as any, // procurementSend
     {} as any, // debtsService
     {} as any, // inventoryService
     {} as any, // savingsService

@@ -12,6 +12,7 @@ import type {
   PaginatedResult,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import type { AuditLogger } from './audit.service'
 
 interface GroupRow {
   id: string
@@ -56,6 +57,7 @@ export class AttributesService {
     private readonly db: DatabaseService,
     private readonly getBusinessId: () => string | null,
     private readonly onMutated: () => void,
+    private readonly audit?: AuditLogger,
   ) {}
 
   // ---- groups + options ----------------------------------------------------
@@ -145,7 +147,9 @@ export class AttributesService {
     )
     this.enqueue('attributeGroups', id, 'UPSERT', businessId, this.groupPayload(input, displayType, sortOrder), now)
     this.onMutated()
-    return this.getGroup(id)!
+    const created = this.getGroup(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'attribute_group', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    return created
   }
 
   updateGroup(id: string, input: AttributeGroupInput): LocalAttributeGroup {
@@ -166,18 +170,22 @@ export class AttributesService {
     )
     this.enqueue('attributeGroups', id, 'UPSERT', businessId, this.groupPayload(input, displayType, sortOrder), now)
     this.onMutated()
-    return this.getGroup(id)!
+    const updated = this.getGroup(id)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'attribute_group', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    return updated
   }
 
   deleteGroup(id: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const before = this.getGroup(id)
     this.db.run(
       `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue('attributeGroups', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'attribute_group', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
   }
 
   addOption(groupId: string, input: AttributeOptionInput): LocalAttributeOption {
@@ -193,7 +201,9 @@ export class AttributesService {
     )
     this.enqueue('attributeOptions', id, 'UPSERT', businessId, this.optionPayload(groupId, input, sortOrder), now)
     this.onMutated()
-    return this.getOption(id)!
+    const created = this.getOption(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'attribute_option', entityId: id, entityLabel: created.value, changes: { before: null, after: created } })
+    return created
   }
 
   updateOption(optionId: string, input: AttributeOptionInput): LocalAttributeOption {
@@ -213,18 +223,22 @@ export class AttributesService {
     )
     this.enqueue('attributeOptions', optionId, 'UPSERT', businessId, this.optionPayload(existing.group_id, input, sortOrder), now)
     this.onMutated()
-    return this.getOption(optionId)!
+    const updated = this.getOption(optionId)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'attribute_option', entityId: optionId, entityLabel: updated.value, changes: { before: null, after: updated } })
+    return updated
   }
 
   deleteOption(optionId: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const before = this.getOption(optionId)
     this.db.run(
       `UPDATE attribute_options SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, optionId, businessId],
     )
     this.enqueue('attributeOptions', optionId, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'attribute_option', entityId: optionId, entityLabel: before?.value ?? null, changes: { before, after: null } })
   }
 
   // ---- category links ------------------------------------------------------

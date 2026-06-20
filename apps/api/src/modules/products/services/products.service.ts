@@ -28,6 +28,8 @@ import { InventoryMovement, MovementType } from '@/entities/inventory-movement.e
 import { Product } from '@/entities/product.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -693,21 +695,80 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Delete a product. Soft-deletes the product AND cascades to its children
+   * (variants + options, serial units, images, inventory levels), then writes off
+   * any remaining stock as a stock-out movement so the ledger balances to zero.
+   * Mirrors the desktop offline path and the per-variant removal semantics.
+   */
   async softDelete(id: string, businessId: string, context?: AuditContext): Promise<void> {
     try {
       const product = await this.findById(id, businessId)
-      await this.productsRepo.update(id, {
-        isActive: false,
-        deletedAt: new Date(),
-        updatedAt: new Date(),
+      const now = new Date()
+
+      await this.dataSource.transaction(async (manager) => {
+        const variantRepo = manager.getRepository(ProductVariant)
+        const optionRepo = manager.getRepository(ProductVariantOption)
+        const serialRepo = manager.getRepository(ProductSerialUnit)
+        const imageRepo = manager.getRepository(ProductImage)
+        const levelRepo = manager.getRepository(InventoryLevel)
+        const movementRepo = manager.getRepository(InventoryMovement)
+
+        // Remaining stock = serial count / sum of variant+product levels.
+        let stockBefore = 0
+        if (product.isSerialized) {
+          stockBefore = await serialRepo.count({ where: { businessId, productId: id, status: SerialUnitStatus.IN_STOCK } })
+          await serialRepo
+            .createQueryBuilder()
+            .update()
+            .set({ status: SerialUnitStatus.DAMAGED, deletedAt: now })
+            .where('business_id = :businessId AND product_id = :id AND deleted_at IS NULL', { businessId, id })
+            .execute()
+        } else {
+          const row = await levelRepo
+            .createQueryBuilder('l')
+            .select('COALESCE(SUM(l.quantity), 0)', 's')
+            .where('l.business_id = :businessId AND l.product_id = :id', { businessId, id })
+            .getRawOne<{ s: string }>()
+          stockBefore = Number(row?.s ?? 0)
+        }
+
+        // Cascade soft-delete children.
+        const variants = await variantRepo.find({ where: { productId: id, businessId, deletedAt: IsNull() } })
+        if (variants.length) {
+          await optionRepo.softDelete({ variantId: In(variants.map((v) => v.id)), businessId })
+          await variantRepo.update({ productId: id, businessId, deletedAt: IsNull() }, { isActive: false, deletedAt: now })
+        }
+        await levelRepo.update({ productId: id, businessId }, { quantity: 0, updatedAt: now })
+        await imageRepo.delete({ productId: id })
+
+        if (stockBefore > 0) {
+          await movementRepo.save(
+            movementRepo.create({
+              businessId,
+              productId: id,
+              type: MovementType.MANUAL_ADJUSTMENT,
+              quantityChange: -stockBefore,
+              quantityBefore: stockBefore,
+              quantityAfter: 0,
+              referenceType: 'product',
+              referenceId: id,
+              notes: 'Product deleted',
+              performedById: context?.actorId ?? null,
+            }),
+          )
+        }
+
+        await manager.getRepository(Product).update(id, { isActive: false, deletedAt: now, updatedAt: now })
       })
+
       if (context) {
         this.auditService.log(context, {
           action: 'DELETE',
           entityType: 'product',
           entityId: id,
           entityLabel: product.name,
-          changes: { before: { isActive: true }, after: { isActive: false } },
+          changes: { before: sanitizeForAudit({ ...product }), after: null },
         })
       }
     } catch (error) {

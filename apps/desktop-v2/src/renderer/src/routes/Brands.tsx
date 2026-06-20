@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
+import { BackButton, Button, CategoryTreePicker, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
+import { FileUpload } from '@/components/FileUpload'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { BrandInput, LocalBrand, LocalCategory } from '@shared/ipc'
+
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -69,6 +72,19 @@ export function Brands() {
     mutationFn: (modelId: string) => dataClient.brands.removeModel(modelId),
     onSuccess: invalidate,
   })
+  const [editingModel, setEditingModel] = useState<{ id: string; name: string } | null>(null)
+  const updateModel = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => dataClient.brands.updateModel(id, { name }),
+    onSuccess: () => {
+      invalidate()
+      setEditingModel(null)
+    },
+  })
+  const saveModelEdit = () => {
+    const name = editingModel?.name.trim()
+    if (!editingModel || !name) return
+    updateModel.mutate({ id: editingModel.id, name })
+  }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
@@ -133,13 +149,7 @@ export function Brands() {
   const detail = selected ? (
     <div className="mddetail">
       {bp === 'mobile' ? (
-        <button type="button" className="back-btn" onClick={() => setSelectedId(null)} style={{ marginBottom: 12 }}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7 3-5 5 5 5" />
-            <path d="M2 8h12" />
-          </svg>
-          {t('brand.back')}
-        </button>
+        <BackButton onClick={() => setSelectedId(null)} style={{ marginBottom: 12 }}>{t('brand.back')}</BackButton>
       ) : null}
 
       <div className="card" style={{ marginBottom: 14 }}>
@@ -195,16 +205,43 @@ export function Brands() {
           </div>
         </div>
         <div className="opt-list">
-          {selected.models.map((m) => (
-            <div key={m.id} className="opt-edit">
-              <span className="ov">{m.name}</span>
-              <button type="button" className="opt-del" title={t('brand.removeModel')} onClick={() => removeModel.mutate(m.id)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-            </div>
-          ))}
+          {selected.models.map((m) =>
+            editingModel?.id === m.id ? (
+              <div key={m.id} className="opt-edit">
+                <Input
+                  autoFocus
+                  value={editingModel.name}
+                  onChange={(e) => setEditingModel({ id: m.id, name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); saveModelEdit() }
+                    if (e.key === 'Escape') { e.preventDefault(); setEditingModel(null) }
+                  }}
+                  style={{ flex: 1, height: 32 }}
+                />
+                <button type="button" className="opt-ok" title={t('brand.save')} disabled={updateModel.isPending || !editingModel.name.trim()} onClick={saveModelEdit}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path d="m5 12 5 5L20 7" />
+                  </svg>
+                </button>
+                <button type="button" className="opt-del" title={t('brand.cancel')} onClick={() => setEditingModel(null)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div key={m.id} className="opt-edit">
+                <button type="button" className="ov" title={t('brand.editModel')} onClick={() => setEditingModel({ id: m.id, name: m.name })}>
+                  {m.name}
+                </button>
+                <button type="button" className="opt-del" title={t('brand.removeModel')} onClick={() => removeModel.mutate(m.id)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              </div>
+            ),
+          )}
           {selected.models.length === 0 ? <div className="cat-empty">{t('brand.noModels')}</div> : null}
         </div>
         <div className="opt-add">
@@ -318,16 +355,22 @@ function BrandModal({
   const [name, setName] = useState(brand?.name ?? '')
   const [description, setDescription] = useState(brand?.description ?? '')
   const [catIds, setCatIds] = useState<string[]>(brand?.categoryIds ?? [])
+  const [logoUrl, setLogoUrl] = useState<string | null>(brand?.logoUrl ?? null)
   const [error, setError] = useState<string | null>(null)
 
-  const toggleCat = (id: string) =>
-    setCatIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
+  // Brands attach categories at any level — the tree below shows the full hierarchy;
+  // a linked branch is expanded to its terminal leaves when picking a product category.
+  const treeNodes = useMemo(
+    () => categories.map((c) => ({ id: c.id, name: c.name, parentId: c.parentId })),
+    [categories],
+  )
 
   const save = useMutation({
     mutationFn: () => {
       const input: BrandInput = {
         name: name.trim(),
         description: description.trim() || null,
+        logoUrl,
         categoryIds: catIds,
       }
       return editing && brand ? dataClient.brands.update(brand.id, input) : dataClient.brands.create(input)
@@ -339,10 +382,6 @@ function BrandModal({
   const submit = () => {
     if (!name.trim()) {
       setError(t('brand.nameRequired'))
-      return
-    }
-    if (catIds.length === 0) {
-      setError(t('brand.catRequired'))
       return
     }
     setError(null)
@@ -366,6 +405,18 @@ function BrandModal({
       }
     >
       <div className="ff" style={{ marginBottom: 12 }}>
+        <label className="lbl2">{t('brand.logo')}</label>
+        <FileUpload
+          value={logoUrl}
+          onChange={setLogoUrl}
+          folder="brands"
+          variant="image"
+          allowedTypes={ALLOWED_IMAGE_TYPES}
+          label={t('brand.logoUpload')}
+          typeError={t('brand.logoTypeError')}
+        />
+      </div>
+      <div className="ff" style={{ marginBottom: 12 }}>
         <label className="lbl2">
           {t('brand.name')} <span className="req">*</span>
         </label>
@@ -386,8 +437,10 @@ function BrandModal({
       </div>
       <div className="ff">
         <label className="lbl2">
-          {t('brand.categories')} <span className="req">*</span>
+          {t('brand.categories')} <span className="opt">{t('brand.optional')}</span>
+          {catIds.length > 0 ? <span className="chip-tag" style={{ marginLeft: 8 }}>{catIds.length}</span> : null}
         </label>
+        <div className="hint" style={{ marginBottom: 8 }}>{t('brand.categoriesPickHint')}</div>
         {categories.length === 0 ? (
           <div className="form-note">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -397,19 +450,14 @@ function BrandModal({
             <span>{t('brand.catEmpty')}</span>
           </div>
         ) : (
-          <div className="catpick">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`catpick-item${catIds.includes(c.id) ? ' on' : ''}`}
-                onClick={() => { toggleCat(c.id); setError(null) }}
-              >
-                <span className="cb" aria-hidden />
-                <span>{c.name}</span>
-              </button>
-            ))}
-          </div>
+          <CategoryTreePicker
+            nodes={treeNodes}
+            value={catIds}
+            onChange={(next) => { setCatIds(next); setError(null) }}
+            searchPlaceholder={t('brand.catSearch')}
+            emptyLabel={t('brand.catEmpty')}
+            noMatchLabel={t('brand.catNoMatch')}
+          />
         )}
       </div>
       {error ? (

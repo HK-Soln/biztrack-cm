@@ -1,5 +1,11 @@
 import type { InventoryMovementType, StockAdjustmentType } from './inventory.types'
-import type { ContactType, DebtDirection, DebtSource, DebtStatus } from './credit.types'
+import type {
+  ContactType,
+  DebtDirection,
+  DebtSource,
+  DebtStatus,
+  IdDocumentType,
+} from './credit.types'
 import type { SubscriptionPlan } from './business.types'
 import type {
   CreateSaleItemRequest,
@@ -8,6 +14,8 @@ import type {
   SaleStatus,
 } from './sale.types'
 import type { SavingsTransactionType, SavingsTransactionDirection } from './savings.types'
+import type { RfqStatus, RfqSupplierStatus } from './rfq.types'
+import type { PurchaseOrderStatus } from './purchase-order.types'
 export type SyncEntity =
   | 'contact'
   | 'opening_balance'
@@ -19,6 +27,10 @@ export type SyncEntity =
   | 'brand'
   | 'model'
   | 'brand_category'
+  | 'product_image'
+  | 'product_variant'
+  | 'product_variant_option'
+  | 'product_serial_unit'
   | 'expense_category'
   | 'unit_of_measure'
   | 'inventory_threshold'
@@ -29,6 +41,8 @@ export type SyncEntity =
   | 'expense'
   | 'savings'
   | 'savings_transaction'
+  | 'rfq'
+  | 'purchase_order'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -80,6 +94,10 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   model: 1,
   brand_category: 1,
   product: 1,
+  product_image: 2,
+  product_variant: 2,
+  product_variant_option: 3,
+  product_serial_unit: 3,
   inventory_threshold: 2,
   inventory_restock: 2,
   inventory_adjustment: 2,
@@ -88,6 +106,8 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   debt: 3,
   savings: 3,
   savings_transaction: 3,
+  rfq: 2,
+  purchase_order: 2,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -103,14 +123,20 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   brand_category: 9,
   expense_category: 10,
   product: 11,
-  inventory_threshold: 12,
-  inventory_restock: 13,
-  inventory_adjustment: 14,
-  sale: 15,
-  expense: 16,
-  debt: 17,
-  savings: 18,
-  savings_transaction: 19,
+  product_image: 12,
+  product_variant: 13,
+  product_variant_option: 14,
+  product_serial_unit: 15,
+  inventory_threshold: 16,
+  inventory_restock: 17,
+  inventory_adjustment: 18,
+  sale: 19,
+  expense: 20,
+  debt: 21,
+  savings: 22,
+  savings_transaction: 23,
+  rfq: 24,
+  purchase_order: 25,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -154,6 +180,10 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   model: ['brand'],
   brand_category: ['brand', 'product_category'],
   product: ['product_category', 'unit_of_measure'],
+  product_image: ['product'],
+  product_variant: ['product'],
+  product_variant_option: ['product_variant', 'attribute_option'],
+  product_serial_unit: ['product', 'product_variant'],
   inventory_threshold: ['product'],
   inventory_restock: ['product'],
   inventory_adjustment: ['product'],
@@ -162,6 +192,8 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   debt: ['contact', 'sale'],
   savings: ['contact'],
   savings_transaction: ['savings'],
+  rfq: ['contact', 'product'],
+  purchase_order: ['contact', 'product', 'rfq'],
 }
 
 /**
@@ -280,8 +312,15 @@ export interface ContactSyncRecord extends SyncRecord {
   name: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
   isActive: boolean
   createdById?: string | null
   createdAt: string
@@ -414,6 +453,73 @@ export interface DebtSyncRecord extends SyncRecord, DebtSyncPayload {
   businessId: string
 }
 
+export interface RfqItemSyncPayload {
+  id: string
+  productId: string
+  variantId?: string | null
+  description: string
+  quantity: number
+}
+
+export interface RfqSupplierSyncPayload {
+  id: string
+  supplierId: string
+  status: RfqSupplierStatus
+  quotedTotal?: number | null
+  quoteNotes?: string | null
+  quoteFileUrl?: string | null
+  respondedAt?: string | null
+}
+
+export interface RfqSyncPayload {
+  number: string
+  title?: string | null
+  messageBody?: string | null
+  status: RfqStatus
+  currency: string
+  createdById?: string | null
+  createdAt: string
+  updatedAt: string
+  items?: RfqItemSyncPayload[]
+  suppliers?: RfqSupplierSyncPayload[]
+}
+
+export interface RfqSyncRecord extends SyncRecord, RfqSyncPayload {
+  businessId: string
+}
+
+export interface PurchaseOrderItemSyncPayload {
+  id: string
+  productId: string
+  variantId?: string | null
+  description: string
+  quantity: number
+  unitPrice: number
+  receivedQuantity?: number
+}
+
+export interface PurchaseOrderSyncPayload {
+  number: string
+  rfqId?: string | null
+  supplierId: string
+  supplierName?: string | null
+  title?: string | null
+  messageBody?: string | null
+  status: PurchaseOrderStatus
+  currency: string
+  expectedDate?: string | null
+  totalAmount: number
+  sentAt?: string | null
+  createdById?: string | null
+  createdAt: string
+  updatedAt: string
+  items?: PurchaseOrderItemSyncPayload[]
+}
+
+export interface PurchaseOrderSyncRecord extends SyncRecord, PurchaseOrderSyncPayload {
+  businessId: string
+}
+
 export interface ExpenseCategorySyncRecord extends SyncRecord {
   businessId?: string | null
   name: string
@@ -513,6 +619,7 @@ export interface ChangeSet {
   brands?: SyncRecord[]
   models?: SyncRecord[]
   brandCategories?: SyncRecord[]
+  productImages?: SyncRecord[]
   productVariants?: SyncRecord[]
   productVariantOptions?: SyncRecord[]
   productBundleComponents?: SyncRecord[]
@@ -527,6 +634,8 @@ export interface ChangeSet {
   saleItems?: SaleItemSyncRecord[]
   salePayments?: SalePaymentSyncRecord[]
   debts?: DebtSyncRecord[]
+  rfqs?: RfqSyncRecord[]
+  purchaseOrders?: PurchaseOrderSyncRecord[]
   expenses?: ExpenseSyncRecord[]
   teamMembers?: TeamMemberSyncRecord[]
   roles?: RoleSyncRecord[]
@@ -545,8 +654,15 @@ export interface ContactSyncPayload {
   name: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
   isActive?: boolean
   createdById?: string | null
   createdAt: string
@@ -563,6 +679,8 @@ export interface InventoryAdjustmentSyncPayload {
 export interface InventoryRestockSyncItemPayload {
   id: string
   productId: string
+  /** Target variant for variant products (null/omitted for direct/serialized). */
+  variantId?: string | null
   quantity: number
   unitCost?: number
   movementId: string
@@ -574,15 +692,49 @@ export interface InventoryRestockSyncPaymentPayload {
   mobileMoneyReference?: string
 }
 
+export interface InventoryRestockSyncChargeLinePayload {
+  id: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+
+export interface InventoryRestockSyncDiscountLinePayload {
+  id: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+
 export interface InventoryRestockSyncPayload {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
+  /** Purchase order this receipt fulfils (updates received quantities + status). */
+  purchaseOrderId?: string | null
+  /** Goods subtotal — Σ(qty × unitCost). */
+  subtotalAmount?: number | null
+  /** Σ of discount lines. */
+  discountAmount?: number | null
+  /** Σ of charge lines. */
+  chargesAmount?: number | null
+  /** Invoice total = subtotal − discounts + charges. */
   totalAmount?: number | null
   totalCost?: number | null
+  /** Amount paid now; remainder (total − paid) becomes a supplier payable. */
+  amountPaid?: number | null
   notes?: string | null
+  /** Supplier invoice (audit proof). */
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceFileUrl?: string | null
   createdAt: string
   payments?: InventoryRestockSyncPaymentPayload[]
+  charges?: InventoryRestockSyncChargeLinePayload[]
+  discounts?: InventoryRestockSyncDiscountLinePayload[]
   items: InventoryRestockSyncItemPayload[]
 }
 
@@ -765,6 +917,58 @@ export interface BrandCategorySyncPayload {
   isDeleted?: boolean
 }
 
+export interface ProductImageSyncPayload {
+  productId: string
+  url: string
+  altText?: string | null
+  sortOrder?: number | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface ProductVariantSyncPayload {
+  productId: string
+  name: string
+  displayNameOverride?: string | null
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  barcode?: string | null
+  isActive?: boolean
+  sortOrder?: number | null
+  /** Opening stock to seed the variant's inventory level (non-serialised only). */
+  openingStock?: number | null
+  lowStockThreshold?: number | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface ProductVariantOptionSyncPayload {
+  variantId: string
+  attributeGroupId: string
+  attributeOptionId: string
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
+export interface ProductSerialUnitSyncPayload {
+  productId: string
+  variantId?: string | null
+  serialNumber: string
+  serialType: string
+  status?: string | null
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
+  isDeleted?: boolean
+}
+
 export type SyncPushPayload =
   | SyncRecord
   | ContactSyncPayload
@@ -774,11 +978,17 @@ export type SyncPushPayload =
   | BrandSyncPayload
   | ModelSyncPayload
   | BrandCategorySyncPayload
+  | ProductImageSyncPayload
+  | ProductVariantSyncPayload
+  | ProductVariantOptionSyncPayload
+  | ProductSerialUnitSyncPayload
   | OpeningBalanceSyncPayload
   | InventoryThresholdSyncPayload
   | InventoryAdjustmentSyncPayload
   | InventoryRestockSyncPayload
   | DebtSyncPayload
+  | RfqSyncPayload
+  | PurchaseOrderSyncPayload
   | SaleSyncPayload
   | ExpenseCategorySyncPayload
   | ExpenseSyncPayload

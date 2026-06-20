@@ -9,6 +9,7 @@ import type {
   PaginatedResult,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import type { AuditLogger } from './audit.service'
 
 interface BrandRow {
   id: string
@@ -47,14 +48,16 @@ function slugify(name: string): string {
 /**
  * Offline-first brands & models. Brands link to categories many-to-many and own
  * models. Reads come from local SQLite (synced via pull); writes go to local SQLite +
- * sync_outbox (entities: brands / models / brandCategories) then nudge a sync. A brand
- * MUST have ≥1 category attached. Business scope from the active session.
+ * sync_outbox (entities: brands / models / brandCategories) then nudge a sync. Category
+ * links are optional — a brand with none surfaces all terminal categories. Business
+ * scope from the active session.
  */
 export class BrandsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly getBusinessId: () => string | null,
     private readonly onMutated: () => void,
+    private readonly audit?: AuditLogger,
   ) {}
 
   /** Paginated brands (default 20) with search + optional category filter; each brand
@@ -129,7 +132,7 @@ export class BrandsService {
 
   create(input: BrandInput): LocalBrand {
     const businessId = this.requireBusinessId()
-    const categoryIds = this.requireCategories(input.categoryIds)
+    const categoryIds = this.resolveCategories(input.categoryIds, businessId)
     const id = randomUUID()
     const now = new Date().toISOString()
     const slug = slugify(input.name)
@@ -142,12 +145,14 @@ export class BrandsService {
     this.enqueue('brands', id, 'UPSERT', businessId, this.brandPayload(input, slug), now)
     this.syncCategoryLinks(id, businessId, categoryIds, now)
     this.onMutated()
-    return this.getOne(id)!
+    const created = this.getOne(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'brand', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    return created
   }
 
   update(id: string, input: BrandInput): LocalBrand {
     const businessId = this.requireBusinessId()
-    const categoryIds = this.requireCategories(input.categoryIds)
+    const categoryIds = this.resolveCategories(input.categoryIds, businessId)
     const now = new Date().toISOString()
     const slug = slugify(input.name)
     this.db.run(
@@ -159,18 +164,22 @@ export class BrandsService {
     this.enqueue('brands', id, 'UPSERT', businessId, this.brandPayload(input, slug), now)
     this.syncCategoryLinks(id, businessId, categoryIds, now)
     this.onMutated()
-    return this.getOne(id)!
+    const updated = this.getOne(id)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'brand', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    return updated
   }
 
   remove(id: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const before = this.getOne(id)
     this.db.run(
       `UPDATE brands SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue('brands', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'brand', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
   }
 
   // ---- models --------------------------------------------------------------
@@ -187,7 +196,9 @@ export class BrandsService {
     )
     this.enqueue('models', id, 'UPSERT', businessId, { brandId, name: input.name.trim(), sortOrder, isActive: input.isActive !== false }, now)
     this.onMutated()
-    return this.getModel(id)!
+    const created = this.getModel(id)!
+    this.audit?.log({ action: 'CREATE', entityType: 'model', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    return created
   }
 
   updateModel(modelId: string, input: ModelInput): LocalModel {
@@ -211,18 +222,22 @@ export class BrandsService {
       now,
     )
     this.onMutated()
-    return this.getModel(modelId)!
+    const updated = this.getModel(modelId)!
+    this.audit?.log({ action: 'UPDATE', entityType: 'model', entityId: modelId, entityLabel: updated.name, changes: { before: null, after: updated } })
+    return updated
   }
 
   removeModel(modelId: string): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const before = this.getModel(modelId)
     this.db.run(
       `UPDATE models SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, modelId, businessId],
     )
     this.enqueue('models', modelId, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
+    this.audit?.log({ action: 'DELETE', entityType: 'model', entityId: modelId, entityLabel: before?.name ?? null, changes: { before, after: null } })
   }
 
   // ---- internals -----------------------------------------------------------
@@ -253,10 +268,27 @@ export class BrandsService {
     }
   }
 
-  private requireCategories(categoryIds: string[] | undefined): string[] {
-    const ids = (categoryIds ?? []).filter(Boolean)
-    if (ids.length === 0) throw new Error('A brand must have at least one category.')
+  private resolveCategories(categoryIds: string[] | undefined, businessId: string): string[] {
+    const ids = [...new Set((categoryIds ?? []).filter(Boolean))]
+    // Categories are optional: a brand with none surfaces ALL terminal categories when
+    // picking a product's category. When provided, brands attach at ANY level (a linked
+    // branch expands to its leaves) — we only require that each linked category exists.
+    if (ids.length === 0) return []
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = this.db.query<{ id: string }>(
+      `SELECT id FROM product_categories WHERE business_id = ? AND is_deleted = 0 AND id IN (${placeholders})`,
+      [businessId, ...ids],
+    )
+    const known = new Set(rows.map((r) => r.id))
+    for (const id of ids) {
+      if (!known.has(id)) throw new Error('One of the selected categories does not exist.')
+    }
     return ids
+  }
+
+  /** Single brand by id (with its category links + models) — for the product form. */
+  get(id: string): LocalBrand | null {
+    return this.getOne(id)
   }
 
   private getOne(id: string): LocalBrand | null {

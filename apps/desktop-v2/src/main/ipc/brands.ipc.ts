@@ -4,6 +4,7 @@ import type { BrandsService } from '../services/brands.service'
 
 export function registerBrandsIpc(brands: BrandsService): void {
   ipcMain.handle(IPC.brandsList, (_e, query?: BrandListQuery) => brands.list(query))
+  ipcMain.handle(IPC.brandsGet, (_e, id: string) => brands.get(id))
   ipcMain.handle(IPC.brandsCreate, (_e, input: BrandInput) => brands.create(input))
   ipcMain.handle(IPC.brandsUpdate, (_e, id: string, input: BrandInput) => brands.update(id, input))
   ipcMain.handle(IPC.brandsDelete, (_e, id: string) => brands.remove(id))

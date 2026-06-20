@@ -3,19 +3,79 @@ import type {
   AttributeGroupListQuery,
   AttributeOptionInput,
   BrandInput,
+  ChargeType,
   BrandListQuery,
   CategoryAttributeLinkInput,
   CategoryInput,
   CategoryListQuery,
+  CategoryParentOptionsQuery,
+  CategorySelectableQuery,
+  ContactsQuery,
+  DocumentRecipient,
+  DocumentSendChannel,
+  ContactsSummary,
+  CreateContactRequest,
+  UpdateContactRequest,
+  LocalContact,
+  LocalContactListItem,
+  DebtsQuery,
+  DebtDirection,
+  ContactStatement,
+  RecordDebtPaymentRequest,
+  LocalDebt,
+  CreateRfqRequest,
+  RfqsQuery,
+  RecordRfqQuoteRequest,
+  RfqDocument,
+  RfqSendChannel,
+  LocalRfqDetail,
+  LocalRfqListItem,
+  CreatePurchaseOrderRequest,
+  ConvertRfqToPoRequest,
+  PurchaseOrdersQuery,
+  PurchaseOrderSendChannel,
+  PurchaseOrderDocument,
+  LocalPurchaseOrderDetail,
+  LocalPurchaseOrderListItem,
+  DocumentSendInput,
+  DocumentDownloadInput,
+  DocumentDownloadResult,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
   LocalCategory,
   LocalCategoryAttributeGroup,
   LocalModel,
+  AuditListQuery,
+  LocalAuditLog,
+  AdjustStockInput,
+  InventoryListQuery,
+  InventoryStats,
+  LocalInventoryItem,
+  LocalReorderSuggestion,
+  LocalProduct,
+  LocalProductImage,
+  LocalSale,
+  LocalSaleDetail,
+  LocalSavingsBalance,
+  LocalSerialUnit,
+  LocalStockMovement,
   LocalUnit,
+  LocalVariant,
+  MovementsQuery,
+  RestockInput,
+  SaleInput,
+  SalesListQuery,
+  ScanHit,
+  ThresholdInput,
   ModelInput,
   PaginatedResult,
+  ProductImageInput,
+  ProductInput,
+  ProductListQuery,
+  ProductStats,
+  SerialUnitInput,
+  VariantInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
   UnitInput,
@@ -36,6 +96,8 @@ export interface DataClient {
   categories: {
     list: (query?: CategoryListQuery) => Promise<PaginatedResult<LocalCategory>>
     listAll: () => Promise<LocalCategory[]>
+    listSelectable: (query?: CategorySelectableQuery) => Promise<LocalCategory[]>
+    listParentOptions: (query?: CategoryParentOptionsQuery) => Promise<LocalCategory[]>
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
@@ -60,6 +122,7 @@ export interface DataClient {
   }
   brands: {
     list: (query?: BrandListQuery) => Promise<PaginatedResult<LocalBrand>>
+    get: (id: string) => Promise<LocalBrand | null>
     create: (input: BrandInput) => Promise<LocalBrand>
     update: (id: string, input: BrandInput) => Promise<LocalBrand>
     remove: (id: string) => Promise<void>
@@ -67,8 +130,99 @@ export interface DataClient {
     updateModel: (modelId: string, input: ModelInput) => Promise<LocalModel>
     removeModel: (modelId: string) => Promise<void>
   }
+  products: {
+    list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    stats: () => Promise<ProductStats>
+    get: (id: string) => Promise<LocalProduct | null>
+    create: (input: ProductInput) => Promise<LocalProduct>
+    update: (id: string, input: ProductInput) => Promise<LocalProduct>
+    remove: (id: string) => Promise<void>
+    listImages: (productId: string) => Promise<LocalProductImage[]>
+    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    listVariants: (productId: string) => Promise<LocalVariant[]>
+    setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
+    addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
+    updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
+    removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
+    listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    listInStockSerials: (productId: string, variantId?: string | null, search?: string) => Promise<LocalSerialUnit[]>
+    resolveScan: (code: string) => Promise<ScanHit | null>
+    setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
+    addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
+    retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
+    updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
+    listMovements: (productId: string) => Promise<LocalStockMovement[]>
+  }
+  inventory: {
+    list: (query?: InventoryListQuery) => Promise<PaginatedResult<LocalInventoryItem>>
+    stats: () => Promise<InventoryStats>
+    reorderSuggestions: () => Promise<LocalReorderSuggestion[]>
+    restock: (input: RestockInput) => Promise<void>
+    adjust: (productId: string, input: AdjustStockInput) => Promise<void>
+    setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
+    listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
+  }
+  contacts: {
+    list: (query?: ContactsQuery) => Promise<PaginatedResult<LocalContactListItem>>
+    summary: () => Promise<ContactsSummary>
+    listAllSuppliers: () => Promise<LocalContact[]>
+    listAllCustomers: () => Promise<LocalContact[]>
+    get: (id: string) => Promise<LocalContactListItem | null>
+    create: (input: CreateContactRequest) => Promise<LocalContact>
+    update: (id: string, input: UpdateContactRequest) => Promise<LocalContact>
+    remove: (id: string) => Promise<void>
+  }
+  debts: {
+    listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
+    statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
+    recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+  }
+  rfqs: {
+    list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
+    get: (id: string) => Promise<LocalRfqDetail | null>
+    create: (input: CreateRfqRequest) => Promise<LocalRfqDetail>
+    recordQuote: (rfqId: string, input: RecordRfqQuoteRequest) => Promise<LocalRfqDetail>
+    buildDocument: (rfqId: string, supplierId: string) => Promise<RfqDocument>
+    send: (rfqId: string, supplierId: string, channel: RfqSendChannel) => Promise<LocalRfqDetail>
+  }
+  purchaseOrders: {
+    list: (query?: PurchaseOrdersQuery) => Promise<PaginatedResult<LocalPurchaseOrderListItem>>
+    get: (id: string) => Promise<LocalPurchaseOrderDetail | null>
+    create: (input: CreatePurchaseOrderRequest) => Promise<LocalPurchaseOrderDetail>
+    createFromRfq: (rfqId: string, input: ConvertRfqToPoRequest) => Promise<LocalPurchaseOrderDetail>
+    buildDocument: (poId: string) => Promise<PurchaseOrderDocument>
+    send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
+    cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
+  }
+  documents: {
+    send: (input: DocumentSendInput) => Promise<void>
+    downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
+  }
+  audit: {
+    list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
+  }
+  charges: {
+    listActive: () => Promise<ChargeType[]>
+  }
+  sales: {
+    create: (input: SaleInput) => Promise<LocalSaleDetail>
+    list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
+    get: (id: string) => Promise<LocalSaleDetail | null>
+    sendReceipt: (
+      saleId: string,
+      channel: DocumentSendChannel,
+      locale: string,
+      opts?: { recipient?: DocumentRecipient; online?: boolean },
+    ) => Promise<void>
+    printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
+    receiptHtml: (saleId: string, locale: string) => Promise<string | null>
+  }
+  savings: {
+    getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
   }
 }
 
@@ -84,6 +238,8 @@ function electronAdapter(): DataClient {
     categories: {
       list: (query) => window.api.categories.list(query),
       listAll: () => window.api.categories.listAll(),
+      listSelectable: (query) => window.api.categories.listSelectable(query),
+      listParentOptions: (query) => window.api.categories.listParentOptions(query),
       create: (input) => window.api.categories.create(input),
       update: (id, input) => window.api.categories.update(id, input),
       remove: (id) => window.api.categories.remove(id),
@@ -108,6 +264,7 @@ function electronAdapter(): DataClient {
     },
     brands: {
       list: (query) => window.api.brands.list(query),
+      get: (id) => window.api.brands.get(id),
       create: (input) => window.api.brands.create(input),
       update: (id, input) => window.api.brands.update(id, input),
       remove: (id) => window.api.brands.remove(id),
@@ -115,8 +272,95 @@ function electronAdapter(): DataClient {
       updateModel: (modelId, input) => window.api.brands.updateModel(modelId, input),
       removeModel: (modelId) => window.api.brands.removeModel(modelId),
     },
+    products: {
+      list: (query) => window.api.products.list(query),
+      stats: () => window.api.products.stats(),
+      get: (id) => window.api.products.get(id),
+      create: (input) => window.api.products.create(input),
+      update: (id, input) => window.api.products.update(id, input),
+      remove: (id) => window.api.products.remove(id),
+      listImages: (productId) => window.api.products.listImages(productId),
+      setImages: (productId, images) => window.api.products.setImages(productId, images),
+      listVariants: (productId) => window.api.products.listVariants(productId),
+      setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
+      addVariant: (productId, input) => window.api.products.addVariant(productId, input),
+      updateVariant: (productId, variantId, input) => window.api.products.updateVariant(productId, variantId, input),
+      removeVariant: (productId, variantId, reason) => window.api.products.removeVariant(productId, variantId, reason),
+      listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
+      listInStockSerials: (productId, variantId, search) => window.api.products.listInStockSerials(productId, variantId, search),
+      resolveScan: (code) => window.api.products.resolveScan(code),
+      setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
+      addSerialUnits: (productId, units, notes) => window.api.products.addSerialUnits(productId, units, notes),
+      retireSerialUnit: (productId, unitId, reason) => window.api.products.retireSerialUnit(productId, unitId, reason),
+      updateSerialNumber: (productId, unitId, serialNumber) =>
+        window.api.products.updateSerialNumber(productId, unitId, serialNumber),
+      listMovements: (productId) => window.api.products.listMovements(productId),
+    },
+    inventory: {
+      list: (query) => window.api.inventory.list(query),
+      stats: () => window.api.inventory.stats(),
+      reorderSuggestions: () => window.api.inventory.reorderSuggestions(),
+      restock: (input) => window.api.inventory.restock(input),
+      adjust: (productId, input) => window.api.inventory.adjust(productId, input),
+      setThreshold: (productId, input) => window.api.inventory.setThreshold(productId, input),
+      listMovements: (productId, query) => window.api.inventory.listMovements(productId, query),
+    },
+    contacts: {
+      list: (query) => window.api.contacts.list(query),
+      summary: () => window.api.contacts.summary(),
+      listAllSuppliers: () => window.api.contacts.listAllSuppliers(),
+      listAllCustomers: () => window.api.contacts.listAllCustomers(),
+      get: (id) => window.api.contacts.get(id),
+      create: (input) => window.api.contacts.create(input),
+      update: (id, input) => window.api.contacts.update(id, input),
+      remove: (id) => window.api.contacts.remove(id),
+    },
+    debts: {
+      listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
+      statement: (contactId, direction) => window.api.debts.statement(contactId, direction),
+      recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
+    },
+    rfqs: {
+      list: (query) => window.api.rfqs.list(query),
+      get: (id) => window.api.rfqs.get(id),
+      create: (input) => window.api.rfqs.create(input),
+      recordQuote: (rfqId, input) => window.api.rfqs.recordQuote(rfqId, input),
+      buildDocument: (rfqId, supplierId) => window.api.rfqs.buildDocument(rfqId, supplierId),
+      send: (rfqId, supplierId, channel) => window.api.rfqs.send(rfqId, supplierId, channel),
+    },
+    purchaseOrders: {
+      list: (query) => window.api.purchaseOrders.list(query),
+      get: (id) => window.api.purchaseOrders.get(id),
+      create: (input) => window.api.purchaseOrders.create(input),
+      createFromRfq: (rfqId, input) => window.api.purchaseOrders.createFromRfq(rfqId, input),
+      buildDocument: (poId) => window.api.purchaseOrders.buildDocument(poId),
+      send: (poId, channel) => window.api.purchaseOrders.send(poId, channel),
+      cancel: (poId) => window.api.purchaseOrders.cancel(poId),
+    },
+    documents: {
+      send: (input) => window.api.documents.send(input),
+      downloadPdf: (input) => window.api.documents.downloadPdf(input),
+    },
+    audit: {
+      list: (query) => window.api.audit.list(query),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
+    },
+    charges: {
+      listActive: () => window.api.charges.listActive(),
+    },
+    sales: {
+      create: (input) => window.api.sales.create(input),
+      list: (query) => window.api.sales.list(query),
+      get: (id) => window.api.sales.get(id),
+      sendReceipt: (saleId, channel, locale, opts) => window.api.sales.sendReceipt(saleId, channel, locale, opts),
+      printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
+      downloadReceipt: (saleId, locale) => window.api.sales.downloadReceipt(saleId, locale),
+      receiptHtml: (saleId, locale) => window.api.sales.receiptHtml(saleId, locale),
+    },
+    savings: {
+      getForCustomer: (customerId) => window.api.savings.getForCustomer(customerId),
     },
   }
 }
@@ -133,7 +377,7 @@ function cloudAdapter(): DataClient {
   }
   return {
     skeleton: { getCheck: notWired, getHealth: notWired },
-    categories: { list: notWired, listAll: notWired, create: notWired, update: notWired, remove: notWired },
+    categories: { list: notWired, listAll: notWired, listSelectable: notWired, listParentOptions: notWired, create: notWired, update: notWired, remove: notWired },
     attributes: {
       listGroups: notWired,
       listAllGroups: notWired,
@@ -149,6 +393,7 @@ function cloudAdapter(): DataClient {
     units: { list: notWired, create: notWired, update: notWired, remove: notWired },
     brands: {
       list: notWired,
+      get: notWired,
       create: notWired,
       update: notWired,
       remove: notWired,
@@ -156,7 +401,40 @@ function cloudAdapter(): DataClient {
       updateModel: notWired,
       removeModel: notWired,
     },
+    products: {
+      list: notWired,
+      stats: notWired,
+      get: notWired,
+      create: notWired,
+      update: notWired,
+      remove: notWired,
+      listImages: notWired,
+      setImages: notWired,
+      listVariants: notWired,
+      setVariants: notWired,
+      addVariant: notWired,
+      updateVariant: notWired,
+      removeVariant: notWired,
+      listSerialUnits: notWired,
+      listInStockSerials: notWired,
+      resolveScan: notWired,
+      setSerialUnits: notWired,
+      addSerialUnits: notWired,
+      retireSerialUnit: notWired,
+      updateSerialNumber: notWired,
+      listMovements: notWired,
+    },
+    inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
+    contacts: { list: notWired, summary: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
+    debts: { listByContact: notWired, statement: notWired, recordPayment: notWired },
+    rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
+    purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
+    documents: { send: notWired, downloadPdf: notWired },
+    audit: { list: notWired },
     uploads: { file: notWired },
+    charges: { listActive: notWired },
+    sales: { create: notWired, list: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
+    savings: { getForCustomer: notWired },
   }
 }
 

@@ -16,6 +16,23 @@ import { CategoryForm } from '@/routes/CategoryForm'
 import { Attributes } from '@/routes/Attributes'
 import { Units } from '@/routes/Units'
 import { Brands } from '@/routes/Brands'
+import { Products } from '@/routes/Products'
+import { ProductForm } from '@/routes/ProductForm'
+import { Inventory } from '@/routes/Inventory'
+import { ReceiveStock } from '@/routes/ReceiveStock'
+import { ProductDetail } from '@/routes/ProductDetail'
+import { Contacts } from '@/routes/Contacts'
+import { ContactDetail } from '@/routes/ContactDetail'
+import { ContactForm } from '@/routes/ContactForm'
+import { Rfqs } from '@/routes/Rfqs'
+import { RfqForm } from '@/routes/RfqForm'
+import { RfqDetail } from '@/routes/RfqDetail'
+import { ConvertRfq } from '@/routes/ConvertRfq'
+import { PurchaseOrders } from '@/routes/PurchaseOrders'
+import { PoForm } from '@/routes/PoForm'
+import { PoDetail } from '@/routes/PoDetail'
+import { ReceivePo } from '@/routes/ReceivePo'
+import { Sell } from '@/routes/Sell'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -48,21 +65,34 @@ export const router = createHashRouter([
     ),
     children: [
       { path: '/', element: <Dashboard /> },
-      { path: '/sell', element: <Placeholder titleKey="nav.sell" /> },
-      { path: '/products', element: <Placeholder titleKey="nav.allProducts" /> },
+      { path: '/sell', element: <Sell /> },
+      { path: '/products', element: <Products /> },
+      { path: '/products/new', element: <ProductForm /> },
       { path: '/products/categories', element: <Categories /> },
       { path: '/products/categories/new', element: <CategoryForm /> },
       { path: '/products/categories/:id', element: <CategoryForm /> },
       { path: '/products/brands', element: <Brands /> },
       { path: '/products/attributes', element: <Attributes /> },
       { path: '/products/units', element: <Units /> },
-      { path: '/inventory', element: <Placeholder titleKey="nav.inventory" /> },
+      { path: '/products/:id', element: <ProductDetail /> },
+      { path: '/products/:id/edit', element: <ProductForm /> },
+      { path: '/inventory', element: <Inventory /> },
+      { path: '/inventory/restock', element: <ReceiveStock /> },
       { path: '/sales', element: <Placeholder titleKey="nav.sales" /> },
       { path: '/online/orders', element: <Placeholder titleKey="nav.onlineOrders" /> },
       { path: '/online/store', element: <Placeholder titleKey="nav.onlineStore" /> },
-      { path: '/contacts', element: <Placeholder titleKey="nav.allContacts" /> },
-      { path: '/contacts/debtors', element: <Placeholder titleKey="nav.debtors" /> },
-      { path: '/contacts/creditors', element: <Placeholder titleKey="nav.creditors" /> },
+      { path: '/contacts', element: <Contacts /> },
+      { path: '/contacts/new', element: <ContactForm /> },
+      { path: '/contacts/:id', element: <ContactDetail /> },
+      { path: '/contacts/:id/edit', element: <ContactForm /> },
+      { path: '/purchasing/rfqs', element: <Rfqs /> },
+      { path: '/purchasing/rfqs/new', element: <RfqForm /> },
+      { path: '/purchasing/rfqs/:id', element: <RfqDetail /> },
+      { path: '/purchasing/rfqs/:id/convert/:supplierId', element: <ConvertRfq /> },
+      { path: '/purchasing/orders', element: <PurchaseOrders /> },
+      { path: '/purchasing/orders/new', element: <PoForm /> },
+      { path: '/purchasing/orders/:id', element: <PoDetail /> },
+      { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
       { path: '/expenses', element: <Placeholder titleKey="nav.expenses" /> },
       { path: '/deposits', element: <Placeholder titleKey="nav.deposits" /> },
       { path: '/reports', element: <Placeholder titleKey="nav.reports" /> },

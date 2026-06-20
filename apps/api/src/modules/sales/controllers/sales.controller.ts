@@ -28,6 +28,7 @@ import {
   SaleResponseDto,
 } from '../dto/sale-response.dto'
 import { VoidSaleDto } from '../dto/void-sale.dto'
+import { SendSaleReceiptDto } from '../dto/send-sale-receipt.dto'
 import { SalesService } from '../services/sales.service'
 
 @ApiTags('Sales')
@@ -124,6 +125,18 @@ export class SalesController {
   async getReceipt(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<SaleReceipt> {
     const payload = await this.salesService.getReceipt(id, user.businessId as string)
     return serializeDto(SaleReceiptDto.fromSale(payload.sale, payload.business))
+  }
+
+  @Post(':id/send')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Render the receipt and dispatch it to the customer (WhatsApp/email)' })
+  async sendReceipt(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SendSaleReceiptDto,
+    @CurrentAuditContext() auditContext: AuditContext,
+  ): Promise<{ pdfUrl: string }> {
+    return this.salesService.sendReceipt(id, user.businessId as string, dto, auditContext)
   }
 
   @Post(':id/void')

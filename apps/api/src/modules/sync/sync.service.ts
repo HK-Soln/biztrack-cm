@@ -14,6 +14,7 @@ import type {
   ExpenseCategorySyncRecord,
   ExpenseSyncPayload,
   ExpenseSyncRecord,
+  IdDocumentType,
   InventoryAdjustmentSyncPayload,
   InventoryLevelSyncRecord,
   InventoryMovementSyncRecord,
@@ -54,6 +55,11 @@ import {
   inferProductType,
   PaymentMethod,
   ProductType,
+  PurchaseOrderStatus,
+  RfqStatus,
+  RfqSupplierStatus,
+  SerialType,
+  SerialUnitStatus,
   StockAdjustmentType,
   UnitOfMeasureType,
 } from '@biztrack/types'
@@ -96,10 +102,16 @@ import { CategoryAttributeGroup } from '@/entities/category-attribute-group.enti
 import { Brand } from '@/entities/brand.entity'
 import { Model } from '@/entities/model.entity'
 import { BrandCategory } from '@/entities/brand-category.entity'
+import { ProductImage } from '@/entities/product-image.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { Rfq } from '@/entities/rfq.entity'
+import { RfqItem } from '@/entities/rfq-item.entity'
+import { RfqSupplier } from '@/entities/rfq-supplier.entity'
+import { PurchaseOrder } from '@/entities/purchase-order.entity'
+import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CreateCategoryDto } from '@/modules/products/dto/create-category.dto'
@@ -206,13 +218,63 @@ type BrandCategoryPayload = {
   isDeleted?: boolean
 }
 
+type ProductImagePayload = {
+  productId?: string
+  url?: string
+  altText?: string | null
+  sortOrder?: number | null
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ProductVariantPayload = {
+  productId?: string
+  name?: string
+  displayNameOverride?: string | null
+  priceOverride?: number | null
+  costPriceOverride?: number | null
+  sku?: string | null
+  barcode?: string | null
+  isActive?: boolean
+  sortOrder?: number | null
+  openingStock?: number | null
+  lowStockThreshold?: number | null
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ProductVariantOptionPayload = {
+  variantId?: string
+  attributeGroupId?: string
+  attributeOptionId?: string
+  createdAt?: string
+  isDeleted?: boolean
+}
+
+type ProductSerialUnitPayload = {
+  productId?: string
+  variantId?: string | null
+  serialNumber?: string
+  serialType?: string
+  status?: string | null
+  createdAt?: string
+  isDeleted?: boolean
+}
+
 type ContactPayload = {
   type?: ContactType
   name?: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
   isActive?: boolean
   createdById?: string | null
   createdAt?: string
@@ -243,8 +305,20 @@ type ProductSyncPayload = {
   openingStock?: number | null
   currentStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   unitOfMeasureId?: string | null
   categoryId?: string | null
+  brandId?: string | null
+  modelId?: string | null
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  isSerialized?: boolean
+  serialType?: string | null
+  warrantyMonths?: number | null
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
@@ -381,6 +455,8 @@ export class SyncService {
     private readonly modelsRepo: Repository<Model>,
     @InjectRepository(BrandCategory)
     private readonly brandCategoriesRepo: Repository<BrandCategory>,
+    @InjectRepository(ProductImage)
+    private readonly productImagesRepo: Repository<ProductImage>,
     @InjectRepository(ExpenseCategory)
     private readonly expenseCategoriesRepo: Repository<ExpenseCategory>,
     @InjectRepository(Expense)
@@ -421,6 +497,16 @@ export class SyncService {
     private readonly productBundleComponentsRepo: Repository<ProductBundleComponent>,
     @InjectRepository(ProductSerialUnit)
     private readonly productSerialUnitsRepo: Repository<ProductSerialUnit>,
+    @InjectRepository(Rfq)
+    private readonly rfqsRepo: Repository<Rfq>,
+    @InjectRepository(RfqItem)
+    private readonly rfqItemsRepo: Repository<RfqItem>,
+    @InjectRepository(RfqSupplier)
+    private readonly rfqSuppliersRepo: Repository<RfqSupplier>,
+    @InjectRepository(PurchaseOrder)
+    private readonly purchaseOrdersRepo: Repository<PurchaseOrder>,
+    @InjectRepository(PurchaseOrderItem)
+    private readonly purchaseOrderItemsRepo: Repository<PurchaseOrderItem>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
     private readonly inventoryService: InventoryService,
@@ -588,6 +674,7 @@ export class SyncService {
         brands,
         models,
         brandCategories,
+        productImages,
         productVariants,
         productVariantOptions,
         productBundleComponents,
@@ -773,6 +860,14 @@ export class SyncService {
           .andWhere('bc.updated_at <= :pulledAt', { pulledAt })
           .orderBy('bc.updated_at', 'ASC')
           .getMany(),
+        this.productImagesRepo
+          .createQueryBuilder('pi')
+          .withDeleted()
+          .where('pi.business_id = :businessId', { businessId })
+          .andWhere('pi.updated_at > :since', { since })
+          .andWhere('pi.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('pi.updated_at', 'ASC')
+          .getMany(),
         this.productVariantsRepo
           .createQueryBuilder('variant')
           .withDeleted()
@@ -816,6 +911,18 @@ export class SyncService {
           .filter((record) => record.referenceType === 'restock' && record.referenceId)
           .map((record) => [`${record.referenceId}:${record.productId}`, record.quantityAfter] as const),
       )
+
+      // Per-variant stock for the variant records being emitted (so the desktop's
+      // denormalised variant stock stays correct across pulls).
+      const variantStock = new Map<string, { quantity: number; lowStockThreshold: number | null }>()
+      if (productVariants.length > 0) {
+        const levels = await this.inventoryLevelsRepo.find({
+          where: { businessId, variantId: In(productVariants.map((v) => v.id)) },
+        })
+        for (const l of levels) {
+          if (l.variantId) variantStock.set(l.variantId, { quantity: l.quantity, lowStockThreshold: l.lowStockThreshold ?? null })
+        }
+      }
 
       const changes: ChangeSet = {
         contacts: contacts.map((record) => this.toContactSyncRecord(record)),
@@ -912,6 +1019,17 @@ export class SyncService {
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
         })),
+        productImages: productImages.map((record) => ({
+          id: record.id,
+          businessId: record.businessId ?? null,
+          productId: record.productId,
+          url: record.url,
+          altText: record.altText ?? null,
+          sortOrder: record.sortOrder,
+          createdAt: record.createdAt?.toISOString?.() ?? null,
+          updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
         productVariants: productVariants.map((record) => ({
           id: record.id,
           businessId: record.businessId,
@@ -924,6 +1042,8 @@ export class SyncService {
           barcode: record.barcode ?? null,
           isActive: record.isActive,
           sortOrder: record.sortOrder,
+          stockQuantity: variantStock.get(record.id)?.quantity ?? 0,
+          lowStockThreshold: variantStock.get(record.id)?.lowStockThreshold ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -1168,6 +1288,10 @@ export class SyncService {
       brand: (b, o) => this.applyBrandOperation(b, o),
       model: (b, o) => this.applyModelOperation(b, o),
       brand_category: (b, o) => this.applyBrandCategoryOperation(b, o),
+      product_image: (b, o) => this.applyProductImageOperation(b, o),
+      product_variant: (b, o) => this.applyProductVariantOperation(b, o),
+      product_variant_option: (b, o) => this.applyProductVariantOptionOperation(b, o),
+      product_serial_unit: (b, o) => this.applyProductSerialUnitOperation(b, o),
       contact: (b, o) => this.applyContactOperation(b, o),
       opening_balance: (b, o) => this.applyOpeningBalanceOperation(b, o),
       product: (b, o) => this.applyProductOperation(b, o),
@@ -1178,6 +1302,8 @@ export class SyncService {
       inventory_restock: (b, o) => this.applyInventoryRestockOperation(b, o),
       sale: (b, o) => this.applySaleOperation(b, o),
       debt: (b, o) => this.applyDebtOperation(b, o),
+      rfq: (b, o) => this.applyRfqOperation(b, o),
+      purchase_order: (b, o) => this.applyPurchaseOrderOperation(b, o),
       expense: (b, o) => this.applyExpenseOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
@@ -1735,6 +1861,268 @@ export class SyncService {
     return { status: 'applied' }
   }
 
+  private async applyProductImageOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productImagesRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productImagesRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductImagePayload(operation.payload)
+    const productId = payload.productId ?? existing?.productId
+    if (!productId) {
+      throw new AppBadRequestException('Product image requires a productId.', 'SYNC_PRODUCT_IMAGE_PRODUCT_REQUIRED')
+    }
+
+    if (existing) {
+      await this.productImagesRepo.update(operation.recordId, {
+        productId,
+        url: payload.url!.trim(),
+        altText: this.normalizeOptionalString(payload.altText),
+        sortOrder: payload.sortOrder ?? existing.sortOrder,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productImagesRepo.save(
+      this.productImagesRepo.create({
+        id: operation.recordId,
+        businessId,
+        productId,
+        url: payload.url!.trim(),
+        altText: this.normalizeOptionalString(payload.altText),
+        sortOrder: payload.sortOrder ?? 0,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyProductVariantOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productVariantsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productVariantsRepo.update(operation.recordId, {
+          isActive: false,
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductVariantPayload(operation.payload)
+    const productId = payload.productId ?? existing?.productId
+    if (!productId) {
+      throw new AppBadRequestException('Product variant requires a productId.', 'SYNC_VARIANT_PRODUCT_REQUIRED')
+    }
+    const fields = {
+      productId,
+      name: payload.name!.trim(),
+      displayNameOverride: this.normalizeOptionalString(payload.displayNameOverride),
+      priceOverride: payload.priceOverride ?? null,
+      costPriceOverride: payload.costPriceOverride ?? null,
+      sku: this.normalizeOptionalString(payload.sku),
+      barcode: this.normalizeOptionalString(payload.barcode),
+      isActive: payload.isActive ?? existing?.isActive ?? true,
+      sortOrder: payload.sortOrder ?? existing?.sortOrder ?? 0,
+    }
+
+    if (existing) {
+      await this.productVariantsRepo.update(operation.recordId, {
+        ...fields,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productVariantsRepo.save(
+      this.productVariantsRepo.create({
+        id: operation.recordId,
+        businessId,
+        ...fields,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    // Seed the variant's inventory level from opening stock (non-serialised products).
+    const parentProduct = await this.productsRepo.findOne({ where: { id: productId, businessId } })
+    if (parentProduct && !parentProduct.isSerialized && parentProduct.trackInventory) {
+      const level = await this.inventoryLevelsRepo.findOne({ where: { businessId, productId, variantId: operation.recordId } })
+      if (!level) {
+        await this.inventoryLevelsRepo.save(
+          this.inventoryLevelsRepo.create({
+            businessId,
+            productId,
+            variantId: operation.recordId,
+            quantity: Math.max(payload.openingStock ?? 0, 0),
+            lowStockThreshold: payload.lowStockThreshold ?? null,
+          }),
+        )
+      } else if (payload.lowStockThreshold !== undefined) {
+        await this.inventoryLevelsRepo.update(level.id, { lowStockThreshold: payload.lowStockThreshold })
+      }
+    }
+    return { status: 'applied' }
+  }
+
+  private async applyProductVariantOptionOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productVariantOptionsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productVariantOptionsRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductVariantOptionPayload(operation.payload)
+    const variantId = payload.variantId ?? existing?.variantId
+    const attributeGroupId = payload.attributeGroupId ?? existing?.attributeGroupId
+    const attributeOptionId = payload.attributeOptionId ?? existing?.attributeOptionId
+    if (!variantId || !attributeGroupId || !attributeOptionId) {
+      throw new AppBadRequestException(
+        'Variant option requires variantId, attributeGroupId and attributeOptionId.',
+        'SYNC_VARIANT_OPTION_INVALID',
+      )
+    }
+
+    if (existing) {
+      await this.productVariantOptionsRepo.update(operation.recordId, {
+        variantId,
+        attributeGroupId,
+        attributeOptionId,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productVariantOptionsRepo.save(
+      this.productVariantOptionsRepo.create({
+        id: operation.recordId,
+        businessId,
+        variantId,
+        attributeGroupId,
+        attributeOptionId,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
+  private async applyProductSerialUnitOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.productSerialUnitsRepo.findOne({
+      where: { id: operation.recordId, businessId },
+      withDeleted: true,
+    })
+
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
+      if (existing) {
+        await this.productSerialUnitsRepo.update(operation.recordId, {
+          deletedAt: operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        })
+      }
+      return { status: 'applied' }
+    }
+
+    const payload = this.readProductSerialUnitPayload(operation.payload)
+    const productId = payload.productId ?? existing?.productId
+    const serialNumber = (payload.serialNumber ?? existing?.serialNumber)?.trim()
+    const serialType = (payload.serialType ?? existing?.serialType) as SerialType | undefined
+    if (!productId || !serialNumber || !serialType) {
+      throw new AppBadRequestException(
+        'Serial unit requires productId, serialNumber and serialType.',
+        'SYNC_SERIAL_UNIT_INVALID',
+      )
+    }
+
+    const variantId =
+      payload.variantId === undefined ? existing?.variantId ?? null : payload.variantId
+    const status = (payload.status ?? existing?.status ?? SerialUnitStatus.IN_STOCK) as SerialUnitStatus
+
+    if (existing) {
+      await this.productSerialUnitsRepo.update(operation.recordId, {
+        productId,
+        variantId,
+        serialNumber,
+        serialType,
+        status,
+        deletedAt: null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+      return { status: 'applied' }
+    }
+
+    await this.productSerialUnitsRepo.save(
+      this.productSerialUnitsRepo.create({
+        id: operation.recordId,
+        businessId,
+        productId,
+        variantId,
+        serialNumber,
+        serialType,
+        status,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        updatedAt: operation.recordUpdatedAt,
+      }),
+    )
+    return { status: 'applied' }
+  }
+
   private async applyContactOperation(
     businessId: string,
     operation: SyncOperation,
@@ -1785,8 +2173,15 @@ export class SyncService {
         name: normalizedName,
         phone: this.normalizeOptionalString(payload.phone),
         phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        email: this.normalizeOptionalString(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
+        idType: payload.idType ?? null,
+        idNumber: this.normalizeOptionalString(payload.idNumber),
+        idIssueDate: this.normalizeOptionalString(payload.idIssueDate),
+        idExpiryDate: this.normalizeOptionalString(payload.idExpiryDate),
+        idDocuments: payload.idDocuments?.length ? payload.idDocuments : null,
+        selfieUrl: this.normalizeOptionalString(payload.selfieUrl),
         isActive: nextIsActive,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -1806,14 +2201,195 @@ export class SyncService {
         name: normalizedName,
         phone: this.normalizeOptionalString(payload.phone),
         phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        email: this.normalizeOptionalString(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
+        idType: payload.idType ?? null,
+        idNumber: this.normalizeOptionalString(payload.idNumber),
+        idIssueDate: this.normalizeOptionalString(payload.idIssueDate),
+        idExpiryDate: this.normalizeOptionalString(payload.idExpiryDate),
+        idDocuments: payload.idDocuments?.length ? payload.idDocuments : null,
+        selfieUrl: this.normalizeOptionalString(payload.selfieUrl),
         isActive: payload.isActive ?? true,
         createdById,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
     )
+
+    return { status: 'applied' }
+  }
+
+  private async applyRfqOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.rfqsRepo.findOne({ where: { id: operation.recordId, businessId } })
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE') {
+      if (existing) await this.rfqsRepo.softDelete({ id: operation.recordId })
+      return { status: 'applied' }
+    }
+
+    const payload = operation.payload as {
+      number?: string
+      title?: string | null
+      messageBody?: string | null
+      status?: string
+      currency?: string
+      createdById?: string | null
+      createdAt?: string
+      items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number }>
+      suppliers?: Array<{ id: string; supplierId: string; status: string; quotedTotal?: number | null; quoteNotes?: string | null; quoteFileUrl?: string | null; respondedAt?: string | null }>
+    }
+
+    if (existing) {
+      await this.rfqsRepo.update(operation.recordId, {
+        number: payload.number ?? existing.number,
+        title: this.normalizeOptionalString(payload.title),
+        messageBody: this.normalizeOptionalString(payload.messageBody),
+        status: (payload.status as RfqStatus) ?? existing.status,
+        currency: payload.currency ?? existing.currency,
+        updatedAt: operation.recordUpdatedAt,
+      })
+    } else {
+      await this.rfqsRepo.save(
+        this.rfqsRepo.create({
+          id: operation.recordId,
+          businessId,
+          number: payload.number ?? 'RFQ',
+          title: this.normalizeOptionalString(payload.title),
+          messageBody: this.normalizeOptionalString(payload.messageBody),
+          status: (payload.status as RfqStatus) ?? RfqStatus.DRAFT,
+          currency: payload.currency ?? 'XAF',
+          createdById: payload.createdById ?? null,
+          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        }),
+      )
+    }
+
+    // The client always pushes the complete nested state, so full-replace the children.
+    await this.rfqItemsRepo.delete({ rfqId: operation.recordId })
+    for (const it of payload.items ?? []) {
+      await this.rfqItemsRepo.save(
+        this.rfqItemsRepo.create({
+          id: it.id,
+          rfqId: operation.recordId,
+          productId: it.productId,
+          variantId: it.variantId ?? null,
+          description: it.description,
+          quantity: it.quantity,
+        }),
+      )
+    }
+    await this.rfqSuppliersRepo.delete({ rfqId: operation.recordId })
+    for (const s of payload.suppliers ?? []) {
+      await this.rfqSuppliersRepo.save(
+        this.rfqSuppliersRepo.create({
+          id: s.id,
+          rfqId: operation.recordId,
+          supplierId: s.supplierId,
+          status: (s.status as RfqSupplierStatus) ?? RfqSupplierStatus.PENDING,
+          quotedTotal: s.quotedTotal ?? null,
+          quoteNotes: this.normalizeOptionalString(s.quoteNotes),
+          quoteFileUrl: this.normalizeOptionalString(s.quoteFileUrl),
+          respondedAt: this.parseOptionalDate(s.respondedAt) ?? null,
+        }),
+      )
+    }
+
+    return { status: 'applied' }
+  }
+
+  private async applyPurchaseOrderOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.purchaseOrdersRepo.findOne({ where: { id: operation.recordId, businessId } })
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    if (operation.action === 'DELETE') {
+      if (existing) await this.purchaseOrdersRepo.softDelete({ id: operation.recordId })
+      return { status: 'applied' }
+    }
+
+    const payload = operation.payload as {
+      number?: string
+      rfqId?: string | null
+      supplierId?: string
+      supplierName?: string | null
+      title?: string | null
+      messageBody?: string | null
+      status?: string
+      currency?: string
+      expectedDate?: string | null
+      totalAmount?: number
+      sentAt?: string | null
+      createdById?: string | null
+      createdAt?: string
+      items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number; unitPrice: number; receivedQuantity?: number }>
+    }
+
+    if (existing) {
+      await this.purchaseOrdersRepo.update(operation.recordId, {
+        number: payload.number ?? existing.number,
+        rfqId: payload.rfqId ?? existing.rfqId,
+        supplierId: payload.supplierId ?? existing.supplierId,
+        supplierName: this.normalizeOptionalString(payload.supplierName),
+        title: this.normalizeOptionalString(payload.title),
+        messageBody: this.normalizeOptionalString(payload.messageBody),
+        status: (payload.status as PurchaseOrderStatus) ?? existing.status,
+        currency: payload.currency ?? existing.currency,
+        expectedDate: this.parseOptionalDate(payload.expectedDate) ?? null,
+        totalAmount: payload.totalAmount ?? existing.totalAmount,
+        sentAt: this.parseOptionalDate(payload.sentAt) ?? null,
+        updatedAt: operation.recordUpdatedAt,
+      })
+    } else {
+      await this.purchaseOrdersRepo.save(
+        this.purchaseOrdersRepo.create({
+          id: operation.recordId,
+          businessId,
+          number: payload.number ?? 'PO',
+          rfqId: payload.rfqId ?? null,
+          supplierId: payload.supplierId ?? '',
+          supplierName: this.normalizeOptionalString(payload.supplierName),
+          title: this.normalizeOptionalString(payload.title),
+          messageBody: this.normalizeOptionalString(payload.messageBody),
+          status: (payload.status as PurchaseOrderStatus) ?? PurchaseOrderStatus.DRAFT,
+          currency: payload.currency ?? 'XAF',
+          expectedDate: this.parseOptionalDate(payload.expectedDate) ?? null,
+          totalAmount: payload.totalAmount ?? 0,
+          sentAt: this.parseOptionalDate(payload.sentAt) ?? null,
+          createdById: payload.createdById ?? null,
+          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          updatedAt: operation.recordUpdatedAt,
+        }),
+      )
+    }
+
+    // The client always pushes the complete nested state, so full-replace the items.
+    await this.purchaseOrderItemsRepo.delete({ purchaseOrderId: operation.recordId })
+    for (const it of payload.items ?? []) {
+      await this.purchaseOrderItemsRepo.save(
+        this.purchaseOrderItemsRepo.create({
+          id: it.id,
+          purchaseOrderId: operation.recordId,
+          productId: it.productId,
+          variantId: it.variantId ?? null,
+          description: it.description,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          receivedQuantity: it.receivedQuantity ?? 0,
+        }),
+      )
+    }
 
     return { status: 'applied' }
   }
@@ -2092,6 +2668,8 @@ export class SyncService {
       await this.dataSource.transaction(async (manager) => {
         await manager.getRepository(Product).update(operation.recordId, {
           categoryId: category?.id ?? null,
+          brandId: this.normalizeOptionalString(payload.brandId),
+          modelId: this.normalizeOptionalString(payload.modelId),
           unitOfMeasureId: unitOfMeasure.id,
           name: payload.name!.trim(),
           slug,
@@ -2106,6 +2684,15 @@ export class SyncService {
           productType,
           isService,
           trackInventory,
+          isFeatured: payload.isFeatured ?? existing.isFeatured,
+          isPublishedOnline: payload.isPublishedOnline ?? existing.isPublishedOnline,
+          onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
+          onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
+          metaTitle: this.normalizeOptionalString(payload.metaTitle),
+          metaDescription: this.normalizeOptionalString(payload.metaDescription),
+          isSerialized: payload.isSerialized ?? existing.isSerialized,
+          serialType: this.normalizeOptionalString(payload.serialType),
+          warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           deletedAt: null,
           updatedAt: operation.recordUpdatedAt,
@@ -2154,6 +2741,8 @@ export class SyncService {
           id: operation.recordId,
           businessId,
           categoryId: category?.id ?? null,
+          brandId: this.normalizeOptionalString(payload.brandId),
+          modelId: this.normalizeOptionalString(payload.modelId),
           unitOfMeasureId: unitOfMeasure.id,
           name: payload.name!.trim(),
           slug,
@@ -2170,6 +2759,15 @@ export class SyncService {
           productType,
           isService,
           trackInventory,
+          isFeatured: payload.isFeatured ?? false,
+          isPublishedOnline: payload.isPublishedOnline ?? false,
+          onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
+          onlineStockReserve: payload.onlineStockReserve ?? 0,
+          metaTitle: this.normalizeOptionalString(payload.metaTitle),
+          metaDescription: this.normalizeOptionalString(payload.metaDescription),
+          isSerialized: payload.isSerialized ?? false,
+          serialType: this.normalizeOptionalString(payload.serialType),
+          warrantyMonths: payload.warrantyMonths ?? null,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           createdById: payload.createdById ?? null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -3075,6 +3673,14 @@ export class SyncService {
       serialType: record.serialType ?? null,
       warrantyMonths: record.warrantyMonths ?? null,
       categoryId: record.categoryId ?? null,
+      brandId: record.brandId ?? null,
+      modelId: record.modelId ?? null,
+      isFeatured: record.isFeatured,
+      isPublishedOnline: record.isPublishedOnline,
+      onlineDescription: record.onlineDescription ?? null,
+      onlineStockReserve: record.onlineStockReserve,
+      metaTitle: record.metaTitle ?? null,
+      metaDescription: record.metaDescription ?? null,
       unitOfMeasureId: record.unitOfMeasureId,
       imageUrl: record.imageUrl ?? null,
       createdById: record.createdById ?? null,
@@ -3094,8 +3700,15 @@ export class SyncService {
       name: record.name,
       phone: record.phone ?? null,
       phoneAlt: record.phoneAlt ?? null,
+      email: record.email ?? null,
       address: record.address ?? null,
       notes: record.notes ?? null,
+      idType: record.idType ?? null,
+      idNumber: record.idNumber ?? null,
+      idIssueDate: record.idIssueDate ?? null,
+      idExpiryDate: record.idExpiryDate ?? null,
+      idDocuments: record.idDocuments ?? null,
+      selfieUrl: record.selfieUrl ?? null,
       isActive: record.isActive,
       createdById: record.createdById ?? null,
       createdAt: record.createdAt.toISOString(),
@@ -3586,6 +4199,48 @@ export class SyncService {
       )
     }
     return payload as BrandCategoryPayload
+  }
+
+  private readProductImagePayload(payload: Record<string, unknown> | null): ProductImagePayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Product image sync payload is required.', 'SYNC_PRODUCT_IMAGE_PAYLOAD_REQUIRED')
+    }
+    const typed = payload as ProductImagePayload
+    if (!typed.url?.trim()) {
+      throw new AppBadRequestException('Product image url is required.', 'SYNC_PRODUCT_IMAGE_URL_REQUIRED')
+    }
+    return typed
+  }
+
+  private readProductVariantPayload(payload: Record<string, unknown> | null): ProductVariantPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException('Product variant sync payload is required.', 'SYNC_VARIANT_PAYLOAD_REQUIRED')
+    }
+    const typed = payload as ProductVariantPayload
+    if (!typed.name?.trim()) {
+      throw new AppBadRequestException('Product variant name is required.', 'SYNC_VARIANT_NAME_REQUIRED')
+    }
+    return typed
+  }
+
+  private readProductVariantOptionPayload(payload: Record<string, unknown> | null): ProductVariantOptionPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Variant option sync payload is required.',
+        'SYNC_VARIANT_OPTION_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as ProductVariantOptionPayload
+  }
+
+  private readProductSerialUnitPayload(payload: Record<string, unknown> | null): ProductSerialUnitPayload {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Serial unit sync payload is required.',
+        'SYNC_SERIAL_UNIT_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as ProductSerialUnitPayload
   }
 
   /** Fallback slug from a name (the client normally sends its own). */

@@ -14,6 +14,16 @@ export interface EmailSendResult {
   provider: string
 }
 
+/** Resend attachment: either inline base64 `content` or a hosted `path` URL. */
+export interface EmailAttachment {
+  filename: string
+  /** Hosted URL Resend will fetch and attach. */
+  path?: string
+  /** Base64-encoded file content (alternative to `path`). */
+  content?: string
+  content_type?: string
+}
+
 export interface RawEmailPayload {
   from: string
   to: string | string[]
@@ -21,6 +31,7 @@ export interface RawEmailPayload {
   html?: string
   text?: string
   reply_to?: string
+  attachments?: EmailAttachment[]
 }
 
 @Injectable()
@@ -42,14 +53,25 @@ export class EmailProvider {
 
   /** Send a notification-record email through Resend. */
   async send(notification: Notification): Promise<EmailSendResult> {
+    const attachments = this.extractAttachments(notification)
     const result = await this.sendRaw({
       from: notification.sender ?? this.defaultFromEmail,
       to: notification.recipient,
       subject: notification.subject ?? '',
       html: notification.body,
+      ...(attachments.length ? { attachments } : {}),
     })
 
     return { providerMessageId: result.id, provider: RESEND_PROVIDER }
+  }
+
+  /** Pull document attachments stashed on a notification's metadata (see ProcurementSendService). */
+  private extractAttachments(notification: Notification): EmailAttachment[] {
+    const raw = (notification.metadata as { attachments?: unknown } | null)?.attachments
+    if (!Array.isArray(raw)) return []
+    return raw
+      .filter((a): a is EmailAttachment => !!a && typeof (a as EmailAttachment).filename === 'string')
+      .map((a) => ({ filename: a.filename, path: a.path, content: a.content, content_type: a.content_type }))
   }
 
   /** Send a raw email payload through Resend (e.g. waitlist notifications). */

@@ -11,6 +11,8 @@ import type {
   InventoryMovementsQuery,
   InventoryQuery,
   RestockRequest,
+  RestockChargeLineRequest,
+  RestockDiscountLineRequest,
   RestockPaymentRequest,
   RestockSerialResult,
   SerialType,
@@ -32,6 +34,8 @@ import { InventoryMovement, MovementType } from '@/entities/inventory-movement.e
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { RestockCharge } from '@/entities/restock-charge.entity'
+import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
@@ -74,13 +78,26 @@ type RestockCreationInput = {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
+  purchaseOrderId?: string | null
+  /** Goods subtotal — Σ(qty × unitCost). */
+  subtotalAmount?: number | null
+  discountAmount?: number | null
+  chargesAmount?: number | null
+  /** Invoice total = subtotal − discounts + charges. */
   totalAmount?: number | null
   totalCost?: number | null
+  /** Amount paid now; when < total the remainder becomes a supplier payable. */
+  amountPaid?: number | null
   notes?: string | null
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceFileUrl?: string | null
   performedById?: string | null
   createdAt: Date
   updatedAt?: Date | null
   payments?: RestockPaymentRequest[]
+  charges?: RestockChargeLineRequest[]
+  discounts?: RestockDiscountLineRequest[]
   items: RestockInputItem[]
 }
 
@@ -290,13 +307,21 @@ export class InventoryService {
           referenceNumber: dto.referenceNumber?.trim() ?? null,
           supplierId: this.normalizeOptionalUuid(dto.supplierId),
           supplierName: dto.supplierName?.trim() ?? null,
+          subtotalAmount: dto.subtotalAmount ?? null,
+          discountAmount: dto.discountAmount ?? null,
+          chargesAmount: dto.chargesAmount ?? null,
           totalAmount: dto.totalAmount ?? null,
           totalCost: dto.totalCost ?? null,
           notes: dto.notes?.trim() ?? null,
+          invoiceNumber: dto.invoiceNumber?.trim() ?? null,
+          invoiceDate: dto.invoiceDate ?? null,
+          invoiceFileUrl: dto.invoiceFileUrl ?? null,
           performedById: userId,
           createdAt: new Date(),
           updatedAt: new Date(),
           payments: dto.payments,
+          charges: dto.charges,
+          discounts: dto.discounts,
           items: dto.items.map((item) => ({
             productId: item.productId,
             // Serialised products receive serial numbers instead of a quantity.
@@ -335,16 +360,27 @@ export class InventoryService {
           referenceNumber: payload.referenceNumber?.trim() ?? null,
           supplierId: this.normalizeOptionalUuid(payload.supplierId),
           supplierName: payload.supplierName?.trim() ?? null,
+          purchaseOrderId: this.normalizeOptionalUuid(payload.purchaseOrderId),
+          subtotalAmount: payload.subtotalAmount ?? null,
+          discountAmount: payload.discountAmount ?? null,
+          chargesAmount: payload.chargesAmount ?? null,
           totalAmount: payload.totalAmount ?? null,
           totalCost: payload.totalCost ?? null,
+          amountPaid: payload.amountPaid ?? null,
           notes: payload.notes?.trim() ?? null,
+          invoiceNumber: payload.invoiceNumber?.trim() ?? null,
+          invoiceDate: payload.invoiceDate ?? null,
+          invoiceFileUrl: payload.invoiceFileUrl ?? null,
           performedById: null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? recordUpdatedAt,
           updatedAt: recordUpdatedAt,
           payments: payload.payments,
+          charges: payload.charges,
+          discounts: payload.discounts,
           items: payload.items.map((item) => ({
             id: item.id,
             productId: item.productId,
+            variantId: item.variantId ?? null,
             quantity: item.quantity,
             unitCost: item.unitCost ?? null,
             movementId: item.movementId,
@@ -811,6 +847,8 @@ export class InventoryService {
     const recordRepo = manager.getRepository(RestockRecord)
     const itemRepo = manager.getRepository(RestockItem)
     const paymentRepo = manager.getRepository(RestockPayment)
+    const chargeRepo = manager.getRepository(RestockCharge)
+    const discountRepo = manager.getRepository(RestockDiscount)
 
     const normalizedItems = input.items.map((item) => ({
       ...item,
@@ -825,36 +863,60 @@ export class InventoryService {
       amount: this.roundMoney(payment.amount),
       mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
     }))
+    const normalizedCharges = (input.charges ?? []).map((c) => ({
+      id: c.id,
+      chargeTypeId: c.chargeTypeId ?? null,
+      name: c.name,
+      rateType: c.rateType,
+      rateValue: c.rateValue,
+      amount: this.roundMoney(Math.max(0, c.amount)),
+    }))
+    const normalizedDiscounts = (input.discounts ?? []).map((d) => ({
+      id: d.id,
+      description: d.description,
+      discountType: d.discountType,
+      rate: d.rate ?? null,
+      amount: this.roundMoney(Math.max(0, d.amount)),
+    }))
 
-    const totalComputation = await this.resolveRestockTotal({
-      explicitTotalAmount: input.totalAmount,
+    // Settlement: goods subtotal − discounts + charges = invoice total. The subtotal
+    // basis prefers an explicit subtotal/cost; falls back to totalAmount for legacy
+    // callers that sent only a single total with no charges/discounts.
+    const goods = await this.resolveRestockTotal({
+      explicitTotalAmount: input.subtotalAmount ?? input.totalCost ?? input.totalAmount,
       explicitTotalCost: input.totalCost,
       items: normalizedItems,
     })
+    const subtotal = this.roundMoney(goods.totalAmount)
+    const discountAmount = this.roundMoney(normalizedDiscounts.reduce((s, d) => s + d.amount, 0))
+    const chargesAmount = this.roundMoney(normalizedCharges.reduce((s, c) => s + c.amount, 0))
+    const totalAmount = this.roundMoney(Math.max(0, subtotal - discountAmount + chargesAmount))
 
     const amountPaid =
-      input.payments === undefined
-        ? totalComputation.totalAmount
-        : this.roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
+      input.payments != null
+        ? this.roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
+        : input.amountPaid != null
+          ? this.roundMoney(Math.max(0, Math.min(input.amountPaid, totalAmount)))
+          : totalAmount
 
-    if (amountPaid > totalComputation.totalAmount) {
+    if (amountPaid > totalAmount) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.restock_payment_exceeds_total' as never),
         'RESTOCK_PAYMENT_EXCEEDS_TOTAL',
         {
           amountPaid,
-          totalAmount: totalComputation.totalAmount,
+          totalAmount,
         },
       )
     }
 
-    const creditAmount = this.roundMoney(totalComputation.totalAmount - amountPaid)
+    const creditAmount = this.roundMoney(totalAmount - amountPaid)
     if (creditAmount > 0 && !input.supplierId) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.supplier_contact_required_for_credit' as never),
         'SUPPLIER_CONTACT_REQUIRED_FOR_CREDIT',
         {
-          totalAmount: totalComputation.totalAmount,
+          totalAmount,
           amountPaid,
           creditAmount,
         },
@@ -877,10 +939,16 @@ export class InventoryService {
         referenceNumber: input.referenceNumber ?? null,
         supplierId: input.supplierId ?? null,
         supplierName: input.supplierName ?? null,
-        totalAmount: totalComputation.totalAmount,
-        totalCost: totalComputation.totalAmount,
+        purchaseOrderId: input.purchaseOrderId ?? null,
+        discountAmount,
+        chargesAmount,
+        totalAmount,
+        totalCost: subtotal,
         amountPaid,
         creditAmount,
+        invoiceNumber: input.invoiceNumber ?? null,
+        invoiceDate: input.invoiceDate ?? null,
+        invoiceFileUrl: input.invoiceFileUrl ?? null,
         notes: input.notes ?? null,
         performedById: input.performedById ?? null,
         createdAt: input.createdAt,
@@ -928,6 +996,7 @@ export class InventoryService {
             id: item.id,
             restockRecordId: record.id,
             productId: product.id,
+            variantId: item.variantId ?? null,
             quantity: created,
             unitCost: item.unitCost,
             createdAt: input.createdAt,
@@ -972,6 +1041,7 @@ export class InventoryService {
           id: item.id,
           restockRecordId: record.id,
           productId: product.id,
+          variantId: item.variantId ?? null,
           quantity: item.quantity,
           unitCost: item.unitCost,
           createdAt: input.createdAt,
@@ -1016,6 +1086,39 @@ export class InventoryService {
       )
     }
 
+    // Settlement children: idempotent insert (skip ids already persisted by an earlier sync).
+    for (const c of normalizedCharges) {
+      const exists = c.id ? await chargeRepo.findOne({ where: { id: c.id } }) : null
+      if (exists) continue
+      await chargeRepo.save(
+        chargeRepo.create({
+          id: c.id,
+          restockRecordId: record.id,
+          businessId: input.businessId,
+          chargeTypeId: c.chargeTypeId,
+          name: c.name,
+          rateType: c.rateType,
+          rateValue: c.rateValue,
+          amount: c.amount,
+        }),
+      )
+    }
+    for (const d of normalizedDiscounts) {
+      const exists = d.id ? await discountRepo.findOne({ where: { id: d.id } }) : null
+      if (exists) continue
+      await discountRepo.save(
+        discountRepo.create({
+          id: d.id,
+          restockRecordId: record.id,
+          businessId: input.businessId,
+          description: d.description,
+          discountType: d.discountType,
+          rate: d.rate,
+          amount: d.amount,
+        }),
+      )
+    }
+
     if (creditAmount > 0 && input.supplierId) {
       await this.debtsService.createSourceDebt(manager, {
         businessId: input.businessId,
@@ -1034,6 +1137,8 @@ export class InventoryService {
       ...record,
       items: processedItems,
       payments: normalizedPayments,
+      charges: normalizedCharges,
+      discounts: normalizedDiscounts,
     }
   }
 

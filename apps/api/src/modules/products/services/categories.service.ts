@@ -1,4 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { InjectRepository } from '@nestjs/typeorm'
+import { Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
   CategoriesQuery,
@@ -17,6 +19,8 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import type { ProductCategory } from '@/entities'
+import { BrandCategory } from '@/entities/brand-category.entity'
+import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { QuotaService } from '@/modules/permissions/quota.service'
@@ -32,6 +36,10 @@ export class CategoriesService {
   constructor(
     private readonly categoriesRepo: ProductCategoriesRepository,
     private readonly productsRepo: ProductsRepository,
+    @InjectRepository(CategoryAttributeGroup)
+    private readonly categoryAttributeGroupsRepo: Repository<CategoryAttributeGroup>,
+    @InjectRepository(BrandCategory)
+    private readonly brandCategoriesRepo: Repository<BrandCategory>,
     private readonly slugService: SlugService,
     private readonly quotaService: QuotaService,
     private readonly storage: StorageService,
@@ -74,6 +82,7 @@ export class CategoriesService {
           )
         }
         await this.assertParentHasNoProducts(parent.id, businessId)
+        await this.assertParentHasNoVariantOptions(parent.id, businessId)
         parentId = parent.id
         depth = parent.depth + 1
       }
@@ -222,6 +231,7 @@ export class CategoriesService {
               )
             }
             await this.assertParentHasNoProducts(parent.id, businessId)
+            await this.assertParentHasNoVariantOptions(parent.id, businessId)
             parentId = parent.id
             depth = parent.depth + 1
           }
@@ -335,6 +345,106 @@ export class CategoriesService {
     }
   }
 
+  private async assertParentHasNoVariantOptions(parentId: string, businessId: string): Promise<void> {
+    if (await this.hasVariantOptions(parentId, businessId)) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.category_parent_has_variant_options'),
+        'PARENT_HAS_VARIANT_OPTIONS',
+      )
+    }
+  }
+
+  private async hasVariantOptions(categoryId: string, businessId: string): Promise<boolean> {
+    const count = await this.categoryAttributeGroupsRepo.count({
+      where: { businessId, categoryId, deletedAt: IsNull() },
+    })
+    return count > 0
+  }
+
+  /**
+   * Terminal categories a product can target: leaves (no active sub-categories) at any
+   * depth. When `brandId` is given, restricted to the leaves under the brand's linked
+   * categories (a linked branch expands to its subtree leaves). Computed server-side so
+   * the same eligibility holds for every client.
+   */
+  async listSelectable(
+    businessId: string,
+    query: { brandId?: string; search?: string } = {},
+  ): Promise<ProductCategory[]> {
+    try {
+      const categories = await this.categoriesRepo.find({
+        where: { businessId, deletedAt: IsNull() },
+        order: { sortOrder: 'ASC', name: 'ASC' },
+      })
+      const parentIds = new Set(categories.filter((c) => c.parentId).map((c) => c.parentId as string))
+      let leaves = categories.filter((c) => c.isActive && !parentIds.has(c.id))
+
+      if (query.brandId) {
+        const linkIds = await this.brandCategoryIds(businessId, query.brandId)
+        // A brand with no category links surfaces every terminal category.
+        if (linkIds.length > 0) {
+          const allowed = leavesUnder(categories, linkIds)
+          leaves = leaves.filter((c) => allowed.has(c.id))
+        }
+      }
+      leaves = filterCategoriesBySearch(leaves, query.search)
+      for (const c of leaves) c.isLeaf = true
+      return leaves
+    } catch (error) {
+      return this.handleServiceError('listSelectable', error, { businessId })
+    }
+  }
+
+  /**
+   * Categories eligible to be a parent: depth < 3, no products attached, no variant
+   * options attached, and never the given category or one of its descendants.
+   */
+  async listParentOptions(
+    businessId: string,
+    query: { excludeId?: string; search?: string } = {},
+  ): Promise<ProductCategory[]> {
+    try {
+      const categories = await this.categoriesRepo.find({
+        where: { businessId, deletedAt: IsNull() },
+        order: { sortOrder: 'ASC', name: 'ASC' },
+      })
+      const blocked = new Set<string>()
+      if (query.excludeId) {
+        blocked.add(query.excludeId)
+        for (const d of collectDescendants(categories, query.excludeId)) blocked.add(d)
+      }
+      const withProducts = await this.countProductsByCategory(businessId)
+      const withVariants = await this.categoryIdsWithVariantOptions(businessId)
+      let options = categories.filter(
+        (c) =>
+          c.depth < MAX_CATEGORY_DEPTH &&
+          !blocked.has(c.id) &&
+          (withProducts.get(c.id) ?? 0) === 0 &&
+          !withVariants.has(c.id),
+      )
+      options = filterCategoriesBySearch(options, query.search)
+      return options
+    } catch (error) {
+      return this.handleServiceError('listParentOptions', error, { businessId })
+    }
+  }
+
+  private async brandCategoryIds(businessId: string, brandId: string): Promise<string[]> {
+    const links = await this.brandCategoriesRepo.find({
+      where: { businessId, brandId, deletedAt: IsNull() },
+      select: { categoryId: true },
+    })
+    return links.map((l) => l.categoryId)
+  }
+
+  private async categoryIdsWithVariantOptions(businessId: string): Promise<Set<string>> {
+    const links = await this.categoryAttributeGroupsRepo.find({
+      where: { businessId, deletedAt: IsNull() },
+      select: { categoryId: true },
+    })
+    return new Set(links.map((l) => l.categoryId))
+  }
+
   /** Any non-deleted child (active or not) — used to block reparent/delete. */
   private async hasChildren(parentId: string, businessId: string): Promise<boolean> {
     const count = await this.categoriesRepo
@@ -425,4 +535,57 @@ export class CategoriesService {
       { action },
     )
   }
+}
+
+function filterCategoriesBySearch(rows: ProductCategory[], search?: string): ProductCategory[] {
+  const q = search?.trim().toLowerCase()
+  if (!q) return rows
+  return rows.filter((r) => r.name.toLowerCase().includes(q) || (r.slug ?? '').toLowerCase().includes(q))
+}
+
+/** Leaf-descendant ids under each root id (a root that is itself a leaf maps to itself). */
+function leavesUnder(categories: ProductCategory[], rootIds: string[]): Set<string> {
+  const childrenOf = new Map<string, ProductCategory[]>()
+  for (const c of categories) {
+    if (!c.parentId) continue
+    const list = childrenOf.get(c.parentId) ?? []
+    list.push(c)
+    childrenOf.set(c.parentId, list)
+  }
+  const out = new Set<string>()
+  const visit = (id: string, seen: Set<string>): void => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const kids = childrenOf.get(id) ?? []
+    if (kids.length === 0) {
+      out.add(id)
+      return
+    }
+    for (const k of kids) visit(k.id, seen)
+  }
+  for (const root of rootIds) visit(root, new Set())
+  return out
+}
+
+/** Ids of every category descended from `rootId` (excludes the root itself). */
+function collectDescendants(categories: ProductCategory[], rootId: string): Set<string> {
+  const childrenOf = new Map<string, ProductCategory[]>()
+  for (const c of categories) {
+    if (!c.parentId) continue
+    const list = childrenOf.get(c.parentId) ?? []
+    list.push(c)
+    childrenOf.set(c.parentId, list)
+  }
+  const out = new Set<string>()
+  const stack = [rootId]
+  while (stack.length) {
+    const next = stack.pop()!
+    for (const child of childrenOf.get(next) ?? []) {
+      if (!out.has(child.id)) {
+        out.add(child.id)
+        stack.push(child.id)
+      }
+    }
+  }
+  return out
 }

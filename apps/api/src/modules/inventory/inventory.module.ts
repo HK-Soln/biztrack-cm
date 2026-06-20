@@ -6,6 +6,8 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement } from '@/entities/inventory-movement.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
+import { RestockCharge } from '@/entities/restock-charge.entity'
+import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
@@ -31,6 +33,8 @@ import { RedisModule } from '@/common/redis/redis.module'
       InventoryMovement,
       ProductImage,
       Product,
+      RestockCharge,
+      RestockDiscount,
       RestockItem,
       RestockPayment,
       RestockRecord,

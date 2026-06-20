@@ -45,6 +45,7 @@ export default defineConfig({
         '@shared': resolve(__dirname, 'src/shared'),
         '@biztrack/types': resolve(__dirname, '../../packages/types/src'),
         '@biztrack/utils': resolve(__dirname, '../../packages/utils/src'),
+        '@biztrack/templates': resolve(__dirname, '../../packages/templates/src'),
         '@biztrack/ui/styles.css': resolve(__dirname, '../../packages/ui/src/styles/biztrack.css'),
         '@biztrack/ui/biztrack': resolve(__dirname, '../../packages/ui/src/biztrack/index.ts'),
       },

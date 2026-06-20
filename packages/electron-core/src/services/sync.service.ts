@@ -74,12 +74,18 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   brands: 'brand',
   models: 'model',
   brandCategories: 'brand_category',
+  productImages: 'product_image',
+  productVariants: 'product_variant',
+  productVariantOptions: 'product_variant_option',
+  productSerialUnits: 'product_serial_unit',
   expenseCategories: 'expense_category',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
   inventoryRestocks: 'inventory_restock',
   inventoryAdjustments: 'inventory_adjustment',
   debts: 'debt',
+  rfqs: 'rfq',
+  purchaseOrders: 'purchase_order',
   sales: 'sale',
   expenses: 'expense',
   savings: 'savings',
@@ -303,6 +309,11 @@ export class SyncService {
 
   private applyChanges(changes: ChangeSet): void {
     const ops: Array<{ sql: string; params: unknown[] }> = []
+    // Contacts are tier-0 roots (suppliers/customers) — apply before anything that
+    // references them.
+    for (const record of changes.contacts ?? []) {
+      ops.push(this.contactUpsert(record))
+    }
     for (const record of changes.productCategories ?? []) {
       ops.push(this.categoryUpsert(record))
     }
@@ -329,9 +340,53 @@ export class SyncService {
     for (const record of changes.brandCategories ?? []) {
       ops.push(this.brandCategoryUpsert(record))
     }
+    // Products depend on category/unit/brand/model — applied after them.
+    for (const record of changes.products ?? []) {
+      ops.push(this.productUpsert(record))
+    }
+    for (const record of changes.productImages ?? []) {
+      ops.push(this.productImageUpsert(record))
+    }
+    for (const record of changes.productVariants ?? []) {
+      ops.push(this.productVariantUpsert(record))
+    }
+    for (const record of changes.productVariantOptions ?? []) {
+      ops.push(this.productVariantOptionUpsert(record))
+    }
+    for (const record of changes.productSerialUnits ?? []) {
+      ops.push(this.productSerialUnitUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
+  }
+
+  private contactUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO contacts
+        (id, business_id, type, name, phone, phone_alt, address, notes, is_active, created_by_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          type = excluded.type, name = excluded.name, phone = excluded.phone,
+          phone_alt = excluded.phone_alt, address = excluded.address, notes = excluded.notes,
+          is_active = excluded.is_active, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.type),
+        asStr(c.name),
+        asStr(c.phone),
+        asStr(c.phoneAlt),
+        asStr(c.address),
+        asStr(c.notes),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        asStr(c.createdById),
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
   }
 
   private categoryUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
@@ -537,6 +592,184 @@ export class SyncService {
         asStr(c.businessId),
         asStr(c.brandId),
         asStr(c.categoryId),
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO products
+        (id, business_id, name, slug, description, sku, barcode, barcode_type, is_barcode_generated,
+         price, cost_price, currency, tax_rate, product_type, is_service, track_inventory,
+         category_id, brand_id, model_id, unit_of_measure_id, image_url, created_by_id,
+         is_featured, is_published_online, online_description, online_stock_reserve,
+         meta_title, meta_description, is_serialized, serial_type, warranty_months,
+         is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, slug = excluded.slug, description = excluded.description,
+          sku = excluded.sku, barcode = excluded.barcode, barcode_type = excluded.barcode_type,
+          is_barcode_generated = excluded.is_barcode_generated, price = excluded.price,
+          cost_price = excluded.cost_price, currency = excluded.currency, tax_rate = excluded.tax_rate,
+          product_type = excluded.product_type, is_service = excluded.is_service,
+          track_inventory = excluded.track_inventory, category_id = excluded.category_id,
+          brand_id = excluded.brand_id, model_id = excluded.model_id,
+          unit_of_measure_id = excluded.unit_of_measure_id, image_url = excluded.image_url,
+          created_by_id = excluded.created_by_id, is_featured = excluded.is_featured,
+          is_published_online = excluded.is_published_online, online_description = excluded.online_description,
+          online_stock_reserve = excluded.online_stock_reserve, meta_title = excluded.meta_title,
+          meta_description = excluded.meta_description, is_serialized = excluded.is_serialized,
+          serial_type = excluded.serial_type, warranty_months = excluded.warranty_months,
+          is_active = excluded.is_active, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.name),
+        asStr(c.slug),
+        asStr(c.description),
+        asStr(c.sku),
+        asStr(c.barcode),
+        asStr(c.barcodeType),
+        c.isBarcodeGenerated === true ? 1 : 0,
+        asNum(c.sellingPrice) ?? 0,
+        asNum(c.costPrice),
+        asStr(c.currency) ?? 'XAF',
+        asNum(c.taxRate) ?? 0,
+        asStr(c.productType) ?? 'SIMPLE',
+        c.isService === true ? 1 : 0,
+        r.isDeleted ? 0 : c.trackInventory === false ? 0 : 1,
+        asStr(c.categoryId),
+        asStr(c.brandId),
+        asStr(c.modelId),
+        asStr(c.unitOfMeasureId),
+        asStr(c.imageUrl),
+        asStr(c.createdById),
+        c.isFeatured === true ? 1 : 0,
+        c.isPublishedOnline === true ? 1 : 0,
+        asStr(c.onlineDescription),
+        asNum(c.onlineStockReserve) ?? 0,
+        asStr(c.metaTitle),
+        asStr(c.metaDescription),
+        c.isSerialized === true ? 1 : 0,
+        asStr(c.serialType),
+        asNum(c.warrantyMonths),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productImageUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_images
+        (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          product_id = excluded.product_id, url = excluded.url, alt_text = excluded.alt_text,
+          sort_order = excluded.sort_order, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.productId),
+        asStr(c.url),
+        asStr(c.altText),
+        asNum(c.sortOrder) ?? 0,
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productVariantUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_variants
+        (id, business_id, product_id, name, display_name_override, price_override, cost_price_override,
+         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          product_id = excluded.product_id, name = excluded.name,
+          display_name_override = excluded.display_name_override, price_override = excluded.price_override,
+          cost_price_override = excluded.cost_price_override, sku = excluded.sku, barcode = excluded.barcode,
+          is_active = excluded.is_active, sort_order = excluded.sort_order,
+          stock_quantity = excluded.stock_quantity, low_stock_threshold = excluded.low_stock_threshold,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.productId),
+        asStr(c.name),
+        asStr(c.displayNameOverride),
+        asNum(c.priceOverride),
+        asNum(c.costPriceOverride),
+        asStr(c.sku),
+        asStr(c.barcode),
+        r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
+        asNum(c.sortOrder) ?? 0,
+        asNum(c.stockQuantity) ?? 0,
+        asNum(c.lowStockThreshold),
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productVariantOptionUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_variant_options
+        (id, business_id, variant_id, attribute_group_id, attribute_option_id, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          variant_id = excluded.variant_id, attribute_group_id = excluded.attribute_group_id,
+          attribute_option_id = excluded.attribute_option_id, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.variantId),
+        asStr(c.attributeGroupId),
+        asStr(c.attributeOptionId),
+        r.isDeleted ? 1 : 0,
+        asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private productSerialUnitUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const c = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO product_serial_units
+        (id, business_id, product_id, variant_id, serial_number, serial_type, status, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          product_id = excluded.product_id, variant_id = excluded.variant_id,
+          serial_number = excluded.serial_number, serial_type = excluded.serial_type,
+          status = excluded.status, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(c.businessId),
+        asStr(c.productId),
+        asStr(c.variantId),
+        asStr(c.serialNumber),
+        asStr(c.serialType),
+        asStr(c.status) ?? 'IN_STOCK',
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

@@ -72,21 +72,42 @@ export class WhatsAppProvider {
 
   /**
    * Send a WhatsApp notification from a persisted Notification record.
-   * Routes to text-only for now; extend to image/file/voice/video as needed.
+   * If the notification carries a document attachment (metadata.attachments), it is sent
+   * as a WhatsApp document with the body as caption. Sending documents requires the WAHA
+   * Plus engine; on engines that reject it (free Core/WEBJS returns 422) we gracefully
+   * fall back to a text message with a link to the PDF so the recipient still gets it.
    */
   async send(notification: Notification): Promise<WhatsAppSendResult> {
     const chatId = this.toChatId(notification.recipient)
+    const doc = this.extractDocument(notification)
 
     try {
-      console.log('Sending whatsapp notification')
-      const result = await this.waha.sendText({
-        chatId,
-        text: notification.body,
-      })
+      let result
+      let withDocument = false
+      if (doc) {
+        try {
+          result = await this.waha.sendFile({
+            chatId,
+            file: { url: doc.url, filename: doc.filename, mimetype: doc.mimetype ?? 'application/pdf' },
+            caption: notification.body,
+          })
+          withDocument = true
+        } catch (fileErr) {
+          this.logger.warn(
+            'WhatsApp document send failed — falling back to text + link',
+            'WhatsAppProvider',
+            { notificationId: notification.id, err: fileErr instanceof Error ? fileErr.message : String(fileErr) },
+          )
+          result = await this.waha.sendText({ chatId, text: this.withLink(notification.body, doc.url) })
+        }
+      } else {
+        result = await this.waha.sendText({ chatId, text: notification.body })
+      }
 
       this.logger.log(`WhatsApp notification sent`, 'WhatsAppProvider', {
         notificationId: notification.id,
         wahaMessageId: result.id,
+        withDocument,
       })
 
       return { providerMessageId: result.id, provider: WAHA_PROVIDER }
@@ -98,5 +119,26 @@ export class WhatsAppProvider {
       })
       throw new AppInternalServerException('Failed to send WhatsApp notification')
     }
+  }
+
+  /** Append a document link to a message body (fallback when documents can't be sent). */
+  private withLink(body: string, url: string): string {
+    return body?.trim() ? `${body}\n\n${url}` : url
+  }
+
+  /** Pull the first document attachment (a hosted PDF URL) off a notification's metadata. */
+  private extractDocument(
+    notification: Notification,
+  ): { url: string; filename: string; mimetype?: string } | null {
+    const raw = (notification.metadata as { attachments?: unknown } | null)?.attachments
+    if (!Array.isArray(raw)) return null
+    for (const a of raw) {
+      const url = (a as { path?: string }).path
+      const filename = (a as { filename?: string }).filename
+      if (typeof url === 'string' && typeof filename === 'string') {
+        return { url, filename, mimetype: (a as { content_type?: string }).content_type }
+      }
+    }
+    return null
   }
 }

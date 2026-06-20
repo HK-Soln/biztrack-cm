@@ -2,26 +2,53 @@
 import { Product } from '@/entities/product.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductVariantOption } from '@/entities/product-variant-option.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { ProductImage } from '@/entities/product-image.entity'
 import { ProductsService } from '../services/products.service'
+
+const qb = (rawOne: unknown) => {
+  const chain: any = {
+    select: jest.fn(() => chain),
+    where: jest.fn(() => chain),
+    update: jest.fn(() => chain),
+    set: jest.fn(() => chain),
+    getRawOne: jest.fn(async () => rawOne),
+    execute: jest.fn(async () => ({ affected: 0 })),
+  }
+  return chain
+}
 
 const makeService = () => {
   const transactionProductRepo = {
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => ({ id: 'product-1', ...input })),
+    update: jest.fn(async () => ({ affected: 1 })),
   }
   const transactionInventoryRepo = {
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => input),
+    update: jest.fn(async () => ({ affected: 1 })),
+    createQueryBuilder: jest.fn(() => qb({ s: '0' })),
   }
   const transactionMovementRepo = {
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => input),
   }
+  const transactionVariantRepo = { find: jest.fn(async () => []), update: jest.fn(async () => ({ affected: 0 })) }
+  const transactionOptionRepo = { softDelete: jest.fn(async () => ({ affected: 0 })) }
+  const transactionSerialRepo = { count: jest.fn(async () => 0), createQueryBuilder: jest.fn(() => qb(null)) }
+  const transactionImageRepo = { delete: jest.fn(async () => ({ affected: 0 })) }
   const manager = {
     getRepository: jest.fn((entity) => {
       if (entity === Product) return transactionProductRepo
       if (entity === InventoryLevel) return transactionInventoryRepo
       if (entity === InventoryMovement) return transactionMovementRepo
+      if (entity === ProductVariant) return transactionVariantRepo
+      if (entity === ProductVariantOption) return transactionOptionRepo
+      if (entity === ProductSerialUnit) return transactionSerialRepo
+      if (entity === ProductImage) return transactionImageRepo
       throw new Error(`Unexpected repository request: ${entity}`)
     }),
   }
@@ -94,6 +121,11 @@ const makeService = () => {
     transactionProductRepo,
     transactionInventoryRepo,
     transactionMovementRepo,
+    transactionVariantRepo,
+    transactionOptionRepo,
+    transactionSerialRepo,
+    transactionImageRepo,
+    auditService,
   }
 }
 
@@ -203,5 +235,47 @@ describe('ProductsService', () => {
         categoryId: 'cat-1',
       }),
     ).rejects.toMatchObject({ code: 'CATEGORY_NOT_LEAF' })
+  })
+})
+
+describe('ProductsService.softDelete (cascade + write-off)', () => {
+  it('non-serialised: writes off remaining stock and cascades variants/options/images/levels', async () => {
+    const ctx = makeService()
+    jest.spyOn(ctx.service, 'findById').mockResolvedValue({ id: 'p1', name: 'Tee', isSerialized: false } as any)
+    ctx.transactionInventoryRepo.createQueryBuilder = jest.fn(() => qb({ s: '8' })) as any
+    ctx.transactionVariantRepo.find = jest.fn(async () => [{ id: 'v1' }, { id: 'v2' }]) as any
+
+    await ctx.service.softDelete('p1', 'biz-1', { businessId: 'biz-1', actorId: 'u1' } as any)
+
+    expect(ctx.transactionOptionRepo.softDelete).toHaveBeenCalled()
+    expect(ctx.transactionVariantRepo.update).toHaveBeenCalled()
+    expect(ctx.transactionImageRepo.delete).toHaveBeenCalledWith({ productId: 'p1' })
+    expect(ctx.transactionMovementRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MovementType.MANUAL_ADJUSTMENT, quantityChange: -8, quantityBefore: 8, quantityAfter: 0, referenceType: 'product' }),
+    )
+    expect(ctx.transactionProductRepo.update).toHaveBeenCalledWith('p1', expect.objectContaining({ isActive: false }))
+    expect(ctx.auditService.log).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'DELETE', entityType: 'product' }))
+  })
+
+  it('serialised: retires IN_STOCK units and writes off their count', async () => {
+    const ctx = makeService()
+    jest.spyOn(ctx.service, 'findById').mockResolvedValue({ id: 'p1', name: 'Phone', isSerialized: true } as any)
+    ctx.transactionSerialRepo.count = jest.fn(async () => 3) as any
+
+    await ctx.service.softDelete('p1', 'biz-1', { businessId: 'biz-1', actorId: 'u1' } as any)
+
+    expect(ctx.transactionSerialRepo.createQueryBuilder).toHaveBeenCalled()
+    expect(ctx.transactionMovementRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ quantityChange: -3, quantityBefore: 3, quantityAfter: 0 }),
+    )
+  })
+
+  it('no stock → no write-off movement, but still soft-deletes the product', async () => {
+    const ctx = makeService()
+    jest.spyOn(ctx.service, 'findById').mockResolvedValue({ id: 'p1', name: 'Svc', isSerialized: false } as any)
+    // default inventory QB returns s:'0'
+    await ctx.service.softDelete('p1', 'biz-1', { businessId: 'biz-1', actorId: 'u1' } as any)
+    expect(ctx.transactionMovementRepo.create).not.toHaveBeenCalled()
+    expect(ctx.transactionProductRepo.update).toHaveBeenCalledWith('p1', expect.objectContaining({ deletedAt: expect.anything() }))
   })
 })

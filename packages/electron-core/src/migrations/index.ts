@@ -30,6 +30,21 @@ import { migration_0028 } from './0028_serial_units'
 import { migration_0029 } from './0029_outbox_retry'
 import { migration_0030 } from './0030_category_description_show_online'
 import { migration_0031 } from './0031_brands_models'
+import { migration_0032 } from './0032_product_brand_model'
+import { migration_0033 } from './0033_product_scalar_fields'
+import { migration_0034 } from './0034_product_images'
+import { migration_0035 } from './0035_product_variants'
+import { migration_0036 } from './0036_product_meta_variant_stock'
+import { migration_0037 } from './0037_product_serial_units'
+import { migration_0038 } from './0038_local_audit_logs'
+import { migration_0039 } from './0039_rfqs'
+import { migration_0040 } from './0040_purchase_orders'
+import { migration_0041 } from './0041_restock_po_variant'
+import { migration_0042 } from './0042_rfq_quote_file'
+import { migration_0043 } from './0043_restock_settlement'
+import { migration_0044 } from './0044_contact_email'
+import { migration_0045 } from './0045_contact_kyc'
+import { migration_0046 } from './0046_serial_unit_sold'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -67,6 +82,21 @@ export const MIGRATIONS: Migration[] = [
   migration_0029,
   migration_0030,
   migration_0031,
+  migration_0032,
+  migration_0033,
+  migration_0034,
+  migration_0035,
+  migration_0036,
+  migration_0037,
+  migration_0038,
+  migration_0039,
+  migration_0040,
+  migration_0041,
+  migration_0042,
+  migration_0043,
+  migration_0044,
+  migration_0045,
+  migration_0046,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

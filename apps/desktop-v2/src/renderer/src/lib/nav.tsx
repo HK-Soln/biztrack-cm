@@ -117,6 +117,19 @@ export const Icon = {
       <path d="m14 14 3 3" />
     </svg>
   ),
+  cart: s(
+    <>
+      <circle cx="9" cy="20" r="1.4" />
+      <circle cx="17" cy="20" r="1.4" />
+      <path d="M3 4h2l2 12h11l2-8H7" />
+    </>,
+  ),
+  quote: s(
+    <>
+      <path d="M6 3h9l4 4v14H6z" />
+      <path d="M15 3v4h4M9 12h7M9 16h5" />
+    </>,
+  ),
 }
 
 export type NavLeaf = { to: string; label: MessageKey; icon?: keyof typeof Icon; badge?: MessageKey }
@@ -142,6 +155,14 @@ export const NAV: NavEntry[] = [
     ],
   },
   { to: '/inventory', label: 'nav.inventory', icon: 'inventory' },
+  {
+    label: 'nav.purchasing',
+    icon: 'cart',
+    children: [
+      { to: '/purchasing/rfqs', label: 'nav.rfqs', icon: 'quote' },
+      { to: '/purchasing/orders', label: 'nav.purchaseOrders', icon: 'cart' },
+    ],
+  },
   { to: '/sales', label: 'nav.sales', icon: 'sales' },
   {
     label: 'nav.online',
@@ -151,15 +172,7 @@ export const NAV: NavEntry[] = [
       { to: '/online/store', label: 'nav.onlineStore', icon: 'settings' },
     ],
   },
-  {
-    label: 'nav.contacts',
-    icon: 'contacts',
-    children: [
-      { to: '/contacts', label: 'nav.allContacts', icon: 'contacts' },
-      { to: '/contacts/debtors', label: 'nav.debtors', icon: 'contacts' },
-      { to: '/contacts/creditors', label: 'nav.creditors', icon: 'contacts' },
-    ],
-  },
+  { to: '/contacts', label: 'nav.contacts', icon: 'contacts' },
   { to: '/expenses', label: 'nav.expenses', icon: 'expenses' },
   { to: '/deposits', label: 'nav.deposits', icon: 'deposits' },
   { to: '/reports', label: 'nav.reports', icon: 'reports' },

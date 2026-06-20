@@ -181,6 +181,60 @@ export class CreateProductDto implements CreateProductRequest {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsUUID()
+  brandId?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  modelId?: string
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_QUANTITY)
+  @Type(() => Number)
+  reorderPoint?: number
+
+  @ApiPropertyOptional({ description: 'Pin to top of lists / online store.' })
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean
+
+  @ApiPropertyOptional({ description: 'Visible in the online store.' })
+  @IsOptional()
+  @IsBoolean()
+  isPublishedOnline?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  onlineDescription?: string
+
+  @ApiPropertyOptional({ description: 'SEO meta title for the online store product page.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  metaTitle?: string
+
+  @ApiPropertyOptional({ description: 'SEO meta description for the online store product page.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  metaDescription?: string
+
+  @ApiPropertyOptional({ default: 0, description: 'Units held back from online sale.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_QUANTITY)
+  @Type(() => Number)
+  onlineStockReserve?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   imageUrl?: string

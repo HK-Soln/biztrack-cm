@@ -16,6 +16,7 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductImage } from '@/entities/product-image.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
@@ -37,6 +38,11 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
+import { Rfq } from '@/entities/rfq.entity'
+import { RfqItem } from '@/entities/rfq-item.entity'
+import { RfqSupplier } from '@/entities/rfq-supplier.entity'
+import { PurchaseOrder } from '@/entities/purchase-order.entity'
+import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { User } from '@/entities/user.entity'
 import { RedisModule } from '@/common/redis/redis.module'
 import { ProductCategoriesRepository } from '@/modules/products/repositories/product-categories.repository'
@@ -87,10 +93,16 @@ import { SyncService } from './sync.service'
       Brand,
       Model,
       BrandCategory,
+      ProductImage,
       ProductVariant,
       ProductVariantOption,
       ProductBundleComponent,
       ProductSerialUnit,
+      Rfq,
+      RfqItem,
+      RfqSupplier,
+      PurchaseOrder,
+      PurchaseOrderItem,
       BusinessMember,
       Business,
       Contact,

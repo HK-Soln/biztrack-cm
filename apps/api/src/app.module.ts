@@ -6,6 +6,7 @@ import { AuthModule } from '@/modules/auth/auth.module'
 import { UsersModule } from '@/modules/users/users.module'
 import { BusinessModule } from '@/modules/business/business.module'
 import { ProductsModule } from '@/modules/products/products.module'
+import { BrandsModule } from '@/modules/brands/brands.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { OnlineModule } from '@/modules/online/online.module'
 import { SyncModule } from '@/modules/sync/sync.module'
@@ -19,6 +20,8 @@ import { StorageModule } from '@/modules/storage/storage.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
+import { RfqsModule } from '@/modules/rfqs/rfqs.module'
+import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
 import { LoggerModule } from './logger/logger.module'
@@ -96,9 +99,12 @@ function resolveI18nPath() {
     BusinessModule,
     QueuesModule,
     ProductsModule,
+    BrandsModule,
     InventoryModule,
     ExpensesModule,
     DebtsModule,
+    RfqsModule,
+    PurchaseOrdersModule,
     SalesModule,
     SyncModule,
     DepositsModule,
