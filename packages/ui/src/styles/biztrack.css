@@ -79,8 +79,14 @@ html,body,#root{height:100%;}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--canvas);color:var(--text);
   -webkit-font-smoothing:antialiased;transition:background .2s,color .2s;}
 
-/* Custom thin scrollbars everywhere — never the default chunky OS scrollbar */
-*{scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent;}
+/* Custom thin scrollbars everywhere — never the default chunky OS scrollbar.
+   Chromium/Electron use the ::-webkit-scrollbar pill below (uniform 5px on the viewport
+   AND every element). scrollbar-width:thin is scoped to Firefox only, because setting it
+   in Chromium SUPPRESSES the ::-webkit-scrollbar pill on element-level scrollers. */
+*{scrollbar-color:var(--border-strong) transparent;}
+@supports not (selector(::-webkit-scrollbar)) {
+  *{scrollbar-width:thin;}
+}
 *::-webkit-scrollbar{width:5px;height:5px;}
 *::-webkit-scrollbar-track{background:transparent;border-radius:999px;}
 *::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:999px;}
@@ -1136,18 +1142,6 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 /* =========================================================
    Sell / POS — catalog + ticket + payment flow (design-sell)
    ========================================================= */
-/* Chromium suppresses the styled ::-webkit-scrollbar pill on element-level scroll
-   areas when scrollbar-width:thin is set (it does honor it on the viewport). Force
-   scrollbar-width:auto on these surfaces so the POS + payment dialog get our pill. */
-.prod-grid, .tl, .pay-modal, .cust-list, .charge-menu{scrollbar-width:auto;}
-.prod-grid::-webkit-scrollbar, .tl::-webkit-scrollbar, .pay-modal::-webkit-scrollbar,
-.cust-list::-webkit-scrollbar, .charge-menu::-webkit-scrollbar{width:5px;height:5px;}
-.prod-grid::-webkit-scrollbar-track, .tl::-webkit-scrollbar-track, .pay-modal::-webkit-scrollbar-track,
-.cust-list::-webkit-scrollbar-track, .charge-menu::-webkit-scrollbar-track{background:transparent;}
-.prod-grid::-webkit-scrollbar-thumb, .tl::-webkit-scrollbar-thumb, .pay-modal::-webkit-scrollbar-thumb,
-.cust-list::-webkit-scrollbar-thumb, .charge-menu::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:999px;}
-.prod-grid::-webkit-scrollbar-thumb:hover, .tl::-webkit-scrollbar-thumb:hover, .pay-modal::-webkit-scrollbar-thumb:hover,
-.cust-list::-webkit-scrollbar-thumb:hover, .charge-menu::-webkit-scrollbar-thumb:hover{background:var(--text-muted);}
 .pos{display:grid;grid-template-columns:1fr minmax(360px,420px);gap:18px;align-items:start;height:calc(100vh - 176px);}
 @media(max-width:1100px){.pos{grid-template-columns:1fr minmax(320px,380px);}}
 /* Tablet/mobile: stack catalog over the ticket; the page scrolls normally. */
