@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
 import type { SaleReceipt } from '@biztrack/types'
@@ -6,6 +6,7 @@ import { renderSaleReceiptHtml } from '@biztrack/templates'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
+import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useSessionStore } from '@/stores/session.store'
 import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
@@ -162,41 +163,18 @@ export function Sell() {
       if (!opts?.silent) { setScanMiss(code); window.setTimeout(() => setScanMiss(null), 1600) }
       return false
     }
+    // A specific serial/variant code adds directly; a product code routes through the same
+    // path as a tap — +1 for a simple product, or the variant/serial picker otherwise.
     if (hit.kind === 'serial') addSerials(hit.product, [hit.serial])
     else if (hit.kind === 'variant') addVariant(hit.product, hit.variant)
-    else if (hit.product.isSerialized) setSerialPick(hit.product)
-    else addSimple(hit.product)
+    else await onProductClick(hit.product)
     return true
   }
-  const handleScanRef = useRef(handleScan)
-  handleScanRef.current = handleScan
-
-  // Hardware barcode scanners type fast and end with Enter. Capture that globally so a
-  // scan adds to the cart even when no field is focused. Skip while editing a field or an
-  // overlay is open (those handle their own input).
+  // Hardware barcode scanners type fast and end with Enter — capture them globally
+  // (capture phase, scanner-speed timing) so a scan adds to the cart wherever focus is.
+  // Paused while a dialog is open so those handle their own input.
   const overlayOpen = payOpen || custOpen || !!variantPick || !!serialPick || heldOpen || !!done
-  useEffect(() => {
-    const buf = { s: '', t: 0 }
-    const onKey = (e: KeyboardEvent) => {
-      if (overlayOpen) return
-      const el = document.activeElement as HTMLElement | null
-      const tag = el?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
-      const now = Date.now()
-      if (e.key === 'Enter') {
-        if (buf.s.length >= 3) { const code = buf.s; void handleScanRef.current(code) }
-        buf.s = ''
-        return
-      }
-      if (e.key.length === 1) {
-        if (now - buf.t > 100) buf.s = ''
-        buf.s += e.key
-        buf.t = now
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [overlayOpen])
+  useBarcodeScanner((code) => { void handleScan(code) }, { enabled: !overlayOpen, minLength: 3 })
 
   // --- charge/discount library --------------------------------------------
   const addCharge = (c: ChargeType) =>
