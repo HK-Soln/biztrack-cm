@@ -1141,7 +1141,7 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
    scrollbar-width:auto on these surfaces so the POS + payment dialog get our pill. */
 .prod-grid, .tl, .pay-modal, .cust-list, .charge-menu{scrollbar-width:auto;}
 .prod-grid::-webkit-scrollbar, .tl::-webkit-scrollbar, .pay-modal::-webkit-scrollbar,
-.cust-list::-webkit-scrollbar, .charge-menu::-webkit-scrollbar{width:8px;height:8px;}
+.cust-list::-webkit-scrollbar, .charge-menu::-webkit-scrollbar{width:5px;height:5px;}
 .prod-grid::-webkit-scrollbar-track, .tl::-webkit-scrollbar-track, .pay-modal::-webkit-scrollbar-track,
 .cust-list::-webkit-scrollbar-track, .charge-menu::-webkit-scrollbar-track{background:transparent;}
 .prod-grid::-webkit-scrollbar-thumb, .tl::-webkit-scrollbar-thumb, .pay-modal::-webkit-scrollbar-thumb,
