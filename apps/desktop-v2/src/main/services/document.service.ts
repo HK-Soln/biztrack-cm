@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell, type WebContentsPrintOptions } from 'electron'
 import { join } from 'path'
 import { mkdir, writeFile } from 'fs/promises'
 
@@ -54,15 +54,47 @@ export class DocumentService {
   }
 
   /**
-   * Silently print a receipt to the connected/default printer — no print dialog. Falls
-   * back to saving the PDF (and revealing it) when there is no printer or the job fails,
-   * so the cashier always ends up with a receipt. Mirrors desktop v1's silent print.
+   * Silently print a receipt to the default printer — no print dialog, no visible window.
+   * Mirrors desktop v1's proven HTML print path: a hidden window is shown OFF-SCREEN
+   * (`showInactive` at -10000,0) so it actually rasterizes — a `show:false` window alone
+   * renders blank to the printer. Falls back to saving + revealing the PDF when there is
+   * no printer or the job fails, so the cashier always ends up with a receipt.
    */
   async printReceipt(html: string, opts: { filename: string; paperWidthMm?: number }): Promise<{ printed: boolean; pdfPath?: string }> {
-    // A hidden window that STILL paints (paintWhenInitiallyHidden) — and we briefly show it
-    // off-screen before printing. Without a painted surface webContents.print fires but the
-    // printer gets a blank page. Mirrors desktop v1's silent receipt print.
-    const win = new BrowserWindow({
+    const widthMm = opts.paperWidthMm ?? 58
+    const win = this.createPrintWindow()
+
+    try {
+      const printers = await win.webContents.getPrintersAsync()
+      if (printers.length === 0) return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+      const deviceName = (printers.find((p) => p.isDefault) ?? printers[0]!).name
+
+      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+      const pageSize = await this.getHtmlReceiptPageSize(win, widthMm)
+      await this.preparePrintWindow(win)
+
+      const ok = await this.printWebContents(win, {
+        silent: true,
+        deviceName,
+        printBackground: true,
+        margins: { marginType: 'none' },
+        pageSize,
+      })
+      if (!ok) return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+      return { printed: true }
+    } catch (err) {
+      console.error('[printReceipt] error', err)
+      return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+    } finally {
+      if (!win.isDestroyed()) win.close()
+    }
+  }
+
+  /** Hidden, off-screen-capable window for silent printing (mirrors v1 createPrintWindow). */
+  private createPrintWindow(): BrowserWindow {
+    const parent =
+      BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    return new BrowserWindow({
       show: false,
       skipTaskbar: true,
       paintWhenInitiallyHidden: true,
@@ -70,53 +102,98 @@ export class DocumentService {
       width: 420,
       height: 760,
       autoHideMenuBar: true,
-      webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
+      ...(parent ? { parent } : {}),
+      webPreferences: { backgroundThrottling: false, contextIsolation: true, nodeIntegration: false, sandbox: true },
     })
+  }
+
+  /**
+   * Show the print window OFF-SCREEN so it paints (silent printing of a never-shown window
+   * produces a blank page), then give it a beat to render. Mirrors v1 preparePrintWindow.
+   */
+  private async preparePrintWindow(win: BrowserWindow): Promise<void> {
+    if (win.isDestroyed()) return
+    win.setSkipTaskbar(true)
+    if (!win.isVisible()) {
+      win.setPosition(-10_000, 0, false)
+      win.showInactive()
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 300))
+  }
+
+  /** Measure rendered content height → page size in microns (mirrors v1 getHtmlReceiptPageSize). */
+  private async getHtmlReceiptPageSize(win: BrowserWindow, widthMm: number): Promise<{ width: number; height: number }> {
+    await win.webContents
+      .executeJavaScript(
+        `new Promise((res)=>{const s=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>res(true)));document.readyState==='complete'?s():window.addEventListener('load',s,{once:true})})`,
+      )
+      .catch(() => undefined)
+    const contentHeight =
+      Number(
+        await win.webContents
+          .executeJavaScript(
+            'Math.ceil(Math.max(document.documentElement?.scrollHeight??0,document.body?.scrollHeight??0,document.documentElement?.offsetHeight??0,document.body?.offsetHeight??0))',
+          )
+          .catch(() => 0),
+      ) || 0
+    const heightMicrons =
+      contentHeight > 0 ? Math.round((contentHeight / 96) * 25_400) + 8_000 : 160 * 1_000 // measured + 8mm pad, else 160mm
+    return { width: Math.round(widthMm * 1_000), height: Math.max(heightMicrons, 50 * 1_000) }
+  }
+
+  /** Run webContents.print with a 10s safety timeout that assumes hand-off (mirrors v1). */
+  private printWebContents(win: BrowserWindow, options: WebContentsPrintOptions): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      const safety = setTimeout(() => {
+        if (settled) return
+        settled = true
+        console.warn('[printReceipt] callback did not fire within 10s; assuming the job was handed off')
+        resolve(true)
+      }, 10_000)
+      win.webContents.print(options, (success, failureReason) => {
+        if (settled) return
+        settled = true
+        clearTimeout(safety)
+        if (!success) console.error('[printReceipt] print failed:', failureReason)
+        resolve(success)
+      })
+    })
+  }
+
+  /** Render the receipt to a PDF, save it under Downloads/BizTrack, and reveal it. */
+  private async saveFallback(html: string, filename: string, widthMm: number): Promise<string> {
+    return this.savePdfReveal(filename, await this.renderReceiptPdf(html, widthMm))
+  }
+
+  /** Render a receipt HTML to a PDF sized to the thermal roll (width x measured content). */
+  private async renderReceiptPdf(html: string, widthMm: number): Promise<Buffer> {
+    const win = new BrowserWindow({ show: false, paintWhenInitiallyHidden: true, webPreferences: { offscreen: true, sandbox: true } })
     try {
-      const printers = await win.webContents.getPrintersAsync()
-      if (printers.length === 0) return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
-      const deviceName = (printers.find((p) => p.isDefault) ?? printers[0]!).name
-
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-
-      // Wait for the document to finish loading + two animation frames so layout has settled.
       await win.webContents
         .executeJavaScript(
           `new Promise((res)=>{const s=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>res(true)));document.readyState==='complete'?s():window.addEventListener('load',s,{once:true})})`,
         )
         .catch(() => undefined)
-
-      const contentHeight =
+      const px =
         Number(
           await win.webContents
-            .executeJavaScript(
-              'Math.ceil(Math.max(document.documentElement.scrollHeight,document.body.scrollHeight,document.documentElement.offsetHeight,document.body.offsetHeight))',
-            )
+            .executeJavaScript('Math.ceil(Math.max(document.documentElement.scrollHeight,document.body.scrollHeight))')
             .catch(() => 0),
         ) || 600
-      const widthMicrons = Math.round((opts.paperWidthMm ?? 58) * 1000) // mm → microns
-      const heightMicrons = Math.max(Math.round((contentHeight / 96) * 25_400) + 8_000, 50_000) // px→microns + 8mm pad
-
-      // Show the window off-screen so it actually paints, then give it a beat to render.
-      win.setPosition(-10_000, 0, false)
-      win.showInactive()
-      await new Promise<void>((r) => setTimeout(r, 300))
-
-      const ok = await new Promise<boolean>((resolve) => {
-        let settled = false
-        const safety = setTimeout(() => { if (!settled) { settled = true; resolve(true) } }, 10_000) // assume handoff
-        win.webContents.print(
-          { silent: true, deviceName, printBackground: true, margins: { marginType: 'none' }, pageSize: { width: widthMicrons, height: heightMicrons } },
-          (success) => { if (settled) return; settled = true; clearTimeout(safety); resolve(success) },
-        )
-      })
-      if (!ok) return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
-      return { printed: true }
-    } catch {
-      return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
+      const width = Math.round(widthMm * 1000) // mm to microns
+      const height = Math.max(Math.round((px / 96) * 25_400) + 4_000, 30_000) // px to microns + 4mm pad
+      return await win.webContents.printToPDF({ printBackground: true, pageSize: { width, height }, margins: { top: 0, bottom: 0, left: 0, right: 0 } })
     } finally {
-      if (!win.isDestroyed()) win.close()
+      win.destroy()
     }
+  }
+
+  private async savePdfReveal(filename: string, buffer: Buffer): Promise<string> {
+    const path = await this.savePdf(filename, buffer)
+    shell.showItemInFolder(path)
+    return path
   }
 
   /** Render the HTML to a PDF and let the user pick where to save it (native dialog). */
@@ -129,13 +206,6 @@ export class DocumentService {
     if (res.canceled || !res.filePath) return { saved: false }
     await writeFile(res.filePath, pdf)
     return { saved: true, path: res.filePath }
-  }
-
-  /** Render the HTML to a PDF, save it under Downloads/BizTrack, and reveal it. */
-  private async saveAndReveal(html: string, filename: string): Promise<string> {
-    const path = await this.savePdf(filename, await this.renderPdf(html))
-    shell.showItemInFolder(path)
-    return path
   }
 
   /** Render → save → open the composer pre-filled → reveal the PDF for attaching. */

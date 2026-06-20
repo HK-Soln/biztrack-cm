@@ -12,7 +12,7 @@ export interface ProcurementDispatchInput {
   businessId: string
   /** Full HTML document (from @biztrack/templates) to render to PDF. */
   html: string
-  /** Plain-text body for the message; the stored PDF link is appended. */
+  /** Plain-text body for the message; the PDF rides as an attachment, not a link. */
   message: string
   /** File name (without extension) for the stored PDF. */
   filename: string
@@ -23,10 +23,10 @@ export interface ProcurementDispatchInput {
 }
 
 /**
- * Renders a procurement document (RFQ/PO) to PDF, stores it, and dispatches it to the
- * supplier via WhatsApp and/or email (a link to the stored PDF). Used by the cloud
- * "send" endpoints; the desktop app shares locally instead. Notifications go through
- * the existing async pipeline (Resend / WAHA).
+ * Renders a procurement document (RFQ/PO/receipt) to PDF, stores it, and dispatches it to
+ * the recipient via WhatsApp and/or email with the PDF as a real attachment/document. Used
+ * by the cloud "send" endpoints; the desktop app shares locally instead. Notifications go
+ * through the existing async pipeline (Resend / WAHA).
  */
 @Injectable()
 export class ProcurementSendService {
@@ -52,7 +52,14 @@ export class ProcurementSendService {
       originalName: `${input.filename}.pdf`,
       folder: 'procurement',
     })
-    const body = `${input.message}\n\n${stored.url}`
+
+    // The PDF rides as a real attachment (email) / document (WhatsApp), not a link in the
+    // body. Providers read `metadata.attachments`. Email gets the PDF inline as base64
+    // (Resend refuses to fetch localhost/private URLs); WhatsApp gets the hosted URL for
+    // WAHA to fetch (falling back to a text link when the engine can't send documents).
+    const filename = `${input.filename}.pdf`
+    const emailAttachment = { filename, content: pdf.toString('base64'), content_type: 'application/pdf' }
+    const waAttachment = { filename, path: stored.url, content_type: 'application/pdf' }
 
     // NOTE: reuses PAYMENT_REMINDER notification type (supplier-facing business message)
     // to avoid a non-transactional enum migration; metadata marks it as procurement.
@@ -61,9 +68,9 @@ export class ProcurementSendService {
         channel: NotificationChannel.WHATSAPP,
         type: NotificationType.PAYMENT_REMINDER,
         recipient: input.phone,
-        body,
+        body: input.message,
         businessId: input.businessId,
-        metadata: { kind: 'procurement', pdfUrl: stored.url },
+        metadata: { kind: 'procurement', pdfUrl: stored.url, attachments: [waAttachment] },
       })
     }
     if (input.channels.includes('email') && input.email) {
@@ -72,9 +79,9 @@ export class ProcurementSendService {
         type: NotificationType.PAYMENT_REMINDER,
         recipient: input.email,
         subject: input.subject,
-        body,
+        body: input.message,
         businessId: input.businessId,
-        metadata: { kind: 'procurement', pdfUrl: stored.url },
+        metadata: { kind: 'procurement', pdfUrl: stored.url, attachments: [emailAttachment] },
       })
     }
     return { pdfUrl: stored.url }

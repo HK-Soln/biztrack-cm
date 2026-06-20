@@ -23,6 +23,7 @@
     "@tanstack/react-query": "^5.62.7",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.7.0",
+    "pdf-to-printer": "^5.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",

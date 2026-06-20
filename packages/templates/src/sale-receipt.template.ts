@@ -79,7 +79,7 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
     <div class="c b">${escapeHtml(receipt.saleNumber)}</div>
     <div class="c s">${escapeHtml(when)}</div>
     ${receipt.cashierName ? `<div class="c s">${escapeHtml(L.cashier)}: ${escapeHtml(receipt.cashierName)}</div>` : ''}
-    ${receipt.customerName ? `<div class="c s">${escapeHtml(L.customer)}: ${escapeHtml(receipt.customerName)}</div>` : ''}
+    ${receipt.customerName ? `<div class="c s cust">${escapeHtml(L.customer)}: ${escapeHtml(receipt.customerName)}</div>` : ''}
     <div class="d"></div>
     ${items}
     <div class="d"></div>
@@ -92,22 +92,28 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
     ${receipt.creditAmount > 0 ? row(L.credit, m(receipt.creditAmount)) : ''}
     ${receipt.changeGiven > 0 ? row(L.change, m(receipt.changeGiven)) : ''}
     <div class="d"></div>
-    <div class="c">${escapeHtml(receipt.footer || L.thankYou)}</div>
+    <div class="c foot">${escapeHtml(receipt.footer || L.thankYou)}</div>
   `
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(receipt.saleNumber)}</title><style>
-    *{margin:0;padding:0;box-sizing:border-box}
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     html,body{background:#fff}
-    body{font:12px/1.5 'Courier New',ui-monospace,monospace;color:#000;width:${width}mm;padding:5mm 4mm}
+    html{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9999px}
+    ::-webkit-scrollbar-track{background:transparent}
+    body{font:13px/1.55 'Courier New',ui-monospace,monospace;font-weight:700;color:#000;width:${width}mm;padding:10mm 4mm;text-rendering:geometricPrecision;-webkit-font-smoothing:none}
     .c{text-align:center}
-    .h{font-size:15px;font-weight:700}
-    .s{font-size:11px;color:#333}
-    .b{font-weight:700}
+    .h{font-size:16px;font-weight:800;margin-bottom:6px}
+    .s{font-size:12px;color:#000}
+    .cust{margin-bottom:8px}
+    .foot{margin-top:12px}
+    .b{font-weight:800}
     .d{border-top:1px dashed #000;margin:6px 0}
     .r{display:flex;justify-content:space-between;gap:8px}
-    .r.big{font-size:14px;font-weight:700;border-top:1px solid #000;margin-top:4px;padding-top:4px}
+    .r.big{font-size:15px;font-weight:800;border-top:2px solid #000;margin-top:4px;padding-top:4px}
     .it{margin-bottom:3px}
-    .it .sub{font-size:10.5px;color:#444}
+    .it .sub{font-size:11.5px;color:#000}
     @media print{@page{margin:0}}
   </style></head><body>${body}</body></html>`
 }
