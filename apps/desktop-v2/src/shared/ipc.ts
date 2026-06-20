@@ -117,6 +117,8 @@ export const IPC = {
   salesGet: 'sales:get',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
+  salesReceiptHtml: 'sales:receipt-html',
+  salesDownloadReceipt: 'sales:download-receipt',
   savingsGetForCustomer: 'savings:get-for-customer',
 } as const
 
@@ -1355,6 +1357,10 @@ export interface BridgeApi {
     ) => Promise<void>
     /** Print the receipt directly to the connected printer; falls back to saving a PDF. */
     printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    /** Render the receipt to a PDF and save it via the native dialog. */
+    downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
+    /** The compiled receipt HTML (for the success-screen preview). */
+    receiptHtml: (saleId: string, locale: string) => Promise<string | null>
   }
   savings: {
     /** A customer's deposit balance (null if none) — for the Sell "Deposit" tender. */

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'path'
 import { mkdir, writeFile } from 'fs/promises'
 
@@ -84,6 +84,18 @@ export class DocumentService {
     } finally {
       win.destroy()
     }
+  }
+
+  /** Render the HTML to a PDF and let the user pick where to save it (native dialog). */
+  async downloadPdf(html: string, defaultName: string): Promise<{ saved: boolean; path?: string }> {
+    const pdf = await this.renderPdf(html)
+    const res = await dialog.showSaveDialog({
+      defaultPath: `${sanitize(defaultName)}.pdf`,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    })
+    if (res.canceled || !res.filePath) return { saved: false }
+    await writeFile(res.filePath, pdf)
+    return { saved: true, path: res.filePath }
   }
 
   /** Render the HTML to a PDF, save it under Downloads/BizTrack, and reveal it. */

@@ -218,6 +218,8 @@ export interface DataClient {
       opts?: { recipient?: DocumentRecipient; online?: boolean },
     ) => Promise<void>
     printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
+    receiptHtml: (saleId: string, locale: string) => Promise<string | null>
   }
   savings: {
     getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
@@ -354,6 +356,8 @@ function electronAdapter(): DataClient {
       get: (id) => window.api.sales.get(id),
       sendReceipt: (saleId, channel, locale, opts) => window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
+      downloadReceipt: (saleId, locale) => window.api.sales.downloadReceipt(saleId, locale),
+      receiptHtml: (saleId, locale) => window.api.sales.receiptHtml(saleId, locale),
     },
     savings: {
       getForCustomer: (customerId) => window.api.savings.getForCustomer(customerId),
@@ -429,7 +433,7 @@ function cloudAdapter(): DataClient {
     audit: { list: notWired },
     uploads: { file: notWired },
     charges: { listActive: notWired },
-    sales: { create: notWired, list: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired },
+    sales: { create: notWired, list: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
     savings: { getForCustomer: notWired },
   }
 }

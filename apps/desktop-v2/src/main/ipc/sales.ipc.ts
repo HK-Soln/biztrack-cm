@@ -25,6 +25,13 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
   ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) => savings.getForCustomer(customerId))
 
+  // The compiled receipt HTML (shown as a preview + the exact thing printed/sent).
+  ipcMain.handle(IPC.salesReceiptHtml, (_e, saleId: string, locale: string) => {
+    const built = sales.buildReceipt(saleId)
+    if (!built) return null
+    return renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
+  })
+
   // Print the receipt straight to the connected printer (no dialog); saves + reveals a
   // PDF if there's no printer or the job fails.
   ipcMain.handle(IPC.salesPrintReceipt, async (_e, saleId: string, locale: string) => {
@@ -32,6 +39,14 @@ export function registerSalesIpc(
     if (!built) throw new Error('Sale not found.')
     const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
     return documents.printReceipt(html, { filename: `receipt-${built.receipt.saleNumber}`, paperWidthMm: RECEIPT_WIDTH_MM })
+  })
+
+  // Render the receipt to a PDF and save it via the native dialog.
+  ipcMain.handle(IPC.salesDownloadReceipt, async (_e, saleId: string, locale: string) => {
+    const built = sales.buildReceipt(saleId)
+    if (!built) throw new Error('Sale not found.')
+    const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
+    return documents.downloadPdf(html, `receipt-${built.receipt.saleNumber}`)
   })
 
   // Send the receipt to the customer. Online → the server renders + dispatches (Resend/
