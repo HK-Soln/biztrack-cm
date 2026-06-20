@@ -739,6 +739,11 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
   const lang = useLangStore((s) => s.lang)
   const businessName = useSessionStore((s) => s.status.businessName) || 'BizTrack'
   const onCredit = sale.creditAmount > 0
+  const [sending, setSending] = useState<'whatsapp' | 'email' | null>(null)
+  const send = async (channel: 'whatsapp' | 'email') => {
+    setSending(channel)
+    try { await dataClient.sales.sendReceipt(sale.id, channel, lang) } finally { setSending(null) }
+  }
   const print = () => {
     const receipt: SaleReceipt = {
       businessName,
@@ -788,6 +793,8 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
           </div>
           <div className="pm-success-acts" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <button type="button" onClick={print}>{I.print}{t('sell.print')}</button>
+            <button type="button" disabled={sending !== null} onClick={() => send('whatsapp')}>{I.phone}{sending === 'whatsapp' ? '…' : t('sell.sendWhatsApp')}</button>
+            <button type="button" disabled={sending !== null} onClick={() => send('email')}>{I.receipt}{sending === 'email' ? '…' : t('sell.sendEmail')}</button>
             <button type="button" className="primary" onClick={onNew}>{t('sell.newSale')}</button>
           </div>
         </div>

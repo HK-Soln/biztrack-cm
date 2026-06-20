@@ -20,6 +20,18 @@ export interface SaleReceiptLabels {
   methods: Record<string, string>
 }
 
+/** Built-in en/fr receipt labels so the API and desktop render identical receipts
+ * without each re-deriving the strings. Callers may still pass their own labels. */
+export function saleReceiptLabels(locale: string): SaleReceiptLabels {
+  const fr = (locale || 'fr').toLowerCase().startsWith('fr')
+  const methods = fr
+    ? { CASH: 'Espèces', MTN_MOMO: 'MTN MoMo', ORANGE_MONEY: 'Orange Money', CARD: 'Carte', SAVINGS: 'Dépôt', MIXED: 'Partagé' }
+    : { CASH: 'Cash', MTN_MOMO: 'MTN MoMo', ORANGE_MONEY: 'Orange Money', CARD: 'Card', SAVINGS: 'Deposit', MIXED: 'Split' }
+  return fr
+    ? { subtotal: 'Sous-total', discounts: 'Remises', charges: 'Frais', total: 'Total', paid: 'Payé', credit: 'Crédit', change: 'Monnaie rendue', cashier: 'Caissier', customer: 'Client', thankYou: 'Merci pour votre achat !', methods }
+    : { subtotal: 'Subtotal', discounts: 'Discounts', charges: 'Charges', total: 'Total', paid: 'Paid', credit: 'Credit', change: 'Change given', cashier: 'Cashier', customer: 'Customer', thankYou: 'Thank you for your purchase!', methods }
+}
+
 export interface SaleReceiptOptions {
   labels: SaleReceiptLabels
   /** Locale for money/date formatting (e.g. 'fr', 'en'). Defaults to 'fr'. */

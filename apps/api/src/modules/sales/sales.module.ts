@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { Business } from '@/entities/business.entity'
+import { Contact } from '@/entities/contact.entity'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
 import { Product } from '@/entities/product.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
@@ -10,6 +11,7 @@ import { DebtsModule } from '@/modules/debts/debts.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
+import { DocumentsModule } from '@/modules/documents/documents.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { SalesController } from './controllers/sales.controller'
 import { DailySalesSummaryService } from './services/daily-sales-summary.service'
@@ -22,9 +24,11 @@ import { SalesService } from './services/sales.service'
     DebtsModule,
     InventoryModule,
     DepositsModule,
+    DocumentsModule,
     AuditModule,
     TypeOrmModule.forFeature([
       Business,
+      Contact,
       DailySaleSummary,
       Product,
       Sale,

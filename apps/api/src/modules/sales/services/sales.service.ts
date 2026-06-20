@@ -41,8 +41,13 @@ import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import { DepositsService } from '@/modules/savings/services/savings.service'
+import { ProcurementSendService } from '@/modules/documents/procurement-send.service'
+import { Contact } from '@/entities/contact.entity'
+import { renderSaleReceiptHtml, saleReceiptLabels } from '@biztrack/templates'
 import type { CreateSaleDto } from '../dto/create-sale.dto'
+import type { SendSaleReceiptDto } from '../dto/send-sale-receipt.dto'
 import type { VoidSaleDto } from '../dto/void-sale.dto'
+import { SaleReceiptDto } from '../dto/sale-response.dto'
 import { DailySalesSummaryService } from './daily-sales-summary.service'
 import { SaleNumberService } from './sale-number.service'
 
@@ -83,6 +88,9 @@ export class SalesService {
     private readonly businessesRepo: Repository<Business>,
     @InjectRepository(Sale)
     private readonly salesRepo: Repository<Sale>,
+    @InjectRepository(Contact)
+    private readonly contactsRepo: Repository<Contact>,
+    private readonly procurementSend: ProcurementSendService,
     private readonly debtsService: DebtsService,
     private readonly inventoryService: InventoryService,
     private readonly savingsService: DepositsService,
@@ -971,6 +979,56 @@ export class SalesService {
       }
     } catch (error) {
       return this.handleServiceError('getReceipt', error, { id, businessId })
+    }
+  }
+
+  /**
+   * Render the sale's receipt (shared @biztrack/templates template) to a PDF and dispatch
+   * it to the customer over WhatsApp/email. Same pipeline as RFQ/PO sends (ProcurementSend).
+   */
+  async sendReceipt(
+    id: string,
+    businessId: string,
+    dto: SendSaleReceiptDto,
+    context?: AuditContext,
+  ): Promise<{ pdfUrl: string }> {
+    try {
+      const { sale, business } = await this.getReceipt(id, businessId)
+      const receipt = SaleReceiptDto.fromSale(sale, business)
+      const locale = dto.locale?.trim() || 'fr'
+      const html = renderSaleReceiptHtml(receipt, { labels: saleReceiptLabels(locale), locale })
+
+      let phone = dto.recipient?.phone ?? sale.customerPhone ?? null
+      let email = dto.recipient?.email ?? null
+      if ((!email || !phone) && sale.customerId) {
+        const contact = await this.contactsRepo.findOne({ where: { id: sale.customerId, businessId } })
+        email = email ?? contact?.email ?? null
+        phone = phone ?? contact?.phone ?? null
+      }
+
+      const result = await this.procurementSend.dispatch({
+        businessId,
+        html,
+        message: `${business.name} — ${sale.saleNumber}`,
+        filename: `receipt-${sale.saleNumber}`,
+        subject: `${business.name} — ${sale.saleNumber}`,
+        channels: dto.channels,
+        phone,
+        email,
+      })
+
+      if (context) {
+        this.auditService.log(context, {
+          action: 'EXPORT',
+          entityType: 'sale_receipt',
+          entityId: sale.id,
+          entityLabel: sale.saleNumber,
+          changes: { before: null, after: { channels: dto.channels } },
+        })
+      }
+      return result
+    } catch (error) {
+      return this.handleServiceError('sendReceipt', error, { id, businessId })
     }
   }
 

@@ -160,6 +160,7 @@ const api: BridgeApi = {
     create: (input) => ipcRenderer.invoke(IPC.salesCreate, input),
     list: (query) => ipcRenderer.invoke(IPC.salesList, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
+    sendReceipt: (saleId, channel, locale) => ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale),
   },
   savings: {
     getForCustomer: (customerId) => ipcRenderer.invoke(IPC.savingsGetForCustomer, customerId),

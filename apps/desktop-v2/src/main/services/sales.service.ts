@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod } from '@biztrack/types'
+import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   LocalSale,
@@ -396,6 +397,51 @@ export class SalesService {
         id: p.id, method: p.method as LocalSalePayment['method'], amount: p.amount, mobileMoneyReference: p.mobile_money_reference,
       })),
     }
+  }
+
+  /** Build the shareable receipt view-model + the customer's contact channels (for send). */
+  buildReceipt(saleId: string): { receipt: SaleReceipt; phone: string | null; email: string | null } | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const sale = this.get(saleId)
+    if (!sale) return null
+    const biz = this.db.get<{ name: string; phone: string | null; email: string | null; address: string | null; city: string | null }>(
+      `SELECT name, phone, email, address, city FROM local_businesses WHERE id = ?`,
+      [businessId],
+    )
+    let email: string | null = null
+    let phone = sale.customerPhone
+    if (sale.customerId) {
+      const c = this.db.get<{ email: string | null; phone: string | null }>(`SELECT email, phone FROM contacts WHERE id = ?`, [sale.customerId])
+      email = c?.email ?? null
+      phone = phone ?? c?.phone ?? null
+    }
+    const receipt: SaleReceipt = {
+      businessName: biz?.name ?? 'BizTrack',
+      businessPhone: biz?.phone ?? null,
+      businessAddress: [biz?.address, biz?.city].filter(Boolean).join(', ') || null,
+      saleNumber: sale.saleNumber,
+      soldAt: sale.soldAt,
+      cashierName: '',
+      customerName: sale.customerId ? sale.customerName : null,
+      customerPhone: sale.customerPhone,
+      items: sale.items.map((i) => ({
+        name: `${i.productName}${i.variantName ? ' · ' + i.variantName : ''}${i.serialNumber ? ' · ' + i.serialNumber : ''}`,
+        qty: i.quantity,
+        unitPrice: i.unitPrice,
+        total: i.lineTotal,
+      })),
+      subtotal: sale.subtotal,
+      discountAmount: sale.discountAmount,
+      chargesAmount: sale.chargesAmount,
+      totalAmount: sale.totalAmount,
+      amountPaid: sale.amountPaid,
+      creditAmount: sale.creditAmount,
+      changeGiven: sale.changeGiven,
+      currency: sale.currency,
+      payments: sale.payments.map((p) => ({ method: p.method as PaymentMethod, amount: p.amount })),
+    }
+    return { receipt, phone, email }
   }
 
   // ---- internals -----------------------------------------------------------
