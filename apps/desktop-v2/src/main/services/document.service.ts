@@ -59,22 +59,55 @@ export class DocumentService {
    * so the cashier always ends up with a receipt. Mirrors desktop v1's silent print.
    */
   async printReceipt(html: string, opts: { filename: string; paperWidthMm?: number }): Promise<{ printed: boolean; pdfPath?: string }> {
-    // A hidden (not offscreen) window — offscreen rendering can't drive webContents.print.
-    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+    // A hidden window that STILL paints (paintWhenInitiallyHidden) — and we briefly show it
+    // off-screen before printing. Without a painted surface webContents.print fires but the
+    // printer gets a blank page. Mirrors desktop v1's silent receipt print.
+    const win = new BrowserWindow({
+      show: false,
+      skipTaskbar: true,
+      paintWhenInitiallyHidden: true,
+      backgroundColor: '#ffffff',
+      width: 420,
+      height: 760,
+      autoHideMenuBar: true,
+      webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
+    })
     try {
-      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
       const printers = await win.webContents.getPrintersAsync()
       if (printers.length === 0) return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
+      const deviceName = (printers.find((p) => p.isDefault) ?? printers[0]!).name
 
-      const printer = printers.find((p) => p.isDefault) ?? printers[0]!
-      const heightPx = Number(await win.webContents.executeJavaScript('document.body.scrollHeight').catch(() => 0)) || 600
-      const width = Math.round((opts.paperWidthMm ?? 58) * 1000) // mm → microns
-      const height = Math.max(width, Math.round(heightPx * 264.583)) // px → microns @96dpi
+      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+
+      // Wait for the document to finish loading + two animation frames so layout has settled.
+      await win.webContents
+        .executeJavaScript(
+          `new Promise((res)=>{const s=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>res(true)));document.readyState==='complete'?s():window.addEventListener('load',s,{once:true})})`,
+        )
+        .catch(() => undefined)
+
+      const contentHeight =
+        Number(
+          await win.webContents
+            .executeJavaScript(
+              'Math.ceil(Math.max(document.documentElement.scrollHeight,document.body.scrollHeight,document.documentElement.offsetHeight,document.body.offsetHeight))',
+            )
+            .catch(() => 0),
+        ) || 600
+      const widthMicrons = Math.round((opts.paperWidthMm ?? 58) * 1000) // mm → microns
+      const heightMicrons = Math.max(Math.round((contentHeight / 96) * 25_400) + 8_000, 50_000) // px→microns + 8mm pad
+
+      // Show the window off-screen so it actually paints, then give it a beat to render.
+      win.setPosition(-10_000, 0, false)
+      win.showInactive()
+      await new Promise<void>((r) => setTimeout(r, 300))
 
       const ok = await new Promise<boolean>((resolve) => {
+        let settled = false
+        const safety = setTimeout(() => { if (!settled) { settled = true; resolve(true) } }, 10_000) // assume handoff
         win.webContents.print(
-          { silent: true, deviceName: printer.name, printBackground: true, margins: { marginType: 'none' }, pageSize: { width, height } },
-          (success) => resolve(success),
+          { silent: true, deviceName, printBackground: true, margins: { marginType: 'none' }, pageSize: { width: widthMicrons, height: heightMicrons } },
+          (success) => { if (settled) return; settled = true; clearTimeout(safety); resolve(success) },
         )
       })
       if (!ok) return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
@@ -82,7 +115,7 @@ export class DocumentService {
     } catch {
       return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
     } finally {
-      win.destroy()
+      if (!win.isDestroyed()) win.close()
     }
   }
 
