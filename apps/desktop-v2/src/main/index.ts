@@ -303,7 +303,7 @@ app.whenReady().then(() => {
     savings,
     audit,
   )
-  registerSalesIpc(sales, savings, documents)
+  registerSalesIpc(sales, savings, documents, authHttp)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

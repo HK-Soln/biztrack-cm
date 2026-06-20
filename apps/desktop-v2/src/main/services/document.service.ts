@@ -53,6 +53,46 @@ export class DocumentService {
     return path
   }
 
+  /**
+   * Silently print a receipt to the connected/default printer — no print dialog. Falls
+   * back to saving the PDF (and revealing it) when there is no printer or the job fails,
+   * so the cashier always ends up with a receipt. Mirrors desktop v1's silent print.
+   */
+  async printReceipt(html: string, opts: { filename: string; paperWidthMm?: number }): Promise<{ printed: boolean; pdfPath?: string }> {
+    // A hidden (not offscreen) window — offscreen rendering can't drive webContents.print.
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+    try {
+      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+      const printers = await win.webContents.getPrintersAsync()
+      if (printers.length === 0) return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
+
+      const printer = printers.find((p) => p.isDefault) ?? printers[0]!
+      const heightPx = Number(await win.webContents.executeJavaScript('document.body.scrollHeight').catch(() => 0)) || 600
+      const width = Math.round((opts.paperWidthMm ?? 58) * 1000) // mm → microns
+      const height = Math.max(width, Math.round(heightPx * 264.583)) // px → microns @96dpi
+
+      const ok = await new Promise<boolean>((resolve) => {
+        win.webContents.print(
+          { silent: true, deviceName: printer.name, printBackground: true, margins: { marginType: 'none' }, pageSize: { width, height } },
+          (success) => resolve(success),
+        )
+      })
+      if (!ok) return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
+      return { printed: true }
+    } catch {
+      return { printed: false, pdfPath: await this.saveAndReveal(html, opts.filename) }
+    } finally {
+      win.destroy()
+    }
+  }
+
+  /** Render the HTML to a PDF, save it under Downloads/BizTrack, and reveal it. */
+  private async saveAndReveal(html: string, filename: string): Promise<string> {
+    const path = await this.savePdf(filename, await this.renderPdf(html))
+    shell.showItemInFolder(path)
+    return path
+  }
+
   /** Render → save → open the composer pre-filled → reveal the PDF for attaching. */
   async share(input: ShareDocumentInput): Promise<{ pdfPath: string }> {
     const pdf = await this.renderPdf(input.html)

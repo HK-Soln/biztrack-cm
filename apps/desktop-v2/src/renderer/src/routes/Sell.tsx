@@ -1,16 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
-import type { SaleReceipt } from '@biztrack/types'
-import { renderSaleReceiptHtml } from '@biztrack/templates'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
-import { useSessionStore } from '@/stores/session.store'
 import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
-import type { ChargeType, LocalProduct, LocalSaleDetail, LocalSerialUnit, LocalVariant, SaleInput } from '@shared/ipc'
+import type { ChargeType, DocumentSendChannel, LocalProduct, LocalSaleDetail, LocalSerialUnit, LocalVariant, SaleInput } from '@shared/ipc'
 
 const PAGE = 20
 
@@ -718,48 +715,27 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
   const t = useT()
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
-  const businessName = useSessionStore((s) => s.status.businessName) || 'BizTrack'
   const onCredit = sale.creditAmount > 0
-  const [sending, setSending] = useState<'whatsapp' | 'email' | null>(null)
-  const send = async (channel: 'whatsapp' | 'email') => {
-    setSending(channel)
-    try { await dataClient.sales.sendReceipt(sale.id, channel, lang) } finally { setSending(null) }
-  }
-  const print = () => {
-    const receipt: SaleReceipt = {
-      businessName,
-      saleNumber: sale.saleNumber,
-      soldAt: sale.soldAt,
-      cashierName: '',
-      customerName: sale.customerId ? customerName : null,
-      items: sale.items.map((i) => ({
-        name: `${i.productName}${i.variantName ? ' · ' + i.variantName : ''}${i.serialNumber ? ' · ' + i.serialNumber : ''}`,
-        qty: i.quantity,
-        unitPrice: i.unitPrice,
-        total: i.lineTotal,
-      })),
-      subtotal: sale.subtotal,
-      discountAmount: sale.discountAmount,
-      chargesAmount: sale.chargesAmount,
-      totalAmount: sale.totalAmount,
-      amountPaid: sale.amountPaid,
-      creditAmount: sale.creditAmount,
-      changeGiven: sale.changeGiven,
-      currency: sale.currency,
-      payments: sale.payments.map((p) => ({ method: p.method, amount: p.amount })),
+  const [printing, setPrinting] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [sendOpen, setSendOpen] = useState(false)
+
+  const flash = (msg: string) => { setNote(msg); window.setTimeout(() => setNote(null), 2200) }
+  const print = async () => {
+    setPrinting(true)
+    try {
+      const r = await dataClient.sales.printReceipt(sale.id, lang)
+      flash(r.printed ? t('sell.printed') : t('sell.printSaved'))
+    } catch {
+      flash(t('sell.printFailed'))
+    } finally {
+      setPrinting(false)
     }
-    printReceipt(renderSaleReceiptHtml(receipt, {
-      locale: lang,
-      labels: {
-        subtotal: t('sell.subtotal'), discounts: t('sell.discounts'), charges: t('sell.charges'), total: t('sell.total'),
-        paid: t('sell.amountReceived'), credit: t('sell.onCredit'), change: t('sell.changeGiven'),
-        cashier: t('sell.cashier'), customer: t('sell.customerLabel'), thankYou: t('sell.thankYou'),
-        methods: { CASH: t('sell.cash'), MTN_MOMO: t('sell.momo'), ORANGE_MONEY: t('sell.om'), CARD: t('sell.card'), SAVINGS: t('sell.deposit'), MIXED: t('sell.split') },
-      },
-    }))
   }
+
   const title = onCredit ? (sale.amountPaid > 0 ? t('sell.partPaid') : t('sell.onCreditTitle')) : t('sell.paymentReceived')
   return (
+    // No outside-click close: the cashier must start a new sale to begin a new session.
     <div className="pay-overlay open">
       <div className="pay-modal">
         <div className="pm-success">
@@ -772,12 +748,63 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
             {sale.changeGiven > 0 ? <div className="r chg"><span>{t('sell.changeGiven')}</span><span>{money.format(sale.changeGiven)}</span></div> : null}
             <div className="r big"><span>{t('sell.total')}</span><span>{money.format(sale.totalAmount)}</span></div>
           </div>
+          {note ? <div className="pm-note" style={{ background: 'var(--inset)', border: '1px solid var(--border)', color: 'var(--text-2)' }}><span>{note}</span></div> : null}
           <div className="pm-success-acts" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <button type="button" onClick={print}>{I.print}{t('sell.print')}</button>
-            <button type="button" disabled={sending !== null} onClick={() => send('whatsapp')}>{I.phone}{sending === 'whatsapp' ? '…' : t('sell.sendWhatsApp')}</button>
-            <button type="button" disabled={sending !== null} onClick={() => send('email')}>{I.receipt}{sending === 'email' ? '…' : t('sell.sendEmail')}</button>
+            <button type="button" disabled={printing} onClick={print}>{I.print}{printing ? '…' : t('sell.print')}</button>
+            <button type="button" onClick={() => setSendOpen(true)}>{I.receipt}{t('sell.send')}</button>
             <button type="button" className="primary" onClick={onNew}>{t('sell.newSale')}</button>
           </div>
+        </div>
+      </div>
+      {sendOpen ? <ReceiptSendDialog sale={sale} locale={lang} onClose={() => setSendOpen(false)} /> : null}
+    </div>
+  )
+}
+
+// Send the receipt to the customer. Mirrors RFQ/PO: online → server dispatches; offline →
+// the desktop opens the WhatsApp/email composer with the PDF revealed to attach.
+function ReceiptSendDialog({ sale, locale, onClose }: { sale: LocalSaleDetail; locale: string; onClose: () => void }) {
+  const t = useT()
+  const [channel, setChannel] = useState<DocumentSendChannel>('whatsapp')
+  const [phone, setPhone] = useState(sale.customerPhone ?? '')
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const online = navigator.onLine
+
+  const send = useMutation({
+    mutationFn: () =>
+      dataClient.sales.sendReceipt(sale.id, channel, locale, {
+        recipient: { phone: phone.trim() || undefined, email: email.trim() || undefined },
+        online,
+      }),
+    onSuccess: onClose,
+    onError: () => setError(t('sell.sendError')),
+  })
+  const submit = () => {
+    if (channel === 'whatsapp' && !phone.trim()) return setError(t('sell.needPhone'))
+    if (channel === 'email' && !email.trim()) return setError(t('sell.needEmail'))
+    setError(null)
+    send.mutate()
+  }
+
+  return (
+    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="pay-modal" style={{ width: 420 }}>
+        <div className="pm-head"><h3>{t('sell.sendReceipt')}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+        <div className="pm-body">
+          <div className="pm-lbl">{t('sell.channel')}</div>
+          <div className="pm-methods" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <button type="button" className={`pm-m${channel === 'whatsapp' ? ' active' : ''}`} onClick={() => setChannel('whatsapp')}>{I.phone}{t('sell.sendWhatsApp')}</button>
+            <button type="button" className={`pm-m${channel === 'email' ? ' active' : ''}`} onClick={() => setChannel('email')}>{I.receipt}{t('sell.sendEmail')}</button>
+          </div>
+          {channel === 'whatsapp' ? (
+            <div className="pm-field"><div className="pm-lbl">{t('sell.phone')}</div><input className="input" value={phone} onChange={(e) => { setPhone(e.target.value); setError(null) }} placeholder="+237 6 …" /></div>
+          ) : (
+            <div className="pm-field"><div className="pm-lbl">{t('sell.email')}</div><input className="input" value={email} onChange={(e) => { setEmail(e.target.value); setError(null) }} placeholder="client@email.com" /></div>
+          )}
+          <div className="pm-note">{I.bell}<span>{online ? t('sell.sendOnlineNote') : t('sell.sendOfflineNote')}</span></div>
+          {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 10 }} role="alert">{error}</p> : null}
+          <button type="button" className="pm-confirm" disabled={send.isPending} onClick={submit}>{send.isPending ? '…' : t('sell.send')}</button>
         </div>
       </div>
     </div>
@@ -799,22 +826,4 @@ function methodLabel(m: string, t: ReturnType<typeof useT>): string {
     CASH: 'sell.cash', MTN_MOMO: 'sell.momo', ORANGE_MONEY: 'sell.om', CARD: 'sell.card', SAVINGS: 'sell.deposit',
   }
   return map[m] ? t(map[m]) : m
-}
-/** Print an HTML document via a transient hidden iframe (works in the Electron renderer). */
-function printReceipt(html: string): void {
-  const iframe = document.createElement('iframe')
-  iframe.style.position = 'fixed'
-  iframe.style.right = '0'
-  iframe.style.bottom = '0'
-  iframe.style.width = '0'
-  iframe.style.height = '0'
-  iframe.style.border = '0'
-  document.body.appendChild(iframe)
-  const doc = iframe.contentWindow?.document
-  if (!doc) { document.body.removeChild(iframe); return }
-  doc.open(); doc.write(html); doc.close()
-  const cleanup = () => { setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe) }, 500) }
-  iframe.onload = () => {
-    try { iframe.contentWindow?.focus(); iframe.contentWindow?.print() } finally { cleanup() }
-  }
 }

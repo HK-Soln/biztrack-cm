@@ -116,6 +116,7 @@ export const IPC = {
   salesList: 'sales:list',
   salesGet: 'sales:get',
   salesSendReceipt: 'sales:send-receipt',
+  salesPrintReceipt: 'sales:print-receipt',
   savingsGetForCustomer: 'savings:get-for-customer',
 } as const
 
@@ -1345,8 +1346,15 @@ export interface BridgeApi {
     create: (input: SaleInput) => Promise<LocalSaleDetail>
     list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
     get: (id: string) => Promise<LocalSaleDetail | null>
-    /** Render the shared receipt template and share it with the customer (WhatsApp/email). */
-    sendReceipt: (saleId: string, channel: DocumentSendChannel, locale: string) => Promise<void>
+    /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
+    sendReceipt: (
+      saleId: string,
+      channel: DocumentSendChannel,
+      locale: string,
+      opts?: { recipient?: DocumentRecipient; online?: boolean },
+    ) => Promise<void>
+    /** Print the receipt directly to the connected printer; falls back to saving a PDF. */
+    printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
   }
   savings: {
     /** A customer's deposit balance (null if none) — for the Sell "Deposit" tender. */

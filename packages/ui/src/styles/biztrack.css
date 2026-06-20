@@ -1298,7 +1298,7 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .pm-recap .r.chg span:last-child{color:var(--success);font-weight:700;}
 .pm-success-acts{display:grid;grid-template-columns:1fr;gap:10px;}
 .pm-success-acts button{font:inherit;font-size:13.5px;font-weight:650;padding:13px;border-radius:12px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:7px;}
-.pm-success-acts button.primary{background:var(--brand);border-color:var(--brand);color:var(--on-brand);}
+.pm-success-acts button.primary{grid-column:1 / -1;background:var(--brand);border-color:var(--brand);color:var(--on-brand);}
 .pm-cust{display:flex;align-items:center;gap:11px;padding:11px 14px;border:1px solid var(--border);border-radius:12px;margin-bottom:16px;cursor:pointer;background:var(--inset);width:100%;text-align:left;font:inherit;color:inherit;}
 .pm-cust:hover{border-color:var(--brand);}
 .pm-cust .a{width:36px;height:36px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;font-size:13px;font-weight:700;flex-shrink:0;}

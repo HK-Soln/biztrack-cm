@@ -11,6 +11,7 @@ import type {
   CategoryParentOptionsQuery,
   CategorySelectableQuery,
   ContactsQuery,
+  DocumentRecipient,
   DocumentSendChannel,
   ContactsSummary,
   CreateContactRequest,
@@ -210,7 +211,13 @@ export interface DataClient {
     create: (input: SaleInput) => Promise<LocalSaleDetail>
     list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
     get: (id: string) => Promise<LocalSaleDetail | null>
-    sendReceipt: (saleId: string, channel: DocumentSendChannel, locale: string) => Promise<void>
+    sendReceipt: (
+      saleId: string,
+      channel: DocumentSendChannel,
+      locale: string,
+      opts?: { recipient?: DocumentRecipient; online?: boolean },
+    ) => Promise<void>
+    printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
   }
   savings: {
     getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
@@ -345,7 +352,8 @@ function electronAdapter(): DataClient {
       create: (input) => window.api.sales.create(input),
       list: (query) => window.api.sales.list(query),
       get: (id) => window.api.sales.get(id),
-      sendReceipt: (saleId, channel, locale) => window.api.sales.sendReceipt(saleId, channel, locale),
+      sendReceipt: (saleId, channel, locale, opts) => window.api.sales.sendReceipt(saleId, channel, locale, opts),
+      printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
     },
     savings: {
       getForCustomer: (customerId) => window.api.savings.getForCustomer(customerId),
@@ -421,7 +429,7 @@ function cloudAdapter(): DataClient {
     audit: { list: notWired },
     uploads: { file: notWired },
     charges: { listActive: notWired },
-    sales: { create: notWired, list: notWired, get: notWired, sendReceipt: notWired },
+    sales: { create: notWired, list: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired },
     savings: { getForCustomer: notWired },
   }
 }
