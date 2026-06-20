@@ -36,6 +36,10 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsListSerialUnits, (_e, productId: string) =>
     products.listSerialUnits(productId),
   )
+  ipcMain.handle(IPC.productsListInStockSerials, (_e, productId: string, variantId?: string | null, search?: string) =>
+    products.listInStockSerials(productId, variantId, search),
+  )
+  ipcMain.handle(IPC.productsResolveScan, (_e, code: string) => products.resolveScan(code))
   ipcMain.handle(IPC.productsSetSerialUnits, (_e, productId: string, units: SerialUnitInput[]) =>
     products.setSerialUnits(productId, units),
   )

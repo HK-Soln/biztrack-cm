@@ -12,6 +12,7 @@ import type {
   ProductListQuery,
   ProductStats,
   ProductType,
+  ScanHit,
   SerialUnitInput,
   StockMovementType,
   VariantInput,
@@ -456,6 +457,58 @@ export class ProductsService {
     return this.getOne(id)
   }
 
+  /**
+   * Resolve a scanned/typed code to something sellable: an in-stock serial number, a
+   * product barcode/SKU, or a variant barcode/SKU (in that order). Returns null if nothing
+   * matches. Used by the Sell screen's global barcode capture.
+   */
+  resolveScan(code: string): ScanHit | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const c = code.trim()
+    if (!c) return null
+
+    // 1) a serialized unit that's still in stock
+    const su = this.db.get<{ id: string; product_id: string; variant_id: string | null; serial_number: string; serial_type: string; status: string }>(
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status FROM product_serial_units
+       WHERE business_id = ? AND serial_number = ? AND is_deleted = 0 AND status = 'IN_STOCK'`,
+      [businessId, c],
+    )
+    if (su) {
+      const product = this.getOne(su.product_id)
+      if (product) {
+        return {
+          kind: 'serial',
+          product,
+          serial: { id: su.id, productId: su.product_id, variantId: su.variant_id, serialNumber: su.serial_number, serialType: su.serial_type as LocalSerialUnit['serialType'], status: su.status as LocalSerialUnit['status'] },
+        }
+      }
+    }
+
+    // 2) a product by barcode or SKU
+    const prod = this.db.get<{ id: string }>(
+      `SELECT id FROM products WHERE business_id = ? AND is_deleted = 0 AND (barcode = ? OR sku = ?) LIMIT 1`,
+      [businessId, c, c],
+    )
+    if (prod) {
+      const product = this.getOne(prod.id)
+      if (product) return { kind: 'product', product }
+    }
+
+    // 3) a variant by barcode or SKU
+    const vr = this.db.get<{ id: string; product_id: string }>(
+      `SELECT id, product_id FROM product_variants WHERE business_id = ? AND is_deleted = 0 AND (barcode = ? OR sku = ?) LIMIT 1`,
+      [businessId, c, c],
+    )
+    if (vr) {
+      const product = this.getOne(vr.product_id)
+      const variant = this.listVariants(vr.product_id).find((v) => v.id === vr.id)
+      if (product && variant) return { kind: 'variant', product, variant }
+    }
+
+    return null
+  }
+
   // ---- gallery images ------------------------------------------------------
 
   listImages(productId: string): LocalProductImage[] {
@@ -737,6 +790,37 @@ export class ProductsService {
        WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY created_at ASC`,
       [businessId, productId],
+    )
+    return rows.map((r) => ({
+      id: r.id,
+      productId: r.product_id,
+      variantId: r.variant_id,
+      serialNumber: r.serial_number,
+      serialType: r.serial_type as LocalSerialUnit['serialType'],
+      status: r.status,
+    }))
+  }
+
+  /** IN_STOCK serial units for a product (optionally a variant) — the units a sale can
+   * consume. Used by the Sell screen's serial picker. */
+  listInStockSerials(productId: string, variantId?: string | null, search?: string): LocalSerialUnit[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    let where = `business_id = ? AND product_id = ? AND is_deleted = 0 AND status = 'IN_STOCK'`
+    const params: unknown[] = [businessId, productId]
+    if (variantId) {
+      where += ' AND variant_id = ?'
+      params.push(variantId)
+    }
+    const q = search?.trim()
+    if (q) {
+      where += ' AND serial_number LIKE ?'
+      params.push(`%${q}%`)
+    }
+    const rows = this.db.query<SerialUnitRow>(
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+       FROM product_serial_units WHERE ${where} ORDER BY created_at ASC LIMIT 200`,
+      params,
     )
     return rows.map((r) => ({
       id: r.id,

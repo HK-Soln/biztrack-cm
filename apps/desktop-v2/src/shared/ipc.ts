@@ -69,6 +69,8 @@ export const IPC = {
   productsUpdateVariant: 'products:update-variant',
   productsRemoveVariant: 'products:remove-variant',
   productsListSerialUnits: 'products:list-serial-units',
+  productsListInStockSerials: 'products:list-in-stock-serials',
+  productsResolveScan: 'products:resolve-scan',
   productsSetSerialUnits: 'products:set-serial-units',
   productsAddSerialUnits: 'products:add-serial-units',
   productsRetireSerialUnit: 'products:retire-serial-unit',
@@ -110,6 +112,10 @@ export const IPC = {
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
+  salesCreate: 'sales:create',
+  salesList: 'sales:list',
+  salesGet: 'sales:get',
+  savingsGetForCustomer: 'savings:get-for-customer',
 } as const
 
 // ---- Pagination -----------------------------------------------------------
@@ -865,6 +871,122 @@ export interface RestockInput {
   notes?: string | null
 }
 
+// ---- Sales (POS checkout) -------------------------------------------------
+/** One cart line at checkout. Serialized products pass the chosen in-stock serial
+ * unit ids (quantity = their count); variant products pass the variantId. */
+export interface SaleLineInput {
+  productId: string
+  variantId?: string | null
+  variantName?: string | null
+  serialUnitIds?: string[]
+  quantity: number
+  unitPrice: number
+  discountAmount?: number
+  costPrice?: number | null
+}
+/** A charge line on the sale (transport, service, payment fee…). Mirrors restock. */
+export interface SaleChargeLineInput {
+  id?: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+/** A discount line on the sale (remise). */
+export interface SaleDiscountLineInput {
+  id?: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+/** A split-payment line. `SAVINGS` draws from the customer's deposit balance. */
+export interface SalePaymentLineInput {
+  method: PaymentMethodT
+  amount: number
+  mobileMoneyReference?: string | null
+  savingsAccountId?: string | null
+}
+/** A checkout. `clientId` is the renderer-generated idempotency key. Goods subtotal
+ * − discounts + charges = total, settled by payments; any shortfall on a registered
+ * customer becomes a receivable (credit). No tax line (prices are inclusive). */
+export interface SaleInput {
+  clientId: string
+  soldAt?: string
+  customerId?: string | null
+  customerName?: string | null
+  customerPhone?: string | null
+  notes?: string | null
+  items: SaleLineInput[]
+  payments: SalePaymentLineInput[]
+  charges?: SaleChargeLineInput[]
+  discounts?: SaleDiscountLineInput[]
+}
+export interface SalesListQuery extends ListQueryT {
+  customerId?: string
+  status?: string
+  dateFrom?: string
+  dateTo?: string
+}
+export interface LocalSaleItem {
+  id: string
+  productId: string
+  productName: string
+  variantId: string | null
+  variantName: string | null
+  serialNumber: string | null
+  quantity: number
+  unitPrice: number
+  discountAmount: number
+  lineTotal: number
+}
+export interface LocalSalePayment {
+  id: string
+  method: PaymentMethodT
+  amount: number
+  mobileMoneyReference: string | null
+}
+/** A sale summary row (for the list / receipt header). */
+export interface LocalSale {
+  id: string
+  saleNumber: string
+  receiptNumber: string
+  status: string
+  customerId: string | null
+  customerName: string | null
+  customerPhone: string | null
+  subtotal: number
+  discountAmount: number
+  chargesAmount: number
+  totalAmount: number
+  amountPaid: number
+  creditAmount: number
+  changeGiven: number
+  currency: string
+  paymentMethod: string | null
+  notes: string | null
+  soldAt: string
+  createdAt: string
+  itemCount: number
+}
+/** A full sale with its lines + payments (for get()/receipt/success screen). */
+export interface LocalSaleDetail extends LocalSale {
+  items: LocalSaleItem[]
+  payments: LocalSalePayment[]
+}
+/** A customer's deposit balance available to pay from at checkout. */
+export interface LocalSavingsBalance {
+  id: string
+  accountNumber: string
+  balance: number
+}
+/** Result of resolving a scanned/typed code (barcode, SKU, or serial) to something sellable. */
+export type ScanHit =
+  | { kind: 'product'; product: LocalProduct }
+  | { kind: 'variant'; product: LocalProduct; variant: LocalVariant }
+  | { kind: 'serial'; product: LocalProduct; serial: LocalSerialUnit }
+
 /** Why a stock level changed (mirrors the API's MovementType). */
 export type StockMovementType =
   | 'OPENING_STOCK'
@@ -1123,6 +1245,10 @@ export interface BridgeApi {
     /** Remove a variant (writes off its stock) with a reason. */
     removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    /** IN_STOCK serial units a sale can consume (optionally scoped to a variant + serial search). */
+    listInStockSerials: (productId: string, variantId?: string | null, search?: string) => Promise<LocalSerialUnit[]>
+    /** Resolve a scanned/typed code (barcode, SKU, serial) to something sellable. */
+    resolveScan: (code: string) => Promise<ScanHit | null>
     /** Set a product's initial serial units at creation (opening stock). */
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
     /** Add units to stock post-creation (a stock-in movement); revives retired numbers. */
@@ -1212,5 +1338,15 @@ export interface BridgeApi {
   charges: {
     /** Active charge types (system + business) for the receive/settle charge picker. */
     listActive: () => Promise<ChargeTypeT[]>
+  }
+  sales: {
+    /** Ring up a checkout (idempotent on clientId). Returns the saved sale + lines. */
+    create: (input: SaleInput) => Promise<LocalSaleDetail>
+    list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
+    get: (id: string) => Promise<LocalSaleDetail | null>
+  }
+  savings: {
+    /** A customer's deposit balance (null if none) — for the Sell "Deposit" tender. */
+    getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
   }
 }

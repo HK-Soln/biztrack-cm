@@ -93,6 +93,8 @@ const api: BridgeApi = {
     updateVariant: (productId, variantId, input) => ipcRenderer.invoke(IPC.productsUpdateVariant, productId, variantId, input),
     removeVariant: (productId, variantId, reason) => ipcRenderer.invoke(IPC.productsRemoveVariant, productId, variantId, reason),
     listSerialUnits: (productId) => ipcRenderer.invoke(IPC.productsListSerialUnits, productId),
+    listInStockSerials: (productId, variantId, search) => ipcRenderer.invoke(IPC.productsListInStockSerials, productId, variantId, search),
+    resolveScan: (code) => ipcRenderer.invoke(IPC.productsResolveScan, code),
     setSerialUnits: (productId, units) => ipcRenderer.invoke(IPC.productsSetSerialUnits, productId, units),
     addSerialUnits: (productId, units, notes) => ipcRenderer.invoke(IPC.productsAddSerialUnits, productId, units, notes),
     retireSerialUnit: (productId, unitId, reason) => ipcRenderer.invoke(IPC.productsRetireSerialUnit, productId, unitId, reason),
@@ -153,6 +155,14 @@ const api: BridgeApi = {
   },
   charges: {
     listActive: () => ipcRenderer.invoke(IPC.chargesListActive),
+  },
+  sales: {
+    create: (input) => ipcRenderer.invoke(IPC.salesCreate, input),
+    list: (query) => ipcRenderer.invoke(IPC.salesList, query),
+    get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
+  },
+  savings: {
+    getForCustomer: (customerId) => ipcRenderer.invoke(IPC.savingsGetForCustomer, customerId),
   },
 }
 

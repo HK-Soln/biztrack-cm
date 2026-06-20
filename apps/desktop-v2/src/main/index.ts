@@ -24,7 +24,10 @@ import { registerBrandsIpc } from './ipc/brands.ipc'
 import { ProductsService } from './services/products.service'
 import { registerProductsIpc } from './ipc/products.ipc'
 import { InventoryService } from './services/inventory.service'
+import { SalesService } from './services/sales.service'
+import { SavingsService } from './services/savings.service'
 import { registerInventoryIpc } from './ipc/inventory.ipc'
+import { registerSalesIpc } from './ipc/sales.ipc'
 import { ContactsService } from './services/contacts.service'
 import { registerContactsIpc } from './ipc/contacts.ipc'
 import { DebtsService } from './services/debts.service'
@@ -285,6 +288,22 @@ app.whenReady().then(() => {
     audit,
   )
   registerInventoryIpc(inventory)
+
+  // Sales (POS checkout): offline-first; decrements stock, marks serials sold, raises a
+  // receivable on credit, and enqueues the full SaleSyncPayload. Built after products +
+  // debts (credit→receivable) which it depends on.
+  const savings = new SavingsService(db, () => authService.getSession().businessId)
+  const sales = new SalesService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    () => authService.getSession().user?.name ?? null,
+    debts,
+    savings,
+    audit,
+  )
+  registerSalesIpc(sales, savings)
 
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).

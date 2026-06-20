@@ -53,12 +53,18 @@ import type {
   LocalReorderSuggestion,
   LocalProduct,
   LocalProductImage,
+  LocalSale,
+  LocalSaleDetail,
+  LocalSavingsBalance,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
   LocalVariant,
   MovementsQuery,
   RestockInput,
+  SaleInput,
+  SalesListQuery,
+  ScanHit,
   ThresholdInput,
   ModelInput,
   PaginatedResult,
@@ -137,6 +143,8 @@ export interface DataClient {
     updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
     removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    listInStockSerials: (productId: string, variantId?: string | null, search?: string) => Promise<LocalSerialUnit[]>
+    resolveScan: (code: string) => Promise<ScanHit | null>
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
     addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
     retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
@@ -196,6 +204,14 @@ export interface DataClient {
   }
   charges: {
     listActive: () => Promise<ChargeType[]>
+  }
+  sales: {
+    create: (input: SaleInput) => Promise<LocalSaleDetail>
+    list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
+    get: (id: string) => Promise<LocalSaleDetail | null>
+  }
+  savings: {
+    getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
   }
 }
 
@@ -260,6 +276,8 @@ function electronAdapter(): DataClient {
       updateVariant: (productId, variantId, input) => window.api.products.updateVariant(productId, variantId, input),
       removeVariant: (productId, variantId, reason) => window.api.products.removeVariant(productId, variantId, reason),
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
+      listInStockSerials: (productId, variantId, search) => window.api.products.listInStockSerials(productId, variantId, search),
+      resolveScan: (code) => window.api.products.resolveScan(code),
       setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
       addSerialUnits: (productId, units, notes) => window.api.products.addSerialUnits(productId, units, notes),
       retireSerialUnit: (productId, unitId, reason) => window.api.products.retireSerialUnit(productId, unitId, reason),
@@ -321,6 +339,14 @@ function electronAdapter(): DataClient {
     charges: {
       listActive: () => window.api.charges.listActive(),
     },
+    sales: {
+      create: (input) => window.api.sales.create(input),
+      list: (query) => window.api.sales.list(query),
+      get: (id) => window.api.sales.get(id),
+    },
+    savings: {
+      getForCustomer: (customerId) => window.api.savings.getForCustomer(customerId),
+    },
   }
 }
 
@@ -375,6 +401,8 @@ function cloudAdapter(): DataClient {
       updateVariant: notWired,
       removeVariant: notWired,
       listSerialUnits: notWired,
+      listInStockSerials: notWired,
+      resolveScan: notWired,
       setSerialUnits: notWired,
       addSerialUnits: notWired,
       retireSerialUnit: notWired,
@@ -390,6 +418,8 @@ function cloudAdapter(): DataClient {
     audit: { list: notWired },
     uploads: { file: notWired },
     charges: { listActive: notWired },
+    sales: { create: notWired, list: notWired, get: notWired },
+    savings: { getForCustomer: notWired },
   }
 }
 
