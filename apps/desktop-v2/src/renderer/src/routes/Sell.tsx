@@ -582,7 +582,9 @@ function PaymentModal({ total, subtotal, disc, chg, customer, onClose, onPickCus
     { key: 'deposit', label: t('sell.deposit'), icon: I.wallet }, { key: 'credit', label: t('sell.credit'), icon: I.clock },
     { key: 'split', label: t('sell.split'), icon: I.split },
   ]
-  const splitKeys = hasDeposit ? [...SPLIT_KEYS, 'deposit' as const] : SPLIT_KEYS
+  // Deposit is a split option whenever a customer is selected (disabled if they have no
+  // balance) so it's always discoverable; walk-in sales have no deposit to draw from.
+  const splitKeys = customer ? [...SPLIT_KEYS, 'deposit' as const] : SPLIT_KEYS
   const isWalkIn = !customer
   const t2 = tendered == null ? total : tendered
   const change = t2 - total
@@ -691,11 +693,12 @@ function PaymentModal({ total, subtotal, disc, chg, customer, onClose, onPickCus
               <div className="pm-split">
                 {splitKeys.map((k) => {
                   const m = METHODS.find((x) => x.key === k)!
+                  const depDisabled = k === 'deposit' && !hasDeposit
                   return (
                     <div key={k} className="split-row">
                       <div className="si">{m.icon}</div>
-                      <div className="sl">{m.label}{k === 'deposit' ? <small>{t('sell.max')} {money.format(depBalance)}</small> : null}</div>
-                      <div className="sf"><input inputMode="decimal" value={splits[k] ? String(splits[k]) : ''} placeholder="0" onChange={(e) => {
+                      <div className="sl">{m.label}{k === 'deposit' ? <small>{hasDeposit ? `${t('sell.max')} ${money.format(depBalance)}` : t('sell.noDepositShort')}</small> : null}</div>
+                      <div className="sf"><input inputMode="decimal" disabled={depDisabled} value={splits[k] ? String(splits[k]) : ''} placeholder="0" onChange={(e) => {
                         let v = Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
                         if (k === 'deposit' && v > depBalance) v = depBalance
                         setSplits((s) => ({ ...s, [k]: v }))
