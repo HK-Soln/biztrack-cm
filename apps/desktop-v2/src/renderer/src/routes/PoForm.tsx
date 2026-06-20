@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, CommandSelect, Input } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
+import { todayIso } from '@/lib/date'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ItemsField, type ItemLine } from '@/components/procurement/ItemsField'
@@ -16,16 +17,19 @@ export function PoForm() {
   const t = useT()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const money = useCurrency()
 
   // Pre-seeded from the inventory reorder banner ("Generate PO").
   const seedItems = (location.state as { seedItems?: ItemLine[] } | null)?.seedItems
+  // Preselected supplier (e.g. opened from a supplier's contact detail).
+  const supplierParam = searchParams.get('supplier')
 
   const [supplierId, setSupplierId] = useState<string | null>(null)
   const [supplierName, setSupplierName] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
-  const [expectedDate, setExpectedDate] = useState('')
+  const [expectedDate, setExpectedDate] = useState(todayIso)
   const [items, setItems] = useState<ItemLine[]>(() => seedItems ?? [])
   const [error, setError] = useState<string | null>(null)
 
@@ -45,28 +49,38 @@ export function PoForm() {
     [suppliers],
   )
 
+  // Preselect the supplier from ?supplier=<id> once the supplier list loads.
+  useEffect(() => {
+    if (!supplierParam || supplierId) return
+    const s = suppliers.find((x) => x.id === supplierParam)
+    if (s) { setSupplierId(s.id); setSupplierName(s.name) }
+  }, [supplierParam, supplierId, suppliers])
+
   const total = items.reduce((s, l) => s + num(l.quantity) * num(l.unitPrice), 0)
 
   const create = useMutation({
-    mutationFn: () => {
+    mutationFn: (_opts: { send: boolean }) => {
       const payload: CreatePurchaseOrderRequest = {
         supplierId: supplierId!,
         title: title.trim() || undefined,
         messageBody: message.trim() || undefined,
         expectedDate: expectedDate || undefined,
-        items: items.map((l) => ({ productId: l.productId, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) })),
+        items: items.map((l) => ({ productId: l.productId, variantId: l.variantId ?? null, quantity: num(l.quantity) || 1, unitPrice: num(l.unitPrice) })),
       }
       return dataClient.purchaseOrders.create(payload)
     },
-    onSuccess: (po) => navigate(`/purchasing/orders/${po.id}`),
+    // When "Create & send", land on the PO detail with the share dialog opened.
+    onSuccess: (po, vars) => navigate(`/purchasing/orders/${po.id}`, vars.send ? { state: { share: true } } : undefined),
     onError: (e) => setError(errorMessage(e, t('po.saveError'))),
   })
 
-  const submit = () => {
+  const submit = (send: boolean) => {
     if (!supplierId) return setError(t('po.supplierRequired'))
     if (items.length === 0) return setError(t('po.itemsRequired'))
+    if (items.some((l) => num(l.quantity) <= 0)) return setError(t('po.qtyInvalid'))
+    if (total <= 0) return setError(t('po.totalZero'))
     setError(null)
-    create.mutate()
+    create.mutate({ send })
   }
 
   return (
@@ -127,7 +141,8 @@ export function PoForm() {
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
         <Button variant="soft" onClick={() => navigate('/purchasing/orders')} disabled={create.isPending}>{t('po.cancel')}</Button>
-        <Button variant="primary" loading={create.isPending} onClick={submit}>{t('po.create')}</Button>
+        <Button variant="soft" loading={create.isPending} onClick={() => submit(false)}>{t('po.create')}</Button>
+        <Button variant="primary" loading={create.isPending} onClick={() => submit(true)}>{t('po.createSend')}</Button>
       </div>
     </div>
   )

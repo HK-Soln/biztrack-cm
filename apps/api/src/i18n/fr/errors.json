@@ -32,6 +32,7 @@
   "category_parent_not_found": "Categorie parente introuvable.",
   "category_max_depth_exceeded": "La profondeur maximale des categories est de 3.",
   "category_parent_has_products": "Impossible d'imbriquer sous une categorie qui a deja des produits assignes. Deplacez d'abord les produits vers une sous-categorie.",
+  "category_parent_has_variant_options": "Impossible d'imbriquer sous une categorie qui possede des options de variante. Supprimez d'abord ses options de variante.",
   "category_parent_cycle": "Une categorie ne peut pas etre deplacee sous elle-meme ou l'un de ses descendants.",
   "category_reparent_has_children": "Deplacez ou supprimez les sous-categories de cette categorie avant de changer son parent.",
   "category_not_leaf": "Les produits ne peuvent etre assignes qu'a une categorie feuille (sans sous-categorie).",

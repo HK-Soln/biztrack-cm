@@ -17,6 +17,8 @@ import { AttributesService } from './services/attributes.service'
 import { registerAttributesIpc } from './ipc/attributes.ipc'
 import { UnitsService } from './services/units.service'
 import { registerUnitsIpc } from './ipc/units.ipc'
+import { ChargesService } from './services/charges.service'
+import { registerChargesIpc } from './ipc/charges.ipc'
 import { BrandsService } from './services/brands.service'
 import { registerBrandsIpc } from './ipc/brands.ipc'
 import { ProductsService } from './services/products.service'
@@ -196,6 +198,10 @@ app.whenReady().then(() => {
     audit,
   )
   registerUnitsIpc(units)
+
+  // Charge types: read-only catalog (system + business) for the receive/settle flow.
+  const charges = new ChargesService(db, () => authService.getSession().businessId)
+  registerChargesIpc(charges)
 
   // Brands & Models: offline-first; brands link categories M2M and own models.
   const brands = new BrandsService(

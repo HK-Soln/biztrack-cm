@@ -76,6 +76,7 @@ export interface I18nTranslations {
     category_parent_not_found: string
     category_max_depth_exceeded: string
     category_parent_has_products: string
+    category_parent_has_variant_options: string
     category_parent_cycle: string
     category_reparent_has_children: string
     category_not_leaf: string

@@ -18,10 +18,14 @@ export function Button({
   className,
   children,
   disabled,
+  // Default to "button" so a Button inside a <form> never submits by accident —
+  // only an explicit type="submit" does.
+  type = 'button',
   ...rest
 }: ButtonProps) {
   return (
     <button
+      type={type}
       className={clsx(
         'btn',
         variant === 'primary' && 'btn-primary',

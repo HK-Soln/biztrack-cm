@@ -44,6 +44,8 @@ const api: BridgeApi = {
   categories: {
     list: (query) => ipcRenderer.invoke(IPC.categoriesList, query),
     listAll: () => ipcRenderer.invoke(IPC.categoriesListAll),
+    listSelectable: (query) => ipcRenderer.invoke(IPC.categoriesSelectable, query),
+    listParentOptions: (query) => ipcRenderer.invoke(IPC.categoriesParentOptions, query),
     create: (input) => ipcRenderer.invoke(IPC.categoriesCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.categoriesUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.categoriesDelete, id),
@@ -109,6 +111,7 @@ const api: BridgeApi = {
   },
   contacts: {
     list: (query) => ipcRenderer.invoke(IPC.contactsList, query),
+    summary: () => ipcRenderer.invoke(IPC.contactsSummary),
     listAllSuppliers: () => ipcRenderer.invoke(IPC.contactsListAllSuppliers),
     listAllCustomers: () => ipcRenderer.invoke(IPC.contactsListAllCustomers),
     get: (id) => ipcRenderer.invoke(IPC.contactsGet, id),
@@ -118,6 +121,7 @@ const api: BridgeApi = {
   },
   debts: {
     listByContact: (contactId, query) => ipcRenderer.invoke(IPC.debtsListByContact, contactId, query),
+    statement: (contactId, direction) => ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
   },
   rfqs: {
@@ -146,6 +150,9 @@ const api: BridgeApi = {
   },
   uploads: {
     file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
+  },
+  charges: {
+    listActive: () => ipcRenderer.invoke(IPC.chargesListActive),
   },
 }
 

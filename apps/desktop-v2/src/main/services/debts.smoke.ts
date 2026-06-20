@@ -59,5 +59,13 @@ const payload = JSON.parse(ob.payload)
 assert(payload.payments.length === 2 && payload.status === 'SETTLED', 'debt outbox payload has 2 payments + SETTLED')
 assert(payload.direction === 'PAYABLE' && payload.contactId === sup.id, 'debt outbox payload carries direction + contact')
 
+console.log('statement (ledger)…')
+const stmt = debts.statement(sup.id, 'PAYABLE' as never)
+assert(stmt.entries.length === 3, 'statement: 1 purchase + 2 payments = 3 entries')
+assert(stmt.openingBalance === 0 && stmt.closingBalance === 0, 'statement opening 0 / closing 0')
+assert(stmt.entries.reduce((s, e) => s + e.debit, 0) === 10000, 'statement total debit 10000')
+assert(stmt.entries.reduce((s, e) => s + e.credit, 0) === 10000, 'statement total credit 10000')
+assert(stmt.entries[0]!.type === 'DEBT_CREATED' && stmt.entries[0]!.balance === 10000, 'first entry is the purchase, balance 10000')
+
 console.log('\nALL DEBTS SMOKE TESTS PASSED')
 process.exit(0)

@@ -41,6 +41,9 @@ import { migration_0039 } from './0039_rfqs'
 import { migration_0040 } from './0040_purchase_orders'
 import { migration_0041 } from './0041_restock_po_variant'
 import { migration_0042 } from './0042_rfq_quote_file'
+import { migration_0043 } from './0043_restock_settlement'
+import { migration_0044 } from './0044_contact_email'
+import { migration_0045 } from './0045_contact_kyc'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -89,6 +92,9 @@ export const MIGRATIONS: Migration[] = [
   migration_0040,
   migration_0041,
   migration_0042,
+  migration_0043,
+  migration_0044,
+  migration_0045,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

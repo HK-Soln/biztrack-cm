@@ -4,6 +4,8 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
+import { RestockCharge } from '@/entities/restock-charge.entity'
+import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
@@ -43,6 +45,16 @@ const makeService = () => {
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => input),
   }
+  const transactionRestockChargeRepo = {
+    findOne: jest.fn(async () => null),
+    create: jest.fn((input) => input),
+    save: jest.fn(async (input) => input),
+  }
+  const transactionRestockDiscountRepo = {
+    findOne: jest.fn(async () => null),
+    create: jest.fn((input) => input),
+    save: jest.fn(async (input) => input),
+  }
   const manager = {
     getRepository: jest.fn((entity) => {
       if (entity === Product) return transactionProductRepo
@@ -51,6 +63,8 @@ const makeService = () => {
       if (entity === RestockRecord) return transactionRestockRecordRepo
       if (entity === RestockItem) return transactionRestockItemRepo
       if (entity === RestockPayment) return transactionRestockPaymentRepo
+      if (entity === RestockCharge) return transactionRestockChargeRepo
+      if (entity === RestockDiscount) return transactionRestockDiscountRepo
       throw new Error(`Unexpected repository request: ${entity}`)
     }),
   }

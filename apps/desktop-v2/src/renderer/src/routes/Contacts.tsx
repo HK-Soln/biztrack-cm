@@ -1,22 +1,31 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination, PhoneInput, Select } from '@biztrack/ui/biztrack'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, Pagination, Select } from '@biztrack/ui/biztrack'
 import { ContactType } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
-import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
-import type { CreateContactRequest, LocalContact, LocalContactListItem } from '@shared/ipc'
+import { ContactPaymentModal } from '@/components/ContactPaymentModal'
+import type { LocalContact, LocalContactListItem } from '@shared/ipc'
 
-type Tab = 'all' | 'customers' | 'suppliers'
-const TAB_TYPE: Record<Tab, ContactType | undefined> = {
-  all: undefined,
-  customers: ContactType.CUSTOMER,
-  suppliers: ContactType.SUPPLIER,
+type Tab = 'all' | 'customers' | 'suppliers' | 'debtors' | 'creditors'
+const TABS: Tab[] = ['all', 'customers', 'suppliers', 'debtors', 'creditors']
+const TAB_FILTER: Record<Tab, Record<string, unknown>> = {
+  all: {},
+  customers: { type: ContactType.CUSTOMER },
+  suppliers: { type: ContactType.SUPPLIER },
+  debtors: { balance: 'debtor' },
+  creditors: { balance: 'creditor' },
+}
+type Sort = 'balance' | 'name' | 'recent'
+const SORT_QUERY: Record<Sort, Record<string, unknown>> = {
+  balance: { sort: 'balance', order: 'desc' },
+  name: { sort: 'name', order: 'asc' },
+  recent: { sort: 'createdAt', order: 'desc' },
 }
 
 export function Contacts() {
@@ -25,46 +34,71 @@ export function Contacts() {
   const qc = useQueryClient()
   const money = useCurrency()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
 
-  const [tab, setTab] = useState<Tab>('all')
-  const [edit, setEdit] = useState<{ contact?: LocalContact } | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<LocalContact | null>(null)
-  const [deleteErr, setDeleteErr] = useState<string | null>(null)
+  const tab = (TABS.includes(params.get('tab') as Tab) ? (params.get('tab') as Tab) : 'all')
+  const [sort, setSort] = useState<Sort>('balance')
+  const [payContact, setPayContact] = useState<LocalContactListItem | null>(null)
+
+  const { data: summary } = useQuery({
+    queryKey: [...queryKeys.contacts, 'summary'],
+    queryFn: () => dataClient.contacts.summary(),
+    enabled: isElectron,
+  })
 
   const { items, total, page, limit, totalPages, isPending, search, setSearch, setPage } = usePaged<LocalContactListItem>(
     queryKeys.contacts,
     (q) => dataClient.contacts.list(q),
-    { enabled: isElectron, extra: TAB_TYPE[tab] ? { type: TAB_TYPE[tab] } : {} },
+    { enabled: isElectron, extra: { ...TAB_FILTER[tab], ...SORT_QUERY[sort] } },
   )
+
+  const setTab = (next: Tab) => {
+    setPage(1)
+    setParams((p) => { const n = new URLSearchParams(p); if (next === 'all') n.delete('tab'); else n.set('tab', next); return n }, { replace: true })
+  }
 
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.contacts })
 
-  const removeM = useMutation({
-    mutationFn: (id: string) => dataClient.contacts.remove(id),
-    onSuccess: () => { invalidate(); setDeleteTarget(null); setDeleteErr(null) },
-    onError: (e) => setDeleteErr(errorMessage(e, t('ct.deleteError'))),
-  })
-
   const typeBadge = (c: LocalContact) =>
     c.type === ContactType.SUPPLIER ? (
-      <span className="st st-brand">{t('ct.supplier')}</span>
+      <span className="st st-low"><span className="d" />{t('ct.supplier')}</span>
     ) : c.type === ContactType.CUSTOMER ? (
-      <span className="st st-soft">{t('ct.customer')}</span>
+      <span className="st st-ok"><span className="d" />{t('ct.customer')}</span>
     ) : (
-      <span className="st st-neutral">{t('ct.both')}</span>
+      <span className="st st-brand"><span className="d" />{t('ct.both')}</span>
     )
 
   const balanceCell = (c: LocalContactListItem) => {
-    if (c.totalPayable > 0) return <span style={{ color: 'var(--danger)' }}>{t('ct.weOwe').replace('{v}', money.format(c.totalPayable))}</span>
-    if (c.totalReceivable > 0) return <span style={{ color: 'var(--warning)' }}>{t('ct.owesUs').replace('{v}', money.format(c.totalReceivable))}</span>
-    return <span style={{ color: 'var(--text-3)' }}>—</span>
+    if (c.totalReceivable > 0) return <span className="bal r">+{money.format(c.totalReceivable)}</span>
+    if (c.totalPayable > 0) return <span className="bal p">−{money.format(c.totalPayable)}</span>
+    return <span className="bal z">0</span>
   }
+  const hasBalance = (c: LocalContactListItem) => c.totalReceivable > 0 || c.totalPayable > 0
+  const actionLabel = (c: LocalContactListItem) =>
+    c.totalReceivable > 0 ? t('ct.recordPayment') : c.totalPayable > 0 ? t('ct.paySupplier') : t('ct.view')
 
-  const tabBtn = (key: Tab, label: string) => (
-    <button type="button" className={tab === key ? 'active' : ''} onClick={() => { setTab(key); setPage(1) }}>
-      {label}
-    </button>
-  )
+  // Oldest-unpaid age → a single coloured bucket (0–30 / 31–60 / 60+). Not a full
+  // aging breakdown (we don't store per-bucket amounts) — based on the oldest open debt.
+  const agedBar = (c: LocalContactListItem) => {
+    if (!hasBalance(c) || !c.oldestUnpaidAt) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+    const days = Math.floor((Date.now() - new Date(c.oldestUnpaidAt).getTime()) / 86400000)
+    const bucket = days <= 30 ? 'a0' : days <= 60 ? 'a1' : 'a2'
+    return (
+      <span className="aged" title={t('ct.ageDays').replace('{n}', String(Math.max(0, days)))}>
+        <i className={bucket} style={{ width: '100%' }} />
+      </span>
+    )
+  }
+  const onAction = (c: LocalContactListItem) => (hasBalance(c) ? setPayContact(c) : navigate(`/contacts/${c.id}`))
+
+  const tabCount: Record<Tab, number | undefined> = {
+    all: summary?.allCount,
+    customers: summary?.customerCount,
+    suppliers: summary?.supplierCount,
+    debtors: summary?.debtorCount,
+    creditors: summary?.creditorCount,
+  }
+  const net = (summary?.totalReceivable ?? 0) - (summary?.totalPayable ?? 0)
 
   return (
     <div className="frame">
@@ -73,23 +107,45 @@ export function Contacts() {
           <h1>{t('ct.title')}</h1>
           <p>{t('ct.subtitle')}</p>
         </div>
-        <Button variant="primary" onClick={() => setEdit({})}>
+        <Button variant="primary" onClick={() => navigate('/contacts/new')}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>
           {t('ct.new')}
         </Button>
       </div>
 
+      <div className="minihead">
+        <div className="m"><div className="k">{t('ct.kReceivable')} <span className="badge b-up">{t('ct.kOwedToYou')}</span></div><div className="v" style={{ color: 'var(--success)' }}>{money.format(summary?.totalReceivable ?? 0)}</div><div className="h">{t('ct.kDebtors').replace('{n}', String(summary?.debtorCount ?? 0))}</div></div>
+        <div className="m"><div className="k">{t('ct.kPayable')} <span className="badge b-down">{t('ct.kYouOwe')}</span></div><div className="v" style={{ color: 'var(--danger)' }}>{money.format(summary?.totalPayable ?? 0)}</div><div className="h">{t('ct.kCreditors').replace('{n}', String(summary?.creditorCount ?? 0))}</div></div>
+        <div className="m"><div className="k">{t('ct.kNet')}</div><div className="v">{net >= 0 ? '+' : '−'}{money.format(Math.abs(net))}</div><div className="h">{t('ct.kNetHint')}</div></div>
+        <div className="m"><div className="k">{t('ct.kContacts')}</div><div className="v">{summary?.allCount ?? 0}</div><div className="h">{t('ct.kContactsHint')}</div></div>
+      </div>
+
       <div className="tabs">
-        {tabBtn('all', t('ct.tabAll'))}
-        {tabBtn('customers', t('ct.tabCustomers'))}
-        {tabBtn('suppliers', t('ct.tabSuppliers'))}
+        {TABS.map((key) => (
+          <button key={key} type="button" className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>
+            {t(`ct.tab_${key}` as Parameters<typeof t>[0])}
+            {tabCount[key] != null ? <span className="cnt">{tabCount[key]}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      <div className="toolbar">
+        <div className="field grow">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
+          <input className="input ic" value={search} placeholder={t('ct.search')} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <Select value={sort} onChange={(e) => { setSort(e.target.value as Sort); setPage(1) }} style={{ maxWidth: 220 }}>
+          <option value="balance">{t('ct.sortBalance')}</option>
+          <option value="name">{t('ct.sortName')}</option>
+          <option value="recent">{t('ct.sortRecent')}</option>
+        </Select>
       </div>
 
       <div className="panel">
         <div className="panel-head">
-          <h3>{t('ct.all')}</h3>
+          <h3>{t(`ct.tab_${tab}` as Parameters<typeof t>[0])}</h3>
           <div className="spacer" style={{ flex: 1 }} />
-          <Input value={search} placeholder={t('ct.search')} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 230, height: 36 }} />
+          <span className="chip-tag">{t('ct.countChip').replace('{n}', String(total))}</span>
         </div>
 
         {isPending ? (
@@ -100,7 +156,7 @@ export function Contacts() {
           <div className="u-cards">
             {items.map((c) => (
               <div key={c.id} className="u-card clickable" onClick={() => navigate(`/contacts/${c.id}`)}>
-                <span className="u-abbr">{c.name.slice(0, 2).toUpperCase()}</span>
+                <span className="th brand">{c.name.slice(0, 2).toUpperCase()}</span>
                 <div className="u-main">
                   <div className="u-nm">{c.name}</div>
                   <div className="u-sub" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -112,12 +168,13 @@ export function Contacts() {
             ))}
           </div>
         ) : (
-          <table className="utbl">
+          <table className="ltbl">
             <thead>
               <tr>
                 <th>{t('ct.colName')}</th>
                 <th>{t('ct.colType')}</th>
-                <th>{t('ct.colPhone')}</th>
+                <th>{t('ct.colActivity')}</th>
+                <th>{t('ct.colAged')}</th>
                 <th className="right">{t('ct.colBalance')}</th>
                 <th className="right">{t('ct.colActions')}</th>
               </tr>
@@ -125,19 +182,18 @@ export function Contacts() {
             <tbody>
               {items.map((c) => (
                 <tr key={c.id} className="clickable" onClick={() => navigate(`/contacts/${c.id}`)}>
-                  <td><div className="cell"><span className="th">{c.name.slice(0, 2).toUpperCase()}</span><div><div className="nm">{c.name}</div></div></div></td>
+                  <td>
+                    <div className="cell">
+                      <div className="th brand">{c.name.slice(0, 2).toUpperCase()}</div>
+                      <div><div className="nm">{c.name}</div><div className="sub">{c.phone || '—'}</div></div>
+                    </div>
+                  </td>
                   <td>{typeBadge(c)}</td>
-                  <td className="mono">{c.phone || '—'}</td>
+                  <td className="sub" style={{ color: 'var(--text-2)' }}>{new Date(c.updatedAt).toLocaleDateString()}</td>
+                  <td>{agedBar(c)}</td>
                   <td className="right">{balanceCell(c)}</td>
                   <td className="right">
-                    <span className="acts" onClick={(e) => e.stopPropagation()}>
-                      <button title={t('ct.edit')} onClick={() => setEdit({ contact: c })}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="M14 6l4 4" /></svg>
-                      </button>
-                      <button title={t('ct.delete')} onClick={() => { setDeleteTarget(c); setDeleteErr(null) }} style={{ color: 'var(--danger)' }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
-                      </button>
-                    </span>
+                    <button type="button" className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }} onClick={(e) => { e.stopPropagation(); onAction(c) }}>{actionLabel(c)}</button>
                   </td>
                 </tr>
               ))}
@@ -147,113 +203,9 @@ export function Contacts() {
         <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPage={setPage} prevLabel={t('common.prev')} nextLabel={t('common.next')} />
       </div>
 
-      {edit ? (
-        <ContactModal contact={edit.contact} onClose={() => setEdit(null)} onSaved={() => { invalidate(); setEdit(null) }} />
+      {payContact ? (
+        <ContactPaymentModal contactId={payContact.id} contactName={payContact.name} onClose={() => setPayContact(null)} onSaved={() => { invalidate(); setPayContact(null) }} />
       ) : null}
-
-      <Modal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title={t('ct.deleteTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setDeleteTarget(null)} disabled={removeM.isPending}>{t('ct.cancel')}</Button>
-            <Button variant="primary" loading={removeM.isPending} style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => deleteTarget && removeM.mutate(deleteTarget.id)}>
-              {t('ct.delete')}
-            </Button>
-          </>
-        }
-      >
-        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>{t('ct.deleteBody').replace('{name}', deleteTarget?.name ?? '')}</p>
-        {deleteErr ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{deleteErr}</p> : null}
-      </Modal>
     </div>
-  )
-}
-
-export function ContactModal({
-  contact,
-  defaultType,
-  onClose,
-  onSaved,
-}: {
-  contact?: LocalContact
-  defaultType?: ContactType
-  onClose: () => void
-  onSaved: (created?: LocalContact) => void
-}) {
-  const t = useT()
-  const editing = Boolean(contact)
-  const [type, setType] = useState<ContactType>(contact?.type ?? defaultType ?? ContactType.CUSTOMER)
-  const [name, setName] = useState(contact?.name ?? '')
-  const [phone, setPhone] = useState(contact?.phone ?? '')
-  const [phoneAlt, setPhoneAlt] = useState(contact?.phoneAlt ?? '')
-  const [address, setAddress] = useState(contact?.address ?? '')
-  const [notes, setNotes] = useState(contact?.notes ?? '')
-  const [error, setError] = useState<string | null>(null)
-
-  const payload = (): CreateContactRequest => ({
-    type,
-    name: name.trim(),
-    phone: phone.trim() || undefined,
-    phoneAlt: phoneAlt.trim() || undefined,
-    address: address.trim() || undefined,
-    notes: notes.trim() || undefined,
-  })
-
-  const save = useMutation({
-    mutationFn: () => (editing && contact ? dataClient.contacts.update(contact.id, payload()) : dataClient.contacts.create(payload())),
-    onSuccess: (c) => onSaved(c),
-    onError: (e) => setError(errorMessage(e, t('ct.saveError'))),
-  })
-
-  const submit = () => {
-    if (!name.trim()) return setError(t('ct.nameRequired'))
-    setError(null)
-    save.mutate()
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={editing ? t('ct.editTitle') : t('ct.new')}
-      footer={
-        <>
-          <Button variant="soft" onClick={onClose} disabled={save.isPending}>{t('ct.cancel')}</Button>
-          <Button variant="primary" loading={save.isPending} onClick={submit}>{editing ? t('ct.save') : t('ct.create')}</Button>
-        </>
-      }
-    >
-      <div className="ff" style={{ marginBottom: 12 }}>
-        <label className="lbl2">{t('ct.type')}</label>
-        <Select value={type} onChange={(e) => setType(e.target.value as ContactType)}>
-          <option value={ContactType.CUSTOMER}>{t('ct.customer')}</option>
-          <option value={ContactType.SUPPLIER}>{t('ct.supplier')}</option>
-          <option value={ContactType.BOTH}>{t('ct.both')}</option>
-        </Select>
-      </div>
-      <div className="ff" style={{ marginBottom: 12 }}>
-        <label className="lbl2">{t('ct.name')} <span className="req">*</span></label>
-        <Input value={name} error={!!error && !name.trim()} placeholder={t('ct.namePh')} onChange={(e) => { setName(e.target.value); setError(null) }} />
-      </div>
-      <div className="ff" style={{ marginBottom: 12 }}>
-        <label className="lbl2">{t('ct.phone')}</label>
-        <PhoneInput value={phone} placeholder={t('ct.phonePh')} onChange={(v) => setPhone(v ?? '')} />
-      </div>
-      <div className="ff" style={{ marginBottom: 12 }}>
-        <label className="lbl2">{t('ct.phoneAlt')}</label>
-        <PhoneInput value={phoneAlt} placeholder={t('ct.phonePh')} onChange={(v) => setPhoneAlt(v ?? '')} />
-      </div>
-      <div className="ff" style={{ marginBottom: 12 }}>
-        <label className="lbl2">{t('ct.address')}</label>
-        <Input value={address} placeholder={t('ct.addressPh')} onChange={(e) => setAddress(e.target.value)} />
-      </div>
-      <div className="ff">
-        <label className="lbl2">{t('ct.notes')}</label>
-        <textarea className="ta" rows={2} value={notes} placeholder={t('ct.notesPh')} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', resize: 'vertical' }} />
-      </div>
-      {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
-    </Modal>
   )
 }

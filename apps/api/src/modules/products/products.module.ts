@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
+import { BrandCategory } from '@/entities/brand-category.entity'
 import { Business } from '@/entities/business.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
@@ -44,6 +45,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
     TypeOrmModule.forFeature([
       AttributeGroup,
       AttributeOption,
+      BrandCategory,
       Business,
       CategoryAttributeGroup,
       InventoryLevel,

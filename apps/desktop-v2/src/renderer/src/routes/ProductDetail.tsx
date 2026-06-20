@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Modal } from '@biztrack/ui/biztrack'
+import { BackButton, Button, Modal } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
@@ -95,13 +95,7 @@ export function ProductDetail() {
   return (
     <div className="frame">
       <div className="detail-top">
-        <button type="button" className="back-btn" onClick={() => navigate('/products')}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7 3-5 5 5 5" />
-            <path d="M2 8h12" />
-          </svg>
-          {t('pdv.back')}
-        </button>
+        <BackButton onClick={() => navigate('/products')}>{t('pdv.back')}</BackButton>
         <div className="acts2">
           {/* Restock is a purchase (adds stock via the inventory restock flow) — applies
               to every product. Adjust acts on product-level quantity, so it only applies

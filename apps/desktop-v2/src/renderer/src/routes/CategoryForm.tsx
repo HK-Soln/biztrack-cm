@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Select } from '@biztrack/ui/biztrack'
+import { BackButton, Button, Input, Select } from '@biztrack/ui/biztrack'
+import { FileUpload } from '@/components/FileUpload'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
@@ -69,12 +70,9 @@ export function CategoryForm() {
   const [isActive, setIsActive] = useState(true)
   const [showOnline, setShowOnline] = useState(true)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [imageError, setImageError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Populate once when editing (after the list resolves).
   useEffect(() => {
@@ -131,38 +129,13 @@ export function CategoryForm() {
       return next
     })
 
-  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file after a remove
-    if (!file) return
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      setImageError(t('cat.imageTypeError'))
-      return
-    }
-    setImageError(null)
-    setUploading(true)
-    try {
-      const bytes = await file.arrayBuffer()
-      const res = await dataClient.uploads.file({
-        bytes,
-        filename: file.name,
-        contentType: file.type,
-        folder: 'categories',
-      })
-      setImageUrl(res.url)
-    } catch {
-      setImageError(t('cat.imageError'))
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  // Valid parents: depth < 3, and not the category itself or its descendants.
-  const descendantIds = useMemo(() => collectDescendants(categories, id ?? null), [categories, id])
-  const parentOptions = useMemo(
-    () => categories.filter((c) => c.depth < 3 && c.id !== id && !descendantIds.has(c.id)),
-    [categories, id, descendantIds],
-  )
+  // Parent eligibility (depth<3, no products, no variant options, not self/descendant)
+  // is computed by the service so the same rule holds everywhere.
+  const { data: parentOptions = [] } = useQuery({
+    queryKey: [...queryKeys.categories, 'parent-options', id ?? 'new'],
+    queryFn: () => dataClient.categories.listParentOptions({ excludeId: id }),
+    enabled: isElectron,
+  })
 
   const parent = categories.find((c) => c.id === parentId) ?? null
   const depth = (parent?.depth ?? 0) + 1
@@ -213,13 +186,7 @@ export function CategoryForm() {
   return (
     <div className="frame">
       <div className="detail-top">
-        <button type="button" className="back-btn" onClick={() => navigate('/products/categories')}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7 3-5 5 5 5" />
-            <path d="M2 8h12" />
-          </svg>
-          {t('cat.back')}
-        </button>
+        <BackButton onClick={() => navigate('/products/categories')}>{t('cat.back')}</BackButton>
         <div className="acts2">
           <Button variant="soft" onClick={() => navigate('/products/categories')} disabled={save.isPending}>
             {t('cat.cancel')}
@@ -440,57 +407,16 @@ export function CategoryForm() {
               <div className="fsec-h" style={{ marginBottom: 10 }}>
                 {t('cat.image')}
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={ALLOWED_IMAGE_TYPES.join(',')}
-                style={{ display: 'none' }}
-                onChange={onPickImage}
+              <FileUpload
+                value={imageUrl}
+                onChange={setImageUrl}
+                folder="categories"
+                variant="image"
+                allowedTypes={ALLOWED_IMAGE_TYPES}
+                label={t('cat.imageUpload')}
+                hint={t('cat.imageHint')}
+                typeError={t('cat.imageTypeError')}
               />
-              {imageUrl ? (
-                <>
-                  <div className="imgpreview">
-                    <img src={imageUrl} alt={name || t('cat.image')} />
-                    {uploading ? <div className="imgpreview-overlay">{t('cat.imageUploading')}</div> : null}
-                  </div>
-                  <div className="img-acts">
-                    <Button variant="soft" type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                      {t('cat.imageReplace')}
-                    </Button>
-                    <Button
-                      variant="soft"
-                      type="button"
-                      onClick={() => {
-                        setImageUrl(null)
-                        setImageError(null)
-                      }}
-                      disabled={uploading}
-                    >
-                      {t('cat.imageRemove')}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="imgdrop"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <circle cx="9" cy="9" r="2" />
-                    <path d="m21 15-5-5L5 21" />
-                  </svg>
-                  <div className="t">{uploading ? t('cat.imageUploading') : t('cat.imageUpload')}</div>
-                  <div className="s">{t('cat.imageHint')}</div>
-                </button>
-              )}
-              {imageError ? (
-                <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
-                  {imageError}
-                </p>
-              ) : null}
             </div>
 
             <div className="card">
@@ -552,21 +478,4 @@ function ancestorPath(all: LocalCategory[], id: string): LocalCategory[] {
     cur = cur.parentId ? (byId.get(cur.parentId) ?? null) : null
   }
   return path
-}
-
-function collectDescendants(all: LocalCategory[], rootId: string | null): Set<string> {
-  const out = new Set<string>()
-  if (!rootId) return out
-  const childrenOf = (pid: string) => all.filter((c) => c.parentId === pid)
-  const stack = [rootId]
-  while (stack.length) {
-    const next = stack.pop()!
-    for (const child of childrenOf(next)) {
-      if (!out.has(child.id)) {
-        out.add(child.id)
-        stack.push(child.id)
-      }
-    }
-  }
-  return out
 }

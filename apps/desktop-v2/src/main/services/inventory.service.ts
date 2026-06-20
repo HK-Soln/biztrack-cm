@@ -257,20 +257,60 @@ export class InventoryService {
       return { kind: 'direct', productId: item.productId, name: meta.name, quantity: qty, unitCost }
     })
 
-    const totalCost = round2(lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0))
-    const amountPaid = input.amountPaid != null && Number.isFinite(input.amountPaid) ? Math.max(0, Math.min(input.amountPaid, totalCost)) : totalCost
-    const creditAmount = round2(totalCost - amountPaid)
+    // Settlement: goods subtotal − discounts + charges = invoice total, settled by payments.
+    const subtotal = round2(lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0))
+    const discountLines = (input.discounts ?? []).map((d) => ({ ...d, id: d.id ?? randomUUID(), amount: round2(Math.max(0, d.amount)) }))
+    const chargeLines = (input.charges ?? []).map((c) => ({ ...c, id: c.id ?? randomUUID(), amount: round2(Math.max(0, c.amount)) }))
+    const discountAmount = round2(discountLines.reduce((s, d) => s + d.amount, 0))
+    const chargesAmount = round2(chargeLines.reduce((s, c) => s + c.amount, 0))
+    const totalAmount = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
+
+    const paymentLines = (input.payments ?? []).filter((p) => Number.isFinite(p.amount) && p.amount > 0)
+    const amountPaid = input.payments != null
+      ? round2(paymentLines.reduce((s, p) => s + p.amount, 0))
+      : input.amountPaid != null && Number.isFinite(input.amountPaid)
+        ? Math.max(0, Math.min(input.amountPaid, totalAmount))
+        : totalAmount
+    const creditAmount = round2(Math.max(0, totalAmount - amountPaid))
     if (creditAmount > 0 && !input.supplierId) throw new Error('Select a supplier for a restock on credit.')
+    const invoiceFileUrl = input.invoiceFileUrl?.trim() || null
+    if (creditAmount > 0 && !invoiceFileUrl) throw new Error('Attach the supplier invoice for a receipt on credit.')
+
     const reference = input.reference?.trim() || null
     const notes = input.notes?.trim() || null
+    const invoiceNumber = input.invoiceNumber?.trim() || null
+    const invoiceDate = input.invoiceDate?.trim() || null
     const supplierName = input.supplierId ? this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [input.supplierId])?.name ?? null : null
     const movementNote = reference ? `Restock ${reference}` : 'Restock'
 
     this.db.run(
-      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, amount_paid, credit_amount, notes, performed_by_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-      [restockId, businessId, reference, input.supplierId ?? null, supplierName, input.purchaseOrderId ?? null, totalCost, totalCost, amountPaid, creditAmount, notes, now],
+      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, discount_amount, charges_amount, amount_paid, credit_amount, invoice_number, invoice_date, invoice_file_url, notes, performed_by_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      [restockId, businessId, reference, input.supplierId ?? null, supplierName, input.purchaseOrderId ?? null, totalAmount, subtotal, discountAmount, chargesAmount, amountPaid, creditAmount, invoiceNumber, invoiceDate, invoiceFileUrl, notes, now],
     )
+
+    // Settlement children (charges, discounts, split payments).
+    for (const c of chargeLines) {
+      this.db.run(
+        `INSERT INTO restock_charges (id, restock_record_id, business_id, charge_type_id, name, rate_type, rate_value, amount, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [c.id, restockId, businessId, c.chargeTypeId ?? null, c.name, c.rateType, c.rateValue, c.amount, now],
+      )
+    }
+    for (const d of discountLines) {
+      this.db.run(
+        `INSERT INTO restock_discounts (id, restock_record_id, business_id, description, discount_type, rate, amount, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [d.id, restockId, businessId, d.description, d.discountType, d.rate ?? null, d.amount, now],
+      )
+    }
+    for (const p of paymentLines) {
+      this.db.run(
+        `INSERT INTO restock_payments (id, restock_record_id, business_id, method, amount, mobile_money_reference, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), restockId, businessId, p.method, round2(p.amount), p.mobileMoneyReference ?? null, now],
+      )
+    }
 
     const syncItems: Array<{ id: string; productId: string; variantId?: string | null; quantity: number; unitCost?: number; movementId: string }> = []
     const receipts: Array<{ productId: string; variantId: string | null; quantity: number }> = []
@@ -284,6 +324,7 @@ export class InventoryService {
           line.productId,
           line.serials.map((sn) => ({ serialNumber: sn, serialType: line.serialType, variantId: line.variantId })),
           movementNote,
+          'RESTOCK_IN',
         )
         movementId = randomUUID()
       } else if (line.kind === 'variant') {
@@ -308,7 +349,27 @@ export class InventoryService {
       'inventoryRestocks',
       restockId,
       businessId,
-      { referenceNumber: reference, supplierId: input.supplierId ?? null, supplierName, purchaseOrderId: input.purchaseOrderId ?? null, totalAmount: totalCost, totalCost, amountPaid, notes, createdAt: now, items: syncItems },
+      {
+        referenceNumber: reference,
+        supplierId: input.supplierId ?? null,
+        supplierName,
+        purchaseOrderId: input.purchaseOrderId ?? null,
+        subtotalAmount: subtotal,
+        discountAmount,
+        chargesAmount,
+        totalAmount,
+        totalCost: subtotal,
+        amountPaid,
+        invoiceNumber,
+        invoiceDate,
+        invoiceFileUrl,
+        notes,
+        createdAt: now,
+        payments: paymentLines.map((p) => ({ method: p.method, amount: round2(p.amount), ...(p.mobileMoneyReference ? { mobileMoneyReference: p.mobileMoneyReference } : {}) })),
+        charges: chargeLines.map((c) => ({ id: c.id, chargeTypeId: c.chargeTypeId ?? null, name: c.name, rateType: c.rateType, rateValue: c.rateValue, amount: c.amount })),
+        discounts: discountLines.map((d) => ({ id: d.id, description: d.description, discountType: d.discountType, rate: d.rate ?? null, amount: d.amount })),
+        items: syncItems,
+      },
       now,
     )
 
@@ -334,7 +395,7 @@ export class InventoryService {
       entityType: 'restock',
       entityId: restockId,
       entityLabel: reference ?? `${lines.length} item(s)`,
-      changes: { before: null, after: { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })), totalCost, amountPaid, creditAmount, purchaseOrderId: input.purchaseOrderId ?? null } },
+      changes: { before: null, after: { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })), subtotal, discountAmount, chargesAmount, totalAmount, amountPaid, creditAmount, purchaseOrderId: input.purchaseOrderId ?? null } },
     })
     this.onMutated()
   }

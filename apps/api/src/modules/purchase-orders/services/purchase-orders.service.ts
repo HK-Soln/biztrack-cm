@@ -85,6 +85,7 @@ export class PurchaseOrdersService {
       if (!dto.items?.length) throw new AppBadRequestException('Add at least one item.', 'PO_ITEMS_REQUIRED')
       const lines: PoLineInput[] = []
       for (const it of dto.items) {
+        if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new AppBadRequestException('Each item needs a quantity greater than 0.', 'PO_ITEM_QTY_INVALID')
         lines.push({
           productId: it.productId,
           variantId: it.variantId ?? null,
@@ -93,6 +94,7 @@ export class PurchaseOrdersService {
           unitPrice: it.unitPrice ?? 0,
         })
       }
+      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
       const id = await this.insert(businessId, {
         rfqId: dto.rfqId ?? null,
         supplierId: dto.supplierId,
@@ -115,21 +117,25 @@ export class PurchaseOrdersService {
       const rfq = await this.rfqsService.findById(rfqId, businessId)
       const supplier = (rfq.suppliers ?? []).find((s) => s.id === dto.rfqSupplierId)
       if (!supplier) throw new AppBadRequestException('Supplier is not on this request.', 'RFQ_SUPPLIER_NOT_FOUND')
-      const items = rfq.items ?? []
-      if (!items.length) throw new AppBadRequestException('This request has no items.', 'RFQ_EMPTY')
+      if (!dto.items?.length) throw new AppBadRequestException('Add at least one item to the order.', 'PO_ITEMS_REQUIRED')
 
-      const lines: PoLineInput[] = items.map((it) => ({
-        productId: it.productId,
-        variantId: it.variantId ?? null,
-        description: it.description,
-        quantity: Number(it.quantity),
-        unitPrice: dto.unitPrices?.[it.id] ?? 0,
-      }))
+      const lines: PoLineInput[] = []
+      for (const it of dto.items) {
+        if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new AppBadRequestException('Each item needs a quantity greater than 0.', 'PO_ITEM_QTY_INVALID')
+        lines.push({
+          productId: it.productId,
+          variantId: it.variantId ?? null,
+          description: it.description?.trim() || (await this.describeProduct(it.productId)),
+          quantity: it.quantity,
+          unitPrice: it.unitPrice ?? 0,
+        })
+      }
+      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
       const id = await this.insert(businessId, {
         rfqId,
         supplierId: supplier.supplierId,
-        title: rfq.title ?? null,
-        messageBody: rfq.messageBody ?? null,
+        title: dto.title?.trim() || rfq.title || null,
+        messageBody: dto.messageBody?.trim() || rfq.messageBody || null,
         currency: rfq.currency,
         expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : null,
         createdById: context.actorId ?? null,

@@ -9,6 +9,7 @@ import {
   type ContactListItem,
   type ContactListResult,
   type ContactsQuery,
+  type ContactsSummary,
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
@@ -60,6 +61,15 @@ export class ContactsService {
         qb.andWhere('contact.is_active = :isActive', { isActive: query.isActive })
       }
 
+      if (query.balance === 'debtor' || query.balance === 'creditor') {
+        // Match desktop: contacts with an open debt in the given direction.
+        const balDir = query.balance === 'debtor' ? DebtDirection.RECEIVABLE : DebtDirection.PAYABLE
+        qb.andWhere(
+          `EXISTS (SELECT 1 FROM debts d WHERE d.contact_id = contact.id AND d.direction = :balDir AND d.status IN ('OUTSTANDING','PARTIALLY_PAID'))`,
+          { balDir },
+        )
+      }
+
       if (query.search?.trim()) {
         const search = `%${query.search.trim().toLowerCase()}%`
         qb.andWhere(
@@ -93,6 +103,42 @@ export class ContactsService {
     }
   }
 
+  /** Aggregate balances + per-tab counts for the contacts list header. */
+  async summary(businessId: string): Promise<ContactsSummary> {
+    try {
+      const contacts = await this.contactsRepo.find({ where: { businessId, isActive: true }, select: { id: true, type: true } })
+      const map = await this.buildSummaryMap(businessId, contacts.map((c) => c.id))
+      let totalReceivable = 0
+      let totalPayable = 0
+      let debtorCount = 0
+      let creditorCount = 0
+      let customerCount = 0
+      let supplierCount = 0
+      for (const c of contacts) {
+        const s = map.get(c.id)
+        const r = s?.totalReceivable ?? 0
+        const p = s?.totalPayable ?? 0
+        totalReceivable += r
+        totalPayable += p
+        if (r > 0) debtorCount += 1
+        if (p > 0) creditorCount += 1
+        if (c.type === ContactType.CUSTOMER || c.type === ContactType.BOTH) customerCount += 1
+        if (c.type === ContactType.SUPPLIER || c.type === ContactType.BOTH) supplierCount += 1
+      }
+      return {
+        totalReceivable: this.roundMoney(totalReceivable),
+        totalPayable: this.roundMoney(totalPayable),
+        allCount: contacts.length,
+        customerCount,
+        supplierCount,
+        debtorCount,
+        creditorCount,
+      }
+    } catch (error) {
+      return this.handleServiceError('summary', error, { businessId })
+    }
+  }
+
   async findById(id: string, businessId: string): Promise<ContactDetail> {
     try {
       const contact = await this.contactsRepo.findOne({
@@ -122,16 +168,32 @@ export class ContactsService {
       name: string
       phone?: string
       phoneAlt?: string
+      email?: string
       address?: string
       notes?: string
+      idType?: Contact['idType']
+      idNumber?: string | null
+      idIssueDate?: string | null
+      idExpiryDate?: string | null
+      idDocuments?: string[] | null
+      selfieUrl?: string | null
     },
   ) {
     try {
       const name = dto.name.trim()
       const phone = await this.normalizeRequiredPhone(dto.phone)
       const phoneAlt = await this.normalizeOptionalPhone(dto.phoneAlt)
+      const email = this.normalizeOptionalString(dto.email)
       const address = this.normalizeOptionalString(dto.address)
       const notes = this.normalizeOptionalString(dto.notes)
+      const kyc = {
+        idType: dto.idType ?? null,
+        idNumber: this.normalizeOptionalString(dto.idNumber),
+        idIssueDate: this.normalizeOptionalString(dto.idIssueDate),
+        idExpiryDate: this.normalizeOptionalString(dto.idExpiryDate),
+        idDocuments: dto.idDocuments?.length ? dto.idDocuments : null,
+        selfieUrl: this.normalizeOptionalString(dto.selfieUrl),
+      }
 
       const existing = await this.findByPrimaryPhone(businessId, phone)
       if (existing) {
@@ -145,6 +207,7 @@ export class ContactsService {
           return this.reuseExistingContact(existing, businessId, {
             type: ContactType.BOTH,
             phoneAlt,
+            email,
             address,
             notes,
           })
@@ -160,6 +223,7 @@ export class ContactsService {
         return this.reuseExistingContact(existing, businessId, {
           type: ContactType.BOTH,
           phoneAlt,
+          email,
           address,
           notes,
         })
@@ -174,8 +238,10 @@ export class ContactsService {
           name,
           phone,
           phoneAlt,
+          email,
           address,
           notes,
+          ...kyc,
           isActive: true,
           createdById: user.sub,
         }),
@@ -195,8 +261,15 @@ export class ContactsService {
       name?: string
       phone?: string
       phoneAlt?: string
+      email?: string
       address?: string
       notes?: string
+      idType?: Contact['idType']
+      idNumber?: string | null
+      idIssueDate?: string | null
+      idExpiryDate?: string | null
+      idDocuments?: string[] | null
+      selfieUrl?: string | null
     },
   ) {
     try {
@@ -220,8 +293,32 @@ export class ContactsService {
           dto.phoneAlt === undefined
             ? contact.phoneAlt ?? null
             : await this.normalizeOptionalPhone(dto.phoneAlt),
+        email: dto.email === undefined ? contact.email ?? null : this.normalizeOptionalString(dto.email),
         address: dto.address === undefined ? contact.address ?? null : this.normalizeOptionalString(dto.address),
         notes: dto.notes === undefined ? contact.notes ?? null : this.normalizeOptionalString(dto.notes),
+        idType: dto.idType === undefined ? contact.idType ?? null : dto.idType ?? null,
+        idNumber:
+          dto.idNumber === undefined
+            ? contact.idNumber ?? null
+            : this.normalizeOptionalString(dto.idNumber),
+        idIssueDate:
+          dto.idIssueDate === undefined
+            ? contact.idIssueDate ?? null
+            : this.normalizeOptionalString(dto.idIssueDate),
+        idExpiryDate:
+          dto.idExpiryDate === undefined
+            ? contact.idExpiryDate ?? null
+            : this.normalizeOptionalString(dto.idExpiryDate),
+        idDocuments:
+          dto.idDocuments === undefined
+            ? contact.idDocuments ?? null
+            : dto.idDocuments?.length
+              ? dto.idDocuments
+              : null,
+        selfieUrl:
+          dto.selfieUrl === undefined
+            ? contact.selfieUrl ?? null
+            : this.normalizeOptionalString(dto.selfieUrl),
         updatedAt: new Date(),
       })
 
@@ -288,7 +385,7 @@ export class ContactsService {
   private async buildSummaryMap(businessId: string, contactIds: string[]) {
     const result = new Map<
       string,
-      { totalReceivable: number; totalPayable: number; openDebts: number; lastTransactionDate: string | null }
+      { totalReceivable: number; totalPayable: number; openDebts: number; lastTransactionDate: string | null; oldestUnpaidAt: string | null }
     >()
 
     if (contactIds.length === 0) return result
@@ -308,6 +405,7 @@ export class ContactsService {
         totalPayable: ob?.payable ?? 0,
         openDebts: 0,
         lastTransactionDate: null,
+        oldestUnpaidAt: null,
       })
     }
 
@@ -330,6 +428,10 @@ export class ContactsService {
 
       if ([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status)) {
         summary.openDebts += 1
+        const created = toIsoString(debt.createdAt) ?? null
+        if (created && (!summary.oldestUnpaidAt || created < summary.oldestUnpaidAt)) {
+          summary.oldestUnpaidAt = created
+        }
       }
 
       summary.lastTransactionDate = this.maxDate(summary.lastTransactionDate, this.toDateOnly(debt.createdAt))
@@ -352,7 +454,7 @@ export class ContactsService {
 
   private toContactModel(
     contact: Contact & { createdBy?: { id: string; name: string } | null },
-    summary?: { totalReceivable: number; totalPayable: number; openDebts: number; lastTransactionDate: string | null },
+    summary?: { totalReceivable: number; totalPayable: number; openDebts: number; lastTransactionDate: string | null; oldestUnpaidAt: string | null },
   ): ContactListItem {
     return {
       id: contact.id,
@@ -361,8 +463,15 @@ export class ContactsService {
       name: contact.name,
       phone: contact.phone ?? null,
       phoneAlt: contact.phoneAlt ?? null,
+      email: contact.email ?? null,
       address: contact.address ?? null,
       notes: contact.notes ?? null,
+      idType: contact.idType ?? null,
+      idNumber: contact.idNumber ?? null,
+      idIssueDate: contact.idIssueDate ?? null,
+      idExpiryDate: contact.idExpiryDate ?? null,
+      idDocuments: contact.idDocuments ?? null,
+      selfieUrl: contact.selfieUrl ?? null,
       isActive: contact.isActive,
       createdById: contact.createdById,
       createdBy: contact.createdBy
@@ -377,6 +486,7 @@ export class ContactsService {
       totalPayable: summary?.totalPayable ?? 0,
       openDebts: summary?.openDebts ?? 0,
       lastTransactionDate: summary?.lastTransactionDate ?? null,
+      oldestUnpaidAt: summary?.oldestUnpaidAt ?? null,
     }
   }
 
@@ -424,17 +534,20 @@ export class ContactsService {
     input: {
       type: ContactType
       phoneAlt: string | null
+      email: string | null
       address: string | null
       notes: string | null
     },
   ) {
     const nextPhoneAlt = contact.phoneAlt ?? input.phoneAlt
+    const nextEmail = contact.email ?? input.email
     const nextAddress = contact.address ?? input.address
     const nextNotes = contact.notes ?? input.notes
     const shouldUpdate =
       contact.type !== input.type ||
       !contact.isActive ||
       nextPhoneAlt !== (contact.phoneAlt ?? null) ||
+      nextEmail !== (contact.email ?? null) ||
       nextAddress !== (contact.address ?? null) ||
       nextNotes !== (contact.notes ?? null)
 
@@ -442,6 +555,7 @@ export class ContactsService {
       await this.contactsRepo.update(contact.id, {
         type: input.type,
         phoneAlt: nextPhoneAlt,
+        email: nextEmail,
         address: nextAddress,
         notes: nextNotes,
         isActive: true,

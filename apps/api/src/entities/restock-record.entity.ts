@@ -10,6 +10,8 @@ import { ImmutableBaseEntity } from '@/common/entities/immutable-base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
 import { Contact } from './contact.entity'
+import { RestockCharge } from './restock-charge.entity'
+import { RestockDiscount } from './restock-discount.entity'
 import { RestockItem } from './restock-item.entity'
 import { RestockPayment } from './restock-payment.entity'
 import { User } from './user.entity'
@@ -39,6 +41,26 @@ export class RestockRecord extends ImmutableBaseEntity {
     transformer: decimalTransformer,
   })
   totalCost?: number | null
+
+  @Column({
+    name: 'discount_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  discountAmount!: number
+
+  @Column({
+    name: 'charges_amount',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  chargesAmount!: number
 
   @Column({
     name: 'total_amount',
@@ -81,6 +103,15 @@ export class RestockRecord extends ImmutableBaseEntity {
   @Column({ name: 'purchase_order_id', nullable: true, type: 'uuid' })
   purchaseOrderId?: string | null
 
+  @Column({ name: 'invoice_number', nullable: true, type: 'varchar', length: 100 })
+  invoiceNumber?: string | null
+
+  @Column({ name: 'invoice_date', nullable: true, type: 'date' })
+  invoiceDate?: string | null
+
+  @Column({ name: 'invoice_file_url', nullable: true, type: 'varchar', length: 1024 })
+  invoiceFileUrl?: string | null
+
   @Column({ nullable: true, type: 'text' })
   notes?: string | null
 
@@ -96,4 +127,10 @@ export class RestockRecord extends ImmutableBaseEntity {
 
   @OneToMany(() => RestockPayment, (payment) => payment.restockRecord, { cascade: false })
   payments?: RestockPayment[]
+
+  @OneToMany(() => RestockCharge, (charge) => charge.restockRecord, { cascade: false })
+  charges?: RestockCharge[]
+
+  @OneToMany(() => RestockDiscount, (discount) => discount.restockRecord, { cascade: false })
+  discounts?: RestockDiscount[]
 }

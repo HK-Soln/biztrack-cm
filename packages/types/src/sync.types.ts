@@ -1,5 +1,11 @@
 import type { InventoryMovementType, StockAdjustmentType } from './inventory.types'
-import type { ContactType, DebtDirection, DebtSource, DebtStatus } from './credit.types'
+import type {
+  ContactType,
+  DebtDirection,
+  DebtSource,
+  DebtStatus,
+  IdDocumentType,
+} from './credit.types'
 import type { SubscriptionPlan } from './business.types'
 import type {
   CreateSaleItemRequest,
@@ -306,8 +312,15 @@ export interface ContactSyncRecord extends SyncRecord {
   name: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
   isActive: boolean
   createdById?: string | null
   createdAt: string
@@ -641,8 +654,15 @@ export interface ContactSyncPayload {
   name: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
   isActive?: boolean
   createdById?: string | null
   createdAt: string
@@ -672,19 +692,49 @@ export interface InventoryRestockSyncPaymentPayload {
   mobileMoneyReference?: string
 }
 
+export interface InventoryRestockSyncChargeLinePayload {
+  id: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+
+export interface InventoryRestockSyncDiscountLinePayload {
+  id: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+
 export interface InventoryRestockSyncPayload {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
   /** Purchase order this receipt fulfils (updates received quantities + status). */
   purchaseOrderId?: string | null
+  /** Goods subtotal — Σ(qty × unitCost). */
+  subtotalAmount?: number | null
+  /** Σ of discount lines. */
+  discountAmount?: number | null
+  /** Σ of charge lines. */
+  chargesAmount?: number | null
+  /** Invoice total = subtotal − discounts + charges. */
   totalAmount?: number | null
   totalCost?: number | null
   /** Amount paid now; remainder (total − paid) becomes a supplier payable. */
   amountPaid?: number | null
   notes?: string | null
+  /** Supplier invoice (audit proof). */
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceFileUrl?: string | null
   createdAt: string
   payments?: InventoryRestockSyncPaymentPayload[]
+  charges?: InventoryRestockSyncChargeLinePayload[]
+  discounts?: InventoryRestockSyncDiscountLinePayload[]
   items: InventoryRestockSyncItemPayload[]
 }
 

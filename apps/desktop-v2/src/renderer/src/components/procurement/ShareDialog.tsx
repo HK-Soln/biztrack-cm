@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Button, Input, Modal, PhoneInput } from '@biztrack/ui/biztrack'
-import { dataClient } from '@/lib/data-client'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Button, Input, Modal, PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
+import { dataClient, isElectron } from '@/lib/data-client'
+import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import type { DocumentKind } from '@shared/ipc'
@@ -41,6 +42,20 @@ export function ShareDialog({
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
 
+  // Auto-load the supplier's stored phone/email so the user doesn't retype them.
+  const { data: contact } = useQuery({
+    queryKey: [...queryKeys.contacts, supplierId, 'share'],
+    queryFn: () => dataClient.contacts.get(supplierId!),
+    enabled: isElectron && !!supplierId,
+  })
+  useEffect(() => {
+    if (!contact) return
+    setPhone((p) => p || contact.phone || '')
+    setEmail((e) => e || contact.email || '')
+  }, [contact])
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
   const send = useMutation({
     mutationFn: (channel: 'whatsapp' | 'email') =>
       dataClient.documents.send({
@@ -53,6 +68,14 @@ export function ShareDialog({
     onSuccess: () => { onSent?.(); setDone(t('share.sent')); setMode('menu') },
     onError: (e) => setError(errorMessage(e, t('share.error'))),
   })
+
+  const submitSend = () => {
+    if (mode === 'menu') return
+    if (mode === 'whatsapp' && !isValidPhone(phone.trim())) return setError(t('share.invalidPhone'))
+    if (mode === 'email' && !EMAIL_RE.test(email.trim())) return setError(t('share.invalidEmail'))
+    setError(null)
+    send.mutate(mode)
+  }
 
   const download = useMutation({
     mutationFn: () => dataClient.documents.downloadPdf({ kind, id, supplierId }),
@@ -68,7 +91,7 @@ export function ShareDialog({
   )
 
   return (
-    <Modal open onClose={onClose} title={mode === 'menu' ? t('share.title') : mode === 'whatsapp' ? t('share.whatsapp') : t('share.email')}>
+    <Modal open onClose={onClose} onSubmit={submitSend} title={mode === 'menu' ? t('share.title') : mode === 'whatsapp' ? t('share.whatsapp') : t('share.email')}>
       {mode === 'menu' ? (
         <>
           {done ? <p style={{ color: 'var(--success)', fontSize: 13, marginBottom: 10 }}>{done}</p> : null}
@@ -111,10 +134,10 @@ export function ShareDialog({
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
           <Button variant="soft" onClick={() => { setMode('menu'); setError(null) }} disabled={send.isPending}>{t('share.back')}</Button>
           <Button
+            type="submit"
             variant="primary"
             loading={send.isPending}
             disabled={mode === 'whatsapp' ? !phone.trim() : !email.trim()}
-            onClick={() => { setError(null); send.mutate(mode) }}
           >
             {t('share.send')}
           </Button>

@@ -3,16 +3,22 @@ import type {
   AttributeGroupListQuery,
   AttributeOptionInput,
   BrandInput,
+  ChargeType,
   BrandListQuery,
   CategoryAttributeLinkInput,
   CategoryInput,
   CategoryListQuery,
+  CategoryParentOptionsQuery,
+  CategorySelectableQuery,
   ContactsQuery,
+  ContactsSummary,
   CreateContactRequest,
   UpdateContactRequest,
   LocalContact,
   LocalContactListItem,
   DebtsQuery,
+  DebtDirection,
+  ContactStatement,
   RecordDebtPaymentRequest,
   LocalDebt,
   CreateRfqRequest,
@@ -82,6 +88,8 @@ export interface DataClient {
   categories: {
     list: (query?: CategoryListQuery) => Promise<PaginatedResult<LocalCategory>>
     listAll: () => Promise<LocalCategory[]>
+    listSelectable: (query?: CategorySelectableQuery) => Promise<LocalCategory[]>
+    listParentOptions: (query?: CategoryParentOptionsQuery) => Promise<LocalCategory[]>
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
@@ -146,6 +154,7 @@ export interface DataClient {
   }
   contacts: {
     list: (query?: ContactsQuery) => Promise<PaginatedResult<LocalContactListItem>>
+    summary: () => Promise<ContactsSummary>
     listAllSuppliers: () => Promise<LocalContact[]>
     listAllCustomers: () => Promise<LocalContact[]>
     get: (id: string) => Promise<LocalContactListItem | null>
@@ -155,6 +164,7 @@ export interface DataClient {
   }
   debts: {
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
+    statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
   }
   rfqs: {
@@ -184,6 +194,9 @@ export interface DataClient {
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
+  charges: {
+    listActive: () => Promise<ChargeType[]>
+  }
 }
 
 /** True when running inside the Electron renderer (preload bridge present). */
@@ -198,6 +211,8 @@ function electronAdapter(): DataClient {
     categories: {
       list: (query) => window.api.categories.list(query),
       listAll: () => window.api.categories.listAll(),
+      listSelectable: (query) => window.api.categories.listSelectable(query),
+      listParentOptions: (query) => window.api.categories.listParentOptions(query),
       create: (input) => window.api.categories.create(input),
       update: (id, input) => window.api.categories.update(id, input),
       remove: (id) => window.api.categories.remove(id),
@@ -263,6 +278,7 @@ function electronAdapter(): DataClient {
     },
     contacts: {
       list: (query) => window.api.contacts.list(query),
+      summary: () => window.api.contacts.summary(),
       listAllSuppliers: () => window.api.contacts.listAllSuppliers(),
       listAllCustomers: () => window.api.contacts.listAllCustomers(),
       get: (id) => window.api.contacts.get(id),
@@ -272,6 +288,7 @@ function electronAdapter(): DataClient {
     },
     debts: {
       listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
+      statement: (contactId, direction) => window.api.debts.statement(contactId, direction),
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
     },
     rfqs: {
@@ -301,6 +318,9 @@ function electronAdapter(): DataClient {
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
+    charges: {
+      listActive: () => window.api.charges.listActive(),
+    },
   }
 }
 
@@ -316,7 +336,7 @@ function cloudAdapter(): DataClient {
   }
   return {
     skeleton: { getCheck: notWired, getHealth: notWired },
-    categories: { list: notWired, listAll: notWired, create: notWired, update: notWired, remove: notWired },
+    categories: { list: notWired, listAll: notWired, listSelectable: notWired, listParentOptions: notWired, create: notWired, update: notWired, remove: notWired },
     attributes: {
       listGroups: notWired,
       listAllGroups: notWired,
@@ -362,13 +382,14 @@ function cloudAdapter(): DataClient {
       listMovements: notWired,
     },
     inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
-    contacts: { list: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
-    debts: { listByContact: notWired, recordPayment: notWired },
+    contacts: { list: notWired, summary: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
+    debts: { listByContact: notWired, statement: notWired, recordPayment: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
     documents: { send: notWired, downloadPdf: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
+    charges: { listActive: notWired },
   }
 }
 

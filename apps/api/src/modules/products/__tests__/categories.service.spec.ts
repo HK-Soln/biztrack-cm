@@ -25,6 +25,11 @@ const makeService = () => {
     createQueryBuilder: jest.fn(() => categoryQb),
   }
   const productsRepo = { createQueryBuilder: jest.fn(() => productQb) }
+  const categoryAttributeGroupsRepo = {
+    count: jest.fn().mockResolvedValue(0),
+    find: jest.fn().mockResolvedValue([]),
+  }
+  const brandCategoriesRepo = { find: jest.fn().mockResolvedValue([]) }
   const slugService = { generateCategorySlug: jest.fn().mockResolvedValue('slug') }
   const quotaService = { assertWithinQuota: jest.fn() }
   const storage = { existsByUrl: jest.fn().mockResolvedValue(true) }
@@ -34,6 +39,8 @@ const makeService = () => {
   const service = new CategoriesService(
     categoriesRepo as any,
     productsRepo as any,
+    categoryAttributeGroupsRepo as any,
+    brandCategoriesRepo as any,
     slugService as any,
     quotaService as any,
     storage as any,
@@ -41,7 +48,7 @@ const makeService = () => {
     logger as any,
   )
 
-  return { service, categoriesRepo, productsRepo, categoryQb, productQb }
+  return { service, categoriesRepo, productsRepo, categoryAttributeGroupsRepo, brandCategoriesRepo, categoryQb, productQb }
 }
 
 describe('CategoriesService — hierarchy', () => {

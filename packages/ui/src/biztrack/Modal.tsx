@@ -10,9 +10,12 @@ export interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   className?: string
+  /** When set, body + footer are wrapped in a <form> so Enter submits. Pair the
+   * primary footer action with type="submit". */
+  onSubmit?: () => void
 }
 
-export function Modal({ open, onClose, title, children, footer, className }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, className, onSubmit }: ModalProps) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -41,8 +44,17 @@ export function Modal({ open, onClose, title, children, footer, className }: Mod
             </button>
           </div>
         ) : null}
-        <div className="modal-body">{children}</div>
-        {footer ? <div className="modal-foot">{footer}</div> : null}
+        {onSubmit ? (
+          <form style={{ display: 'contents' }} onSubmit={(e) => { e.preventDefault(); onSubmit() }}>
+            <div className="modal-body">{children}</div>
+            {footer ? <div className="modal-foot">{footer}</div> : null}
+          </form>
+        ) : (
+          <>
+            <div className="modal-body">{children}</div>
+            {footer ? <div className="modal-foot">{footer}</div> : null}
+          </>
+        )}
       </div>
     </div>
   )

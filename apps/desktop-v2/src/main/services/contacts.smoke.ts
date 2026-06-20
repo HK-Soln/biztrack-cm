@@ -69,6 +69,44 @@ db.run(
 const got3 = svc.get(a.id)!
 assert(got3.totalPayable === 3000, 'payable reduced to 3000 after partial payment')
 
+console.log('summary + balance filter…')
+const sum = svc.summary()
+assert(sum.totalPayable === 3000 && sum.totalReceivable === 0, 'summary payable 3000 / receivable 0')
+assert(sum.creditorCount === 1 && sum.debtorCount === 0, 'summary 1 creditor / 0 debtors')
+assert(sum.allCount === 2 && sum.customerCount === 1 && sum.supplierCount === 1, 'summary counts: 2 all / 1 cust / 1 supp')
+assert(svc.list({ balance: 'creditor' }).total === 1, 'creditor filter = 1')
+assert(svc.list({ balance: 'debtor' }).total === 0, 'debtor filter = 0')
+
+console.log('KYC round-trip…')
+const k = svc.create({
+  type: CUSTOMER,
+  name: 'Kyc Client',
+  idType: 'ID_CARD' as never,
+  idNumber: 'ID-998877',
+  idIssueDate: '2020-01-15',
+  idExpiryDate: '2030-01-14',
+  idDocuments: ['uploads/doc-front.pdf', 'uploads/doc-back.jpg'],
+  selfieUrl: 'uploads/selfie.jpg',
+})
+const kGot = svc.get(k.id)!
+assert(kGot.idType === 'ID_CARD', 'KYC idType persisted')
+assert(kGot.idNumber === 'ID-998877', 'KYC idNumber persisted')
+assert(kGot.idIssueDate === '2020-01-15' && kGot.idExpiryDate === '2030-01-14', 'KYC dates persisted')
+assert(Array.isArray(kGot.idDocuments) && kGot.idDocuments.length === 2, 'KYC documents persisted as array')
+assert(kGot.selfieUrl === 'uploads/selfie.jpg', 'KYC selfie persisted')
+const kOb = JSON.parse(
+  db.query<{ payload: string }>(
+    `SELECT payload FROM sync_outbox WHERE entity = 'contacts' AND record_id = ?`,
+    [k.id],
+  )[0].payload,
+)
+assert(kOb.idType === 'ID_CARD' && kOb.idNumber === 'ID-998877', 'KYC rides the outbox payload')
+assert(Array.isArray(kOb.idDocuments) && kOb.idDocuments.length === 2, 'KYC documents ride the outbox payload')
+const kUpd = svc.update(k.id, { idNumber: 'ID-NEW-001', idDocuments: [] })
+assert(kUpd.idNumber === 'ID-NEW-001', 'KYC idNumber updated')
+assert(kUpd.idDocuments == null || kUpd.idDocuments.length === 0, 'KYC documents cleared on empty update')
+assert(kUpd.idType === 'ID_CARD', 'KYC idType retained when not in update payload')
+
 console.log('remove blocked by open debt…')
 let blocked = false
 try { svc.remove(a.id) } catch { blocked = true }

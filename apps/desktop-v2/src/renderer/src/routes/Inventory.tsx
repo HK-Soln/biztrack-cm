@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { DataTable, Input, Select } from '@biztrack/ui/biztrack'
+import { Button, DataTable, Input, Select } from '@biztrack/ui/biztrack'
 import type { DataTableColumn } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -126,6 +126,7 @@ export function Inventory() {
           <h1>{t('nav.inventory')}</h1>
           <p>{t('inv.subtitle')}</p>
         </div>
+        <Button variant="primary" onClick={() => navigate('/inventory/restock')}>{t('recv.stockTitle')}</Button>
       </div>
 
       <div className="minihead">

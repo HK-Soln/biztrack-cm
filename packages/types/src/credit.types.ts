@@ -8,6 +8,15 @@ export enum ContactType {
   BOTH = 'BOTH',
 }
 
+/** Kind of identification document captured for a contact (KYC). */
+export enum IdDocumentType {
+  ID_CARD = 'ID_CARD',
+  PASSPORT = 'PASSPORT',
+  DRIVERS_LICENSE = 'DRIVERS_LICENSE',
+  RESIDENCE_PERMIT = 'RESIDENCE_PERMIT',
+  OTHER = 'OTHER',
+}
+
 export enum DebtDirection {
   RECEIVABLE = 'RECEIVABLE',
   PAYABLE = 'PAYABLE',
@@ -42,8 +51,18 @@ export interface Contact {
   name: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  /** Optional KYC / identification (mainly for customers on credit). */
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: IsoDateString | null
+  idExpiryDate?: IsoDateString | null
+  /** Uploaded ID document files (PDF/image URLs). */
+  idDocuments?: string[] | null
+  /** Optional customer selfie photo (image URL). */
+  selfieUrl?: string | null
   isActive: boolean
   createdById: string
   createdBy?: ContactUserSummary | null
@@ -56,6 +75,8 @@ export interface ContactListItem extends Contact {
   totalPayable: number
   openDebts: number
   lastTransactionDate?: string | null
+  /** Created date of the oldest still-open debt (age-of-debt indicator). */
+  oldestUnpaidAt?: string | null
 }
 
 export interface ContactDetail extends ContactListItem {}
@@ -204,6 +225,19 @@ export interface AgeingReport {
 export interface ContactsQuery extends ListQuery {
   type?: ContactType
   isActive?: boolean
+  /** Filter to contacts with an outstanding balance in one direction. */
+  balance?: 'debtor' | 'creditor'
+}
+
+/** Aggregate balances + per-tab counts for the contacts list header. */
+export interface ContactsSummary {
+  totalReceivable: number
+  totalPayable: number
+  allCount: number
+  customerCount: number
+  supplierCount: number
+  debtorCount: number
+  creditorCount: number
 }
 
 export interface DebtsQuery extends ListQuery {
@@ -222,8 +256,15 @@ export interface CreateContactRequest {
   name: string
   phone?: string
   phoneAlt?: string
+  email?: string
   address?: string
   notes?: string
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
 }
 
 export interface UpdateContactRequest extends Partial<CreateContactRequest> {}

@@ -10,7 +10,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm'
-import { ContactType } from '@biztrack/types'
+import { ContactType, type IdDocumentType } from '@biztrack/types'
 import { dateTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
 import { Debt } from './debt.entity'
@@ -42,11 +42,32 @@ export class Contact extends TypeOrmBaseEntity {
   @Column({ name: 'phone_alt', nullable: true, type: 'varchar', length: 30 })
   phoneAlt?: string | null
 
+  @Column({ nullable: true, type: 'varchar', length: 200 })
+  email?: string | null
+
   @Column({ nullable: true, type: 'text' })
   address?: string | null
 
   @Column({ nullable: true, type: 'text' })
   notes?: string | null
+
+  @Column({ name: 'id_type', type: 'varchar', length: 30, nullable: true })
+  idType?: IdDocumentType | null
+
+  @Column({ name: 'id_number', type: 'varchar', length: 100, nullable: true })
+  idNumber?: string | null
+
+  @Column({ name: 'id_issue_date', type: 'date', nullable: true })
+  idIssueDate?: string | null
+
+  @Column({ name: 'id_expiry_date', type: 'date', nullable: true })
+  idExpiryDate?: string | null
+
+  @Column({ name: 'id_documents', type: 'jsonb', nullable: true })
+  idDocuments?: string[] | null
+
+  @Column({ name: 'selfie_url', type: 'varchar', length: 1024, nullable: true })
+  selfieUrl?: string | null
 
   @Column({ name: 'is_active', default: true })
   isActive!: boolean

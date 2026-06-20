@@ -1,8 +1,12 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
+import { ContactStatementEntryType } from '@biztrack/types'
+import type { ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
 import type { DebtsQuery, LocalDebt, PaginatedResult, RecordDebtPaymentRequest } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import type { AuditLogger } from './audit.service'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 interface DebtRow {
   id: string
@@ -156,6 +160,76 @@ export class DebtsService {
     if (!businessId) return null
     const row = this.getRow(id, businessId)
     return row ? toLocalDebt(row) : null
+  }
+
+  /**
+   * Chronological account statement for a contact in one direction — debts (charges)
+   * and payments interleaved with a running balance. Mirrors the shared ContactStatement
+   * (API GET /contacts/:id/statement). Opening balance is 0 (no opening-balance feature
+   * on desktop yet).
+   */
+  statement(contactId: string, direction: DebtDirection): ContactStatement {
+    const businessId = this.getBusinessId()
+    const contactRow = businessId
+      ? this.db.get<{ name: string; phone: string | null }>(`SELECT name, phone FROM contacts WHERE id = ? AND business_id = ?`, [contactId, businessId])
+      : null
+    const base: ContactStatement = {
+      contact: { id: contactId, name: contactRow?.name ?? '', phone: contactRow?.phone ?? null },
+      direction,
+      openingBalance: 0,
+      entries: [],
+      closingBalance: 0,
+    }
+    if (!businessId) return base
+
+    const debts = this.db.query<DebtRow>(
+      `SELECT ${COLS} FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND d.direction = ? ORDER BY d.created_at ASC`,
+      [businessId, contactId, direction],
+    )
+    if (debts.length === 0) return base
+
+    const ids = debts.map((d) => d.id)
+    const ph = ids.map(() => '?').join(',')
+    const pays = this.db.query<{ debt_id: string; amount: number; method: string; mobile_money_reference: string | null; payment_date: string | null; created_at: string }>(
+      `SELECT debt_id, amount, method, mobile_money_reference, payment_date, created_at FROM debt_payments WHERE debt_id IN (${ph}) ORDER BY payment_date ASC, created_at ASC`,
+      ids,
+    )
+
+    const paidByDebt = new Map<string, number>()
+    for (const p of pays) paidByDebt.set(p.debt_id, (paidByDebt.get(p.debt_id) ?? 0) + p.amount)
+
+    type Ev =
+      | { date: string; kind: 'debt'; debt: DebtRow }
+      | { date: string; kind: 'pay'; pay: (typeof pays)[number] }
+      | { date: string; kind: 'woff'; amount: number }
+    const events: Ev[] = []
+    for (const d of debts) {
+      events.push({ date: d.created_at, kind: 'debt', debt: d })
+      if (d.status === 'WRITTEN_OFF') {
+        const remaining = Math.max(0, d.original_amount - (paidByDebt.get(d.id) ?? 0))
+        if (remaining > 0) events.push({ date: d.settled_at || d.created_at, kind: 'woff', amount: remaining })
+      }
+    }
+    for (const p of pays) events.push({ date: p.payment_date || p.created_at, kind: 'pay', pay: p })
+    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+
+    let balance = base.openingBalance
+    const entries: ContactStatementEntry[] = []
+    for (const e of events) {
+      if (e.kind === 'debt') {
+        balance = round2(balance + e.debt.original_amount)
+        entries.push({ date: e.debt.created_at, type: ContactStatementEntryType.DEBT_CREATED, direction, reference: e.debt.source_reference, description: e.debt.source_type, debit: e.debt.original_amount, credit: 0, balance })
+      } else if (e.kind === 'pay') {
+        balance = round2(balance - e.pay.amount)
+        entries.push({ date: e.date, type: ContactStatementEntryType.PAYMENT, direction, reference: e.pay.method, description: e.pay.mobile_money_reference ?? '', debit: 0, credit: e.pay.amount, balance })
+      } else {
+        balance = round2(balance - e.amount)
+        entries.push({ date: e.date, type: ContactStatementEntryType.WRITE_OFF, direction, reference: null, description: '', debit: 0, credit: e.amount, balance })
+      }
+    }
+    base.entries = entries
+    base.closingBalance = balance
+    return base
   }
 
   // ---- internals -----------------------------------------------------------

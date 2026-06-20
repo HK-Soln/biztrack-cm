@@ -1,6 +1,13 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import type { CategoryInput, CategoryListQuery, LocalCategory, PaginatedResult } from '../../shared/ipc'
+import type {
+  CategoryInput,
+  CategoryListQuery,
+  CategoryParentOptionsQuery,
+  CategorySelectableQuery,
+  LocalCategory,
+  PaginatedResult,
+} from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import type { AuditLogger } from './audit.service'
 
@@ -99,8 +106,58 @@ export class CategoriesService {
     return rows.map(toLocalCategory)
   }
 
+  /**
+   * Terminal categories a product can be placed in: leaves (no active sub-categories),
+   * at ANY depth — so a simple top-level category with no children is selectable too.
+   * When `brandId` is given, the result is the union of leaves under each of the brand's
+   * linked categories (a linked leaf resolves to itself; a linked branch expands to the
+   * leaves in its subtree). Eligibility lives here, not in the renderer.
+   */
+  listSelectable(query: CategorySelectableQuery = {}): LocalCategory[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.allRows(businessId)
+    const parentIds = new Set(rows.filter((r) => r.parent_id).map((r) => r.parent_id as string))
+    let leaves = rows.filter((r) => r.is_active === 1 && !parentIds.has(r.id))
+
+    if (query.brandId) {
+      const linkIds = this.brandCategoryIds(businessId, query.brandId)
+      // A brand with no category links surfaces every terminal category.
+      if (linkIds.length > 0) {
+        const allowed = this.leavesUnder(rows, linkIds)
+        leaves = leaves.filter((r) => allowed.has(r.id))
+      }
+    }
+    leaves = filterBySearch(leaves, query.search)
+    return sortRows(leaves).map(toLocalCategory)
+  }
+
+  /**
+   * Categories that may serve as a parent: depth < 3, no products attached, and no
+   * variant options attached — and never the category itself or one of its descendants.
+   * A category becomes "terminal" the moment it gains products or variant options.
+   */
+  listParentOptions(query: CategoryParentOptionsQuery = {}): LocalCategory[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.allRows(businessId)
+    const blocked = new Set<string>()
+    if (query.excludeId) {
+      blocked.add(query.excludeId)
+      for (const d of collectDescendants(rows, query.excludeId)) blocked.add(d)
+    }
+    const withProducts = this.categoryIdsWithProducts(businessId)
+    const withVariants = this.categoryIdsWithVariantOptions(businessId)
+    let options = rows.filter(
+      (r) => r.depth < 3 && !blocked.has(r.id) && !withProducts.has(r.id) && !withVariants.has(r.id),
+    )
+    options = filterBySearch(options, query.search)
+    return sortRows(options).map(toLocalCategory)
+  }
+
   create(input: CategoryInput): LocalCategory {
     const businessId = this.requireBusinessId()
+    if (input.parentId) this.assertParentEligible(input.parentId, businessId, null)
     const id = randomUUID()
     const now = new Date().toISOString()
     const depth = this.depthFor(input.parentId ?? null)
@@ -135,6 +192,7 @@ export class CategoriesService {
 
   update(id: string, input: CategoryInput): LocalCategory {
     const businessId = this.requireBusinessId()
+    if (input.parentId) this.assertParentEligible(input.parentId, businessId, id)
     const now = new Date().toISOString()
     const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
@@ -189,6 +247,85 @@ export class CategoriesService {
     return row ? toLocalCategory(row) : null
   }
 
+  /** All non-deleted category rows for the active business (for tree/eligibility maths). */
+  private allRows(businessId: string): CategoryRow[] {
+    return this.db.query<CategoryRow>(
+      `SELECT ${SELECT_COLS} FROM product_categories WHERE business_id = ? AND is_deleted = 0`,
+      [businessId],
+    )
+  }
+
+  private brandCategoryIds(businessId: string, brandId: string): string[] {
+    return this.db
+      .query<{ category_id: string }>(
+        `SELECT category_id FROM brand_categories WHERE business_id = ? AND brand_id = ? AND is_deleted = 0`,
+        [businessId, brandId],
+      )
+      .map((r) => r.category_id)
+  }
+
+  private categoryIdsWithProducts(businessId: string): Set<string> {
+    const rows = this.db.query<{ category_id: string }>(
+      `SELECT DISTINCT category_id FROM products WHERE business_id = ? AND is_deleted = 0 AND category_id IS NOT NULL`,
+      [businessId],
+    )
+    return new Set(rows.map((r) => r.category_id))
+  }
+
+  private categoryIdsWithVariantOptions(businessId: string): Set<string> {
+    const rows = this.db.query<{ category_id: string }>(
+      `SELECT DISTINCT category_id FROM category_attribute_groups WHERE business_id = ? AND is_deleted = 0`,
+      [businessId],
+    )
+    return new Set(rows.map((r) => r.category_id))
+  }
+
+  /** Leaf-descendant ids under each root id (a root that is itself a leaf maps to itself). */
+  private leavesUnder(rows: CategoryRow[], rootIds: string[]): Set<string> {
+    const childrenOf = new Map<string, CategoryRow[]>()
+    for (const r of rows) {
+      if (!r.parent_id) continue
+      const list = childrenOf.get(r.parent_id) ?? []
+      list.push(r)
+      childrenOf.set(r.parent_id, list)
+    }
+    const out = new Set<string>()
+    const visit = (id: string, seen: Set<string>): void => {
+      if (seen.has(id)) return
+      seen.add(id)
+      const kids = childrenOf.get(id) ?? []
+      if (kids.length === 0) {
+        out.add(id)
+        return
+      }
+      for (const k of kids) visit(k.id, seen)
+    }
+    for (const root of rootIds) visit(root, new Set())
+    return out
+  }
+
+  /** Throw a descriptive error if `parentId` may not serve as the parent of `selfId`. */
+  private assertParentEligible(parentId: string, businessId: string, selfId: string | null): void {
+    const rows = this.allRows(businessId)
+    const parent = rows.find((r) => r.id === parentId)
+    if (!parent) throw new Error('Selected parent category does not exist.')
+    if (parent.depth >= 3) {
+      throw new Error('Maximum category depth (3 levels) reached — this category cannot be a parent.')
+    }
+    if (selfId) {
+      if (parentId === selfId) throw new Error('A category cannot be its own parent.')
+      if (collectDescendants(rows, selfId).has(parentId)) {
+        throw new Error('Cannot move a category under one of its own sub-categories.')
+      }
+    }
+    if (this.categoryIdsWithProducts(businessId).has(parentId)) {
+      throw new Error('This category already has products and cannot become a parent.')
+    }
+    if (this.categoryIdsWithVariantOptions(businessId).has(parentId)) {
+      throw new Error('This category has variant options and cannot become a parent.')
+    }
+  }
+
   private depthFor(parentId: string | null): number {
     if (!parentId) return 1
     const parent = this.db.get<{ depth: number }>(
@@ -236,6 +373,39 @@ export class CategoriesService {
       [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
     )
   }
+}
+
+function filterBySearch(rows: CategoryRow[], search?: string): CategoryRow[] {
+  const q = search?.trim().toLowerCase()
+  if (!q) return rows
+  return rows.filter((r) => r.name.toLowerCase().includes(q) || (r.slug ?? '').toLowerCase().includes(q))
+}
+
+function sortRows(rows: CategoryRow[]): CategoryRow[] {
+  return [...rows].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+}
+
+/** Ids of every category descended from `rootId` (excludes the root itself). */
+function collectDescendants(rows: CategoryRow[], rootId: string): Set<string> {
+  const childrenOf = new Map<string, CategoryRow[]>()
+  for (const r of rows) {
+    if (!r.parent_id) continue
+    const list = childrenOf.get(r.parent_id) ?? []
+    list.push(r)
+    childrenOf.set(r.parent_id, list)
+  }
+  const out = new Set<string>()
+  const stack = [rootId]
+  while (stack.length) {
+    const next = stack.pop()!
+    for (const child of childrenOf.get(next) ?? []) {
+      if (!out.has(child.id)) {
+        out.add(child.id)
+        stack.push(child.id)
+      }
+    }
+  }
+  return out
 }
 
 function toLocalCategory(row: CategoryRow): LocalCategory {

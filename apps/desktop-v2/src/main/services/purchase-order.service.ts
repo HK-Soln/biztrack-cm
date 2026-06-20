@@ -112,13 +112,17 @@ export class PurchaseOrderService {
     const businessId = this.requireBusinessId()
     if (!input.supplierId) throw new Error('Select a supplier.')
     if (!input.items?.length) throw new Error('Add at least one item.')
-    const lines = input.items.map((it) => ({
-      productId: it.productId,
-      variantId: it.variantId ?? null,
-      description: it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
-      quantity: it.quantity,
-      unitPrice: it.unitPrice ?? 0,
-    }))
+    const lines = input.items.map((it) => {
+      if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error('Each item needs a quantity greater than 0.')
+      return {
+        productId: it.productId,
+        variantId: it.variantId ?? null,
+        description: it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
+        quantity: it.quantity,
+        unitPrice: it.unitPrice ?? 0,
+      }
+    })
+    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new Error('The order total must be greater than 0.')
     return this.insert(businessId, {
       rfqId: input.rfqId ?? null,
       supplierId: input.supplierId,
@@ -140,24 +144,24 @@ export class PurchaseOrderService {
     if (!rfq) throw new Error('RFQ not found.')
     const supplier = this.db.get<{ supplier_id: string }>(`SELECT supplier_id FROM rfq_suppliers WHERE id = ? AND rfq_id = ?`, [input.rfqSupplierId, rfqId])
     if (!supplier) throw new Error('Supplier is not on this request.')
-    const items = this.db.query<{ id: string; product_id: string; variant_id: string | null; description: string; quantity: number }>(
-      `SELECT id, product_id, variant_id, description, quantity FROM rfq_items WHERE rfq_id = ? ORDER BY created_at ASC`,
-      [rfqId],
-    )
-    if (!items.length) throw new Error('This request has no items.')
+    if (!input.items?.length) throw new Error('Add at least one item to the order.')
 
-    const lines = items.map((it) => ({
-      productId: it.product_id,
-      variantId: it.variant_id,
-      description: it.description,
-      quantity: it.quantity,
-      unitPrice: input.unitPrices?.[it.id] ?? 0,
-    }))
+    const lines = input.items.map((it) => {
+      if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error('Each item needs a quantity greater than 0.')
+      return {
+        productId: it.productId,
+        variantId: it.variantId ?? null,
+        description: it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
+        quantity: it.quantity,
+        unitPrice: it.unitPrice ?? 0,
+      }
+    })
+    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new Error('The order total must be greater than 0.')
     const po = this.insert(businessId, {
       rfqId,
       supplierId: supplier.supplier_id,
-      title: rfq.title,
-      messageBody: rfq.message_body,
+      title: input.title?.trim() || rfq.title,
+      messageBody: input.messageBody?.trim() || rfq.message_body,
       currency: rfq.currency,
       expectedDate: input.expectedDate ?? null,
       lines,

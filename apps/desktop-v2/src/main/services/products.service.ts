@@ -276,6 +276,8 @@ export class ProductsService {
 
   create(input: ProductInput): LocalProduct {
     const businessId = this.requireBusinessId()
+    this.assertUnit(input.unitOfMeasureId, businessId)
+    if (input.categoryId) this.assertCategorySelectable(input.categoryId, businessId)
     const id = randomUUID()
     const now = new Date().toISOString()
     const type = productType(input)
@@ -337,6 +339,8 @@ export class ProductsService {
 
   update(id: string, input: ProductInput): LocalProduct {
     const businessId = this.requireBusinessId()
+    this.assertUnit(input.unitOfMeasureId, businessId)
+    if (input.categoryId) this.assertCategorySelectable(input.categoryId, businessId)
     const now = new Date().toISOString()
     const type = productType(input)
     const isService = type === 'SERVICE'
@@ -801,7 +805,7 @@ export class ProductsService {
   /** Add serial units to stock (a stock-in). New numbers become IN_STOCK; a
    * previously retired number is revived. Writes one stock movement + a local
    * audit row per unit (with the active actor). */
-  addSerialUnits(productId: string, units: SerialUnitInput[], notes: string | null = null): LocalSerialUnit[] {
+  addSerialUnits(productId: string, units: SerialUnitInput[], notes: string | null = null, movementType?: StockMovementType): LocalSerialUnit[] {
     const businessId = this.requireBusinessId()
     const product = this.getOne(productId)
     if (!product) throw new Error('Product not found.')
@@ -846,7 +850,7 @@ export class ProductsService {
         productId,
         businessId,
         created.length,
-        { referenceType: 'serial_unit', referenceId: productId, notes: notes?.trim() || `Added ${created.length} serial unit(s)` },
+        { referenceType: 'serial_unit', referenceId: productId, notes: notes?.trim() || `Added ${created.length} serial unit(s)`, type: movementType },
         now,
       )
       for (const u of created) {
@@ -1027,7 +1031,7 @@ export class ProductsService {
     productId: string,
     businessId: string,
     change: number,
-    opts: { referenceType: string; referenceId: string; notes: string },
+    opts: { referenceType: string; referenceId: string; notes: string; type?: StockMovementType },
     now: string,
   ): void {
     recordStockMovementFn(this.db, businessId, productId, change, opts, now)
@@ -1096,6 +1100,41 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) throw new Error('No active business.')
     return businessId
+  }
+
+  /**
+   * Every product must carry a valid unit of measure (system unit or one owned by the
+   * business). Enforced here so an empty or stale unit can never be persisted, whatever
+   * the caller — the form's "required" hint is a convenience, this is the guarantee.
+   */
+  private assertUnit(unitId: string | null | undefined, businessId: string): void {
+    const id = (unitId ?? '').trim()
+    if (!id) throw new Error('A unit of measure is required.')
+    const unit = this.db.get<{ id: string }>(
+      `SELECT id FROM unit_of_measures WHERE id = ? AND is_deleted = 0 AND (business_id IS NULL OR business_id = ?)`,
+      [id, businessId],
+    )
+    if (!unit) throw new Error('Selected unit of measure does not exist.')
+  }
+
+  /**
+   * A product may only be placed in a terminal (leaf) category — one with no active
+   * sub-categories. Branch categories are containers, not shelves. Enforced here so the
+   * rule holds for every caller (UI, import, sync replay), not just the product form.
+   */
+  private assertCategorySelectable(categoryId: string, businessId: string): void {
+    const category = this.db.get<{ id: string }>(
+      `SELECT id FROM product_categories WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+      [categoryId, businessId],
+    )
+    if (!category) throw new Error('Selected category does not exist.')
+    const child = this.db.get<{ id: string }>(
+      `SELECT id FROM product_categories WHERE parent_id = ? AND is_deleted = 0 AND is_active = 1 LIMIT 1`,
+      [categoryId],
+    )
+    if (child) {
+      throw new Error('Choose a terminal sub-category — this category has sub-categories under it.')
+    }
   }
 
   private payload(input: ProductInput, type: ProductType): Record<string, unknown> {

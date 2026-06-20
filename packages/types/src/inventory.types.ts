@@ -152,14 +152,48 @@ export interface RestockPaymentRequest {
   mobileMoneyReference?: string | null
 }
 
+/** A supplier charge applied at receive time (tax, transport, packaging…). Mirrors
+ * the sale charge model; references the shared `charge_types` catalog when picked
+ * from it, or carries `chargeTypeId: null` for a one-off custom charge. */
+export interface RestockChargeLineRequest {
+  id: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+
+/** A supplier discount applied at receive time (remise). Mirrors the sale discount model. */
+export interface RestockDiscountLineRequest {
+  id: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+
 export interface RestockRequest {
   referenceNumber?: string
   supplierId?: string
   supplierName?: string
+  /** Goods subtotal — Σ(qty × unitCost). Feeds inventory valuation. */
+  subtotalAmount?: number
+  /** Σ of discount lines. */
+  discountAmount?: number
+  /** Σ of charge lines. */
+  chargesAmount?: number
+  /** Invoice total = subtotal − discounts + charges. */
   totalAmount?: number
   totalCost?: number
   notes?: string
   payments?: RestockPaymentRequest[]
+  charges?: RestockChargeLineRequest[]
+  discounts?: RestockDiscountLineRequest[]
+  /** Supplier invoice (audit proof). File required when a credit balance remains. */
+  invoiceNumber?: string | null
+  invoiceDate?: IsoDateString | null
+  invoiceFileUrl?: string | null
   items: RestockItemRequest[]
 }
 
@@ -175,13 +209,21 @@ export interface RestockResponse {
   referenceNumber?: string | null
   supplierId?: string | null
   supplierName?: string | null
+  subtotalAmount?: number | null
+  discountAmount?: number | null
+  chargesAmount?: number | null
   totalAmount: number
   amountPaid: number
   creditAmount: number
   totalCost?: number | null
   notes?: string | null
+  invoiceNumber?: string | null
+  invoiceDate?: IsoDateString | null
+  invoiceFileUrl?: string | null
   performedById?: string | null
   createdAt: IsoDateString
   payments?: RestockPaymentRequest[]
+  charges?: RestockChargeLineRequest[]
+  discounts?: RestockDiscountLineRequest[]
   items: RestockProcessedItem[]
 }

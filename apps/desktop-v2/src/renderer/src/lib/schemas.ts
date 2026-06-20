@@ -68,3 +68,14 @@ export function passwordStrength(value: string): number {
   if (/[^A-Za-z0-9]/.test(value)) s++
   return s
 }
+
+// ---- Contact --------------------------------------------------------------
+// Optional phone/email are valid only when non-empty. Messages are i18n keys.
+export const contactSchema = z.object({
+  name: z.string().trim().min(1, 'ct.nameRequired'),
+  phone: z.string().refine((v) => !v.trim() || isValidPhone(v), 'ct.invalidPhone'),
+  phoneAlt: z.string().refine((v) => !v.trim() || isValidPhone(v), 'ct.invalidPhone'),
+  email: z.string().refine((v) => !v.trim() || isValidEmail(v), 'ct.invalidEmail'),
+})
+
+export type ContactValues = z.infer<typeof contactSchema>

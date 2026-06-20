@@ -9,6 +9,7 @@ import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu } from '@/components/ActionMenu'
+import { FileUpload } from '@/components/FileUpload'
 import { ShareDialog } from '@/components/procurement/ShareDialog'
 import type { LocalRfqItem, LocalRfqSupplier } from '@shared/ipc'
 
@@ -27,7 +28,6 @@ export function RfqDetail() {
   const qc = useQueryClient()
 
   const [quoteTarget, setQuoteTarget] = useState<LocalRfqSupplier | null>(null)
-  const [convertTarget, setConvertTarget] = useState<LocalRfqSupplier | null>(null)
   const [shareTarget, setShareTarget] = useState<LocalRfqSupplier | null>(null)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [sendErr, setSendErr] = useState<string | null>(null)
@@ -119,7 +119,7 @@ export function RfqDetail() {
                       items={[
                         { label: t('rfq.share'), onClick: () => setShareTarget(s) },
                         { label: t('rfq.recordQuote'), onClick: () => setQuoteTarget(s) },
-                        { label: t('rfq.createPo'), onClick: () => setConvertTarget(s) },
+                        { label: t('rfq.createPo'), onClick: () => navigate(`/purchasing/rfqs/${id}/convert/${s.id}`) },
                       ]}
                     />
                   </span>
@@ -133,16 +133,6 @@ export function RfqDetail() {
       {quoteTarget ? (
         <QuoteModal rfqId={id} supplier={quoteTarget} onClose={() => setQuoteTarget(null)} onSaved={() => { invalidate(); setQuoteTarget(null) }} />
       ) : null}
-      {convertTarget ? (
-        <ConvertModal
-          rfqId={id}
-          supplier={convertTarget}
-          items={rfq.items}
-          onClose={() => setConvertTarget(null)}
-          onConverted={(poId) => { invalidate(); setConvertTarget(null); navigate(`/purchasing/orders/${poId}`) }}
-        />
-      ) : null}
-
       <Modal open={!!previewHtml} onClose={() => setPreviewHtml(null)} title={t('rfq.previewTitle')} className="modal-lg">
         <iframe title="preview" srcDoc={previewHtml ?? ''} style={{ width: '100%', height: '60vh', border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }} />
       </Modal>
@@ -165,23 +155,7 @@ function QuoteModal({ rfqId, supplier, onClose, onSaved }: { rfqId: string; supp
   const [amount, setAmount] = useState(supplier.quotedTotal != null ? String(supplier.quotedTotal) : '')
   const [notes, setNotes] = useState(supplier.quoteNotes ?? '')
   const [fileUrl, setFileUrl] = useState<string | null>(supplier.quoteFileUrl ?? null)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const onPickFile = async (file: File | undefined) => {
-    if (!file) return
-    setUploading(true)
-    setError(null)
-    try {
-      const bytes = await file.arrayBuffer()
-      const res = await dataClient.uploads.file({ bytes, filename: file.name, contentType: file.type || 'application/pdf', folder: 'quotes' })
-      setFileUrl(res.url)
-    } catch (e) {
-      setError(errorMessage(e, t('rfq.quoteUploadError')))
-    } finally {
-      setUploading(false)
-    }
-  }
 
   const save = useMutation({
     mutationFn: () => dataClient.rfqs.recordQuote(rfqId, { rfqSupplierId: supplier.id, quotedTotal: Number(amount.replace(/\s/g, '')), quoteNotes: notes.trim() || undefined, quoteFileUrl: fileUrl }),
@@ -219,88 +193,7 @@ function QuoteModal({ rfqId, supplier, onClose, onSaved }: { rfqId: string; supp
       </div>
       <div className="ff">
         <label className="lbl2">{t('rfq.quoteFile')}</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <label className="btn btn-soft" style={{ cursor: 'pointer' }}>
-            {uploading ? t('rfq.quoteUploading') : t('rfq.quoteUpload')}
-            <input type="file" accept="application/pdf,image/*" hidden onChange={(e) => void onPickFile(e.target.files?.[0])} />
-          </label>
-          {fileUrl ? (
-            <>
-              <a href={fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: 'var(--brand-int)' }}>{t('rfq.quoteFileView')}</a>
-              <button type="button" onClick={() => setFileUrl(null)} style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer', fontSize: 12.5 }}>{t('rfq.remove')}</button>
-            </>
-          ) : (
-            <span className="hint" style={{ fontSize: 12 }}>{t('rfq.quoteFileHint')}</span>
-          )}
-        </div>
-      </div>
-      {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
-    </Modal>
-  )
-}
-
-function ConvertModal({
-  rfqId,
-  supplier,
-  items,
-  onClose,
-  onConverted,
-}: {
-  rfqId: string
-  supplier: LocalRfqSupplier
-  items: LocalRfqItem[]
-  onClose: () => void
-  onConverted: (poId: string) => void
-}) {
-  const t = useT()
-  const money = useCurrency()
-  const [prices, setPrices] = useState<Record<string, string>>({})
-  const [expected, setExpected] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const num = (s: string) => (s?.trim() ? Number(s.replace(/\s/g, '')) : 0)
-  const total = items.reduce((s, it) => s + it.quantity * num(prices[it.id] ?? ''), 0)
-
-  const save = useMutation({
-    mutationFn: () =>
-      dataClient.purchaseOrders.createFromRfq(rfqId, {
-        rfqSupplierId: supplier.id,
-        unitPrices: Object.fromEntries(items.map((it) => [it.id, num(prices[it.id] ?? '')])),
-        expectedDate: expected || undefined,
-      }),
-    onSuccess: (po) => onConverted(po.id),
-    onError: (e) => setError(errorMessage(e, t('rfq.convertError'))),
-  })
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t('rfq.convertTitle')}
-      className="modal-lg"
-      footer={
-        <>
-          <Button variant="soft" onClick={onClose} disabled={save.isPending}>{t('rfq.cancel')}</Button>
-          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>{t('rfq.convertConfirm')}</Button>
-        </>
-      }
-    >
-      <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>{t('rfq.convertSub').replace('{name}', supplier.supplierName ?? '')}</p>
-      <table className="ltbl">
-        <thead><tr><th>{t('rfq.colItem')}</th><th className="right">{t('rfq.colQty')}</th><th className="right" style={{ width: 130 }}>{t('rfq.unitPrice')}</th></tr></thead>
-        <tbody>
-          {items.map((it) => (
-            <tr key={it.id}>
-              <td>{it.description}</td>
-              <td className="right num">{it.quantity}</td>
-              <td className="right"><Input value={prices[it.id] ?? ''} inputMode="decimal" placeholder="0" onChange={(e) => setPrices((p) => ({ ...p, [it.id]: e.target.value }))} style={{ height: 32, textAlign: 'right' }} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginTop: 8 }}><span>{t('rfq.poTotal')}</span><span>{money.format(total)}</span></div>
-      <div className="ff" style={{ marginTop: 12, maxWidth: 220 }}>
-        <label className="lbl2">{t('rfq.expected')}</label>
-        <Input type="date" value={expected} onChange={(e) => setExpected(e.target.value)} />
+        <FileUpload value={fileUrl} onChange={setFileUrl} folder="quotes" variant="file" hint={t('rfq.quoteFileHint')} />
       </div>
       {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
     </Modal>

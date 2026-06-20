@@ -172,15 +172,7 @@ export const NAV: NavEntry[] = [
       { to: '/online/store', label: 'nav.onlineStore', icon: 'settings' },
     ],
   },
-  {
-    label: 'nav.contacts',
-    icon: 'contacts',
-    children: [
-      { to: '/contacts', label: 'nav.allContacts', icon: 'contacts' },
-      { to: '/contacts/debtors', label: 'nav.debtors', icon: 'contacts' },
-      { to: '/contacts/creditors', label: 'nav.creditors', icon: 'contacts' },
-    ],
-  },
+  { to: '/contacts', label: 'nav.contacts', icon: 'contacts' },
   { to: '/expenses', label: 'nav.expenses', icon: 'expenses' },
   { to: '/deposits', label: 'nav.deposits', icon: 'deposits' },
   { to: '/reports', label: 'nav.reports', icon: 'reports' },

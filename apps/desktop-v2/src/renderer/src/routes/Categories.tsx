@@ -1,13 +1,79 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
+import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { LocalCategory } from '@shared/ipc'
+
+const PRODUCTS_PAGE_SIZE = 10
+
+/**
+ * Products directly in the selected category. Paginated with a "Load more" button that
+ * APPENDS the next page to the list (infinite query) rather than replacing it.
+ */
+function CategoryProducts({ categoryId }: { categoryId: string }) {
+  const t = useT()
+  const money = useCurrency()
+  const navigate = useNavigate()
+
+  const { data, isPending, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: [...queryKeys.products, 'by-category', categoryId],
+    queryFn: ({ pageParam }) =>
+      dataClient.products.list({ categoryId, page: pageParam, limit: PRODUCTS_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
+    enabled: isElectron && !!categoryId,
+  })
+
+  const products = data?.pages.flatMap((p) => p.data) ?? []
+  const total = data?.pages[0]?.total ?? 0
+
+  if (isPending) return <div className="cat-empty">{t('cat.loadingProducts')}</div>
+  if (products.length === 0) return <div className="cat-empty">{t('cat.noProducts')}</div>
+
+  return (
+    <div>
+      <div className="minihead" style={{ marginBottom: 8 }}>
+        <span>{t('cat.products')}</span>
+        <span className="chip-tag">{total}</span>
+      </div>
+      <div className="catprod-list">
+        {products.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className="catprod-row"
+            onClick={() => navigate(`/products/${p.id}`)}
+          >
+            <span className="ava sm">
+              {p.imageUrl ? <img src={p.imageUrl} alt="" className="ava-img" /> : p.name.trim().charAt(0) || 'P'}
+            </span>
+            <span className="meta">
+              <span className="nm">{p.name}</span>
+              <span className="sub">{p.sku || (p.brandName ?? t('cat.noSku'))}</span>
+            </span>
+            <span className="catprod-price">{money.format(p.effectiveSellingPrice)}</span>
+            <span className="catprod-stock">
+              {p.trackInventory ? `${p.currentStock} ${t('cat.inStockUnit')}` : t('cat.service')}
+            </span>
+          </button>
+        ))}
+      </div>
+      {hasNextPage ? (
+        <div style={{ marginTop: 12, textAlign: 'center' }}>
+          <Button variant="soft" onClick={() => void fetchNextPage()} loading={isFetchingNextPage}>
+            {t('cat.loadMore')}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 function avatarStyle(c: Pick<LocalCategory, 'color'>) {
   return c.color ? { background: c.color } : undefined
@@ -72,29 +138,47 @@ export function Categories() {
   )
 
   const list = (
-    <div>
-      <div className="cat-search">
+    <div className="cat-listcol">
+      <div className="cat-search" style={{ position: 'relative' }}>
         <Input
           value={search}
           placeholder={t('cat.search')}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ height: 36 }}
+          style={{ height: 36, paddingRight: search ? 34 : undefined }}
         />
+        {search ? (
+          <button type="button" className="cat-search-clear" title={t('cat.clearSearch')} onClick={() => setSearch('')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        ) : null}
       </div>
       <div className="cat-list">
-        {categories.map((c) => (
-          <Row key={c.id} c={c} />
-        ))}
+        {categories.length === 0 ? (
+          <div className="cat-empty">
+            {search ? t('cat.noResults').replace('{q}', search) : t('cat.empty')}
+            {search ? (
+              <div style={{ marginTop: 12 }}>
+                <Button variant="soft" onClick={() => setSearch('')}>{t('cat.clearSearch')}</Button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          categories.map((c) => <Row key={c.id} c={c} />)
+        )}
       </div>
-      <Pagination
-        page={page}
-        totalPages={totalPages}
-        total={total}
-        limit={limit}
-        onPage={setPage}
-        prevLabel={t('common.prev')}
-        nextLabel={t('common.next')}
-      />
+      {categories.length > 0 ? (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPage={setPage}
+          prevLabel={t('common.prev')}
+          nextLabel={t('common.next')}
+        />
+      ) : null}
     </div>
   )
 
@@ -115,10 +199,6 @@ export function Categories() {
 
       {isPending ? (
         <div className="cat-empty">{t('cat.loading')}</div>
-      ) : categories.length === 0 ? (
-        <div className="card">
-          <div className="cat-empty">{t('cat.empty')}</div>
-        </div>
       ) : bp === 'mobile' ? (
         list
       ) : (
@@ -154,7 +234,7 @@ export function Categories() {
                     {selected.description}
                   </p>
                 ) : null}
-                <div className="cat-empty">{t('cat.noProducts')}</div>
+                <CategoryProducts key={selected.id} categoryId={selected.id} />
               </>
             ) : (
               <div className="cat-empty">{t('cat.selectHint')}</div>

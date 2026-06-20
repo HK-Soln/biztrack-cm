@@ -48,8 +48,9 @@ function slugify(name: string): string {
 /**
  * Offline-first brands & models. Brands link to categories many-to-many and own
  * models. Reads come from local SQLite (synced via pull); writes go to local SQLite +
- * sync_outbox (entities: brands / models / brandCategories) then nudge a sync. A brand
- * MUST have ≥1 category attached. Business scope from the active session.
+ * sync_outbox (entities: brands / models / brandCategories) then nudge a sync. Category
+ * links are optional — a brand with none surfaces all terminal categories. Business
+ * scope from the active session.
  */
 export class BrandsService {
   constructor(
@@ -131,7 +132,7 @@ export class BrandsService {
 
   create(input: BrandInput): LocalBrand {
     const businessId = this.requireBusinessId()
-    const categoryIds = this.requireCategories(input.categoryIds, businessId)
+    const categoryIds = this.resolveCategories(input.categoryIds, businessId)
     const id = randomUUID()
     const now = new Date().toISOString()
     const slug = slugify(input.name)
@@ -151,7 +152,7 @@ export class BrandsService {
 
   update(id: string, input: BrandInput): LocalBrand {
     const businessId = this.requireBusinessId()
-    const categoryIds = this.requireCategories(input.categoryIds, businessId)
+    const categoryIds = this.resolveCategories(input.categoryIds, businessId)
     const now = new Date().toISOString()
     const slug = slugify(input.name)
     this.db.run(
@@ -267,18 +268,20 @@ export class BrandsService {
     }
   }
 
-  private requireCategories(categoryIds: string[] | undefined, businessId: string): string[] {
+  private resolveCategories(categoryIds: string[] | undefined, businessId: string): string[] {
     const ids = [...new Set((categoryIds ?? []).filter(Boolean))]
-    if (ids.length === 0) throw new Error('A brand must have at least one category.')
-    // Brands attach only L3 (depth-3) categories.
+    // Categories are optional: a brand with none surfaces ALL terminal categories when
+    // picking a product's category. When provided, brands attach at ANY level (a linked
+    // branch expands to its leaves) — we only require that each linked category exists.
+    if (ids.length === 0) return []
     const placeholders = ids.map(() => '?').join(', ')
-    const rows = this.db.query<{ id: string; depth: number }>(
-      `SELECT id, depth FROM product_categories WHERE business_id = ? AND is_deleted = 0 AND id IN (${placeholders})`,
+    const rows = this.db.query<{ id: string }>(
+      `SELECT id FROM product_categories WHERE business_id = ? AND is_deleted = 0 AND id IN (${placeholders})`,
       [businessId, ...ids],
     )
-    const byId = new Map(rows.map((r) => [r.id, r.depth]))
+    const known = new Set(rows.map((r) => r.id))
     for (const id of ids) {
-      if (byId.get(id) !== 3) throw new Error('Brands can only be attached to L3 (subcategory) categories.')
+      if (!known.has(id)) throw new Error('One of the selected categories does not exist.')
     }
     return ids
   }

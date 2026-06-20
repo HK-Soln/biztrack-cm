@@ -274,6 +274,11 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   background:var(--surface);color:var(--text-2);cursor:pointer;transition:color .12s,background .12s;}
 .icon-btn:hover{color:var(--text);background:var(--surface-2);}
 .icon-btn svg{width:17px;height:17px;}
+.seg-toggle{display:inline-grid;place-items:center;padding:0 8px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface-2);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;transition:color .12s,background .12s;}
+.seg-toggle:hover{color:var(--text);background:var(--surface);}
+.link-btn{background:none;border:0;padding:0;color:var(--brand-int);font-size:12.5px;font-weight:600;cursor:pointer;}
+.link-btn:hover{text-decoration:underline;}
 .actionmenu{position:relative;display:inline-block;}
 .actionmenu-pop{position:absolute;z-index:60;top:calc(100% + 4px);right:0;min-width:188px;background:var(--surface);
   border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.16);padding:5px;display:flex;flex-direction:column;gap:2px;}
@@ -515,6 +520,35 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .ava-img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;}
 .cat-empty{color:var(--text-2);font-size:13px;padding:34px 16px;text-align:center;line-height:1.6;}
 .cat-search{margin-bottom:10px;}
+.cat-search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:22px;height:22px;display:grid;place-items:center;
+  background:none;border:0;border-radius:6px;color:var(--text-muted);cursor:pointer;}
+.cat-search-clear:hover{background:var(--surface-3);color:var(--text);}
+.cat-search-clear svg{width:14px;height:14px;}
+/* Products in the selected category (Categories detail pane) ---------------- */
+.catprod-list{display:flex;flex-direction:column;gap:6px;}
+.catprod-row{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:9px 11px;border:1px solid var(--border);
+  border-radius:10px;background:var(--surface);cursor:pointer;transition:border-color .12s,background .12s;}
+.catprod-row:hover{border-color:var(--brand-int);background:var(--surface-2);}
+.catprod-row .ava{flex-shrink:0;width:38px;height:38px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:14px;
+  color:#fff;background:var(--brand-int);text-transform:uppercase;overflow:hidden;}
+.catprod-row .meta{flex:1;min-width:0;}
+.catprod-row .nm{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.catprod-row .sub{font-size:11.5px;color:var(--text-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.catprod-price{flex-shrink:0;font-size:13px;font-weight:650;color:var(--text);}
+.catprod-stock{flex-shrink:0;font-size:11.5px;color:var(--text-2);min-width:78px;text-align:right;}
+
+/* Master–detail pages (categories, brands, attributes): the two sections scroll
+   independently within the viewport. The global thin scrollbar applies automatically. */
+.md, .mdlayout.wide{height:calc(100vh - 176px);align-items:stretch;}
+.md > *, .mdlayout.wide > *{min-height:0;align-self:stretch;}
+/* Right detail panes scroll as a whole. */
+.cat-detail, .mddetail{max-height:100%;overflow-y:auto;}
+.mddetail{padding-right:4px;}
+/* Left list columns: search/header + pagination stay put, only the list scrolls. */
+.cat-listcol{display:flex;flex-direction:column;max-height:100%;}
+.cat-listcol .cat-list{flex:1;min-height:0;overflow-y:auto;padding-right:4px;}
+.mdlayout.wide > .panel{display:flex;flex-direction:column;max-height:100%;}
+.mdlayout.wide > .panel .slist{flex:1;min-height:0;overflow-y:auto;}
 
 /* Attributes manager (master-detail: groups list + group detail) ---------- */
 .mdlayout{display:grid;gap:16px;align-items:start;}
@@ -553,6 +587,12 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .opt-edit{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);}
 .opt-edit .sw-dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(0,0,0,.15);flex-shrink:0;}
 .opt-edit .ov{flex:1;font-size:13px;font-weight:550;}
+.opt-edit button.ov{background:none;border:0;text-align:left;cursor:pointer;font:inherit;font-weight:550;color:var(--text);padding:0;border-radius:5px;}
+.opt-edit button.ov:hover{color:var(--brand-int);}
+.opt-edit .opt-ok{background:none;border:0;cursor:pointer;color:var(--success);display:grid;place-items:center;padding:2px;border-radius:6px;}
+.opt-edit .opt-ok:hover{background:color-mix(in srgb,var(--success) 14%,transparent);}
+.opt-edit .opt-ok:disabled{color:var(--text-muted);cursor:not-allowed;background:none;}
+.opt-edit .opt-ok svg{width:16px;height:16px;}
 .opt-edit .hx{font-size:11px;font-variant-numeric:tabular-nums;color:var(--text-muted);}
 .opt-edit .opt-del{background:none;border:0;cursor:pointer;color:var(--text-muted);display:grid;place-items:center;padding:2px;border-radius:6px;}
 .opt-edit .opt-del:hover{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent);}
@@ -677,6 +717,30 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .brand-logo-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
 .brand-logo-row .av{flex-shrink:0;border-radius:12px;display:grid;place-items:center;font-size:16px;font-weight:700;background:var(--surface-2);color:var(--text-2);overflow:hidden;}
 
+/* Searchable hierarchical category tree multi-select (CategoryTreePicker) -- */
+.ctree{display:flex;flex-direction:column;gap:8px;}
+.ctree-search{width:100%;height:36px;padding:0 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface);
+  color:var(--text);font-size:13px;outline:none;transition:border-color .12s;}
+.ctree-search:focus{border-color:var(--brand-int);}
+.ctree-body{max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:5px;}
+.ctree-empty{padding:18px 12px;text-align:center;color:var(--text-3);font-size:12.5px;}
+.ctree-row{display:flex;align-items:center;gap:4px;border-radius:8px;padding-right:8px;min-height:34px;}
+.ctree-row:hover{background:var(--surface-2);}
+.ctree-row.on{background:color-mix(in srgb,var(--brand-int) 8%,transparent);}
+.ctree-toggle{flex-shrink:0;width:22px;height:22px;display:grid;place-items:center;background:none;border:0;border-radius:6px;
+  color:var(--text-3);cursor:pointer;padding:0;}
+.ctree-toggle:hover{background:var(--surface-3);color:var(--text);}
+.ctree-toggle.ph{cursor:default;}
+.ctree-toggle svg{width:13px;height:13px;transition:transform .12s;}
+.ctree-toggle.open svg{transform:rotate(90deg);}
+.ctree-label{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:none;border:0;text-align:left;cursor:pointer;
+  padding:6px 2px;color:var(--text);font-size:13px;}
+.ctree-cb{flex-shrink:0;width:17px;height:17px;border-radius:5px;border:1.5px solid var(--border);display:grid;place-items:center;transition:all .12s;}
+.ctree-cb svg{width:11px;height:11px;color:#fff;}
+.ctree-cb.on{background:var(--brand-int);border-color:var(--brand-int);}
+.ctree-row.on .ctree-name{font-weight:600;}
+.ctree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 /* Full-page form (add/edit category, business profile, …) ----------------- */
 .detail-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
 .back-btn{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:550;color:var(--text-2);
@@ -708,6 +772,10 @@ button.imgdrop:disabled{cursor:default;opacity:.7;}
 .imgpreview-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);color:#fff;font-size:12.5px;font-weight:600;}
 .img-acts{display:flex;gap:8px;margin-top:10px;}
 .img-acts>*{flex:1;}
+.filechip{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2);}
+.filechip svg{width:20px;height:20px;flex:none;color:var(--text-muted);}
+.filechip-name{font-size:13px;font-weight:600;color:var(--brand-int);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.filechip-name:hover{text-decoration:underline;}
 .gallery-head{display:flex;align-items:center;justify-content:space-between;margin-top:14px;margin-bottom:8px;font-size:12px;font-weight:650;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;}
 .gallery-add{font-family:inherit;font-size:12px;font-weight:600;color:var(--brand-int);background:none;border:0;cursor:pointer;}
 .gallery-add:disabled{opacity:.5;cursor:default;}
@@ -851,6 +919,39 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .serial-pill button svg{width:12px;height:12px;}
 
 /* =========================================================
+   Receive (goods receipt) — sell-style two-column: items + sticky settlement.
+   ========================================================= */
+.recv{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:18px;align-items:start;}
+/* Each column scrolls on its own (bounded to the viewport below the header). */
+.recv-main{max-height:calc(100vh - 196px);overflow-y:auto;padding-right:6px;}
+.recv-side{position:sticky;top:14px;max-height:calc(100vh - 196px);overflow-y:auto;display:flex;flex-direction:column;}
+@media(max-width:1080px){.recv{grid-template-columns:1fr;}.recv-main,.recv-side{max-height:none;overflow:visible;padding-right:0;}}
+.recv-line{border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px;background:var(--surface);}
+.recv-line-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.recv-line-h .nm{font-weight:650;font-size:14px;}
+.recv-line-h .sub{font-size:11.5px;color:var(--text-2);margin-top:2px;}
+.recv-count{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.recv-count.full{color:var(--success);}
+.recv-count.over{color:var(--warning);}
+.recv-vgroup{border:1px dashed var(--border);border-radius:10px;padding:10px 12px;margin-top:8px;background:var(--inset);}
+.recv-vgroup-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.recv-vgroup-h .vn{font-size:12.5px;font-weight:650;display:inline-flex;align-items:center;gap:7px;}
+.ser-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.ser-empty{font-size:11.5px;color:var(--text-muted);margin-top:8px;}
+/* Payment method chips (selectable) */
+.pm-chips{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+.pm-chip{display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border:1px solid var(--border);border-radius:10px;
+  background:var(--surface);color:var(--text-2);font-size:12.5px;font-weight:600;cursor:pointer;transition:all .12s;}
+.pm-chip:hover{border-color:var(--brand-int);color:var(--text);}
+.pm-chip.active{border-color:var(--brand-int);background:var(--brand-soft);color:var(--brand-int);}
+.pm-chip svg{width:16px;height:16px;}
+.pay-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.pay-row .pm-name{flex:1;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px;}
+.recv-tot{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;}
+.recv-tot.grand{font-weight:750;font-size:15px;border-top:1px solid var(--border);margin-top:6px;padding-top:8px;}
+.recv-tot .neg{color:var(--danger);}
+
+/* =========================================================
    List pages (Products …) — ported from design-pages.css: KPI strip,
    search/filter toolbar, data table rows, stock-status pills.
    ========================================================= */
@@ -889,6 +990,22 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .tabs button.active{color:var(--brand);border-bottom-color:var(--brand);}
 .tabs .cnt{font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--inset);color:var(--text-2);}
 .tabs button.active .cnt{background:var(--brand-soft);color:var(--brand);}
+/* Contact balance cell: receivable (owed to you) / payable (you owe) / zero. */
+.bal{font-weight:650;font-variant-numeric:tabular-nums;}
+.bal.r{color:var(--success);}
+.bal.p{color:var(--danger);}
+.bal.z{color:var(--text-muted);font-weight:500;}
+/* Aged-debt bar (oldest-unpaid bucket). 0–30 ok · 31–60 warn · 60+ danger. */
+.aged{display:flex;height:6px;min-width:64px;max-width:130px;border-radius:999px;overflow:hidden;background:var(--inset);gap:1px;}
+.aged i{display:block;height:100%;}
+.aged .a0{background:var(--success);}
+.aged .a1{background:var(--warning);}
+.aged .a2{background:var(--danger);}
+/* Detail hero meta row (phone / email / address / since). */
+.dhero .meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:11px;}
+.dhero .mi{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);}
+.dhero .mi svg{width:15px;height:15px;color:var(--text-muted);flex:none;}
+.av.round{border-radius:50%;}
 
 /* Stock-health bar (design .sbar). */
 .sbar{width:120px;height:7px;border-radius:999px;background:var(--inset);overflow:hidden;}
@@ -983,6 +1100,7 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .et-debt{background:var(--warning-soft);color:var(--warning);}
 .et-pay{background:var(--success-soft);color:var(--success);}
 .et-sale{background:var(--brand-soft);color:var(--brand);}
+.et-buy{background:var(--warning-soft);color:var(--warning);}
 .et-woff{background:var(--danger-soft);color:var(--danger);}
 .t-debit{color:var(--danger);font-weight:600;font-variant-numeric:tabular-nums;}
 .t-credit{color:var(--success);font-weight:600;font-variant-numeric:tabular-nums;}

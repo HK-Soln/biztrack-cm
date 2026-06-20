@@ -25,7 +25,7 @@ export function RfqForm() {
         title: title.trim() || undefined,
         messageBody: message.trim() || undefined,
         supplierIds,
-        items: items.map((l) => ({ productId: l.productId, quantity: Number(l.quantity) || 1 })),
+        items: items.map((l) => ({ productId: l.productId, variantId: l.variantId ?? null, quantity: Number(l.quantity) || 1 })),
       }
       return dataClient.rfqs.create(payload)
     },

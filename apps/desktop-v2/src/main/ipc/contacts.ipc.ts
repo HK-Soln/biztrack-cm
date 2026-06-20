@@ -4,6 +4,7 @@ import type { ContactsService } from '../services/contacts.service'
 
 export function registerContactsIpc(contacts: ContactsService): void {
   ipcMain.handle(IPC.contactsList, (_e, query?: ContactsQuery) => contacts.list(query))
+  ipcMain.handle(IPC.contactsSummary, () => contacts.summary())
   ipcMain.handle(IPC.contactsListAllSuppliers, () => contacts.listAllSuppliers())
   ipcMain.handle(IPC.contactsListAllCustomers, () => contacts.listAllCustomers())
   ipcMain.handle(IPC.contactsGet, (_e, id: string) => contacts.get(id))

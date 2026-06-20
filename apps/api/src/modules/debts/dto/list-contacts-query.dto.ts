@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { Transform } from 'class-transformer'
-import { IsBoolean, IsEnum, IsOptional } from 'class-validator'
+import { IsBoolean, IsEnum, IsIn, IsOptional } from 'class-validator'
 import { ContactType, type ContactsQuery } from '@biztrack/types'
 import { ListQueryDto } from '@/common/dto/list-query.dto'
 
@@ -22,4 +22,9 @@ export class ListContactsQueryDto extends ListQueryDto implements ContactsQuery 
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   isActive?: boolean
+
+  @ApiPropertyOptional({ enum: ['debtor', 'creditor'] })
+  @IsOptional()
+  @IsIn(['debtor', 'creditor'])
+  balance?: 'debtor' | 'creditor'
 }

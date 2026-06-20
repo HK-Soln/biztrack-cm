@@ -1,16 +1,21 @@
 import { useCallback, useState } from 'react'
-import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input, Modal, Select } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
+import type { LocalVariant } from '@shared/ipc'
 
 export interface ItemLine {
   productId: string
+  /** Set when the product has variants — the line targets one specific variant. */
+  variantId?: string | null
   name: string
   quantity: string
   /** Present only when withPrice — the agreed/expected unit cost. */
   unitPrice?: string
 }
+
+const lineKey = (productId: string, variantId?: string | null) => `${productId}::${variantId ?? ''}`
 
 const num = (s: string | undefined) => (s && s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 
@@ -36,6 +41,8 @@ export function ItemsField({
   // Draft (inline add) row.
   const [draftId, setDraftId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState<string | null>(null)
+  const [draftVariants, setDraftVariants] = useState<LocalVariant[]>([])
+  const [draftVariantId, setDraftVariantId] = useState('')
   const [draftQty, setDraftQty] = useState('1')
   const [draftPrice, setDraftPrice] = useState('')
 
@@ -47,8 +54,12 @@ export function ItemsField({
   const pickProduct = (id: string | null, opt?: { label: string }) => {
     setDraftId(id)
     setDraftName(opt?.label ?? null)
-    if (withPrice && id) {
-      // Prefill the unit price with the product's cost as a starting point.
+    setDraftVariants([])
+    setDraftVariantId('')
+    if (!id) return
+    // Load variants so the user can target one; prefill the unit price from cost.
+    void dataClient.products.listVariants(id).then(setDraftVariants)
+    if (withPrice) {
       void dataClient.products.get(id).then((p) => {
         if (p?.effectiveCostPrice != null) setDraftPrice(String(p.effectiveCostPrice))
       })
@@ -58,24 +69,33 @@ export function ItemsField({
   const resetDraft = () => {
     setDraftId(null)
     setDraftName(null)
+    setDraftVariants([])
+    setDraftVariantId('')
     setDraftQty('1')
     setDraftPrice('')
   }
 
+  const hasVariants = draftVariants.length > 0
+  const canAdd = !!draftId && num(draftQty) > 0 && (!hasVariants || !!draftVariantId)
+
   const addDraft = () => {
-    if (!draftId || num(draftQty) <= 0) return
-    const existing = value.find((l) => l.productId === draftId)
+    if (!canAdd || !draftId) return
+    const variantId = hasVariants ? draftVariantId : null
+    const variantName = variantId ? draftVariants.find((v) => v.id === variantId)?.name : null
+    const name = variantName ? `${draftName ?? ''} · ${variantName}` : draftName ?? ''
+    const key = lineKey(draftId, variantId)
+    const existing = value.find((l) => lineKey(l.productId, l.variantId) === key)
     if (existing) {
-      // Same product picked again → merge quantities instead of duplicating.
-      onChange(value.map((l) => (l.productId === draftId ? { ...l, quantity: String(num(l.quantity) + num(draftQty)), unitPrice: withPrice ? draftPrice || l.unitPrice : undefined } : l)))
+      // Same product+variant picked again → merge quantities instead of duplicating.
+      onChange(value.map((l) => (lineKey(l.productId, l.variantId) === key ? { ...l, quantity: String(num(l.quantity) + num(draftQty)), unitPrice: withPrice ? draftPrice || l.unitPrice : undefined } : l)))
     } else {
-      onChange([...value, { productId: draftId, name: draftName ?? '', quantity: draftQty, unitPrice: withPrice ? draftPrice : undefined }])
+      onChange([...value, { productId: draftId, variantId, name, quantity: draftQty, unitPrice: withPrice ? draftPrice : undefined }])
     }
     resetDraft()
   }
 
-  const patch = (id: string, p: Partial<ItemLine>) => onChange(value.map((l) => (l.productId === id ? { ...l, ...p } : l)))
-  const remove = (id: string) => onChange(value.filter((l) => l.productId !== id))
+  const patch = (key: string, p: Partial<ItemLine>) => onChange(value.map((l) => (lineKey(l.productId, l.variantId) === key ? { ...l, ...p } : l)))
+  const remove = (key: string) => onChange(value.filter((l) => lineKey(l.productId, l.variantId) !== key))
   const total = value.reduce((s, l) => s + num(l.quantity) * num(l.unitPrice), 0)
 
   return (
@@ -91,11 +111,21 @@ export function ItemsField({
             searchPlaceholder={t('field.searchProducts')}
           />
         </div>
+        {hasVariants ? (
+          <div style={{ flex: '0 1 180px' }}>
+            <Select value={draftVariantId} onChange={(e) => setDraftVariantId(e.target.value)}>
+              <option value="">{t('field.pickVariant')}</option>
+              {draftVariants.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
         <Input value={draftQty} inputMode="numeric" aria-label={t('field.colQty')} onChange={(e) => setDraftQty(e.target.value)} style={{ width: 80, textAlign: 'right' }} />
         {withPrice ? (
           <Input value={draftPrice} inputMode="decimal" placeholder={t('field.colUnitPrice')} aria-label={t('field.colUnitPrice')} onChange={(e) => setDraftPrice(e.target.value)} style={{ width: 120, textAlign: 'right' }} />
         ) : null}
-        <Button variant="soft" onClick={addDraft} disabled={!draftId || num(draftQty) <= 0}>+ {t('field.add')}</Button>
+        <Button variant="soft" onClick={addDraft} disabled={!canAdd}>+ {t('field.add')}</Button>
       </div>
 
       <button type="button" className="count-chip" style={{ marginTop: 10 }} disabled={value.length === 0} onClick={() => setOpen(true)}>
@@ -120,13 +150,13 @@ export function ItemsField({
             </thead>
             <tbody>
               {value.map((l) => (
-                <tr key={l.productId}>
+                <tr key={lineKey(l.productId, l.variantId)}>
                   <td>{l.name}</td>
-                  <td className="right"><Input value={l.quantity} inputMode="numeric" onChange={(e) => patch(l.productId, { quantity: e.target.value })} style={{ height: 32, textAlign: 'right' }} /></td>
-                  {withPrice ? <td className="right"><Input value={l.unitPrice ?? ''} inputMode="decimal" placeholder="0" onChange={(e) => patch(l.productId, { unitPrice: e.target.value })} style={{ height: 32, textAlign: 'right' }} /></td> : null}
+                  <td className="right"><Input value={l.quantity} inputMode="numeric" onChange={(e) => patch(lineKey(l.productId, l.variantId), { quantity: e.target.value })} style={{ height: 32, textAlign: 'right' }} /></td>
+                  {withPrice ? <td className="right"><Input value={l.unitPrice ?? ''} inputMode="decimal" placeholder="0" onChange={(e) => patch(lineKey(l.productId, l.variantId), { unitPrice: e.target.value })} style={{ height: 32, textAlign: 'right' }} /></td> : null}
                   {withPrice ? <td className="right num">{money.format(num(l.quantity) * num(l.unitPrice))}</td> : null}
                   <td className="right">
-                    <button type="button" title={t('field.remove')} onClick={() => remove(l.productId)} style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer' }}>
+                    <button type="button" title={t('field.remove')} onClick={() => remove(lineKey(l.productId, l.variantId))} style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer' }}>
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>
                     </button>
                   </td>

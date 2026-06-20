@@ -4,6 +4,13 @@
 
 export const DOCUMENT_CSS = `
   * { box-sizing: border-box; }
+  /* Thin scrollbars to match the app chrome (the preview renders this doc in an iframe). */
+  html { scrollbar-width: thin; scrollbar-color: #c3c3d4 transparent; }
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track { background: transparent; border-radius: 999px; }
+  *::-webkit-scrollbar-thumb { background: #c3c3d4; border-radius: 999px; }
+  *::-webkit-scrollbar-thumb:hover { background: #9b9bb0; }
+  *::-webkit-scrollbar-corner { background: transparent; }
   html, body { margin: 0; padding: 0; }
   body {
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

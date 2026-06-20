@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Modal } from '@biztrack/ui/biztrack'
 import { renderPurchaseOrderHtml } from '@biztrack/templates'
@@ -9,7 +9,6 @@ import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
-import { ReceivePoModal } from '@/components/inventory/ReceivePoModal'
 import { ActionMenu } from '@/components/ActionMenu'
 import { ShareDialog } from '@/components/procurement/ShareDialog'
 
@@ -22,12 +21,20 @@ export function PoDetail() {
   const t = useT()
   const money = useCurrency()
   const navigate = useNavigate()
+  const location = useLocation()
   const qc = useQueryClient()
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
-  const [receiving, setReceiving] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // "Create & send" lands here with state.share → open the share dialog once.
+  useEffect(() => {
+    if ((location.state as { share?: boolean } | null)?.share) {
+      setShareOpen(true)
+      navigate(location.pathname, { replace: true, state: null })
+    }
+  }, [location.pathname, location.state, navigate])
 
   const { data: po, isPending } = useQuery({
     queryKey: [...queryKeys.purchaseOrders, id],
@@ -74,7 +81,7 @@ export function PoDetail() {
           <p>{po.supplierName ?? '—'}{po.expectedDate ? ` · ${t('po.expectedShort')} ${new Date(po.expectedDate).toLocaleDateString()}` : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {canReceive ? <Button variant="primary" onClick={() => setReceiving(true)}>{t('po.receive')}</Button> : null}
+          {canReceive ? <Button variant="primary" onClick={() => navigate(`/purchasing/orders/${po.id}/receive`)}>{t('po.receive')}</Button> : null}
           <button type="button" className="icon-btn" title={t('po.preview')} aria-label={t('po.preview')} onClick={() => void preview()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
           </button>
@@ -122,9 +129,8 @@ export function PoDetail() {
       <Modal open={!!previewHtml} onClose={() => setPreviewHtml(null)} title={t('po.previewTitle')} className="modal-lg">
         <iframe title="preview" srcDoc={previewHtml ?? ''} style={{ width: '100%', height: '60vh', border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }} />
       </Modal>
-      {receiving ? <ReceivePoModal po={po} open onClose={() => setReceiving(false)} /> : null}
       {shareOpen ? (
-        <ShareDialog kind="po" id={id} supplierName={po.supplierName} onClose={() => setShareOpen(false)} onSent={() => { invalidate(); setShareOpen(false) }} />
+        <ShareDialog kind="po" id={id} supplierId={po.supplierId} supplierName={po.supplierName} onClose={() => setShareOpen(false)} onSent={() => { invalidate(); setShareOpen(false) }} />
       ) : null}
     </div>
   )

@@ -96,10 +96,24 @@ export interface RecordRfqQuoteRequest {
   quoteFileUrl?: string | null
 }
 
+export interface ConvertRfqToPoItem {
+  productId: string
+  variantId?: string | null
+  description?: string
+  /** Quantity to order — may differ from the RFQ quantity. */
+  quantity: number
+  unitPrice: number
+}
+
 export interface ConvertRfqToPoRequest {
   rfqSupplierId: string
-  /** Per-item unit prices for the PO; keyed by rfq item id. */
-  unitPrices: Record<string, number>
+  /** The (editable) lines to order — seeded from the RFQ but the user can adjust
+   * quantities, prices, and drop items. At least one line, total > 0. */
+  items: ConvertRfqToPoItem[]
+  /** PO reference/title. Defaults to the RFQ title when omitted. */
+  title?: string
+  /** PO message. Defaults to the RFQ message when omitted. */
+  messageBody?: string
   expectedDate?: string
 }
 

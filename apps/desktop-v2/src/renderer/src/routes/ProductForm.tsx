@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, ScanInput, Select, Stepper } from '@biztrack/ui/biztrack'
+import { BackButton, Button, CommandSelect, Input, ScanInput, Select, Stepper } from '@biztrack/ui/biztrack'
 import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -175,14 +175,16 @@ export function ProductForm() {
     queryFn: () => dataClient.products.get(id!),
     enabled: isElectron && editing,
   })
-  const { data: categories = [] } = useQuery({
-    queryKey: [...queryKeys.categories, 'all'],
-    queryFn: () => dataClient.categories.listAll(),
-    enabled: isElectron,
-  })
   const { data: selectedBrand } = useQuery({
     queryKey: [...queryKeys.brands, 'one', d.brandId],
     queryFn: () => dataClient.brands.get(d.brandId),
+    enabled: isElectron && !!d.brandId,
+  })
+  // Terminal categories under the selected brand (service expands linked branches to
+  // their leaves). Used to auto-pick when the brand resolves to a single category.
+  const { data: brandSelectable = [] } = useQuery({
+    queryKey: [...queryKeys.categories, 'selectable', d.brandId],
+    queryFn: () => dataClient.categories.listSelectable({ brandId: d.brandId }),
     enabled: isElectron && !!d.brandId,
   })
   const { data: existingImages } = useQuery({
@@ -290,17 +292,17 @@ export function ProductForm() {
     patch({ variants, productSerials })
   }, [editing, existingVariants, existingSerials, categoryLinks])
 
-  // When the brand resolves: auto-pick its sole category + resolve model label.
+  // When the brand resolves: auto-pick its sole selectable category + resolve model label.
   useEffect(() => {
     if (!selectedBrand) return
-    if (!d.categoryId && selectedBrand.categoryIds.length === 1) {
-      const only = selectedBrand.categoryIds[0]!
-      patch({ categoryId: only, categoryLabel: categories.find((c) => c.id === only)?.name ?? null })
+    if (!d.categoryId && brandSelectable.length === 1) {
+      const only = brandSelectable[0]!
+      patch({ categoryId: only.id, categoryLabel: only.name })
     }
     if (d.modelId && !d.modelLabel) {
       patch({ modelLabel: selectedBrand.models.find((m) => m.id === d.modelId)?.name ?? null })
     }
-  }, [selectedBrand, categories])
+  }, [selectedBrand, brandSelectable])
 
   // --- derived --------------------------------------------------------------
   const costN = Number(d.cost.replace(/\s/g, '')) || 0
@@ -364,18 +366,14 @@ export function ProductForm() {
     },
     [selectedBrand],
   )
+  // Eligibility (terminal leaves, brand-scoped expansion) is resolved by the service —
+  // the form just renders what comes back. No depth/leaf logic on the client.
   const loadCategories = useCallback(
-    (s: string) => {
-      const q = s.toLowerCase()
-      if (selectedBrand) {
-        const ids = new Set(selectedBrand.categoryIds)
-        return Promise.resolve(
-          categories.filter((c) => ids.has(c.id) && c.name.toLowerCase().includes(q)).map((c) => ({ value: c.id, label: c.name })),
-        )
-      }
-      return dataClient.categories.list({ search: s, depth: 3, limit: 20 }).then((r) => r.data.map((c) => ({ value: c.id, label: c.name })))
-    },
-    [selectedBrand, categories],
+    (s: string) =>
+      dataClient.categories
+        .listSelectable({ brandId: d.brandId || undefined, search: s })
+        .then((rows) => rows.map((c) => ({ value: c.id, label: c.name }))),
+    [d.brandId],
   )
 
   const onBrandChange = (value: string | null, option?: CommandSelectOption) =>
@@ -457,9 +455,15 @@ export function ProductForm() {
         if (d.variants.length === 1) return t('prodf.variantsMinTwo')
         // Serials are only captured at creation; on edit they're managed on the detail page.
         if (!editing && d.isSerialized && hasVariants && d.variants.some((v) => v.serials.length === 0)) return t('prodf.variantSerialsRequired')
+        // A serialized product in a category with no variant groups is itself the unit —
+        // its serials are entered here, under the toggle.
+        if (!editing && d.isSerialized && !hasVariants && categoryLinks.length === 0 && d.productSerials.length === 0)
+          return t('prodf.serialsRequired')
         return null
       case 'stock':
-        if (!editing && d.isSerialized && !hasVariants && d.productSerials.length === 0) return t('prodf.serialsRequired')
+        // Serialized product with variant groups but no variants built — serials captured here.
+        if (!editing && d.isSerialized && !hasVariants && categoryLinks.length > 0 && d.productSerials.length === 0)
+          return t('prodf.serialsRequired')
         return null
       default:
         return null
@@ -587,13 +591,7 @@ export function ProductForm() {
   return (
     <div className="frame">
       <div className="detail-top">
-        <button type="button" className="back-btn" onClick={() => navigate('/products')}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7 3-5 5 5 5" />
-            <path d="M2 8h12" />
-          </svg>
-          {t('prodf.back')}
-        </button>
+        <BackButton onClick={() => navigate('/products')}>{t('prodf.back')}</BackButton>
       </div>
 
       <div className="page-head wiz-head">
@@ -751,7 +749,22 @@ export function ProductForm() {
               {!d.categoryId ? (
                 <div className="form-note"><span>{t('prodf.variantsPickCategory')}</span></div>
               ) : categoryLinks.length === 0 ? (
-                <div className="form-note"><span>{t('prodf.variantsNoGroups')}</span></div>
+                d.isSerialized ? (
+                  // No variant groups → the product itself is the serialized unit; enter
+                  // its serial numbers right here, under the toggle.
+                  <div className="ff">
+                    <label className="lbl2">
+                      {t('prodf.productSerials')}{' '}
+                      <span className="cnt" style={{ color: 'var(--brand-int)', fontWeight: 700 }}>
+                        {t('prodf.serialsCount').replace('{n}', String(d.productSerials.length))}
+                      </span>
+                    </label>
+                    <div className="form-note" style={{ marginBottom: 8 }}><span>{t('prodf.stockSerialNote')}</span></div>
+                    <SerialsEditor serials={d.productSerials} type={d.serialType} onChange={(productSerials) => { patch({ productSerials }); setError(null) }} t={t} />
+                  </div>
+                ) : (
+                  <div className="form-note"><span>{t('prodf.variantsNoGroups')}</span></div>
+                )
               ) : (
                 <>
                   <div className="vbuilder">
@@ -839,9 +852,13 @@ export function ProductForm() {
 
           {stepKey === 'stock' ? (
             <div className="fform">
-              {d.isSerialized && !hasVariants && editing ? (
+              {hasVariants ? (
+                <div className="form-note"><span>{t('prodf.stepVariantsSub')}</span></div>
+              ) : d.isSerialized && categoryLinks.length > 0 && editing ? (
                 <div className="form-note"><span>{t('prodf.serialsManageHint')}</span></div>
-              ) : d.isSerialized && !hasVariants ? (
+              ) : d.isSerialized && categoryLinks.length > 0 ? (
+                // Category has variant groups but no variants were built — the product is
+                // the serialized unit, so capture its serials here.
                 <>
                   <div className="form-note"><span>{t('prodf.stockSerialNote')}</span></div>
                   <div className="ff">
@@ -849,8 +866,9 @@ export function ProductForm() {
                     <SerialsEditor serials={d.productSerials} type={d.serialType} onChange={(productSerials) => { patch({ productSerials }); setError(null) }} t={t} />
                   </div>
                 </>
-              ) : hasVariants ? (
-                <div className="form-note"><span>{t('prodf.stepVariantsSub')}</span></div>
+              ) : d.isSerialized ? (
+                // No variant groups → serials are entered in the Variants step under the toggle.
+                <div className="form-note"><span>{editing ? t('prodf.serialsManageHint') : t('prodf.stockSerialNote')}</span></div>
               ) : !editing ? (
                 <div className="ff" style={{ maxWidth: 260 }}>
                   <label className="lbl2">{t('prodf.openingStock')}</label>

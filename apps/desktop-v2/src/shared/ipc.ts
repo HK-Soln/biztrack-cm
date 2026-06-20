@@ -28,6 +28,8 @@ export const IPC = {
   syncStatusEvent: 'sync:status-event',
   categoriesList: 'categories:list',
   categoriesListAll: 'categories:list-all',
+  categoriesSelectable: 'categories:list-selectable',
+  categoriesParentOptions: 'categories:list-parent-options',
   categoriesCreate: 'categories:create',
   categoriesUpdate: 'categories:update',
   categoriesDelete: 'categories:delete',
@@ -80,6 +82,7 @@ export const IPC = {
   inventorySetThreshold: 'inventory:set-threshold',
   inventoryListMovements: 'inventory:list-movements',
   contactsList: 'contacts:list',
+  contactsSummary: 'contacts:summary',
   contactsListAllSuppliers: 'contacts:list-all-suppliers',
   contactsListAllCustomers: 'contacts:list-all-customers',
   contactsGet: 'contacts:get',
@@ -87,6 +90,7 @@ export const IPC = {
   contactsUpdate: 'contacts:update',
   contactsDelete: 'contacts:delete',
   debtsListByContact: 'debts:list-by-contact',
+  debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
@@ -105,6 +109,7 @@ export const IPC = {
   documentsDownload: 'documents:download',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
+  chargesListActive: 'charges:list-active',
 } as const
 
 // ---- Pagination -----------------------------------------------------------
@@ -112,7 +117,10 @@ export const IPC = {
 // (default limit 20, max 100). Local list methods accept a ListQuery and return a
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
+export type { ChargeType } from '@biztrack/types'
 import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
+import type { ChargeType as ChargeTypeT } from '@biztrack/types'
+import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
@@ -120,6 +128,23 @@ export interface CategoryListQuery extends ListQueryT {
   isActive?: boolean
   /** Filter by hierarchy level (1=L1 … 3=L3). */
   depth?: number
+}
+/**
+ * Categories a product can target: terminal/leaf categories (no active children),
+ * at any depth. Optionally scoped to a brand — each linked category is expanded to
+ * the leaves in its subtree. Eligibility is computed in the service, never the client.
+ */
+export interface CategorySelectableQuery {
+  brandId?: string
+  search?: string
+}
+/**
+ * Categories eligible to be a parent (depth < 3, no products attached, no variant
+ * options attached), excluding a given category and its descendants. Service-computed.
+ */
+export interface CategoryParentOptionsQuery {
+  excludeId?: string
+  search?: string
 }
 export interface BrandListQuery extends ListQueryT {
   categoryId?: string
@@ -175,12 +200,15 @@ export interface AuditListQuery extends ListQueryT {
 // Request/query shapes are the shared @biztrack/types contracts so desktop ↔ API
 // stay aligned. ContactType is a runtime enum — import it from '@biztrack/types'
 // directly in components that need its values.
-export type { ContactType, CreateContactRequest, UpdateContactRequest, ContactsQuery } from '@biztrack/types'
+export type { ContactType, CreateContactRequest, UpdateContactRequest, ContactsQuery, ContactsSummary } from '@biztrack/types'
+export { IdDocumentType } from '@biztrack/types'
 import type {
   ContactType as ContactTypeT,
+  IdDocumentType as IdDocumentTypeT,
   CreateContactRequest,
   UpdateContactRequest,
   ContactsQuery,
+  ContactsSummary,
 } from '@biztrack/types'
 
 /** A contact (customer/supplier) as stored locally. */
@@ -190,8 +218,15 @@ export interface LocalContact {
   name: string
   phone: string | null
   phoneAlt: string | null
+  email: string | null
   address: string | null
   notes: string | null
+  idType: IdDocumentTypeT | null
+  idNumber: string | null
+  idIssueDate: string | null
+  idExpiryDate: string | null
+  idDocuments: string[]
+  selfieUrl: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -202,13 +237,16 @@ export interface LocalContactListItem extends LocalContact {
   totalReceivable: number
   totalPayable: number
   openDebts: number
+  /** Created date of the oldest still-open debt (for the age-of-debt indicator). */
+  oldestUnpaidAt: string | null
 }
 
 // ---- Debts & payments ------------------------------------------------------
-export type { DebtsQuery, RecordDebtPaymentRequest } from '@biztrack/types'
+export type { DebtsQuery, RecordDebtPaymentRequest, ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
 import type {
   DebtsQuery,
   RecordDebtPaymentRequest,
+  ContactStatement,
   DebtDirection,
   DebtSource,
   DebtStatus,
@@ -776,16 +814,53 @@ export interface RestockItemInput {
   serialNumbers?: string[]
 }
 
+/** A supplier charge line applied at receive (tax/transport/packaging). */
+export interface RestockChargeLineInput {
+  id?: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+
+/** A supplier discount line applied at receive (remise). */
+export interface RestockDiscountLineInput {
+  id?: string
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
+}
+
+/** A split payment line at receive. */
+export interface RestockPaymentLineInput {
+  method: PaymentMethodT
+  amount: number
+  mobileMoneyReference?: string | null
+}
+
 /** A restock (goods receipt). Optionally fulfils a purchase order and/or is on
- * supplier credit (amountPaid < total → a payable). */
+ * supplier credit (paid < invoice total → a payable). Settlement mirrors the sell
+ * flow: goods subtotal − discounts + charges = invoice total, settled by payments. */
 export interface RestockInput {
   items: RestockItemInput[]
   /** PO this receipt fulfils; updates each line's received qty + the PO status. */
   purchaseOrderId?: string | null
   /** Supplier (contact) — required when on credit. */
   supplierId?: string | null
-  /** Amount paid now; when < total cost the remainder becomes a supplier payable. Defaults to fully paid. */
+  /** Split payments. When omitted, falls back to `amountPaid` (or fully paid). */
+  payments?: RestockPaymentLineInput[]
+  /** Legacy single-amount path; superseded by `payments`. */
   amountPaid?: number | null
+  /** Supplier discount lines (reduce the invoice total). */
+  discounts?: RestockDiscountLineInput[]
+  /** Additional charge lines (raise the invoice total). */
+  charges?: RestockChargeLineInput[]
+  /** Supplier invoice (audit proof). File required when a credit balance remains. */
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceFileUrl?: string | null
   reference?: string | null
   notes?: string | null
 }
@@ -990,6 +1065,10 @@ export interface BridgeApi {
     list: (query?: CategoryListQuery) => Promise<PaginatedT<LocalCategory>>
     /** Full set (no pagination) — for tree/parent pickers. */
     listAll: () => Promise<LocalCategory[]>
+    /** Terminal/leaf categories a product can target (optionally brand-scoped). */
+    listSelectable: (query?: CategorySelectableQuery) => Promise<LocalCategory[]>
+    /** Categories eligible to be a parent (depth<3, no products, no variant options). */
+    listParentOptions: (query?: CategoryParentOptionsQuery) => Promise<LocalCategory[]>
     create: (input: CategoryInput) => Promise<LocalCategory>
     update: (id: string, input: CategoryInput) => Promise<LocalCategory>
     remove: (id: string) => Promise<void>
@@ -1074,6 +1153,8 @@ export interface BridgeApi {
   contacts: {
     /** Paginated contacts with outstanding balances (default 20). */
     list: (query?: ContactsQuery) => Promise<PaginatedT<LocalContactListItem>>
+    /** Aggregate balances + per-tab counts for the list header. */
+    summary: () => Promise<ContactsSummary>
     /** Full active supplier set (type SUPPLIER|BOTH) — for PO/RFQ pickers. */
     listAllSuppliers: () => Promise<LocalContact[]>
     /** Full active customer set (type CUSTOMER|BOTH) — for sale/debt pickers. */
@@ -1087,6 +1168,8 @@ export interface BridgeApi {
   debts: {
     /** Paginated debts for a contact (the contact-detail ledger). */
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedT<LocalDebt>>
+    /** Chronological account statement (debits/credits/running balance) for a direction. */
+    statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     /** Record a payment against a debt; returns the updated debt. */
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
   }
@@ -1125,5 +1208,9 @@ export interface BridgeApi {
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */
     file: (input: UploadFileInput) => Promise<UploadedFile>
+  }
+  charges: {
+    /** Active charge types (system + business) for the receive/settle charge picker. */
+    listActive: () => Promise<ChargeTypeT[]>
   }
 }

@@ -14,6 +14,7 @@ import type {
   ExpenseCategorySyncRecord,
   ExpenseSyncPayload,
   ExpenseSyncRecord,
+  IdDocumentType,
   InventoryAdjustmentSyncPayload,
   InventoryLevelSyncRecord,
   InventoryMovementSyncRecord,
@@ -265,8 +266,15 @@ type ContactPayload = {
   name?: string
   phone?: string | null
   phoneAlt?: string | null
+  email?: string | null
   address?: string | null
   notes?: string | null
+  idType?: IdDocumentType | null
+  idNumber?: string | null
+  idIssueDate?: string | null
+  idExpiryDate?: string | null
+  idDocuments?: string[] | null
+  selfieUrl?: string | null
   isActive?: boolean
   createdById?: string | null
   createdAt?: string
@@ -2165,8 +2173,15 @@ export class SyncService {
         name: normalizedName,
         phone: this.normalizeOptionalString(payload.phone),
         phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        email: this.normalizeOptionalString(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
+        idType: payload.idType ?? null,
+        idNumber: this.normalizeOptionalString(payload.idNumber),
+        idIssueDate: this.normalizeOptionalString(payload.idIssueDate),
+        idExpiryDate: this.normalizeOptionalString(payload.idExpiryDate),
+        idDocuments: payload.idDocuments?.length ? payload.idDocuments : null,
+        selfieUrl: this.normalizeOptionalString(payload.selfieUrl),
         isActive: nextIsActive,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -2186,8 +2201,15 @@ export class SyncService {
         name: normalizedName,
         phone: this.normalizeOptionalString(payload.phone),
         phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        email: this.normalizeOptionalString(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
+        idType: payload.idType ?? null,
+        idNumber: this.normalizeOptionalString(payload.idNumber),
+        idIssueDate: this.normalizeOptionalString(payload.idIssueDate),
+        idExpiryDate: this.normalizeOptionalString(payload.idExpiryDate),
+        idDocuments: payload.idDocuments?.length ? payload.idDocuments : null,
+        selfieUrl: this.normalizeOptionalString(payload.selfieUrl),
         isActive: payload.isActive ?? true,
         createdById,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -3678,8 +3700,15 @@ export class SyncService {
       name: record.name,
       phone: record.phone ?? null,
       phoneAlt: record.phoneAlt ?? null,
+      email: record.email ?? null,
       address: record.address ?? null,
       notes: record.notes ?? null,
+      idType: record.idType ?? null,
+      idNumber: record.idNumber ?? null,
+      idIssueDate: record.idIssueDate ?? null,
+      idExpiryDate: record.idExpiryDate ?? null,
+      idDocuments: record.idDocuments ?? null,
+      selfieUrl: record.selfieUrl ?? null,
       isActive: record.isActive,
       createdById: record.createdById ?? null,
       createdAt: record.createdAt.toISOString(),
