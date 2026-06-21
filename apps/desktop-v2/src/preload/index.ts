@@ -146,6 +146,7 @@ const api: BridgeApi = {
   documents: {
     send: (input) => ipcRenderer.invoke(IPC.documentsSend, input),
     downloadPdf: (input) => ipcRenderer.invoke(IPC.documentsDownload, input),
+    downloadHtmlPdf: (html, filename) => ipcRenderer.invoke(IPC.documentsDownloadHtml, html, filename),
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),

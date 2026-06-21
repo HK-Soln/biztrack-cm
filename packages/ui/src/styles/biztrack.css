@@ -1087,7 +1087,7 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .metrics .mc .s{font-size:11px;color:var(--text-muted);margin-top:3px;}
 
 .split{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
-.split.mb20{margin-bottom:20px;}
+.mb20{margin-bottom:20px;}
 @media(max-width:900px){.split{grid-template-columns:1fr;}}
 
 /* Stock-bin card (design .binhead / .binmeta + movements table). */

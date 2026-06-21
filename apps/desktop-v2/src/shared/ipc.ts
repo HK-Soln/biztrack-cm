@@ -109,6 +109,7 @@ export const IPC = {
   poCancel: 'po:cancel',
   documentsSend: 'documents:send',
   documentsDownload: 'documents:download',
+  documentsDownloadHtml: 'documents:download-html',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
@@ -1345,6 +1346,8 @@ export interface BridgeApi {
     send: (input: DocumentSendInput) => Promise<void>
     /** Render the PDF locally and save it via a native dialog. Works offline. */
     downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
+    /** Render an arbitrary (trusted, app-generated) HTML document to PDF + save dialog. */
+    downloadHtmlPdf: (html: string, filename: string) => Promise<DocumentDownloadResult>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

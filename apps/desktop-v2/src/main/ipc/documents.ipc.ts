@@ -58,4 +58,9 @@ export function registerDocumentsIpc(
     await writeFile(res.filePath, pdf)
     return { saved: true, path: res.filePath }
   })
+
+  // Generic: render app-generated HTML (e.g. a statement export) to PDF + save dialog.
+  ipcMain.handle(IPC.documentsDownloadHtml, (_e, html: string, filename: string): Promise<DocumentDownloadResult> => {
+    return documents.downloadPdf(html, filename)
+  })
 }

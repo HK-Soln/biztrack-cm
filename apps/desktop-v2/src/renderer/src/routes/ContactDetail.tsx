@@ -91,6 +91,7 @@ export function ContactDetail() {
       ? { date: entries[0]!.date, type: ContactStatementEntryType.OPENING_BALANCE, direction: stmt!.direction, reference: null, description: '', debit: 0, credit: 0, balance: stmt!.openingBalance }
       : null
     const all = opening ? [opening, ...entries] : entries
+    const shown = all.length > 5 ? all.slice(-5) : all // newest 5 on screen; export has all
     const colA = payable ? t('debt.colPayment') : t('debt.colDebit') // payment(credit) | debit
     const colB = payable ? t('debt.colPurchase') : t('debt.colCredit') // purchase(debit) | credit
     return (
@@ -110,7 +111,7 @@ export function ContactDetail() {
               </tr>
             </thead>
             <tbody>
-              {all.map((e, i) => {
+              {shown.map((e, i) => {
                 // Column A holds the "credit" side for payable (payment), debit otherwise.
                 const aVal = payable ? e.credit : e.debit
                 const bVal = payable ? e.debit : e.credit
@@ -141,6 +142,72 @@ export function ContactDetail() {
       </>
     )
   }
+
+  // --- statement export (full statement, all transactions) -----------------
+  const stmtRows = (stmt: ContactStatement | undefined): ContactStatementEntry[] => {
+    const entries = stmt?.entries ?? []
+    const opening: ContactStatementEntry | null = entries.length
+      ? { date: entries[0]!.date, type: ContactStatementEntryType.OPENING_BALANCE, direction: stmt!.direction, reference: null, description: '', debit: 0, credit: 0, balance: stmt!.openingBalance }
+      : null
+    return opening ? [opening, ...entries] : entries
+  }
+  const stmtEntryLabel = (e: ContactStatementEntry, payable: boolean): string => {
+    if (e.type === ContactStatementEntryType.OPENING_BALANCE) return t('debt.entryOpening')
+    if (e.type === ContactStatementEntryType.PAYMENT) return t('debt.entryPayment')
+    if (e.type === ContactStatementEntryType.WRITE_OFF) return t('debt.entryWriteOff')
+    return payable ? t('debt.entryPurchase') : t('debt.entrySale')
+  }
+  const stmtEntryRef = (e: ContactStatementEntry): string => {
+    if (e.type === ContactStatementEntryType.OPENING_BALANCE) return t('ct.openingRef')
+    if (e.type === ContactStatementEntryType.PAYMENT) {
+      const label = t(`debt.method_${e.reference}` as Parameters<typeof t>[0])
+      return e.description ? `${label} · ${e.description}` : label
+    }
+    if (e.type === ContactStatementEntryType.WRITE_OFF) return '—'
+    return e.reference ?? '—'
+  }
+  const fmtDay = (d: string) => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+  const exportCsv = (stmt: ContactStatement | undefined, title: string) => {
+    const payable = stmt?.direction === DebtDirection.PAYABLE
+    const head = [t('debt.colDate'), t('debt.colEntry'), t('debt.colRef'), t('debt.colDebit'), t('debt.colCredit'), t('debt.colBalance')]
+    const body = stmtRows(stmt).map((e) => [fmtDay(e.date), stmtEntryLabel(e, payable), stmtEntryRef(e), e.debit || '', e.credit || '', e.balance])
+    const csv = [head, ...body].map((line) => line.map(csvCell).join(',')).join('\r\n')
+    downloadBlob('﻿' + csv, `${exportName(title)}.csv`, 'text/csv;charset=utf-8')
+  }
+  const statementHtml = (stmt: ContactStatement | undefined, title: string): string => {
+    const payable = stmt?.direction === DebtDirection.PAYABLE
+    const rows = stmtRows(stmt)
+      .map((e) => `<tr><td>${esc(fmtDay(e.date))}</td><td>${esc(stmtEntryLabel(e, payable))}</td><td>${esc(stmtEntryRef(e))}</td><td class="r">${e.debit ? esc(money.format(e.debit)) : '—'}</td><td class="r">${e.credit ? esc(money.format(e.credit)) : '—'}</td><td class="r">${esc(money.format(e.balance))}</td></tr>`)
+      .join('')
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
+      *{box-sizing:border-box}body{font:13px/1.5 Arial,Helvetica,sans-serif;color:#111;padding:32px}
+      h1{font-size:20px;margin:0 0 2px}.sub{color:#666;font-size:12px;margin-bottom:18px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th{text-align:left;border-bottom:2px solid #111;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#444}
+      td{border-bottom:1px solid #ddd;padding:7px 6px}.r{text-align:right}
+      tfoot td{border-top:2px solid #111;border-bottom:0;font-weight:700;padding-top:10px}
+    </style></head><body>
+      <h1>${esc(contact.name)}</h1>
+      <div class="sub">${esc(title)} · ${esc(t('ct.title'))}</div>
+      <table><thead><tr><th>${t('debt.colDate')}</th><th>${t('debt.colEntry')}</th><th>${t('debt.colRef')}</th><th class="r">${t('debt.colDebit')}</th><th class="r">${t('debt.colCredit')}</th><th class="r">${t('debt.colBalance')}</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="5">${esc(t('ct.closingBalance'))}</td><td class="r">${esc(money.format(stmt?.closingBalance ?? 0))}</td></tr></tfoot></table>
+    </body></html>`
+  }
+  const exportPdf = (stmt: ContactStatement | undefined, title: string) => {
+    void dataClient.documents.downloadHtmlPdf(statementHtml(stmt, title), exportName(title))
+  }
+  const exportName = (title: string) => sanitizeName(`statement-${contact.name}-${title}`)
+  const exportMenu = (stmt: ContactStatement | undefined, title: string) => (
+    <ActionMenu
+      label={t('ct.export')}
+      items={[
+        { label: t('ct.exportPdf'), onClick: () => exportPdf(stmt, title) },
+        { label: t('ct.exportCsv'), onClick: () => exportCsv(stmt, title) },
+      ]}
+    />
+  )
 
   return (
     <div className="frame">
@@ -240,6 +307,10 @@ export function ContactDetail() {
                 {t('ct.ledgerAsSupplier')} <span className="cnt">{money.compact(contact.totalPayable)}</span>
               </button>
             </div>
+            <div className="spacer" style={{ flex: 1 }} />
+            {ledgerTab === DebtDirection.RECEIVABLE
+              ? exportMenu(recvStmt, t('ct.ledgerAsCustomer'))
+              : exportMenu(payStmt, t('ct.ledgerAsSupplier'))}
           </div>
           {ledgerTab === DebtDirection.RECEIVABLE ? ledgerView(recvStmt, t('ct.ledgerCustFoot')) : ledgerView(payStmt, t('ct.ledgerSuppFoot'))}
         </div>
@@ -252,34 +323,25 @@ export function ContactDetail() {
               <span className={`st ${isSupplier ? 'st-out' : 'st-ok'}`} style={{ fontSize: 12 }}>
                 <span className="d" />{money.format(isSupplier ? contact.totalPayable : contact.totalReceivable)}
               </span>
+              {exportMenu(isSupplier ? payStmt : recvStmt, isSupplier ? t('ct.supplierAccount') : t('ct.statement'))}
             </div>
             {ledgerView(isSupplier ? payStmt : recvStmt, t('ct.countEntries'))}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="card">
-              <div className="card-h"><div><h3>{isSupplier ? t('ct.payCardSupplier') : t('ct.payCardCustomer')}</h3><p>{t('ct.payCardSub')}</p></div></div>
-              <Button variant="primary" onClick={() => setPay(true)} style={{ width: '100%', justifyContent: 'center' }}>
-                {isSupplier ? t('ct.paySupplier') : t('ct.recordPayment')}
-              </Button>
-            </div>
             <ProfileCard contact={contact} typeLabel={typeLabel} t={t} />
             {isCustomer ? <IdentificationCard contact={contact} t={t} /> : null}
           </div>
         </div>
       )}
 
-      {/* both: record-transaction + relationship profile */}
+      {/* both: relationship profile + identification (record payment lives in the header) */}
       {isBoth ? (
         <div className="split">
-          <div className="card">
-            <div className="card-h"><div><h3>{t('ct.payCardBoth')}</h3><p>{t('ct.payCardSub')}</p></div></div>
-            <Button variant="primary" onClick={() => setPay(true)} style={{ width: '100%', justifyContent: 'center' }}>{t('ct.recordPayment')}</Button>
-          </div>
           <ProfileCard contact={contact} typeLabel={typeLabel} t={t} relationship />
+          <IdentificationCard contact={contact} t={t} />
         </div>
       ) : null}
-      {isBoth ? <div className="mb20" style={{ marginTop: 14 }}><IdentificationCard contact={contact} t={t} /></div> : null}
 
       {pay ? (
         <ContactPaymentModal contactId={id} contactName={contact.name} onClose={() => setPay(false)} onSaved={() => { refresh(); setPay(false) }} />
@@ -330,6 +392,21 @@ function ProfileCard({
 }
 
 const fileName = (url: string) => decodeURIComponent(url.split('/').pop() ?? url)
+
+const csvCell = (v: string | number): string => {
+  const s = String(v)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+const downloadBlob = (content: string, filename: string, type: string): void => {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+const sanitizeName = (s: string): string => s.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+const esc = (s: string): string => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c)
 
 function IdentificationCard({
   contact,
