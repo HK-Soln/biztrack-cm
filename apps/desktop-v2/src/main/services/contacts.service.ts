@@ -46,9 +46,11 @@ const C_COLS = COLS.split(', ').map((c) => `c.${c}`).join(', ')
 // Computed inline so a contact's balances reflect the local debts table (populated
 // once supplier payables land). Safe (returns 0) before any debt exists.
 const OUTSTANDING = `(d.original_amount - COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0))`
+// A contact's outstanding balance = opening balance (brought forward) + live debts.
+const OB = (dir: string) => `COALESCE((SELECT ob.amount FROM contact_opening_balances ob WHERE ob.contact_id = c.id AND ob.direction = '${dir}'), 0)`
 const BALANCE_COLS = `,
-  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'RECEIVABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS total_receivable,
-  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'PAYABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS total_payable,
+  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'RECEIVABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) + ${OB('RECEIVABLE')} AS total_receivable,
+  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'PAYABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) + ${OB('PAYABLE')} AS total_payable,
   COALESCE((SELECT COUNT(*) FROM debts d WHERE d.contact_id = c.id AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS open_debts,
   (SELECT MIN(d.created_at) FROM debts d WHERE d.contact_id = c.id AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')) AS oldest_unpaid`
 

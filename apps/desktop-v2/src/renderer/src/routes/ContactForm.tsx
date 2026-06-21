@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
-import { ContactType, IdDocumentType } from '@biztrack/types'
+import { ContactType, DebtDirection, IdDocumentType } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
@@ -43,6 +43,8 @@ export function ContactForm() {
   const [idExpiryDate, setIdExpiryDate] = useState('')
   const [idDocuments, setIdDocuments] = useState<string[]>([])
   const [selfieUrl, setSelfieUrl] = useState<string | null>(null)
+  const [obAmount, setObAmount] = useState('')
+  const [obDirection, setObDirection] = useState<DebtDirection>(DebtDirection.RECEIVABLE)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -86,7 +88,19 @@ export function ContactForm() {
   })
 
   const save = useMutation({
-    mutationFn: () => (editing ? dataClient.contacts.update(id!, payload()) : dataClient.contacts.create(payload())),
+    mutationFn: async () => {
+      const c = editing ? await dataClient.contacts.update(id!, payload()) : await dataClient.contacts.create(payload())
+      // Optional opening balance — only on create.
+      if (!editing) {
+        const amt = Number(obAmount.replace(/\s/g, '').replace(',', '.'))
+        if (Number.isFinite(amt) && amt > 0) {
+          const direction =
+            type === ContactType.SUPPLIER ? DebtDirection.PAYABLE : type === ContactType.CUSTOMER ? DebtDirection.RECEIVABLE : obDirection
+          await dataClient.openingBalances.upsert({ contactId: c.id, direction, amount: amt })
+        }
+      }
+      return c
+    },
     onSuccess: (c) => {
       void qc.invalidateQueries({ queryKey: queryKeys.contacts })
       navigate(editing ? `/contacts/${id}` : `/contacts/${c.id}`)
@@ -165,6 +179,29 @@ export function ContactForm() {
             <textarea className="ta" rows={2} value={notes} placeholder={t('ct.notesPh')} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', resize: 'vertical' }} />
           </div>
         </div>
+
+        {!editing ? (
+          <div className="card" style={{ marginTop: 14 }}>
+            <div className="card-h"><div><h3>{t('ct.obSection')}</h3><p>{t('ct.obSub')}</p></div></div>
+            <div className="form-2col">
+              <div className="ff" style={{ marginBottom: 12 }}>
+                <label className="lbl2">{t('ct.obAmount')}</label>
+                <Input value={obAmount} inputMode="decimal" placeholder="0" onChange={(e) => setObAmount(e.target.value)} />
+              </div>
+              <div className="ff" style={{ marginBottom: 12 }}>
+                <label className="lbl2">{t('ct.obDirection')}</label>
+                {type === ContactType.BOTH ? (
+                  <Select value={obDirection} onChange={(e) => setObDirection(e.target.value as DebtDirection)}>
+                    <option value={DebtDirection.RECEIVABLE}>{t('ct.obTheyOwe')}</option>
+                    <option value={DebtDirection.PAYABLE}>{t('ct.obYouOwe')}</option>
+                  </Select>
+                ) : (
+                  <div className="fv" style={{ paddingTop: 9 }}>{type === ContactType.SUPPLIER ? t('ct.obYouOwe') : t('ct.obTheyOwe')}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {showKyc ? (
           <div className="card" style={{ marginTop: 14 }}>

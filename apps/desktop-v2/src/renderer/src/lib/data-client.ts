@@ -56,6 +56,8 @@ import type {
   LocalReorderSuggestion,
   LocalProduct,
   LocalProductImage,
+  LocalOpeningBalance,
+  OpeningBalanceInput,
   LocalSale,
   LocalSaleDetail,
   LocalSalesSummary,
@@ -179,6 +181,10 @@ export interface DataClient {
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
+  }
+  openingBalances: {
+    upsert: (input: OpeningBalanceInput) => Promise<LocalOpeningBalance>
+    listForContact: (contactId: string) => Promise<LocalOpeningBalance[]>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
@@ -328,6 +334,10 @@ function electronAdapter(): DataClient {
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
       offset: (contactId) => window.api.debts.offset(contactId),
     },
+    openingBalances: {
+      upsert: (input) => window.api.openingBalances.upsert(input),
+      listForContact: (contactId) => window.api.openingBalances.listForContact(contactId),
+    },
     rfqs: {
       list: (query) => window.api.rfqs.list(query),
       get: (id) => window.api.rfqs.get(id),
@@ -439,6 +449,7 @@ function cloudAdapter(): DataClient {
     inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
     contacts: { list: notWired, summary: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
     debts: { listByContact: notWired, statement: notWired, recordPayment: notWired, offset: notWired },
+    openingBalances: { upsert: notWired, listForContact: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
     documents: { send: notWired, downloadPdf: notWired, downloadHtmlPdf: notWired, shareHtmlPdf: notWired },

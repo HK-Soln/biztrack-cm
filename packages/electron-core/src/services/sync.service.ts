@@ -314,6 +314,10 @@ export class SyncService {
     for (const record of changes.contacts ?? []) {
       ops.push(this.contactUpsert(record))
     }
+    // Opening balances depend on the contact — applied right after.
+    for (const record of changes.openingBalances ?? []) {
+      ops.push(this.openingBalanceUpsert(record))
+    }
     for (const record of changes.productCategories ?? []) {
       ops.push(this.categoryUpsert(record))
     }
@@ -384,6 +388,31 @@ export class SyncService {
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         asStr(c.createdById),
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private openingBalanceUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const o = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO contact_opening_balances
+        (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(business_id, contact_id, direction) DO UPDATE SET
+          amount = excluded.amount, as_of_date = excluded.as_of_date, notes = excluded.notes,
+          recorded_by_id = excluded.recorded_by_id, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(o.businessId),
+        asStr(o.contactId),
+        asStr(o.direction),
+        asNum(o.amount) ?? 0,
+        asStr(o.asOfDate) ?? now.slice(0, 10),
+        asStr(o.notes),
+        asStr(o.recordedById),
+        asStr(o.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
     }
