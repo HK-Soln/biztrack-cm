@@ -27,45 +27,52 @@ export interface OnlineOrdersQuery {
 export class OnlineService {
   constructor(private readonly http: HttpClient) {}
 
+  /** Map a 403 / plan denial to a tagged message that survives IPC, so the renderer
+   * can show the upgrade screen. Other errors propagate as-is (offline, server, etc.). */
+  private async run<T>(thunk: () => Promise<T>): Promise<T> {
+    try {
+      return await thunk()
+    } catch (e) {
+      const err = e as { status?: number; response?: { status?: number; data?: { error?: { code?: string } } } }
+      const status = err?.status ?? err?.response?.status
+      const code = err?.response?.data?.error?.code
+      if (status === 403 || code === 'PLAN_UPGRADE_REQUIRED') throw new Error('PLAN_UPGRADE_REQUIRED')
+      throw e
+    }
+  }
+
   // ---- store config ----
-  async getStore(): Promise<OnlineStore | null> {
-    const { data } = await this.http.get<ApiEnvelope<OnlineStore | null>>('/online-store')
-    return data.data
+  getStore(): Promise<OnlineStore | null> {
+    return this.run(async () => (await this.http.get<ApiEnvelope<OnlineStore | null>>('/online-store')).data.data)
   }
 
-  async createStore(input: CreateOnlineStoreRequest): Promise<OnlineStore> {
-    const { data } = await this.http.post<ApiEnvelope<OnlineStore>>('/online-store', input)
-    return data.data
+  createStore(input: CreateOnlineStoreRequest): Promise<OnlineStore> {
+    return this.run(async () => (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store', input)).data.data)
   }
 
-  async updateStore(input: UpdateOnlineStoreRequest): Promise<OnlineStore> {
-    const { data } = await this.http.patch<ApiEnvelope<OnlineStore>>('/online-store', input)
-    return data.data
+  updateStore(input: UpdateOnlineStoreRequest): Promise<OnlineStore> {
+    return this.run(async () => (await this.http.patch<ApiEnvelope<OnlineStore>>('/online-store', input)).data.data)
   }
 
-  async publishStore(): Promise<OnlineStore> {
-    const { data } = await this.http.post<ApiEnvelope<OnlineStore>>('/online-store/publish', {})
-    return data.data
+  publishStore(): Promise<OnlineStore> {
+    return this.run(async () => (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store/publish', {})).data.data)
   }
 
   // ---- orders ----
-  async listOrders(query: OnlineOrdersQuery = {}): Promise<OnlineOrderListResult> {
+  listOrders(query: OnlineOrdersQuery = {}): Promise<OnlineOrderListResult> {
     const params = new URLSearchParams()
     if (query.status) params.set('status', query.status)
     if (query.page) params.set('page', String(query.page))
     if (query.limit) params.set('limit', String(query.limit))
     const qs = params.toString()
-    const { data } = await this.http.get<ApiEnvelope<OnlineOrderListResult>>(`/online-store/orders${qs ? `?${qs}` : ''}`)
-    return data.data
+    return this.run(async () => (await this.http.get<ApiEnvelope<OnlineOrderListResult>>(`/online-store/orders${qs ? `?${qs}` : ''}`)).data.data)
   }
 
-  async getOrder(id: string): Promise<OnlineOrderDetail> {
-    const { data } = await this.http.get<ApiEnvelope<OnlineOrderDetail>>(`/online-store/orders/${id}`)
-    return data.data
+  getOrder(id: string): Promise<OnlineOrderDetail> {
+    return this.run(async () => (await this.http.get<ApiEnvelope<OnlineOrderDetail>>(`/online-store/orders/${id}`)).data.data)
   }
 
-  async updateOrderStatus(id: string, input: UpdateOrderStatusRequest): Promise<OnlineOrder> {
-    const { data } = await this.http.patch<ApiEnvelope<OnlineOrder>>(`/online-store/orders/${id}/status`, input)
-    return data.data
+  updateOrderStatus(id: string, input: UpdateOrderStatusRequest): Promise<OnlineOrder> {
+    return this.run(async () => (await this.http.patch<ApiEnvelope<OnlineOrder>>(`/online-store/orders/${id}/status`, input)).data.data)
   }
 }
