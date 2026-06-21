@@ -26,6 +26,7 @@ export function ContactDetail() {
   const [deleteErr, setDeleteErr] = useState<string | null>(null)
   const [ledgerTab, setLedgerTab] = useState<DebtDirection>(DebtDirection.RECEIVABLE)
   const [sendDoc, setSendDoc] = useState<{ html: string; filename: string; title: string } | null>(null)
+  const [offsetOpen, setOffsetOpen] = useState(false)
 
   const { data: contact, isPending, refetch } = useQuery({
     queryKey: [...queryKeys.contacts, id],
@@ -215,10 +216,23 @@ export function ContactDetail() {
               {t('ct.newPo')}
             </Button>
           ) : null}
-          <Button variant="primary" onClick={() => setPay(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
-            {isSupplier && !isCustomer ? t('ct.paySupplier') : t('ct.recordPayment')}
-          </Button>
+          {isBoth ? (
+            <>
+              <Button variant="soft" onClick={() => setPay(true)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
+                {t('ct.recordPayment')}
+              </Button>
+              <Button variant="primary" disabled={contact.totalReceivable <= 0 || contact.totalPayable <= 0} onClick={() => setOffsetOpen(true)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
+                {t('ct.offsetSettle')}
+              </Button>
+            </>
+          ) : (
+            <Button variant="primary" onClick={() => setPay(true)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
+              {isSupplier ? t('ct.paySupplier') : t('ct.recordPayment')}
+            </Button>
+          )}
           <ActionMenu
             items={[
               { label: t('ct.edit'), onClick: () => navigate(`/contacts/${id}/edit`) },
@@ -272,15 +286,21 @@ export function ContactDetail() {
 
       {/* both: net-position offset bar */}
       {isBoth && (contact.totalReceivable > 0 || contact.totalPayable > 0) ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
-            <span style={{ color: 'var(--success)' }}>{t('ct.mTheyOwe')} {money.format(contact.totalReceivable)}</span>
-            <span style={{ color: 'var(--danger)' }}>{t('ct.mYouOwe')} {money.format(contact.totalPayable)}</span>
+        <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+              <span style={{ color: 'var(--success)' }}>{t('ct.mTheyOwe')} {money.format(contact.totalReceivable)}</span>
+              <span style={{ color: 'var(--danger)' }}>{t('ct.mYouOwe')} {money.format(contact.totalPayable)}</span>
+            </div>
+            <div style={{ height: 12, borderRadius: 999, background: 'var(--danger-soft)', overflow: 'hidden', display: 'flex' }}>
+              <div style={{ width: `${Math.round((contact.totalReceivable / Math.max(1, contact.totalReceivable + contact.totalPayable)) * 100)}%`, background: 'var(--success)', height: '100%' }} />
+            </div>
+            <div className="hint" style={{ marginTop: 8 }}>{(net >= 0 ? t('ct.offsetFavour') : t('ct.offsetOwe')).replace('{v}', money.format(Math.abs(net)))}</div>
           </div>
-          <div style={{ height: 12, borderRadius: 999, background: 'var(--danger-soft)', overflow: 'hidden', display: 'flex' }}>
-            <div style={{ width: `${Math.round((contact.totalReceivable / Math.max(1, contact.totalReceivable + contact.totalPayable)) * 100)}%`, background: 'var(--success)', height: '100%' }} />
-          </div>
-          <div className="hint" style={{ marginTop: 8 }}>{(net >= 0 ? t('ct.offsetFavour') : t('ct.offsetOwe')).replace('{v}', money.format(Math.abs(net)))}</div>
+          <Button variant="primary" disabled={contact.totalReceivable <= 0 || contact.totalPayable <= 0} onClick={() => setOffsetOpen(true)} style={{ whiteSpace: 'nowrap' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
+            {t('ct.offsetBalances')}
+          </Button>
         </div>
       ) : null}
 
@@ -336,6 +356,18 @@ export function ContactDetail() {
         <ContactPaymentModal contactId={id} contactName={contact.name} onClose={() => setPay(false)} onSaved={() => { refresh(); setPay(false) }} />
       ) : null}
 
+      {offsetOpen ? (
+        <OffsetModal
+          contactId={id}
+          contactName={contact.name}
+          receivable={contact.totalReceivable}
+          payable={contact.totalPayable}
+          t={t}
+          onClose={() => setOffsetOpen(false)}
+          onDone={() => { refresh(); setOffsetOpen(false) }}
+        />
+      ) : null}
+
       {sendDoc ? (
         <DocumentShareDialog
           title={t('ct.sendStatement')}
@@ -365,6 +397,58 @@ export function ContactDetail() {
         {deleteErr ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{deleteErr}</p> : null}
       </Modal>
     </div>
+  )
+}
+
+function OffsetModal({
+  contactId,
+  contactName,
+  receivable,
+  payable,
+  t,
+  onClose,
+  onDone,
+}: {
+  contactId: string
+  contactName: string
+  receivable: number
+  payable: number
+  t: ReturnType<typeof useT>
+  onClose: () => void
+  onDone: () => void
+}) {
+  const money = useCurrency()
+  const [error, setError] = useState<string | null>(null)
+  const offsetAmount = Math.min(receivable, payable)
+  const net = receivable - payable
+  const run = useMutation({
+    mutationFn: () => dataClient.debts.offset(contactId),
+    onSuccess: onDone,
+    onError: (e) => setError(errorMessage(e, t('ct.offsetError'))),
+  })
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      onSubmit={() => run.mutate()}
+      title={t('ct.offsetTitle')}
+      footer={
+        <>
+          <Button variant="soft" onClick={onClose} disabled={run.isPending}>{t('ct.cancel')}</Button>
+          <Button type="submit" variant="primary" loading={run.isPending} disabled={offsetAmount <= 0} onClick={() => run.mutate()}>{t('ct.offsetConfirm')}</Button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+        {t('ct.offsetBody').replace('{amt}', money.format(offsetAmount)).replace('{name}', contactName)}
+      </p>
+      <div style={{ marginTop: 12 }}>
+        <div className="recv-tot"><span style={{ color: 'var(--text-2)' }}>{t('ct.mTheyOwe')}</span><span>{money.format(receivable)}</span></div>
+        <div className="recv-tot"><span style={{ color: 'var(--text-2)' }}>{t('ct.mYouOwe')}</span><span>{money.format(payable)}</span></div>
+        <div className="recv-tot grand"><span>{net >= 0 ? t('ct.offsetAfterFavour') : t('ct.offsetAfterOwe')}</span><span>{money.format(Math.abs(net))}</span></div>
+      </div>
+      {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
+    </Modal>
   )
 }
 

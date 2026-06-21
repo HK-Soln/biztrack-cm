@@ -127,6 +127,86 @@ export class DebtsService {
     return this.get(debtId)!
   }
 
+  /**
+   * Net a contact's open receivable vs payable balances with cash-neutral OFFSET contra
+   * payments (oldest debts first). Clears the smaller side, reduces the larger; the net
+   * position is unchanged. Each affected debt re-enqueues (the OFFSET payment rides the
+   * existing debt sync), so the server applies it idempotently. Mirrors the API offset.
+   */
+  offset(contactId: string): { offsetAmount: number; affected: number } {
+    const businessId = this.requireBusinessId()
+    const openDebts = (direction: 'RECEIVABLE' | 'PAYABLE'): LocalDebt[] =>
+      this.db
+        .query<DebtRow>(
+          `SELECT ${COLS} FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND d.direction = ? AND d.status != 'WRITTEN_OFF' ORDER BY d.created_at ASC`,
+          [businessId, contactId, direction],
+        )
+        .map(toLocalDebt)
+        .filter((d) => d.outstandingAmount > 0)
+
+    const recv = openDebts('RECEIVABLE')
+    const pay = openDebts('PAYABLE')
+    const totalR = round2(recv.reduce((s, d) => s + d.outstandingAmount, 0))
+    const totalP = round2(pay.reduce((s, d) => s + d.outstandingAmount, 0))
+    const offsetAmount = round2(Math.min(totalR, totalP))
+    if (offsetAmount <= 0) throw new Error('Nothing to offset — both sides need an open balance.')
+
+    const now = new Date().toISOString()
+    const ref = `OFFSET-${now.slice(0, 10).replace(/-/g, '')}`
+    let affected = 0
+    const allocate = (debts: LocalDebt[]) => {
+      let remaining = offsetAmount
+      for (const d of debts) {
+        if (remaining <= 1e-6) break
+        const applied = round2(Math.min(remaining, d.outstandingAmount))
+        if (applied <= 0) continue
+        this.applyContra(d.id, businessId, applied, ref, now)
+        remaining = round2(remaining - applied)
+        affected++
+      }
+    }
+    allocate(recv)
+    allocate(pay)
+
+    this.onMutated()
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'contact',
+      entityId: contactId,
+      entityLabel: ref,
+      changes: { before: { receivable: totalR, payable: totalP }, after: { offsetAmount, affected } },
+    })
+    return { offsetAmount, affected }
+  }
+
+  /** Apply one cash-neutral OFFSET contra payment to a debt + re-enqueue it for sync. */
+  private applyContra(debtId: string, businessId: string, amount: number, ref: string, now: string): void {
+    const debt = this.getRow(debtId, businessId)
+    if (!debt) return
+    this.db.run(
+      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
+       VALUES (?, ?, ?, ?, 'OFFSET', NULL, ?, ?, ?, ?)`,
+      [randomUUID(), businessId, debtId, amount, now, ref, this.getActorId() ?? 'unknown', now],
+    )
+    const paid = debt.paid_amount + amount
+    const settled = paid >= debt.original_amount - 1e-6
+    const status = settled ? 'SETTLED' : 'PARTIALLY_PAID'
+    this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
+      status,
+      settled ? now : null,
+      debtId,
+      businessId,
+    ])
+    this.enqueue(debtId, businessId, now)
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'debt',
+      entityId: debtId,
+      entityLabel: debt.source_reference,
+      changes: { before: { status: debt.status, paid: debt.paid_amount }, after: { status, paid, offset: amount, reference: ref } },
+    })
+  }
+
   /** Paginated debts for a contact (for the contact detail ledger). */
   listByContact(contactId: string, query: DebtsQuery = {}): PaginatedResult<LocalDebt> {
     const businessId = this.getBusinessId()

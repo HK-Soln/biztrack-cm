@@ -125,6 +125,7 @@ const api: BridgeApi = {
     listByContact: (contactId, query) => ipcRenderer.invoke(IPC.debtsListByContact, contactId, query),
     statement: (contactId, direction) => ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
+    offset: (contactId) => ipcRenderer.invoke(IPC.debtsOffset, contactId),
   },
   rfqs: {
     list: (query) => ipcRenderer.invoke(IPC.rfqList, query),

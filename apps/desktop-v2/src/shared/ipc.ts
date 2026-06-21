@@ -94,6 +94,7 @@ export const IPC = {
   debtsListByContact: 'debts:list-by-contact',
   debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
+  debtsOffset: 'debts:offset',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1331,6 +1332,8 @@ export interface BridgeApi {
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     /** Record a payment against a debt; returns the updated debt. */
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    /** Net a Both-contact's receivable vs payable with OFFSET contra-payments (oldest first). */
+    offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>

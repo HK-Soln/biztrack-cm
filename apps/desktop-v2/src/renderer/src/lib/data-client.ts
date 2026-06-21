@@ -178,6 +178,7 @@ export interface DataClient {
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
@@ -325,6 +326,7 @@ function electronAdapter(): DataClient {
       listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
       statement: (contactId, direction) => window.api.debts.statement(contactId, direction),
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
+      offset: (contactId) => window.api.debts.offset(contactId),
     },
     rfqs: {
       list: (query) => window.api.rfqs.list(query),
@@ -436,7 +438,7 @@ function cloudAdapter(): DataClient {
     },
     inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
     contacts: { list: notWired, summary: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
-    debts: { listByContact: notWired, statement: notWired, recordPayment: notWired },
+    debts: { listByContact: notWired, statement: notWired, recordPayment: notWired, offset: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
     documents: { send: notWired, downloadPdf: notWired, downloadHtmlPdf: notWired, shareHtmlPdf: notWired },
