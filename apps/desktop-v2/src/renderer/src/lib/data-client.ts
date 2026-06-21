@@ -77,6 +77,14 @@ import type {
   DepositsListQuery,
   LocalDepositDetail,
   LocalDepositSummary,
+  OnlineStore,
+  CreateOnlineStoreRequest,
+  UpdateOnlineStoreRequest,
+  OnlineOrder,
+  OnlineOrderDetail,
+  OnlineOrderListResult,
+  UpdateOrderStatusRequest,
+  OnlineOrdersQuery,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
@@ -277,6 +285,15 @@ export interface DataClient {
     receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
     reportHtml: (id: string, locale: string) => Promise<string | null>
   }
+  online: {
+    getStore: () => Promise<OnlineStore | null>
+    createStore: (input: CreateOnlineStoreRequest) => Promise<OnlineStore>
+    updateStore: (input: UpdateOnlineStoreRequest) => Promise<OnlineStore>
+    publishStore: () => Promise<OnlineStore>
+    listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResult>
+    getOrder: (id: string) => Promise<OnlineOrderDetail>
+    updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
+  }
 }
 
 /** True when running inside the Electron renderer (preload bridge present). */
@@ -449,6 +466,15 @@ function electronAdapter(): DataClient {
       receiptHtml: (transactionId, locale) => window.api.deposits.receiptHtml(transactionId, locale),
       reportHtml: (id, locale) => window.api.deposits.reportHtml(id, locale),
     },
+    online: {
+      getStore: () => window.api.online.getStore(),
+      createStore: (input) => window.api.online.createStore(input),
+      updateStore: (input) => window.api.online.updateStore(input),
+      publishStore: () => window.api.online.publishStore(),
+      listOrders: (query) => window.api.online.listOrders(query),
+      getOrder: (id) => window.api.online.getOrder(id),
+      updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
+    },
   }
 }
 
@@ -526,6 +552,7 @@ function cloudAdapter(): DataClient {
     sales: { create: notWired, list: notWired, listAll: notWired, summary: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
     savings: { getForCustomer: notWired },
     deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, reportHtml: notWired },
+    online: { getStore: notWired, createStore: notWired, updateStore: notWired, publishStore: notWired, listOrders: notWired, getOrder: notWired, updateOrderStatus: notWired },
   }
 }
 
