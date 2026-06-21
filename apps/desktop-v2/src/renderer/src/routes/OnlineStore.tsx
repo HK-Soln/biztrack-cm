@@ -4,7 +4,7 @@ import { Button, Input } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
-import { OnlineOffline, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
+import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
 import type { OnlineStore as Store, OnlineStoreAppearance, OnlineStoreLayout, UpdateOnlineStoreRequest } from '@shared/ipc'
 
 const RESERVED = ['www', 'app', 'api', 'admin', 'mail', 'cdn', 'store', 'shop', 'help', 'status', 'static', 'assets', 'blog']
@@ -47,7 +47,7 @@ export function OnlineStore() {
   const store = useQuery({ queryKey: ['online', 'store'], queryFn: () => dataClient.online.getStore(), enabled: isElectron, retry: false })
 
   if (store.error && isPlanUpgrade(store.error)) return <OnlineUpsell />
-  if (store.error) return <div className="frame"><OnlineOffline onRetry={() => store.refetch()} /></div>
+  if (store.error) return <div className="frame"><OnlineError error={store.error} onRetry={() => store.refetch()} /></div>
   if (store.isPending) return <div className="frame"><p className="hint" style={{ padding: 24 }}>{t('online.loading')}</p></div>
   if (!store.data) return <CreateStore t={t} onCreated={() => qc.invalidateQueries({ queryKey: ['online', 'store'] })} />
 

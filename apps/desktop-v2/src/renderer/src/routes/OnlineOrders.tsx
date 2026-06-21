@@ -5,7 +5,7 @@ import { dataClient, isElectron } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
-import { OnlineOffline, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
+import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
 import type { OnlineOrderStatus } from '@shared/ipc'
 
 const I = {
@@ -116,7 +116,7 @@ export function OnlineOrders() {
         </div>
 
         {list.error ? (
-          <OnlineOffline onRetry={() => list.refetch()} />
+          <OnlineError error={list.error} onRetry={() => list.refetch()} />
         ) : (
           <>
             <table>
