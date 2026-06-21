@@ -38,6 +38,12 @@ export class OnlineStoreController {
     return this.onlineStoreService.updateStore(user.businessId as string, dto)
   }
 
+  @Post('publish')
+  @ApiOperation({ summary: 'Publish the current draft (go live, clear unpublished changes)' })
+  publish(@CurrentUser() user: JwtPayload) {
+    return this.onlineStoreService.publishStore(user.businessId as string)
+  }
+
   @Patch('products/:id')
   @ApiOperation({ summary: 'Update a product online-publishing settings' })
   updateProduct(

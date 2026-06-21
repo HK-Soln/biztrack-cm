@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEmail,
   IsHexColor,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -12,6 +13,9 @@ import {
 } from 'class-validator'
 import type {
   CreateOnlineStoreRequest,
+  OnlineCatalogBinding,
+  OnlineStoreAppearance,
+  OnlineStoreLayout,
   ProductOnlineFields,
   UpdateOnlineStoreRequest,
 } from '@biztrack/types'
@@ -169,6 +173,78 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @IsOptional()
   @IsBoolean()
   paymentCard?: boolean
+
+  @ApiPropertyOptional({ description: 'URL slug (subdomain).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  storeSlug?: string
+
+  @ApiPropertyOptional({ enum: ['classic', 'boutique', 'catalog', 'landing'] })
+  @IsOptional()
+  @IsIn(['classic', 'boutique', 'catalog', 'landing'])
+  layoutTemplate?: OnlineStoreLayout
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  themeId?: string
+
+  @ApiPropertyOptional({ enum: ['light', 'dark'] })
+  @IsOptional()
+  @IsIn(['light', 'dark'])
+  appearance?: OnlineStoreAppearance
+
+  @ApiPropertyOptional({ enum: ['snapshot', 'live'] })
+  @IsOptional()
+  @IsIn(['snapshot', 'live'])
+  catalogBinding?: OnlineCatalogBinding
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  showLowStockBadges?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  seoTitle?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  seoDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ogImageUrl?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  robotsIndex?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  socialInstagram?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  socialFacebook?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  socialTiktok?: string | null
 }
 
 export class UpdateProductOnlineDto implements ProductOnlineFields {

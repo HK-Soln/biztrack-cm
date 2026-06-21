@@ -1,6 +1,7 @@
 import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
 import type { OnlineStoreDomainType } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
+import { dateTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
 
 /** A business's online storefront configuration (Phase 3I). One per business. */
@@ -85,4 +86,58 @@ export class OnlineStore extends BaseEntity {
 
   @Column({ name: 'payment_card', default: false })
   paymentCard!: boolean
+
+  // ---- Storefront appearance (design-store-config) ----
+  /** Layout template: classic | boutique | catalog | landing. */
+  @Column({ name: 'layout_template', length: 20, default: 'classic' })
+  layoutTemplate!: string
+
+  /** Colour theme preset key (a|b|c|d), reusing the packages/theme palettes. */
+  @Column({ name: 'theme_id', length: 20, default: 'a' })
+  themeId!: string
+
+  /** Storefront appearance: light | dark. */
+  @Column({ length: 10, default: 'light' })
+  appearance!: string
+
+  // ---- Catalog & pricing ----
+  /** snapshot | live — how the public store reads prices/stock. */
+  @Column({ name: 'catalog_binding', length: 10, default: 'snapshot' })
+  catalogBinding!: string
+
+  @Column({ name: 'show_low_stock_badges', default: false })
+  showLowStockBadges!: boolean
+
+  // ---- SEO & sharing ----
+  @Column({ name: 'seo_title', length: 120, nullable: true, type: 'varchar' })
+  seoTitle?: string | null
+
+  @Column({ name: 'seo_description', length: 300, nullable: true, type: 'varchar' })
+  seoDescription?: string | null
+
+  @Column({ name: 'og_image_url', type: 'text', nullable: true })
+  ogImageUrl?: string | null
+
+  @Column({ name: 'robots_index', default: true })
+  robotsIndex!: boolean
+
+  @Column({ name: 'social_instagram', length: 200, nullable: true, type: 'varchar' })
+  socialInstagram?: string | null
+
+  @Column({ name: 'social_facebook', length: 200, nullable: true, type: 'varchar' })
+  socialFacebook?: string | null
+
+  @Column({ name: 'social_tiktok', length: 200, nullable: true, type: 'varchar' })
+  socialTiktok?: string | null
+
+  // ---- Lifecycle (draft → published → suspended) ----
+  @Column({ length: 12, default: 'draft' })
+  status!: string
+
+  @Column({ name: 'published_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  publishedAt?: Date | null
+
+  /** Set on any config edit, cleared on publish — drives the "unpublished changes" chip. */
+  @Column({ name: 'has_unpublished_changes', default: true })
+  hasUnpublishedChanges!: boolean
 }
