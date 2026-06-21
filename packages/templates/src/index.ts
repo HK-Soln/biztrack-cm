@@ -6,6 +6,8 @@ export { renderSaleReceiptHtml, saleReceiptLabels } from './sale-receipt.templat
 export type { SaleReceiptLabels, SaleReceiptOptions } from './sale-receipt.template'
 export { renderDepositReceiptHtml, depositReceiptLabels } from './deposit-receipt.template'
 export type { DepositReceiptLabels, DepositReceiptOptions } from './deposit-receipt.template'
+export { renderDepositReportHtml, depositReportLabels } from './deposit-report.template'
+export type { DepositReportLabels, DepositReportOptions } from './deposit-report.template'
 export { purchaseOrderMessageText, rfqMessageText } from './message'
 export { DOCUMENT_CSS } from './styles'
 export { formatMoney, formatNumber, escapeHtml, escapeMultiline } from './format'

@@ -275,9 +275,7 @@ export interface DataClient {
     addPayment: (id: string, input: AddDepositPaymentInput) => Promise<CustomerDeposit>
     close: (id: string, input: CloseDepositInput) => Promise<CustomerDeposit>
     receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
-    printReceipt: (transactionId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
-    downloadReceipt: (transactionId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
-    sendReceipt: (transactionId: string, channel: DocumentSendChannel, locale: string, opts?: { recipient?: DocumentRecipient }) => Promise<void>
+    reportHtml: (id: string, locale: string) => Promise<string | null>
   }
 }
 
@@ -449,9 +447,7 @@ function electronAdapter(): DataClient {
       addPayment: (id, input) => window.api.deposits.addPayment(id, input),
       close: (id, input) => window.api.deposits.close(id, input),
       receiptHtml: (transactionId, locale) => window.api.deposits.receiptHtml(transactionId, locale),
-      printReceipt: (transactionId, locale) => window.api.deposits.printReceipt(transactionId, locale),
-      downloadReceipt: (transactionId, locale) => window.api.deposits.downloadReceipt(transactionId, locale),
-      sendReceipt: (transactionId, channel, locale, opts) => window.api.deposits.sendReceipt(transactionId, channel, locale, opts),
+      reportHtml: (id, locale) => window.api.deposits.reportHtml(id, locale),
     },
   }
 }
@@ -529,7 +525,7 @@ function cloudAdapter(): DataClient {
     charges: { listActive: notWired },
     sales: { create: notWired, list: notWired, listAll: notWired, summary: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
     savings: { getForCustomer: notWired },
-    deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, printReceipt: notWired, downloadReceipt: notWired, sendReceipt: notWired },
+    deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, reportHtml: notWired },
   }
 }
 
