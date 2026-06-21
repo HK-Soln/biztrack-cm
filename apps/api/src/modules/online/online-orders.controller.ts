@@ -1,14 +1,17 @@
 import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { JwtPayload, OnlineOrderStatus } from '@biztrack/types'
+import { Resource } from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
+import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { OnlineOrdersService } from './online-orders.service'
 import { UpdateOrderStatusDto } from './dto/online-orders.dto'
 
 @ApiTags('Online orders')
 @ApiBearerAuth()
-@UseGuards(Phase2Guard)
+@UseGuards(Phase2Guard, ResourceGuard)
+@RequireResource(Resource.ONLINE_STORE)
 @Controller('online-store/orders')
 export class OnlineOrdersController {
   constructor(private readonly orders: OnlineOrdersService) {}
