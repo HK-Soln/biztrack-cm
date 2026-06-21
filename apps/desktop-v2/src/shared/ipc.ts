@@ -107,6 +107,17 @@ export const IPC = {
   expensesRemove: 'expenses:remove',
   expenseCategoriesListAll: 'expense-categories:list-all',
   expenseCategoriesCreate: 'expense-categories:create',
+  depositsList: 'deposits:list',
+  depositsGet: 'deposits:get',
+  depositsStatement: 'deposits:statement',
+  depositsSummary: 'deposits:summary',
+  depositsCreate: 'deposits:create',
+  depositsAddPayment: 'deposits:add-payment',
+  depositsClose: 'deposits:close',
+  depositsReceiptHtml: 'deposits:receipt-html',
+  depositsPrintReceipt: 'deposits:print-receipt',
+  depositsDownloadReceipt: 'deposits:download-receipt',
+  depositsSendReceipt: 'deposits:send-receipt',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1126,6 +1137,47 @@ export interface LocalSavingsBalance {
   accountNumber: string
   balance: number
 }
+
+// --- Deposits (sessions) — reuse the shared deposit shapes ---
+export type {
+  CustomerDeposit,
+  DepositTransaction,
+  DepositStatement,
+  DepositStatementEntry,
+  DepositTaggedProduct,
+  DepositStatus,
+  DepositOutcome,
+  CreateDepositInput,
+  AddDepositPaymentInput,
+  CloseDepositInput,
+  DepositCloseSettlement,
+} from '@biztrack/types'
+import type {
+  CustomerDeposit as CustomerDepositT,
+  DepositTransaction as DepositTransactionT,
+  DepositStatement as DepositStatementT,
+  CreateDepositInput as CreateDepositInputT,
+  AddDepositPaymentInput as AddDepositPaymentInputT,
+  CloseDepositInput as CloseDepositInputT,
+} from '@biztrack/types'
+
+export interface DepositsListQuery extends ListQueryT {
+  status?: 'OPEN' | 'CLOSED'
+}
+/** A session plus its transactions (for the detail pane). */
+export interface LocalDepositDetail extends CustomerDepositT {
+  transactions: DepositTransactionT[]
+}
+/** KPI strip for the Deposits dashboard. */
+export interface LocalDepositSummary {
+  openCount: number
+  depositsHeld: number
+  collectedCount: number
+  collectedAmount: number
+  refundedTransferredCount: number
+  refundedTransferredAmount: number
+  currency: string
+}
 /** Result of resolving a scanned/typed code (barcode, SKU, or serial) to something sellable. */
 export type ScanHit =
   | { kind: 'product'; product: LocalProduct }
@@ -1539,7 +1591,29 @@ export interface BridgeApi {
     receiptHtml: (saleId: string, locale: string) => Promise<string | null>
   }
   savings: {
-    /** A customer's deposit balance (null if none) — for the Sell "Deposit" tender. */
+    /** A customer's OPEN deposit session balance (null if none) — for the Sell "Deposit" tender. */
     getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
+  }
+  deposits: {
+    list: (query?: DepositsListQuery) => Promise<PaginatedT<CustomerDepositT>>
+    get: (id: string) => Promise<LocalDepositDetail | null>
+    statement: (id: string) => Promise<DepositStatementT | null>
+    summary: () => Promise<LocalDepositSummary>
+    create: (input: CreateDepositInputT) => Promise<CustomerDepositT>
+    addPayment: (id: string, input: AddDepositPaymentInputT) => Promise<CustomerDepositT>
+    close: (id: string, input: CloseDepositInputT) => Promise<CustomerDepositT>
+    /** Compiled deposit-receipt HTML for one transaction (preview). */
+    receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
+    /** Print the deposit receipt; falls back to saving a PDF. */
+    printReceipt: (transactionId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    /** Render the deposit receipt to a PDF and save it via the native dialog. */
+    downloadReceipt: (transactionId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
+    /** Share the deposit receipt with the customer (WhatsApp/email composer + PDF). */
+    sendReceipt: (
+      transactionId: string,
+      channel: DocumentSendChannel,
+      locale: string,
+      opts?: { recipient?: DocumentRecipient },
+    ) => Promise<void>
   }
 }

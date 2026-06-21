@@ -16,7 +16,8 @@ import { Business } from './business.entity'
 import { Contact } from './contact.entity'
 
 @Entity('savings_accounts')
-@Unique('unq_savings_business_customer', ['businessId', 'customerId'])
+// At most one OPEN session per customer; closed sessions accumulate as history.
+@Index('uq_savings_open_per_customer', ['businessId', 'customerId'], { unique: true, where: `status = 'OPEN' AND is_deleted = false` })
 @Unique('unq_savings_business_account_number', ['businessId', 'accountNumber'])
 @Index('idx_savings_accounts_business_created_at', ['businessId', 'createdAt'])
 export class CustomerDeposit extends TypeOrmBaseEntity {
@@ -84,6 +85,33 @@ export class CustomerDeposit extends TypeOrmBaseEntity {
     transformer: decimalTransformer,
   })
   totalUsed!: number
+
+  @Column({
+    name: 'total_transferred',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  totalTransferred!: number
+
+  /** Session lifecycle. */
+  @Column({ type: 'varchar', length: 10, default: 'OPEN' })
+  status!: string
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  outcome?: string | null
+
+  @Column({ name: 'closed_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  closedAt?: Date | null
+
+  @Column({ name: 'closed_by_id', type: 'uuid', nullable: true })
+  closedById?: string | null
+
+  /** When the leftover was transferred, the new session it went to. */
+  @Column({ name: 'transferred_to_id', type: 'uuid', nullable: true })
+  transferredToId?: string | null
 
   @Column({ name: 'tagged_products', type: 'jsonb', nullable: true })
   taggedProducts?: Array<{ productId: string; productName: string }> | null

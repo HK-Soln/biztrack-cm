@@ -69,6 +69,14 @@ import type {
   LocalSaleDetail,
   LocalSalesSummary,
   LocalSavingsBalance,
+  CustomerDeposit,
+  DepositStatement,
+  CreateDepositInput,
+  AddDepositPaymentInput,
+  CloseDepositInput,
+  DepositsListQuery,
+  LocalDepositDetail,
+  LocalDepositSummary,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
@@ -258,6 +266,19 @@ export interface DataClient {
   savings: {
     getForCustomer: (customerId: string) => Promise<LocalSavingsBalance | null>
   }
+  deposits: {
+    list: (query?: DepositsListQuery) => Promise<PaginatedResult<CustomerDeposit>>
+    get: (id: string) => Promise<LocalDepositDetail | null>
+    statement: (id: string) => Promise<DepositStatement | null>
+    summary: () => Promise<LocalDepositSummary>
+    create: (input: CreateDepositInput) => Promise<CustomerDeposit>
+    addPayment: (id: string, input: AddDepositPaymentInput) => Promise<CustomerDeposit>
+    close: (id: string, input: CloseDepositInput) => Promise<CustomerDeposit>
+    receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
+    printReceipt: (transactionId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    downloadReceipt: (transactionId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
+    sendReceipt: (transactionId: string, channel: DocumentSendChannel, locale: string, opts?: { recipient?: DocumentRecipient }) => Promise<void>
+  }
 }
 
 /** True when running inside the Electron renderer (preload bridge present). */
@@ -419,6 +440,19 @@ function electronAdapter(): DataClient {
     savings: {
       getForCustomer: (customerId) => window.api.savings.getForCustomer(customerId),
     },
+    deposits: {
+      list: (query) => window.api.deposits.list(query),
+      get: (id) => window.api.deposits.get(id),
+      statement: (id) => window.api.deposits.statement(id),
+      summary: () => window.api.deposits.summary(),
+      create: (input) => window.api.deposits.create(input),
+      addPayment: (id, input) => window.api.deposits.addPayment(id, input),
+      close: (id, input) => window.api.deposits.close(id, input),
+      receiptHtml: (transactionId, locale) => window.api.deposits.receiptHtml(transactionId, locale),
+      printReceipt: (transactionId, locale) => window.api.deposits.printReceipt(transactionId, locale),
+      downloadReceipt: (transactionId, locale) => window.api.deposits.downloadReceipt(transactionId, locale),
+      sendReceipt: (transactionId, channel, locale, opts) => window.api.deposits.sendReceipt(transactionId, channel, locale, opts),
+    },
   }
 }
 
@@ -495,6 +529,7 @@ function cloudAdapter(): DataClient {
     charges: { listActive: notWired },
     sales: { create: notWired, list: notWired, listAll: notWired, summary: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
     savings: { getForCustomer: notWired },
+    deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, printReceipt: notWired, downloadReceipt: notWired, sendReceipt: notWired },
   }
 }
 

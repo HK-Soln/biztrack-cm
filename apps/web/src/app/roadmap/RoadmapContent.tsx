@@ -6,6 +6,7 @@ const SECTIONS = [
   { id: 'shipped',   label: 'Already live',             color: '#1D9E75' },
   { id: 'june2026',  label: 'June 2026',                color: '#F5A623' },
   { id: 'ohada2026', label: 'OHADA Full · Q3–Q4 2026',  color: '#378ADD' },
+  { id: 'storefront', label: 'Online Store · 2027',      color: '#E2655C' },
   { id: 'paytrack',  label: 'PayTrack CM · 2027',        color: '#7F77DD' },
 ]
 
@@ -590,6 +591,118 @@ export function RoadmapContent() {
               business management software to achieve full SYSCOHADA Révisé compliance, making it distributable
               across Central and West Africa without modification.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── ONLINE STORE ────────────────────────────────────────────────────── */}
+      <section className={styles.release} id="storefront">
+        <div className={styles.container}>
+          <div className={styles.releaseHead} data-reveal="">
+            <div>
+              <span className={`${styles.releaseTag} ${styles.tagStore}`}>🌐 2027</span>
+              <div className={styles.releaseV}>Your Free Online Store</div>
+              <div className={styles.releaseDate}>
+                <i className={styles.releaseDateIcon}>↗</i> Target: 2027
+              </div>
+              <div className={styles.releaseSummary}>
+                Every eligible business gets a real website — a public online store with your products, your
+                branding, and your own address. Pick a ready-made design in minutes, or build your own. No web
+                developer, no monthly hosting bill, no technical skills required.
+              </div>
+            </div>
+            <div className={styles.releaseDesc}>
+              <h3>From shop counter to the whole internet.</h3>
+              <p>
+                Your products are already in BizTrack CM. With one click, they become a beautiful, fast online
+                store that your customers can browse and order from — shareable on WhatsApp, Facebook, and your
+                bio link. Loads instantly because we build the page on our servers and cache it close to your
+                customers, even on slow connections.
+              </p>
+              <p style={{ marginTop: '0.75rem' }}>
+                Choose from a growing gallery of professional designs, or use the drag-and-drop builder to craft
+                something uniquely yours. Your catalogue, prices, and stock stay in sync with the BizTrack CM you
+                already use every day.
+              </p>
+            </div>
+          </div>
+
+          <div className={styles.fgrid}>
+            {/* Pick a design */}
+            <div className={`${styles.fcard} ${styles.fcardCoral}`} data-reveal="" data-delay="1">
+              <div className={`${styles.fcardIcon} ${styles.fiCoral}`}>🎨</div>
+              <h4>Pick a design you love</h4>
+              <p>
+                A gallery of ready-made, mobile-first store designs built for Cameroonian businesses. Choose one,
+                add your logo and colours, and you&apos;re live the same day.
+              </p>
+              <div className={styles.fcardDetail}>
+                <ul>
+                  <li>Multiple professional templates — boutique, electronics, grocery, services, and more</li>
+                  <li>Your logo, brand colours, and shop photos applied instantly</li>
+                  <li>Looks perfect on the phones your customers actually use</li>
+                  <li>Switch designs anytime without losing your products or content</li>
+                </ul>
+              </div>
+              <span className={`${styles.fcardWhen} ${styles.fcardWhenCoral}`}>Target 2027</span>
+            </div>
+
+            {/* Drag and drop builder */}
+            <div className={`${styles.fcard} ${styles.fcardCoral}`} data-reveal="" data-delay="2">
+              <div className={`${styles.fcardIcon} ${styles.fiCoral}`}>🧩</div>
+              <h4>Build your own — drag &amp; drop</h4>
+              <p>
+                Want something unique? Arrange your storefront block by block — hero banners, product grids,
+                featured categories, galleries, and contact sections — no code, just drag, drop, and publish.
+              </p>
+              <div className={styles.fcardDetail}>
+                <p>For businesses that want full control of their look:</p>
+                <ul>
+                  <li>Add, remove, and reorder sections visually</li>
+                  <li>Live preview as you build — see exactly what customers will see</li>
+                  <li>Save as draft, publish only when you&apos;re ready</li>
+                  <li>Mix ready-made designs with your own custom touches</li>
+                </ul>
+              </div>
+              <span className={`${styles.fcardWhen} ${styles.fcardWhenCoral}`}>Target 2027</span>
+            </div>
+
+            {/* Your own address */}
+            <div className={`${styles.fcard} ${styles.fcardCoral}`} data-reveal="" data-delay="1">
+              <div className={`${styles.fcardIcon} ${styles.fiCoral}`}>🔗</div>
+              <h4>Your own web address</h4>
+              <p>
+                Every store gets its own address at <strong>yourshop.biztrack.cm</strong> — ready the moment you
+                publish. Share it everywhere: WhatsApp status, Facebook, Instagram bio, printed receipts.
+              </p>
+              <div className={styles.fcardDetail}>
+                <ul>
+                  <li>Free subdomain for every store — yourshop.biztrack.cm</li>
+                  <li>Secured automatically (https) so customers trust your store</li>
+                  <li>Connecting your own domain name (yourshop.cm) — coming later</li>
+                </ul>
+              </div>
+              <span className={`${styles.fcardWhen} ${styles.fcardWhenCoral}`}>Target 2027</span>
+            </div>
+
+            {/* Always in sync */}
+            <div className={`${styles.fcard} ${styles.fcardCoral}`} data-reveal="" data-delay="2">
+              <div className={`${styles.fcardIcon} ${styles.fiCoral}`}>⚡</div>
+              <h4>Fast, and always in sync</h4>
+              <p>
+                Your store is rendered on our servers and cached close to your customers, so it opens fast even on
+                a weak network. Your products and prices flow straight from the BizTrack CM you already use.
+              </p>
+              <div className={styles.fcardDetail}>
+                <ul>
+                  <li>Server-rendered &amp; cached — no slow loading, no blank screens</li>
+                  <li>Catalogue published from BizTrack CM — no double data entry</li>
+                  <li>You decide when changes go public with a single &ldquo;Publish&rdquo;</li>
+                  <li>Included free — no separate hosting bill</li>
+                </ul>
+              </div>
+              <span className={`${styles.fcardWhen} ${styles.fcardWhenCoral}`}>Target 2027</span>
+            </div>
           </div>
         </div>
       </section>

@@ -26,6 +26,7 @@ import { registerProductsIpc } from './ipc/products.ipc'
 import { InventoryService } from './services/inventory.service'
 import { SalesService } from './services/sales.service'
 import { SavingsService } from './services/savings.service'
+import { registerDepositsIpc } from './ipc/deposits.ipc'
 import { registerInventoryIpc } from './ipc/inventory.ipc'
 import { registerSalesIpc } from './ipc/sales.ipc'
 import { ContactsService } from './services/contacts.service'
@@ -324,7 +325,14 @@ app.whenReady().then(() => {
   // Sales (POS checkout): offline-first; decrements stock, marks serials sold, raises a
   // receivable on credit, and enqueues the full SaleSyncPayload. Built after products +
   // debts (credit→receivable) which it depends on.
-  const savings = new SavingsService(db, () => authService.getSession().businessId)
+  const savings = new SavingsService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    audit,
+  )
+  registerDepositsIpc(savings, documents)
   const sales = new SalesService(
     db,
     () => authService.getSession().businessId,

@@ -19,6 +19,9 @@
   --blueD: #185fa5;
   --purple: #7f77dd;
   --purpleL: #eeedfe;
+  --coral: #e2655c;
+  --coralL: #fde9e7;
+  --coralD: #8f2e27;
   --border: rgba(29, 158, 117, 0.18);
   --borderL: rgba(29, 158, 117, 0.08);
   --r: 12px;
@@ -242,6 +245,7 @@
 .tagSoon   { background: var(--amberL);  color: var(--amberD); }
 .tagQ3     { background: var(--blueL);   color: var(--blueD); }
 .tagQ4     { background: var(--purpleL); color: #3c3489; }
+.tagStore  { background: var(--coralL);  color: var(--coralD); }
 
 .releaseV {
   font-size: 1.6rem;
@@ -319,6 +323,7 @@
 .fcardAmber::before  { background: linear-gradient(90deg, var(--amber), #fac775); }
 .fcardBlue::before   { background: linear-gradient(90deg, var(--blue), #85b7eb); }
 .fcardPurple::before { background: linear-gradient(90deg, var(--purple), #b5afee); }
+.fcardCoral::before  { background: linear-gradient(90deg, var(--coral), #f0a6a0); }
 
 .fcardIcon {
   width: 40px;
@@ -335,6 +340,7 @@
 .fiAmber  { background: rgba(245, 166, 35, 0.12); }
 .fiBlue   { background: rgba(55, 138, 221, 0.12); }
 .fiPurple { background: rgba(127, 119, 221, 0.12); }
+.fiCoral  { background: rgba(226, 101, 92, 0.12); }
 
 .fcard h4 {
   font-size: 1.05rem;
@@ -404,6 +410,7 @@
 
 .fcardWhenAmber { background: rgba(245, 166, 35, 0.1);  color: var(--amber); }
 .fcardWhenBlue  { background: rgba(55, 138, 221, 0.1);  color: var(--blue); }
+.fcardWhenCoral { background: rgba(226, 101, 92, 0.1);  color: var(--coral); }
 
 /* ─── Shipped grid ─────────────────────────────────────────────────────────── */
 .shippedGrid {
