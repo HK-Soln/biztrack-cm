@@ -10,6 +10,7 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu } from '@/components/ActionMenu'
 import { ContactPaymentModal } from '@/components/ContactPaymentModal'
+import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import type { ContactStatement, ContactStatementEntry } from '@shared/ipc'
 
 const STMT_SPLIT = { display: 'grid', gridTemplateColumns: 'minmax(0,1.7fr) minmax(0,1fr)', gap: 14, alignItems: 'start' } as const
@@ -24,6 +25,8 @@ export function ContactDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteErr, setDeleteErr] = useState<string | null>(null)
   const [ledgerTab, setLedgerTab] = useState<DebtDirection>(DebtDirection.RECEIVABLE)
+  const [sendDoc, setSendDoc] = useState<{ html: string; filename: string; title: string } | null>(null)
+  const [offsetOpen, setOffsetOpen] = useState(false)
 
   const { data: contact, isPending, refetch } = useQuery({
     queryKey: [...queryKeys.contacts, id],
@@ -91,6 +94,7 @@ export function ContactDetail() {
       ? { date: entries[0]!.date, type: ContactStatementEntryType.OPENING_BALANCE, direction: stmt!.direction, reference: null, description: '', debit: 0, credit: 0, balance: stmt!.openingBalance }
       : null
     const all = opening ? [opening, ...entries] : entries
+    const shown = all.length > 5 ? all.slice(-5) : all // newest 5 on screen; export has all
     const colA = payable ? t('debt.colPayment') : t('debt.colDebit') // payment(credit) | debit
     const colB = payable ? t('debt.colPurchase') : t('debt.colCredit') // purchase(debit) | credit
     return (
@@ -110,7 +114,7 @@ export function ContactDetail() {
               </tr>
             </thead>
             <tbody>
-              {all.map((e, i) => {
+              {shown.map((e, i) => {
                 // Column A holds the "credit" side for payable (payment), debit otherwise.
                 const aVal = payable ? e.credit : e.debit
                 const bVal = payable ? e.debit : e.credit
@@ -142,6 +146,59 @@ export function ContactDetail() {
     )
   }
 
+  // --- statement export (full statement, all transactions) -----------------
+  const stmtRows = (stmt: ContactStatement | undefined): ContactStatementEntry[] => {
+    const entries = stmt?.entries ?? []
+    const opening: ContactStatementEntry | null = entries.length
+      ? { date: entries[0]!.date, type: ContactStatementEntryType.OPENING_BALANCE, direction: stmt!.direction, reference: null, description: '', debit: 0, credit: 0, balance: stmt!.openingBalance }
+      : null
+    return opening ? [opening, ...entries] : entries
+  }
+  const stmtEntryLabel = (e: ContactStatementEntry, payable: boolean): string => {
+    if (e.type === ContactStatementEntryType.OPENING_BALANCE) return t('debt.entryOpening')
+    if (e.type === ContactStatementEntryType.PAYMENT) return t('debt.entryPayment')
+    if (e.type === ContactStatementEntryType.WRITE_OFF) return t('debt.entryWriteOff')
+    return payable ? t('debt.entryPurchase') : t('debt.entrySale')
+  }
+  const stmtEntryRef = (e: ContactStatementEntry): string => {
+    if (e.type === ContactStatementEntryType.OPENING_BALANCE) return t('ct.openingRef')
+    if (e.type === ContactStatementEntryType.PAYMENT) {
+      const label = t(`debt.method_${e.reference}` as Parameters<typeof t>[0])
+      return e.description ? `${label} · ${e.description}` : label
+    }
+    if (e.type === ContactStatementEntryType.WRITE_OFF) return '—'
+    return e.reference ?? '—'
+  }
+  const fmtDay = (d: string) => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+  const statementHtml = (stmt: ContactStatement | undefined, title: string): string => {
+    const payable = stmt?.direction === DebtDirection.PAYABLE
+    const rows = stmtRows(stmt)
+      .map((e) => `<tr><td>${esc(fmtDay(e.date))}</td><td>${esc(stmtEntryLabel(e, payable))}</td><td>${esc(stmtEntryRef(e))}</td><td class="r">${e.debit ? esc(money.format(e.debit)) : '—'}</td><td class="r">${e.credit ? esc(money.format(e.credit)) : '—'}</td><td class="r">${esc(money.format(e.balance))}</td></tr>`)
+      .join('')
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
+      *{box-sizing:border-box}body{font:13px/1.5 Arial,Helvetica,sans-serif;color:#111;padding:32px}
+      h1{font-size:20px;margin:0 0 2px}.sub{color:#666;font-size:12px;margin-bottom:18px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th{text-align:left;border-bottom:2px solid #111;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#444}
+      td{border-bottom:1px solid #ddd;padding:7px 6px}.r{text-align:right}
+      tfoot td{border-top:2px solid #111;border-bottom:0;font-weight:700;padding-top:10px}
+    </style></head><body>
+      <h1>${esc(contact.name)}</h1>
+      <div class="sub">${esc(title)} · ${esc(t('ct.title'))}</div>
+      <table><thead><tr><th>${t('debt.colDate')}</th><th>${t('debt.colEntry')}</th><th>${t('debt.colRef')}</th><th class="r">${t('debt.colDebit')}</th><th class="r">${t('debt.colCredit')}</th><th class="r">${t('debt.colBalance')}</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="5">${esc(t('ct.closingBalance'))}</td><td class="r">${esc(money.format(stmt?.closingBalance ?? 0))}</td></tr></tfoot></table>
+    </body></html>`
+  }
+  const exportName = (title: string) => sanitizeName(`statement-${contact.name}-${title}`)
+  const sendBtn = (stmt: ContactStatement | undefined, title: string) => (
+    <button type="button" className="btn" style={{ height: 34 }} onClick={() => setSendDoc({ html: statementHtml(stmt, title), filename: exportName(title), title })}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 4h16v12H7l-3 3z" /></svg>
+      {t('ct.sendStatement')}
+    </button>
+  )
+
   return (
     <div className="frame">
       <div className="detail-top">
@@ -159,10 +216,23 @@ export function ContactDetail() {
               {t('ct.newPo')}
             </Button>
           ) : null}
-          <Button variant="primary" onClick={() => setPay(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
-            {isSupplier && !isCustomer ? t('ct.paySupplier') : t('ct.recordPayment')}
-          </Button>
+          {isBoth ? (
+            <>
+              <Button variant="soft" onClick={() => setPay(true)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
+                {t('ct.recordPayment')}
+              </Button>
+              <Button variant="primary" disabled={contact.totalReceivable <= 0 || contact.totalPayable <= 0} onClick={() => setOffsetOpen(true)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
+                {t('ct.offsetSettle')}
+              </Button>
+            </>
+          ) : (
+            <Button variant="primary" onClick={() => setPay(true)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
+              {isSupplier ? t('ct.paySupplier') : t('ct.recordPayment')}
+            </Button>
+          )}
           <ActionMenu
             items={[
               { label: t('ct.edit'), onClick: () => navigate(`/contacts/${id}/edit`) },
@@ -174,7 +244,7 @@ export function ContactDetail() {
 
       <div className="dhero">
         <div className="dhero-in">
-          <div className="av round">{contact.name.slice(0, 2).toUpperCase()}</div>
+          <div className="av round">{contact.selfieUrl ? <img src={contact.selfieUrl} alt="" /> : contact.name.slice(0, 2).toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="eyebrow">{t('ct.title')} / {typeLabel}</div>
             <h1>{contact.name}</h1>
@@ -216,15 +286,21 @@ export function ContactDetail() {
 
       {/* both: net-position offset bar */}
       {isBoth && (contact.totalReceivable > 0 || contact.totalPayable > 0) ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
-            <span style={{ color: 'var(--success)' }}>{t('ct.mTheyOwe')} {money.format(contact.totalReceivable)}</span>
-            <span style={{ color: 'var(--danger)' }}>{t('ct.mYouOwe')} {money.format(contact.totalPayable)}</span>
+        <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+              <span style={{ color: 'var(--success)' }}>{t('ct.mTheyOwe')} {money.format(contact.totalReceivable)}</span>
+              <span style={{ color: 'var(--danger)' }}>{t('ct.mYouOwe')} {money.format(contact.totalPayable)}</span>
+            </div>
+            <div style={{ height: 12, borderRadius: 999, background: 'var(--danger-soft)', overflow: 'hidden', display: 'flex' }}>
+              <div style={{ width: `${Math.round((contact.totalReceivable / Math.max(1, contact.totalReceivable + contact.totalPayable)) * 100)}%`, background: 'var(--success)', height: '100%' }} />
+            </div>
+            <div className="hint" style={{ marginTop: 8 }}>{(net >= 0 ? t('ct.offsetFavour') : t('ct.offsetOwe')).replace('{v}', money.format(Math.abs(net)))}</div>
           </div>
-          <div style={{ height: 12, borderRadius: 999, background: 'var(--danger-soft)', overflow: 'hidden', display: 'flex' }}>
-            <div style={{ width: `${Math.round((contact.totalReceivable / Math.max(1, contact.totalReceivable + contact.totalPayable)) * 100)}%`, background: 'var(--success)', height: '100%' }} />
-          </div>
-          <div className="hint" style={{ marginTop: 8 }}>{(net >= 0 ? t('ct.offsetFavour') : t('ct.offsetOwe')).replace('{v}', money.format(Math.abs(net)))}</div>
+          <Button variant="primary" disabled={contact.totalReceivable <= 0 || contact.totalPayable <= 0} onClick={() => setOffsetOpen(true)} style={{ whiteSpace: 'nowrap' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
+            {t('ct.offsetBalances')}
+          </Button>
         </div>
       ) : null}
 
@@ -240,6 +316,10 @@ export function ContactDetail() {
                 {t('ct.ledgerAsSupplier')} <span className="cnt">{money.compact(contact.totalPayable)}</span>
               </button>
             </div>
+            <div className="spacer" style={{ flex: 1 }} />
+            {ledgerTab === DebtDirection.RECEIVABLE
+              ? sendBtn(recvStmt, t('ct.ledgerAsCustomer'))
+              : sendBtn(payStmt, t('ct.ledgerAsSupplier'))}
           </div>
           {ledgerTab === DebtDirection.RECEIVABLE ? ledgerView(recvStmt, t('ct.ledgerCustFoot')) : ledgerView(payStmt, t('ct.ledgerSuppFoot'))}
         </div>
@@ -252,37 +332,54 @@ export function ContactDetail() {
               <span className={`st ${isSupplier ? 'st-out' : 'st-ok'}`} style={{ fontSize: 12 }}>
                 <span className="d" />{money.format(isSupplier ? contact.totalPayable : contact.totalReceivable)}
               </span>
+              {sendBtn(isSupplier ? payStmt : recvStmt, isSupplier ? t('ct.supplierAccount') : t('ct.statement'))}
             </div>
             {ledgerView(isSupplier ? payStmt : recvStmt, t('ct.countEntries'))}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="card">
-              <div className="card-h"><div><h3>{isSupplier ? t('ct.payCardSupplier') : t('ct.payCardCustomer')}</h3><p>{t('ct.payCardSub')}</p></div></div>
-              <Button variant="primary" onClick={() => setPay(true)} style={{ width: '100%', justifyContent: 'center' }}>
-                {isSupplier ? t('ct.paySupplier') : t('ct.recordPayment')}
-              </Button>
-            </div>
             <ProfileCard contact={contact} typeLabel={typeLabel} t={t} />
             {isCustomer ? <IdentificationCard contact={contact} t={t} /> : null}
           </div>
         </div>
       )}
 
-      {/* both: record-transaction + relationship profile */}
+      {/* both: relationship profile + identification (record payment lives in the header) */}
       {isBoth ? (
         <div className="split">
-          <div className="card">
-            <div className="card-h"><div><h3>{t('ct.payCardBoth')}</h3><p>{t('ct.payCardSub')}</p></div></div>
-            <Button variant="primary" onClick={() => setPay(true)} style={{ width: '100%', justifyContent: 'center' }}>{t('ct.recordPayment')}</Button>
-          </div>
           <ProfileCard contact={contact} typeLabel={typeLabel} t={t} relationship />
+          <IdentificationCard contact={contact} t={t} />
         </div>
       ) : null}
-      {isBoth ? <div className="mb20" style={{ marginTop: 14 }}><IdentificationCard contact={contact} t={t} /></div> : null}
 
       {pay ? (
         <ContactPaymentModal contactId={id} contactName={contact.name} onClose={() => setPay(false)} onSaved={() => { refresh(); setPay(false) }} />
+      ) : null}
+
+      {offsetOpen ? (
+        <OffsetModal
+          contactId={id}
+          contactName={contact.name}
+          receivable={contact.totalReceivable}
+          payable={contact.totalPayable}
+          t={t}
+          onClose={() => setOffsetOpen(false)}
+          onDone={() => { refresh(); setOffsetOpen(false) }}
+        />
+      ) : null}
+
+      {sendDoc ? (
+        <DocumentShareDialog
+          title={t('ct.sendStatement')}
+          html={sendDoc.html}
+          filename={sendDoc.filename}
+          message={`${sendDoc.title} · ${contact.name}`}
+          subject={`${contact.name} — ${sendDoc.title}`}
+          recipientName={contact.name}
+          defaultPhone={contact.phone}
+          defaultEmail={contact.email}
+          onClose={() => setSendDoc(null)}
+        />
       ) : null}
 
       <Modal
@@ -300,6 +397,58 @@ export function ContactDetail() {
         {deleteErr ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{deleteErr}</p> : null}
       </Modal>
     </div>
+  )
+}
+
+function OffsetModal({
+  contactId,
+  contactName,
+  receivable,
+  payable,
+  t,
+  onClose,
+  onDone,
+}: {
+  contactId: string
+  contactName: string
+  receivable: number
+  payable: number
+  t: ReturnType<typeof useT>
+  onClose: () => void
+  onDone: () => void
+}) {
+  const money = useCurrency()
+  const [error, setError] = useState<string | null>(null)
+  const offsetAmount = Math.min(receivable, payable)
+  const net = receivable - payable
+  const run = useMutation({
+    mutationFn: () => dataClient.debts.offset(contactId),
+    onSuccess: onDone,
+    onError: (e) => setError(errorMessage(e, t('ct.offsetError'))),
+  })
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      onSubmit={() => run.mutate()}
+      title={t('ct.offsetTitle')}
+      footer={
+        <>
+          <Button variant="soft" onClick={onClose} disabled={run.isPending}>{t('ct.cancel')}</Button>
+          <Button type="submit" variant="primary" loading={run.isPending} disabled={offsetAmount <= 0} onClick={() => run.mutate()}>{t('ct.offsetConfirm')}</Button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+        {t('ct.offsetBody').replace('{amt}', money.format(offsetAmount)).replace('{name}', contactName)}
+      </p>
+      <div style={{ marginTop: 12 }}>
+        <div className="recv-tot"><span style={{ color: 'var(--text-2)' }}>{t('ct.mTheyOwe')}</span><span>{money.format(receivable)}</span></div>
+        <div className="recv-tot"><span style={{ color: 'var(--text-2)' }}>{t('ct.mYouOwe')}</span><span>{money.format(payable)}</span></div>
+        <div className="recv-tot grand"><span>{net >= 0 ? t('ct.offsetAfterFavour') : t('ct.offsetAfterOwe')}</span><span>{money.format(Math.abs(net))}</span></div>
+      </div>
+      {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
+    </Modal>
   )
 }
 
@@ -330,6 +479,9 @@ function ProfileCard({
 }
 
 const fileName = (url: string) => decodeURIComponent(url.split('/').pop() ?? url)
+
+const sanitizeName = (s: string): string => s.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+const esc = (s: string): string => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c)
 
 function IdentificationCard({
   contact,

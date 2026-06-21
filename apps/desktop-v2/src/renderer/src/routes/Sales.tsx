@@ -205,6 +205,12 @@ function ReceiptDetail({ saleId }: { saleId: string }) {
     queryFn: () => dataClient.sales.get(saleId),
     enabled: isElectron,
   })
+  // The sale row doesn't carry the customer's selfie — look it up for the avatar.
+  const { data: customer } = useQuery({
+    queryKey: ['contact-selfie', sale?.customerId],
+    queryFn: () => dataClient.contacts.get(sale!.customerId!),
+    enabled: isElectron && !!sale?.customerId,
+  })
   if (!sale) return <div className="receipt-empty">{t('sales.loading')}</div>
 
   const st = statusInfo(t, sale)
@@ -234,7 +240,7 @@ function ReceiptDetail({ saleId }: { saleId: string }) {
       </div>
       <div className="receipt-b">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          <div className="avatar av-brand" style={{ width: 34, height: 34, fontSize: 12 }}>{initials(sale.customerName ?? t('sales.walkIn'))}</div>
+          <div className="avatar av-brand" style={{ width: 34, height: 34, fontSize: 12 }}>{customer?.selfieUrl ? <img src={customer.selfieUrl} alt="" /> : initials(sale.customerName ?? t('sales.walkIn'))}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>{sale.customerName ?? t('sales.walkIn')}</div>
             <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{sale.customerPhone ?? '—'}</div>

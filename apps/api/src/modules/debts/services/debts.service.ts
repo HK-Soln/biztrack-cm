@@ -18,7 +18,7 @@ import {
   type JwtPayload,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
-import { Brackets, DataSource, EntityManager, Repository } from 'typeorm'
+import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -288,6 +288,83 @@ export class DebtsService {
         direction,
         userId: user.sub,
       })
+    }
+  }
+
+  /**
+   * Net a contact's open receivable vs payable balances with cash-neutral OFFSET contra
+   * payments (oldest debts first). Clears the smaller side, reduces the larger; the net
+   * position is unchanged. Mirrors the desktop debts.offset().
+   */
+  async offsetBalances(
+    businessId: string,
+    contactId: string,
+    user: JwtPayload,
+  ): Promise<{ offsetAmount: number; affected: number }> {
+    try {
+      await this.assertOwnerOrManager(user, 'errors.debt_payment_forbidden', 'DEBT_PAYMENT_FORBIDDEN')
+
+      return await this.dataSource.transaction(async (manager) => {
+        const debtRepo = manager.getRepository(DebtEntity)
+        const paymentRepo = manager.getRepository(DebtPayment)
+
+        const openFor = async (direction: DebtDirection): Promise<{ debt: DebtEntity; outstanding: number }[]> => {
+          const debts = await debtRepo.find({
+            where: { businessId, contactId, direction, status: In([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID]) },
+            order: { createdAt: 'ASC' },
+          })
+          const rows: { debt: DebtEntity; outstanding: number }[] = []
+          for (const debt of debts) {
+            const outstanding = await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount)
+            if (outstanding > 0) rows.push({ debt, outstanding })
+          }
+          return rows
+        }
+
+        const recv = await openFor(DebtDirection.RECEIVABLE)
+        const pay = await openFor(DebtDirection.PAYABLE)
+        const sum = (rows: { outstanding: number }[]) => this.roundMoney(rows.reduce((s, r) => s + r.outstanding, 0))
+        const offsetAmount = this.roundMoney(Math.min(sum(recv), sum(pay)))
+        if (offsetAmount <= 0) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.debt_offset_nothing' as never),
+            'DEBT_OFFSET_NOTHING',
+          )
+        }
+
+        const today = this.toDateOnly(new Date())
+        const ref = `OFFSET-${today.replace(/-/g, '')}`
+        let affected = 0
+        const allocate = async (rows: { debt: DebtEntity; outstanding: number }[]) => {
+          let remaining = offsetAmount
+          for (const { debt, outstanding } of rows) {
+            if (remaining <= 0.0001) break
+            const applied = this.roundMoney(Math.min(remaining, outstanding))
+            if (applied <= 0) continue
+            await paymentRepo.save(
+              paymentRepo.create({
+                businessId,
+                debtId: debt.id,
+                amount: applied,
+                method: 'OFFSET' as PaymentMethod,
+                mobileMoneyReference: null,
+                paymentDate: today,
+                notes: ref,
+                recordedById: user.sub,
+              }),
+            )
+            await this.recalculateStatus(debt.id, manager)
+            remaining = this.roundMoney(remaining - applied)
+            affected++
+          }
+        }
+        await allocate(recv)
+        await allocate(pay)
+
+        return { offsetAmount, affected }
+      })
+    } catch (error) {
+      return this.handleServiceError('offsetBalances', error, { businessId, contactId, userId: user.sub })
     }
   }
 

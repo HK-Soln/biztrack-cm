@@ -94,6 +94,7 @@ export const IPC = {
   debtsListByContact: 'debts:list-by-contact',
   debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
+  debtsOffset: 'debts:offset',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -109,6 +110,8 @@ export const IPC = {
   poCancel: 'po:cancel',
   documentsSend: 'documents:send',
   documentsDownload: 'documents:download',
+  documentsDownloadHtml: 'documents:download-html',
+  documentsShareHtml: 'documents:share-html',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
@@ -411,6 +414,18 @@ export interface DocumentDownloadInput {
   kind: DocumentKind
   id: string
   supplierId?: string | null
+}
+
+/** Share an app-generated (trusted) HTML document via the WhatsApp/email composer. */
+export interface ShareHtmlPdfInput {
+  html: string
+  message: string
+  /** File name (without extension) for the rendered PDF. */
+  filename: string
+  channel: DocumentSendChannel
+  phone?: string | null
+  email?: string | null
+  subject?: string
 }
 
 export interface DocumentDownloadResult {
@@ -1317,6 +1332,8 @@ export interface BridgeApi {
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     /** Record a payment against a debt; returns the updated debt. */
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    /** Net a Both-contact's receivable vs payable with OFFSET contra-payments (oldest first). */
+    offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>
@@ -1345,6 +1362,10 @@ export interface BridgeApi {
     send: (input: DocumentSendInput) => Promise<void>
     /** Render the PDF locally and save it via a native dialog. Works offline. */
     downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
+    /** Render an arbitrary (trusted, app-generated) HTML document to PDF + save dialog. */
+    downloadHtmlPdf: (html: string, filename: string) => Promise<DocumentDownloadResult>
+    /** Share an app-generated HTML doc as a PDF via the WhatsApp/email composer (offline-first). */
+    shareHtmlPdf: (input: ShareHtmlPdfInput) => Promise<void>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */

@@ -2,7 +2,7 @@ import { dialog, ipcMain } from 'electron'
 import { writeFile } from 'fs/promises'
 import type { HttpClient } from '@biztrack/http-client'
 import { renderPurchaseOrderHtml, renderRfqHtml } from '@biztrack/templates'
-import { IPC, type DocumentDownloadInput, type DocumentDownloadResult, type DocumentSendInput } from '../../shared/ipc'
+import { IPC, type DocumentDownloadInput, type DocumentDownloadResult, type DocumentSendInput, type ShareHtmlPdfInput } from '../../shared/ipc'
 import type { RfqService } from '../services/rfq.service'
 import type { PurchaseOrderService } from '../services/purchase-order.service'
 import type { DocumentService } from '../services/document.service'
@@ -57,5 +57,23 @@ export function registerDocumentsIpc(
     if (res.canceled || !res.filePath) return { saved: false }
     await writeFile(res.filePath, pdf)
     return { saved: true, path: res.filePath }
+  })
+
+  // Generic: render app-generated HTML (e.g. a statement) to PDF + save dialog.
+  ipcMain.handle(IPC.documentsDownloadHtml, (_e, html: string, filename: string): Promise<DocumentDownloadResult> => {
+    return documents.downloadPdf(html, filename)
+  })
+
+  // Generic: share an app-generated HTML doc as a PDF via the WhatsApp/email composer.
+  ipcMain.handle(IPC.documentsShareHtml, async (_e, input: ShareHtmlPdfInput) => {
+    await documents.share({
+      html: input.html,
+      message: input.message,
+      filename: input.filename,
+      channel: input.channel,
+      phone: input.phone,
+      email: input.email,
+      subject: input.subject,
+    })
   })
 }

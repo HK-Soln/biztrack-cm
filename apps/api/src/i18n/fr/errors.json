@@ -97,6 +97,7 @@
   "debt_not_found": "Dette introuvable.",
   "debt_payment_not_found": "Paiement de dette introuvable.",
   "debt_payment_locked": "Impossible d'enregistrer un paiement sur une dette soldee ou passee en perte.",
+  "debt_offset_nothing": "Rien a compenser — le contact doit avoir un solde ouvert des deux cotes.",
   "debt_payment_amount_exceeds_outstanding": "Le montant du paiement depasse le solde restant.",
   "debt_payment_date_invalid": "La date du paiement ne peut pas etre anterieure a la creation de la dette.",
   "debt_payment_forbidden": "Seuls les proprietaires et managers peuvent supprimer un paiement de dette.",
