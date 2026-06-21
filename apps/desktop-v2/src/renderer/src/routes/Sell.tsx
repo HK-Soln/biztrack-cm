@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
-import { Button, Input, PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
-import { errorMessage } from '@/lib/error'
 import { useLangStore, useT } from '@/i18n'
+import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
 import type { ChargeType, LocalProduct, LocalSaleDetail, LocalSerialUnit, LocalVariant, SaleInput } from '@shared/ipc'
 
 const PAGE = 20
@@ -761,118 +760,6 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
         </div>
       </div>
       {sendOpen ? <ReceiptSendDialog sale={sale} customerName={customerName} locale={lang} onClose={() => setSendOpen(false)} /> : null}
-    </div>
-  )
-}
-
-// Send the receipt to the customer — same UX as the RFQ/PO ShareDialog: a menu (Email /
-// WhatsApp / Download) then a recipient step. Online → server dispatches; offline → the
-// desktop WhatsApp/email composer opens with the PDF revealed. Download always works.
-function ReceiptSendDialog({ sale, customerName, locale, onClose }: { sale: LocalSaleDetail; customerName: string; locale: string; onClose: () => void }) {
-  const t = useT()
-  const online = typeof navigator === 'undefined' ? true : navigator.onLine
-  const [mode, setMode] = useState<'menu' | 'whatsapp' | 'email'>('menu')
-  const [phone, setPhone] = useState(sale.customerPhone ?? '')
-  const [email, setEmail] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-
-  // Prefill the customer's stored phone/email so the cashier doesn't retype them.
-  const { data: contact } = useQuery({
-    queryKey: [...queryKeys.contacts, sale.customerId, 'receipt-share'],
-    queryFn: () => dataClient.contacts.get(sale.customerId!),
-    enabled: isElectron && !!sale.customerId,
-  })
-  useEffect(() => {
-    if (!contact) return
-    setPhone((p) => p || contact.phone || '')
-    setEmail((e) => e || contact.email || '')
-  }, [contact])
-
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-  const send = useMutation({
-    mutationFn: (channel: 'whatsapp' | 'email') =>
-      dataClient.sales.sendReceipt(sale.id, channel, locale, {
-        recipient: channel === 'whatsapp' ? { phone: phone.trim() } : { email: email.trim() },
-        online,
-      }),
-    onSuccess: () => { setDone(t('sell.receiptSent')); setMode('menu') },
-    onError: (e) => setError(errorMessage(e, t('share.error'))),
-  })
-  const submitSend = () => {
-    if (mode === 'menu') return
-    if (mode === 'whatsapp' && !isValidPhone(phone.trim())) return setError(t('share.invalidPhone'))
-    if (mode === 'email' && !EMAIL_RE.test(email.trim())) return setError(t('share.invalidEmail'))
-    setError(null)
-    send.mutate(mode)
-  }
-
-  const download = useMutation({
-    mutationFn: () => dataClient.sales.downloadReceipt(sale.id, locale),
-    onSuccess: (r) => { if (r.saved) setDone(t('share.downloaded')) },
-    onError: (e) => setError(errorMessage(e, t('share.downloadError'))),
-  })
-
-  const optionRow = (icon: ReactNode, label: string, sub: string, onClick: () => void, disabled?: boolean) => (
-    <button type="button" className="share-opt" disabled={disabled} onClick={onClick}>
-      <span className="share-opt-ic">{icon}</span>
-      <span className="share-opt-main"><span className="share-opt-lab">{label}</span><span className="share-opt-sub">{sub}</span></span>
-    </button>
-  )
-
-  // Rendered on the .pay-overlay chrome (z-index 300) so it stacks above the success modal.
-  return (
-    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="pay-modal" style={{ width: 440 }}>
-        <div className="pm-head">
-          <h3>{mode === 'menu' ? t('sell.sendReceipt') : mode === 'whatsapp' ? t('share.whatsapp') : t('share.email')}</h3>
-          <button type="button" className="x" onClick={mode === 'menu' ? onClose : () => { setMode('menu'); setError(null) }}>{I.x}</button>
-        </div>
-        <div className="pm-body">
-          {mode === 'menu' ? (
-            <>
-              {done ? <p style={{ color: 'var(--success)', fontSize: 13, marginBottom: 10 }}>{done}</p> : null}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {optionRow(
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M3 5h18v14H3z" /><path d="m3 6 9 7 9-7" /></svg>,
-                  t('share.email'), online ? t('sell.composerOrServer') : t('sell.composerNote'), () => { setError(null); setDone(null); setMode('email') },
-                )}
-                {optionRow(
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M12 3a9 9 0 0 0-7.7 13.6L3 21l4.5-1.3A9 9 0 1 0 12 3Z" /></svg>,
-                  t('share.whatsapp'), online ? t('sell.composerOrServer') : t('sell.composerNote'), () => { setError(null); setDone(null); setMode('whatsapp') },
-                )}
-                {optionRow(
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" /></svg>,
-                  t('share.download'), t('share.downloadSub'), () => { setError(null); setDone(null); download.mutate() },
-                )}
-              </div>
-              {download.isPending ? <p className="hint" style={{ marginTop: 10 }}>{t('share.rendering')}</p> : null}
-              {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
-            </>
-          ) : (
-            <>
-              <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>{t('share.toSupplier').replace('{name}', customerName)}</p>
-              {mode === 'whatsapp' ? (
-                <div className="ff">
-                  <label className="lbl2">{t('share.recipientPhone')}</label>
-                  <PhoneInput value={phone} onChange={(v) => { setPhone(v ?? ''); setError(null) }} />
-                </div>
-              ) : (
-                <div className="ff">
-                  <label className="lbl2">{t('share.recipientEmail')}</label>
-                  <Input value={email} type="email" placeholder="client@email.com" onChange={(e) => { setEmail(e.target.value); setError(null) }} />
-                </div>
-              )}
-              {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-                <Button variant="soft" onClick={() => { setMode('menu'); setError(null) }} disabled={send.isPending}>{t('share.back')}</Button>
-                <Button variant="primary" loading={send.isPending} disabled={mode === 'whatsapp' ? !phone.trim() : !email.trim()} onClick={submitSend}>{t('share.send')}</Button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
     </div>
   )
 }

@@ -114,6 +114,8 @@ export const IPC = {
   chargesListActive: 'charges:list-active',
   salesCreate: 'sales:create',
   salesList: 'sales:list',
+  salesListAll: 'sales:list-all',
+  salesSummary: 'sales:summary',
   salesGet: 'sales:get',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
@@ -930,8 +932,19 @@ export interface SaleInput {
 export interface SalesListQuery extends ListQueryT {
   customerId?: string
   status?: string
+  paymentMethod?: string
   dateFrom?: string
   dateTo?: string
+}
+/** KPI strip for the Sales dashboard over a date range (revenue, basket, units, refunds). */
+export interface LocalSalesSummary {
+  revenue: number
+  transactions: number
+  averageBasket: number
+  itemsSold: number
+  refundCount: number
+  refundAmount: number
+  currency: string
 }
 export interface LocalSaleItem {
   id: string
@@ -973,6 +986,8 @@ export interface LocalSale {
   soldAt: string
   createdAt: string
   itemCount: number
+  /** Local sync state: 'pending' while a sale still has an unsent/failed outbox row. */
+  syncStatus: 'synced' | 'pending'
 }
 /** A full sale with its lines + payments (for get()/receipt/success screen). */
 export interface LocalSaleDetail extends LocalSale {
@@ -1347,6 +1362,10 @@ export interface BridgeApi {
     /** Ring up a checkout (idempotent on clientId). Returns the saved sale + lines. */
     create: (input: SaleInput) => Promise<LocalSaleDetail>
     list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
+    /** All sales matching the filters (no pagination) — for CSV export. */
+    listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
+    /** KPI strip totals over the filtered date range. */
+    summary: (query?: SalesListQuery) => Promise<LocalSalesSummary>
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (

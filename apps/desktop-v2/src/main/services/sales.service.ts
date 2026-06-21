@@ -7,6 +7,7 @@ import type {
   LocalSaleDetail,
   LocalSaleItem,
   LocalSalePayment,
+  LocalSalesSummary,
   PaginatedResult,
   SaleInput,
   SalesListQuery,
@@ -38,6 +39,7 @@ interface SaleRow {
   sold_at: string
   created_at: string
   item_count: number
+  sync_status: string
 }
 
 interface ProductMeta {
@@ -54,7 +56,8 @@ interface ProductMeta {
 const SALE_COLS = `s.id, s.sale_number, s.receipt_number, s.status, s.customer_id, s.customer_name, s.customer_phone,
   s.subtotal, s.discount_amount, s.charges_amount, s.total_amount, s.amount_paid, s.credit_amount, s.change_given,
   s.currency, s.payment_method, s.notes, s.sold_at, s.created_at,
-  (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id AND si.is_deleted = 0) AS item_count`
+  (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id AND si.is_deleted = 0) AS item_count,
+  CASE WHEN EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'sales' AND o.record_id = s.id) THEN 'pending' ELSE 'synced' END AS sync_status`
 
 /**
  * Offline-first sales (POS checkout). Mirrors inventory.service.restock()'s settlement
@@ -348,12 +351,7 @@ export class SalesService {
   list(query: SalesListQuery = {}): PaginatedResult<LocalSale> {
     const businessId = this.getBusinessId()
     if (!businessId) return toPaginated<LocalSale>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
-    let where = 's.business_id = ? AND s.is_deleted = 0'
-    const params: unknown[] = [businessId]
-    if (query.customerId) { where += ' AND s.customer_id = ?'; params.push(query.customerId) }
-    if (query.status) { where += ' AND s.status = ?'; params.push(query.status) }
-    if (query.dateFrom) { where += ' AND s.sale_date >= ?'; params.push(query.dateFrom) }
-    if (query.dateTo) { where += ' AND s.sale_date <= ?'; params.push(query.dateTo) }
+    const { where, params } = this.buildWhere(businessId, query)
     const { rows, ...meta } = paginateRows<SaleRow>(
       this.db,
       {
@@ -368,6 +366,77 @@ export class SalesService {
       query,
     )
     return toPaginated(rows.map(toLocalSale), meta)
+  }
+
+  /** Every sale matching the filters (newest first, no pagination) — for CSV export. */
+  listAll(query: SalesListQuery = {}): LocalSale[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.buildWhere(businessId, query)
+    const search = query.search?.trim()
+    let sql = `SELECT ${SALE_COLS} FROM sales s WHERE ${where}`
+    const args = [...params]
+    if (search) {
+      sql += ' AND (s.sale_number LIKE ? OR s.customer_name LIKE ?)'
+      args.push(`%${search}%`, `%${search}%`)
+    }
+    sql += ' ORDER BY s.sold_at DESC'
+    return this.db.query<SaleRow>(sql, args).map(toLocalSale)
+  }
+
+  /** KPI strip totals over the filtered date range (revenue, basket, units, refunds). */
+  summary(query: SalesListQuery = {}): LocalSalesSummary {
+    const currency = (() => {
+      const bid = this.getBusinessId()
+      return bid ? this.businessCurrency(bid) : 'XAF'
+    })()
+    const empty: LocalSalesSummary = { revenue: 0, transactions: 0, averageBasket: 0, itemsSold: 0, refundCount: 0, refundAmount: 0, currency }
+    const businessId = this.getBusinessId()
+    if (!businessId) return empty
+    // Completed sales drive revenue/basket/units; voided sales are the "refunds".
+    const { where, params } = this.buildWhere(businessId, { ...query, status: undefined })
+    const agg = this.db.get<{ revenue: number; txns: number; units: number }>(
+      `SELECT COALESCE(SUM(s.total_amount), 0) AS revenue, COUNT(*) AS txns,
+              COALESCE((SELECT SUM(si.quantity) FROM sale_items si
+                        JOIN sales s2 ON s2.id = si.sale_id
+                        WHERE ${where.replace(/\bs\./g, 's2.')} AND s2.status = 'COMPLETED' AND si.is_deleted = 0), 0) AS units
+       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+      [...params, ...params],
+    )
+    const refunds = this.db.get<{ n: number; amt: number }>(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(s.total_amount), 0) AS amt FROM sales s WHERE ${where} AND s.status = 'VOIDED'`,
+      params,
+    )
+    const transactions = agg?.txns ?? 0
+    const revenue = round2(agg?.revenue ?? 0)
+    return {
+      revenue,
+      transactions,
+      averageBasket: transactions > 0 ? round2(revenue / transactions) : 0,
+      itemsSold: agg?.units ?? 0,
+      refundCount: refunds?.n ?? 0,
+      refundAmount: round2(refunds?.amt ?? 0),
+      currency,
+    }
+  }
+
+  /** Shared WHERE for list/listAll/summary (excludes free-text search, which list() adds). */
+  private buildWhere(businessId: string, query: SalesListQuery): { where: string; params: unknown[] } {
+    let where = 's.business_id = ? AND s.is_deleted = 0'
+    const params: unknown[] = [businessId]
+    if (query.customerId) { where += ' AND s.customer_id = ?'; params.push(query.customerId) }
+    if (query.status) { where += ' AND s.status = ?'; params.push(query.status) }
+    if (query.paymentMethod) {
+      // "Credit" isn't a payment method (those rows have a null/charged method) — filter by
+      // an outstanding balance instead; everything else is a straight method match.
+      if (query.paymentMethod === 'CREDIT') where += ' AND s.credit_amount > 0'
+      else { where += ' AND s.payment_method = ?'; params.push(query.paymentMethod) }
+    }
+    // Compare on the LOCAL calendar day of sold_at (sale_date is stored as the UTC date, so
+    // a straight string compare drops sales near the day boundary / in non-UTC zones).
+    if (query.dateFrom) { where += " AND date(s.sold_at, 'localtime') >= ?"; params.push(query.dateFrom) }
+    if (query.dateTo) { where += " AND date(s.sold_at, 'localtime') <= ?"; params.push(query.dateTo) }
+    return { where, params }
   }
 
   get(id: string): LocalSaleDetail | null {
@@ -523,6 +592,7 @@ function toLocalSale(r: SaleRow): LocalSale {
     soldAt: r.sold_at,
     createdAt: r.created_at,
     itemCount: r.item_count,
+    syncStatus: r.sync_status === 'pending' ? 'pending' : 'synced',
   }
 }
 
