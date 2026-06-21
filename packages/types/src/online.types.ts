@@ -1,6 +1,10 @@
 import type { IsoDateString, PaginatedResult } from './http.types'
 
 export type OnlineStoreDomainType = 'PATH' | 'SUBDOMAIN' | 'CUSTOM' | 'PURCHASED'
+export type OnlineStoreStatus = 'draft' | 'published' | 'suspended'
+export type OnlineStoreLayout = 'classic' | 'boutique' | 'catalog' | 'landing'
+export type OnlineStoreAppearance = 'light' | 'dark'
+export type OnlineCatalogBinding = 'snapshot' | 'live'
 
 export interface OnlineStore {
   id: string
@@ -29,6 +33,22 @@ export interface OnlineStore {
   paymentMtnMomo: boolean
   paymentOrangeMoney: boolean
   paymentCard: boolean
+  // Storefront appearance + catalog + SEO + lifecycle (design-store-config / issue #91)
+  layoutTemplate: OnlineStoreLayout
+  themeId: string
+  appearance: OnlineStoreAppearance
+  catalogBinding: OnlineCatalogBinding
+  showLowStockBadges: boolean
+  seoTitle?: string | null
+  seoDescription?: string | null
+  ogImageUrl?: string | null
+  robotsIndex: boolean
+  socialInstagram?: string | null
+  socialFacebook?: string | null
+  socialTiktok?: string | null
+  status: OnlineStoreStatus
+  publishedAt?: IsoDateString | null
+  hasUnpublishedChanges: boolean
   createdAt?: IsoDateString
   updatedAt?: IsoDateString
 }
@@ -66,6 +86,19 @@ export interface UpdateOnlineStoreRequest {
   paymentMtnMomo?: boolean
   paymentOrangeMoney?: boolean
   paymentCard?: boolean
+  storeSlug?: string
+  layoutTemplate?: OnlineStoreLayout
+  themeId?: string
+  appearance?: OnlineStoreAppearance
+  catalogBinding?: OnlineCatalogBinding
+  showLowStockBadges?: boolean
+  seoTitle?: string | null
+  seoDescription?: string | null
+  ogImageUrl?: string | null
+  robotsIndex?: boolean
+  socialInstagram?: string | null
+  socialFacebook?: string | null
+  socialTiktok?: string | null
 }
 
 /** Product online-store fields (Phase 3I), set on create/update. */

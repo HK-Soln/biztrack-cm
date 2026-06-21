@@ -66,8 +66,14 @@ export class OnlineStoreService {
   async updateStore(businessId: string, dto: UpdateOnlineStoreRequest): Promise<OnlineStore> {
     try {
       const store = await this.requireStore(businessId)
+      // Slug change: normalise, reject reserved + taken (by another store).
+      let storeSlug = store.storeSlug
+      if (dto.storeSlug !== undefined && dto.storeSlug.trim() && dto.storeSlug.trim() !== store.storeSlug) {
+        storeSlug = await this.resolveSlugChange(dto.storeSlug.trim(), store.id)
+      }
       const merged = this.storesRepo.merge(store, {
         storeName: dto.storeName?.trim() ?? store.storeName,
+        storeSlug,
         tagline: dto.tagline === undefined ? store.tagline : (dto.tagline?.trim() ?? null),
         logoUrl: dto.logoUrl === undefined ? store.logoUrl : (dto.logoUrl?.trim() ?? null),
         bannerUrl: dto.bannerUrl === undefined ? store.bannerUrl : (dto.bannerUrl?.trim() ?? null),
@@ -86,10 +92,42 @@ export class OnlineStoreService {
         paymentMtnMomo: dto.paymentMtnMomo ?? store.paymentMtnMomo,
         paymentOrangeMoney: dto.paymentOrangeMoney ?? store.paymentOrangeMoney,
         paymentCard: dto.paymentCard ?? store.paymentCard,
+        // Appearance + catalog + SEO/social (design-store-config)
+        layoutTemplate: dto.layoutTemplate ?? store.layoutTemplate,
+        themeId: dto.themeId ?? store.themeId,
+        appearance: dto.appearance ?? store.appearance,
+        catalogBinding: dto.catalogBinding ?? store.catalogBinding,
+        showLowStockBadges: dto.showLowStockBadges ?? store.showLowStockBadges,
+        seoTitle: dto.seoTitle === undefined ? store.seoTitle : (dto.seoTitle?.trim() ?? null),
+        seoDescription: dto.seoDescription === undefined ? store.seoDescription : (dto.seoDescription?.trim() ?? null),
+        ogImageUrl: dto.ogImageUrl === undefined ? store.ogImageUrl : (dto.ogImageUrl?.trim() ?? null),
+        robotsIndex: dto.robotsIndex ?? store.robotsIndex,
+        socialInstagram: dto.socialInstagram === undefined ? store.socialInstagram : (dto.socialInstagram?.trim() ?? null),
+        socialFacebook: dto.socialFacebook === undefined ? store.socialFacebook : (dto.socialFacebook?.trim() ?? null),
+        socialTiktok: dto.socialTiktok === undefined ? store.socialTiktok : (dto.socialTiktok?.trim() ?? null),
+        // Any edit makes the live site stale until the next publish.
+        hasUnpublishedChanges: true,
       })
       return await this.storesRepo.save(merged)
     } catch (error) {
       return this.handleServiceError('updateStore', error, { businessId })
+    }
+  }
+
+  /** Publish the current draft: go live + clear the unpublished-changes flag. */
+  async publishStore(businessId: string): Promise<OnlineStore> {
+    try {
+      const store = await this.requireStore(businessId)
+      const merged = this.storesRepo.merge(store, {
+        status: 'published',
+        isActive: true,
+        publishedAt: new Date(),
+        hasUnpublishedChanges: false,
+      })
+      // NOTE: snapshot-on-publish capture + CDN revalidate land with the storefront SSR phase (#91).
+      return await this.storesRepo.save(merged)
+    } catch (error) {
+      return this.handleServiceError('publishStore', error, { businessId })
     }
   }
 
@@ -137,6 +175,27 @@ export class OnlineStoreService {
       )
     }
     return store
+  }
+
+  /** Reserved subdomains that can't be used as a store slug (issue #91). */
+  private static readonly RESERVED_SLUGS = new Set([
+    'www', 'app', 'api', 'admin', 'mail', 'cdn', 'store', 'shop', 'help', 'status', 'static', 'assets', 'blog',
+  ])
+
+  /** Normalise + validate a requested slug change: reserved/format/uniqueness. */
+  private async resolveSlugChange(requested: string, storeId: string): Promise<string> {
+    const slug = generateSlug(requested)
+    if (!slug) {
+      throw new AppConflictException('That web address is not valid.', 'ONLINE_STORE_SLUG_INVALID')
+    }
+    if (OnlineStoreService.RESERVED_SLUGS.has(slug)) {
+      throw new AppConflictException('That web address is reserved — please pick another.', 'ONLINE_STORE_SLUG_RESERVED')
+    }
+    const taken = await this.storesRepo.findOne({ where: { storeSlug: slug } })
+    if (taken && taken.id !== storeId) {
+      throw new AppConflictException('That web address is already taken.', 'ONLINE_STORE_SLUG_TAKEN')
+    }
+    return slug
   }
 
   private async generateUniqueSlug(source: string): Promise<string> {
