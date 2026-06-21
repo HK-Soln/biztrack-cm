@@ -95,6 +95,8 @@ export const IPC = {
   debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
   debtsOffset: 'debts:offset',
+  openingBalancesUpsert: 'opening-balances:upsert',
+  openingBalancesListForContact: 'opening-balances:list-for-contact',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -944,6 +946,25 @@ export interface SaleInput {
   charges?: SaleChargeLineInput[]
   discounts?: SaleDiscountLineInput[]
 }
+/** An opening balance brought forward for a contact (one per direction). */
+export interface OpeningBalanceInput {
+  contactId: string
+  direction: DebtDirection
+  amount: number
+  asOfDate?: string | null
+  notes?: string | null
+}
+export interface LocalOpeningBalance {
+  id: string
+  contactId: string
+  direction: DebtDirection
+  amount: number
+  asOfDate: string
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SalesListQuery extends ListQueryT {
   customerId?: string
   status?: string
@@ -1334,6 +1355,12 @@ export interface BridgeApi {
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
     /** Net a Both-contact's receivable vs payable with OFFSET contra-payments (oldest first). */
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
+  }
+  openingBalances: {
+    /** Create/update a contact's opening balance for a direction. */
+    upsert: (input: OpeningBalanceInput) => Promise<LocalOpeningBalance>
+    /** A contact's opening balances (one per direction). */
+    listForContact: (contactId: string) => Promise<LocalOpeningBalance[]>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>

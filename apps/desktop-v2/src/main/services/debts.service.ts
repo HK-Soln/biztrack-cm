@@ -253,12 +253,18 @@ export class DebtsService {
     const contactRow = businessId
       ? this.db.get<{ name: string; phone: string | null }>(`SELECT name, phone FROM contacts WHERE id = ? AND business_id = ?`, [contactId, businessId])
       : null
+    const openingBalance = businessId
+      ? this.db.get<{ amount: number }>(
+          `SELECT amount FROM contact_opening_balances WHERE business_id = ? AND contact_id = ? AND direction = ?`,
+          [businessId, contactId, direction],
+        )?.amount ?? 0
+      : 0
     const base: ContactStatement = {
       contact: { id: contactId, name: contactRow?.name ?? '', phone: contactRow?.phone ?? null },
       direction,
-      openingBalance: 0,
+      openingBalance,
       entries: [],
-      closingBalance: 0,
+      closingBalance: openingBalance,
     }
     if (!businessId) return base
 

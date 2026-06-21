@@ -32,6 +32,8 @@ import { ContactsService } from './services/contacts.service'
 import { registerContactsIpc } from './ipc/contacts.ipc'
 import { DebtsService } from './services/debts.service'
 import { registerDebtsIpc } from './ipc/debts.ipc'
+import { OpeningBalancesService } from './services/opening-balances.service'
+import { registerOpeningBalancesIpc } from './ipc/opening-balances.ipc'
 import { DocumentService } from './services/document.service'
 import { RfqService } from './services/rfq.service'
 import { registerRfqIpc } from './ipc/rfq.ipc'
@@ -244,6 +246,17 @@ app.whenReady().then(() => {
     audit,
   )
   registerDebtsIpc(debts)
+
+  // Opening balances (balance brought forward) — offline-first; local write + outbox
+  // (entity `openingBalances` → server `opening_balance`), mirrors the API entity.
+  const openingBalances = new OpeningBalancesService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    audit,
+  )
+  registerOpeningBalancesIpc(openingBalances)
 
   // Procurement documents: renders RFQ/PO PDFs (offscreen Chromium) + opens the
   // WhatsApp/email composer. Shared by RFQ + PO.
