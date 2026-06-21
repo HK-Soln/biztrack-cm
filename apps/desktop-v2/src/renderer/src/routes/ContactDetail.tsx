@@ -244,7 +244,7 @@ export function ContactDetail() {
 
       <div className="dhero">
         <div className="dhero-in">
-          <div className="av round">{contact.name.slice(0, 2).toUpperCase()}</div>
+          <div className="av round">{contact.selfieUrl ? <img src={contact.selfieUrl} alt="" /> : contact.name.slice(0, 2).toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="eyebrow">{t('ct.title')} / {typeLabel}</div>
             <h1>{contact.name}</h1>

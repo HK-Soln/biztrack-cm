@@ -48,7 +48,7 @@ interface CartLine {
   serialUnitId?: string | null
 }
 interface ChargeLine { id: string; kind: 'charge' | 'discount'; name: string; mode: 'PERCENT' | 'FIXED'; value: number; chargeTypeId: string | null }
-interface Cust { id: string; name: string; phone: string | null }
+interface Cust { id: string; name: string; phone: string | null; selfieUrl?: string | null }
 
 function round2(n: number): number { return Math.round((n + Number.EPSILON) * 100) / 100 }
 
@@ -448,8 +448,8 @@ function CustomerPicker({ currentId, onClose, onPick, onWalkIn }: { currentId: s
             <div className="a">{I.user}</div><div className="t"><div className="nm">{t('sell.walkIn')}</div><div className="s">{t('sell.walkInHint')}</div></div>
           </button>
           {list.map((c) => (
-            <button key={c.id} type="button" className={currentId === c.id ? 'sel' : ''} onClick={() => onPick({ id: c.id, name: c.name, phone: c.phone })}>
-              <div className="a">{initials(c.name)}</div>
+            <button key={c.id} type="button" className={currentId === c.id ? 'sel' : ''} onClick={() => onPick({ id: c.id, name: c.name, phone: c.phone, selfieUrl: c.selfieUrl })}>
+              <div className="a">{c.selfieUrl ? <img src={c.selfieUrl} alt="" /> : initials(c.name)}</div>
               <div className="t"><div className="nm">{c.name}</div><div className="s">{c.phone || '—'}</div></div>
             </button>
           ))}
@@ -606,7 +606,7 @@ function PaymentModal({ total, subtotal, disc, chg, customer, onClose, onPickCus
         <div className="pm-due"><div className="l">{t('sell.amountDue')}</div><div className="v">{money.format(total)}</div></div>
         <div className="pm-body" style={{ paddingBottom: 0 }}>
           <button type="button" className="pm-cust" onClick={onPickCustomer}>
-            <div className="a">{customer ? initials(customer.name) : I.user}</div>
+            <div className="a">{customer ? (customer.selfieUrl ? <img src={customer.selfieUrl} alt="" /> : initials(customer.name)) : I.user}</div>
             <div className="t"><div className="nm">{customer?.name ?? t('sell.walkIn')}</div><div className="s">{customer?.phone ?? t('sell.walkInHint')}</div></div>
             <div className="ch">{t('sell.change2')}</div>
           </button>

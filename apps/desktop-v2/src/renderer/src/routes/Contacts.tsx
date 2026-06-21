@@ -156,7 +156,7 @@ export function Contacts() {
           <div className="u-cards">
             {items.map((c) => (
               <div key={c.id} className="u-card clickable" onClick={() => navigate(`/contacts/${c.id}`)}>
-                <span className="th brand">{c.name.slice(0, 2).toUpperCase()}</span>
+                <span className="th brand">{c.selfieUrl ? <img src={c.selfieUrl} alt="" /> : c.name.slice(0, 2).toUpperCase()}</span>
                 <div className="u-main">
                   <div className="u-nm">{c.name}</div>
                   <div className="u-sub" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -184,7 +184,7 @@ export function Contacts() {
                 <tr key={c.id} className="clickable" onClick={() => navigate(`/contacts/${c.id}`)}>
                   <td>
                     <div className="cell">
-                      <div className="th brand">{c.name.slice(0, 2).toUpperCase()}</div>
+                      <div className="th brand">{c.selfieUrl ? <img src={c.selfieUrl} alt="" /> : c.name.slice(0, 2).toUpperCase()}</div>
                       <div><div className="nm">{c.name}</div><div className="sub">{c.phone || '—'}</div></div>
                     </div>
                   </td>

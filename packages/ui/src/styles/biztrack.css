@@ -1341,6 +1341,14 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .field>svg{position:absolute;left:12px;width:16px;height:16px;color:var(--text-muted);pointer-events:none;}
 .field .input.ic{padding-left:38px;}
 
+/* Customer/contact selfie photos inside avatars (fallback: initials/icon). */
+.th img{width:100%;height:100%;object-fit:cover;}
+.cust-list .a,.pm-cust .a{overflow:hidden;}
+.cust-list .a img,.pm-cust .a img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;}
+.avatar{display:grid;place-items:center;border-radius:10px;overflow:hidden;flex-shrink:0;font-weight:700;}
+.avatar.av-brand{background:var(--brand-soft);color:var(--brand);}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+
 /* ============================ Sales (history) ============================ */
 .salelayout{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start;}
 .salelayout .detail{position:sticky;top:16px;}
