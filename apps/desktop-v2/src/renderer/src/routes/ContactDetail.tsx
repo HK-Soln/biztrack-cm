@@ -216,23 +216,10 @@ export function ContactDetail() {
               {t('ct.newPo')}
             </Button>
           ) : null}
-          {isBoth ? (
-            <>
-              <Button variant="soft" onClick={() => setPay(true)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
-                {t('ct.recordPayment')}
-              </Button>
-              <Button variant="primary" disabled={contact.totalReceivable <= 0 || contact.totalPayable <= 0} onClick={() => setOffsetOpen(true)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
-                {t('ct.offsetSettle')}
-              </Button>
-            </>
-          ) : (
-            <Button variant="primary" onClick={() => setPay(true)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
-              {isSupplier ? t('ct.paySupplier') : t('ct.recordPayment')}
-            </Button>
-          )}
+          <Button variant="primary" onClick={() => setPay(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>
+            {isSupplier && !isCustomer ? t('ct.paySupplier') : t('ct.recordPayment')}
+          </Button>
           <ActionMenu
             items={[
               { label: t('ct.edit'), onClick: () => navigate(`/contacts/${id}/edit`) },
@@ -297,10 +284,12 @@ export function ContactDetail() {
             </div>
             <div className="hint" style={{ marginTop: 8 }}>{(net >= 0 ? t('ct.offsetFavour') : t('ct.offsetOwe')).replace('{v}', money.format(Math.abs(net)))}</div>
           </div>
-          <Button variant="primary" disabled={contact.totalReceivable <= 0 || contact.totalPayable <= 0} onClick={() => setOffsetOpen(true)} style={{ whiteSpace: 'nowrap' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
-            {t('ct.offsetBalances')}
-          </Button>
+          {contact.totalReceivable > 0 && contact.totalPayable > 0 ? (
+            <Button variant="primary" onClick={() => setOffsetOpen(true)} style={{ whiteSpace: 'nowrap' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M7 10 4 7l3-3M4 7h13M17 14l3 3-3 3M20 17H7" /></svg>
+              {t('ct.offsetBalances')}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
