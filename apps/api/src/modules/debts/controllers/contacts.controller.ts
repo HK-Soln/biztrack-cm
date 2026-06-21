@@ -34,6 +34,7 @@ import { ListDebtsQueryDto } from '../dto/list-debts-query.dto'
 import { UpdateContactDto } from '../dto/update-contact.dto'
 import { UpsertOpeningBalanceDto } from '../dto/upsert-opening-balance.dto'
 import { ContactsService } from '../services/contacts.service'
+import { DebtsService } from '../services/debts.service'
 import { OpeningBalancesService } from '../services/opening-balances.service'
 
 @ApiTags('Contacts')
@@ -44,6 +45,7 @@ export class ContactsController {
   constructor(
     private readonly contactsService: ContactsService,
     private readonly openingBalancesService: OpeningBalancesService,
+    private readonly debtsService: DebtsService,
   ) {}
 
   @Get()
@@ -160,5 +162,15 @@ export class ContactsController {
     @Param('id') id: string,
   ): Promise<ContactNetPosition> {
     return this.openingBalancesService.getNetPosition(id, user.businessId as string)
+  }
+
+  @Post(':id/offset')
+  @RequireResource(Resource.DEBTS_RECORD_PAYMENT)
+  @ApiOperation({ summary: 'Offset a contact’s receivable vs payable balances' })
+  offsetBalances(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<{ offsetAmount: number; affected: number }> {
+    return this.debtsService.offsetBalances(user.businessId as string, id, user)
   }
 }

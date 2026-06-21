@@ -97,6 +97,7 @@
   "debt_not_found": "Debt not found.",
   "debt_payment_not_found": "Debt payment not found.",
   "debt_payment_locked": "Payments cannot be recorded against a settled or written-off debt.",
+  "debt_offset_nothing": "Nothing to offset — the contact needs an open balance on both sides.",
   "debt_payment_amount_exceeds_outstanding": "Payment amount exceeds the outstanding balance.",
   "debt_payment_date_invalid": "Payment date cannot be before the debt creation date.",
   "debt_payment_forbidden": "Only owners and managers can delete debt payments.",
