@@ -58,6 +58,13 @@ import type {
   LocalProductImage,
   LocalOpeningBalance,
   OpeningBalanceInput,
+  LocalExpense,
+  LocalExpenseCategory,
+  LocalExpenseSummary,
+  ExpenseInput,
+  ExpenseCategoryInput,
+  ExpensesListQuery,
+  ExpenseTrendItem,
   LocalSale,
   LocalSaleDetail,
   LocalSalesSummary,
@@ -185,6 +192,20 @@ export interface DataClient {
   openingBalances: {
     upsert: (input: OpeningBalanceInput) => Promise<LocalOpeningBalance>
     listForContact: (contactId: string) => Promise<LocalOpeningBalance[]>
+  }
+  expenses: {
+    list: (query?: ExpensesListQuery) => Promise<PaginatedResult<LocalExpense> & { totalAmount: number }>
+    get: (id: string) => Promise<LocalExpense | null>
+    summary: (query?: ExpensesListQuery) => Promise<LocalExpenseSummary>
+    trend: () => Promise<ExpenseTrendItem[]>
+    create: (input: ExpenseInput) => Promise<LocalExpense>
+    update: (id: string, input: ExpenseInput) => Promise<LocalExpense>
+    setStatus: (id: string, status: string, paymentMethod?: string | null) => Promise<LocalExpense>
+    remove: (id: string) => Promise<void>
+  }
+  expenseCategories: {
+    listAll: () => Promise<LocalExpenseCategory[]>
+    create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
@@ -338,6 +359,20 @@ function electronAdapter(): DataClient {
       upsert: (input) => window.api.openingBalances.upsert(input),
       listForContact: (contactId) => window.api.openingBalances.listForContact(contactId),
     },
+    expenses: {
+      list: (query) => window.api.expenses.list(query),
+      get: (id) => window.api.expenses.get(id),
+      summary: (query) => window.api.expenses.summary(query),
+      trend: () => window.api.expenses.trend(),
+      create: (input) => window.api.expenses.create(input),
+      update: (id, input) => window.api.expenses.update(id, input),
+      setStatus: (id, status, paymentMethod) => window.api.expenses.setStatus(id, status, paymentMethod),
+      remove: (id) => window.api.expenses.remove(id),
+    },
+    expenseCategories: {
+      listAll: () => window.api.expenseCategories.listAll(),
+      create: (input) => window.api.expenseCategories.create(input),
+    },
     rfqs: {
       list: (query) => window.api.rfqs.list(query),
       get: (id) => window.api.rfqs.get(id),
@@ -450,6 +485,8 @@ function cloudAdapter(): DataClient {
     contacts: { list: notWired, summary: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
     debts: { listByContact: notWired, statement: notWired, recordPayment: notWired, offset: notWired },
     openingBalances: { upsert: notWired, listForContact: notWired },
+    expenses: { list: notWired, get: notWired, summary: notWired, trend: notWired, create: notWired, update: notWired, setStatus: notWired, remove: notWired },
+    expenseCategories: { listAll: notWired, create: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
     documents: { send: notWired, downloadPdf: notWired, downloadHtmlPdf: notWired, shareHtmlPdf: notWired },

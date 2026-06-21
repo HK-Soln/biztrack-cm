@@ -360,6 +360,13 @@ export class SyncService {
     for (const record of changes.productSerialUnits ?? []) {
       ops.push(this.productSerialUnitUpsert(record))
     }
+    // Expense categories (tier 0) before expenses (tier 2) that reference them.
+    for (const record of changes.expenseCategories ?? []) {
+      ops.push(this.expenseCategoryUpsert(record))
+    }
+    for (const record of changes.expenses ?? []) {
+      ops.push(this.expenseUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
@@ -413,6 +420,70 @@ export class SyncService {
         asStr(o.notes),
         asStr(o.recordedById),
         asStr(o.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private expenseCategoryUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const e = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO expense_categories
+        (id, business_id, name, slug, color, icon, sort_order, is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, slug = excluded.slug, color = excluded.color, icon = excluded.icon,
+          sort_order = excluded.sort_order, is_active = excluded.is_active, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(e.businessId),
+        asStr(e.name),
+        asStr(e.slug),
+        asStr(e.color),
+        asStr(e.icon),
+        asNum(e.sortOrder) ?? 0,
+        r.isDeleted ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private expenseUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const e = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    const categoryId = asStr(e.categoryId)
+    return {
+      sql: `INSERT INTO expenses
+        (id, business_id, recorded_by_id, category, category_id, description, amount, currency, payment_method,
+         receipt_url, vendor, notes, is_recurring, status, date, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          category_id = excluded.category_id, description = excluded.description, amount = excluded.amount,
+          currency = excluded.currency, payment_method = excluded.payment_method, receipt_url = excluded.receipt_url,
+          vendor = excluded.vendor, notes = excluded.notes, is_recurring = excluded.is_recurring,
+          status = excluded.status, date = excluded.date, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(e.businessId),
+        asStr(e.recordedById),
+        categoryId, // legacy NOT NULL `category` column — store the id (display reads category_id)
+        categoryId,
+        asStr(e.description),
+        asNum(e.amount) ?? 0,
+        asStr(e.currency) ?? 'XAF',
+        asStr(e.paymentMethod),
+        asStr(e.receiptUrl),
+        asStr(e.vendor),
+        asStr(e.notes),
+        e.isRecurring ? 1 : 0,
+        asStr(e.status) ?? 'PAID',
+        asStr(e.expenseDate) ?? now.slice(0, 10),
+        r.isDeleted ? 1 : 0,
+        asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
     }

@@ -542,6 +542,7 @@ export interface ExpenseSyncRecord extends SyncRecord {
   vendor?: string | null
   notes?: string | null
   isRecurring: boolean
+  status?: string | null
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
   createdAt: string
@@ -811,6 +812,7 @@ export interface ExpenseSyncPayload {
   vendor?: string | null
   notes?: string | null
   isRecurring?: boolean
+  status?: string | null
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
   currency?: string | null

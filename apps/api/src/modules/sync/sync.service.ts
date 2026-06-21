@@ -4017,6 +4017,7 @@ export class SyncService {
       vendor: record.vendor ?? null,
       notes: record.notes ?? null,
       isRecurring: record.isRecurring,
+      status: record.status ?? 'PAID',
       paymentMethod: record.paymentMethod ?? null,
       receiptUrl: record.receiptUrl ?? null,
       createdAt: record.createdAt.toISOString(),

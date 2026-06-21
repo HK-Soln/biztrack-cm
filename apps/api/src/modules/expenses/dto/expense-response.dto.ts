@@ -79,6 +79,7 @@ export class ExpenseResponseDto implements Expense {
   vendor?: string | null
   notes?: string | null
   isRecurring!: boolean
+  status!: string
   recordedById!: string
   recordedBy?: ExpenseRecordedByDto | null
   paymentMethod?: string | null
@@ -103,6 +104,7 @@ export class ExpenseResponseDto implements Expense {
     dto.vendor = entity.vendor ?? null
     dto.notes = entity.notes ?? null
     dto.isRecurring = entity.isRecurring
+    dto.status = entity.status ?? 'PAID'
     dto.recordedById = entity.recordedById
     dto.recordedBy = ExpenseRecordedByDto.fromModel(entity.recordedBy) ?? null
     dto.paymentMethod = entity.paymentMethod ?? null

@@ -45,8 +45,8 @@ export class Expense extends BaseEntity {
   @Column({ default: 'XAF' })
   currency!: string
 
-  @Column({ name: 'payment_method' })
-  paymentMethod!: string
+  @Column({ name: 'payment_method', type: 'varchar', nullable: true })
+  paymentMethod?: string | null
 
   @Column({ name: 'receipt_url', nullable: true, type: 'varchar' })
   receiptUrl?: string | null
@@ -59,6 +59,9 @@ export class Expense extends BaseEntity {
 
   @Column({ name: 'is_recurring', default: false })
   isRecurring!: boolean
+
+  @Column({ default: 'PAID' })
+  status!: string
 
   @Column({ name: 'date', type: 'date', transformer: dateTransformer })
   date!: Date

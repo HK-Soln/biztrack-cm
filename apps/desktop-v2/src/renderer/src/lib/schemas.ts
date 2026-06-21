@@ -79,3 +79,14 @@ export const contactSchema = z.object({
 })
 
 export type ContactValues = z.infer<typeof contactSchema>
+
+// ---- Expense --------------------------------------------------------------
+// Messages are i18n keys. `amount` is validated as a parsed number (the form holds a string).
+export const expenseSchema = z.object({
+  categoryId: z.string().trim().min(1, 'expenses.errCategory'),
+  description: z.string().trim().min(1, 'expenses.errDescription'),
+  amount: z.number().refine((n) => Number.isFinite(n) && n > 0, 'expenses.errAmount'),
+  expenseDate: z.string().trim().min(1, 'expenses.errDate'),
+})
+
+export type ExpenseFieldErrors = Partial<Record<'categoryId' | 'description' | 'amount' | 'expenseDate', string>>
