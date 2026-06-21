@@ -64,24 +64,26 @@ export function OnlineOrders() {
     retry: false,
   })
 
-  if (list.error && isPlanUpgrade(list.error)) return <OnlineUpsell />
-
   const all = list.data?.data ?? []
-  const rows = all.filter((o) => {
-    if (fulfil && o.fulfillmentType !== fulfil) return false
-    const q = search.trim().toLowerCase()
-    if (q && !(o.orderNumber.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q))) return false
-    return true
-  })
-
-  // KPIs from the loaded page (no summary endpoint yet).
+  // KPIs from the loaded page (no summary endpoint yet). Computed before any early return
+  // so hook order stays stable across the upsell/error branches.
   const kpis = useMemo(() => {
     const newCount = all.filter((o) => o.status === 'PENDING').length
     const toShip = all.filter((o) => o.status === 'CONFIRMED' || o.status === 'PREPARING').length
     const delivered = all.filter((o) => o.status === 'DELIVERED')
     const sales = all.filter((o) => o.status !== 'CANCELLED' && o.status !== 'REFUNDED').reduce((a, o) => a + o.totalAmount, 0)
     return { newCount, toShip, delivered: delivered.length, sales, total: all.length }
-  }, [all])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.data])
+
+  if (list.error && isPlanUpgrade(list.error)) return <OnlineUpsell />
+
+  const rows = all.filter((o) => {
+    if (fulfil && o.fulfillmentType !== fulfil) return false
+    const q = search.trim().toLowerCase()
+    if (q && !(o.orderNumber.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q))) return false
+    return true
+  })
 
   return (
     <div className="frame">
