@@ -22,6 +22,8 @@ export function registerSalesIpc(
 ): void {
   ipcMain.handle(IPC.salesCreate, (_e, input: SaleInput) => sales.createSale(input))
   ipcMain.handle(IPC.salesList, (_e, query?: SalesListQuery) => sales.list(query))
+  ipcMain.handle(IPC.salesListAll, (_e, query?: SalesListQuery) => sales.listAll(query))
+  ipcMain.handle(IPC.salesSummary, (_e, query?: SalesListQuery) => sales.summary(query))
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
   ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) => savings.getForCustomer(customerId))
 

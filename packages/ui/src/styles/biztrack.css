@@ -81,11 +81,11 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
 /* Custom thin scrollbars everywhere — never the default chunky OS scrollbar.
    Chromium/Electron use the ::-webkit-scrollbar pill below (uniform 5px on the viewport
-   AND every element). scrollbar-width:thin is scoped to Firefox only, because setting it
-   in Chromium SUPPRESSES the ::-webkit-scrollbar pill on element-level scrollers. */
-*{scrollbar-color:var(--border-strong) transparent;}
+   AND every element). The standard scrollbar-width/scrollbar-color are scoped to Firefox
+   only: in Chromium 121+ setting EITHER of them disables the ::-webkit-scrollbar pseudo
+   entirely, which brings back the chunky default scrollbar. */
 @supports not (selector(::-webkit-scrollbar)) {
-  *{scrollbar-width:thin;}
+  *{scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent;}
 }
 *::-webkit-scrollbar{width:5px;height:5px;}
 *::-webkit-scrollbar-track{background:transparent;border-radius:999px;}
@@ -1340,3 +1340,57 @@ textarea.input{height:auto;min-height:64px;padding:10px 13px;font-family:inherit
 .field{position:relative;display:flex;align-items:center;}
 .field>svg{position:absolute;left:12px;width:16px;height:16px;color:var(--text-muted);pointer-events:none;}
 .field .input.ic{padding-left:38px;}
+
+/* ============================ Sales (history) ============================ */
+.salelayout{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start;}
+.salelayout .detail{position:sticky;top:16px;}
+@media(max-width:1100px){.salelayout{grid-template-columns:1fr;}.salelayout .detail{position:static;}}
+/* Desktop/tablet: each pane scrolls on its own (window stays put) — mirrors the receive page. */
+@media(min-width:1101px){
+  .salelayout .panel{max-height:calc(100vh - 290px);display:flex;flex-direction:column;}
+  .salelayout .panel .panel-head,.salelayout .panel .panel-foot{flex-shrink:0;}
+  .salelayout .panel .saletable-wrap{flex:1;min-height:0;overflow-y:auto;}
+  .salelayout .detail{max-height:calc(100vh - 290px);overflow-y:auto;}
+}
+
+/* transactions table (design .panel table) — scoped so global tables are untouched */
+.saletable{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
+.saletable th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--border);}
+.saletable th.right,.saletable td.right{text-align:right;}
+.saletable th.center,.saletable td.center{text-align:center;}
+.saletable td{padding:11px 12px;border-bottom:1px solid var(--border);color:var(--text);}
+.saletable td.mono{color:var(--brand-int);font-weight:550;font-variant-numeric:tabular-nums;}
+.saletable td.num{font-variant-numeric:tabular-nums;font-weight:600;}
+.saletable tbody tr{cursor:pointer;transition:.1s;}
+.saletable tbody tr:hover{background:var(--inset);}
+.saletable tbody tr:last-child td{border-bottom:0;}
+.saletable tbody tr.sel{background:var(--brand-soft);}
+.pill-tag{display:inline-block;font-size:11px;font-weight:550;padding:2px 9px;border-radius:999px;background:var(--inset);color:var(--text-2);border:1px solid var(--border);white-space:nowrap;}
+.syncdot{width:8px;height:8px;border-radius:999px;display:inline-block;}
+
+/* receipt detail pane */
+.receipt{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;}
+.receipt-h{padding:18px;border-bottom:1px solid var(--border);}
+.receipt-h .rid{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);font-weight:600;}
+.receipt-h .ramt{font-size:26px;font-weight:700;letter-spacing:-.5px;margin-top:6px;font-variant-numeric:tabular-nums;}
+.receipt-h .rmeta{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+.receipt-b{padding:16px 18px;}
+.receipt-line{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.receipt-line:last-child{border-bottom:0;}
+.receipt-line .q{width:30px;height:30px;border-radius:8px;background:var(--inset);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--text-2);flex-shrink:0;}
+.receipt-line .nm{flex:1;min-width:0;}
+.receipt-line .nm .u{font-size:11px;color:var(--text-muted);margin-top:1px;}
+.receipt-line .lt{font-weight:650;font-variant-numeric:tabular-nums;}
+.receipt-tot{padding:14px 18px;background:var(--inset);border-top:1px solid var(--border);}
+.receipt-tot .tr{display:flex;justify-content:space-between;font-size:13px;color:var(--text-2);padding:4px 0;}
+.receipt-tot .tr .num{font-variant-numeric:tabular-nums;}
+.receipt-tot .tr.g{font-size:17px;font-weight:700;color:var(--text);border-top:1px solid var(--border);margin-top:7px;padding-top:11px;}
+.receipt-act{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:14px 18px;border-top:1px solid var(--border);}
+.receipt-act button{font:inherit;font-size:12.5px;font-weight:600;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;}
+.receipt-act button:disabled{opacity:.6;cursor:default;}
+.receipt-act button svg{width:15px;height:15px;}
+.receipt-act button.primary{background:var(--brand);border-color:var(--brand);color:var(--on-brand);}
+.receipt-empty{background:var(--surface);border:1px dashed var(--border);border-radius:16px;padding:48px 22px;text-align:center;color:var(--text-muted);font-size:13px;}
+.saletable-wrap{overflow-x:auto;}
+/* On narrow screens the panes stack (salelayout → 1col at 1100px) and the table scrolls. */
+@media(max-width:680px){.saletable td.hide-sm,.saletable th.hide-sm{display:none;}}
