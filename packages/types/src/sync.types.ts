@@ -580,6 +580,12 @@ export interface SavingsAccountSyncRecord extends SyncRecord {
   totalDeposited: number
   totalRefunded: number
   totalUsed: number
+  totalTransferred?: number | null
+  status?: string | null
+  outcome?: string | null
+  closedAt?: string | null
+  closedById?: string | null
+  transferredToId?: string | null
   taggedProducts?: Array<{ productId: string; productName: string }> | null
   createdAt: string
 }
@@ -828,6 +834,12 @@ export interface SavingsAccountSyncPayload {
   totalDeposited: number
   totalRefunded: number
   totalUsed: number
+  totalTransferred?: number | null
+  status?: string | null
+  outcome?: string | null
+  closedAt?: string | null
+  closedById?: string | null
+  transferredToId?: string | null
   taggedProducts?: Array<{ productId: string; productName: string }> | null
   customerName?: string | null
   customerPhone?: string | null

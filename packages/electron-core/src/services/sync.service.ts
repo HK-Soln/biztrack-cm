@@ -367,6 +367,13 @@ export class SyncService {
     for (const record of changes.expenses ?? []) {
       ops.push(this.expenseUpsert(record))
     }
+    // Deposit sessions (depend on contact) + their transactions.
+    for (const record of changes.savingsAccounts ?? []) {
+      ops.push(this.savingsAccountUpsert(record))
+    }
+    for (const record of changes.savingsTransactions ?? []) {
+      ops.push(this.savingsTransactionUpsert(record))
+    }
     // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
     // yet applied — each module adds its applier as it lands.
     if (ops.length > 0) this.opts.db.batch(ops)
@@ -421,6 +428,76 @@ export class SyncService {
         asStr(o.recordedById),
         asStr(o.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private savingsAccountUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const s = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    const tagged = s.taggedProducts == null ? null : JSON.stringify(s.taggedProducts)
+    return {
+      sql: `INSERT INTO savings_accounts
+        (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
+         total_deposited, total_refunded, total_used, total_transferred, status, outcome, closed_at,
+         closed_by_id, transferred_to_id, tagged_products, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          customer_name = excluded.customer_name, customer_phone = excluded.customer_phone,
+          balance = excluded.balance, total_deposited = excluded.total_deposited,
+          total_refunded = excluded.total_refunded, total_used = excluded.total_used,
+          total_transferred = excluded.total_transferred, status = excluded.status, outcome = excluded.outcome,
+          closed_at = excluded.closed_at, closed_by_id = excluded.closed_by_id,
+          transferred_to_id = excluded.transferred_to_id, tagged_products = excluded.tagged_products,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(s.businessId),
+        asStr(s.customerId),
+        asStr(s.customerName),
+        asStr(s.customerPhone),
+        asStr(s.accountNumber),
+        asNum(s.balance) ?? 0,
+        asNum(s.totalDeposited) ?? 0,
+        asNum(s.totalRefunded) ?? 0,
+        asNum(s.totalUsed) ?? 0,
+        asNum(s.totalTransferred) ?? 0,
+        asStr(s.status) ?? 'OPEN',
+        asStr(s.outcome),
+        asStr(s.closedAt),
+        asStr(s.closedById),
+        asStr(s.transferredToId),
+        tagged,
+        r.isDeleted ? 1 : 0,
+        asStr(s.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private savingsTransactionUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const s = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO savings_transactions
+        (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id,
+         notes, recorded_by_id, occurred_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING`,
+      params: [
+        asStr(r.id),
+        asStr(s.savingsId),
+        asStr(s.businessId),
+        asStr(s.type),
+        asStr(s.direction),
+        asNum(s.amount) ?? 0,
+        asStr(s.method),
+        asStr(s.mobileMoneyReference),
+        asStr(s.saleId),
+        asStr(s.notes),
+        asStr(s.recordedById),
+        asStr(s.occurredAt) ?? now,
+        asStr(s.createdAt) ?? now,
       ],
     }
   }

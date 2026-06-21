@@ -191,6 +191,19 @@ const api: BridgeApi = {
   savings: {
     getForCustomer: (customerId) => ipcRenderer.invoke(IPC.savingsGetForCustomer, customerId),
   },
+  deposits: {
+    list: (query) => ipcRenderer.invoke(IPC.depositsList, query),
+    get: (id) => ipcRenderer.invoke(IPC.depositsGet, id),
+    statement: (id) => ipcRenderer.invoke(IPC.depositsStatement, id),
+    summary: () => ipcRenderer.invoke(IPC.depositsSummary),
+    create: (input) => ipcRenderer.invoke(IPC.depositsCreate, input),
+    addPayment: (id, input) => ipcRenderer.invoke(IPC.depositsAddPayment, id, input),
+    close: (id, input) => ipcRenderer.invoke(IPC.depositsClose, id, input),
+    receiptHtml: (transactionId, locale) => ipcRenderer.invoke(IPC.depositsReceiptHtml, transactionId, locale),
+    printReceipt: (transactionId, locale) => ipcRenderer.invoke(IPC.depositsPrintReceipt, transactionId, locale),
+    downloadReceipt: (transactionId, locale) => ipcRenderer.invoke(IPC.depositsDownloadReceipt, transactionId, locale),
+    sendReceipt: (transactionId, channel, locale, opts) => ipcRenderer.invoke(IPC.depositsSendReceipt, transactionId, channel, locale, opts),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

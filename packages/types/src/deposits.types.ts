@@ -5,8 +5,20 @@ export interface DepositTaggedProduct {
   productName: string
 }
 
-export type DepositTransactionType = 'deposit' | 'refund' | 'sale' | 'voided_sale'
+export type DepositTransactionType = 'deposit' | 'refund' | 'sale' | 'voided_sale' | 'transfer_in' | 'transfer_out'
 export type DepositTransactionDirection = 'inbound' | 'outbound'
+
+/** A deposit session is OPEN (active) until it's CLOSED with a balance of zero. */
+export type DepositStatus = 'OPEN' | 'CLOSED'
+
+/**
+ * How a session ended (set on close). Explicit so the UI is unambiguous:
+ * - COLLECTED              — goods collected; deposit fully spent (no leftover)
+ * - COLLECTED_REFUNDED     — goods collected; leftover refunded to the customer
+ * - COLLECTED_TRANSFERRED  — goods collected; leftover transferred to a new session
+ * - REFUNDED               — no goods collected; deposit refunded (cancellation)
+ */
+export type DepositOutcome = 'COLLECTED' | 'COLLECTED_REFUNDED' | 'COLLECTED_TRANSFERRED' | 'REFUNDED'
 
 // Backwards-compat aliases
 export type SavingsTransactionType = DepositTransactionType
@@ -23,6 +35,16 @@ export interface CustomerDeposit {
   totalDeposited: number
   totalRefunded: number
   totalUsed: number
+  totalTransferred: number
+  /** Session lifecycle. */
+  status: DepositStatus
+  outcome?: DepositOutcome | null
+  closedAt?: IsoDateString | null
+  closedById?: string | null
+  /** When the leftover was transferred, the new session it went to. */
+  transferredToId?: string | null
+  /** Number of goods-collection sales drawn against this session (drives transfer eligibility). */
+  salesCount?: number
   taggedProducts?: DepositTaggedProduct[] | null
   isDeleted?: boolean
   createdAt: IsoDateString
@@ -65,6 +87,28 @@ export interface DepositStatement {
   entries: DepositStatementEntry[]
 }
 
+/** A shareable receipt for a single deposit/refund transaction (print / PDF / send). */
+export interface DepositReceipt {
+  businessName: string
+  businessPhone?: string | null
+  businessAddress?: string | null
+  /** Human reference for this receipt (session + short transaction id). */
+  receiptNumber: string
+  sessionRef: string
+  occurredAt: IsoDateString
+  cashierName?: string | null
+  customerName?: string | null
+  customerPhone?: string | null
+  /** Whether this records a deposit (money in) or a refund (money out). */
+  kind: 'deposit' | 'refund'
+  amount: number
+  method?: string | null
+  balanceAfter: number
+  totalDeposited: number
+  currency?: string | null
+  footer?: string | null
+}
+
 export interface CreateDepositTransactionInput {
   type: DepositTransactionType
   direction: DepositTransactionDirection
@@ -81,13 +125,34 @@ export interface CreateDepositInput {
   customerName?: string | null
   customerPhone?: string | null
   taggedProducts?: DepositTaggedProduct[] | null
-  initialDeposit: CreateDepositTransactionInput
+  /** Optional opening deposit; a session may also start empty and take payments later. */
+  initialDeposit?: AddDepositPaymentInput | null
+}
+
+/** Add a deposit (top-up) to an open session. */
+export interface AddDepositPaymentInput {
+  amount: number
+  method?: string | null
+  mobileMoneyReference?: string | null
+  notes?: string | null
+}
+
+/** How to settle the leftover balance when closing a session. */
+export type DepositCloseSettlement = 'NONE' | 'REFUND' | 'TRANSFER'
+
+export interface CloseDepositInput {
+  settlement: DepositCloseSettlement
+  /** Required for REFUND (how the money was returned). */
+  method?: string | null
+  mobileMoneyReference?: string | null
+  notes?: string | null
 }
 
 export interface DepositsQuery {
   page?: number
   limit?: number
   search?: string
+  status?: DepositStatus
   sortBy?: string
   sortOrder?: 'ASC' | 'DESC'
 }
