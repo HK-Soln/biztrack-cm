@@ -36,6 +36,7 @@ import { Sell } from '@/routes/Sell'
 import { Sales } from '@/routes/Sales'
 import { Expenses } from '@/routes/Expenses'
 import { Deposits } from '@/routes/Deposits'
+import { OnlineOrders } from '@/routes/OnlineOrders'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -82,7 +83,7 @@ export const router = createHashRouter([
       { path: '/inventory', element: <Inventory /> },
       { path: '/inventory/restock', element: <ReceiveStock /> },
       { path: '/sales', element: <Sales /> },
-      { path: '/online/orders', element: <Placeholder titleKey="nav.onlineOrders" /> },
+      { path: '/online/orders', element: <OnlineOrders /> },
       { path: '/online/store', element: <Placeholder titleKey="nav.onlineStore" /> },
       { path: '/contacts', element: <Contacts /> },
       { path: '/contacts/new', element: <ContactForm /> },

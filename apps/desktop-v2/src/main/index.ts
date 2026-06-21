@@ -45,6 +45,8 @@ import { registerPurchaseOrderIpc } from './ipc/purchase-order.ipc'
 import { registerDocumentsIpc } from './ipc/documents.ipc'
 import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
+import { OnlineService } from './services/online.service'
+import { registerOnlineIpc } from './ipc/online.ipc'
 import { AuditService } from './services/audit.service'
 import { registerAuditIpc } from './ipc/audit.ipc'
 
@@ -348,6 +350,9 @@ app.whenReady().then(() => {
   // File uploads: renderer hands bytes to main, which POSTs them to the API storage
   // service with the phase2 token (tokens never reach the renderer).
   registerUploadsIpc(new UploadService(authHttp))
+
+  // Online store/orders: API-only, proxied through main (tokens never reach the renderer).
+  registerOnlineIpc(new OnlineService(authHttp))
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {

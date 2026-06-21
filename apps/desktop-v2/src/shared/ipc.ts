@@ -116,6 +116,13 @@ export const IPC = {
   depositsClose: 'deposits:close',
   depositsReceiptHtml: 'deposits:receipt-html',
   depositsReportHtml: 'deposits:report-html',
+  onlineStoreGet: 'online:store-get',
+  onlineStoreCreate: 'online:store-create',
+  onlineStoreUpdate: 'online:store-update',
+  onlineStorePublish: 'online:store-publish',
+  onlineOrdersList: 'online:orders-list',
+  onlineOrderGet: 'online:order-get',
+  onlineOrderUpdateStatus: 'online:order-update-status',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1166,6 +1173,42 @@ export interface DepositsListQuery extends ListQueryT {
 export interface LocalDepositDetail extends CustomerDepositT {
   transactions: DepositTransactionT[]
 }
+// --- Online store / orders — reuse the shared online shapes ---
+export type {
+  OnlineStore,
+  OnlineStoreStatus,
+  OnlineStoreLayout,
+  OnlineStoreAppearance,
+  OnlineCatalogBinding,
+  CreateOnlineStoreRequest,
+  UpdateOnlineStoreRequest,
+  OnlineOrder,
+  OnlineOrderDetail,
+  OnlineOrderListResult,
+  OnlineOrderStatus,
+  OnlineOrderEvent,
+  OnlineFulfillmentType,
+  OnlinePaymentStatus,
+  UpdateOrderStatusRequest,
+  OnlineCartItem,
+} from '@biztrack/types'
+import type {
+  OnlineStore as OnlineStoreT,
+  CreateOnlineStoreRequest as CreateOnlineStoreT,
+  UpdateOnlineStoreRequest as UpdateOnlineStoreT,
+  OnlineOrder as OnlineOrderT,
+  OnlineOrderDetail as OnlineOrderDetailT,
+  OnlineOrderListResult as OnlineOrderListResultT,
+  OnlineOrderStatus as OnlineOrderStatusT,
+  UpdateOrderStatusRequest as UpdateOrderStatusT,
+} from '@biztrack/types'
+
+export interface OnlineOrdersQuery {
+  status?: OnlineOrderStatusT
+  page?: number
+  limit?: number
+}
+
 /** KPI strip for the Deposits dashboard. */
 export interface LocalDepositSummary {
   openCount: number
@@ -1604,5 +1647,15 @@ export interface BridgeApi {
     receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
     /** Compiled full-session report HTML (fed to the shared share dialog). */
     reportHtml: (id: string, locale: string) => Promise<string | null>
+  }
+  /** Online store / orders — API-only (proxied through main); requires connectivity. */
+  online: {
+    getStore: () => Promise<OnlineStoreT | null>
+    createStore: (input: CreateOnlineStoreT) => Promise<OnlineStoreT>
+    updateStore: (input: UpdateOnlineStoreT) => Promise<OnlineStoreT>
+    publishStore: () => Promise<OnlineStoreT>
+    listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
+    getOrder: (id: string) => Promise<OnlineOrderDetailT>
+    updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
   }
 }

@@ -202,6 +202,15 @@ const api: BridgeApi = {
     receiptHtml: (transactionId, locale) => ipcRenderer.invoke(IPC.depositsReceiptHtml, transactionId, locale),
     reportHtml: (id, locale) => ipcRenderer.invoke(IPC.depositsReportHtml, id, locale),
   },
+  online: {
+    getStore: () => ipcRenderer.invoke(IPC.onlineStoreGet),
+    createStore: (input) => ipcRenderer.invoke(IPC.onlineStoreCreate, input),
+    updateStore: (input) => ipcRenderer.invoke(IPC.onlineStoreUpdate, input),
+    publishStore: () => ipcRenderer.invoke(IPC.onlineStorePublish),
+    listOrders: (query) => ipcRenderer.invoke(IPC.onlineOrdersList, query),
+    getOrder: (id) => ipcRenderer.invoke(IPC.onlineOrderGet, id),
+    updateOrderStatus: (id, input) => ipcRenderer.invoke(IPC.onlineOrderUpdateStatus, id, input),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)
