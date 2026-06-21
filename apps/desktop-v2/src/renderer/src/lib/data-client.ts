@@ -40,6 +40,7 @@ import type {
   DocumentSendInput,
   DocumentDownloadInput,
   DocumentDownloadResult,
+  ShareHtmlPdfInput,
   LocalAttributeGroup,
   LocalAttributeOption,
   LocalBrand,
@@ -199,6 +200,7 @@ export interface DataClient {
     send: (input: DocumentSendInput) => Promise<void>
     downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
     downloadHtmlPdf: (html: string, filename: string) => Promise<DocumentDownloadResult>
+    shareHtmlPdf: (input: ShareHtmlPdfInput) => Promise<void>
   }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
@@ -345,6 +347,7 @@ function electronAdapter(): DataClient {
       send: (input) => window.api.documents.send(input),
       downloadPdf: (input) => window.api.documents.downloadPdf(input),
       downloadHtmlPdf: (html, filename) => window.api.documents.downloadHtmlPdf(html, filename),
+      shareHtmlPdf: (input) => window.api.documents.shareHtmlPdf(input),
     },
     audit: {
       list: (query) => window.api.audit.list(query),
@@ -436,7 +439,7 @@ function cloudAdapter(): DataClient {
     debts: { listByContact: notWired, statement: notWired, recordPayment: notWired },
     rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
     purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
-    documents: { send: notWired, downloadPdf: notWired, downloadHtmlPdf: notWired },
+    documents: { send: notWired, downloadPdf: notWired, downloadHtmlPdf: notWired, shareHtmlPdf: notWired },
     audit: { list: notWired },
     uploads: { file: notWired },
     charges: { listActive: notWired },

@@ -10,6 +10,7 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu } from '@/components/ActionMenu'
 import { ContactPaymentModal } from '@/components/ContactPaymentModal'
+import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import type { ContactStatement, ContactStatementEntry } from '@shared/ipc'
 
 const STMT_SPLIT = { display: 'grid', gridTemplateColumns: 'minmax(0,1.7fr) minmax(0,1fr)', gap: 14, alignItems: 'start' } as const
@@ -24,6 +25,7 @@ export function ContactDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteErr, setDeleteErr] = useState<string | null>(null)
   const [ledgerTab, setLedgerTab] = useState<DebtDirection>(DebtDirection.RECEIVABLE)
+  const [sendDoc, setSendDoc] = useState<{ html: string; filename: string; title: string } | null>(null)
 
   const { data: contact, isPending, refetch } = useQuery({
     queryKey: [...queryKeys.contacts, id],
@@ -168,13 +170,6 @@ export function ContactDetail() {
   }
   const fmtDay = (d: string) => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 
-  const exportCsv = (stmt: ContactStatement | undefined, title: string) => {
-    const payable = stmt?.direction === DebtDirection.PAYABLE
-    const head = [t('debt.colDate'), t('debt.colEntry'), t('debt.colRef'), t('debt.colDebit'), t('debt.colCredit'), t('debt.colBalance')]
-    const body = stmtRows(stmt).map((e) => [fmtDay(e.date), stmtEntryLabel(e, payable), stmtEntryRef(e), e.debit || '', e.credit || '', e.balance])
-    const csv = [head, ...body].map((line) => line.map(csvCell).join(',')).join('\r\n')
-    downloadBlob('﻿' + csv, `${exportName(title)}.csv`, 'text/csv;charset=utf-8')
-  }
   const statementHtml = (stmt: ContactStatement | undefined, title: string): string => {
     const payable = stmt?.direction === DebtDirection.PAYABLE
     const rows = stmtRows(stmt)
@@ -195,18 +190,12 @@ export function ContactDetail() {
       <tfoot><tr><td colspan="5">${esc(t('ct.closingBalance'))}</td><td class="r">${esc(money.format(stmt?.closingBalance ?? 0))}</td></tr></tfoot></table>
     </body></html>`
   }
-  const exportPdf = (stmt: ContactStatement | undefined, title: string) => {
-    void dataClient.documents.downloadHtmlPdf(statementHtml(stmt, title), exportName(title))
-  }
   const exportName = (title: string) => sanitizeName(`statement-${contact.name}-${title}`)
-  const exportMenu = (stmt: ContactStatement | undefined, title: string) => (
-    <ActionMenu
-      label={t('ct.export')}
-      items={[
-        { label: t('ct.exportPdf'), onClick: () => exportPdf(stmt, title) },
-        { label: t('ct.exportCsv'), onClick: () => exportCsv(stmt, title) },
-      ]}
-    />
+  const sendBtn = (stmt: ContactStatement | undefined, title: string) => (
+    <button type="button" className="btn" style={{ height: 34 }} onClick={() => setSendDoc({ html: statementHtml(stmt, title), filename: exportName(title), title })}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 4h16v12H7l-3 3z" /></svg>
+      {t('ct.sendStatement')}
+    </button>
   )
 
   return (
@@ -309,8 +298,8 @@ export function ContactDetail() {
             </div>
             <div className="spacer" style={{ flex: 1 }} />
             {ledgerTab === DebtDirection.RECEIVABLE
-              ? exportMenu(recvStmt, t('ct.ledgerAsCustomer'))
-              : exportMenu(payStmt, t('ct.ledgerAsSupplier'))}
+              ? sendBtn(recvStmt, t('ct.ledgerAsCustomer'))
+              : sendBtn(payStmt, t('ct.ledgerAsSupplier'))}
           </div>
           {ledgerTab === DebtDirection.RECEIVABLE ? ledgerView(recvStmt, t('ct.ledgerCustFoot')) : ledgerView(payStmt, t('ct.ledgerSuppFoot'))}
         </div>
@@ -323,7 +312,7 @@ export function ContactDetail() {
               <span className={`st ${isSupplier ? 'st-out' : 'st-ok'}`} style={{ fontSize: 12 }}>
                 <span className="d" />{money.format(isSupplier ? contact.totalPayable : contact.totalReceivable)}
               </span>
-              {exportMenu(isSupplier ? payStmt : recvStmt, isSupplier ? t('ct.supplierAccount') : t('ct.statement'))}
+              {sendBtn(isSupplier ? payStmt : recvStmt, isSupplier ? t('ct.supplierAccount') : t('ct.statement'))}
             </div>
             {ledgerView(isSupplier ? payStmt : recvStmt, t('ct.countEntries'))}
           </div>
@@ -345,6 +334,20 @@ export function ContactDetail() {
 
       {pay ? (
         <ContactPaymentModal contactId={id} contactName={contact.name} onClose={() => setPay(false)} onSaved={() => { refresh(); setPay(false) }} />
+      ) : null}
+
+      {sendDoc ? (
+        <DocumentShareDialog
+          title={t('ct.sendStatement')}
+          html={sendDoc.html}
+          filename={sendDoc.filename}
+          message={`${sendDoc.title} · ${contact.name}`}
+          subject={`${contact.name} — ${sendDoc.title}`}
+          recipientName={contact.name}
+          defaultPhone={contact.phone}
+          defaultEmail={contact.email}
+          onClose={() => setSendDoc(null)}
+        />
       ) : null}
 
       <Modal
@@ -393,18 +396,6 @@ function ProfileCard({
 
 const fileName = (url: string) => decodeURIComponent(url.split('/').pop() ?? url)
 
-const csvCell = (v: string | number): string => {
-  const s = String(v)
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-const downloadBlob = (content: string, filename: string, type: string): void => {
-  const url = URL.createObjectURL(new Blob([content], { type }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
 const sanitizeName = (s: string): string => s.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 const esc = (s: string): string => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c)
 

@@ -110,6 +110,7 @@ export const IPC = {
   documentsSend: 'documents:send',
   documentsDownload: 'documents:download',
   documentsDownloadHtml: 'documents:download-html',
+  documentsShareHtml: 'documents:share-html',
   auditList: 'audit:list',
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
@@ -412,6 +413,18 @@ export interface DocumentDownloadInput {
   kind: DocumentKind
   id: string
   supplierId?: string | null
+}
+
+/** Share an app-generated (trusted) HTML document via the WhatsApp/email composer. */
+export interface ShareHtmlPdfInput {
+  html: string
+  message: string
+  /** File name (without extension) for the rendered PDF. */
+  filename: string
+  channel: DocumentSendChannel
+  phone?: string | null
+  email?: string | null
+  subject?: string
 }
 
 export interface DocumentDownloadResult {
@@ -1348,6 +1361,8 @@ export interface BridgeApi {
     downloadPdf: (input: DocumentDownloadInput) => Promise<DocumentDownloadResult>
     /** Render an arbitrary (trusted, app-generated) HTML document to PDF + save dialog. */
     downloadHtmlPdf: (html: string, filename: string) => Promise<DocumentDownloadResult>
+    /** Share an app-generated HTML doc as a PDF via the WhatsApp/email composer (offline-first). */
+    shareHtmlPdf: (input: ShareHtmlPdfInput) => Promise<void>
   }
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */
