@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
@@ -97,6 +98,18 @@ export function Sell() {
     enabled: isElectron,
   })
   const products = catalog.data?.pages.flatMap((p) => p.data) ?? []
+
+  // Preset the customer when arriving from a contact's "New sale" (/sell?customer=<id>).
+  const [searchParams] = useSearchParams()
+  const customerParam = searchParams.get('customer')
+  const { data: presetCustomer } = useQuery({
+    queryKey: [...queryKeys.contacts, customerParam, 'sell-preset'],
+    queryFn: () => dataClient.contacts.get(customerParam!),
+    enabled: isElectron && !!customerParam,
+  })
+  useEffect(() => {
+    if (presetCustomer) setCustomer({ id: presetCustomer.id, name: presetCustomer.name, phone: presetCustomer.phone, selfieUrl: presetCustomer.selfieUrl })
+  }, [presetCustomer])
 
   // --- cart ops ------------------------------------------------------------
   // Click routes to a picker for variant/serialized products; simple products add directly.
