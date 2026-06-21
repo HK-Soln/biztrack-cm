@@ -115,9 +115,7 @@ export const IPC = {
   depositsAddPayment: 'deposits:add-payment',
   depositsClose: 'deposits:close',
   depositsReceiptHtml: 'deposits:receipt-html',
-  depositsPrintReceipt: 'deposits:print-receipt',
-  depositsDownloadReceipt: 'deposits:download-receipt',
-  depositsSendReceipt: 'deposits:send-receipt',
+  depositsReportHtml: 'deposits:report-html',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1602,18 +1600,9 @@ export interface BridgeApi {
     create: (input: CreateDepositInputT) => Promise<CustomerDepositT>
     addPayment: (id: string, input: AddDepositPaymentInputT) => Promise<CustomerDepositT>
     close: (id: string, input: CloseDepositInputT) => Promise<CustomerDepositT>
-    /** Compiled deposit-receipt HTML for one transaction (preview). */
+    /** Compiled deposit-receipt HTML for one transaction (fed to the shared share dialog). */
     receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
-    /** Print the deposit receipt; falls back to saving a PDF. */
-    printReceipt: (transactionId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
-    /** Render the deposit receipt to a PDF and save it via the native dialog. */
-    downloadReceipt: (transactionId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
-    /** Share the deposit receipt with the customer (WhatsApp/email composer + PDF). */
-    sendReceipt: (
-      transactionId: string,
-      channel: DocumentSendChannel,
-      locale: string,
-      opts?: { recipient?: DocumentRecipient },
-    ) => Promise<void>
+    /** Compiled full-session report HTML (fed to the shared share dialog). */
+    reportHtml: (id: string, locale: string) => Promise<string | null>
   }
 }

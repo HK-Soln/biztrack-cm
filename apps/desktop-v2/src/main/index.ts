@@ -332,7 +332,7 @@ app.whenReady().then(() => {
     () => authService.getSession().user?.id ?? null,
     audit,
   )
-  registerDepositsIpc(savings, documents)
+  registerDepositsIpc(savings)
   const sales = new SalesService(
     db,
     () => authService.getSession().businessId,

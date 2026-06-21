@@ -5,8 +5,12 @@ import type {
   CreateDepositInput,
   CustomerDeposit,
   DepositReceipt,
+  DepositReport,
+  DepositReportEntry,
   DepositStatement,
   DepositStatementEntry,
+  DepositStatus,
+  DepositOutcome,
   DepositTransaction,
 } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -340,6 +344,44 @@ export class SavingsService {
       currency: this.businessCurrency(),
     }
     return { receipt, phone: acc.customer_phone, email }
+  }
+
+  /** Build the full session report (header, summary, tagged items, running-balance statement). */
+  buildDepositReport(id: string): { report: DepositReport; phone: string | null; email: string | null } | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const acc = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`, [id, businessId])
+    if (!acc) return null
+    const biz = this.db.get<{ name: string; phone: string | null; address: string | null }>(`SELECT name, phone, address FROM local_businesses WHERE id = ?`, [businessId])
+    const email = this.db.get<{ email: string | null }>(`SELECT email FROM contacts WHERE id = ?`, [acc.customer_id])?.email ?? null
+
+    let running = 0
+    const entries: DepositReportEntry[] = this.txnsFor(id).map((t) => {
+      running = round2(running + (t.direction === 'inbound' ? t.amount : -t.amount))
+      return { occurredAt: t.occurredAt, type: t.type, direction: t.direction, amount: t.amount, method: t.method, notes: t.notes, runningBalance: running }
+    })
+
+    const report: DepositReport = {
+      businessName: biz?.name ?? 'BizTrack',
+      businessPhone: biz?.phone ?? null,
+      businessAddress: biz?.address ?? null,
+      sessionRef: acc.account_number,
+      createdAt: acc.created_at,
+      status: acc.status as DepositStatus,
+      outcome: (acc.outcome as DepositOutcome) ?? null,
+      closedAt: acc.closed_at,
+      customerName: acc.customer_name,
+      customerPhone: acc.customer_phone,
+      totalDeposited: acc.total_deposited,
+      totalUsed: acc.total_used,
+      totalRefunded: acc.total_refunded,
+      totalTransferred: acc.total_transferred,
+      balance: acc.balance,
+      currency: this.businessCurrency(),
+      taggedProducts: acc.tagged_products ? JSON.parse(acc.tagged_products) : [],
+      entries,
+    }
+    return { report, phone: acc.customer_phone, email }
   }
 
   // ---- internals -----------------------------------------------------------

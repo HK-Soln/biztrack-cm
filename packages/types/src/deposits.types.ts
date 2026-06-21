@@ -87,6 +87,37 @@ export interface DepositStatement {
   entries: DepositStatementEntry[]
 }
 
+/** A full deposit-session report (PDF) — header, summary, tagged items, full statement. */
+export interface DepositReportEntry {
+  occurredAt: IsoDateString
+  type: DepositTransactionType
+  direction: DepositTransactionDirection
+  amount: number
+  method?: string | null
+  notes?: string | null
+  runningBalance: number
+}
+export interface DepositReport {
+  businessName: string
+  businessPhone?: string | null
+  businessAddress?: string | null
+  sessionRef: string
+  createdAt: IsoDateString
+  status: DepositStatus
+  outcome?: DepositOutcome | null
+  closedAt?: IsoDateString | null
+  customerName?: string | null
+  customerPhone?: string | null
+  totalDeposited: number
+  totalUsed: number
+  totalRefunded: number
+  totalTransferred: number
+  balance: number
+  currency?: string | null
+  taggedProducts: DepositTaggedProduct[]
+  entries: DepositReportEntry[]
+}
+
 /** A shareable receipt for a single deposit/refund transaction (print / PDF / send). */
 export interface DepositReceipt {
   businessName: string

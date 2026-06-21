@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, PhoneInput, Select, isValidPhone } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
+import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
-import type { CloseDepositInput, CustomerDeposit, DepositTaggedProduct, DepositTransaction } from '@shared/ipc'
+import type { CartLine } from '@/routes/Sell'
+import type { CloseDepositInput, CustomerDeposit, DepositTaggedProduct, DepositTransaction, LocalProduct, LocalSerialUnit, LocalVariant } from '@shared/ipc'
 
 const PAY_METHODS = ['CASH', 'MTN_MOMO', 'ORANGE_MONEY', 'CARD'] as const
 
@@ -13,6 +16,7 @@ const I = {
   plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>,
   x: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>,
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path d="m5 12 5 5L20 7" /></svg>,
+  share: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9}><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M16 6l-4-4-4 4" /><path d="M12 2v13" /></svg>,
 }
 
 function initials(name: string): string {
@@ -63,7 +67,7 @@ export function Deposits() {
         <div className="m"><div className="k">{t('dep.kpiSettled')}</div><div className="v">{money.format(s?.refundedTransferredAmount ?? 0)}</div><div className="h">{t('dep.kpiSettledHint').replace('{n}', String(s?.refundedTransferredCount ?? 0))}</div></div>
       </div>
 
-      <div className="mdlayout">
+      <div className="mdlayout wide" style={{ height: 'calc(100vh - 272px)', minHeight: 380 }}>
         <div className="panel">
           <div className="panel-head">
             <h3>{t('dep.sessions')}</h3>
@@ -104,6 +108,8 @@ function DepositDetail({ id, t, onChanged }: { id: string; t: ReturnType<typeof 
   const [payOpen, setPayOpen] = useState(false)
   const [closeOpen, setCloseOpen] = useState(false)
   const [receiptTxn, setReceiptTxn] = useState<DepositTransaction | null>(null)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [collectOpen, setCollectOpen] = useState(false)
 
   const { data } = useQuery({ queryKey: ['deposits', 'detail', id], queryFn: () => dataClient.deposits.get(id), enabled: isElectron })
   if (!data) return <div className="receipt-empty">{t('dep.loading')}</div>
@@ -133,31 +139,33 @@ function DepositDetail({ id, t, onChanged }: { id: string; t: ReturnType<typeof 
           </div>
         ) : null}
         {open ? (
-          <div className="receipt-act">
+          <div className="receipt-act" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <button type="button" onClick={() => setPayOpen(true)}>{t('dep.addPayment')}</button>
-            <button type="button" className="primary" onClick={() => setCloseOpen(true)}>{d.salesCount && d.salesCount > 0 ? t('dep.markCollected') : t('dep.closeSession')}</button>
+            <button type="button" className="primary" onClick={() => setCollectOpen(true)}>{t('dep.collect')}</button>
+            <button type="button" style={{ gridColumn: '1 / -1' }} onClick={() => setCloseOpen(true)}>{t('dep.closeSession')}</button>
           </div>
         ) : null}
       </div>
 
       <div className="card">
-        <div className="card-h"><div><h3>{t('dep.timeline')}</h3></div></div>
+        <div className="card-h">
+          <div style={{ flex: 1 }}><h3>{t('dep.timeline')}</h3></div>
+          <Button type="button" variant="soft" onClick={() => setReportOpen(true)}>{I.share}{t('dep.exportReport')}</Button>
+        </div>
         {d.transactions.length === 0 ? <div className="hint">{t('dep.noActivity')}</div> : (
           d.transactions.map((tx: DepositTransaction) => (
-            <div key={tx.id} style={{ display: 'flex', gap: 11, padding: '8px 0', alignItems: 'flex-start' }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: tx.direction === 'inbound' ? 'var(--success)' : 'var(--brand)', marginTop: 5, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
+            <div key={tx.id} className="tl-row">
+              <div className="tl-dot" style={{ background: tx.direction === 'inbound' ? 'var(--success)' : 'var(--brand)' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 550, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <span>{txLabel(t, tx.type)}{tx.method ? ` · ${payLabel(t, tx.method)}` : ''}</span>
                   <span style={{ color: tx.direction === 'inbound' ? 'var(--success)' : 'var(--text)' }}>{tx.direction === 'inbound' ? '+' : '−'}{money.format(tx.amount)}</span>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1, display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span>{formatDateTime(tx.occurredAt, lang)}{tx.notes ? ` · ${tx.notes}` : ''}</span>
-                  {tx.type === 'deposit' || tx.type === 'refund' ? (
-                    <button type="button" className="link" style={{ fontSize: 11 }} onClick={() => setReceiptTxn(tx)}>{t('dep.receipt')}</button>
-                  ) : null}
-                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{formatDateTime(tx.occurredAt, lang)}{tx.notes ? ` · ${tx.notes}` : ''}</div>
               </div>
+              {tx.type === 'deposit' || tx.type === 'refund' ? (
+                <button type="button" className="tl-receipt" title={t('dep.receipt')} aria-label={t('dep.receipt')} onClick={() => setReceiptTxn(tx)}>{I.share}</button>
+              ) : null}
             </div>
           ))
         )}
@@ -165,7 +173,9 @@ function DepositDetail({ id, t, onChanged }: { id: string; t: ReturnType<typeof 
 
       {payOpen ? <AddPaymentModal id={id} t={t} onClose={() => setPayOpen(false)} onSaved={() => { onChanged(); setPayOpen(false) }} /> : null}
       {closeOpen ? <CloseModal deposit={d} t={t} onClose={() => setCloseOpen(false)} onSaved={() => { onChanged(); setCloseOpen(false) }} /> : null}
-      {receiptTxn ? <DepositReceiptDialog transactionId={receiptTxn.id} customerName={d.customerName ?? ''} customerPhone={d.customerPhone ?? ''} t={t} locale={lang} onClose={() => setReceiptTxn(null)} /> : null}
+      {receiptTxn ? <DepositReceiptShare transactionId={receiptTxn.id} customerId={d.customerId} customerName={d.customerName ?? '—'} customerPhone={d.customerPhone ?? ''} locale={lang} t={t} onClose={() => setReceiptTxn(null)} /> : null}
+      {reportOpen ? <DepositReportShare depositId={id} customerId={d.customerId} sessionRef={d.accountNumber} customerName={d.customerName ?? '—'} customerPhone={d.customerPhone ?? ''} locale={lang} t={t} onClose={() => setReportOpen(false)} /> : null}
+      {collectOpen ? <CollectModal customerId={d.customerId} tagged={tagged} t={t} onClose={() => setCollectOpen(false)} /> : null}
     </>
   )
 }
@@ -424,65 +434,224 @@ function CloseModal({ deposit, t, onClose, onSaved }: { deposit: CustomerDeposit
   )
 }
 
-// --- deposit receipt share dialog ------------------------------------------
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-function DepositReceiptDialog({ transactionId, customerName, customerPhone, t, locale, onClose }: {
+// --- share wrappers: reuse the shared DocumentShareDialog (same as RFQ/PO/sale) ----------
+/** The customer's stored phone + email, so the share dialog is pre-filled. */
+function useCustomerContact(customerId: string, fallbackPhone: string) {
+  const { data } = useQuery({
+    queryKey: ['deposits', 'share-contact', customerId],
+    queryFn: () => dataClient.contacts.get(customerId),
+    enabled: isElectron && !!customerId,
+  })
+  return { phone: data?.phone || fallbackPhone || '', email: data?.email || '' }
+}
+
+/** Per-transaction deposit/refund receipt. */
+function DepositReceiptShare({ transactionId, customerId, customerName, customerPhone, locale, t, onClose }: {
   transactionId: string
+  customerId: string
   customerName: string
   customerPhone: string
-  t: ReturnType<typeof useT>
   locale: string
+  t: ReturnType<typeof useT>
   onClose: () => void
 }) {
-  const [mode, setMode] = useState<'menu' | 'whatsapp' | 'email'>('menu')
-  const [phone, setPhone] = useState(customerPhone)
-  const [email, setEmail] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-
-  const print = useMutation({ mutationFn: () => dataClient.deposits.printReceipt(transactionId, locale), onSuccess: () => setDone(t('dep.printed')), onError: (e) => setError(errorMessage(e, t('dep.receiptError'))) })
-  const download = useMutation({ mutationFn: () => dataClient.deposits.downloadReceipt(transactionId, locale), onSuccess: (r) => { if (r.saved) setDone(t('dep.saved')) }, onError: (e) => setError(errorMessage(e, t('dep.receiptError'))) })
-  const send = useMutation({
-    mutationFn: (channel: 'whatsapp' | 'email') => dataClient.deposits.sendReceipt(transactionId, channel, locale, { recipient: channel === 'whatsapp' ? { phone: phone.trim() } : { email: email.trim() } }),
-    onSuccess: () => { setDone(t('dep.receiptShared')); setMode('menu') },
-    onError: (e) => setError(errorMessage(e, t('dep.receiptError'))),
+  const contact = useCustomerContact(customerId, customerPhone)
+  const { data: html } = useQuery({
+    queryKey: ['deposits', 'receipt-html', transactionId, locale],
+    queryFn: () => dataClient.deposits.receiptHtml(transactionId, locale),
+    enabled: isElectron,
   })
-  const submitSend = () => {
-    if (mode === 'whatsapp' && !isValidPhone(phone.trim())) return setError(t('dep.invalidPhone'))
-    if (mode === 'email' && !EMAIL_RE.test(email.trim())) return setError(t('dep.invalidEmail'))
-    setError(null)
-    send.mutate(mode as 'whatsapp' | 'email')
+  if (!html) return null
+  return (
+    <DocumentShareDialog
+      title={t('dep.shareReceipt')}
+      html={html}
+      filename={`deposit-receipt-${transactionId.slice(0, 6)}`}
+      message={`${customerName} · ${t('dep.shareReceipt')}`}
+      subject={`${customerName} — ${t('dep.shareReceipt')}`}
+      defaultPhone={contact.phone}
+      defaultEmail={contact.email}
+      recipientName={customerName}
+      onClose={onClose}
+    />
+  )
+}
+
+/** Whole-session report PDF. */
+function DepositReportShare({ depositId, customerId, sessionRef, customerName, customerPhone, locale, t, onClose }: {
+  depositId: string
+  customerId: string
+  sessionRef: string
+  customerName: string
+  customerPhone: string
+  locale: string
+  t: ReturnType<typeof useT>
+  onClose: () => void
+}) {
+  const contact = useCustomerContact(customerId, customerPhone)
+  const { data: html } = useQuery({
+    queryKey: ['deposits', 'report-html', depositId, locale],
+    queryFn: () => dataClient.deposits.reportHtml(depositId, locale),
+    enabled: isElectron,
+  })
+  if (!html) return null
+  return (
+    <DocumentShareDialog
+      title={t('dep.exportReport')}
+      html={html}
+      filename={`deposit-${sessionRef}`}
+      message={`${customerName} · ${sessionRef}`}
+      subject={`${customerName} — ${sessionRef}`}
+      defaultPhone={contact.phone}
+      defaultEmail={contact.email}
+      recipientName={customerName}
+      onClose={onClose}
+    />
+  )
+}
+
+// --- collect (checkout) modal ----------------------------------------------
+// Resolves each tagged product (simple / variant / serialized / serialized-variant) into a
+// concrete cart, then hands it to the Sell screen for checkout with the Deposit tender forced.
+interface Resolved { product: LocalProduct; variants: LocalVariant[]; serials: LocalSerialUnit[] }
+interface CollectSel { include: boolean; variantId: string | null; quantity: number; serialIds: string[] }
+
+function CollectModal({ customerId, tagged, t, onClose }: {
+  customerId: string
+  tagged: DepositTaggedProduct[]
+  t: ReturnType<typeof useT>
+  onClose: () => void
+}) {
+  const money = useCurrency()
+  const navigate = useNavigate()
+  const [sel, setSel] = useState<Record<string, CollectSel>>({})
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: resolved, isPending } = useQuery({
+    queryKey: ['deposits', 'collect-resolve', customerId, tagged.map((x) => x.productId).join(',')],
+    queryFn: async (): Promise<Resolved[]> => {
+      const out: Resolved[] = []
+      for (const tp of tagged) {
+        const product = await dataClient.products.get(tp.productId)
+        if (!product) continue
+        const variants = await dataClient.products.listVariants(product.id)
+        const serials = product.isSerialized ? await dataClient.products.listInStockSerials(product.id) : []
+        out.push({ product, variants, serials })
+      }
+      return out
+    },
+    enabled: isElectron,
+  })
+
+  // Seed default selection once resolved.
+  useEffect(() => {
+    if (!resolved) return
+    setSel((prev) => {
+      if (Object.keys(prev).length) return prev
+      const next: Record<string, CollectSel> = {}
+      for (const r of resolved) next[r.product.id] = { include: true, variantId: r.variants[0]?.id ?? null, quantity: 1, serialIds: [] }
+      return next
+    })
+  }, [resolved])
+
+  const patch = (pid: string, p: Partial<CollectSel>) => setSel((s) => ({ ...s, [pid]: { ...s[pid]!, ...p } }))
+
+  const lineFor = (r: Resolved): CartLine[] => {
+    const s = sel[r.product.id]
+    if (!s || !s.include) return []
+    if (r.product.isSerialized) {
+      return s.serialIds.map((uid) => {
+        const u = r.serials.find((x) => x.id === uid)!
+        return { key: `serial:${uid}`, productId: r.product.id, name: `${r.product.name} · ${u.serialNumber}`, unitPrice: r.product.effectiveSellingPrice, quantity: 1, serialUnitId: uid }
+      })
+    }
+    if (r.variants.length > 0) {
+      const v = r.variants.find((x) => x.id === s.variantId) ?? r.variants[0]
+      if (!v || s.quantity <= 0) return []
+      return [{ key: `${r.product.id}:${v.id}`, productId: r.product.id, name: `${r.product.name} · ${v.name}`, unitPrice: v.priceOverride ?? r.product.sellingPrice, quantity: s.quantity, variantId: v.id, variantName: v.name }]
+    }
+    if (s.quantity <= 0) return []
+    return [{ key: r.product.id, productId: r.product.id, name: r.product.name, unitPrice: r.product.effectiveSellingPrice, quantity: s.quantity }]
+  }
+
+  const lines = (resolved ?? []).flatMap(lineFor)
+  const total = lines.reduce((a, l) => a + l.unitPrice * l.quantity, 0)
+
+  const proceed = () => {
+    if (!lines.length) { setError(t('dep.collectEmpty')); return }
+    navigate(`/sell?customer=${customerId}`, { state: { collectCart: lines, forceDeposit: true } })
   }
 
   return (
     <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="pay-modal" style={{ width: 400 }}>
-        <div className="pm-head"><h3>{t('dep.shareReceipt')}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+      <div className="pay-modal" style={{ width: 560 }}>
+        <div className="pm-head"><h3>{t('dep.collectTitle')}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
         <div className="pm-body">
-          {customerName ? <p className="hint" style={{ marginBottom: 12 }}>{customerName}</p> : null}
-          {mode === 'menu' ? (
-            <div style={{ display: 'grid', gap: 8 }}>
-              <Button type="button" variant="soft" loading={print.isPending} onClick={() => { setError(null); setDone(null); print.mutate() }}>{t('dep.print')}</Button>
-              <Button type="button" variant="soft" loading={download.isPending} onClick={() => { setError(null); setDone(null); download.mutate() }}>{t('dep.downloadPdf')}</Button>
-              <Button type="button" variant="soft" onClick={() => { setError(null); setDone(null); setMode('whatsapp') }}>{t('dep.sendWhatsapp')}</Button>
-              <Button type="button" variant="soft" onClick={() => { setError(null); setDone(null); setMode('email') }}>{t('dep.sendEmail')}</Button>
-            </div>
-          ) : (
-            <form onSubmit={(e) => { e.preventDefault(); submitSend() }}>
-              <div className="ff" style={{ marginBottom: 12 }}>
-                <label className="lbl2">{mode === 'whatsapp' ? t('dep.phone') : t('dep.email')}</label>
-                {mode === 'whatsapp'
-                  ? <PhoneInput value={phone} onChange={(v) => setPhone(v ?? '')} />
-                  : <Input value={email} type="email" placeholder="name@example.com" onChange={(e) => setEmail(e.target.value)} />}
-              </div>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <Button type="button" variant="soft" onClick={() => { setError(null); setMode('menu') }} disabled={send.isPending}>{t('dep.back')}</Button>
-                <Button type="submit" variant="primary" loading={send.isPending}>{t('dep.send')}</Button>
-              </div>
-            </form>
-          )}
-          {done ? <p style={{ color: 'var(--success)', fontSize: 12.5, marginTop: 10 }}>{done}</p> : null}
-          {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{error}</p> : null}
+          <p className="hint" style={{ marginBottom: 12 }}>{t('dep.collectHint')}</p>
+          {isPending ? <p className="hint">{t('dep.loading')}</p> : null}
+          {!isPending && (resolved ?? []).length === 0 ? <p className="hint">{t('dep.collectNoItems')}</p> : null}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 360, overflowY: 'auto' }}>
+            {(resolved ?? []).map((r) => {
+              const s = sel[r.product.id]
+              if (!s) return null
+              const serialized = r.product.isSerialized
+              const hasVariants = r.variants.length > 0
+              const availSerials = serialized ? r.serials.filter((u) => !hasVariants || !s.variantId || u.variantId === s.variantId) : []
+              return (
+                <div key={r.product.id} className="collect-row">
+                  <div className="collect-row-head">
+                    <label className="collect-check">
+                      <input type="checkbox" checked={s.include} onChange={(e) => patch(r.product.id, { include: e.target.checked })} />
+                      <span className="collect-name">{r.product.name}</span>
+                    </label>
+                    {!serialized ? <span className="collect-price">{money.format((r.variants.find((v) => v.id === s.variantId)?.priceOverride ?? r.product.effectiveSellingPrice))}</span> : null}
+                  </div>
+
+                  {s.include ? (
+                    <div className="collect-row-body">
+                      {hasVariants ? (
+                        <Select value={s.variantId ?? ''} onChange={(e) => patch(r.product.id, { variantId: e.target.value, serialIds: [] })} style={{ maxWidth: 220 }}>
+                          {r.variants.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        </Select>
+                      ) : null}
+
+                      {serialized ? (
+                        availSerials.length === 0 ? (
+                          <span className="hint">{t('dep.noSerials')}</span>
+                        ) : (
+                          <div className="collect-serials">
+                            {availSerials.map((u) => {
+                              const on = s.serialIds.includes(u.id)
+                              return (
+                                <button type="button" key={u.id} className={`tag-opt${on ? ' on' : ''}`} onClick={() => patch(r.product.id, { serialIds: on ? s.serialIds.filter((x) => x !== u.id) : [...s.serialIds, u.id] })}>
+                                  <span className="tag-check">{on ? I.check : null}</span>
+                                  <span className="tag-name">{u.serialNumber}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )
+                      ) : (
+                        <div className="qty-step">
+                          <button type="button" onClick={() => patch(r.product.id, { quantity: Math.max(1, s.quantity - 1) })}>−</button>
+                          <span>{s.quantity}</span>
+                          <button type="button" onClick={() => patch(r.product.id, { quantity: s.quantity + 1 })}>+</button>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="recv-tot grand" style={{ marginTop: 14 }}><span>{t('dep.collectTotal')}</span><span>{money.format(total)}</span></div>
+          {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">{error}</p> : null}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <Button type="button" variant="soft" onClick={onClose}>{t('dep.cancel')}</Button>
+            <Button type="button" variant="primary" disabled={!lines.length} onClick={proceed}>{t('dep.collectProceed')}</Button>
+          </div>
         </div>
       </div>
     </div>
