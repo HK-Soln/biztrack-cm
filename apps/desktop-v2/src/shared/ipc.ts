@@ -97,6 +97,16 @@ export const IPC = {
   debtsOffset: 'debts:offset',
   openingBalancesUpsert: 'opening-balances:upsert',
   openingBalancesListForContact: 'opening-balances:list-for-contact',
+  expensesList: 'expenses:list',
+  expensesGet: 'expenses:get',
+  expensesSummary: 'expenses:summary',
+  expensesTrend: 'expenses:trend',
+  expensesCreate: 'expenses:create',
+  expensesUpdate: 'expenses:update',
+  expensesSetStatus: 'expenses:set-status',
+  expensesRemove: 'expenses:remove',
+  expenseCategoriesListAll: 'expense-categories:list-all',
+  expenseCategoriesCreate: 'expense-categories:create',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -982,6 +992,86 @@ export interface LocalSalesSummary {
   refundAmount: number
   currency: string
 }
+
+// --- Expenses ---
+export interface LocalExpenseCategory {
+  id: string
+  name: string
+  slug: string | null
+  color: string | null
+  icon: string | null
+  isSystem: boolean
+  sortOrder: number
+  expenseCount?: number
+}
+export interface LocalExpense {
+  id: string
+  description: string
+  amount: number
+  currency: string
+  expenseDate: string
+  vendor: string | null
+  notes: string | null
+  isRecurring: boolean
+  status: string
+  paymentMethod: string | null
+  categoryId: string | null
+  categoryName: string | null
+  categoryColor: string | null
+  receiptUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+export interface ExpenseInput {
+  categoryId: string
+  description: string
+  amount: number
+  expenseDate: string
+  vendor?: string | null
+  notes?: string | null
+  isRecurring?: boolean
+  status?: string
+  paymentMethod?: string | null
+  receiptUrl?: string | null
+}
+export interface ExpenseCategoryInput {
+  name: string
+  color: string
+  icon?: string | null
+}
+export interface ExpensesListQuery extends ListQueryT {
+  categoryId?: string
+  status?: string
+  dateFrom?: string
+  dateTo?: string
+}
+/** A category slice of the period's spend (for the donut + legend + largest-category KPI). */
+export interface ExpenseCategorySlice {
+  categoryId: string
+  name: string
+  color: string
+  amount: number
+  percentage: number
+}
+/** KPI strip + chart data for the Expenses dashboard over the period. */
+export interface LocalExpenseSummary {
+  total: number
+  count: number
+  previousTotal: number
+  changePct: number
+  avgPerDay: number
+  pendingCount: number
+  pendingAmount: number
+  largest: ExpenseCategorySlice | null
+  byCategory: ExpenseCategorySlice[]
+  currency: string
+}
+export interface ExpenseTrendItem {
+  year: number
+  month: number
+  label: string
+  total: number
+}
 export interface LocalSaleItem {
   id: string
   productId: string
@@ -1361,6 +1451,25 @@ export interface BridgeApi {
     upsert: (input: OpeningBalanceInput) => Promise<LocalOpeningBalance>
     /** A contact's opening balances (one per direction). */
     listForContact: (contactId: string) => Promise<LocalOpeningBalance[]>
+  }
+  expenses: {
+    /** Paginated expense ledger (newest first). */
+    list: (query?: ExpensesListQuery) => Promise<PaginatedT<LocalExpense> & { totalAmount: number }>
+    get: (id: string) => Promise<LocalExpense | null>
+    /** KPI strip + donut + largest/pending totals over the period. */
+    summary: (query?: ExpensesListQuery) => Promise<LocalExpenseSummary>
+    /** Last-6-months spend trend (for the bar chart). */
+    trend: () => Promise<ExpenseTrendItem[]>
+    create: (input: ExpenseInput) => Promise<LocalExpense>
+    update: (id: string, input: ExpenseInput) => Promise<LocalExpense>
+    /** Flip status; marking PAID requires a payment method, PENDING clears it. */
+    setStatus: (id: string, status: string, paymentMethod?: string | null) => Promise<LocalExpense>
+    remove: (id: string) => Promise<void>
+  }
+  expenseCategories: {
+    /** System + business expense categories (for the filter + form picker). */
+    listAll: () => Promise<LocalExpenseCategory[]>
+    create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>

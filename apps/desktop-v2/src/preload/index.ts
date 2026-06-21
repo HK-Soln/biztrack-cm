@@ -127,6 +127,20 @@ const api: BridgeApi = {
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
     offset: (contactId) => ipcRenderer.invoke(IPC.debtsOffset, contactId),
   },
+  expenses: {
+    list: (query) => ipcRenderer.invoke(IPC.expensesList, query),
+    get: (id) => ipcRenderer.invoke(IPC.expensesGet, id),
+    summary: (query) => ipcRenderer.invoke(IPC.expensesSummary, query),
+    trend: () => ipcRenderer.invoke(IPC.expensesTrend),
+    create: (input) => ipcRenderer.invoke(IPC.expensesCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.expensesUpdate, id, input),
+    setStatus: (id, status, paymentMethod) => ipcRenderer.invoke(IPC.expensesSetStatus, id, status, paymentMethod),
+    remove: (id) => ipcRenderer.invoke(IPC.expensesRemove, id),
+  },
+  expenseCategories: {
+    listAll: () => ipcRenderer.invoke(IPC.expenseCategoriesListAll),
+    create: (input) => ipcRenderer.invoke(IPC.expenseCategoriesCreate, input),
+  },
   openingBalances: {
     upsert: (input) => ipcRenderer.invoke(IPC.openingBalancesUpsert, input),
     listForContact: (contactId) => ipcRenderer.invoke(IPC.openingBalancesListForContact, contactId),

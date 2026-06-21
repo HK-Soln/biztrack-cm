@@ -34,6 +34,7 @@ import { PoDetail } from '@/routes/PoDetail'
 import { ReceivePo } from '@/routes/ReceivePo'
 import { Sell } from '@/routes/Sell'
 import { Sales } from '@/routes/Sales'
+import { Expenses } from '@/routes/Expenses'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -94,7 +95,7 @@ export const router = createHashRouter([
       { path: '/purchasing/orders/new', element: <PoForm /> },
       { path: '/purchasing/orders/:id', element: <PoDetail /> },
       { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
-      { path: '/expenses', element: <Placeholder titleKey="nav.expenses" /> },
+      { path: '/expenses', element: <Expenses /> },
       { path: '/deposits', element: <Placeholder titleKey="nav.deposits" /> },
       { path: '/reports', element: <Placeholder titleKey="nav.reports" /> },
       { path: '/settings', element: <Placeholder titleKey="nav.settings" /> },

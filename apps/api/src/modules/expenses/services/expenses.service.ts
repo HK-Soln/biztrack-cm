@@ -7,7 +7,7 @@ import type {
   ExpensesQuery,
   JwtPayload,
 } from '@biztrack/types'
-import { BusinessMemberRole, PaymentMethod } from '@biztrack/types'
+import { BusinessMemberRole, ExpenseStatus, PaymentMethod } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { I18nService } from 'nestjs-i18n'
 import { IsNull, Repository } from 'typeorm'
@@ -57,11 +57,13 @@ export class ExpensesService {
           description: dto.description.trim(),
           amount: this.roundMoney(dto.amount),
           currency: 'XAF',
-          paymentMethod: this.normalizePaymentMethod(dto.paymentMethod),
+          // Pending expenses carry no payment method until settled.
+          paymentMethod: (dto.status ?? ExpenseStatus.PAID) === ExpenseStatus.PENDING ? null : this.normalizePaymentMethod(dto.paymentMethod),
           receiptUrl: this.normalizeOptionalString(dto.receiptUrl),
           vendor: this.normalizeOptionalString(dto.vendor),
           notes: this.normalizeOptionalString(dto.notes),
           isRecurring: dto.isRecurring ?? false,
+          status: dto.status ?? ExpenseStatus.PAID,
           date: expenseDate,
         }),
       )
@@ -85,15 +87,19 @@ export class ExpensesService {
 
       const nextAmount = dto.amount === undefined ? existing.amount : this.roundMoney(dto.amount)
       const nextRecurring = dto.isRecurring ?? existing.isRecurring
+      const nextStatus = dto.status ?? existing.status
 
       await this.expensesRepo.update(id, {
         categoryId: nextCategoryId,
         description: dto.description?.trim() ?? existing.description,
         amount: nextAmount,
+        // Pending → no payment method; otherwise keep/replace it.
         paymentMethod:
-          dto.paymentMethod === undefined
-            ? existing.paymentMethod
-            : this.normalizePaymentMethod(dto.paymentMethod),
+          nextStatus === ExpenseStatus.PENDING
+            ? null
+            : dto.paymentMethod === undefined
+              ? existing.paymentMethod ?? this.normalizePaymentMethod(undefined)
+              : this.normalizePaymentMethod(dto.paymentMethod),
         receiptUrl:
           dto.receiptUrl === undefined
             ? existing.receiptUrl ?? null
@@ -102,6 +108,7 @@ export class ExpensesService {
           dto.vendor === undefined ? existing.vendor ?? null : this.normalizeOptionalString(dto.vendor),
         notes: dto.notes === undefined ? existing.notes ?? null : this.normalizeOptionalString(dto.notes),
         isRecurring: nextRecurring,
+        status: nextStatus,
         date: nextDate,
         updatedAt: new Date(),
       })
@@ -307,6 +314,7 @@ export class ExpensesService {
       vendor?: string | null
       notes?: string | null
       isRecurring?: boolean
+      status?: string | null
       paymentMethod?: PaymentMethod | string | null
       receiptUrl?: string | null
       currency?: string | null
@@ -350,11 +358,12 @@ export class ExpensesService {
           description: payload.description.trim(),
           amount: this.roundMoney(payload.amount),
           currency: payload.currency?.trim() || 'XAF',
-          paymentMethod: this.normalizePaymentMethod(payload.paymentMethod ?? undefined),
+          paymentMethod: payload.status === ExpenseStatus.PENDING || !payload.paymentMethod ? null : this.normalizePaymentMethod(payload.paymentMethod),
           receiptUrl: this.normalizeOptionalString(payload.receiptUrl),
           vendor: this.normalizeOptionalString(payload.vendor),
           notes: this.normalizeOptionalString(payload.notes),
           isRecurring: payload.isRecurring ?? false,
+          status: payload.status === ExpenseStatus.PENDING ? ExpenseStatus.PENDING : ExpenseStatus.PAID,
           date: expenseDate,
           createdAt,
           updatedAt: recordUpdatedAt,

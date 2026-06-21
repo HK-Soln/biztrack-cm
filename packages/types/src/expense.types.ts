@@ -5,6 +5,12 @@ import type { PaymentMethod } from './sale.types'
 
 export type ExpenseRangeGroupBy = 'MONTH' | 'CATEGORY'
 
+/** Payment status of an expense. PAID = settled; PENDING = recorded but not yet paid. */
+export enum ExpenseStatus {
+  PAID = 'PAID',
+  PENDING = 'PENDING',
+}
+
 export interface ExpenseCategory {
   id: string
   businessId?: string | null
@@ -31,6 +37,7 @@ export interface Expense {
   vendor?: string | null
   notes?: string | null
   isRecurring: boolean
+  status: ExpenseStatus | string
   recordedById: string
   recordedBy?: ProductUserSummary | null
   paymentMethod?: PaymentMethod | string | null
@@ -101,6 +108,7 @@ export interface CreateExpenseRequest {
   vendor?: string
   notes?: string
   isRecurring?: boolean
+  status?: ExpenseStatus | string
   paymentMethod?: PaymentMethod | string
   receiptUrl?: string
 }
