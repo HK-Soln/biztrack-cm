@@ -57,6 +57,12 @@ export enum Resource {
   CUSTOM_ROLES = 'CUSTOM_ROLES',
   AGENT_TRACK = 'AGENT_TRACK',
 
+  // Online storefront: the store itself is BUSINESS+PRO; the drag-and-drop
+  // builder and custom domains are PRO-only (see GitHub issue #91).
+  ONLINE_STORE = 'ONLINE_STORE',
+  ONLINE_STORE_BUILDER = 'ONLINE_STORE_BUILDER',
+  ONLINE_STORE_CUSTOM_DOMAIN = 'ONLINE_STORE_CUSTOM_DOMAIN',
+
   STAFF_INVITE = 'STAFF_INVITE',
   STAFF_MANAGE = 'STAFF_MANAGE',
   STAFF_LIMIT_3 = 'STAFF_LIMIT_3',
@@ -155,6 +161,7 @@ export const DEFAULT_PLAN_RESOURCES: Record<SubscriptionPlan, Resource[]> = {
     Resource.BRANCHES_MULTI,
     Resource.BRANCHES_DASHBOARD,
     Resource.BRANCHES_REPORTS,
+    Resource.ONLINE_STORE,
   ]),
   [SubscriptionPlan.PRO]: unique([
     ...FREE_PERMISSIONS,
@@ -181,6 +188,9 @@ export const DEFAULT_PLAN_RESOURCES: Record<SubscriptionPlan, Resource[]> = {
     Resource.BRANCHES_REPORTS,
     Resource.API_ACCESS,
     Resource.AGENT_TRACK,
+    Resource.ONLINE_STORE,
+    Resource.ONLINE_STORE_BUILDER,
+    Resource.ONLINE_STORE_CUSTOM_DOMAIN,
   ]),
 }
 

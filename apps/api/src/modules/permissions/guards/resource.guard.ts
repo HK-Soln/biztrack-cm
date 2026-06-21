@@ -17,7 +17,12 @@ export class ResourceGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.get<Resource>('required_resource', context.getHandler())
+    // Handler-level metadata wins; otherwise fall back to a controller-level
+    // @RequireResource (lets a whole controller be gated by one resource).
+    const required = this.reflector.getAllAndOverride<Resource>('required_resource', [
+      context.getHandler(),
+      context.getClass(),
+    ])
     if (!required) return true
 
     const req = context.switchToHttp().getRequest()
