@@ -121,7 +121,7 @@ export function OnlineOrders() {
           <OnlineError error={list.error} onRetry={() => list.refetch()} />
         ) : (
           <>
-            <table>
+            <table className="ltbl">
               <thead><tr>
                 <th>{t('online.colOrder')}</th><th>{t('online.colPlaced')}</th><th>{t('online.colCustomer')}</th>
                 <th className="center">{t('online.colItems')}</th><th>{t('online.colFulfilment')}</th><th>{t('online.colPayment')}</th>
