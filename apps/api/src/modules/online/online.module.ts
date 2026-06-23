@@ -4,6 +4,7 @@ import { OnlineStore } from '@/entities/online-store.entity'
 import { OnlineCart } from '@/entities/online-cart.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
+import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
@@ -22,6 +23,7 @@ import { OnlineOrdersService } from './online-orders.service'
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      Business,
       OnlineStore,
       OnlineCart,
       OnlineOrder,

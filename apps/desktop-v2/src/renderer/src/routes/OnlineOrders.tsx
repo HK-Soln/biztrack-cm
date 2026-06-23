@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button } from '@biztrack/ui/biztrack'
+import { Button, FilterSelect } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
@@ -32,6 +32,15 @@ function statusMeta(t: ReturnType<typeof useT>, s: OnlineOrderStatus): { label: 
     case 'CANCELLED': return { label: t('online.stCancelled'), cls: 'st-out' }
     case 'REFUNDED': return { label: t('online.stRefunded'), cls: 'st-out' }
     default: return { label: s, cls: 'st-neutral' }
+  }
+}
+function statusDot(s: OnlineOrderStatus): string {
+  switch (s) {
+    case 'PENDING': return 'var(--brand)'
+    case 'CONFIRMED': case 'PREPARING': return 'var(--warning)'
+    case 'DISPATCHED': return 'var(--text-muted)'
+    case 'DELIVERED': return 'var(--success)'
+    default: return 'var(--danger)'
   }
 }
 function advanceLabel(t: ReturnType<typeof useT>, s: OnlineOrderStatus): string {
@@ -100,28 +109,40 @@ export function OnlineOrders() {
 
       <div className="panel">
         <div className="panel-head">
-          <h3>{t('online.orders')}</h3><div className="spacer" style={{ flex: 1 }} />
-          <select className="select" style={{ height: 36 }} value={status} onChange={(e) => setStatus(e.target.value as OnlineOrderStatus | '')}>
-            <option value="">{t('online.allStatuses')}</option>
-            {FLOW.map((s) => <option key={s} value={s}>{statusMeta(t, s).label}</option>)}
-            <option value="CANCELLED">{statusMeta(t, 'CANCELLED').label}</option>
-          </select>
-          <select className="select" style={{ height: 36 }} value={fulfil} onChange={(e) => setFulfil(e.target.value as '' | 'DELIVERY' | 'PICKUP')}>
-            <option value="">{t('online.allFulfilment')}</option>
-            <option value="DELIVERY">{t('online.delivery')}</option>
-            <option value="PICKUP">{t('online.pickup')}</option>
-          </select>
-          <div className="field" style={{ width: 210 }}>
+          <h3 style={{ flex: 'none' }}>{t('online.orders')}</h3>
+          <div className="field" style={{ flex: 1, minWidth: 200 }}>
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
-            <input className="input ic" style={{ height: 36 }} placeholder={t('online.searchOrders')} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="input ic" style={{ height: 38 }} placeholder={t('online.searchOrders')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+          <FilterSelect
+            ariaLabel={t('online.colStatus')}
+            value={status}
+            onChange={(v) => setStatus(v as OnlineOrderStatus | '')}
+            minWidth={170}
+            options={[
+              { value: '', label: t('online.allStatuses') },
+              ...FLOW.map((s) => ({ value: s, label: statusMeta(t, s).label, dot: statusDot(s) })),
+              { value: 'CANCELLED', label: statusMeta(t, 'CANCELLED').label, dot: statusDot('CANCELLED') },
+            ]}
+          />
+          <FilterSelect
+            ariaLabel={t('online.colFulfilment')}
+            value={fulfil}
+            onChange={(v) => setFulfil(v as '' | 'DELIVERY' | 'PICKUP')}
+            minWidth={150}
+            options={[
+              { value: '', label: t('online.allFulfilment') },
+              { value: 'DELIVERY', label: t('online.delivery') },
+              { value: 'PICKUP', label: t('online.pickup') },
+            ]}
+          />
         </div>
 
         {list.error ? (
           <OnlineError error={list.error} onRetry={() => list.refetch()} />
         ) : (
           <>
-            <table>
+            <table className="ltbl">
               <thead><tr>
                 <th>{t('online.colOrder')}</th><th>{t('online.colPlaced')}</th><th>{t('online.colCustomer')}</th>
                 <th className="center">{t('online.colItems')}</th><th>{t('online.colFulfilment')}</th><th>{t('online.colPayment')}</th>

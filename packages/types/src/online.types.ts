@@ -46,6 +46,8 @@ export interface OnlineStore {
   socialInstagram?: string | null
   socialFacebook?: string | null
   socialTiktok?: string | null
+  socialX?: string | null
+  socialLinkedin?: string | null
   status: OnlineStoreStatus
   publishedAt?: IsoDateString | null
   hasUnpublishedChanges: boolean
@@ -99,6 +101,8 @@ export interface UpdateOnlineStoreRequest {
   socialInstagram?: string | null
   socialFacebook?: string | null
   socialTiktok?: string | null
+  socialX?: string | null
+  socialLinkedin?: string | null
 }
 
 /** Product online-store fields (Phase 3I), set on create/update. */
