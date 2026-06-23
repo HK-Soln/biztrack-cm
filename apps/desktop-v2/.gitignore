@@ -7,3 +7,7 @@ dist
 .env
 .DS_Store
 .smoke/
+
+# Vite/electron-vite generated temp configs
+electron.vite.config.*.mjs
+*.timestamp-*.mjs
