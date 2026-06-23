@@ -85,6 +85,7 @@ import type {
   OnlineOrderListResult,
   UpdateOrderStatusRequest,
   OnlineOrdersQuery,
+  OnlineSlugCheck,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
@@ -293,6 +294,7 @@ export interface DataClient {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResult>
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
+    checkSlug: (slug: string) => Promise<OnlineSlugCheck>
   }
 }
 
@@ -474,6 +476,7 @@ function electronAdapter(): DataClient {
       listOrders: (query) => window.api.online.listOrders(query),
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
+      checkSlug: (slug) => window.api.online.checkSlug(slug),
     },
   }
 }
@@ -552,7 +555,7 @@ function cloudAdapter(): DataClient {
     sales: { create: notWired, list: notWired, listAll: notWired, summary: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
     savings: { getForCustomer: notWired },
     deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, reportHtml: notWired },
-    online: { getStore: notWired, createStore: notWired, updateStore: notWired, publishStore: notWired, listOrders: notWired, getOrder: notWired, updateOrderStatus: notWired },
+    online: { getStore: notWired, createStore: notWired, updateStore: notWired, publishStore: notWired, listOrders: notWired, getOrder: notWired, updateOrderStatus: notWired, checkSlug: notWired },
   }
 }
 

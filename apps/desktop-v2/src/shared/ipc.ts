@@ -123,6 +123,7 @@ export const IPC = {
   onlineOrdersList: 'online:orders-list',
   onlineOrderGet: 'online:order-get',
   onlineOrderUpdateStatus: 'online:order-update-status',
+  onlineSlugCheck: 'online:slug-check',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1209,6 +1210,13 @@ export interface OnlineOrdersQuery {
   limit?: number
 }
 
+/** Result of a subdomain availability check. */
+export interface OnlineSlugCheck {
+  slug: string
+  available: boolean
+  reason?: 'invalid' | 'reserved' | 'taken'
+}
+
 /** KPI strip for the Deposits dashboard. */
 export interface LocalDepositSummary {
   openCount: number
@@ -1657,5 +1665,6 @@ export interface BridgeApi {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
+    checkSlug: (slug: string) => Promise<OnlineSlugCheck>
   }
 }

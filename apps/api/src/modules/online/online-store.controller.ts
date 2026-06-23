@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { JwtPayload } from '@biztrack/types'
 import { Resource } from '@biztrack/types'
@@ -24,6 +24,12 @@ export class OnlineStoreController {
   @ApiOperation({ summary: 'Get the current business online store config (null if none)' })
   getStore(@CurrentUser() user: JwtPayload) {
     return this.onlineStoreService.getStore(user.businessId as string)
+  }
+
+  @Get('slug-check')
+  @ApiOperation({ summary: 'Check whether a subdomain slug is available (format + reserved + uniqueness)' })
+  checkSlug(@CurrentUser() user: JwtPayload, @Query('slug') slug: string) {
+    return this.onlineStoreService.checkSlug(user.businessId as string, slug ?? '')
   }
 
   @Post()

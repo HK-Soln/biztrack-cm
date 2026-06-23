@@ -11,4 +11,5 @@ export function registerOnlineIpc(online: OnlineService): void {
   ipcMain.handle(IPC.onlineOrdersList, (_e, query?: OnlineOrdersQuery) => online.listOrders(query))
   ipcMain.handle(IPC.onlineOrderGet, (_e, id: string) => online.getOrder(id))
   ipcMain.handle(IPC.onlineOrderUpdateStatus, (_e, id: string, input: UpdateOrderStatusRequest) => online.updateOrderStatus(id, input))
+  ipcMain.handle(IPC.onlineSlugCheck, (_e, slug: string) => online.checkSlug(slug))
 }

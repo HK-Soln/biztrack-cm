@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
+import { STORE_ROOT_DOMAIN } from '@/lib/config'
+import { useSessionStore } from '@/stores/session.store'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
@@ -56,25 +58,32 @@ export function OnlineStore() {
 
 // --- first-run: no store yet ----------------------------------------------
 function CreateStore({ t, onCreated }: { t: ReturnType<typeof useT>; onCreated: () => void }) {
-  const [name, setName] = useState('')
+  // Prefill from the business name captured at onboarding (the rest is seeded server-side).
+  const businessName = useSessionStore((s) => s.status.businessName)
+  const [name, setName] = useState(businessName ?? '')
   const [error, setError] = useState<string | null>(null)
   const create = useMutation({
     mutationFn: () => dataClient.online.createStore({ storeName: name.trim() }),
     onSuccess: onCreated,
     onError: (e) => setError(errorMessage(e, t('online.saveError'))),
   })
+  const submit = () => {
+    if (!name.trim()) { setError(t('online.nameRequired')); return }
+    setError(null)
+    create.mutate()
+  }
   return (
     <div className="frame">
-      <div className="online-gate">
+      <form className="online-gate" onSubmit={(e) => { e.preventDefault(); submit() }}>
         <div className="online-gate-ic">{ICO.globe}</div>
         <h2>{t('online.createTitle')}</h2>
         <p>{t('online.createBody')}</p>
         <div style={{ width: 320, maxWidth: '100%' }}>
-          <Input value={name} placeholder={t('online.storeNamePlaceholder')} onChange={(e) => setName(e.target.value)} />
+          <Input value={name} placeholder={t('online.storeNamePlaceholder')} autoFocus error={!!error} onChange={(e) => { setName(e.target.value); setError(null) }} />
         </div>
         {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5 }} role="alert">{error}</p> : null}
-        <Button variant="primary" disabled={!name.trim()} loading={create.isPending} onClick={() => { setError(null); create.mutate() }}>{t('online.createCta')}</Button>
-      </div>
+        <Button type="submit" variant="primary" loading={create.isPending}>{t('online.createCta')}</Button>
+      </form>
     </div>
   )
 }
@@ -89,13 +98,33 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }))
 
   const brand = THEMES.find((x) => x.id === form.themeId)?.brand ?? '#16467A'
-  const host = `${form.storeSlug || 'yourshop'}.biztrack.cm`
-  const slugState = useMemo(() => {
-    const v = form.storeSlug.toLowerCase()
+  const host = `${form.storeSlug || 'yourshop'}.${STORE_ROOT_DOMAIN}`
+
+  // Live availability: instant client checks (empty/format/reserved), then a debounced
+  // server check for uniqueness (skipped while the slug equals the store's current one).
+  const [debouncedSlug, setDebouncedSlug] = useState(form.storeSlug)
+  useEffect(() => { const id = setTimeout(() => setDebouncedSlug(form.storeSlug), 350); return () => clearTimeout(id) }, [form.storeSlug])
+  const isOwnSlug = debouncedSlug.trim().toLowerCase() === store.storeSlug.toLowerCase()
+  const localReserved = RESERVED.includes(debouncedSlug.trim().toLowerCase())
+  const slugCheck = useQuery({
+    queryKey: ['online', 'slug-check', debouncedSlug],
+    queryFn: () => dataClient.online.checkSlug(debouncedSlug.trim()),
+    enabled: isElectron && !!debouncedSlug.trim() && !isOwnSlug && !localReserved,
+    retry: false,
+  })
+  const slugState = useMemo<{ ok: boolean; msg: string; checking?: boolean }>(() => {
+    const v = form.storeSlug.trim().toLowerCase()
     if (!v) return { ok: false, msg: t('online.slugEmpty') }
     if (RESERVED.includes(v)) return { ok: false, msg: t('online.slugReserved').replace('{slug}', v) }
-    return { ok: true, msg: t('online.slugAvailable') }
-  }, [form.storeSlug, t])
+    if (isOwnSlug) return { ok: true, msg: t('online.slugAvailable') }
+    if (v !== debouncedSlug.trim().toLowerCase() || slugCheck.isFetching) return { ok: true, checking: true, msg: t('online.slugChecking') }
+    const r = slugCheck.data
+    if (!r) return { ok: true, checking: true, msg: t('online.slugChecking') }
+    if (r.available) return { ok: true, msg: t('online.slugAvailable') }
+    if (r.reason === 'taken') return { ok: false, msg: t('online.slugTaken') }
+    if (r.reason === 'reserved') return { ok: false, msg: t('online.slugReserved').replace('{slug}', v) }
+    return { ok: false, msg: t('online.slugInvalid') }
+  }, [form.storeSlug, debouncedSlug, isOwnSlug, slugCheck.isFetching, slugCheck.data, t])
 
   const save = useMutation({
     mutationFn: () => {
@@ -155,9 +184,9 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
             <label className="lbl">{t('online.subdomain')}</label>
             <div className="dom-field">
               <input value={form.storeSlug} spellCheck={false} autoComplete="off" onChange={(e) => set('storeSlug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} />
-              <span className="suffix">.biztrack.cm</span>
+              <span className="suffix">.{STORE_ROOT_DOMAIN}</span>
             </div>
-            <div className={`availrow ${slugState.ok ? 'ok' : 'bad'}`}>{slugState.ok ? ICO.check : ICO.lock}<span>{slugState.msg}</span></div>
+            <div className={`availrow ${slugState.checking ? '' : slugState.ok ? 'ok' : 'bad'}`}>{slugState.checking ? null : slugState.ok ? ICO.check : ICO.lock}<span>{slugState.msg}</span></div>
             <div className="reserved-note">{t('online.slugNote')}</div>
             <div className="divider" />
             <div className="pro-lock">
