@@ -18,6 +18,22 @@ const THEMES: Array<{ id: string; name: string; brand: string }> = [
 ]
 const LAYOUTS: OnlineStoreLayout[] = ['classic', 'boutique', 'catalog', 'landing']
 
+// Distinct wireframe per template (matches design-store-config): classic = hero + 2×2 grid,
+// boutique = centered bar + hero + categories pill + grid, catalog = dense rows, landing =
+// big hero + CTA. Purely illustrative thumbnails.
+function templateWire(tpl: OnlineStoreLayout) {
+  switch (tpl) {
+    case 'classic':
+      return <><div className="wbar" /><div className="whero" style={{ height: 22 }} /><div className="wrow"><div className="wb" /><div className="wb" /></div><div className="wrow"><div className="wb" /><div className="wb" /></div></>
+    case 'boutique':
+      return <><div className="wbar c" /><div className="whero" style={{ height: 20 }} /><div className="wpill" /><div className="wrow"><div className="wb" /><div className="wb" /></div></>
+    case 'catalog':
+      return <><div className="wbar" /><div className="wpill" /><div className="wb" style={{ height: 11 }} /><div className="wb" style={{ height: 11 }} /><div className="wb" style={{ height: 11 }} /></>
+    case 'landing':
+      return <><div className="wbar" /><div className="whero" style={{ height: 30 }} /><div className="wpill" /><div className="wb" style={{ height: 14 }} /></>
+  }
+}
+
 const ICO = {
   globe: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></svg>,
   lock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>,
@@ -202,8 +218,8 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
             <div className="tpl-grid">
               {LAYOUTS.map((tpl) => (
                 <button key={tpl} type="button" className={`tpl${form.layoutTemplate === tpl ? ' sel' : ''}`} onClick={() => set('layoutTemplate', tpl)}>
-                  <div className="wire"><div className="wbar" /><div className="whero" /><div className="wrow"><div className="wb" /><div className="wb" /></div></div>
-                  <div className="pn">{t(`online.layout.${tpl}`)}{ICO.check && <span className="ck">{ICO.check}</span>}</div>
+                  <div className="wire">{templateWire(tpl)}</div>
+                  <div className="pn">{t(`online.layout.${tpl}`)}<span className="ck">{ICO.check}</span></div>
                   <div className="ds">{t(`online.layoutDesc.${tpl}`)}</div>
                 </button>
               ))}
