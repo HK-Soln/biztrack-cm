@@ -130,6 +130,12 @@ export class OnlineStore extends BaseEntity {
   @Column({ name: 'social_tiktok', length: 200, nullable: true, type: 'varchar' })
   socialTiktok?: string | null
 
+  @Column({ name: 'social_x', length: 200, nullable: true, type: 'varchar' })
+  socialX?: string | null
+
+  @Column({ name: 'social_linkedin', length: 200, nullable: true, type: 'varchar' })
+  socialLinkedin?: string | null
+
   // ---- Lifecycle (draft → published → suspended) ----
   @Column({ length: 12, default: 'draft' })
   status!: string

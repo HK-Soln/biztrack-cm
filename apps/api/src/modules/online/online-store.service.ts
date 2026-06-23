@@ -114,6 +114,8 @@ export class OnlineStoreService {
         socialInstagram: dto.socialInstagram === undefined ? store.socialInstagram : (dto.socialInstagram?.trim() ?? null),
         socialFacebook: dto.socialFacebook === undefined ? store.socialFacebook : (dto.socialFacebook?.trim() ?? null),
         socialTiktok: dto.socialTiktok === undefined ? store.socialTiktok : (dto.socialTiktok?.trim() ?? null),
+        socialX: dto.socialX === undefined ? store.socialX : (dto.socialX?.trim() ?? null),
+        socialLinkedin: dto.socialLinkedin === undefined ? store.socialLinkedin : (dto.socialLinkedin?.trim() ?? null),
         // Any edit makes the live site stale until the next publish.
         hasUnpublishedChanges: true,
       })

@@ -245,6 +245,18 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @IsString()
   @MaxLength(200)
   socialTiktok?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  socialX?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  socialLinkedin?: string | null
 }
 
 export class UpdateProductOnlineDto implements ProductOnlineFields {

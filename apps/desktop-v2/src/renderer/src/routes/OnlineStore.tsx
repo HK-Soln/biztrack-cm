@@ -7,6 +7,7 @@ import { useSessionStore } from '@/stores/session.store'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
+import { FileUpload } from '@/components/FileUpload'
 import type { OnlineStore as Store, OnlineStoreAppearance, OnlineStoreLayout, UpdateOnlineStoreRequest } from '@shared/ipc'
 
 const RESERVED = ['www', 'app', 'api', 'admin', 'mail', 'cdn', 'store', 'shop', 'help', 'status', 'static', 'assets', 'blog']
@@ -44,18 +45,29 @@ const ICO = {
   rocket: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 19V5M5 12l7-7 7 7" /></svg>,
 }
 
+// Social platform glyphs (leading icon per profile field).
+const SOC = {
+  instagram: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="1" /></svg>,
+  facebook: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M14 9V7c0-1 .5-2 2-2h2V2h-3c-2.5 0-4 1.6-4 4v3H8v3h3v8h3v-8h2.5l.5-3Z" /></svg>,
+  x: <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M17.5 3h3l-7 8 8.2 10h-6.4l-5-6.1L8 21H5l7.4-8.5L4.5 3h6.5l4.5 5.6L17.5 3Zm-1.1 16h1.7L8 4.8H6.2L16.4 19Z" /></svg>,
+  linkedin: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M7 10v7M7 7v.01M11 17v-4a2 2 0 0 1 4 0v4M11 17v-7" /></svg>,
+  whatsapp: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 21l1.6-5A8 8 0 1 1 8 19.4L3 21Z" /><path d="M8.5 9.5c.5 3 3 5.5 6 6" /></svg>,
+  tiktok: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M14 4v9a4 4 0 1 1-3-3.9" /><path d="M14 4a5 5 0 0 0 5 5" /></svg>,
+}
+
 type Form = {
   storeName: string; storeSlug: string; layoutTemplate: OnlineStoreLayout; themeId: string
   appearance: OnlineStoreAppearance; catalogBinding: 'snapshot' | 'live'; showOutOfStock: boolean; showLowStockBadges: boolean
-  seoTitle: string; seoDescription: string; robotsIndex: boolean
-  socialInstagram: string; socialFacebook: string; whatsappNumber: string; socialTiktok: string
+  seoTitle: string; seoDescription: string; ogImageUrl: string; robotsIndex: boolean
+  socialInstagram: string; socialFacebook: string; socialX: string; socialLinkedin: string; whatsappNumber: string; socialTiktok: string
 }
 function toForm(s: Store): Form {
   return {
     storeName: s.storeName, storeSlug: s.storeSlug, layoutTemplate: s.layoutTemplate, themeId: s.themeId,
     appearance: s.appearance, catalogBinding: s.catalogBinding, showOutOfStock: s.showOutOfStock, showLowStockBadges: s.showLowStockBadges,
-    seoTitle: s.seoTitle ?? '', seoDescription: s.seoDescription ?? '', robotsIndex: s.robotsIndex,
-    socialInstagram: s.socialInstagram ?? '', socialFacebook: s.socialFacebook ?? '', whatsappNumber: s.whatsappNumber ?? '', socialTiktok: s.socialTiktok ?? '',
+    seoTitle: s.seoTitle ?? '', seoDescription: s.seoDescription ?? '', ogImageUrl: s.ogImageUrl ?? '', robotsIndex: s.robotsIndex,
+    socialInstagram: s.socialInstagram ?? '', socialFacebook: s.socialFacebook ?? '', socialX: s.socialX ?? '', socialLinkedin: s.socialLinkedin ?? '',
+    whatsappNumber: s.whatsappNumber ?? '', socialTiktok: s.socialTiktok ?? '',
   }
 }
 
@@ -148,8 +160,10 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
         storeName: form.storeName.trim(), storeSlug: form.storeSlug.trim(), layoutTemplate: form.layoutTemplate, themeId: form.themeId,
         primaryColor: brand, appearance: form.appearance, catalogBinding: form.catalogBinding,
         showOutOfStock: form.showOutOfStock, showLowStockBadges: form.showLowStockBadges,
-        seoTitle: form.seoTitle.trim() || null, seoDescription: form.seoDescription.trim() || null, robotsIndex: form.robotsIndex,
+        seoTitle: form.seoTitle.trim() || null, seoDescription: form.seoDescription.trim() || null,
+        ogImageUrl: form.ogImageUrl.trim() || null, robotsIndex: form.robotsIndex,
         socialInstagram: form.socialInstagram.trim() || null, socialFacebook: form.socialFacebook.trim() || null,
+        socialX: form.socialX.trim() || null, socialLinkedin: form.socialLinkedin.trim() || null,
         whatsappNumber: form.whatsappNumber.trim() || null, socialTiktok: form.socialTiktok.trim() || null,
       }
       return dataClient.online.updateStore(dto)
@@ -277,18 +291,36 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
               <div className="t">{form.seoTitle || form.storeName || t('online.yourStoreTitle')}</div>
               <div className="d">{form.seoDescription || t('online.yourStoreDesc')}</div>
             </div>
+
+            <label className="lbl" style={{ marginTop: 16 }}>{t('online.ogImage')}</label>
+            <FileUpload variant="image" value={form.ogImageUrl || null} onChange={(url) => set('ogImageUrl', url ?? '')} folder="online-store" label={t('online.ogImageCta')} hint={t('online.ogImageHint')} />
+
             <div className="divider" />
+            <div className="gen-row">
+              <div className="gt"><div className="nm">sitemap.xml</div><div className="ds">{t('online.sitemapDesc')}</div></div>
+              <span className="st st-ok"><span className="d" />{t('online.auto')}</span>
+            </div>
             <div className="gen-row">
               <div className="gt"><div className="nm">robots.txt</div><div className="ds">{t('online.robotsDesc')}</div></div>
               <button type="button" className={`switch${form.robotsIndex ? ' on' : ''}`} aria-pressed={form.robotsIndex} onClick={() => set('robotsIndex', !form.robotsIndex)} />
             </div>
+
             <div className="divider" />
             <label className="lbl">{t('online.socials')}</label>
             <div className="soc-grid">
-              <Input value={form.socialInstagram} placeholder="instagram.com/…" onChange={(e) => set('socialInstagram', e.target.value)} />
-              <Input value={form.socialFacebook} placeholder="facebook.com/…" onChange={(e) => set('socialFacebook', e.target.value)} />
-              <Input value={form.whatsappNumber} placeholder={t('online.whatsappNumber')} onChange={(e) => set('whatsappNumber', e.target.value)} />
-              <Input value={form.socialTiktok} placeholder="tiktok.com/@…" onChange={(e) => set('socialTiktok', e.target.value)} />
+              {([
+                ['socialInstagram', SOC.instagram, 'instagram.com/…'],
+                ['socialFacebook', SOC.facebook, 'facebook.com/…'],
+                ['socialX', SOC.x, 'x.com/…'],
+                ['socialLinkedin', SOC.linkedin, 'linkedin.com/company/…'],
+                ['whatsappNumber', SOC.whatsapp, t('online.whatsappNumber')],
+                ['socialTiktok', SOC.tiktok, 'tiktok.com/@…'],
+              ] as const).map(([key, icon, ph]) => (
+                <div className="soc-field" key={key}>
+                  <span className="ic">{icon}</span>
+                  <input value={form[key]} placeholder={ph} onChange={(e) => set(key, e.target.value)} />
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -307,13 +339,7 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
             <div className="pv-stage">
               <div className={`spv${device === 'mobile' ? ' mobile' : ''}`} data-pvmode={form.appearance} style={pvVars(brand, form.appearance)}>
                 <div className="spv-nav"><div className="spv-logo">{(form.storeName || 'S').charAt(0).toUpperCase()}</div><div className="spv-name">{form.storeName || t('online.yourStore')}</div></div>
-                <div className="spv-hero"><div className="eb">{form.storeName}</div><h4>{form.seoTitle || t('online.heroSample')}</h4><span className="cta">{t('online.shopNow')}</span></div>
-                <div className="spv-sec">
-                  <div className="sh">{t('online.popular')}</div>
-                  <div className="spv-grid">
-                    {[1, 2, 3, 4].map((n) => <div key={n} className="spv-card"><div className="img"><span>product</span></div><div className="ct"><div className="nm">{t('online.sampleProduct')} {n}</div><div className="pr">5 000 FCFA</div></div></div>)}
-                  </div>
-                </div>
+                {previewBody(form.layoutTemplate, form, t)}
               </div>
             </div>
           </div>
@@ -323,6 +349,62 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: ReturnType<typeof
 
       {toast ? <div className="sc-toast show">{ICO.check}<span>{toast}</span></div> : null}
     </div>
+  )
+}
+
+// The storefront preview varies by template (Model A: fixed layout presets). Illustrative
+// mock — the real per-template layouts render in the storefront app.
+function previewBody(tpl: OnlineStoreLayout, form: Form, t: ReturnType<typeof useT>) {
+  const card = (i: number) => (
+    <div key={i} className="spv-card"><div className="img"><span>product</span></div><div className="ct"><div className="nm">{t('online.sampleProduct')} {i + 1}</div><div className="pr">5 000 FCFA</div></div></div>
+  )
+  const hero = (big?: boolean) => (
+    <div className={`spv-hero${big ? ' big' : ''}`}><div className="eb">{form.storeName}</div><h4>{form.seoTitle || t('online.heroSample')}</h4><span className="cta">{t('online.shopNow')}</span></div>
+  )
+  if (tpl === 'catalog') {
+    return (
+      <div className="spv-sec">
+        <div className="spv-search">{t('online.searchProducts')}</div>
+        <div className="spv-list">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="spv-row"><div className="rimg" /><div className="rt"><div className="nm">{t('online.sampleProduct')} {i + 1}</div><div className="ru" /></div><div className="pr">5 000</div></div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  if (tpl === 'boutique') {
+    return (
+      <>
+        {hero()}
+        <div className="spv-sec">
+          <div className="spv-cats">{[42, 30, 36, 28].map((w, i) => <span key={i} className="spv-cat" style={{ width: w }} />)}</div>
+          <div className="sh">{t('online.popular')}</div>
+          <div className="spv-grid">{[0, 1].map(card)}</div>
+        </div>
+      </>
+    )
+  }
+  if (tpl === 'landing') {
+    return (
+      <>
+        {hero(true)}
+        <div className="spv-sec">
+          <div className="spv-grid">{[0, 1].map(card)}</div>
+          <div className="spv-contact"><span className="cl" /><span className="cb">{t('online.shopNow')}</span></div>
+        </div>
+      </>
+    )
+  }
+  // classic
+  return (
+    <>
+      {hero()}
+      <div className="spv-sec">
+        <div className="sh">{t('online.popular')}</div>
+        <div className="spv-grid">{[0, 1, 2, 3].map(card)}</div>
+      </div>
+    </>
   )
 }
 
