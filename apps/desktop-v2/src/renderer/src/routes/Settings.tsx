@@ -141,7 +141,7 @@ export function Settings() {
           {section === 'business' ? (
             <BusinessProfileSection />
           ) : section === 'subscription' ? (
-            <SubscriptionSection />
+            <SubscriptionSection onManageBilling={() => selectSection('billing')} />
           ) : section === 'billing' ? (
             <BillingSection />
           ) : (

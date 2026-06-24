@@ -62,7 +62,7 @@ const Warn = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>
 )
 
-export function SubscriptionSection() {
+export function SubscriptionSection({ onManageBilling }: { onManageBilling: () => void }) {
   const t = useT()
   const qc = useQueryClient()
   const cur = useCurrency()
@@ -74,6 +74,7 @@ export function SubscriptionSection() {
   const usageQ = useQuery({ queryKey: ['plans', 'usage'], queryFn: () => dataClient.plans.quotaUsage() })
 
   const [confirmPlan, setConfirmPlan] = useState<Plan | null>(null)
+  const [cycle, setCycle] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY')
   const [toast, setToast] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -156,9 +157,9 @@ export function SubscriptionSection() {
         <div className="spacer" />
         <div className="meta">
           <div className="big">{priceLabel}{currentPlan.priceXAF !== 0 ? <small> {t('sub.perMonth')}</small> : null}</div>
-          <div className="sm">{sub.paymentConfigured ? t('sub.billedMonthly') : t('sub.noPayment')}</div>
+          <div className="sm">{t('sub.billedMonthly')} · {t('bill.momoType')} · +237 6 78 •• •• 02</div>
         </div>
-        <button className="hbtn" type="button" disabled title={t('sub.comingSoon')}>{t('sub.manageBilling')}</button>
+        <button className="hbtn" type="button" onClick={onManageBilling}>{t('sub.manageBilling')}</button>
       </div>
 
       {/* Usage */}
@@ -181,7 +182,15 @@ export function SubscriptionSection() {
 
       {/* Compare plans */}
       <div>
-        <div className="sec-label">{t('sub.comparePlans')}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div className="sec-label" style={{ margin: 0 }}>{t('sub.comparePlans')}</div>
+          <div style={{ flex: 1 }} />
+          <span className="seg-pick">
+            <button type="button" aria-pressed={cycle === 'MONTHLY'} onClick={() => setCycle('MONTHLY')}>{t('sub.monthly')}</button>
+            <button type="button" aria-pressed={cycle === 'ANNUAL'} onClick={() => setCycle('ANNUAL')}>{t('sub.yearly')}</button>
+          </span>
+          {cycle === 'ANNUAL' ? <span className="chip-tag chip-save">{t('sub.annualSave')}</span> : null}
+        </div>
         <div className="plans">
           {plans.map((p) => {
             const isCurrent = p.name === currentPlan.name
@@ -193,8 +202,15 @@ export function SubscriptionSection() {
                 {isCurrent ? <span className="tagtop">{t('sub.tagCurrent')}</span> : null}
                 <div className="pn">{p.displayName}</div>
                 <div className="pr">
-                  {p.priceXAF === 0 ? '0' : cur.plain(p.priceXAF)}
-                  <small> {p.priceXAF === 0 ? 'FCFA' : t('sub.fcfaMonth')}</small>
+                  {(() => {
+                    const price = cycle === 'ANNUAL' ? p.priceAnnualXAF : p.priceXAF
+                    return (
+                      <>
+                        {price === 0 ? '0' : cur.plain(price)}
+                        <small> {price === 0 ? 'FCFA' : cycle === 'ANNUAL' ? t('sub.fcfaYear') : t('sub.fcfaMonth')}</small>
+                      </>
+                    )
+                  })()}
                 </div>
                 <div className="pd">{descKey ? t(descKey) : ''}</div>
                 <ul>
