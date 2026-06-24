@@ -46,7 +46,7 @@ export function BillingSection() {
               <div className="pm-logo momo">MoMo</div>
               <div className="pm-info">
                 <div className="nm">MTN Mobile Money <span className="st st-brand"><span className="d" />{t('bill.primary')}</span></div>
-                <div className="sub">+237 6 99 •• •• 02 · Henson Amah</div>
+                <div className="sub">+237 6 78 •• •• 02 · Henson Amah</div>
               </div>
               <div className="acts"><button type="button" disabled title={t('bill.edit')} aria-label={t('bill.edit')}><Pencil /></button></div>
             </div>
