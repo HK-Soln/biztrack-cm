@@ -912,7 +912,7 @@ button.imgdrop:disabled{cursor:default;opacity:.7;}
 /* ---- Tax & OHADA (Settings → Tax) ---- */
 .regime-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;}
 @media(max-width:720px){.regime-grid{grid-template-columns:1fr;}}
-.regime{border:1.5px solid var(--border);border-radius:13px;padding:14px;cursor:pointer;background:var(--surface);position:relative;transition:.12s;text-align:left;font-family:inherit;width:100%;}
+.regime{border:1.5px solid var(--border);border-radius:13px;padding:14px;cursor:pointer;background:var(--surface);color:var(--text);position:relative;transition:.12s;text-align:left;font-family:inherit;width:100%;}
 .regime:hover{border-color:var(--border-strong);}
 .regime.sel{border-color:var(--brand);background:var(--brand-soft);}
 .regime .rdo{width:18px;height:18px;border-radius:50%;border:2px solid var(--border-strong);position:absolute;top:13px;right:13px;display:grid;place-items:center;}
