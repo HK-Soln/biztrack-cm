@@ -808,6 +808,24 @@ button.imgdrop:disabled{cursor:default;opacity:.7;}
 .vrow-head .vcol{flex:1;}
 .vrow-head .vrow-name{flex:1.4;}
 .vrow-head .vcol-sw{width:34px;text-align:center;flex:none;}
+/* ---- Settings layout (in-page side-nav + content) ---- */
+.settings{display:grid;grid-template-columns:216px 1fr;gap:22px;align-items:start;}
+@media(max-width:900px){.settings{grid-template-columns:1fr;}}
+.set-nav{display:flex;flex-direction:column;gap:2px;position:sticky;top:16px;}
+.set-nav a,.set-nav button{display:flex;align-items:center;gap:10px;height:38px;padding:0 12px;border-radius:9px;font-size:13px;
+  font-weight:500;color:var(--text-2);cursor:pointer;text-decoration:none;border:0;background:none;font-family:inherit;text-align:left;width:100%;}
+.set-nav a svg,.set-nav button svg{width:16px;height:16px;flex-shrink:0;}
+.set-nav a:hover,.set-nav button:hover{background:var(--inset);color:var(--text);}
+.set-nav a.active,.set-nav button.active{background:var(--brand-soft);color:var(--brand-int);font-weight:600;}
+.set-nav .grp-l{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--text-muted);font-weight:600;margin:14px 0 4px 12px;}
+.set-nav .grp-l:first-child{margin-top:0;}
+
+/* Inline notice banner (settings online-only / owner-only / errors) */
+.banner{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:11px;font-size:12.5px;font-weight:500;
+  background:var(--brand-soft);color:var(--brand-int);}
+.banner svg{width:16px;height:16px;flex-shrink:0;}
+.banner.warn{background:var(--warning-soft);color:var(--warning);}
+
 .set-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);}
 .set-line:last-child{border-bottom:0;}
 .set-line .nm{font-size:13px;font-weight:600;}

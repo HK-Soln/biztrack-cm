@@ -67,8 +67,8 @@ export class Business extends BaseEntity {
   @Column({ default: 'XAF' })
   currency!: string
 
-  @Column({ name: 'logo_url', nullable: true })
-  logoUrl?: string
+  @Column({ name: 'logo_url', nullable: true, type: 'varchar' })
+  logoUrl?: string | null
 
   @Column({ name: 'owner_id' })
   ownerId!: string

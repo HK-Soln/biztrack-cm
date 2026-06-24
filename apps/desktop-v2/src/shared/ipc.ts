@@ -123,6 +123,8 @@ export const IPC = {
   onlineOrdersList: 'online:orders-list',
   onlineOrderGet: 'online:order-get',
   onlineOrderUpdateStatus: 'online:order-update-status',
+  businessGetProfile: 'business:get-profile',
+  businessUpdate: 'business:update',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1203,6 +1205,14 @@ import type {
   UpdateOrderStatusRequest as UpdateOrderStatusT,
 } from '@biztrack/types'
 
+// --- Business profile (Settings → General) — reuse the shared business shapes ---
+export type { BusinessProfile, UpdateBusinessRequest } from '@biztrack/types'
+export { BusinessType } from '@biztrack/types'
+import type {
+  BusinessProfile as BusinessProfileT,
+  UpdateBusinessRequest as UpdateBusinessRequestT,
+} from '@biztrack/types'
+
 export interface OnlineOrdersQuery {
   status?: OnlineOrderStatusT
   page?: number
@@ -1657,5 +1667,10 @@ export interface BridgeApi {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
+  }
+  /** Business profile (Settings → General) — server-owned, proxied through main. */
+  business: {
+    getProfile: () => Promise<BusinessProfileT | null>
+    update: (payload: UpdateBusinessRequestT) => Promise<BusinessProfileT>
   }
 }

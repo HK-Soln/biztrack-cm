@@ -211,6 +211,10 @@ const api: BridgeApi = {
     getOrder: (id) => ipcRenderer.invoke(IPC.onlineOrderGet, id),
     updateOrderStatus: (id, input) => ipcRenderer.invoke(IPC.onlineOrderUpdateStatus, id, input),
   },
+  business: {
+    getProfile: () => ipcRenderer.invoke(IPC.businessGetProfile),
+    update: (payload) => ipcRenderer.invoke(IPC.businessUpdate, payload),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

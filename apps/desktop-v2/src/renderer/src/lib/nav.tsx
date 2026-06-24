@@ -130,6 +130,18 @@ export const Icon = {
       <path d="M15 3v4h4M9 12h7M9 16h5" />
     </>,
   ),
+  org: s(
+    <>
+      <path d="M3 21h18M5 21V7l7-4 7 4v14" />
+      <path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01M10 21v-4h4v4" />
+    </>,
+  ),
+  shield: s(
+    <>
+      <path d="M12 3 4 6v6c0 5 3.5 7.5 8 9 4.5-1.5 8-4 8-9V6Z" />
+      <path d="m9 12 2 2 4-4" />
+    </>,
+  ),
 }
 
 export type NavLeaf = { to: string; label: MessageKey; icon?: keyof typeof Icon; badge?: MessageKey }
@@ -177,16 +189,14 @@ export const NAV: NavEntry[] = [
   { to: '/deposits', label: 'nav.deposits', icon: 'deposits' },
   { to: '/reports', label: 'nav.reports', icon: 'reports' },
   {
-    label: 'nav.settings',
-    icon: 'settings',
+    label: 'nav.organization',
+    icon: 'org',
     children: [
-      { to: '/settings', label: 'nav.general', icon: 'settings' },
-      { to: '/settings/appearance', label: 'nav.appearance', icon: 'settings' },
-      { to: '/settings/subscription', label: 'nav.subscription', icon: 'card' },
-      { to: '/settings/team', label: 'nav.team', icon: 'contacts' },
-      { to: '/settings/roles', label: 'nav.roles', icon: 'settings' },
+      { to: '/team', label: 'nav.team', icon: 'contacts' },
+      { to: '/roles', label: 'nav.roles', icon: 'shield' },
     ],
   },
+  { to: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
 
 // Mobile bottom tab bar (5 slots, Sell centered).

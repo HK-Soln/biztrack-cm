@@ -47,6 +47,8 @@ import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { OnlineService } from './services/online.service'
 import { registerOnlineIpc } from './ipc/online.ipc'
+import { BusinessService } from './services/business.service'
+import { registerBusinessIpc } from './ipc/business.ipc'
 import { AuditService } from './services/audit.service'
 import { registerAuditIpc } from './ipc/audit.ipc'
 
@@ -353,6 +355,16 @@ app.whenReady().then(() => {
 
   // Online store/orders: API-only, proxied through main (tokens never reach the renderer).
   registerOnlineIpc(new OnlineService(authHttp))
+
+  // Business profile (Settings → General): server-owned, proxied through main.
+  registerBusinessIpc(
+    new BusinessService(
+      authHttp,
+      () => authService.getSession().businessId,
+      () => authService.getSession().user?.id ?? null,
+      localCache,
+    ),
+  )
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {

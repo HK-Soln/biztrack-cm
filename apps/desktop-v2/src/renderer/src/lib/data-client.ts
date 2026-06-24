@@ -84,6 +84,8 @@ import type {
   OnlineOrderDetail,
   OnlineOrderListResult,
   UpdateOrderStatusRequest,
+  BusinessProfile,
+  UpdateBusinessRequest,
   OnlineOrdersQuery,
   LocalSerialUnit,
   LocalStockMovement,
@@ -294,6 +296,10 @@ export interface DataClient {
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
   }
+  business: {
+    getProfile: () => Promise<BusinessProfile | null>
+    update: (payload: UpdateBusinessRequest) => Promise<BusinessProfile>
+  }
 }
 
 /** True when running inside the Electron renderer (preload bridge present). */
@@ -475,6 +481,10 @@ function electronAdapter(): DataClient {
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
     },
+    business: {
+      getProfile: () => window.api.business.getProfile(),
+      update: (payload) => window.api.business.update(payload),
+    },
   }
 }
 
@@ -553,6 +563,7 @@ function cloudAdapter(): DataClient {
     savings: { getForCustomer: notWired },
     deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, reportHtml: notWired },
     online: { getStore: notWired, createStore: notWired, updateStore: notWired, publishStore: notWired, listOrders: notWired, getOrder: notWired, updateOrderStatus: notWired },
+    business: { getProfile: notWired, update: notWired },
   }
 }
 

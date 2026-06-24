@@ -121,9 +121,29 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   country?: string
   currency?: Currency | string
   type?: BusinessType
+  /** Logo shown on receipts and the storefront. Persisted on the business. */
+  logoUrl?: string | null
 }
 
 export interface UpdateBusinessRequest extends Partial<CreateBusinessRequest> {}
+
+/** Editable business-profile view used by the desktop Settings → Business profile
+ * section. Read from GET /businesses/mine (the membership's business summary) and
+ * written via POST /businesses/setup. `role` is the current user's membership role,
+ * used to gate editing to the OWNER. */
+export interface BusinessProfile {
+  id: string
+  name: string
+  type: BusinessType | null
+  description: string | null
+  phone: string | null
+  email: string | null
+  address: string | null
+  city: string | null
+  currency: Currency | string
+  logoUrl: string | null
+  role: BusinessMemberRole | null
+}
 
 export interface BusinessMembershipBusinessSummary {
   id: string
