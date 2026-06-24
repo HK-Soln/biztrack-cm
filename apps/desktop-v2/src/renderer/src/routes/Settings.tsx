@@ -12,6 +12,7 @@ import { isValidEmail } from '@/lib/schemas'
 import { errorMessage } from '@/lib/error'
 import { BusinessType, type BusinessProfile, type UpdateBusinessRequest } from '@shared/ipc'
 import { SubscriptionSection } from '@/components/settings/SubscriptionSection'
+import { BillingSection } from '@/components/settings/BillingSection'
 
 // Settings is a SINGLE route with an in-page side-nav (per design-settings.html).
 // Team & Roles live under the separate "Organization" nav group — they are not
@@ -141,6 +142,8 @@ export function Settings() {
             <BusinessProfileSection />
           ) : section === 'subscription' ? (
             <SubscriptionSection />
+          ) : section === 'billing' ? (
+            <BillingSection />
           ) : (
             <SectionStub titleKey={SECTION_LABEL[section]} />
           )}
