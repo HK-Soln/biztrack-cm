@@ -65,6 +65,7 @@ export function BillingSection() {
   const [savedIdentity, setSavedIdentity] = useState<Identity>(INITIAL_IDENTITY)
   const [autoRenew, setAutoRenew] = useState(true)
   const [usageAlerts, setUsageAlerts] = useState(false)
+  const [cancelled, setCancelled] = useState(false)
   const [pmModal, setPmModal] = useState<{ mode: 'add' | 'edit'; method: Method } | null>(null)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -113,6 +114,7 @@ export function BillingSection() {
           {/* Payment methods */}
           <div className="card">
             <div className="card-h"><div><h3>{t('bill.pmTitle')}</h3><p>{t('bill.pmSub')}</p></div></div>
+            {cancelled ? <div className="form-note" style={{ marginBottom: 12 }}><Info /><span>{t('bill.cancelledNote')}</span></div> : null}
             {methods.map((m) => (
               <div className={`pm-row${m.primary ? ' primary' : ''}`} key={m.id}>
                 <div className={`pm-logo ${m.type}`}>{m.type === 'momo' ? 'MoMo' : 'OM'}</div>
@@ -123,7 +125,12 @@ export function BillingSection() {
                 <div className="acts">
                   <button type="button" title={t('bill.edit')} aria-label={t('bill.edit')} onClick={() => setPmModal({ mode: 'edit', method: m })}><Pencil /></button>
                   {!m.primary ? <button type="button" title={t('bill.makePrimary')} aria-label={t('bill.makePrimary')} onClick={() => makePrimary(m.id)}><Star /></button> : null}
-                  <button type="button" className="danger" title={t('bill.remove')} aria-label={t('bill.remove')} disabled={methods.length === 1} onClick={() => removeMethod(m.id)}><Trash /></button>
+                  {(() => {
+                    const canDelete = cancelled || !m.primary
+                    return (
+                      <button type="button" className="danger" title={canDelete ? t('bill.remove') : t('bill.cantDeletePrimary')} aria-label={t('bill.remove')} disabled={!canDelete} onClick={() => removeMethod(m.id)}><Trash /></button>
+                    )
+                  })()}
                 </div>
               </div>
             ))}
@@ -202,7 +209,7 @@ export function BillingSection() {
           <div className="form-note" style={{ marginTop: 14 }}><Info /><span>{t('bill.chargeNote')}</span></div>
           <div className="set-line"><div><div className="nm">{t('bill.autoRenew')}</div><div className="ds">{t('bill.autoRenewDesc')}</div></div><button type="button" className={`switch${autoRenew ? ' on' : ''}`} aria-pressed={autoRenew} onClick={() => setAutoRenew((v) => !v)} /></div>
           <div className="set-line"><div><div className="nm">{t('bill.usageAlerts')}</div><div className="ds">{t('bill.usageAlertsDesc')}</div></div><button type="button" className={`switch${usageAlerts ? ' on' : ''}`} aria-pressed={usageAlerts} onClick={() => setUsageAlerts((v) => !v)} /></div>
-          <button className="btn" type="button" onClick={() => setConfirmCancel(true)} style={{ width: '100%', justifyContent: 'center', marginTop: 14, color: 'var(--danger)', borderColor: 'var(--danger-soft)' }}>{t('bill.cancelSub')}</button>
+          <button className="btn" type="button" disabled={cancelled} onClick={() => setConfirmCancel(true)} style={{ width: '100%', justifyContent: 'center', marginTop: 14, color: cancelled ? undefined : 'var(--danger)', borderColor: cancelled ? undefined : 'var(--danger-soft)' }}>{cancelled ? t('bill.cancelPending') : t('bill.cancelSub')}</button>
         </div>
       </div>
 
@@ -222,7 +229,7 @@ export function BillingSection() {
             <div className="modal-body" style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>{t('bill.confirmCancelBody')}</div>
             <div className="modal-foot">
               <Button variant="soft" type="button" onClick={() => setConfirmCancel(false)}>{t('bill.keepSub')}</Button>
-              <Button variant="primary" type="button" onClick={() => { setConfirmCancel(false); flash(t('bill.cancelRequested')) }}>{t('bill.cancelSub')}</Button>
+              <Button variant="primary" type="button" onClick={() => { setConfirmCancel(false); setCancelled(true); flash(t('bill.cancelRequested')) }}>{t('bill.cancelSub')}</Button>
             </div>
           </div>
         </div>
