@@ -76,6 +76,8 @@ const SECTION_LABEL: Record<SectionKey, MessageKey> = {
   notifications: 'settings.notifications',
 }
 
+const SECTION_KEYS: SectionKey[] = ['business', 'appearance', 'subscription', 'billing', 'tax', 'receipts', 'notifications']
+
 function useOnline(): boolean {
   const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
   useEffect(() => {
@@ -90,8 +92,6 @@ function useOnline(): boolean {
   }, [])
   return online
 }
-
-const SECTION_KEYS: SectionKey[] = ['business', 'appearance', 'subscription', 'billing', 'tax', 'receipts', 'notifications']
 
 export function Settings() {
   const t = useT()
@@ -242,7 +242,13 @@ function BusinessProfileSection() {
     },
     onSuccess: (updated) => {
       setToast(t('settings.bp.saved'))
-      qc.setQueryData(['business', 'profile'], updated)
+      // The /businesses/setup response is the Business entity — it carries no
+      // membership role, so keep the role we already loaded (otherwise the form
+      // would think the owner is no longer an owner and freeze).
+      qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
+        ...updated,
+        role: prev?.role ?? updated.role,
+      }))
       void refreshSession() // sidebar/topbar business name may have changed
     },
     onError: (e) => setError(errorMessage(e, t('settings.bp.saveError'))),
@@ -252,8 +258,9 @@ function BusinessProfileSection() {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev))
   }
 
-  function onSave() {
-    if (!form) return
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form || !canEdit) return
     setError(null)
     const nm = !form.name.trim()
     const em = !!form.email.trim() && !isValidEmail(form.email.trim())
@@ -276,126 +283,118 @@ function BusinessProfileSection() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {!online ? (
-        <div className="banner warn">
-          {ICO.warn}
-          <span>{t('settings.bp.onlineOnly')}</span>
-        </div>
+        <div className="banner warn">{ICO.warn}<span>{t('settings.bp.onlineOnly')}</span></div>
       ) : !isOwner ? (
-        <div className="banner">
-          {ICO.shield}
-          <span>{t('settings.bp.ownerOnly')}</span>
-        </div>
+        <div className="banner">{ICO.shield}<span>{t('settings.bp.ownerOnly')}</span></div>
       ) : null}
 
-      {/* Identity */}
-      <div className="card">
-        <div className="fsec-h"><span className="n">1</span>{t('settings.bp.identity')}</div>
-        <div className="fform">
-          <div className={`ff${nameErr ? ' invalid' : ''}`}>
-            <label className="lbl2">{t('settings.bp.name')} <span className="req">*</span></label>
-            <Input
-              value={form.name}
-              error={nameErr}
-              disabled={!canEdit}
-              placeholder={t('settings.bp.namePh')}
-              onChange={(e) => {
-                set('name', e.target.value)
-                if (nameErr) setNameErr(false)
-              }}
-            />
-            {nameErr ? (
-              <div className="msg err">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
-                <span>{t('settings.bp.nameRequired')}</span>
+      <div className="fp-grid">
+        {/* Main column: identity + contact */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="fsec-h"><span className="n">1</span>{t('settings.bp.identity')}</div>
+            <div className="fform">
+              <div className={`ff${nameErr ? ' invalid' : ''}`}>
+                <label className="lbl2">{t('settings.bp.name')} <span className="req">*</span></label>
+                <Input
+                  value={form.name}
+                  error={nameErr}
+                  disabled={!canEdit}
+                  placeholder={t('settings.bp.namePh')}
+                  onChange={(e) => {
+                    set('name', e.target.value)
+                    if (nameErr) setNameErr(false)
+                  }}
+                />
+                {nameErr ? (
+                  <div className="msg err">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+                    <span>{t('settings.bp.nameRequired')}</span>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-          <div className="ff-row">
-            <div className="ff">
-              <label className="lbl2">{t('settings.bp.type')}</label>
-              <Select
-                value={form.type}
-                disabled={!canEdit}
-                onChange={(e) => set('type', e.target.value as BusinessType)}
-                options={BUSINESS_TYPES.map((v) => ({ value: v, label: t(`bizType.${v}` as MessageKey) }))}
-              />
-            </div>
-            <div className="ff">
-              <label className="lbl2">{t('settings.bp.slogan')} <span className="opt">{t('settings.bp.optional')}</span></label>
-              <Input value={form.description} disabled={!canEdit} placeholder={t('settings.bp.sloganPh')} onChange={(e) => set('description', e.target.value)} />
+              <div className="ff">
+                <label className="lbl2">{t('settings.bp.type')}</label>
+                <Select
+                  value={form.type}
+                  disabled={!canEdit}
+                  onChange={(e) => set('type', e.target.value as BusinessType)}
+                  options={BUSINESS_TYPES.map((v) => ({ value: v, label: t(`bizType.${v}` as MessageKey) }))}
+                />
+              </div>
+              <div className="ff">
+                <label className="lbl2">{t('settings.bp.slogan')} <span className="opt">{t('settings.bp.optional')}</span></label>
+                <Input value={form.description} disabled={!canEdit} placeholder={t('settings.bp.sloganPh')} onChange={(e) => set('description', e.target.value)} />
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Contact */}
-      <div className="card">
-        <div className="fsec-h"><span className="n">2</span>{t('settings.bp.contact')}</div>
-        <div className="fform">
-          <div className="ff-row">
-            <div className="ff">
-              <label className="lbl2">{t('settings.bp.phone')}</label>
-              <PhoneInput value={form.phone || undefined} disabled={!canEdit} placeholder="6 91 22 14 08" onChange={(v) => set('phone', v ?? '')} />
-            </div>
-            <div className={`ff${emailErr ? ' invalid' : ''}`}>
-              <label className="lbl2">{t('settings.bp.email')}</label>
-              <Input
-                type="email"
-                value={form.email}
-                error={emailErr}
-                disabled={!canEdit}
-                placeholder="contact@boutique.cm"
-                onChange={(e) => {
-                  set('email', e.target.value)
-                  if (emailErr) setEmailErr(false)
-                }}
-              />
-              {emailErr ? (
-                <div className="msg err">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
-                  <span>{t('settings.bp.emailInvalid')}</span>
+          <div className="card">
+            <div className="fsec-h"><span className="n">2</span>{t('settings.bp.contact')}</div>
+            <div className="fform">
+              <div className="ff">
+                <label className="lbl2">{t('settings.bp.phone')}</label>
+                <PhoneInput value={form.phone || undefined} disabled={!canEdit} placeholder="6 91 22 14 08" onChange={(v) => set('phone', v ?? '')} />
+              </div>
+              <div className={`ff${emailErr ? ' invalid' : ''}`}>
+                <label className="lbl2">{t('settings.bp.email')}</label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  error={emailErr}
+                  disabled={!canEdit}
+                  placeholder="contact@boutique.cm"
+                  onChange={(e) => {
+                    set('email', e.target.value)
+                    if (emailErr) setEmailErr(false)
+                  }}
+                />
+                {emailErr ? (
+                  <div className="msg err">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+                    <span>{t('settings.bp.emailInvalid')}</span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="ff-row">
+                <div className="ff">
+                  <label className="lbl2">{t('settings.bp.address')}</label>
+                  <Input value={form.address} disabled={!canEdit} onChange={(e) => set('address', e.target.value)} />
                 </div>
-              ) : null}
+                <div className="ff">
+                  <label className="lbl2">{t('settings.bp.city')}</label>
+                  <Input value={form.city} disabled={!canEdit} onChange={(e) => set('city', e.target.value)} />
+                </div>
+              </div>
             </div>
           </div>
-          <div className="ff">
-            <label className="lbl2">{t('settings.bp.address')}</label>
-            <Input value={form.address} disabled={!canEdit} onChange={(e) => set('address', e.target.value)} />
-          </div>
-          <div className="ff">
-            <label className="lbl2">{t('settings.bp.city')}</label>
-            <Input value={form.city} disabled={!canEdit} onChange={(e) => set('city', e.target.value)} />
-          </div>
         </div>
-      </div>
 
-      {/* Logo */}
-      <div className="card">
-        <div className="fsec-h">{t('settings.bp.logo')}</div>
-        <FileUpload
-          variant="image"
-          value={form.logoUrl || null}
-          onChange={(url) => set('logoUrl', url ?? '')}
-          folder="business"
-          disabled={!canEdit}
-          label={t('settings.bp.logoCta')}
-          hint={t('settings.bp.logoHint')}
-        />
-      </div>
+        {/* Side rail: logo + preferences */}
+        <div className="fp-side">
+          <div className="card">
+            <div className="fsec-h">{t('settings.bp.logo')}</div>
+            <FileUpload
+              variant="image"
+              value={form.logoUrl || null}
+              onChange={(url) => set('logoUrl', url ?? '')}
+              folder="business"
+              disabled={!canEdit}
+              label={t('settings.bp.logoCta')}
+              hint={t('settings.bp.logoHint')}
+            />
+          </div>
 
-      {/* Preferences */}
-      <div className="card">
-        <div className="fsec-h">{t('settings.bp.preferences')}</div>
-        <div className="fform">
-          <div className="ff-row">
+          <div className="card">
+            <div className="fsec-h">{t('settings.bp.preferences')}</div>
             <div className="ff">
               <label className="lbl2">{t('settings.bp.currency')}</label>
               <Input value={`${cur.symbol} (${cur.currency})`} disabled readOnly />
               <div className="help">{t('settings.bp.currencyHint')}</div>
             </div>
-            <div className="ff">
+            <div className="ff" style={{ marginTop: 14 }}>
               <label className="lbl2">{t('settings.bp.language')}</label>
               <div>
                 <span className="seg-pick">
@@ -410,20 +409,19 @@ function BusinessProfileSection() {
 
       {error ? <div className="banner warn">{ICO.warn}<span>{error}</span></div> : null}
 
-      {/* Actions */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, alignItems: 'center' }}>
+      <div className="fp-actions" style={{ alignItems: 'center' }}>
         {toast ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--success, var(--brand-int))' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>
             {ICO.check}{toast}
           </span>
         ) : null}
         <Button variant="soft" type="button" disabled={!canEdit || !dirty || save.isPending} onClick={() => setForm(toForm(q.data!))}>
           {t('settings.bp.cancel')}
         </Button>
-        <Button variant="primary" type="button" loading={save.isPending} disabled={!canEdit || !dirty} onClick={onSave}>
+        <Button variant="primary" type="submit" loading={save.isPending} disabled={!canEdit || !dirty}>
           {t('settings.bp.save')}
         </Button>
       </div>
-    </div>
+    </form>
   )
 }
