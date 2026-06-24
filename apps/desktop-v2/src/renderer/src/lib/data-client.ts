@@ -86,6 +86,10 @@ import type {
   UpdateOrderStatusRequest,
   BusinessProfile,
   UpdateBusinessRequest,
+  ListPlansResponse,
+  CurrentSubscriptionResponse,
+  QuotaUsageResponse,
+  CancelPlanResponse,
   OnlineOrdersQuery,
   LocalSerialUnit,
   LocalStockMovement,
@@ -300,6 +304,13 @@ export interface DataClient {
     getProfile: () => Promise<BusinessProfile | null>
     update: (payload: UpdateBusinessRequest) => Promise<BusinessProfile>
   }
+  plans: {
+    list: () => Promise<ListPlansResponse>
+    subscription: () => Promise<CurrentSubscriptionResponse>
+    quotaUsage: () => Promise<QuotaUsageResponse>
+    upgrade: (plan: string) => Promise<void>
+    cancel: () => Promise<CancelPlanResponse>
+  }
 }
 
 /** True when running inside the Electron renderer (preload bridge present). */
@@ -485,6 +496,13 @@ function electronAdapter(): DataClient {
       getProfile: () => window.api.business.getProfile(),
       update: (payload) => window.api.business.update(payload),
     },
+    plans: {
+      list: () => window.api.plans.list(),
+      subscription: () => window.api.plans.subscription(),
+      quotaUsage: () => window.api.plans.quotaUsage(),
+      upgrade: (plan) => window.api.plans.upgrade(plan),
+      cancel: () => window.api.plans.cancel(),
+    },
   }
 }
 
@@ -564,6 +582,7 @@ function cloudAdapter(): DataClient {
     deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, reportHtml: notWired },
     online: { getStore: notWired, createStore: notWired, updateStore: notWired, publishStore: notWired, listOrders: notWired, getOrder: notWired, updateOrderStatus: notWired },
     business: { getProfile: notWired, update: notWired },
+    plans: { list: notWired, subscription: notWired, quotaUsage: notWired, upgrade: notWired, cancel: notWired },
   }
 }
 

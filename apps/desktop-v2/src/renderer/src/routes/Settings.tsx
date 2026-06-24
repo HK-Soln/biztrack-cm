@@ -11,6 +11,7 @@ import { useSessionStore } from '@/stores/session.store'
 import { isValidEmail } from '@/lib/schemas'
 import { errorMessage } from '@/lib/error'
 import { BusinessType, type BusinessProfile, type UpdateBusinessRequest } from '@shared/ipc'
+import { SubscriptionSection } from '@/components/settings/SubscriptionSection'
 
 // Settings is a SINGLE route with an in-page side-nav (per design-settings.html).
 // Team & Roles live under the separate "Organization" nav group — they are not
@@ -136,7 +137,13 @@ export function Settings() {
         </nav>
 
         <div>
-          {section === 'business' ? <BusinessProfileSection /> : <SectionStub titleKey={SECTION_LABEL[section]} />}
+          {section === 'business' ? (
+            <BusinessProfileSection />
+          ) : section === 'subscription' ? (
+            <SubscriptionSection />
+          ) : (
+            <SectionStub titleKey={SECTION_LABEL[section]} />
+          )}
         </div>
       </div>
     </div>
@@ -146,12 +153,15 @@ export function Settings() {
 function SectionStub({ titleKey }: { titleKey: MessageKey }) {
   const t = useT()
   return (
-    <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-      <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 6 }}>{t(titleKey)}</div>
-      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12 }}>{t('settings.soonDesc')}</div>
-      <span className="chip-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px' }}>
-        {t('settings.soon')}
-      </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="banner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+        <span>{t('settings.soonBanner')}</span>
+      </div>
+      <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+        <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 6 }}>{t(titleKey)}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{t('settings.soonDesc')}</div>
+      </div>
     </div>
   )
 }

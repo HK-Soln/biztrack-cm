@@ -215,6 +215,13 @@ const api: BridgeApi = {
     getProfile: () => ipcRenderer.invoke(IPC.businessGetProfile),
     update: (payload) => ipcRenderer.invoke(IPC.businessUpdate, payload),
   },
+  plans: {
+    list: () => ipcRenderer.invoke(IPC.plansList),
+    subscription: () => ipcRenderer.invoke(IPC.plansSubscription),
+    quotaUsage: () => ipcRenderer.invoke(IPC.plansQuotaUsage),
+    upgrade: (plan) => ipcRenderer.invoke(IPC.plansUpgrade, plan),
+    cancel: () => ipcRenderer.invoke(IPC.plansCancel),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

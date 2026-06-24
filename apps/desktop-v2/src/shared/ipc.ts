@@ -125,6 +125,11 @@ export const IPC = {
   onlineOrderUpdateStatus: 'online:order-update-status',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
+  plansList: 'plans:list',
+  plansSubscription: 'plans:subscription',
+  plansQuotaUsage: 'plans:quota-usage',
+  plansUpgrade: 'plans:upgrade',
+  plansCancel: 'plans:cancel',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -1213,6 +1218,22 @@ import type {
   UpdateBusinessRequest as UpdateBusinessRequestT,
 } from '@biztrack/types'
 
+// --- Plans / subscription (Settings → Subscription) — reuse the shared plan shapes ---
+export type {
+  ListPlansResponse,
+  CurrentSubscriptionResponse,
+  QuotaUsageResponse,
+  PlanQuotaUsage,
+  PlanQuotaResource,
+  CancelPlanResponse,
+} from '@biztrack/types'
+import type {
+  ListPlansResponse as ListPlansResponseT,
+  CurrentSubscriptionResponse as CurrentSubscriptionResponseT,
+  QuotaUsageResponse as QuotaUsageResponseT,
+  CancelPlanResponse as CancelPlanResponseT,
+} from '@biztrack/types'
+
 export interface OnlineOrdersQuery {
   status?: OnlineOrderStatusT
   page?: number
@@ -1672,5 +1693,13 @@ export interface BridgeApi {
   business: {
     getProfile: () => Promise<BusinessProfileT | null>
     update: (payload: UpdateBusinessRequestT) => Promise<BusinessProfileT>
+  }
+  /** Plans / subscription (Settings → Subscription) — server-owned, proxied through main. */
+  plans: {
+    list: () => Promise<ListPlansResponseT>
+    subscription: () => Promise<CurrentSubscriptionResponseT>
+    quotaUsage: () => Promise<QuotaUsageResponseT>
+    upgrade: (plan: string) => Promise<void>
+    cancel: () => Promise<CancelPlanResponseT>
   }
 }

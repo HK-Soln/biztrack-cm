@@ -49,6 +49,8 @@ import { OnlineService } from './services/online.service'
 import { registerOnlineIpc } from './ipc/online.ipc'
 import { BusinessService } from './services/business.service'
 import { registerBusinessIpc } from './ipc/business.ipc'
+import { PlansService } from './services/plans.service'
+import { registerPlansIpc } from './ipc/plans.ipc'
 import { AuditService } from './services/audit.service'
 import { registerAuditIpc } from './ipc/audit.ipc'
 
@@ -365,6 +367,9 @@ app.whenReady().then(() => {
       localCache,
     ),
   )
+
+  // Plans / subscription (Settings → Subscription): API-only, proxied through main.
+  registerPlansIpc(new PlansService(authHttp))
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {
