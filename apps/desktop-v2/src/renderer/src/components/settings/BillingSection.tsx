@@ -13,6 +13,15 @@ const Info = () => (
 const Warn = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>
 )
+const Pencil = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+)
+const Star = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17l-5.2 2.8 1-5.8L3.5 9.2l5.9-.9Z" /></svg>
+)
+const Trash = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></svg>
+)
 
 const INVOICES = [
   { id: 'FAC-2026-006', date: '25 May 2026', period: 'May 2026', method: 'MTN MoMo', amount: '15 000 FCFA', status: 'paid' as const },
@@ -39,7 +48,7 @@ export function BillingSection() {
                 <div className="nm">MTN Mobile Money <span className="st st-brand"><span className="d" />{t('bill.primary')}</span></div>
                 <div className="sub">+237 6 99 •• •• 02 · Henson Amah</div>
               </div>
-              <div className="acts"><button type="button" disabled>{t('bill.edit')}</button></div>
+              <div className="acts"><button type="button" disabled title={t('bill.edit')} aria-label={t('bill.edit')}><Pencil /></button></div>
             </div>
             <div className="pm-row">
               <div className="pm-logo om">OM</div>
@@ -48,8 +57,8 @@ export function BillingSection() {
                 <div className="sub">+237 6 90 •• •• 77 · {t('bill.backup')}</div>
               </div>
               <div className="acts">
-                <button type="button" disabled>{t('bill.makePrimary')}</button>
-                <button type="button" disabled>{t('bill.remove')}</button>
+                <button type="button" disabled title={t('bill.makePrimary')} aria-label={t('bill.makePrimary')}><Star /></button>
+                <button type="button" className="danger" disabled title={t('bill.remove')} aria-label={t('bill.remove')}><Trash /></button>
               </div>
             </div>
             <button className="add-pm" type="button" disabled>
