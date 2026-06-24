@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
-import { Button, Input, Select } from '@biztrack/ui/biztrack'
+import { Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
+import { getCameroonNetwork, nationalCMDigits, type CameroonNetwork } from '@biztrack/utils'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 
@@ -13,9 +14,18 @@ type Method = { id: string; type: PmType; phone: string; holder: string; primary
 type Identity = { legalName: string; billingEmail: string; niu: string; rccm: string; address: string; region: string }
 
 const INITIAL_METHODS: Method[] = [
-  { id: 'm1', type: 'momo', phone: '+237 6 78 22 14 02', holder: 'Henson Amah', primary: true },
-  { id: 'm2', type: 'om', phone: '+237 6 90 55 77 31', holder: 'Backup method', primary: false },
+  { id: 'm1', type: 'momo', phone: '+237678221402', holder: 'Henson Amah', primary: true },
+  { id: 'm2', type: 'om', phone: '+237690557731', holder: 'Backup method', primary: false },
 ]
+
+const EXPECTED_NETWORK: Record<PmType, CameroonNetwork> = { momo: 'MTN', om: 'ORANGE' }
+
+/** Pretty-print a stored E.164 CM number as "+237 6 78 22 14 02". */
+function displayPhone(e164: string): string {
+  const n = nationalCMDigits(e164)
+  if (n.length !== 9) return e164
+  return `+237 ${n[0]} ${n.slice(1, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7, 9)}`
+}
 const INITIAL_IDENTITY: Identity = {
   legalName: 'Boutique Mballa SARL',
   billingEmail: 'comptable@boutiquemballa.cm',
@@ -108,7 +118,7 @@ export function BillingSection() {
                 <div className={`pm-logo ${m.type}`}>{m.type === 'momo' ? 'MoMo' : 'OM'}</div>
                 <div className="pm-info">
                   <div className="nm">{pmLabel(m.type, t)}{m.primary ? <span className="st st-brand"><span className="d" />{t('bill.primary')}</span> : null}</div>
-                  <div className="sub">{m.phone} · {m.holder}</div>
+                  <div className="sub">{displayPhone(m.phone)} · {m.holder}</div>
                 </div>
                 <div className="acts">
                   <button type="button" title={t('bill.edit')} aria-label={t('bill.edit')} onClick={() => setPmModal({ mode: 'edit', method: m })}><Pencil /></button>
@@ -240,7 +250,12 @@ function PaymentMethodModal({
 }) {
   const t = useT()
   const [draft, setDraft] = useState<Method>(method)
-  const valid = draft.phone.trim().length >= 6 && draft.holder.trim().length > 0
+  const expected = EXPECTED_NETWORK[draft.type]
+  const network = getCameroonNetwork(draft.phone || '')
+  const hasPhone = nationalCMDigits(draft.phone || '').length >= 9
+  const networkOk = network === expected
+  const phoneError = hasPhone && !networkOk
+  const valid = networkOk && draft.holder.trim().length > 0
   return (
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel() }}>
       <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 440 }}>
@@ -254,9 +269,21 @@ function PaymentMethodModal({
               options={[{ value: 'momo', label: t('bill.momoType') }, { value: 'om', label: t('bill.omType') }]}
             />
           </div>
-          <div className="ff">
+          <div className={`ff${phoneError ? ' invalid' : ''}`}>
             <label className="lbl2">{t('bill.pmPhone')}</label>
-            <Input value={draft.phone} placeholder="+237 6 78 22 14 02" onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))} />
+            <PhoneInput
+              value={draft.phone || undefined}
+              error={phoneError}
+              defaultCountry="CM"
+              placeholder="6 78 22 14 02"
+              onChange={(v) => setDraft((d) => ({ ...d, phone: v ?? '' }))}
+            />
+            {phoneError ? (
+              <div className="msg err">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+                <span>{t(draft.type === 'momo' ? 'bill.pmInvalidMomo' : 'bill.pmInvalidOm')}</span>
+              </div>
+            ) : null}
           </div>
           <div className="ff">
             <label className="lbl2">{t('bill.pmHolder')}</label>
