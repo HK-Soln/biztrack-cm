@@ -14,6 +14,7 @@ import { BusinessType, type BusinessProfile, type UpdateBusinessRequest } from '
 import { SubscriptionSection } from '@/components/settings/SubscriptionSection'
 import { BillingSection } from '@/components/settings/BillingSection'
 import { TaxSection } from '@/components/settings/TaxSection'
+import { ReceiptsSection } from '@/components/settings/ReceiptsSection'
 
 // Settings is a SINGLE route with an in-page side-nav (per design-settings.html).
 // Team & Roles live under the separate "Organization" nav group — they are not
@@ -150,6 +151,8 @@ export function Settings() {
             <BillingSection />
           ) : section === 'tax' ? (
             <TaxSection />
+          ) : section === 'receipts' ? (
+            <ReceiptsSection />
           ) : (
             <SectionStub titleKey={SECTION_LABEL[section]} />
           )}

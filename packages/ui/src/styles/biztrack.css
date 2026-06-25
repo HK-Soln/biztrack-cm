@@ -926,6 +926,33 @@ button.imgdrop:disabled{cursor:default;opacity:.7;}
 .rate-badge{font-variant-numeric:tabular-nums;font-weight:700;}
 .tcode{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--text-2);background:var(--inset);border:1px solid var(--border);padding:2px 7px;border-radius:6px;}
 
+/* ---- Receipts (Settings → Receipts) ---- */
+.rc-grid{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start;}
+@media(max-width:1040px){.rc-grid{grid-template-columns:1fr;}}
+.rc-side{position:sticky;top:16px;display:flex;flex-direction:column;gap:12px;}
+.rc-pv-head{display:flex;align-items:center;justify-content:space-between;}
+.rc-pv-head .lbl{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);}
+.paper-stage{background:repeating-linear-gradient(45deg,var(--inset),var(--inset) 10px,transparent 10px,transparent 20px);border:1px solid var(--border);border-radius:16px;padding:20px;display:flex;justify-content:center;overflow-x:auto;}
+/* thermal receipt preview (namespaced .rcpt — distinct from the .receipt card) */
+.rcpt{width:280px;background:#fff;color:#1A1A1A;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;line-height:1.5;padding:18px 16px;box-shadow:0 10px 30px -10px rgba(0,0,0,.35);border-radius:3px;}
+.rcpt .ctr{text-align:center;}
+.rcpt .logo{width:38px;height:38px;border-radius:8px;background:#16467A;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;margin:0 auto 8px;font-family:Inter,sans-serif;}
+.rcpt .biz{font-weight:700;font-size:13px;letter-spacing:.02em;}
+.rcpt .muted{color:#666;}
+.rcpt .hr{border-top:1px dashed #BBB;margin:10px 0;}
+.rcpt .line{display:flex;justify-content:space-between;gap:8px;}
+.rcpt .it .nm{margin-top:5px;}
+.rcpt .tot{font-weight:700;font-size:13px;}
+.rcpt .qr{width:64px;height:64px;margin:10px auto 0;background:conic-gradient(from 0deg,#000 25%,#fff 0 50%,#000 0 75%,#fff 0) 0 0/16px 16px,#fff;border:3px solid #fff;outline:1px solid #1A1A1A;}
+.rcpt .thanks{font-size:11px;font-style:italic;margin-top:8px;}
+.psz-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.psz{border:1.5px solid var(--border);border-radius:11px;padding:11px 8px;text-align:center;cursor:pointer;background:var(--surface);font:inherit;color:var(--text);transition:.12s;}
+.psz:hover{border-color:var(--border-strong);}
+.psz.sel{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-int);}
+.psz .pw{font-size:13px;font-weight:700;}
+.psz .pd{font-size:10.5px;color:var(--text-muted);margin-top:3px;}
+.psz.sel .pd{color:var(--brand-int);}
+
 .set-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);}
 .set-line:last-child{border-bottom:0;}
 .set-line .nm{font-size:13px;font-weight:600;}
