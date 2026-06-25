@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Input, Select } from '@biztrack/ui/biztrack'
+import { Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 
 // Receipts — INTERACTIVE PREVIEW (design-receipts.html). No backend yet for receipt
@@ -28,7 +28,7 @@ function Toggle({ nm, ds, on, onToggle }: { nm: string; ds: string; on: boolean;
 export function ReceiptsSection() {
   const t = useT()
   const [name, setName] = useState('Boutique Mballa')
-  const [phone, setPhone] = useState('+237 6 78 21 44 02')
+  const [phone, setPhone] = useState('+237678214402')
   const [address, setAddress] = useState('Akwa, Rue Joss · Douala, Littoral')
   const [thanks, setThanks] = useState('Merci de votre visite ! À bientôt.')
   const [prefix, setPrefix] = useState('BM-')
@@ -59,7 +59,7 @@ export function ReceiptsSection() {
           <div className="card-h"><div><h3>{t('rcp.headerTitle')}</h3><p>{t('rcp.headerSub')}</p></div></div>
           <div className="field-row">
             <div><label className="lbl">{t('rcp.bizName')}</label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <div><label className="lbl">{t('rcp.phone')}</label><Input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+            <div><label className="lbl">{t('rcp.phone')}</label><PhoneInput value={phone || undefined} defaultCountry="CM" onChange={(v) => setPhone(v ?? '')} /></div>
           </div>
           <div><label className="lbl">{t('rcp.address')}</label><Input value={address} onChange={(e) => setAddress(e.target.value)} /></div>
           <div style={{ marginTop: 14 }}><label className="lbl">{t('rcp.footer')}</label><Input value={thanks} onChange={(e) => setThanks(e.target.value)} /></div>
