@@ -24,7 +24,7 @@ import { TaxSection } from '@/components/settings/TaxSection'
 
 type SectionKey =
   | 'business'
-  | 'appearance'
+  | 'security'
   | 'subscription'
   | 'billing'
   | 'tax'
@@ -39,6 +39,7 @@ const ICO: Record<string, ReactNode> = {
   receipt: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z" /><path d="M8 8h8M8 12h8" /></svg>,
   bell: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M10.3 21a2 2 0 0 0 3.4 0" /></svg>,
   scale: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M9 9h6M9 12h6M9 15h3" /></svg>,
+  lock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>,
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6}><path d="m5 12 4 4L19 6" /></svg>,
   warn: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>,
 }
@@ -54,16 +55,16 @@ const NAV_GROUPS: Array<{
   {
     label: 'settings.grpAccount',
     items: [
+      { key: 'security', label: 'settings.security', icon: ICO.lock },
       { key: 'subscription', label: 'settings.subscription', icon: ICO.shield },
       { key: 'billing', label: 'settings.billing', icon: ICO.card },
       { key: 'tax', label: 'settings.tax', icon: ICO.scale },
+      { key: 'receipts', label: 'settings.receipts', icon: ICO.receipt },
     ],
   },
   {
     label: 'settings.grpPreferences',
     items: [
-      { key: 'appearance', label: 'settings.appearance', icon: ICO.palette },
-      { key: 'receipts', label: 'settings.receipts', icon: ICO.receipt },
       { key: 'notifications', label: 'settings.notifications', icon: ICO.bell },
     ],
   },
@@ -71,7 +72,7 @@ const NAV_GROUPS: Array<{
 
 const SECTION_LABEL: Record<SectionKey, MessageKey> = {
   business: 'settings.business',
-  appearance: 'settings.appearance',
+  security: 'settings.security',
   subscription: 'settings.subscription',
   billing: 'settings.billing',
   tax: 'settings.tax',
@@ -79,7 +80,7 @@ const SECTION_LABEL: Record<SectionKey, MessageKey> = {
   notifications: 'settings.notifications',
 }
 
-const SECTION_KEYS: SectionKey[] = ['business', 'appearance', 'subscription', 'billing', 'tax', 'receipts', 'notifications']
+const SECTION_KEYS: SectionKey[] = ['business', 'security', 'subscription', 'billing', 'tax', 'receipts', 'notifications']
 
 function useOnline(): boolean {
   const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
@@ -141,6 +142,8 @@ export function Settings() {
         <div>
           {section === 'business' ? (
             <BusinessProfileSection />
+          ) : section === 'security' ? (
+            <BusinessSecuritySection />
           ) : section === 'subscription' ? (
             <SubscriptionSection onManageBilling={() => selectSection('billing')} />
           ) : section === 'billing' ? (
@@ -150,6 +153,33 @@ export function Settings() {
           ) : (
             <SectionStub titleKey={SECTION_LABEL[section]} />
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Business-level security policy (org-wide). Prototype: the require-2FA toggle is
+// local for now; per-role 2FA is decided when creating/editing a role (Organization →
+// Roles & permissions). No backend enforcement yet.
+function BusinessSecuritySection() {
+  const t = useT()
+  const [require2fa, setRequire2fa] = useState(false)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="banner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+        <span>{t('bsec.comingSoon')}</span>
+      </div>
+      <div className="card">
+        <div className="fsec-h">{t('bsec.title')}</div>
+        <div className="set-line">
+          <div><div className="nm">{t('bsec.require')}</div><div className="ds">{t('bsec.requireDesc')}</div></div>
+          <button type="button" className={`switch${require2fa ? ' on' : ''}`} aria-pressed={require2fa} onClick={() => setRequire2fa((v) => !v)} />
+        </div>
+        <div className="form-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+          <span>{t('bsec.roleNote')}</span>
         </div>
       </div>
     </div>

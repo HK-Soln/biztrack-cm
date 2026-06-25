@@ -39,6 +39,7 @@ import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
+import { UserSettings } from '@/routes/UserSettings'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -105,6 +106,7 @@ export const router = createHashRouter([
       { path: '/team', element: <Placeholder titleKey="nav.team" /> },
       { path: '/roles', element: <Placeholder titleKey="nav.roles" /> },
       { path: '/settings', element: <Settings /> },
+      { path: '/user/settings', element: <UserSettings /> },
       { path: '/profile', element: <Placeholder titleKey="nav.profile" /> },
       { path: '/more', element: <Placeholder titleKey="nav.more" /> },
     ],
