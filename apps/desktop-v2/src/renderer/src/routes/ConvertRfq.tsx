@@ -11,7 +11,7 @@ import { useT } from '@/i18n'
 import type { LocalVariant } from '@shared/ipc'
 
 const num = (s: string) => (s?.trim() ? Number(s.replace(/\s/g, '')) : 0)
-const newKey = () => Math.random().toString(36).slice(2)
+const newKey = () => crypto.randomUUID()
 
 interface Line { key: string; productId: string; variantId: string | null; description: string; quantity: string; unitPrice: string }
 

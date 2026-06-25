@@ -12,7 +12,7 @@ const TENDERS: PaymentMethod[] = [PaymentMethod.CASH, PaymentMethod.MTN_MOMO, Pa
 const isMomo = (m: PaymentMethod) => m === PaymentMethod.MTN_MOMO || m === PaymentMethod.ORANGE_MONEY
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 const round2 = (n: number) => Math.round(n * 100) / 100
-const newId = () => Math.random().toString(36).slice(2)
+const newId = () => crypto.randomUUID()
 
 interface PaymentRow { id: string; method: PaymentMethod; amount: string; momoRef: string }
 

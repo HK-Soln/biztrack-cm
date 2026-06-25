@@ -15,7 +15,7 @@ export interface RecvGroup {
 }
 
 export const newGroup = (variantId: string | null, cost: string): RecvGroup => ({
-  key: Math.random().toString(36).slice(2),
+  key: crypto.randomUUID(),
   variantId,
   qty: '',
   serials: [],
