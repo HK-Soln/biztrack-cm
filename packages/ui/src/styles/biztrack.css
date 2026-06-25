@@ -959,7 +959,7 @@ button.imgdrop:disabled{cursor:default;opacity:.7;}
 .nmx th.evh{text-align:left;width:42%;}
 .nmx td{padding:13px 0;border-top:1px solid var(--border);vertical-align:middle;}
 .nmx td.evt{text-align:left;}
-.nmx td.cell{text-align:center;}
+.nmx td.cell{text-align:center;display:table-cell;}
 .nmx .ev .nm{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:9px;}
 .nmx .ev .ds{font-size:11.5px;color:var(--text-muted);margin-top:3px;margin-left:29px;}
 .nmx .ev .ic{width:20px;height:20px;color:var(--text-2);flex-shrink:0;}
