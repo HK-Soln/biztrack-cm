@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useSyncStatus } from '@/lib/useSyncStatus'
+import { dataClient, isElectron } from '@/lib/data-client'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
@@ -251,19 +253,46 @@ function LanguageToggle() {
   )
 }
 
+// Re-render every `intervalMs` so relative timestamps + day countdowns stay fresh.
+function useNowTick(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs)
+    return () => window.clearInterval(id)
+  }, [intervalMs])
+  return now
+}
+
+function relativeSync(iso: string | null, now: number, t: (k: MessageKey) => string): string {
+  if (!iso) return t('top.neverSynced')
+  const sec = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000))
+  if (sec < 45) return t('top.justNow')
+  const min = Math.round(sec / 60)
+  if (min < 60) return t('top.minAgo').replace('{n}', String(min))
+  const hr = Math.round(min / 60)
+  if (hr < 24) return t('top.hrAgo').replace('{n}', String(hr))
+  return t('top.dayAgo').replace('{n}', String(Math.round(hr / 24)))
+}
+
 function TopBar() {
   const t = useT()
   const businessName = useSessionStore((s) => s.status.businessName)
+  const sync = useSyncStatus()
+  const now = useNowTick(30_000)
+  const lastSync =
+    sync.state === 'syncing'
+      ? `${t('sync.syncing')}…`
+      : `${t('top.lastSyncLabel')} ${relativeSync(sync.lastSyncedAt, now, t)}`
   return (
     <header className="topbar app-drag" style={isWindows ? { paddingRight: 138 } : undefined}>
       <button type="button" className="biz app-no-drag">
         <span className="biz-tile">{initials(businessName)}</span>
         <span>
           <span className="nm">{businessName || 'BizTrack CM'}</span>
-          <span className="sub">{t('top.lastSync')}</span>
+          <span className="sub">{lastSync}</span>
         </span>
       </button>
-      <span className="tb-chip">{t('top.businessPlan')}</span>
+      <PlanChip now={now} />
       <div className="tb-right">
         <SyncIndicator />
         <LanguageToggle />
@@ -273,9 +302,56 @@ function TopBar() {
   )
 }
 
+function PlanChip({ now }: { now: number }) {
+  const t = useT()
+  const q = useQuery({
+    queryKey: ['plans', 'subscription'],
+    queryFn: () => dataClient.plans.subscription(),
+    enabled: isElectron,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const sub = q.data
+  if (!sub) return null
+
+  const expiryIso = sub.cancelAtPeriodEnd
+    ? sub.currentPeriodEnd
+    : sub.status === 'TRIAL'
+      ? sub.trialEndsAt
+      : sub.currentPeriodEnd
+  const daysLeft = expiryIso ? Math.ceil((new Date(expiryIso).getTime() - now) / 86_400_000) : null
+  const showExp = daysLeft != null && daysLeft <= 30
+
+  return (
+    <span className="tb-chip">
+      {sub.plan} {t('top.plan')}
+      {showExp ? (
+        <span className={`tb-exp${daysLeft <= 7 ? ' danger' : ''}`}>
+          {daysLeft <= 0 ? t('top.expired') : t('top.expiresInDays').replace('{n}', String(daysLeft))}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function SyncIndicator() {
   const t = useT()
   const s = useSyncStatus()
+  // After a successful manual sync, throttle the button for 60s — but re-enable early
+  // if a new outbox event arrives (pending count rises), whichever comes first.
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null)
+  const prevPending = useRef(s.pendingCount)
+
+  useEffect(() => {
+    if (cooldownUntil == null) return
+    const id = window.setTimeout(() => setCooldownUntil(null), Math.max(0, cooldownUntil - Date.now()))
+    return () => window.clearTimeout(id)
+  }, [cooldownUntil])
+
+  useEffect(() => {
+    if (cooldownUntil != null && s.pendingCount > prevPending.current) setCooldownUntil(null)
+    prevPending.current = s.pendingCount
+  }, [s.pendingCount, cooldownUntil])
 
   if (s.deadCount > 0) {
     return (
@@ -295,15 +371,36 @@ function SyncIndicator() {
     )
   }
 
-  const label = s.state === 'syncing' ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
+  const syncing = s.state === 'syncing'
+  const cooling = cooldownUntil != null
+  const disabled = syncing || cooling
+  const label = syncing ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
+
+  async function onSync() {
+    if (disabled) return
+    try {
+      await window.api?.sync?.trigger()
+      setCooldownUntil(Date.now() + 60_000)
+    } catch {
+      /* leave the button enabled so they can retry */
+    }
+  }
+
   return (
-    <span className="tb-sync" style={s.state === 'error' ? { color: 'var(--danger)' } : undefined}>
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+    <button
+      type="button"
+      className="tb-sync app-no-drag"
+      style={{ background: 'none', border: 0, font: 'inherit', cursor: disabled ? 'default' : 'pointer', ...(s.state === 'error' ? { color: 'var(--danger)' } : {}) }}
+      title={cooling ? t('sync.justSynced') : t('sync.syncNow')}
+      disabled={disabled}
+      onClick={() => void onSync()}
+    >
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} className={syncing ? 'spin' : undefined}>
         <path d="M16 3v4h-4M4 17v-4h4" />
         <path d="M15 8A6 6 0 0 0 5 5L4 7M5 12a6 6 0 0 0 10 3l1-2" />
       </svg>
       {label}
-    </span>
+    </button>
   )
 }
 
