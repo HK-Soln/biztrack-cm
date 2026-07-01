@@ -20,6 +20,8 @@ import { IpAllowlistMiddleware } from './common/middleware/ip-allowlist.middlewa
 import { AuditLog } from './entities/audit-log.entity'
 import { HealthModule } from './modules/health/health.module'
 import { AdminAuthModule } from './modules/admin-auth/admin-auth.module'
+import { AdminRolesModule } from './modules/admin-roles/admin-roles.module'
+import { AdminUsersModule } from './modules/admin-users/admin-users.module'
 
 const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/')
 
@@ -50,6 +52,8 @@ const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/
     SecurityModule,
     HealthModule,
     AdminAuthModule,
+    AdminRolesModule,
+    AdminUsersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
