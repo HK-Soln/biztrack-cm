@@ -32,8 +32,6 @@ export class BrandsService {
     private readonly brandsRepo: Repository<Brand>,
     @InjectRepository(Model)
     private readonly modelsRepo: Repository<Model>,
-    @InjectRepository(BrandCategory)
-    private readonly linksRepo: Repository<BrandCategory>,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
     private readonly i18n: I18nService<I18nTranslations>,
@@ -46,7 +44,10 @@ export class BrandsService {
     try {
       const page = Math.max(query.page ?? 1, 1)
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
-      const sortColumn = query.sortBy === 'name' ? 'b.name' : query.sortBy === 'createdAt' ? 'b.created_at' : 'b.sort_order'
+      // Use entity PROPERTY paths (not raw columns): with the collection joins below,
+      // TypeORM paginates via a distinct subquery and resolves orderBy against entity
+      // metadata — raw column names (b.sort_order) break that with a databaseName error.
+      const sortColumn = query.sortBy === 'name' ? 'b.name' : query.sortBy === 'createdAt' ? 'b.createdAt' : 'b.sortOrder'
       const order = query.sortOrder === 'DESC' ? 'DESC' : 'ASC'
 
       // Single query: join the relations (models + category links) and filter by

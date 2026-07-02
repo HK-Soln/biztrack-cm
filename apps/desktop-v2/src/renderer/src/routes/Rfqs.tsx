@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, Pagination } from '@biztrack/ui/biztrack'
 import { RfqStatus } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
@@ -25,7 +25,7 @@ export function Rfqs() {
   const { items, total, page, limit, totalPages, isPending, search, setSearch, setPage } = usePaged<LocalRfqListItem>(
     queryKeys.rfqs,
     (q) => dataClient.rfqs.list(q),
-    { enabled: isElectron },
+    { enabled: true },
   )
 
   const statusPill = (s: RfqStatus) => <span className={`st ${STATUS_CLASS[s] ?? 'st-neutral'}`}>{t(`rfq.status_${s}` as Parameters<typeof t>[0])}</span>

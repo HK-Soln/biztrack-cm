@@ -1,27 +1,11 @@
 import { Column, Entity, Index } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer } from '@/common/entities/transformers'
+import { NotificationChannel, NotificationStatus, NotificationType } from '@biztrack/types'
 
-export enum NotificationChannel {
-  EMAIL = 'email',
-  SMS = 'sms',
-  WHATSAPP = 'whatsapp',
-}
-
-export enum NotificationType {
-  INVITE = 'invite',
-  OTP = 'otp',
-  PAYMENT_REMINDER = 'payment_reminder',
-  MARKETING = 'marketing',
-}
-
-export enum NotificationStatus {
-  PENDING = 'pending',
-  QUEUED = 'queued',
-  SENT = 'sent',
-  DELIVERED = 'delivered',
-  FAILED = 'failed',
-}
+// Re-export so existing `from '@/entities/notification.entity'` imports keep working;
+// the enums now live in @biztrack/types (shared with the frontend).
+export { NotificationChannel, NotificationStatus, NotificationType }
 
 @Entity('notifications')
 @Index('idx_notifications_status', ['status'])
@@ -29,6 +13,7 @@ export enum NotificationStatus {
   where: 'provider_message_id IS NOT NULL',
 })
 @Index('idx_notifications_business_id', ['businessId'], { where: 'business_id IS NOT NULL' })
+@Index('idx_notifications_user_id', ['userId'], { where: 'user_id IS NOT NULL' })
 export class Notification extends BaseEntity {
   @Column({ name: 'business_id', type: 'uuid', nullable: true })
   businessId?: string | null
@@ -55,6 +40,15 @@ export class Notification extends BaseEntity {
 
   @Column({ type: 'text' })
   body!: string
+
+  /** In-app notifications: internal route the bell/banner navigates to on click
+   * (e.g. `/invitations/:token`). Null for outbound channels. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  deeplink?: string | null
+
+  /** In-app notifications: when the recipient marked it read (null = unread). */
+  @Column({ name: 'read_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  readAt?: Date | null
 
   /** Template variables and any extra context used to build the message */
   @Column({ type: 'jsonb', nullable: true })

@@ -6,6 +6,7 @@ import type { MessageKey } from '@/i18n/messages'
 import type { BillingCycle, PlanQuotas, PlanSummary } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
 import { routeForNextStep } from '@/lib/auth-routing'
+import { dataClient } from '@/lib/data-client'
 
 const RECOMMENDED = 'BUSINESS'
 
@@ -53,11 +54,7 @@ export function SelectPlan() {
 
   useEffect(() => {
     let active = true
-    if (!window.api?.auth) {
-      setPlans([])
-      return
-    }
-    window.api.auth
+    dataClient.auth
       .listPlans()
       .then((res) => {
         if (!active) return
@@ -81,10 +78,10 @@ export function SelectPlan() {
   const subtitle = trialDays > 0 ? t('plan.subtitle').replace('{days}', String(trialDays)) : t('plan.subtitleShort')
 
   const submit = async () => {
-    if (busy || !window.api?.auth || !selectedPlan) return
+    if (busy || !selectedPlan) return
     setBusy(true)
     setError(null)
-    const res = await window.api.auth.selectPlan(selected, cycle)
+    const res = await dataClient.auth.selectPlan(selected, cycle)
     setBusy(false)
     if (!res.ok) {
       setError(res.error ?? t('plan.error'))

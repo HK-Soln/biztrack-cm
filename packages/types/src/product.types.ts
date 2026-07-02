@@ -263,6 +263,22 @@ export interface ProductSerialUnit {
   updatedAt?: IsoDateString
 }
 
+/**
+ * Result of resolving a scanned/typed code (barcode, SKU, or serial number) to what it
+ * identifies: a product, a specific variant, or an in-stock serialised unit.
+ */
+export type ProductScanResult =
+  | { kind: 'product'; product: Product }
+  | { kind: 'variant'; product: Product; variant: ProductVariant }
+  | {
+      kind: 'serial'
+      product: Product
+      serial: Pick<
+        ProductSerialUnit,
+        'id' | 'productId' | 'variantId' | 'serialNumber' | 'serialType' | 'status'
+      >
+    }
+
 /** Per-serial result returned by a serialised restock. */
 export interface RestockSerialResult {
   serialNumber: string

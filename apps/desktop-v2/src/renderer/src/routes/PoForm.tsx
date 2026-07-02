@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, CommandSelect, Input } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { todayIso } from '@/lib/date'
@@ -36,7 +36,7 @@ export function PoForm() {
   const { data: suppliers = [] } = useQuery({
     queryKey: [...queryKeys.contacts, 'suppliers'],
     queryFn: () => dataClient.contacts.listAllSuppliers(),
-    enabled: isElectron,
+    enabled: true,
   })
   const loadSuppliers = useCallback(
     async (search: string) => {

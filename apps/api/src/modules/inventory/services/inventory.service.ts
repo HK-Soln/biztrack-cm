@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
   AdjustInventoryRequest,
+  DeadStockRow,
   InventoryBinSummary,
   InventoryRestockSyncPayload,
   InventoryAlert,
@@ -10,6 +11,7 @@ import type {
   InventoryMovementTrendPoint,
   InventoryMovementsQuery,
   InventoryQuery,
+  InventoryTurnoverRow,
   RestockRequest,
   RestockChargeLineRequest,
   RestockDiscountLineRequest,
@@ -17,8 +19,15 @@ import type {
   RestockSerialResult,
   SerialType,
   SetInventoryThresholdRequest,
+  SupplierPriceRow,
 } from '@biztrack/types'
-import { DebtDirection, DebtSource, SerialUnitStatus, StockAdjustmentType } from '@biztrack/types'
+import {
+  DebtDirection,
+  DebtSource,
+  PurchaseOrderStatus,
+  SerialUnitStatus,
+  StockAdjustmentType,
+} from '@biztrack/types'
 import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -39,11 +48,65 @@ import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { PurchaseOrder } from '@/entities/purchase-order.entity'
+import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
 import type { InventoryLowStockAlertDigest } from '../constants/inventory.constants'
+import { stockExpr, costExpr, thresholdExpr, round2, type InventoryStats } from '@/common/stats/stock-stats'
+
+const MS_PER_DAY = 86400000
+
+/** Annualise a period COGS by 365 / periodDays (inclusive). Kept in sync with the desktop copy. */
+function annualiseFactor(dateFrom?: string, dateTo?: string): number {
+  if (!dateFrom || !dateTo) return 1
+  const days = Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1)
+  return 365 / days
+}
+
+/** Whole days between a last-sale timestamp and now; null when never sold. Sync with desktop. */
+function daysSince(ts: string | Date | null): number | null {
+  if (!ts) return null
+  const t = ts instanceof Date ? ts.getTime() : new Date(ts).getTime()
+  if (!Number.isFinite(t)) return null
+  return Math.max(0, Math.floor((Date.now() - t) / MS_PER_DAY))
+}
+
+/** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. Sync with desktop. */
+function bucketSupplierPrices(
+  rows: Array<{ productId: string; name: string; supplier: string | null; unitCost: string | number | null; createdAt: string | Date }>,
+): SupplierPriceRow[] {
+  const now = Date.now()
+  const cut3 = now - 90 * MS_PER_DAY
+  const cut6 = now - 180 * MS_PER_DAY
+  const byProduct = new Map<string, { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }>()
+  for (const r of rows) {
+    if (r.unitCost === null) continue
+    const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
+    const cost = Number(r.unitCost)
+    if (!Number.isFinite(t) || !Number.isFinite(cost)) continue
+    const g = byProduct.get(r.productId) ?? { name: r.name, supplier: r.supplier, entries: [] }
+    g.name = r.name
+    g.supplier = r.supplier // rows arrive ASC by created_at → last write is the latest supplier
+    g.entries.push({ cost, t })
+    byProduct.set(r.productId, g)
+  }
+  // latest entry at or before `before`
+  const pick = (entries: Array<{ cost: number; t: number }>, before: number): number | null => {
+    let best: { cost: number; t: number } | null = null
+    for (const e of entries) if (e.t <= before && (!best || e.t > best.t)) best = e
+    return best ? round2(best.cost) : null
+  }
+  const out: SupplierPriceRow[] = []
+  for (const [productId, g] of byProduct) {
+    const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
+    const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
+    out.push({ productId, name: g.name, supplier: g.supplier, cost6mo: pick(sorted, cut6), cost3mo: pick(sorted, cut3), current })
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
 
 type SaleInventoryItemInput = {
   productId: string
@@ -127,7 +190,7 @@ export class InventoryService {
     this.logger.setContext('InventoryService')
   }
 
-  async findAll(businessId: string, filters?: InventoryQuery) {
+  async findAll(businessId: string, filters?: InventoryQuery & { stockStatus?: 'in' | 'low' | 'out' }) {
     try {
       const query = this.inventoryLevelsRepo
         .createQueryBuilder('inventory')
@@ -144,6 +207,16 @@ export class InventoryService {
       if (filters?.lowStockOnly) {
         query.andWhere('inventory.low_stock_threshold IS NOT NULL')
         query.andWhere('inventory.quantity <= inventory.low_stock_threshold')
+      }
+      // Stock-status filter (matches how the list derives status from the row).
+      if (filters?.stockStatus === 'out') {
+        query.andWhere('inventory.quantity <= 0')
+      } else if (filters?.stockStatus === 'low') {
+        query.andWhere('inventory.low_stock_threshold IS NOT NULL')
+        query.andWhere('inventory.quantity > 0 AND inventory.quantity <= inventory.low_stock_threshold')
+      } else if (filters?.stockStatus === 'in') {
+        query.andWhere('inventory.quantity > 0')
+        query.andWhere('(inventory.low_stock_threshold IS NULL OR inventory.quantity > inventory.low_stock_threshold)')
       }
 
       const sort = this.resolveSort(filters?.sortBy)
@@ -185,16 +258,49 @@ export class InventoryService {
     }
   }
 
+  /** Inventory headline stats (variant/serial-aware), mirroring the desktop inventory.stats. */
+  async getStats(businessId: string): Promise<InventoryStats> {
+    try {
+      const STOCK = stockExpr('p')
+      const COST = costExpr('p')
+      const THR = thresholdExpr('p')
+      const rows: Array<Record<string, string | number>> = await this.inventoryLevelsRepo.manager.query(
+        `SELECT
+           COUNT(*)::int AS "trackedSkus",
+           COALESCE(SUM(${STOCK}), 0) AS "unitsOnHand",
+           COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "stockValueCost",
+           COALESCE(SUM(CASE WHEN ${STOCK} > 0 AND ${THR} > 0 AND ${STOCK} <= ${THR} THEN 1 ELSE 0 END), 0)::int AS "lowStock",
+           COALESCE(SUM(CASE WHEN ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
+         FROM products p
+         WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true`,
+        [businessId],
+      )
+      const r = rows[0] ?? {}
+      return {
+        trackedSkus: Number(r.trackedSkus ?? 0),
+        unitsOnHand: round2(Number(r.unitsOnHand ?? 0)),
+        stockValueCost: round2(Number(r.stockValueCost ?? 0)),
+        lowStock: Number(r.lowStock ?? 0),
+        outOfStock: Number(r.outOfStock ?? 0),
+      }
+    } catch (error) {
+      return this.handleServiceError('getStats', error, { businessId })
+    }
+  }
+
   private resolveSort(field?: string): string {
+    // Entity PROPERTY paths (not raw columns): findAll joins product/category + paginates,
+    // so TypeORM resolves orderBy against entity metadata — raw columns
+    // (inventory.low_stock_threshold) break it with a databaseName error.
     const sortMap: Record<string, string> = {
       productName: 'product.name',
       sku: 'product.sku',
       barcode: 'product.barcode',
       categoryName: 'category.name',
       quantity: 'inventory.quantity',
-      lowStockThreshold: 'inventory.low_stock_threshold',
-      reorderPoint: 'inventory.reorder_point',
-      lastRestockAt: 'inventory.last_restock_at',
+      lowStockThreshold: 'inventory.lowStockThreshold',
+      reorderPoint: 'inventory.reorderPoint',
+      lastRestockAt: 'inventory.lastRestockAt',
     }
 
     return sortMap[field ?? ''] ?? 'product.name'
@@ -240,6 +346,125 @@ export class InventoryService {
       return this.findMovements(businessId, query)
     } catch (error) {
       return this.handleServiceError('getAllMovements', error, { businessId })
+    }
+  }
+
+  /**
+   * Inventory turnover: current stock value at cost + annualised COGS per tracked, in-stock
+   * product. Two aggregations (stock value from products; COGS from sale_items over the range)
+   * merged by product id — mirrors the desktop inventoryTurnover so both tie out.
+   */
+  async getInventoryTurnover(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<InventoryTurnoverRow[]> {
+    try {
+      const STOCK = stockExpr('p')
+      const COST = costExpr('p')
+      const mgr = this.inventoryLevelsRepo.manager
+      const stockRows = (await mgr.query(
+        `SELECT p.id AS "productId", p.name AS name, COALESCE(${COST}, 0) * ${STOCK} AS "avgStockCost"
+         FROM products p
+         WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true AND ${STOCK} > 0`,
+        [businessId],
+      )) as Array<{ productId: string; name: string; avgStockCost: string }>
+
+      const cogsParams: unknown[] = [businessId]
+      const cogsConds = ['s.business_id = $1', 's.deleted_at IS NULL', "s.status = 'COMPLETED'", 'si.deleted_at IS NULL']
+      if (query.dateFrom) {
+        cogsParams.push(query.dateFrom)
+        cogsConds.push(`s.sale_date >= $${cogsParams.length}`)
+      }
+      if (query.dateTo) {
+        cogsParams.push(query.dateTo)
+        cogsConds.push(`s.sale_date <= $${cogsParams.length}`)
+      }
+      const cogsRows = (await mgr.query(
+        `SELECT si.product_id AS "productId", COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE ${cogsConds.join(' AND ')}
+         GROUP BY si.product_id`,
+        cogsParams,
+      )) as Array<{ productId: string; cogs: string }>
+
+      const cogsById = new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)]))
+      const factor = annualiseFactor(query.dateFrom, query.dateTo)
+      return stockRows
+        .map((r) => ({
+          productId: r.productId,
+          name: r.name,
+          avgStockCost: round2(Number(r.avgStockCost ?? 0)),
+          annualCogs: round2((cogsById.get(r.productId) ?? 0) * factor),
+        }))
+        .sort((a, b) => b.avgStockCost - a.avgStockCost)
+    } catch (error) {
+      return this.handleServiceError('getInventoryTurnover', error, { businessId })
+    }
+  }
+
+  /**
+   * Dead / slow-moving stock: tracked in-stock products whose last completed sale was 60+ days
+   * ago (or never). Mirrors the desktop getDeadStock (last-sale from sale_items, days computed
+   * in JS from the same clock). Returns rows + the total tracked stock value (KPI denominator).
+   */
+  async getDeadStock(businessId: string): Promise<{ rows: DeadStockRow[]; stockCostTotal: number }> {
+    try {
+      const STOCK = stockExpr('p')
+      const COST = costExpr('p')
+      const mgr = this.inventoryLevelsRepo.manager
+      const stockRows = (await mgr.query(
+        `SELECT p.id AS "productId", p.name AS name, p.sku AS sku,
+                ${STOCK} AS qty, COALESCE(${COST}, 0) * ${STOCK} AS "costValue"
+         FROM products p
+         WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true AND ${STOCK} > 0`,
+        [businessId],
+      )) as Array<{ productId: string; name: string; sku: string | null; qty: string; costValue: string }>
+      const lastSaleRows = (await mgr.query(
+        `SELECT si.product_id AS "productId", MAX(s.sold_at) AS "lastSoldAt"
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status = 'COMPLETED'
+         GROUP BY si.product_id`,
+        [businessId],
+      )) as Array<{ productId: string; lastSoldAt: string | Date | null }>
+
+      const lastById = new Map(lastSaleRows.map((r) => [r.productId, r.lastSoldAt]))
+      const stockCostTotal = round2(stockRows.reduce((s, r) => s + Number(r.costValue ?? 0), 0))
+      const rows = stockRows
+        .map((r) => ({
+          productId: r.productId,
+          name: r.name,
+          sku: r.sku ?? null,
+          quantity: Number(r.qty ?? 0),
+          costValue: round2(Number(r.costValue ?? 0)),
+          daysSinceLastSale: daysSince(lastById.get(r.productId) ?? null),
+        }))
+        .filter((r) => r.daysSinceLastSale === null || r.daysSinceLastSale >= 60)
+      return { rows, stockCostTotal }
+    } catch (error) {
+      return this.handleServiceError('getDeadStock', error, { businessId })
+    }
+  }
+
+  /**
+   * Supplier price trend: per product, the restock unit cost most recently, ~3 months ago and
+   * ~6 months ago (the price in effect at each cut-off), with the latest supplier. Fetches the
+   * restock history and buckets in JS — identical logic to the desktop supplierPriceTrend.
+   */
+  async getSupplierPriceTrend(businessId: string): Promise<SupplierPriceRow[]> {
+    try {
+      const rows = (await this.inventoryLevelsRepo.manager.query(
+        `SELECT ri.product_id AS "productId", p.name AS name, rr.supplier_name AS supplier,
+                ri.unit_cost AS "unitCost", rr.created_at AS "createdAt"
+         FROM restock_items ri
+           JOIN restock_records rr ON rr.id = ri.restock_record_id
+           JOIN products p ON p.id = ri.product_id
+         WHERE rr.business_id = $1 AND ri.unit_cost IS NOT NULL
+         ORDER BY rr.created_at ASC`,
+        [businessId],
+      )) as Array<{ productId: string; name: string; supplier: string | null; unitCost: string | null; createdAt: string | Date }>
+      return bucketSupplierPrices(rows)
+    } catch (error) {
+      return this.handleServiceError('getSupplierPriceTrend', error, { businessId })
     }
   }
 
@@ -305,8 +530,10 @@ export class InventoryService {
         return this.createRestockRecord(manager, {
           businessId,
           referenceNumber: dto.referenceNumber?.trim() ?? null,
+          purchaseOrderId: this.normalizeOptionalUuid(dto.purchaseOrderId),
           supplierId: this.normalizeOptionalUuid(dto.supplierId),
           supplierName: dto.supplierName?.trim() ?? null,
+          amountPaid: dto.amountPaid ?? null,
           subtotalAmount: dto.subtotalAmount ?? null,
           discountAmount: dto.discountAmount ?? null,
           chargesAmount: dto.chargesAmount ?? null,
@@ -396,7 +623,8 @@ export class InventoryService {
     try {
       const qb = this.createAlertsQueryBuilder(businessId)
       const sort = this.resolveAlertSort(query.sortBy)
-      const sortOrder = query.sortBy ? (query.sortOrder ?? 'ASC') : 'DESC'
+      // Default: lowest stock first (most urgent). Named sorts honour the requested order.
+      const sortOrder = query.sortBy ? (query.sortOrder ?? 'ASC') : 'ASC'
       const page = Math.max(query.page ?? 1, 1)
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
       const skip = (page - 1) * limit
@@ -443,7 +671,7 @@ export class InventoryService {
     }
 
     const rows = await this.createAlertsQueryBuilder(businessId)
-      .orderBy(this.resolveAlertSort(), 'DESC')
+      .orderBy(this.resolveAlertSort(), 'ASC')
       .getMany()
     const alerts = await this.mapAlertRows(rows)
 
@@ -687,6 +915,7 @@ export class InventoryService {
     const qb = this.inventoryMovementsRepo
       .createQueryBuilder('movement')
       .leftJoinAndSelect('movement.performedBy', 'performedBy')
+      .leftJoinAndSelect('movement.product', 'product')
       .where('movement.business_id = :businessId', { businessId })
 
     if (query.productId) {
@@ -729,28 +958,37 @@ export class InventoryService {
   }
 
   private resolveMovementSort(field?: string) {
+    // Entity PROPERTY paths only (not raw snake_case columns): with skip/take pagination
+    // over the performedBy + product joins, TypeORM builds a DISTINCT id sub-query and
+    // orderBy on a raw column (movement.created_at) fails metadata resolution →
+    // "Cannot read properties of undefined (reading 'databaseName')". See resolveAlertSort.
     const sortMap: Record<string, string> = {
-      createdAt: 'movement.created_at',
+      createdAt: 'movement.createdAt',
       type: 'movement.type',
-      quantityChange: 'movement.quantity_change',
-      quantityBefore: 'movement.quantity_before',
-      quantityAfter: 'movement.quantity_after',
+      quantityChange: 'movement.quantityChange',
+      quantityBefore: 'movement.quantityBefore',
+      quantityAfter: 'movement.quantityAfter',
     }
 
-    return sortMap[field ?? ''] ?? 'movement.created_at'
+    return sortMap[field ?? ''] ?? 'movement.createdAt'
   }
 
   private resolveAlertSort(field?: string) {
+    // Entity PROPERTY paths only (not raw columns / arithmetic expressions): orderBy on a
+    // raw column (inventory.low_stock_threshold) or an expression breaks TypeORM's
+    // metadata resolution → databaseName error. `shortfall` (biggest gap first) is
+    // approximated by lowest quantity first — every alert row already has quantity <=
+    // threshold, so least stock ≈ most urgent.
     const sortMap: Record<string, string> = {
       productName: 'product.name',
       sku: 'product.sku',
       currentQuantity: 'inventory.quantity',
-      lowStockThreshold: 'inventory.low_stock_threshold',
-      reorderPoint: 'inventory.reorder_point',
-      shortfall: '(inventory.low_stock_threshold - inventory.quantity)',
+      lowStockThreshold: 'inventory.lowStockThreshold',
+      reorderPoint: 'inventory.reorderPoint',
+      shortfall: 'inventory.quantity',
     }
 
-    return sortMap[field ?? ''] ?? '(inventory.low_stock_threshold - inventory.quantity)'
+    return sortMap[field ?? ''] ?? 'inventory.quantity'
   }
 
   private createAlertsQueryBuilder(businessId: string) {
@@ -957,6 +1195,7 @@ export class InventoryService {
 
     const processedItems: Array<{
       productId: string
+      variantId: string | null
       quantity: number
       newQuantity: number
       serialErrors?: RestockSerialResult[]
@@ -982,7 +1221,8 @@ export class InventoryService {
         )
       }
 
-      // Serialised products: create one unit per serial number (no level/movement).
+      // Serialised products: create one IN_STOCK unit per serial number, and record a
+      // RESTOCK_IN movement (stock = serial count) so the ledger matches the desktop.
       if (product.isSerialized) {
         const { created, errors } = await this.restockSerialUnits(
           manager,
@@ -1002,8 +1242,37 @@ export class InventoryService {
             createdAt: input.createdAt,
           }),
         )
+        if (created > 0) {
+          const inStock = await manager.getRepository(ProductSerialUnit).count({
+            where: {
+              businessId: input.businessId,
+              productId: product.id,
+              status: SerialUnitStatus.IN_STOCK,
+              deletedAt: IsNull(),
+            },
+          })
+          await movementRepo.save(
+            movementRepo.create({
+              // Reuse the desktop's movement id (when synced) so pulling it back doesn't
+              // create a duplicate; generated for the REST/cloud path.
+              id: item.movementId ?? undefined,
+              businessId: input.businessId,
+              productId: product.id,
+              type: MovementType.RESTOCK_IN,
+              quantityChange: created,
+              quantityBefore: inStock - created,
+              quantityAfter: inStock,
+              referenceType: 'restock',
+              referenceId: record.id,
+              notes: input.notes ?? null,
+              performedById: input.performedById ?? null,
+              createdAt: input.createdAt,
+            }),
+          )
+        }
         processedItems.push({
           productId: product.id,
+          variantId: item.variantId ?? null,
           quantity: created,
           newQuantity: created,
           serialErrors: errors,
@@ -1067,9 +1336,21 @@ export class InventoryService {
 
       processedItems.push({
         productId: product.id,
+        variantId: item.variantId ?? null,
         quantity: item.quantity,
         newQuantity: quantityAfter,
       })
+    }
+
+    // Fulfil the PO this receipt belongs to: bump received quantities + status.
+    if (input.purchaseOrderId) {
+      await this.applyPurchaseOrderReceipt(
+        manager,
+        input.businessId,
+        input.purchaseOrderId,
+        processedItems.map((p) => ({ productId: p.productId, variantId: p.variantId, quantity: p.quantity })),
+        input.updatedAt ?? input.createdAt,
+      )
     }
 
     if (normalizedPayments.length > 0) {
@@ -1139,6 +1420,45 @@ export class InventoryService {
       payments: normalizedPayments,
       charges: normalizedCharges,
       discounts: normalizedDiscounts,
+    }
+  }
+
+  /**
+   * Fulfil a PO from a restock receipt: add each received quantity to the matching line,
+   * then recompute the PO status (RECEIVED when every line is fully received, otherwise
+   * PARTIALLY_RECEIVED). Mirrors the desktop `applyReceipt`.
+   */
+  private async applyPurchaseOrderReceipt(
+    manager: EntityManager,
+    businessId: string,
+    purchaseOrderId: string,
+    receipts: Array<{ productId: string; variantId: string | null; quantity: number }>,
+    now: Date,
+  ): Promise<void> {
+    const poRepo = manager.getRepository(PurchaseOrder)
+    const poItemRepo = manager.getRepository(PurchaseOrderItem)
+    const po = await poRepo.findOne({ where: { id: purchaseOrderId, businessId, deletedAt: IsNull() } })
+    if (!po) return
+    const lines = await poItemRepo.find({ where: { purchaseOrderId } })
+    for (const r of receipts) {
+      if (r.quantity <= 0) continue
+      const line = lines.find(
+        (l) => l.productId === r.productId && (l.variantId ?? null) === (r.variantId ?? null),
+      )
+      if (!line) continue
+      line.receivedQuantity = this.roundQuantity(Number(line.receivedQuantity ?? 0) + r.quantity)
+      await poItemRepo.update(line.id, { receivedQuantity: line.receivedQuantity })
+    }
+    const anyReceived = lines.some((l) => Number(l.receivedQuantity ?? 0) > 0)
+    const allReceived =
+      lines.length > 0 && lines.every((l) => Number(l.receivedQuantity ?? 0) >= Number(l.quantity))
+    const nextStatus = allReceived
+      ? PurchaseOrderStatus.RECEIVED
+      : anyReceived
+        ? PurchaseOrderStatus.PARTIALLY_RECEIVED
+        : po.status
+    if (nextStatus !== po.status) {
+      await poRepo.update(po.id, { status: nextStatus, updatedAt: now })
     }
   }
 

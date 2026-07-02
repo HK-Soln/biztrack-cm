@@ -51,6 +51,8 @@ export interface InventoryMovement {
   id: string
   businessId: string
   productId: string
+  /** Product display name — populated by the all-products movements list (for reports). */
+  productName?: string | null
   type: InventoryMovementType
   quantityChange: number
   quantityBefore: number
@@ -177,6 +179,10 @@ export interface RestockRequest {
   referenceNumber?: string
   supplierId?: string
   supplierName?: string
+  /** PO this receipt fulfils; the backend bumps each line's received qty + the PO status. */
+  purchaseOrderId?: string | null
+  /** Legacy single-amount settlement; superseded by `payments`. */
+  amountPaid?: number | null
   /** Goods subtotal — Σ(qty × unitCost). Feeds inventory valuation. */
   subtotalAmount?: number
   /** Σ of discount lines. */

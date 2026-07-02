@@ -19,13 +19,21 @@ import {
 // decimal(12,2) money / decimal(12,3) quantity column ceilings.
 const MAX_MONEY = 9_999_999_999
 const MAX_QUANTITY = 9_999_999
-import { PaymentMethod, type CreateSaleItemRequest, type CreateSalePaymentRequest, type CreateSaleRequest } from '@biztrack/types'
+import {
+  PaymentMethod,
+  type CreateSaleItemRequest,
+  type CreateSalePaymentRequest,
+  type CreateSaleChargeRequest,
+  type CreateSaleDiscountRequest,
+  type CreateSaleRequest,
+} from '@biztrack/types'
 
 const CREATE_SALE_PAYMENT_METHODS = [
   PaymentMethod.CASH,
   PaymentMethod.MTN_MOMO,
   PaymentMethod.ORANGE_MONEY,
   PaymentMethod.CARD,
+  PaymentMethod.SAVINGS,
 ] as const
 
 export class CreateSalePaymentDto implements CreateSalePaymentRequest {
@@ -45,6 +53,11 @@ export class CreateSalePaymentDto implements CreateSalePaymentRequest {
   @IsString()
   @MaxLength(100)
   mobileMoneyReference?: string
+
+  @ApiPropertyOptional({ description: 'Customer deposit/savings account drawn from (SAVINGS method).' })
+  @IsOptional()
+  @IsUUID()
+  savingsAccountId?: string | null
 }
 
 export class CreateSaleItemDto implements CreateSaleItemRequest {
@@ -62,6 +75,24 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @IsString()
   @MaxLength(200)
   variantName?: string
+
+  @ApiPropertyOptional({ description: 'Single serialised unit sold (one-unit payload).' })
+  @IsOptional()
+  @IsUUID()
+  serialUnitId?: string
+
+  @ApiPropertyOptional({ type: [String], description: 'Serialised units sold; one sale item is created per unit.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true })
+  serialUnitIds?: string[]
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  serialNumber?: string
 
   @ApiProperty({ example: 2 })
   @Type(() => Number)
@@ -92,6 +123,60 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @Min(0)
   @Max(MAX_MONEY)
   costPrice?: number
+}
+
+export class CreateSaleChargeDto implements CreateSaleChargeRequest {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  chargeTypeId?: string | null
+
+  @ApiProperty({ maxLength: 120 })
+  @IsString()
+  @MaxLength(120)
+  name!: string
+
+  @ApiProperty({ enum: ['PERCENT', 'FIXED'] })
+  @IsIn(['PERCENT', 'FIXED'])
+  rateType!: 'PERCENT' | 'FIXED'
+
+  @ApiProperty({ example: 5 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  rateValue!: number
+
+  @ApiProperty({ example: 500 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(MAX_MONEY)
+  amount!: number
+}
+
+export class CreateSaleDiscountDto implements CreateSaleDiscountRequest {
+  @ApiProperty({ maxLength: 200 })
+  @IsString()
+  @MaxLength(200)
+  description!: string
+
+  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'] })
+  @IsIn(['PERCENTAGE', 'FIXED_AMOUNT'])
+  discountType!: 'PERCENTAGE' | 'FIXED_AMOUNT'
+
+  @ApiPropertyOptional({ example: 10 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  rate?: number | null
+
+  @ApiProperty({ example: 500 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(MAX_MONEY)
+  amount!: number
 }
 
 export class CreateSaleDto implements CreateSaleRequest {
@@ -141,6 +226,22 @@ export class CreateSaleDto implements CreateSaleRequest {
   @Min(0)
   @Max(MAX_MONEY)
   chargesAmount?: number
+
+  @ApiPropertyOptional({ type: [CreateSaleChargeDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CreateSaleChargeDto)
+  charges?: CreateSaleChargeDto[]
+
+  @ApiPropertyOptional({ type: [CreateSaleDiscountDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CreateSaleDiscountDto)
+  discounts?: CreateSaleDiscountDto[]
 
   @ApiProperty({ type: [CreateSalePaymentDto] })
   @IsArray()

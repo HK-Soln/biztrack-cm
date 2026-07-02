@@ -43,6 +43,15 @@ import { ProductVariantsService } from './product-variants.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import { SlugService } from './slug.service'
 import { SkuService } from './sku.service'
+import {
+  stockExpr,
+  costExpr,
+  priceExpr,
+  displayPriceExpr,
+  thresholdExpr,
+  round2,
+  type ProductStats,
+} from '@/common/stats/stock-stats'
 
 @Injectable()
 export class ProductsService {
@@ -56,14 +65,14 @@ export class ProductsService {
     private readonly unitsRepo: Repository<UnitOfMeasure>,
     @InjectRepository(InventoryLevel)
     private readonly inventoryLevelsRepo: Repository<InventoryLevel>,
-    @InjectRepository(InventoryMovement)
-    private readonly inventoryMovementsRepo: Repository<InventoryMovement>,
     @InjectRepository(ProductImage)
     private readonly imagesRepo: Repository<ProductImage>,
     @InjectRepository(ProductBundleComponent)
     private readonly bundleComponentsRepo: Repository<ProductBundleComponent>,
     @InjectRepository(ProductSerialUnit)
     private readonly serialUnitsRepo: Repository<ProductSerialUnit>,
+    @InjectRepository(ProductVariant)
+    private readonly variantsRepo: Repository<ProductVariant>,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
     private readonly barcodeService: BarcodeService,
@@ -283,7 +292,10 @@ export class ProductsService {
     }
   }
 
-  async findAll(businessId: string, query: ProductsQuery) {
+  async findAll(
+    businessId: string,
+    query: ProductsQuery & { brandId?: string; stockStatus?: 'in' | 'low' | 'out' },
+  ) {
     try {
       const qb = this.productsRepo
         .createQueryBuilder('product')
@@ -309,6 +321,23 @@ export class ProductsService {
         qb.andWhere('product.track_inventory = :trackInventory', {
           trackInventory: query.trackInventory,
         })
+      }
+
+      if (query.brandId) {
+        qb.andWhere('product.brand_id = :brandId', { brandId: query.brandId })
+      }
+
+      // Effective-stock status filter (variant/serial-aware), mirroring the desktop.
+      if (query.stockStatus) {
+        const stock = stockExpr('product')
+        const thr = thresholdExpr('product')
+        if (query.stockStatus === 'out') {
+          qb.andWhere(`product.track_inventory = true AND ${stock} <= 0`)
+        } else if (query.stockStatus === 'low') {
+          qb.andWhere(`product.track_inventory = true AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`)
+        } else if (query.stockStatus === 'in') {
+          qb.andWhere(`product.track_inventory = true AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`)
+        }
       }
 
       // Apply search
@@ -539,6 +568,62 @@ export class ProductsService {
       return this.findById(product.id, businessId)
     } catch (error) {
       return this.handleServiceError('findBySku', error, { businessId, sku })
+    }
+  }
+
+  /**
+   * Resolve a scanned/typed code to what it identifies, in priority order: an in-stock
+   * serialised unit (by serial number) → a product (barcode or SKU) → a variant (barcode
+   * or SKU). Mirrors the desktop `resolveScan`. Returns null when nothing matches.
+   */
+  async resolveScan(code: string, businessId: string) {
+    try {
+      const c = code.trim()
+      if (!c) return null
+
+      const serial = await this.serialUnitsRepo.findOne({
+        where: {
+          businessId,
+          serialNumber: c,
+          status: SerialUnitStatus.IN_STOCK,
+          deletedAt: IsNull(),
+        },
+      })
+      if (serial) {
+        const product = await this.findById(serial.productId, businessId)
+        if (product) return { kind: 'serial' as const, product, serial }
+      }
+
+      const productMatch = await this.productsRepo.findOne({
+        where: [
+          { businessId, barcode: c, deletedAt: IsNull() },
+          { businessId, sku: c, deletedAt: IsNull() },
+        ],
+      })
+      if (productMatch) {
+        const product = await this.findById(productMatch.id, businessId)
+        if (product) return { kind: 'product' as const, product }
+      }
+
+      const variantMatch = await this.variantsRepo.findOne({
+        where: [
+          { businessId, barcode: c, deletedAt: IsNull() },
+          { businessId, sku: c, deletedAt: IsNull() },
+        ],
+      })
+      if (variantMatch) {
+        const product = await this.findById(variantMatch.productId, businessId)
+        const variants = await this.variantsService.listVariantsForProduct(
+          businessId,
+          variantMatch.productId,
+        )
+        const variant = variants.find((v) => v.id === variantMatch.id)
+        if (product && variant) return { kind: 'variant' as const, product, variant }
+      }
+
+      return null
+    } catch (error) {
+      return this.handleServiceError('resolveScan', error, { businessId, code })
     }
   }
 
@@ -806,13 +891,50 @@ export class ProductsService {
     }
   }
 
+  /** Catalog headline stats (variant/serial-aware), mirroring the desktop products.stats. */
+  async getStats(businessId: string): Promise<ProductStats> {
+    try {
+      const STOCK = stockExpr('p')
+      const COST = costExpr('p')
+      const PRICE = priceExpr('p')
+      const THR = thresholdExpr('p')
+      const rows: Array<Record<string, string | number>> = await this.inventoryLevelsRepo.manager.query(
+        `SELECT
+           COUNT(*)::int AS "totalSkus",
+           COUNT(DISTINCT p.category_id)::int AS "categories",
+           COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "catalogValueCost",
+           COALESCE(SUM(${PRICE} * ${STOCK}), 0) AS "retailValue",
+           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} > 0 AND ${THR} > 0 AND ${STOCK} <= ${THR} THEN 1 ELSE 0 END), 0)::int AS "lowStock",
+           COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
+         FROM products p
+         WHERE p.business_id = $1 AND p.deleted_at IS NULL`,
+        [businessId],
+      )
+      const r = rows[0] ?? {}
+      const catalogValueCost = round2(Number(r.catalogValueCost ?? 0))
+      const retailValue = round2(Number(r.retailValue ?? 0))
+      const blendedMarginPct = retailValue > 0 ? round2(((retailValue - catalogValueCost) / retailValue) * 100) : 0
+      return {
+        totalSkus: Number(r.totalSkus ?? 0),
+        categories: Number(r.categories ?? 0),
+        catalogValueCost,
+        retailValue,
+        blendedMarginPct,
+        lowStock: Number(r.lowStock ?? 0),
+        outOfStock: Number(r.outOfStock ?? 0),
+      }
+    } catch (error) {
+      return this.handleServiceError('getStats', error, { businessId })
+    }
+  }
+
   private async attachInventoryAndImages(products: Product[], businessId: string) {
     const productIds = products.map((product) => product.id)
     if (productIds.length === 0) return []
 
-    const [levels, images] = await Promise.all([
+    const [levels, images, derivedRows] = await Promise.all([
       this.inventoryLevelsRepo.find({
-        // Product-level rows only (variant rows carry a variant_id).
+        // Product-level rows only (variant rows carry a variant_id) — for thresholds.
         where: productIds.map((productId) => ({ businessId, productId, variantId: IsNull() })),
       }),
       this.imagesRepo
@@ -821,9 +943,18 @@ export class ProductsService {
         .orderBy('image.sort_order', 'ASC')
         .addOrderBy('image.created_at', 'ASC')
         .getMany(),
+      // Derived on-hand stock (serial-count / sum-of-variants / product level) + the
+      // displayed "from" price (lowest variant). EXISTS-based, so a stale has_variants
+      // flag can't skew it — identical to the desktop's STOCK_EXPR/price.
+      this.dataSource.query(
+        `SELECT p.id, (${stockExpr('p')})::float8 AS stock, (${displayPriceExpr('p')})::float8 AS price
+         FROM products p WHERE p.id = ANY($1::uuid[])`,
+        [productIds],
+      ) as Promise<Array<{ id: string; stock: number | null; price: number | null }>>,
     ])
 
     const levelsByProductId = new Map(levels.map((level) => [level.productId, level]))
+    const derivedById = new Map(derivedRows.map((row) => [row.id, row]))
     const primaryImagesByProductId = new Map<string, ProductImage>()
     for (const image of images) {
       if (!primaryImagesByProductId.has(image.productId)) {
@@ -833,14 +964,17 @@ export class ProductsService {
 
     return products.map((product) => {
       const inventory = levelsByProductId.get(product.id)
+      const derived = derivedById.get(product.id)
       const primaryImage = primaryImagesByProductId.get(product.id)
 
       return {
         ...product,
         // The list view never loads variants; detail (findById) does.
         variants: undefined,
-        currentStock:
-          product.hasVariants || !product.trackInventory ? null : (inventory?.quantity ?? 0),
+        // Derived total: serial-count / sum-of-variants / product-level (null for services).
+        currentStock: product.trackInventory ? Number(derived?.stock ?? 0) : null,
+        // "From" price: lowest variant price for variant products, else the product price.
+        effectiveSellingPrice: Number(derived?.price ?? product.sellingPrice),
         lowStockThreshold: inventory?.lowStockThreshold ?? null,
         reorderPoint: inventory?.reorderPoint ?? null,
         primaryImageUrl: primaryImage?.url ?? product.imageUrl ?? null,

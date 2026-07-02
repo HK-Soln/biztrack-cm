@@ -21,6 +21,7 @@ import { paginateRows, toPaginated } from './pagination'
 import {
   COST_EXPR,
   PRICE_EXPR,
+  DISPLAY_PRICE_EXPR,
   STOCK_EXPR,
   effectiveStock as effectiveStockFn,
   movementCount as movementCountFn,
@@ -132,7 +133,7 @@ const COLS =
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
    p.is_serialized, p.serial_type, p.warranty_months,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
-   ${PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
+   ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM =
   `products p

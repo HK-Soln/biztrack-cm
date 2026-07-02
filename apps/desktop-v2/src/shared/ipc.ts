@@ -15,6 +15,9 @@ export const IPC = {
   authVerifyEmail: 'auth:verify-email',
   authResendOtp: 'auth:resend-otp',
   authRegister: 'auth:register',
+  authInvitePreview: 'auth:invite-preview',
+  authAcceptInvite: 'auth:accept-invite',
+  authRejectInvite: 'auth:reject-invite',
   authSetupBusiness: 'auth:setup-business',
   authListPlans: 'auth:list-plans',
   authSelectPlan: 'auth:select-plan',
@@ -23,6 +26,7 @@ export const IPC = {
   authOfflineLogin: 'auth:offline-login',
   authLogout: 'auth:logout',
   syncTrigger: 'sync:trigger',
+  syncFull: 'sync:full',
   syncRetry: 'sync:retry',
   syncGetStatus: 'sync:get-status',
   syncStatusEvent: 'sync:status-event',
@@ -83,6 +87,10 @@ export const IPC = {
   inventoryAdjust: 'inventory:adjust',
   inventorySetThreshold: 'inventory:set-threshold',
   inventoryListMovements: 'inventory:list-movements',
+  inventoryListAllMovements: 'inventory:list-all-movements',
+  inventoryTurnover: 'inventory:turnover',
+  inventoryDeadStock: 'inventory:dead-stock',
+  inventorySupplierTrend: 'inventory:supplier-trend',
   contactsList: 'contacts:list',
   contactsSummary: 'contacts:summary',
   contactsListAllSuppliers: 'contacts:list-all-suppliers',
@@ -95,6 +103,7 @@ export const IPC = {
   debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
   debtsOffset: 'debts:offset',
+  debtsAgeing: 'debts:ageing',
   openingBalancesUpsert: 'opening-balances:upsert',
   openingBalancesListForContact: 'opening-balances:list-for-contact',
   expensesList: 'expenses:list',
@@ -123,6 +132,39 @@ export const IPC = {
   onlineOrdersList: 'online:orders-list',
   onlineOrderGet: 'online:order-get',
   onlineOrderUpdateStatus: 'online:order-update-status',
+  businessGetProfile: 'business:get-profile',
+  businessUpdate: 'business:update',
+  plansList: 'plans:list',
+  plansSubscription: 'plans:subscription',
+  plansQuotaUsage: 'plans:quota-usage',
+  plansUpgrade: 'plans:upgrade',
+  plansCancel: 'plans:cancel',
+  rolesList: 'roles:list',
+  rolesPermissions: 'roles:permissions',
+  rolesGet: 'roles:get',
+  rolesCreate: 'roles:create',
+  rolesUpdate: 'roles:update',
+  rolesRemove: 'roles:remove',
+  rolesSetPermissions: 'roles:set-permissions',
+  teamListMembers: 'team:list-members',
+  teamUpdateMemberRole: 'team:update-member-role',
+  teamRemoveMember: 'team:remove-member',
+  teamSetMemberStatus: 'team:set-member-status',
+  teamListInvites: 'team:list-invites',
+  teamSendInvite: 'team:send-invite',
+  teamResendInvite: 'team:resend-invite',
+  teamCancelInvite: 'team:cancel-invite',
+  // In-app notification feed + realtime
+  notificationsList: 'notifications:list',
+  notificationsUnreadCount: 'notifications:unread-count',
+  notificationsMarkRead: 'notifications:mark-read',
+  notificationsMarkAllRead: 'notifications:mark-all-read',
+  notificationsConnect: 'notifications:connect',
+  notificationEvent: 'notifications:event',
+  // Invitee-side invitations (existing-user pending memberships)
+  invitationsList: 'invitations:list',
+  invitationsAccept: 'invitations:accept',
+  invitationsReject: 'invitations:reject',
   rfqList: 'rfq:list',
   rfqGet: 'rfq:get',
   rfqCreate: 'rfq:create',
@@ -147,6 +189,12 @@ export const IPC = {
   salesList: 'sales:list',
   salesListAll: 'sales:list-all',
   salesSummary: 'sales:summary',
+  salesDailySeries: 'sales:daily-series',
+  salesCashierRoster: 'sales:cashier-roster',
+  salesByProduct: 'sales:by-product',
+  salesByPayment: 'sales:by-payment-method',
+  salesRefunds: 'sales:refunds',
+  salesGrossProfit: 'sales:gross-profit',
   salesGet: 'sales:get',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
@@ -161,7 +209,13 @@ export const IPC = {
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
 export type { ChargeType } from '@biztrack/types'
+export type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
+export type { SalesByProductRow, SalesByPaymentRow, RefundReasonRow, RefundCashierRow } from '@biztrack/types'
+export type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
 import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
+import type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
+import type { SalesByProductRow, SalesByPaymentRow, RefundReasonRow, RefundCashierRow } from '@biztrack/types'
+import type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
 import type { ChargeType as ChargeTypeT } from '@biztrack/types'
 import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
 
@@ -285,7 +339,7 @@ export interface LocalContactListItem extends LocalContact {
 }
 
 // ---- Debts & payments ------------------------------------------------------
-export type { DebtsQuery, RecordDebtPaymentRequest, ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
+export type { DebtsQuery, RecordDebtPaymentRequest, ContactStatement, ContactStatementEntry, DebtDirection, AgeingReport } from '@biztrack/types'
 import type {
   DebtsQuery,
   RecordDebtPaymentRequest,
@@ -293,6 +347,7 @@ import type {
   DebtDirection,
   DebtSource,
   DebtStatus,
+  AgeingReport,
 } from '@biztrack/types'
 
 /** A debt (receivable/payable) as stored locally, with computed paid/outstanding. */
@@ -463,34 +518,10 @@ export interface DocumentDownloadResult {
 
 // ---- Auth (Feature 1) -----------------------------------------------------
 // The renderer only ever sees SESSION STATUS — never tokens. Tokens live in the
-// Electron main process (secure-store). Cloud build will swap the same shape.
-export type AuthPhase = 'none' | 'phase1' | 'phase2'
-
-export interface SessionUser {
-  id: string
-  name: string
-  email: string | null
-  phone: string | null
-  role: string | null
-}
-
-export interface SessionStatus {
-  /** True only when a phase2 (business-scoped) session is active. NOTE: this is NOT
-   * the same as "ready for dashboard" — a phase2 user may still be mid-onboarding.
-   * Routing must use `nextStep`. */
-  authenticated: boolean
-  phase: AuthPhase
-  isOffline: boolean
-  user: SessionUser | null
-  businessId: string | null
-  businessName: string | null
-  /** Active business currency (ISO 4217, e.g. XAF, NGN, USD). Drives all money
-   * formatting in the UI. null until a business is selected. */
-  businessCurrency: string | null
-  /** The AuthNextStep that drives routing: which screen this session should be on
-   * (e.g. 'select_business', 'setup_business', 'dashboard'). null = signed out. */
-  nextStep: string | null
-}
+// Electron main process (secure-store); the cloud build gets the same shape from
+// the API. Canonical definitions live in @biztrack/types — imported for local use + re-exported.
+import type { AuthPhase, SessionUser, SessionStatus } from '@biztrack/types'
+export type { AuthPhase, SessionUser, SessionStatus }
 
 export interface AuthContextInfo {
   maskedPhone?: string
@@ -507,6 +538,13 @@ export interface AuthFlowResult {
   context: AuthContextInfo | null
   error: string | null
 }
+
+// Public invite preview (GET /invites/:token) used by the accept-invite page.
+export type { InvitePreviewResponse } from '@biztrack/types'
+import type { InvitePreviewResponse as InvitePreviewResponseT } from '@biztrack/types'
+export type InvitePreviewResult =
+  | { ok: true; preview: InvitePreviewResponseT }
+  | { ok: false; error: string }
 
 export interface BusinessOption {
   id: string
@@ -1203,6 +1241,104 @@ import type {
   UpdateOrderStatusRequest as UpdateOrderStatusT,
 } from '@biztrack/types'
 
+// --- Business profile (Settings → General) — reuse the shared business shapes ---
+export type { BusinessProfile, UpdateBusinessRequest } from '@biztrack/types'
+export { BusinessType } from '@biztrack/types'
+import type {
+  BusinessProfile as BusinessProfileT,
+  UpdateBusinessRequest as UpdateBusinessRequestT,
+} from '@biztrack/types'
+
+// --- Plans / subscription (Settings → Subscription) — reuse the shared plan shapes ---
+export type {
+  ListPlansResponse,
+  CurrentSubscriptionResponse,
+  QuotaUsageResponse,
+  PlanQuotaUsage,
+  PlanQuotaResource,
+  CancelPlanResponse,
+} from '@biztrack/types'
+import type {
+  ListPlansResponse as ListPlansResponseT,
+  CurrentSubscriptionResponse as CurrentSubscriptionResponseT,
+  QuotaUsageResponse as QuotaUsageResponseT,
+  CancelPlanResponse as CancelPlanResponseT,
+} from '@biztrack/types'
+
+// --- Organization → Roles & Team — reuse the shared role/member/invite shapes ---
+export type {
+  RoleItem,
+  RoleWithPermissions,
+  PermissionCatalogItem,
+  ListRolesResponse,
+  ListPermissionsResponse,
+  CreateRoleRequest,
+  UpdateRoleRequest,
+  TeamMember,
+  ListTeamMembersResponse,
+  UpdateMemberRoleResponse,
+  RemoveTeamMemberResponse,
+  UpdateMemberStatusResponse,
+  PendingInviteItem,
+  ListPendingInvitesResponse,
+  SendInviteRequest,
+  SendInviteResponse,
+  ResendInviteResponse,
+  CancelInviteResponse,
+  BusinessMemberRole,
+  BusinessMemberStatus,
+  InviteStatus,
+} from '@biztrack/types'
+import type {
+  ListRolesResponse as ListRolesResponseT,
+  ListPermissionsResponse as ListPermissionsResponseT,
+  RoleWithPermissions as RoleWithPermissionsT,
+  CreateRoleRequest as CreateRoleRequestT,
+  UpdateRoleRequest as UpdateRoleRequestT,
+  ListTeamMembersResponse as ListTeamMembersResponseT,
+  UpdateMemberRoleResponse as UpdateMemberRoleResponseT,
+  RemoveTeamMemberResponse as RemoveTeamMemberResponseT,
+  UpdateMemberStatusResponse as UpdateMemberStatusResponseT,
+  ListPendingInvitesResponse as ListPendingInvitesResponseT,
+  SendInviteRequest as SendInviteRequestT,
+  SendInviteResponse as SendInviteResponseT,
+  ResendInviteResponse as ResendInviteResponseT,
+  CancelInviteResponse as CancelInviteResponseT,
+} from '@biztrack/types'
+
+export interface RolesListQuery {
+  page?: number
+  limit?: number
+  search?: string
+}
+
+// --- In-app notifications + invitee-side invitations ---
+export type {
+  NotificationItem,
+  NotificationType,
+  ListNotificationsQuery,
+  ListNotificationsResponse,
+  UnreadCountResponse,
+  MarkNotificationReadResponse,
+  MarkAllNotificationsReadResponse,
+  NotificationEventPayload,
+  PendingInvitationItem,
+  ListMyInvitationsResponse,
+  AcceptInvitationResponse,
+  RejectInvitationResponse,
+} from '@biztrack/types'
+import type {
+  ListNotificationsQuery as ListNotificationsQueryT,
+  ListNotificationsResponse as ListNotificationsResponseT,
+  UnreadCountResponse as UnreadCountResponseT,
+  MarkNotificationReadResponse as MarkNotificationReadResponseT,
+  MarkAllNotificationsReadResponse as MarkAllNotificationsReadResponseT,
+  NotificationEventPayload as NotificationEventPayloadT,
+  ListMyInvitationsResponse as ListMyInvitationsResponseT,
+  AcceptInvitationResponse as AcceptInvitationResponseT,
+  RejectInvitationResponse as RejectInvitationResponseT,
+} from '@biztrack/types'
+
 export interface OnlineOrdersQuery {
   status?: OnlineOrderStatusT
   page?: number
@@ -1238,6 +1374,10 @@ export type StockMovementType =
 /** One stock-ledger entry shown in the product detail stock card (newest first). */
 export interface LocalStockMovement {
   id: string
+  /** Product id — populated only by the all-products movements list (reports). */
+  productId?: string
+  /** Product display name — populated only by the all-products movements list (reports). */
+  productName?: string | null
   type: StockMovementType
   quantityChange: number
   quantityBefore: number
@@ -1400,10 +1540,13 @@ export interface BridgeApi {
     login: (identifier: string, password: string) => Promise<AuthFlowResult>
     requestLogin: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     loginOtp: (identifier: string, code: string) => Promise<AuthFlowResult>
-    verifyPhone: (phone: string, code: string) => Promise<AuthFlowResult>
-    verifyEmail: (email: string, code: string) => Promise<AuthFlowResult>
+    verifyPhone: (phone: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
+    verifyEmail: (email: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     register: (payload: RegisterPayload) => Promise<AuthFlowResult>
+    getInvitePreview: (token: string) => Promise<InvitePreviewResult>
+    acceptInvite: (token: string) => Promise<AuthFlowResult>
+    rejectInvite: (token: string) => Promise<{ ok: boolean; error?: string }>
     setupBusiness: (payload: BusinessSetupPayload) => Promise<AuthFlowResult>
     listPlans: () => Promise<PlanList>
     selectPlan: (plan: string, billingCycle?: BillingCycle) => Promise<AuthFlowResult>
@@ -1415,6 +1558,8 @@ export interface BridgeApi {
   sync: {
     /** Run a push+pull cycle now. */
     trigger: () => Promise<void>
+    /** Reset the pull cursor and re-pull every record from the server (full resync). */
+    fullSync: () => Promise<void>
     /** Requeue dead/failed/deferred records and sync now. */
     retry: () => Promise<void>
     getStatus: () => Promise<SyncStatus>
@@ -1513,6 +1658,14 @@ export interface BridgeApi {
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
     /** Paginated stock-movement ledger for a product. */
     listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
+    /** Paginated stock-movement ledger across ALL products (for the Stock Movements report). */
+    listAllMovements: (query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
+    /** Inventory turnover per product over the range (Inventory Turnover report). */
+    turnover: (query?: MovementsQuery) => Promise<InventoryTurnoverRow[]>
+    /** Dead / slow-moving stock (no sale in 60+ days) + total stock cost (Dead Stock report). */
+    deadStock: () => Promise<{ rows: DeadStockRow[]; stockCostTotal: number }>
+    /** Restock unit-cost trend per product (Supplier Price Trend report). */
+    supplierPriceTrend: () => Promise<SupplierPriceRow[]>
   }
   contacts: {
     /** Paginated contacts with outstanding balances (default 20). */
@@ -1538,6 +1691,8 @@ export interface BridgeApi {
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
     /** Net a Both-contact's receivable vs payable with OFFSET contra-payments (oldest first). */
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
+    /** Ageing report (buckets outstanding balances by debt age) for one direction. */
+    ageing: (direction: DebtDirection) => Promise<AgeingReport>
   }
   openingBalances: {
     /** Create/update a contact's opening balance for a direction. */
@@ -1616,6 +1771,18 @@ export interface BridgeApi {
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
     /** KPI strip totals over the filtered date range. */
     summary: (query?: SalesListQuery) => Promise<LocalSalesSummary>
+    /** Daily sales series (one row per day) for the Daily Sales Summary report. */
+    dailySeries: (query?: SalesListQuery) => Promise<DailySalesRow[]>
+    /** Per-cashier performance roster over the range for the Cashier Performance report. */
+    cashierRoster: (query?: SalesListQuery) => Promise<CashierPerformanceRow[]>
+    /** Per-product revenue/COGS/margin over the range (Sales by Product report). */
+    byProduct: (query?: SalesListQuery) => Promise<SalesByProductRow[]>
+    /** Sales split by payment method over the range (Sales by Payment Method report). */
+    byPaymentMethod: (query?: SalesListQuery) => Promise<SalesByPaymentRow[]>
+    /** Refunds & returns (by reason + by cashier) over the range. */
+    refunds: (query?: SalesListQuery) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
+    /** Product revenue + COGS over the range (feeds the Income Statement). */
+    grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (
@@ -1657,5 +1824,54 @@ export interface BridgeApi {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
+  }
+  /** Business profile (Settings → General) — server-owned, proxied through main. */
+  business: {
+    getProfile: () => Promise<BusinessProfileT | null>
+    update: (payload: UpdateBusinessRequestT) => Promise<BusinessProfileT>
+  }
+  /** Plans / subscription (Settings → Subscription) — server-owned, proxied through main. */
+  plans: {
+    list: () => Promise<ListPlansResponseT>
+    subscription: () => Promise<CurrentSubscriptionResponseT>
+    quotaUsage: () => Promise<QuotaUsageResponseT>
+    upgrade: (plan: string) => Promise<void>
+    cancel: () => Promise<CancelPlanResponseT>
+  }
+  /** Organization → Roles — server-owned, online-only, proxied through main. */
+  roles: {
+    list: (query?: RolesListQuery) => Promise<ListRolesResponseT>
+    permissions: () => Promise<ListPermissionsResponseT>
+    get: (id: string) => Promise<RoleWithPermissionsT>
+    create: (input: CreateRoleRequestT) => Promise<RoleWithPermissionsT>
+    update: (id: string, input: UpdateRoleRequestT) => Promise<RoleWithPermissionsT>
+    remove: (id: string) => Promise<{ deleted: boolean }>
+    setPermissions: (id: string, permissions: string[]) => Promise<RoleWithPermissionsT>
+  }
+  /** Organization → Team (members + invites) — server-owned, online-only. */
+  team: {
+    listMembers: () => Promise<ListTeamMembersResponseT>
+    updateMemberRole: (userId: string, roleId: string) => Promise<UpdateMemberRoleResponseT>
+    removeMember: (userId: string) => Promise<RemoveTeamMemberResponseT>
+    setMemberActive: (userId: string, active: boolean) => Promise<UpdateMemberStatusResponseT>
+    listInvites: () => Promise<ListPendingInvitesResponseT>
+    sendInvite: (input: SendInviteRequestT) => Promise<SendInviteResponseT>
+    resendInvite: (id: string) => Promise<ResendInviteResponseT>
+    cancelInvite: (id: string) => Promise<CancelInviteResponseT>
+  }
+  notifications: {
+    list: (query?: ListNotificationsQueryT) => Promise<ListNotificationsResponseT>
+    unreadCount: () => Promise<UnreadCountResponseT>
+    markRead: (id: string) => Promise<MarkNotificationReadResponseT>
+    markAllRead: () => Promise<MarkAllNotificationsReadResponseT>
+    /** (Re)connect the realtime socket and subscribe to this user's room. */
+    connect: () => Promise<void>
+    /** Subscribe to realtime notification pushes; returns an unsubscribe fn. */
+    onEvent: (cb: (payload: NotificationEventPayloadT) => void) => () => void
+  }
+  invitations: {
+    list: () => Promise<ListMyInvitationsResponseT>
+    accept: (businessId: string) => Promise<AcceptInvitationResponseT>
+    reject: (businessId: string) => Promise<RejectInvitationResponseT>
   }
 }

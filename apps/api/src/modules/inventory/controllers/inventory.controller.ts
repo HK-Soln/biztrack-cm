@@ -2,15 +2,19 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
 import type {
+  DeadStockRow,
   InventoryAlert,
   InventoryDetail,
   InventoryListItem,
   InventoryMovement,
+  InventoryTurnoverRow,
   JwtPayload,
   PaginatedResult,
   RestockResponse,
+  SupplierPriceRow,
 } from '@biztrack/types'
 import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
+import type { InventoryStats } from '@/common/stats/stock-stats'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
@@ -62,6 +66,13 @@ export class InventoryController {
     )
   }
 
+  @Get('stats')
+  @RequireResource(Resource.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Inventory headline stats' })
+  async getStats(@CurrentUser() user: JwtPayload): Promise<InventoryStats> {
+    return this.inventoryService.getStats(user.businessId as string)
+  }
+
   @Get('movements')
   @RequireResource(Resource.INVENTORY_VIEW)
   @ApiOperation({ summary: 'List inventory movements across all products' })
@@ -73,6 +84,34 @@ export class InventoryController {
       await this.inventoryService.getAllMovements(user.businessId as string, query),
       (movement) => InventoryMovementDto.fromEntity(movement),
     )
+  }
+
+  @Get('turnover')
+  @RequireResource(Resource.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Inventory turnover per product for the range' })
+  async getInventoryTurnover(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListInventoryMovementsQueryDto,
+  ): Promise<InventoryTurnoverRow[]> {
+    return this.inventoryService.getInventoryTurnover(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+  }
+
+  @Get('dead-stock')
+  @RequireResource(Resource.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Dead / slow-moving stock (no sale in 60+ days) + total stock cost' })
+  async getDeadStock(
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ rows: DeadStockRow[]; stockCostTotal: number }> {
+    return this.inventoryService.getDeadStock(user.businessId as string)
+  }
+
+  @Get('supplier-price-trend')
+  @RequireResource(Resource.INVENTORY_VIEW)
+  @ApiOperation({ summary: 'Restock unit-cost trend per product (current / ~3mo / ~6mo)' })
+  async getSupplierPriceTrend(
+    @CurrentUser() user: JwtPayload,
+  ): Promise<SupplierPriceRow[]> {
+    return this.inventoryService.getSupplierPriceTrend(user.businessId as string)
   }
 
   @Post('restock')

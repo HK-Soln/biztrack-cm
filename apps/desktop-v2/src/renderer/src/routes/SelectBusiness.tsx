@@ -6,6 +6,7 @@ import type { MessageKey } from '@/i18n/messages'
 import type { BusinessOption } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
 import { routeForNextStep } from '@/lib/auth-routing'
+import { dataClient } from '@/lib/data-client'
 
 const ROLE_KEY: Record<string, MessageKey> = {
   OWNER: 'selectBiz.role.owner',
@@ -45,10 +46,10 @@ export function SelectBusiness() {
   }
 
   const select = async (id: string) => {
-    if (selecting || !window.api?.auth) return
+    if (selecting) return
     setSelecting(id)
     setError(null)
-    const res = await window.api.auth.selectBusiness(id)
+    const res = await dataClient.auth.selectBusiness(id)
     if (!res.ok) {
       setSelecting(null)
       setError(res.error ?? t('selectBiz.error'))
@@ -60,11 +61,7 @@ export function SelectBusiness() {
 
   useEffect(() => {
     let active = true
-    if (!window.api?.auth) {
-      setBusinesses([])
-      return
-    }
-    void window.api.auth.listBusinesses().then((list) => {
+    void dataClient.auth.listBusinesses().then((list) => {
       if (!active) return
       setBusinesses(list)
       // Only skip the picker for the unambiguous case: exactly one business AND it's

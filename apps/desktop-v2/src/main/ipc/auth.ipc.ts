@@ -15,12 +15,15 @@ export function registerAuthIpc(auth: AuthService): void {
     auth.requestLogin(identifier, channel),
   )
   ipcMain.handle(IPC.authLoginOtp, (_e, identifier: string, code: string) => auth.loginOtp(identifier, code))
-  ipcMain.handle(IPC.authVerifyPhone, (_e, phone: string, code: string) => auth.verifyPhone(phone, code))
-  ipcMain.handle(IPC.authVerifyEmail, (_e, email: string, code: string) => auth.verifyEmail(email, code))
+  ipcMain.handle(IPC.authVerifyPhone, (_e, phone: string, code: string, inviteToken?: string) => auth.verifyPhone(phone, code, inviteToken))
+  ipcMain.handle(IPC.authVerifyEmail, (_e, email: string, code: string, inviteToken?: string) => auth.verifyEmail(email, code, inviteToken))
   ipcMain.handle(IPC.authResendOtp, (_e, identifier: string, type: string, channel?: OtpChannel) =>
     auth.resendOtp(identifier, type, channel),
   )
   ipcMain.handle(IPC.authRegister, (_e, payload: RegisterPayload) => auth.register(payload))
+  ipcMain.handle(IPC.authInvitePreview, (_e, token: string) => auth.getInvitePreview(token))
+  ipcMain.handle(IPC.authAcceptInvite, (_e, token: string) => auth.acceptInvite(token))
+  ipcMain.handle(IPC.authRejectInvite, (_e, token: string) => auth.rejectInvite(token))
   ipcMain.handle(IPC.authSetupBusiness, (_e, payload: BusinessSetupPayload) => auth.setupBusiness(payload))
   ipcMain.handle(IPC.authListPlans, () => auth.listPlans())
   ipcMain.handle(IPC.authSelectPlan, (_e, plan: string, billingCycle?: BillingCycle) =>

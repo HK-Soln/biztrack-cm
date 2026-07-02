@@ -36,6 +36,7 @@ export class AttributeGroupDto implements AttributeGroup {
   sortOrder!: number
   isActive!: boolean
   options?: AttributeOptionDto[]
+  categoryCount?: number
   createdAt?: string
   updatedAt?: string
 
@@ -51,6 +52,7 @@ export class AttributeGroupDto implements AttributeGroup {
     dto.options = (entity.options ?? [])
       .map((option) => AttributeOptionDto.fromEntity(option))
       .filter((option): option is AttributeOptionDto => option !== null)
+    dto.categoryCount = entity.categoryCount ?? 0
     dto.createdAt = toIsoString(entity.createdAt) ?? undefined
     dto.updatedAt = toIsoString(entity.updatedAt) ?? undefined
     return dto

@@ -49,7 +49,7 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Request-Id', 'X-Skip-Auth-Refresh', 'X-Skip-Auth'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Request-Id', 'X-Skip-Auth-Refresh', 'X-Skip-Auth', 'X-Device-Type', 'X-Platform'],
     exposedHeaders: ['X-Request-Id'],
     maxAge: 86400,
   })

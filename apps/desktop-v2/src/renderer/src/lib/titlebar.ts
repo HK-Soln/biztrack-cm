@@ -1,6 +1,7 @@
 // Pushes the resolved top-bar symbol colour to main so the native Windows caption
 // glyphs (− □ ×) contrast with the header. The overlay background is transparent
 // (set in main), so only the symbol colour needs syncing — mirror --nav-fg-strong.
+import { dataClient } from '@/lib/data-client'
 
 export const isWindows =
   typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
@@ -22,11 +23,12 @@ function readVarAsHex(styles: CSSStyleDeclaration, name: string): string | null 
 }
 
 export function syncTitleBarOverlay(): void {
-  if (typeof window === 'undefined' || !window.api?.window) return
+  if (typeof window === 'undefined') return
   const styles = getComputedStyle(document.documentElement)
   const symbolColor = readVarAsHex(styles, '--nav-fg-strong') ?? readVarAsHex(styles, '--text')
   if (symbolColor) {
-    // Background stays transparent (main forces it); color is ignored there.
-    window.api.window.setTitleBarOverlay({ color: '#00000000', symbolColor })
+    // Background stays transparent (main forces it); color is ignored there. In the
+    // cloud build the adapter no-ops (no native window controls).
+    dataClient.window.setTitleBarOverlay({ color: '#00000000', symbolColor })
   }
 }

@@ -34,6 +34,7 @@ type InventoryMovementModel = {
     | null
   performedById?: string | null
   referenceLabel?: string | null
+  product?: { name?: string | null } | null
   createdAt: Date | string
 }
 
@@ -124,6 +125,7 @@ export class InventoryMovementDto implements InventoryMovement {
   id!: string
   businessId!: string
   productId!: string
+  productName?: string | null
   type!: InventoryMovement['type']
   quantityChange!: number
   quantityBefore!: number
@@ -141,6 +143,7 @@ export class InventoryMovementDto implements InventoryMovement {
     dto.id = entity.id
     dto.businessId = entity.businessId
     dto.productId = entity.productId
+    dto.productName = 'product' in entity && entity.product ? entity.product.name ?? null : null
     dto.type = entity.type as InventoryMovement['type']
     dto.quantityChange = entity.quantityChange
     dto.quantityBefore = entity.quantityBefore

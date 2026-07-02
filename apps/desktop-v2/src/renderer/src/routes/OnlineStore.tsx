@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
@@ -44,7 +44,7 @@ function toForm(s: Store): Form {
 export function OnlineStore() {
   const t = useT()
   const qc = useQueryClient()
-  const store = useQuery({ queryKey: ['online', 'store'], queryFn: () => dataClient.online.getStore(), enabled: isElectron, retry: false })
+  const store = useQuery({ queryKey: ['online', 'store'], queryFn: () => dataClient.online.getStore(), enabled: true, retry: false })
 
   if (store.error && isPlanUpgrade(store.error)) return <OnlineUpsell />
   if (store.error) return <div className="frame"><OnlineError error={store.error} onRetry={() => store.refetch()} /></div>

@@ -77,12 +77,26 @@ export class PdfRenderService {
     )
   }
 
-  async render(html: string): Promise<Buffer> {
+  /**
+   * Render self-contained HTML to a PDF buffer.
+   * @param opts.blockNetwork abort every sub-resource fetch (img/link/iframe). Use for
+   *   CLIENT-supplied HTML so an embedded URL can't be used for SSRF; our templates are
+   *   fully inline so they render unchanged.
+   */
+  async render(html: string, opts?: { blockNetwork?: boolean }): Promise<Buffer> {
     const { executablePath, args } = await this.resolveExecutable()
     const browser = await puppeteer.launch({ args, executablePath, headless: true })
     try {
       const page = await browser.newPage()
-      await page.setContent(html, { waitUntil: 'networkidle0' })
+      if (opts?.blockNetwork) {
+        await page.setRequestInterception(true)
+        page.on('request', (req) => {
+          const url = req.url()
+          if (url.startsWith('data:') || url.startsWith('blob:')) void req.continue()
+          else void req.abort()
+        })
+      }
+      await page.setContent(html, { waitUntil: opts?.blockNetwork ? 'load' : 'networkidle0' })
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,

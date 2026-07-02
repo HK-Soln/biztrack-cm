@@ -27,7 +27,7 @@ function CategoryProducts({ categoryId }: { categoryId: string }) {
       dataClient.products.list({ categoryId, page: pageParam, limit: PRODUCTS_PAGE_SIZE }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
-    enabled: isElectron && !!categoryId,
+    enabled: !!categoryId,
   })
 
   const products = data?.pages.flatMap((p) => p.data) ?? []
@@ -95,7 +95,7 @@ export function Categories() {
     search,
     setSearch,
     setPage,
-  } = usePaged<LocalCategory>(queryKeys.categories, (q) => dataClient.categories.list(q), { enabled: isElectron })
+  } = usePaged<LocalCategory>(queryKeys.categories, (q) => dataClient.categories.list(q), { enabled: true })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<LocalCategory | null>(null)

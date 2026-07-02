@@ -20,6 +20,7 @@ import {
   BusinessMemberStatus,
   BusinessStatus,
 } from '@biztrack/types'
+import type { AuthPhase, SessionStatus } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '../../logger/logger.module'
 import { AuthUsersRepository } from './repositories/auth-users.repository'
@@ -112,6 +113,41 @@ export class AuthService {
         )
       }
 
+      // Registering via an invite: the invited contact is locked, so the submitted value
+      // MUST match the invite (anti-tamper). That channel is then auto-verified below — the
+      // invite was already delivered to it, proving ownership — so only the OTHER contact
+      // needs an OTP.
+      let invitedChannel: 'email' | 'phone' | null = null
+      if (dto.inviteToken) {
+        const invite = await this.pendingInvitesRepo.findOne({
+          where: { token: dto.inviteToken },
+          order: { createdAt: 'DESC' },
+        })
+        if (!invite || invite.acceptedAt || invite.expiresAt <= new Date()) {
+          throw new AppNotFoundException(
+            await this.i18n.translate('errors.invite_invalid'),
+            'INVITE_INVALID',
+          )
+        }
+        if (invite.email) {
+          if (!email || email !== invite.email.toLowerCase()) {
+            throw new AppBadRequestException(
+              await this.i18n.translate('errors.invite_invalid'),
+              'INVITE_CONTACT_MISMATCH',
+            )
+          }
+          invitedChannel = 'email'
+        } else if (invite.phone) {
+          if (!phone || phone !== invite.phone) {
+            throw new AppBadRequestException(
+              await this.i18n.translate('errors.invite_invalid'),
+              'INVITE_CONTACT_MISMATCH',
+            )
+          }
+          invitedChannel = 'phone'
+        }
+      }
+
       if (
         (dto.preferredPhoneChannel ?? PrefferedPhoneChannel.SMS) === PrefferedPhoneChannel.WHATSAPP &&
         this.isWhatsAppConfigured()
@@ -129,7 +165,10 @@ export class AuthService {
         language,
         preferredPhoneChannel: dto.preferredPhoneChannel ?? PrefferedPhoneChannel.SMS,
         status: UserStatus.PENDING,
-        onboardingStep: OnboardingStep.VERIFY_PHONE,
+        // The invited channel is proven by the invite delivery → auto-verified, no OTP.
+        isEmailVerified: invitedChannel === 'email',
+        isPhoneVerified: invitedChannel === 'phone',
+        onboardingStep: invitedChannel === 'phone' ? OnboardingStep.VERIFY_EMAIL : OnboardingStep.VERIFY_PHONE,
       })
       await this.usersRepo.save(user)
 
@@ -143,14 +182,35 @@ export class AuthService {
         await this.redis.setex(`signup-business:${user.id}`, 30 * 60, dto.businessName.trim())
       }
 
+      this.logger.log('User registered', 'AuthService', { userId: user.id })
+
+      // Invited by phone → phone is auto-verified, so OTP the email instead.
+      if (invitedChannel === 'phone') {
+        const verification = await this.createVerificationCode(
+          user.id,
+          VerificationChannel.EMAIL,
+          VerificationPurpose.VERIFY_EMAIL,
+        )
+        this.dispatchEmailOtp(user, verification.code)
+        return {
+          nextStep: AuthNextStep.VERIFY_EMAIL,
+          context: this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+          verification: {
+            channel: VerificationChannel.EMAIL,
+            expiresAt: verification.expiresAt,
+            code: this.shouldReturnOtp() ? verification.code : undefined,
+          },
+        }
+      }
+
+      // Otherwise verify the phone (email is auto-verified when invited by email, and the
+      // verify-phone step then skips straight past email verification).
       const verification = await this.createVerificationCode(
         user.id,
         VerificationChannel.PHONE,
         VerificationPurpose.VERIFY_PHONE,
       )
-
       this.dispatchPhoneOtp(user, verification.code)
-      this.logger.log('User registered', 'AuthService', { userId: user.id })
       return {
         nextStep: AuthNextStep.VERIFY_PHONE,
         context: this.buildOtpContext(
@@ -170,6 +230,57 @@ export class AuthService {
     }
   }
 
+  /**
+   * If the account still owes a verification step (phone or email not yet verified),
+   * create + dispatch a fresh OTP and return that step; returns null when fully verified.
+   * Shared by login + requestLogin so both agree on "what's the next step" — this lets a
+   * user who abandoned onboarding (e.g. verified phone but not email) resume on login
+   * instead of being hard-blocked with a "not verified" error.
+   */
+  private async resolvePendingVerification(user: User) {
+    if (!user.isPhoneVerified) {
+      const verification = await this.createVerificationCode(
+        user.id,
+        VerificationChannel.PHONE,
+        VerificationPurpose.VERIFY_PHONE,
+      )
+      if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+        await this.assertWhatsAppContactExistsForOtp(user.phone!)
+      }
+      this.dispatchPhoneOtp(user, verification.code)
+      return {
+        nextStep: AuthNextStep.VERIFY_PHONE,
+        context: this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+        verification: {
+          channel: VerificationChannel.PHONE,
+          delivery: user.preferredPhoneChannel,
+          expiresAt: verification.expiresAt,
+          code: this.shouldReturnOtp() ? verification.code : undefined,
+        },
+      }
+    }
+
+    if (user.email && !user.isEmailVerified) {
+      const verification = await this.createVerificationCode(
+        user.id,
+        VerificationChannel.EMAIL,
+        VerificationPurpose.VERIFY_EMAIL,
+      )
+      this.dispatchEmailOtp(user, verification.code)
+      return {
+        nextStep: AuthNextStep.VERIFY_EMAIL,
+        context: this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+        verification: {
+          channel: VerificationChannel.EMAIL,
+          expiresAt: verification.expiresAt,
+          code: this.shouldReturnOtp() ? verification.code : undefined,
+        },
+      }
+    }
+
+    return null
+  }
+
   async login(dto: LoginRequest) {
     this.logger.debug('Login attempt', 'AuthService', { identifier: dto.identifier })
 
@@ -183,8 +294,12 @@ export class AuthService {
       }
       await this.ensureUserActive(user)
       await this.ensureAccountNotLocked(user)
-      await this.ensurePhoneVerified(user)
-      await this.ensureEmailVerifiedIfRequired(user)
+
+      // Resolve the account's next step first. If phone/email verification is still
+      // pending, return that step (with a fresh OTP) so the user can resume onboarding —
+      // only a fully-verified account continues to password validation.
+      const pending = await this.resolvePendingVerification(user)
+      if (pending) return pending
 
       if (!user.passwordHash) {
         throw new AppBadRequestException(
@@ -257,55 +372,8 @@ export class AuthService {
         user.preferredPhoneChannel = dto.preferredOtpChannel
       }
 
-      if (!user.isPhoneVerified) {
-        const verification = await this.createVerificationCode(
-          user.id,
-          VerificationChannel.PHONE,
-          VerificationPurpose.VERIFY_PHONE,
-        )
-
-        if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
-          await this.assertWhatsAppContactExistsForOtp(user.phone!)
-        }
-        this.dispatchPhoneOtp(user, verification.code)
-        return {
-          nextStep: AuthNextStep.VERIFY_PHONE,
-          context: this.buildOtpContext(
-            VerificationChannel.PHONE,
-            verification.expiresAt,
-            user.phone,
-          ),
-          verification: {
-            channel: VerificationChannel.PHONE,
-            delivery: user.preferredPhoneChannel,
-            expiresAt: verification.expiresAt,
-            code: this.shouldReturnOtp() ? verification.code : undefined,
-          },
-        }
-      }
-
-      if (user.email && !user.isEmailVerified) {
-        const verification = await this.createVerificationCode(
-          user.id,
-          VerificationChannel.EMAIL,
-          VerificationPurpose.VERIFY_EMAIL,
-        )
-
-        this.dispatchEmailOtp(user, verification.code)
-        return {
-          nextStep: AuthNextStep.VERIFY_EMAIL,
-          context: this.buildOtpContext(
-            VerificationChannel.EMAIL,
-            verification.expiresAt,
-            user.email,
-          ),
-          verification: {
-            channel: VerificationChannel.EMAIL,
-            expiresAt: verification.expiresAt,
-            code: this.shouldReturnOtp() ? verification.code : undefined,
-          },
-        }
-      }
+      const pending = await this.resolvePendingVerification(user)
+      if (pending) return pending
 
       if (user.passwordHash) {
         return { nextStep: AuthNextStep.PASSWORD_REQUIRED }
@@ -777,6 +845,13 @@ export class AuthService {
         )
       }
 
+      if (membership.status === BusinessMemberStatus.SUSPENDED) {
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.forbidden'),
+          'BUSINESS_MEMBER_SUSPENDED',
+        )
+      }
+
       if (membership.status === BusinessMemberStatus.PENDING) {
         await this.businessMembersRepo.update(membership.id, {
           status: BusinessMemberStatus.ACTIVE,
@@ -948,6 +1023,21 @@ export class AuthService {
           await this.businessMembersRepo.save(newMember)
         }
 
+        // Existing users join by accepting a pending membership — there is no token
+        // link. Notify them in-app (realtime + persisted) with a deeplink to the
+        // invitations page where they accept or decline.
+        const inviteBusiness = await this.businessesRepo.findOne({ where: { id: businessId } })
+        const inviter = await this.usersRepo.findOne({ where: { id: userId } })
+        const bizName = inviteBusiness?.name ?? 'A business'
+        void this.notificationsService.createInApp({
+          userId: existingUser.id,
+          businessId,
+          type: NotificationType.INVITE,
+          title: `${bizName} invited you to join`,
+          body: `${inviter?.name ?? 'A team admin'} invited you to join ${bizName}. Review and accept your invitation.`,
+          deeplink: '/invitations',
+        })
+
         return {
           status: 'pending_member',
           businessId,
@@ -980,7 +1070,8 @@ export class AuthService {
       )
 
       const appUrl = this.config.get<string>('APP_URL', { infer: true }) ?? ''
-      const inviteUrl = `${appUrl}/en/invite?token=${token}`
+      // The accept-invite page is a hash route (createHashRouter) at /invite — no locale prefix.
+      const inviteUrl = `${appUrl}/#/invite?token=${token}`
 
       return {
         status: 'pending_invite',
@@ -1176,8 +1267,19 @@ export class AuthService {
       newExpiry.setDate(newExpiry.getDate() + 7)
       await this.pendingInvitesRepo.update(invite.id, { expiresAt: newExpiry })
 
+      // Re-dispatch the invite notification (email/SMS/WhatsApp) — resending only
+      // extended the expiry before, so the recipient never got a fresh message.
+      const business = await this.businessesRepo.findOne({ where: { id: businessId } })
+      const inviterUser = await this.usersRepo.findOne({ where: { id: userId } })
+      void this.notificationsService.enqueueInviteNotifications(
+        invite.id,
+        business?.name ?? 'BizTrack',
+        inviterUser?.name ?? undefined,
+      )
+
       const appUrl = this.config.get<string>('APP_URL', { infer: true }) ?? ''
-      const inviteUrl = invite.token ? `${appUrl}/en/invite?token=${invite.token}` : null
+      // Hash route (createHashRouter) at /invite — no locale prefix.
+      const inviteUrl = invite.token ? `${appUrl}/#/invite?token=${invite.token}` : null
       return { resent: true, inviteUrl }
     } catch (error) {
       return this.handleServiceError('resendInvite', error, { userId, businessId, inviteId })
@@ -1559,6 +1661,54 @@ export class AuthService {
     return AuthNextStep.DASHBOARD
   }
 
+  /**
+   * Build the renderer-facing SessionStatus from the current token. Used by the cloud
+   * build (GET /auth/session) where there is no main-process cache: the API is the
+   * authoritative source of the user + active business + routing nextStep.
+   */
+  async buildSessionStatus(payload: JwtPayload): Promise<SessionStatus> {
+    const phase: AuthPhase = payload.type === 'phase2' ? 'phase2' : 'phase1'
+    const businessId = payload.businessId ?? null
+    const user = await this.usersRepo.findOne({ where: { id: payload.sub } })
+
+    let businessName: string | null = null
+    let businessCurrency: string | null = null
+    // phase1 (verified, pre-business) → pick a business; phase2 → business-driven step.
+    let nextStep: string = AuthNextStep.SELECT_BUSINESS
+
+    if (phase === 'phase2' && businessId) {
+      const [business, membership] = await Promise.all([
+        this.businessesRepo.findOne({ where: { id: businessId } }),
+        this.businessMembersRepo.findOne({ where: { userId: payload.sub, businessId } }),
+      ])
+      businessName = business?.name ?? null
+      businessCurrency = business?.currency ?? null
+      nextStep = this.resolveBusinessNextStep(
+        membership?.role ?? BusinessMemberRole.CASHIER,
+        business?.businessStatus ?? null,
+      )
+    }
+
+    return {
+      authenticated: phase === 'phase2' && !!businessId,
+      phase,
+      isOffline: false,
+      user: user
+        ? {
+          id: user.id,
+          name: user.name ?? '',
+          email: user.email ?? payload.email ?? null,
+          phone: user.phone ?? payload.phone ?? null,
+          role: (payload.role as string | null) ?? null,
+        }
+        : null,
+      businessId,
+      businessName,
+      businessCurrency,
+      nextStep,
+    }
+  }
+
   private async findUserByIdentifier(identifier?: string): Promise<User | null> {
     if (!identifier) {
       throw new AppBadRequestException(
@@ -1714,7 +1864,7 @@ export class AuthService {
     if (!exists) {
       throw new AppBadRequestException(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await this.i18n.translate('auth.register.invalid_whatsapp_number' as any),
+        await this.i18n.translate('auth.register.invalid_whatsapp_number' as any),
         'INVALID_WHATSAPP_NUMBER',
       )
     }

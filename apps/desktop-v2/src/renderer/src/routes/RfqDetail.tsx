@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal } from '@biztrack/ui/biztrack'
 import { renderRfqHtml } from '@biztrack/templates'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
@@ -35,7 +35,7 @@ export function RfqDetail() {
   const { data: rfq, isPending } = useQuery({
     queryKey: [...queryKeys.rfqs, id],
     queryFn: () => dataClient.rfqs.get(id),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
 
   const invalidate = () => {

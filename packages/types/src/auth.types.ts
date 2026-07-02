@@ -279,3 +279,31 @@ export interface JwtPayload {
   tokenId?: string | null
   type?: 'phase1' | 'phase2' | 'sync'
 }
+
+// --- Session status (shared desktop ⇄ cloud ⇄ API) -------------------------
+// The renderer only ever sees SESSION STATUS, never tokens. On desktop the main
+// process builds it; in the cloud build the API returns it from GET /auth/session.
+export type AuthPhase = 'none' | 'phase1' | 'phase2'
+
+export interface SessionUser {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  role: string | null
+}
+
+export interface SessionStatus {
+  /** True only when a phase2 (business-scoped) session is active. NOTE: not the same
+   * as "ready for dashboard" — routing must use `nextStep`. */
+  authenticated: boolean
+  phase: AuthPhase
+  isOffline: boolean
+  user: SessionUser | null
+  businessId: string | null
+  businessName: string | null
+  /** Active business currency (ISO 4217, e.g. XAF). null until a business is selected. */
+  businessCurrency: string | null
+  /** The AuthNextStep that drives routing. null = signed out. */
+  nextStep: string | null
+}

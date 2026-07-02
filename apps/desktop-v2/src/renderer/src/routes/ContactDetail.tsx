@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Modal } from '@biztrack/ui/biztrack'
 import { ContactStatementEntryType, ContactType, DebtDirection } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
@@ -31,7 +31,7 @@ export function ContactDetail() {
   const { data: contact, isPending, refetch } = useQuery({
     queryKey: [...queryKeys.contacts, id],
     queryFn: () => dataClient.contacts.get(id),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
 
   const tp = contact?.type
@@ -42,12 +42,12 @@ export function ContactDetail() {
   const { data: recvStmt } = useQuery({
     queryKey: [...queryKeys.contacts, id, 'stmt', 'RECEIVABLE'],
     queryFn: () => dataClient.debts.statement(id, DebtDirection.RECEIVABLE),
-    enabled: isElectron && !!id && isCustomer,
+    enabled: !!id && isCustomer,
   })
   const { data: payStmt } = useQuery({
     queryKey: [...queryKeys.contacts, id, 'stmt', 'PAYABLE'],
     queryFn: () => dataClient.debts.statement(id, DebtDirection.PAYABLE),
-    enabled: isElectron && !!id && isSupplier,
+    enabled: !!id && isSupplier,
   })
 
   const refresh = () => {

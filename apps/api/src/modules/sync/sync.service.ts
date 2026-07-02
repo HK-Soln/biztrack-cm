@@ -649,6 +649,9 @@ export class SyncService {
     try {
       const since = cursor ? new Date(cursor) : new Date(0)
       const pulledAt = new Date()
+      // Date fields may arrive as a Date (timestamp transformer) or a string (date column).
+      const iso = (v: unknown): string | null =>
+        v == null ? null : v instanceof Date ? v.toISOString() : String(v)
 
       const [
         contacts,
@@ -679,6 +682,11 @@ export class SyncService {
         productVariantOptions,
         productBundleComponents,
         productSerialUnits,
+        rfqs,
+        rfqItems,
+        rfqSuppliers,
+        purchaseOrders,
+        purchaseOrderItems,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -902,6 +910,51 @@ export class SyncService {
           .andWhere('serial.updated_at <= :pulledAt', { pulledAt })
           .orderBy('serial.updated_at', 'ASC')
           .getMany(),
+        // Procurement: RFQs + POs (headers), and their items/suppliers filtered by the
+        // parent's business (those child tables have no business_id of their own).
+        this.rfqsRepo
+          .createQueryBuilder('rfq')
+          .withDeleted()
+          .where('rfq.business_id = :businessId', { businessId })
+          .andWhere('rfq.updated_at > :since', { since })
+          .andWhere('rfq.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('rfq.updated_at', 'ASC')
+          .getMany(),
+        this.rfqItemsRepo
+          .createQueryBuilder('ri')
+          .withDeleted()
+          .innerJoin('ri.rfq', 'rfq')
+          .where('rfq.business_id = :businessId', { businessId })
+          .andWhere('ri.updated_at > :since', { since })
+          .andWhere('ri.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('ri.updated_at', 'ASC')
+          .getMany(),
+        this.rfqSuppliersRepo
+          .createQueryBuilder('rs')
+          .withDeleted()
+          .innerJoin('rs.rfq', 'rfq')
+          .where('rfq.business_id = :businessId', { businessId })
+          .andWhere('rs.updated_at > :since', { since })
+          .andWhere('rs.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('rs.updated_at', 'ASC')
+          .getMany(),
+        this.purchaseOrdersRepo
+          .createQueryBuilder('po')
+          .withDeleted()
+          .where('po.business_id = :businessId', { businessId })
+          .andWhere('po.updated_at > :since', { since })
+          .andWhere('po.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('po.updated_at', 'ASC')
+          .getMany(),
+        this.purchaseOrderItemsRepo
+          .createQueryBuilder('poi')
+          .withDeleted()
+          .innerJoin('poi.purchaseOrder', 'po')
+          .where('po.business_id = :businessId', { businessId })
+          .andWhere('poi.updated_at > :since', { since })
+          .andWhere('poi.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('poi.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -924,10 +977,33 @@ export class SyncService {
         }
       }
 
+      // Per-product (variant_id IS NULL) stock for the product records being emitted, so the
+      // desktop's denormalised `products.stock_quantity` stays in step with `inventory_levels`
+      // across pulls (the desktop Sell screen reads stock_quantity for simple products).
+      // Also carry the product-level reorder threshold (low_stock_threshold / reorder_point)
+      // so the desktop can flag "needs reordering" — the API's own low-stock alerts read
+      // these off inventory_levels, so the desktop must too (they are NOT on the product row).
+      const productStock = new Map<
+        string,
+        { quantity: number; lowStockThreshold: number | null; reorderPoint: number | null }
+      >()
+      if (products.length > 0) {
+        const levels = await this.inventoryLevelsRepo.find({
+          where: { businessId, productId: In(products.map((p) => p.id)), variantId: IsNull() },
+        })
+        for (const l of levels) {
+          productStock.set(l.productId, {
+            quantity: l.quantity,
+            lowStockThreshold: l.lowStockThreshold ?? null,
+            reorderPoint: l.reorderPoint ?? null,
+          })
+        }
+      }
+
       const changes: ChangeSet = {
         contacts: contacts.map((record) => this.toContactSyncRecord(record)),
         openingBalances: openingBalances.map((record) => this.toOpeningBalanceSyncRecord(record)),
-        products: products.map((record) => this.toProductSyncRecord(record)),
+        products: products.map((record) => this.toProductSyncRecord(record, productStock)),
         productCategories: productCategories.map((record) => this.toCategorySyncRecord(record)),
         expenseCategories: expenseCategories.map((record) => this.toExpenseCategorySyncRecord(record)),
         unitOfMeasures: unitOfMeasures.map((record) => this.toUnitSyncRecord(record)),
@@ -1082,6 +1158,76 @@ export class SyncService {
           reservedBy: record.reservedBy ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
+          isDeleted: record.deletedAt != null,
+        })),
+        rfqs: rfqs.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          number: record.number,
+          title: record.title ?? null,
+          messageBody: record.messageBody ?? null,
+          status: record.status,
+          currency: record.currency,
+          createdById: record.createdById ?? null,
+          createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
+          updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
+          isDeleted: record.deletedAt != null,
+        })),
+        rfqItems: rfqItems.map((record) => ({
+          id: record.id,
+          rfqId: record.rfqId,
+          productId: record.productId ?? null,
+          variantId: record.variantId ?? null,
+          description: record.description,
+          quantity: record.quantity,
+          createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
+          updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
+          isDeleted: record.deletedAt != null,
+        })),
+        rfqSuppliers: rfqSuppliers.map((record) => ({
+          id: record.id,
+          rfqId: record.rfqId,
+          supplierId: record.supplierId,
+          supplierName: record.supplierName ?? null,
+          status: record.status,
+          quotedTotal: record.quotedTotal ?? null,
+          quoteNotes: record.quoteNotes ?? null,
+          quoteFileUrl: record.quoteFileUrl ?? null,
+          respondedAt: iso(record.respondedAt),
+          createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
+          updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
+          isDeleted: record.deletedAt != null,
+        })),
+        purchaseOrders: purchaseOrders.map((record) => ({
+          id: record.id,
+          businessId: record.businessId,
+          number: record.number,
+          rfqId: record.rfqId ?? null,
+          supplierId: record.supplierId,
+          supplierName: record.supplierName ?? null,
+          title: record.title ?? null,
+          messageBody: record.messageBody ?? null,
+          status: record.status,
+          currency: record.currency,
+          expectedDate: iso(record.expectedDate),
+          totalAmount: record.totalAmount,
+          sentAt: iso(record.sentAt),
+          createdById: record.createdById ?? null,
+          createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
+          updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
+          isDeleted: record.deletedAt != null,
+        })),
+        purchaseOrderItems: purchaseOrderItems.map((record) => ({
+          id: record.id,
+          purchaseOrderId: record.purchaseOrderId,
+          productId: record.productId ?? null,
+          variantId: record.variantId ?? null,
+          description: record.description,
+          quantity: record.quantity,
+          unitPrice: record.unitPrice,
+          receivedQuantity: record.receivedQuantity,
+          createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
+          updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
           isDeleted: record.deletedAt != null,
         })),
       }
@@ -1917,6 +2063,20 @@ export class SyncService {
     return { status: 'applied' }
   }
 
+  /**
+   * Keep a product's denormalised `has_variants` flag in step with reality. The desktop
+   * has no such flag (it tests EXISTS(variants)), so it never pushes one — the flag must
+   * be (re)derived on the API whenever variants change via sync.
+   */
+  private async refreshHasVariants(businessId: string, productId: string): Promise<void> {
+    await this.inventoryLevelsRepo.manager.query(
+      `UPDATE products SET has_variants = EXISTS (
+         SELECT 1 FROM product_variants pv WHERE pv.product_id = $1 AND pv.deleted_at IS NULL
+       ) WHERE id = $1 AND business_id = $2`,
+      [productId, businessId],
+    )
+  }
+
   private async applyProductVariantOperation(
     businessId: string,
     operation: SyncOperation,
@@ -1937,6 +2097,7 @@ export class SyncService {
           deletedAt: operation.recordUpdatedAt,
           updatedAt: operation.recordUpdatedAt,
         })
+        await this.refreshHasVariants(businessId, existing.productId)
       }
       return { status: 'applied' }
     }
@@ -1964,6 +2125,7 @@ export class SyncService {
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
+      await this.refreshHasVariants(businessId, productId)
       return { status: 'applied' }
     }
 
@@ -1994,6 +2156,7 @@ export class SyncService {
         await this.inventoryLevelsRepo.update(level.id, { lowStockThreshold: payload.lowStockThreshold })
       }
     }
+    await this.refreshHasVariants(businessId, productId)
     return { status: 'applied' }
   }
 
@@ -3650,10 +3813,22 @@ export class SyncService {
     }
   }
 
-  private toProductSyncRecord(record: Product): SyncRecord {
+  private toProductSyncRecord(
+    record: Product,
+    productStock?: Map<string, { quantity: number; lowStockThreshold: number | null; reorderPoint: number | null }>,
+  ): SyncRecord {
+    const level = productStock?.get(record.id)
     return {
       id: record.id,
       businessId: record.businessId,
+      // Product-level on-hand stock (variant_id IS NULL) so the desktop can keep its
+      // denormalised products.stock_quantity in sync. Variant/serialised products have no
+      // such level → 0, which the desktop ignores for those types.
+      stockQuantity: level?.quantity ?? 0,
+      // Reorder threshold (from the product-level inventory_level) so the desktop's
+      // "needs reordering" logic matches the API's low-stock alerts.
+      lowStockThreshold: level?.lowStockThreshold ?? null,
+      reorderPoint: level?.reorderPoint ?? null,
       name: record.name,
       slug: record.slug,
       description: record.description ?? null,

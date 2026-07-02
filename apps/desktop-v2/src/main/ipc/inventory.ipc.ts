@@ -21,4 +21,8 @@ export function registerInventoryIpc(inventory: InventoryService): void {
   ipcMain.handle(IPC.inventoryListMovements, (_e, productId: string, query?: MovementsQuery) =>
     inventory.listMovements(productId, query),
   )
+  ipcMain.handle(IPC.inventoryListAllMovements, (_e, query?: MovementsQuery) => inventory.listAllMovements(query))
+  ipcMain.handle(IPC.inventoryTurnover, (_e, query?: MovementsQuery) => inventory.turnover(query))
+  ipcMain.handle(IPC.inventoryDeadStock, () => inventory.deadStock())
+  ipcMain.handle(IPC.inventorySupplierTrend, () => inventory.supplierPriceTrend())
 }

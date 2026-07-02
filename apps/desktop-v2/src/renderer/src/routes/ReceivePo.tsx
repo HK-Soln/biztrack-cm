@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
 import { ReceiveLine, newGroup, type RecvGroup } from '@/components/inventory/receive/ReceiveLine'
@@ -24,12 +24,12 @@ export function ReceivePo() {
   const { data: po, isPending } = useQuery({
     queryKey: [...queryKeys.purchaseOrders, id],
     queryFn: () => dataClient.purchaseOrders.get(id),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
 
   const { data: meta } = useQuery({
     queryKey: [...queryKeys.purchaseOrders, id, 'receive-meta'],
-    enabled: isElectron && !!po,
+    enabled: !!po,
     queryFn: async () => {
       const ids = [...new Set(po!.items.map((i) => i.productId))]
       const entries = await Promise.all(

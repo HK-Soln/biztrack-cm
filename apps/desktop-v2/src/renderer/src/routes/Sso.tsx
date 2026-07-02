@@ -7,6 +7,7 @@ import type { OtpChannel } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
 import { isValidEmail } from '@/lib/schemas'
 import { routeForNextStep } from '@/lib/auth-routing'
+import { dataClient } from '@/lib/data-client'
 
 type Step = 'channel' | 'verify'
 
@@ -95,9 +96,9 @@ export function Sso() {
       return
     }
     setContactError(null)
-    if (busy || !window.api?.auth) return
+    if (busy) return
     setBusy(true)
-    const res = await window.api.auth.requestLogin(identifier, channel)
+    const res = await dataClient.auth.requestLogin(identifier, channel)
     setBusy(false)
     if (!res.ok) {
       setError(res.error ?? 'Could not send the code.')
@@ -114,10 +115,10 @@ export function Sso() {
 
   const verify = async (value?: string) => {
     const otp = value ?? code
-    if (otp.length !== 6 || busy || !window.api?.auth) return
+    if (otp.length !== 6 || busy) return
     setBusy(true)
     setError(null)
-    const res = await window.api.auth.loginOtp(identifier, otp)
+    const res = await dataClient.auth.loginOtp(identifier, otp)
     setBusy(false)
     if (!res.ok) {
       setError(res.error ?? t('sso.invalidCode'))
@@ -128,8 +129,8 @@ export function Sso() {
   }
 
   const resend = async () => {
-    if (resendIn > 0 || !window.api?.auth) return
-    await window.api.auth.resendOtp(identifier, 'LOGIN', channel)
+    if (resendIn > 0) return
+    await dataClient.auth.resendOtp(identifier, 'LOGIN', channel)
     setResendIn(30)
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SyncStatus } from '@shared/ipc'
+import { dataClient } from '@/lib/data-client'
 
 const EMPTY: SyncStatus = {
   state: 'idle',
@@ -15,10 +16,8 @@ const EMPTY: SyncStatus = {
 export function useSyncStatus(): SyncStatus {
   const [status, setStatus] = useState<SyncStatus>(EMPTY)
   useEffect(() => {
-    const api = window.api?.sync
-    if (!api) return
-    void api.getStatus().then(setStatus).catch(() => {})
-    return api.onStatus(setStatus)
+    void dataClient.sync.getStatus().then(setStatus).catch(() => {})
+    return dataClient.sync.onStatus(setStatus)
   }, [])
   return status
 }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button, DataTable, Input, Select } from '@biztrack/ui/biztrack'
 import type { DataTableColumn } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
@@ -41,7 +41,7 @@ export function Inventory() {
     setSearch,
     setPage,
   } = usePaged<LocalInventoryItem>(queryKeys.inventory, (q) => dataClient.inventory.list(q), {
-    enabled: isElectron,
+    enabled: true,
     extra: {
       ...(tab !== 'all' ? { stockStatus: tab } : {}),
       ...(categoryId ? { categoryId } : {}),
@@ -51,17 +51,17 @@ export function Inventory() {
   const { data: stats } = useQuery({
     queryKey: [...queryKeys.inventory, 'stats'],
     queryFn: () => dataClient.inventory.stats(),
-    enabled: isElectron,
+    enabled: true,
   })
   const { data: categories = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
-    enabled: isElectron,
+    enabled: true,
   })
   const { data: suggestions = [] } = useQuery({
     queryKey: [...queryKeys.inventory, 'reorder'],
     queryFn: () => dataClient.inventory.reorderSuggestions(),
-    enabled: isElectron,
+    enabled: true,
   })
 
   const open = (id: string) => navigate(`/products/${id}`)

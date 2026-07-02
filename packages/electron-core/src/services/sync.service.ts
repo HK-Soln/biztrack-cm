@@ -124,6 +124,102 @@ interface PushOperation {
 const asStr = (v: unknown): string | null => (v === null || v === undefined ? null : String(v))
 const asNum = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v))
 
+/**
+ * Schema-driven pull appliers: local column -> server SyncRecord field. The generic
+ * applier (`applyGeneric`) introspects the *live* table and writes only columns that
+ * actually exist, so these maps are resilient to schema drift (e.g. inventory_levels
+ * gaining variant_id, debts lacking is_deleted/updated_at). `isDeleted` is mapped onto
+ * an `is_deleted` column automatically when the table has one.
+ */
+const SALE_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', client_id: 'clientId', cashier_id: 'cashierId',
+  cashier_name: 'cashierName', sale_number: 'saleNumber', receipt_number: 'saleNumber', status: 'status',
+  subtotal: 'subtotal', total_amount: 'totalAmount', net_amount: 'totalAmount', discount_amount: 'discountAmount',
+  charges_amount: 'chargesAmount', tax_amount: 'taxAmount', amount_paid: 'amountPaid', credit_amount: 'creditAmount',
+  change_given: 'changeGiven', customer_id: 'customerId', customer_name: 'customerName', customer_phone: 'customerPhone',
+  notes: 'notes', price_drift_warning: 'priceDriftWarning', currency: 'currency', sale_date: 'saleDate',
+  sold_at: 'soldAt', synced_at: 'syncedAt', voided_at: 'voidedAt', voided_by: 'voidedById', void_reason: 'voidReason',
+  created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const SALE_ITEM_MAP: Record<string, string> = {
+  id: 'id', sale_id: 'saleId', business_id: 'businessId', product_id: 'productId', product_name: 'productName',
+  product_sku: 'productSku', unit_of_measure: 'unitOfMeasure', quantity: 'quantity', unit_price: 'unitPrice',
+  discount_amount: 'discountAmount', line_total: 'lineTotal', total_price: 'lineTotal', cost_price: 'costPrice',
+  created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const SALE_PAYMENT_MAP: Record<string, string> = {
+  id: 'id', sale_id: 'saleId', business_id: 'businessId', method: 'method', amount: 'amount',
+  mobile_money_reference: 'mobileMoneyReference', created_at: 'createdAt',
+}
+const DEBT_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', contact_id: 'contactId', direction: 'direction', source_type: 'sourceType',
+  source_id: 'sourceId', source_reference: 'sourceReference', original_amount: 'originalAmount', status: 'status',
+  due_date: 'dueDate', notes: 'notes', created_at: 'createdAt', updated_at: 'updatedAt', settled_at: 'settledAt',
+  written_off_at: 'writtenOffAt', written_off_by: 'writtenOffById', written_off_reason: 'writtenOffReason',
+}
+const INVENTORY_LEVEL_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', product_id: 'productId', variant_id: 'variantId', quantity: 'quantity',
+  low_stock_threshold: 'lowStockThreshold', reorder_point: 'reorderPoint', last_restock_at: 'lastRestockAt',
+  created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const INVENTORY_MOVEMENT_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', product_id: 'productId', type: 'type', quantity_change: 'quantityChange',
+  quantity_before: 'quantityBefore', quantity_after: 'quantityAfter', reference_type: 'referenceType',
+  reference_id: 'referenceId', notes: 'notes', performed_by_id: 'performedById', performed_by_name: 'performedByName',
+  created_at: 'createdAt',
+}
+const RESTOCK_RECORD_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', reference_number: 'referenceNumber', supplier_id: 'supplierId',
+  supplier_name: 'supplierName', total_amount: 'totalAmount', total_cost: 'totalCost', amount_paid: 'amountPaid',
+  credit_amount: 'creditAmount', notes: 'notes', performed_by_id: 'performedById', created_at: 'createdAt',
+}
+const RESTOCK_ITEM_MAP: Record<string, string> = {
+  id: 'id', restock_record_id: 'restockRecordId', product_id: 'productId', quantity: 'quantity',
+  unit_cost: 'unitCost', new_quantity: 'newQuantity', created_at: 'createdAt',
+}
+const BUNDLE_COMPONENT_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', bundle_product_id: 'bundleProductId', component_product_id: 'componentProductId',
+  quantity: 'quantity', sort_order: 'sortOrder', created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const ROLE_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', name: 'name', description: 'description', is_system: 'isSystem',
+  is_owner_role: 'isOwnerRole', colour: 'colour', created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const TEAM_MEMBER_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', user_id: 'userId', role: 'role', status: 'status', name: 'name',
+  email: 'email', phone: 'phone', created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const RFQ_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', number: 'number', title: 'title', message_body: 'messageBody',
+  status: 'status', currency: 'currency', created_by_id: 'createdById', created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const RFQ_ITEM_MAP: Record<string, string> = {
+  id: 'id', rfq_id: 'rfqId', product_id: 'productId', variant_id: 'variantId', description: 'description',
+  quantity: 'quantity', created_at: 'createdAt',
+}
+const RFQ_SUPPLIER_MAP: Record<string, string> = {
+  id: 'id', rfq_id: 'rfqId', supplier_id: 'supplierId', supplier_name: 'supplierName', status: 'status',
+  quoted_total: 'quotedTotal', quote_notes: 'quoteNotes', responded_at: 'respondedAt', created_at: 'createdAt',
+}
+const PURCHASE_ORDER_MAP: Record<string, string> = {
+  id: 'id', business_id: 'businessId', number: 'number', rfq_id: 'rfqId', supplier_id: 'supplierId',
+  supplier_name: 'supplierName', title: 'title', message_body: 'messageBody', status: 'status', currency: 'currency',
+  expected_date: 'expectedDate', total_amount: 'totalAmount', sent_at: 'sentAt', created_by_id: 'createdById',
+  created_at: 'createdAt', updated_at: 'updatedAt',
+}
+const PURCHASE_ORDER_ITEM_MAP: Record<string, string> = {
+  id: 'id', purchase_order_id: 'purchaseOrderId', product_id: 'productId', variant_id: 'variantId',
+  description: 'description', quantity: 'quantity', unit_price: 'unitPrice', received_quantity: 'receivedQuantity',
+  created_at: 'createdAt',
+}
+
+interface TableColumn {
+  name: string
+  type: string
+  notnull: number
+  hasDefault: boolean
+}
+
 export class SyncService {
   private timer: ReturnType<typeof setInterval> | null = null
   private running = false
@@ -137,7 +233,7 @@ export class SyncService {
     lastError: null,
   }
 
-  constructor(private readonly opts: SyncEngineOptions) {}
+  constructor(private readonly opts: SyncEngineOptions) { }
 
   start(intervalMs: number = DEFAULT_INTERVAL_MS): void {
     if (this.timer) return
@@ -166,6 +262,18 @@ export class SyncService {
   }
 
   /** Run one push+pull cycle now. Safe to call concurrently — overlapping calls are ignored. */
+  /**
+   * Full re-pull: reset the cursor so the next pull starts from epoch and re-applies
+   * every record from the server. Use after wiping local data or when local/server have
+   * drifted — incremental pull only returns changes *after* the cursor, so a stale
+   * cursor returns nothing even though local is empty. Pushes pending writes first.
+   */
+  async forceFullSync(): Promise<void> {
+    if (this.running) return
+    this.opts.setCursor('') // '' is falsy → pull() omits the cursor → server returns from epoch
+    await this.sync()
+  }
+
   async sync(): Promise<void> {
     if (this.running) return
     if (!this.opts.getSyncToken()) {
@@ -216,7 +324,9 @@ export class SyncService {
 
     const res = await this.request<SyncPushResponse>('POST', '/sync/batches', {
       deviceId: this.opts.getDeviceId(),
-      baseCursor: this.opts.getCursor(),
+      // Never send an empty string (e.g. while a forced full resync has reset the cursor)
+      // — the API validates baseCursor as an ISO date or null.
+      baseCursor: this.opts.getCursor() || null,
       operations,
     })
     if (!res.batchId) {
@@ -374,9 +484,110 @@ export class SyncService {
     for (const record of changes.savingsTransactions ?? []) {
       ops.push(this.savingsTransactionUpsert(record))
     }
-    // NOTE: other entity arrays (products, units, inventory, …) are accepted but not
-    // yet applied — each module adds its applier as it lands.
-    if (ops.length > 0) this.opts.db.batch(ops)
+    // Transactional modules (schema-driven appliers). Pushed after their roots above:
+    // inventory/sales after products, sale items/payments after sales, debts after both.
+    const pushAll = (records: SyncRecord[] | undefined, table: string, map: Record<string, string>) => {
+      for (const record of records ?? []) {
+        const op = this.applyGeneric(table, record, map)
+        if (op) ops.push(op)
+      }
+    }
+    pushAll(changes.roles, 'roles', ROLE_MAP)
+    pushAll(changes.teamMembers, 'business_members', TEAM_MEMBER_MAP)
+    pushAll(changes.productBundleComponents, 'product_bundle_components', BUNDLE_COMPONENT_MAP)
+    pushAll(changes.inventoryLevels, 'inventory_levels', INVENTORY_LEVEL_MAP)
+    pushAll(changes.inventoryMovements, 'inventory_movements', INVENTORY_MOVEMENT_MAP)
+    pushAll(changes.restockRecords, 'restock_records', RESTOCK_RECORD_MAP)
+    pushAll(changes.restockItems, 'restock_items', RESTOCK_ITEM_MAP)
+    pushAll(changes.sales, 'sales', SALE_MAP)
+    pushAll(changes.saleItems, 'sale_items', SALE_ITEM_MAP)
+    pushAll(changes.salePayments, 'sale_payments', SALE_PAYMENT_MAP)
+    pushAll(changes.debts, 'debts', DEBT_MAP)
+    // Procurement chain: headers before their children.
+    pushAll(changes.rfqs, 'rfqs', RFQ_MAP)
+    pushAll(changes.rfqItems, 'rfq_items', RFQ_ITEM_MAP)
+    pushAll(changes.rfqSuppliers, 'rfq_suppliers', RFQ_SUPPLIER_MAP)
+    pushAll(changes.purchaseOrders, 'purchase_orders', PURCHASE_ORDER_MAP)
+    pushAll(changes.purchaseOrderItems, 'purchase_order_items', PURCHASE_ORDER_ITEM_MAP)
+
+    if (ops.length === 0) return
+    try {
+      this.opts.db.batch(ops)
+    } catch (err) {
+      // One bad row must not abort the whole pull. Re-apply individually so the rest of
+      // the catalog still lands, and log exactly which record failed.
+      console.error(`[sync] apply batch failed (${(err as Error).message}); retrying row-by-row`)
+      for (const op of ops) {
+        try {
+          this.opts.db.run(op.sql, op.params)
+        } catch (e) {
+          console.error(`[sync] skipped a record: ${(e as Error).message} :: ${op.sql.slice(0, 48)}`)
+        }
+      }
+    }
+  }
+
+  // ---- schema-driven generic applier --------------------------------------
+
+  private columnCache = new Map<string, TableColumn[]>()
+  private tableColumns(table: string): TableColumn[] {
+    let cols = this.columnCache.get(table)
+    if (!cols) {
+      const rows = this.opts.db.query<{ name: string; type: string; notnull: number; dflt_value: unknown }>(
+        `PRAGMA table_info(${table})`,
+      )
+      cols = rows.map((r) => ({
+        name: r.name,
+        type: (r.type ?? '').toUpperCase(),
+        notnull: r.notnull,
+        hasDefault: r.dflt_value !== null && r.dflt_value !== undefined,
+      }))
+      this.columnCache.set(table, cols)
+    }
+    return cols
+  }
+
+  /**
+   * Upsert a SyncRecord into `table` writing only columns the live table actually has
+   * (drift-safe). `map` is localColumn -> recordField. NOT-NULL columns with no source
+   * and no DB default are filled with a type-appropriate zero so the insert can't fail.
+   */
+  private applyGeneric(
+    table: string,
+    record: SyncRecord,
+    map: Record<string, string>,
+  ): { sql: string; params: unknown[] } | null {
+    const cols = this.tableColumns(table)
+    if (cols.length === 0) return null
+    const r = record as Record<string, unknown>
+    const set = new Map<string, unknown>()
+    const colByName = new Map(cols.map((c) => [c.name, c]))
+    for (const [col, field] of Object.entries(map)) {
+      const c = colByName.get(col)
+      if (!c) continue
+      let v = r[field]
+      if (typeof v === 'boolean') v = v ? 1 : 0
+      // A NOT NULL column can't take null — the API can legitimately send null for a
+      // mapped field (e.g. restock_items.new_quantity for serialised restocks), so fall
+      // back to a type-appropriate zero rather than letting the insert fail.
+      if (v === undefined || v === null) {
+        v = c.notnull ? (/INT|REAL|NUM|DEC|FLOA|DOUB/.test(c.type) ? 0 : '') : null
+      }
+      set.set(col, v)
+    }
+    if (colByName.has('is_deleted') && !set.has('is_deleted')) set.set('is_deleted', r.isDeleted ? 1 : 0)
+    if (!set.has('id')) return null
+    // Satisfy any required column we didn't map (no source field, no DB default).
+    for (const c of cols) {
+      if (c.name === 'id' || set.has(c.name) || !c.notnull || c.hasDefault) continue
+      set.set(c.name, /INT|REAL|NUM|DEC|FLOA|DOUB/.test(c.type) ? 0 : '')
+    }
+    const names = [...set.keys()]
+    const updates = names.filter((n) => n !== 'id').map((n) => `${n} = excluded.${n}`)
+    const sql =
+      `INSERT INTO ${table} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})` +
+      (updates.length ? ` ON CONFLICT(id) DO UPDATE SET ${updates.join(', ')}` : ` ON CONFLICT(id) DO NOTHING`)
+    return { sql, params: names.map((n) => set.get(n) ?? null) }
   }
 
   private contactUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
@@ -782,19 +993,22 @@ export class SyncService {
     return {
       sql: `INSERT INTO products
         (id, business_id, name, slug, description, sku, barcode, barcode_type, is_barcode_generated,
-         price, cost_price, currency, tax_rate, product_type, is_service, track_inventory,
+         price, cost_price, currency, tax_rate, product_type, is_service, track_inventory, stock_quantity,
+         low_stock_threshold, reorder_point,
          category_id, brand_id, model_id, unit_of_measure_id, image_url, created_by_id,
          is_featured, is_published_online, online_description, online_stock_reserve,
          meta_title, meta_description, is_serialized, serial_type, warranty_months,
          is_active, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, description = excluded.description,
           sku = excluded.sku, barcode = excluded.barcode, barcode_type = excluded.barcode_type,
           is_barcode_generated = excluded.is_barcode_generated, price = excluded.price,
           cost_price = excluded.cost_price, currency = excluded.currency, tax_rate = excluded.tax_rate,
           product_type = excluded.product_type, is_service = excluded.is_service,
-          track_inventory = excluded.track_inventory, category_id = excluded.category_id,
+          track_inventory = excluded.track_inventory, stock_quantity = excluded.stock_quantity,
+          low_stock_threshold = excluded.low_stock_threshold, reorder_point = excluded.reorder_point,
+          category_id = excluded.category_id,
           brand_id = excluded.brand_id, model_id = excluded.model_id,
           unit_of_measure_id = excluded.unit_of_measure_id, image_url = excluded.image_url,
           created_by_id = excluded.created_by_id, is_featured = excluded.is_featured,
@@ -820,6 +1034,12 @@ export class SyncService {
         asStr(c.productType) ?? 'SIMPLE',
         c.isService === true ? 1 : 0,
         r.isDeleted ? 0 : c.trackInventory === false ? 0 : 1,
+        asNum(c.stockQuantity) ?? 0,
+        // Reorder threshold from the API's product-level inventory level. Column is NOT NULL,
+        // so fall back to 0 (= "no reorder alert", matching the cloud when no threshold is set)
+        // instead of the legacy schema default of 5, which mis-flagged everything.
+        asNum(c.lowStockThreshold) ?? 0,
+        asNum(c.reorderPoint),
         asStr(c.categoryId),
         asStr(c.brandId),
         asStr(c.modelId),

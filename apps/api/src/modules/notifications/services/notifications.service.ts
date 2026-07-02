@@ -3,7 +3,16 @@ import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { ConfigService } from '@nestjs/config'
 import type { Queue } from 'bullmq'
-import { Repository } from 'typeorm'
+import { IsNull, Repository } from 'typeorm'
+import type {
+  ListNotificationsQuery,
+  ListNotificationsResponse,
+  MarkAllNotificationsReadResponse,
+  MarkNotificationReadResponse,
+  NotificationItem,
+  UnreadCountResponse,
+} from '@biztrack/types'
+import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import type { AppConfig } from '@/config/configuration'
@@ -46,6 +55,7 @@ export class NotificationsService {
     @Inject(LOGGER) private logger: Logger,
     private configService: ConfigService<AppConfig>,
     private emailProvider: EmailProvider,
+    private realtime: RealtimeService,
   ) {
     this.logger.setContext('NotificationsService')
   }
@@ -168,6 +178,104 @@ export class NotificationsService {
 
   async findById(id: string): Promise<Notification | null> {
     return this.notificationsRepo.findOne({ where: { id } })
+  }
+
+  // -------------------------------------------------------------------------
+  // In-app notification feed (bell/banner). These are persisted immediately as
+  // SENT (delivery is the realtime push, not an outbound provider) and relayed
+  // to the recipient's socket room via the app event bus.
+  // -------------------------------------------------------------------------
+
+  /** Create an in-app notification for a user and push it to their realtime room. */
+  async createInApp(opts: {
+    userId: string
+    businessId?: string | null
+    type: NotificationType
+    title: string
+    body: string
+    deeplink?: string | null
+    metadata?: Record<string, unknown> | null
+  }): Promise<NotificationItem> {
+    const notification = this.notificationsRepo.create({
+      channel: NotificationChannel.IN_APP,
+      type: opts.type,
+      recipient: opts.userId, // recipient is NOT NULL; for in-app it carries the user id
+      subject: opts.title,
+      body: opts.body,
+      deeplink: opts.deeplink ?? null,
+      metadata: opts.metadata ?? null,
+      businessId: opts.businessId ?? null,
+      userId: opts.userId,
+      status: NotificationStatus.SENT,
+      sentAt: new Date(),
+      attempts: 0,
+    })
+    await this.notificationsRepo.save(notification)
+
+    const item = this.toItem(notification)
+    const unreadCount = await this.unreadCountValue(opts.userId)
+    this.realtime.toUser(opts.userId, 'notification', { notification: item, unreadCount })
+
+    this.logger.log('In-app notification created', 'NotificationsService', {
+      notificationId: notification.id,
+      userId: opts.userId,
+      type: opts.type,
+    })
+    return item
+  }
+
+  async listInApp(userId: string, query: ListNotificationsQuery): Promise<ListNotificationsResponse> {
+    const page = Math.max(1, query.page ?? 1)
+    const limit = Math.min(50, Math.max(1, query.limit ?? 20))
+    const [rows, total] = await this.notificationsRepo.findAndCount({
+      where: { userId, channel: NotificationChannel.IN_APP },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    })
+    const unreadCount = await this.unreadCountValue(userId)
+    return { items: rows.map((r) => this.toItem(r)), total, page, limit, unreadCount }
+  }
+
+  async unreadCount(userId: string): Promise<UnreadCountResponse> {
+    return { count: await this.unreadCountValue(userId) }
+  }
+
+  async markRead(userId: string, id: string): Promise<MarkNotificationReadResponse> {
+    const row = await this.notificationsRepo.findOne({
+      where: { id, userId, channel: NotificationChannel.IN_APP },
+    })
+    if (row && !row.readAt) {
+      await this.notificationsRepo.update(row.id, { readAt: new Date() })
+    }
+    return { id, read: true }
+  }
+
+  async markAllRead(userId: string): Promise<MarkAllNotificationsReadResponse> {
+    const res = await this.notificationsRepo.update(
+      { userId, channel: NotificationChannel.IN_APP, readAt: IsNull() },
+      { readAt: new Date() },
+    )
+    return { updated: res.affected ?? 0 }
+  }
+
+  private async unreadCountValue(userId: string): Promise<number> {
+    return this.notificationsRepo.count({
+      where: { userId, channel: NotificationChannel.IN_APP, readAt: IsNull() },
+    })
+  }
+
+  private toItem(n: Notification): NotificationItem {
+    const created = n.createdAt instanceof Date ? n.createdAt : new Date(n.createdAt as unknown as string)
+    return {
+      id: n.id,
+      type: n.type,
+      title: n.subject ?? '',
+      body: n.body,
+      deeplink: n.deeplink ?? null,
+      read: n.readAt != null,
+      createdAt: created.toISOString(),
+    }
   }
 
   /**

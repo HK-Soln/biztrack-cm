@@ -34,11 +34,11 @@ export function Deposits() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
-  const summary = useQuery({ queryKey: ['deposits', 'summary'], queryFn: () => dataClient.deposits.summary(), enabled: isElectron })
+  const summary = useQuery({ queryKey: ['deposits', 'summary'], queryFn: () => dataClient.deposits.summary(), enabled: true })
   const list = useQuery({
     queryKey: ['deposits', 'list', status],
     queryFn: () => dataClient.deposits.list({ status: status || undefined, limit: 100 }),
-    enabled: isElectron,
+    enabled: true,
   })
   const rows = list.data?.data ?? []
 
@@ -111,7 +111,7 @@ function DepositDetail({ id, t, onChanged }: { id: string; t: ReturnType<typeof 
   const [reportOpen, setReportOpen] = useState(false)
   const [collectOpen, setCollectOpen] = useState(false)
 
-  const { data } = useQuery({ queryKey: ['deposits', 'detail', id], queryFn: () => dataClient.deposits.get(id), enabled: isElectron })
+  const { data } = useQuery({ queryKey: ['deposits', 'detail', id], queryFn: () => dataClient.deposits.get(id), enabled: true })
   if (!data) return <div className="receipt-empty">{t('dep.loading')}</div>
   const d = data
   const open = d.status === 'OPEN'
@@ -198,7 +198,7 @@ function TaggedItemsPicker({ tagged, onChange, t }: { tagged: DepositTaggedProdu
   const { data } = useQuery({
     queryKey: ['deposits', 'product-pick', debounced],
     queryFn: () => dataClient.products.list({ search: debounced.trim() || undefined, limit: 30, stockStatus: 'all' }),
-    enabled: isElectron && open,
+    enabled: open,
   })
   const results = data?.data ?? []
   const selectedIds = new Set(tagged.map((x) => x.productId))
@@ -440,7 +440,7 @@ function useCustomerContact(customerId: string, fallbackPhone: string) {
   const { data } = useQuery({
     queryKey: ['deposits', 'share-contact', customerId],
     queryFn: () => dataClient.contacts.get(customerId),
-    enabled: isElectron && !!customerId,
+    enabled: !!customerId,
   })
   return { phone: data?.phone || fallbackPhone || '', email: data?.email || '' }
 }
@@ -459,7 +459,6 @@ function DepositReceiptShare({ transactionId, customerId, customerName, customer
   const { data: html } = useQuery({
     queryKey: ['deposits', 'receipt-html', transactionId, locale],
     queryFn: () => dataClient.deposits.receiptHtml(transactionId, locale),
-    enabled: isElectron,
   })
   if (!html) return null
   return (
@@ -492,7 +491,6 @@ function DepositReportShare({ depositId, customerId, sessionRef, customerName, c
   const { data: html } = useQuery({
     queryKey: ['deposits', 'report-html', depositId, locale],
     queryFn: () => dataClient.deposits.reportHtml(depositId, locale),
-    enabled: isElectron,
   })
   if (!html) return null
   return (
@@ -540,7 +538,7 @@ function CollectModal({ customerId, tagged, t, onClose }: {
       }
       return out
     },
-    enabled: isElectron,
+    enabled: true,
   })
 
   // Seed default selection once resolved.

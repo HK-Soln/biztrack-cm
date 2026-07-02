@@ -142,7 +142,8 @@ export class NotificationsProcessor extends WorkerHost {
     }
 
     const inviteTtlDays = this.config.get<number>('INVITE_TTL_DAYS', { infer: true }) ?? 7
-    const inviteUrl = `${appUrl}/en/invite?token=${invite.token}`
+    // The accept-invite page is a hash route (createHashRouter) at /invite — no locale prefix.
+    const inviteUrl = `${appUrl}/#/invite?token=${invite.token}`
     const displayInviter = inviterName ?? 'Someone'
 
     this.logger.log('Sending invite notifications', 'NotificationsProcessor', {

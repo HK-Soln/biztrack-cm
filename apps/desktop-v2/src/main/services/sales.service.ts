@@ -3,13 +3,19 @@ import { PaymentMethod } from '@biztrack/types'
 import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
+  CashierPerformanceRow,
+  DailySalesRow,
   LocalSale,
   LocalSaleDetail,
   LocalSaleItem,
   LocalSalePayment,
   LocalSalesSummary,
   PaginatedResult,
+  RefundCashierRow,
+  RefundReasonRow,
   SaleInput,
+  SalesByPaymentRow,
+  SalesByProductRow,
   SalesListQuery,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
@@ -418,6 +424,196 @@ export class SalesService {
       refundAmount: round2(refunds?.amt ?? 0),
       currency,
     }
+  }
+
+  /**
+   * Daily sales series (one row per calendar day) for the Daily Sales Summary report.
+   * Groups by the `sale_date` column and derives the payment split from sale_payments —
+   * identical logic + column to the API getDailySeries, so both tie out once synced.
+   */
+  dailySeries(query: SalesListQuery = {}): DailySalesRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const conds = ['s.business_id = ?', 's.is_deleted = 0']
+    const params: unknown[] = [businessId]
+    if (query.dateFrom) { conds.push('s.sale_date >= ?'); params.push(query.dateFrom) }
+    if (query.dateTo) { conds.push('s.sale_date <= ?'); params.push(query.dateTo) }
+    const where = conds.join(' AND ')
+    // Two grouped subqueries (sales-level totals + payment split) so a sale with multiple
+    // payment rows doesn't multiply its total. `?` params are positional in SQLite → pass twice.
+    const rows = this.db.query<{ date: string; txns: number; total: number; credit: number; cash: number; momo: number; card: number }>(
+      `SELECT d.sale_date AS date, d.txns, d.total, d.credit,
+              COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
+       FROM (
+         SELECT s.sale_date, COUNT(*) AS txns,
+                COALESCE(SUM(s.total_amount), 0) AS total,
+                COALESCE(SUM(s.credit_amount), 0) AS credit
+         FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+         GROUP BY s.sale_date
+       ) d
+       LEFT JOIN (
+         SELECT s.sale_date,
+                SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
+                SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
+                SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+         WHERE ${where} AND s.status = 'COMPLETED'
+         GROUP BY s.sale_date
+       ) p ON p.sale_date = d.sale_date
+       ORDER BY d.sale_date ASC`,
+      [...params, ...params],
+    )
+    return rows.map((r) => ({
+      date: String(r.date).slice(0, 10),
+      transactions: Number(r.txns ?? 0),
+      total: round2(Number(r.total ?? 0)),
+      cash: round2(Number(r.cash ?? 0)),
+      momo: round2(Number(r.momo ?? 0)),
+      card: round2(Number(r.card ?? 0)),
+      credit: round2(Number(r.credit ?? 0)),
+    }))
+  }
+
+  /**
+   * Cashier performance roster (one row per cashier) for the range — mirrors the API
+   * getCashierRoster (shifts = distinct sale_date days; refunds = VOIDED totals; discounts =
+   * sale-level discount_amount) so both sides return identical rows once fully synced.
+   */
+  cashierRoster(query: SalesListQuery = {}): CashierPerformanceRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const conds = ['s.business_id = ?', 's.is_deleted = 0']
+    const params: unknown[] = [businessId]
+    if (query.dateFrom) { conds.push('s.sale_date >= ?'); params.push(query.dateFrom) }
+    if (query.dateTo) { conds.push('s.sale_date <= ?'); params.push(query.dateTo) }
+    const where = conds.join(' AND ')
+    const rows = this.db.query<{ cashier_id: string; name: string | null; shifts: number; transactions: number; sales: number; refunds: number; discounts: number }>(
+      `SELECT s.cashier_id AS cashier_id, s.cashier_name AS name,
+              COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN s.sale_date END) AS shifts,
+              COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END) AS transactions,
+              COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
+              COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
+              COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.discount_amount ELSE 0 END), 0) AS discounts
+       FROM sales s
+       WHERE ${where}
+       GROUP BY s.cashier_id, s.cashier_name
+       ORDER BY sales DESC`,
+      params,
+    )
+    return rows.map((r) => ({
+      cashierId: r.cashier_id,
+      name: r.name || '—',
+      shifts: Number(r.shifts ?? 0),
+      transactions: Number(r.transactions ?? 0),
+      sales: round2(Number(r.sales ?? 0)),
+      refunds: round2(Number(r.refunds ?? 0)),
+      discounts: round2(Number(r.discounts ?? 0)),
+    }))
+  }
+
+  /** Shared sale_date-range WHERE for the report aggregations (parity with the API). */
+  private reportWhere(businessId: string, query: SalesListQuery): { where: string; params: unknown[] } {
+    const conds = ['s.business_id = ?', 's.is_deleted = 0']
+    const params: unknown[] = [businessId]
+    if (query.dateFrom) { conds.push('s.sale_date >= ?'); params.push(query.dateFrom) }
+    if (query.dateTo) { conds.push('s.sale_date <= ?'); params.push(query.dateTo) }
+    return { where: conds.join(' AND '), params }
+  }
+
+  /**
+   * Sales by product (per-product revenue/COGS/margin) for the range — mirrors the API
+   * getSalesByProduct (same sale_items aggregation + category join) so both tie out.
+   */
+  byProduct(query: SalesListQuery = {}): SalesByProductRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    const rows = this.db.query<{ productId: string; name: string; category: string | null; quantity: number; revenue: number; cogs: number }>(
+      `SELECT si.product_id AS productId, si.product_name AS name, c.name AS category,
+              COALESCE(SUM(si.quantity), 0) AS quantity,
+              COALESCE(SUM(si.line_total), 0) AS revenue,
+              COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+       FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+         LEFT JOIN products p ON p.id = si.product_id
+         LEFT JOIN product_categories c ON c.id = p.category_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0
+       GROUP BY si.product_id, si.product_name, c.name
+       ORDER BY revenue DESC`,
+      params,
+    )
+    return rows.map((r) => ({
+      productId: r.productId,
+      name: r.name,
+      category: r.category ?? null,
+      quantity: Number(r.quantity ?? 0),
+      revenue: round2(Number(r.revenue ?? 0)),
+      cogs: round2(Number(r.cogs ?? 0)),
+    }))
+  }
+
+  /** Sales split by payment method for the range — mirrors the API getSalesByPaymentMethod. */
+  byPaymentMethod(query: SalesListQuery = {}): SalesByPaymentRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    const rows = this.db.query<{ method: string; transactions: number; amount: number }>(
+      `SELECT sp.method AS method, COUNT(DISTINCT sp.sale_id) AS transactions, COALESCE(SUM(sp.amount), 0) AS amount
+       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY sp.method
+       ORDER BY amount DESC`,
+      params,
+    )
+    return rows.map((r) => ({ method: r.method, transactions: Number(r.transactions ?? 0), amount: round2(Number(r.amount ?? 0)) }))
+  }
+
+  /** Refunds & returns (VOIDED sales by reason + by cashier + gross sales) — mirrors the API. */
+  refunds(query: SalesListQuery = {}): { byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number } {
+    const businessId = this.getBusinessId()
+    if (!businessId) return { byReason: [], byCashier: [], grossSales: 0 }
+    const { where, params } = this.reportWhere(businessId, query)
+    const byReason = this.db.query<{ reason: string | null; count: number; amount: number }>(
+      `SELECT s.void_reason AS reason, COUNT(*) AS count, COALESCE(SUM(s.total_amount), 0) AS amount
+       FROM sales s WHERE ${where} AND s.status = 'VOIDED'
+       GROUP BY s.void_reason ORDER BY amount DESC`,
+      params,
+    )
+    const byCashier = this.db.query<{ cashierId: string; name: string | null; refunds: number; sales: number }>(
+      `SELECT s.cashier_id AS cashierId, s.cashier_name AS name,
+              COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
+              COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales
+       FROM sales s
+       WHERE ${where} AND s.status IN ('VOIDED', 'COMPLETED')
+       GROUP BY s.cashier_id, s.cashier_name
+       HAVING SUM(CASE WHEN s.status = 'VOIDED' THEN 1 ELSE 0 END) > 0
+       ORDER BY refunds DESC`,
+      params,
+    )
+    const gross = this.db.get<{ gross: number }>(
+      `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+      params,
+    )
+    return {
+      byReason: byReason.map((r) => ({ reason: r.reason ?? null, count: Number(r.count ?? 0), amount: round2(Number(r.amount ?? 0)) })),
+      byCashier: byCashier.map((r) => ({ cashierId: r.cashierId, name: r.name || '—', refunds: round2(Number(r.refunds ?? 0)), sales: round2(Number(r.sales ?? 0)) })),
+      grossSales: round2(Number(gross?.gross ?? 0)),
+    }
+  }
+
+  /** Product revenue (Σ line totals) + COGS for completed sales — feeds the Income Statement. */
+  grossProfit(query: SalesListQuery = {}): { revenue: number; cogs: number } {
+    const businessId = this.getBusinessId()
+    if (!businessId) return { revenue: 0, cogs: 0 }
+    const { where, params } = this.reportWhere(businessId, query)
+    const row = this.db.get<{ revenue: number; cogs: number }>(
+      `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
+              COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0`,
+      params,
+    )
+    return { revenue: round2(Number(row?.revenue ?? 0)), cogs: round2(Number(row?.cogs ?? 0)) }
   }
 
   /** Shared WHERE for list/listAll/summary (excludes free-text search, which list() adds). */

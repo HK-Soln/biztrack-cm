@@ -4,6 +4,7 @@ import { IPC } from '../../shared/ipc'
 
 export function registerSyncIpc(sync: SyncService): void {
   ipcMain.handle(IPC.syncTrigger, () => sync.sync())
+  ipcMain.handle(IPC.syncFull, () => sync.forceFullSync())
   ipcMain.handle(IPC.syncRetry, () => sync.retryFailed())
   ipcMain.handle(IPC.syncGetStatus, () => sync.getStatus())
 }

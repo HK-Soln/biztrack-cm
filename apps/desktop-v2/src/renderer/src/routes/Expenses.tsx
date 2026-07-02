@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
@@ -63,10 +63,10 @@ export function Expenses() {
   const filters = useMemo<ExpensesListQuery>(() => ({ ...range, categoryId: category || undefined, search: search.trim() || undefined }), [range, category, search])
   useEffect(() => { setPage(1) }, [period, category, search])
 
-  const { data: cats = [] } = useQuery({ queryKey: ['expense-categories'], queryFn: () => dataClient.expenseCategories.listAll(), enabled: isElectron })
-  const summary = useQuery({ queryKey: ['expenses', 'summary', range, category, search], queryFn: () => dataClient.expenses.summary(filters), enabled: isElectron })
-  const trend = useQuery({ queryKey: ['expenses', 'trend'], queryFn: () => dataClient.expenses.trend(), enabled: isElectron })
-  const list = useQuery({ queryKey: ['expenses', 'list', range, category, search, page], queryFn: () => dataClient.expenses.list({ ...filters, page, limit: PAGE }), enabled: isElectron })
+  const { data: cats = [] } = useQuery({ queryKey: ['expense-categories'], queryFn: () => dataClient.expenseCategories.listAll(), enabled: true })
+  const summary = useQuery({ queryKey: ['expenses', 'summary', range, category, search], queryFn: () => dataClient.expenses.summary(filters), enabled: true })
+  const trend = useQuery({ queryKey: ['expenses', 'trend'], queryFn: () => dataClient.expenses.trend(), enabled: true })
+  const list = useQuery({ queryKey: ['expenses', 'list', range, category, search, page], queryFn: () => dataClient.expenses.list({ ...filters, page, limit: PAGE }), enabled: true })
   const rows = list.data?.data ?? []
 
   const refresh = () => {
