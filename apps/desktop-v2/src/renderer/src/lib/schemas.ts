@@ -58,6 +58,27 @@ export const signUpSchema = z
 
 export type SignUpValues = z.infer<typeof signUpSchema>
 
+/** Register form for an invited individual: no business (they join an existing one),
+ * and BOTH email and phone are required (one is locked from the invite). */
+export const inviteRegisterSchema = z
+  .object({
+    name: z.string().trim().min(1, 'signup.nameRequired'),
+    email: z.string().trim().email('auth.invalidEmail'),
+    phone: z.string().refine(isValidPhone, 'auth.invalidPhone'),
+    password: z
+      .string()
+      .min(8, 'signup.passwordWeak')
+      .regex(PASSWORD_COMPLEXITY, 'signup.passwordComplexity'),
+    confirmPassword: z.string(),
+    terms: z.boolean().refine((v) => v === true, 'signup.acceptTerms'),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'signup.passwordMismatch',
+  })
+
+export type InviteRegisterValues = z.infer<typeof inviteRegisterSchema>
+
 /** Password strength 0–4 (length, uppercase, digit, symbol) for the meter. */
 export function passwordStrength(value: string): number {
   if (!value) return 0

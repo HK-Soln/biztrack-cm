@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, CategoryTreePicker, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
 import { FileUpload } from '@/components/FileUpload'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
@@ -33,11 +33,11 @@ export function Brands() {
     search,
     setSearch,
     setPage,
-  } = usePaged<LocalBrand>(queryKeys.brands, (q) => dataClient.brands.list(q), { enabled: isElectron })
+  } = usePaged<LocalBrand>(queryKeys.brands, (q) => dataClient.brands.list(q), { enabled: true })
   const { data: categories = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
-    enabled: isElectron,
+    enabled: true,
   })
   const categoryName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories])
 

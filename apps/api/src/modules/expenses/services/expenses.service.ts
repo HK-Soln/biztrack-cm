@@ -29,6 +29,32 @@ import { MonthlyExpenseSummaryService } from './monthly-expense-summary.service'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+export interface ExpenseCategorySlice {
+  categoryId: string
+  name: string
+  color: string
+  amount: number
+  percentage: number
+}
+export interface ExpenseSummaryCard {
+  total: number
+  count: number
+  previousTotal: number
+  changePct: number
+  avgPerDay: number
+  pendingCount: number
+  pendingAmount: number
+  largest: ExpenseCategorySlice | null
+  byCategory: ExpenseCategorySlice[]
+  currency: string
+}
+export interface ExpenseTrendItem {
+  year: number
+  month: number
+  label: string
+  total: number
+}
+
 @Injectable()
 export class ExpensesService {
   constructor(
@@ -158,12 +184,12 @@ export class ExpensesService {
 
       if (query.dateFrom) {
         qb.andWhere('expense.date >= :dateFrom', {
-          dateFrom: this.parseExpenseDate(query.dateFrom),
+          dateFrom: this.parseDateOnly(query.dateFrom),
         })
       }
 
       if (query.dateTo) {
-        const endExclusive = this.parseExpenseDate(query.dateTo)
+        const endExclusive = this.parseDateOnly(query.dateTo)
         endExclusive.setUTCDate(endExclusive.getUTCDate() + 1)
         qb.andWhere('expense.date < :dateToExclusive', { dateToExclusive: endExclusive })
       }
@@ -301,6 +327,125 @@ export class ExpensesService {
     }
   }
 
+  /** Expense summary cards (total/byCategory/pending/change), matching the desktop expenses.summary. */
+  async getSummaryCard(
+    businessId: string,
+    query: { categoryId?: string; status?: string; dateFrom?: string; dateTo?: string },
+  ): Promise<ExpenseSummaryCard> {
+    try {
+      const params: unknown[] = [businessId]
+      const conds = ['e.business_id = $1', 'e.deleted_at IS NULL']
+      if (query.categoryId) {
+        params.push(query.categoryId)
+        conds.push(`e.category_id = $${params.length}`)
+      }
+      if (query.status) {
+        params.push(query.status)
+        conds.push(`e.status = $${params.length}`)
+      }
+      if (query.dateFrom) {
+        params.push(query.dateFrom)
+        conds.push(`e.date >= $${params.length}`)
+      }
+      if (query.dateTo) {
+        params.push(query.dateTo)
+        conds.push(`e.date <= $${params.length}`)
+      }
+      const where = conds.join(' AND ')
+      const mgr = this.expensesRepo.manager
+
+      const [tot] = (await mgr.query(
+        `SELECT COALESCE(SUM(e.amount), 0) AS total, COUNT(*)::int AS n FROM expenses e WHERE ${where}`,
+        params,
+      )) as Array<{ total: string; n: number }>
+      const cats = (await mgr.query(
+        `SELECT e.category_id AS "categoryId",
+                (SELECT c.name FROM expense_categories c WHERE c.id = e.category_id) AS name,
+                (SELECT c.color FROM expense_categories c WHERE c.id = e.category_id) AS color,
+                COALESCE(SUM(e.amount), 0) AS amount
+         FROM expenses e WHERE ${where} GROUP BY e.category_id ORDER BY amount DESC`,
+        params,
+      )) as Array<{ categoryId: string; name: string | null; color: string | null; amount: string }>
+      const [pending] = (await mgr.query(
+        `SELECT COUNT(*)::int AS n, COALESCE(SUM(e.amount), 0) AS amt FROM expenses e WHERE ${where} AND e.status = 'PENDING'`,
+        params,
+      )) as Array<{ n: number; amt: string }>
+      const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [businessId])) as Array<{
+        currency: string | null
+      }>
+
+      const total = this.roundMoney(Number(tot?.total ?? 0))
+      const byCategory = cats.map((c) => {
+        const amount = this.roundMoney(Number(c.amount ?? 0))
+        return {
+          categoryId: c.categoryId,
+          name: c.name ?? '',
+          color: c.color ?? '#9ca3af',
+          amount,
+          percentage: total > 0 ? this.roundPercentage((amount / total) * 100) : 0,
+        }
+      })
+
+      // Previous-period total (same span immediately before dateFrom) for the change %.
+      let previousTotal = 0
+      let days = 30
+      if (query.dateFrom && query.dateTo) {
+        const from = new Date(query.dateFrom)
+        const to = new Date(query.dateTo)
+        const spanMs = to.getTime() - from.getTime()
+        days = Math.max(1, Math.round(spanMs / 86_400_000) + 1)
+        const prevTo = new Date(from.getTime() - 86_400_000)
+        const prevFrom = new Date(prevTo.getTime() - spanMs)
+        const iso = (d: Date) => d.toISOString().slice(0, 10)
+        const [prev] = (await mgr.query(
+          `SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE business_id = $1 AND deleted_at IS NULL AND date >= $2 AND date <= $3`,
+          [businessId, iso(prevFrom), iso(prevTo)],
+        )) as Array<{ t: string }>
+        previousTotal = this.roundMoney(Number(prev?.t ?? 0))
+      }
+
+      return {
+        total,
+        count: Number(tot?.n ?? 0),
+        previousTotal,
+        changePct: previousTotal > 0 ? this.roundPercentage(((total - previousTotal) / previousTotal) * 100) : 0,
+        avgPerDay: this.roundMoney(total / days),
+        pendingCount: Number(pending?.n ?? 0),
+        pendingAmount: this.roundMoney(Number(pending?.amt ?? 0)),
+        largest: byCategory[0] ?? null,
+        byCategory,
+        currency: biz?.currency ?? 'XAF',
+      }
+    } catch (error) {
+      return this.handleServiceError('getSummaryCard', error, { businessId })
+    }
+  }
+
+  /** Monthly expense totals for the last 12 months (trend chart). */
+  async getTrend(businessId: string): Promise<ExpenseTrendItem[]> {
+    try {
+      const since = new Date()
+      since.setMonth(since.getMonth() - 11)
+      since.setDate(1)
+      const sinceIso = since.toISOString().slice(0, 10)
+      const rows = (await this.expensesRepo.manager.query(
+        `SELECT to_char(e.date, 'YYYY-MM') AS ym, COALESCE(SUM(e.amount), 0) AS total
+         FROM expenses e WHERE e.business_id = $1 AND e.deleted_at IS NULL AND e.date >= $2
+         GROUP BY ym ORDER BY ym`,
+        [businessId, sinceIso],
+      )) as Array<{ ym: string; total: string }>
+      const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      return rows.map((r) => {
+        const parts = r.ym.split('-')
+        const y = Number(parts[0])
+        const m = Number(parts[1])
+        return { year: y, month: m, label: `${MONTHS[m - 1] ?? ''} ${y}`, total: this.roundMoney(Number(r.total ?? 0)) }
+      })
+    } catch (error) {
+      return this.handleServiceError('getTrend', error, { businessId })
+    }
+  }
+
   async upsertFromSync(
     businessId: string,
     expenseId: string,
@@ -422,8 +567,8 @@ export class ExpensesService {
   }
 
   private async assertRangeWithinTwelveMonths(dateFrom: string, dateTo: string) {
-    const start = this.parseExpenseDate(dateFrom)
-    const end = this.parseExpenseDate(dateTo)
+    const start = this.parseDateOnly(dateFrom)
+    const end = this.parseDateOnly(dateTo)
     const months =
       (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
       (end.getUTCMonth() - start.getUTCMonth())
@@ -436,13 +581,22 @@ export class ExpensesService {
     }
   }
 
-  private parseExpenseDate(value: string) {
+  /** Parse a YYYY-MM-DD value (no future-date constraint). Use for filter bounds. */
+  private parseDateOnly(value: string) {
     const parsed = new Date(`${value}T00:00:00.000Z`)
-
     if (Number.isNaN(parsed.getTime())) {
       throw new AppBadRequestException('Invalid expense date.', 'INVALID_EXPENSE_DATE')
     }
+    return parsed
+  }
 
+  /**
+   * Parse an expense's OWN date — must not be in the future. (Filter bounds like a list's
+   * dateTo use parseDateOnly: "today" can read as future across timezones, and a range
+   * upper bound is legitimately allowed to be today/future.)
+   */
+  private parseExpenseDate(value: string) {
+    const parsed = this.parseDateOnly(value)
     const today = new Date()
     const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
     if (parsed.getTime() > todayUtc.getTime()) {
@@ -451,7 +605,6 @@ export class ExpensesService {
         'FUTURE_DATE_NOT_ALLOWED',
       )
     }
-
     return parsed
   }
 
@@ -464,11 +617,14 @@ export class ExpensesService {
   }
 
   private resolveSortField(sortBy?: string) {
+    // Entity PROPERTY paths (not raw columns): findAll joins category/recordedBy +
+    // paginates, so TypeORM resolves orderBy against entity metadata — raw columns
+    // (expense.created_at) break it with a databaseName error.
     const sortMap: Record<string, string> = {
       expenseDate: 'expense.date',
       amount: 'expense.amount',
-      createdAt: 'expense.created_at',
-      updatedAt: 'expense.updated_at',
+      createdAt: 'expense.createdAt',
+      updatedAt: 'expense.updatedAt',
       description: 'expense.description',
     }
 

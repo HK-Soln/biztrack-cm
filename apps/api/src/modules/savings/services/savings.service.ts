@@ -4,6 +4,11 @@ import type {
   CustomerDeposit as CustomerDepositModel,
   DepositStatement,
   DepositStatementEntry,
+  DepositReceipt,
+  DepositReport,
+  DepositReportEntry,
+  DepositStatus,
+  DepositOutcome,
   JwtPayload,
   PaginatedResult,
   SavingsAccountSyncPayload,
@@ -11,6 +16,7 @@ import type {
 } from '@biztrack/types'
 import { Brackets, DataSource, EntityManager, Repository } from 'typeorm'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { Business } from '@/entities/business.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import type { AddDepositPaymentDto, CloseDepositDto, CreateDepositDto, ListDepositsQueryDto } from '../dto/deposit.dto'
@@ -19,6 +25,16 @@ const round = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 10
 const newId = (): string => crypto.randomUUID()
 const accountNumberFor = (id: string): string => `DEP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`
 
+export interface DepositSummary {
+  openCount: number
+  depositsHeld: number
+  collectedCount: number
+  collectedAmount: number
+  refundedTransferredCount: number
+  refundedTransferredAmount: number
+  currency: string
+}
+
 @Injectable()
 export class DepositsService {
   constructor(
@@ -26,8 +42,127 @@ export class DepositsService {
     private readonly savingsAccountsRepo: Repository<CustomerDeposit>,
     @InjectRepository(DepositTransaction)
     private readonly savingsTransactionsRepo: Repository<DepositTransaction>,
+    @InjectRepository(Business)
+    private readonly businessesRepo: Repository<Business>,
     private readonly dataSource: DataSource,
   ) {}
+
+  /** Structured receipt payload for a single deposit/refund transaction (mirrors desktop). */
+  async buildDepositReceipt(transactionId: string, businessId: string): Promise<DepositReceipt> {
+    const tx = await this.savingsTransactionsRepo.findOne({ where: { id: transactionId, businessId } })
+    if (!tx || (tx.type !== 'deposit' && tx.type !== 'refund')) {
+      throw new AppNotFoundException('Deposit receipt not found.', 'DEPOSIT_RECEIPT_NOT_FOUND')
+    }
+    const acc = await this.savingsAccountsRepo.findOne({ where: { id: tx.savingsId, businessId } })
+    if (!acc) throw new AppNotFoundException('Deposit session not found.', 'DEPOSIT_NOT_FOUND')
+    const business = await this.businessesRepo.findOne({ where: { id: businessId } })
+    // Running balance through (and including) this transaction, chronologically.
+    const txns = await this.savingsTransactionsRepo.find({
+      where: { savingsId: tx.savingsId, businessId },
+      order: { occurredAt: 'ASC', createdAt: 'ASC' },
+    })
+    let balanceAfter = 0
+    for (const t of txns) {
+      balanceAfter = round(balanceAfter + (t.direction === 'inbound' ? t.amount : -t.amount))
+      if (t.id === tx.id) break
+    }
+    return {
+      businessName: business?.name ?? 'BizTrack',
+      businessPhone: business?.phone ?? null,
+      businessAddress: business?.address ?? null,
+      receiptNumber: `${acc.accountNumber}-R${tx.id.slice(0, 4).toUpperCase()}`,
+      sessionRef: acc.accountNumber,
+      occurredAt: tx.occurredAt.toISOString(),
+      customerName: acc.customerName ?? null,
+      customerPhone: acc.customerPhone ?? null,
+      kind: tx.type === 'refund' ? 'refund' : 'deposit',
+      amount: round(tx.amount),
+      method: tx.method ?? null,
+      balanceAfter: round(balanceAfter),
+      totalDeposited: round(acc.totalDeposited),
+      currency: business?.currency ?? null,
+    }
+  }
+
+  /** Full deposit session report: header, totals, tagged items, running-balance statement. */
+  async buildDepositReport(id: string, businessId: string): Promise<DepositReport> {
+    const acc = await this.savingsAccountsRepo.findOne({ where: { id, businessId } })
+    if (!acc) throw new AppNotFoundException('Deposit session not found.', 'DEPOSIT_NOT_FOUND')
+    const business = await this.businessesRepo.findOne({ where: { id: businessId } })
+    const txns = await this.savingsTransactionsRepo.find({
+      where: { savingsId: id, businessId },
+      order: { occurredAt: 'ASC', createdAt: 'ASC' },
+    })
+    let running = 0
+    const entries: DepositReportEntry[] = txns.map((t) => {
+      running = round(running + (t.direction === 'inbound' ? t.amount : -t.amount))
+      return {
+        occurredAt: t.occurredAt.toISOString(),
+        type: t.type as DepositReportEntry['type'],
+        direction: t.direction as DepositReportEntry['direction'],
+        amount: round(t.amount),
+        method: t.method ?? null,
+        notes: t.notes ?? null,
+        runningBalance: running,
+      }
+    })
+    return {
+      businessName: business?.name ?? 'BizTrack',
+      businessPhone: business?.phone ?? null,
+      businessAddress: business?.address ?? null,
+      sessionRef: acc.accountNumber,
+      createdAt: acc.createdAt.toISOString(),
+      status: acc.status as DepositStatus,
+      outcome: (acc.outcome as DepositOutcome) ?? null,
+      closedAt: acc.closedAt ? acc.closedAt.toISOString() : null,
+      customerName: acc.customerName ?? null,
+      customerPhone: acc.customerPhone ?? null,
+      totalDeposited: round(acc.totalDeposited),
+      totalUsed: round(acc.totalUsed),
+      totalRefunded: round(acc.totalRefunded),
+      totalTransferred: round(acc.totalTransferred),
+      balance: round(acc.balance),
+      currency: business?.currency ?? null,
+      taggedProducts: acc.taggedProducts ?? [],
+      entries,
+    }
+  }
+
+  /** Deposit headline stats (open held + this-month collected/refunded), mirroring the desktop. */
+  async getSummary(businessId: string): Promise<DepositSummary> {
+    const mgr = this.savingsAccountsRepo.manager
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    const [open] = (await mgr.query(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(balance), 0) AS held
+       FROM savings_accounts WHERE business_id = $1 AND status = 'OPEN' AND is_deleted = false`,
+      [businessId],
+    )) as Array<{ n: number; held: string }>
+    const [collected] = (await mgr.query(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(total_used), 0) AS amt
+       FROM savings_accounts WHERE business_id = $1 AND status = 'CLOSED' AND outcome LIKE 'COLLECTED%'
+         AND closed_at >= $2 AND is_deleted = false`,
+      [businessId, monthStart],
+    )) as Array<{ n: number; amt: string }>
+    const [refTr] = (await mgr.query(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(total_refunded + total_transferred), 0) AS amt
+       FROM savings_accounts WHERE business_id = $1 AND status = 'CLOSED' AND closed_at >= $2
+         AND (total_refunded > 0 OR total_transferred > 0) AND is_deleted = false`,
+      [businessId, monthStart],
+    )) as Array<{ n: number; amt: string }>
+    const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [businessId])) as Array<{
+      currency: string | null
+    }>
+    return {
+      openCount: Number(open?.n ?? 0),
+      depositsHeld: round(Number(open?.held ?? 0)),
+      collectedCount: Number(collected?.n ?? 0),
+      collectedAmount: round(Number(collected?.amt ?? 0)),
+      refundedTransferredCount: Number(refTr?.n ?? 0),
+      refundedTransferredAmount: round(Number(refTr?.amt ?? 0)),
+      currency: biz?.currency ?? 'XAF',
+    }
+  }
 
   // ---- REST (cloud direct) — mirrors the desktop deposit-session ops --------
 
@@ -154,6 +289,47 @@ export class DepositsService {
   private async withSalesCount(acc: CustomerDeposit): Promise<CustomerDeposit> {
     const salesCount = await this.savingsTransactionsRepo.count({ where: { savingsId: acc.id, businessId: acc.businessId, type: 'sale' } })
     return Object.assign(acc, { salesCount }) as CustomerDeposit
+  }
+
+  /**
+   * Draw down a customer deposit for a SAVINGS payment on a sale: deduct the balance and
+   * record an outbound usage transaction. Must run inside the sale's transaction so a
+   * failure here rolls the whole sale back. Mirrors the desktop `recordSaleUsage`.
+   */
+  async recordSaleUsage(
+    m: EntityManager,
+    businessId: string,
+    input: { savingsId: string; saleId: string; amount: number; recordedById?: string | null },
+    now: Date,
+  ): Promise<void> {
+    const amount = round(input.amount)
+    if (amount <= 0) return
+    const repo = m.getRepository(CustomerDeposit)
+    const acc = await repo.findOne({ where: { id: input.savingsId, businessId, isDeleted: false } })
+    if (!acc) throw new AppBadRequestException('Deposit account not found.', 'DEPOSIT_NOT_FOUND')
+    if (acc.status !== 'OPEN') throw new AppBadRequestException('This deposit session is closed.', 'DEPOSIT_CLOSED')
+    if (acc.balance < amount) {
+      throw new AppBadRequestException('Insufficient deposit balance.', 'DEPOSIT_INSUFFICIENT_BALANCE')
+    }
+    await repo.update(acc.id, {
+      balance: round(acc.balance - amount),
+      totalUsed: round(acc.totalUsed + amount),
+      updatedAt: now,
+    })
+    await this.insertTxn(
+      m,
+      input.savingsId,
+      businessId,
+      {
+        type: 'sale',
+        direction: 'outbound',
+        amount,
+        method: 'SAVINGS',
+        saleId: input.saleId,
+        recordedById: input.recordedById,
+      },
+      now,
+    )
   }
 
   private async insertTxn(

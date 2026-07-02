@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import { BusinessMemberRole, Resource, type AuditContext, type CashierShiftSummary, type DailySalesSummary, type JwtPayload, type PaginatedResult, type Sale, type SaleListItem, type SaleReceipt } from '@biztrack/types'
+import { BusinessMemberRole, Resource, type AuditContext, type CashierPerformanceRow, type CashierShiftSummary, type DailySalesRow, type DailySalesSummary, type JwtPayload, type PaginatedResult, type RefundCashierRow, type RefundReasonRow, type Sale, type SaleListItem, type SaleReceipt, type SalesByPaymentRow, type SalesByProductRow } from '@biztrack/types'
 import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
@@ -29,7 +29,7 @@ import {
 } from '../dto/sale-response.dto'
 import { VoidSaleDto } from '../dto/void-sale.dto'
 import { SendSaleReceiptDto } from '../dto/send-sale-receipt.dto'
-import { SalesService } from '../services/sales.service'
+import { SalesService, type SalesSummary } from '../services/sales.service'
 
 @ApiTags('Sales')
 @ApiBearerAuth()
@@ -79,6 +79,85 @@ export class SalesController {
         await this.salesService.getDailySummary(user.businessId as string, query.date),
       ),
     )
+  }
+
+  @Get('summary')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Range sales summary' })
+  async getRangeSummary(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<SalesSummary> {
+    return this.salesService.getRangeSummary(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
+  }
+
+  @Get('summary/daily-series')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Daily sales series (one row per day) for the Daily Sales report' })
+  async getDailySeries(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<DailySalesRow[]> {
+    return this.salesService.getDailySeries(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
+  }
+
+  @Get('cashier-roster')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Cashier performance roster (one row per cashier) for the range' })
+  async getCashierRoster(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<CashierPerformanceRow[]> {
+    return this.salesService.getCashierRoster(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
+  }
+
+  @Get('by-product')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Sales aggregated by product for the range' })
+  async getSalesByProduct(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<SalesByProductRow[]> {
+    return this.salesService.getSalesByProduct(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+  }
+
+  @Get('by-payment-method')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Sales split by payment method for the range' })
+  async getSalesByPaymentMethod(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<SalesByPaymentRow[]> {
+    return this.salesService.getSalesByPaymentMethod(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+  }
+
+  @Get('refunds')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Refunds & returns (by reason + by cashier) for the range' })
+  async getRefundsSummary(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }> {
+    return this.salesService.getRefundsSummary(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+  }
+
+  @Get('gross-profit')
+  @RequireResource(Resource.SALES_VIEW)
+  @ApiOperation({ summary: 'Product revenue + COGS for the range (feeds the income statement)' })
+  async getGrossProfit(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListSalesQueryDto,
+  ): Promise<{ revenue: number; cogs: number }> {
+    return this.salesService.getGrossProfit(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
   }
 
   @Get('cashier-summary')

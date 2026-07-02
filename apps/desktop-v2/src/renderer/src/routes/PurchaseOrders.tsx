@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, Pagination } from '@biztrack/ui/biztrack'
 import { PurchaseOrderStatus } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
@@ -27,7 +27,7 @@ export function PurchaseOrders() {
   const { items, total, page, limit, totalPages, isPending, search, setSearch, setPage } = usePaged<LocalPurchaseOrderListItem>(
     queryKeys.purchaseOrders,
     (q) => dataClient.purchaseOrders.list(q),
-    { enabled: isElectron },
+    { enabled: true },
   )
 
   const statusPill = (s: PurchaseOrderStatus) => <span className={`st ${STATUS_CLASS[s] ?? 'st-neutral'}`}>{t(`po.status_${s}` as Parameters<typeof t>[0])}</span>

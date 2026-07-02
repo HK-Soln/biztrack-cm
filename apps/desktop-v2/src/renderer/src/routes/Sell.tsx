@@ -81,6 +81,7 @@ export function Sell() {
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
   const [serialPick, setSerialPick] = useState<LocalProduct | null>(null)
+  const [servicePick, setServicePick] = useState<LocalProduct | null>(null)
   const [held, setHeld] = useState<Held[]>(() => readHeld())
   const [heldOpen, setHeldOpen] = useState(false)
   const [scanMiss, setScanMiss] = useState<string | null>(null)
@@ -89,12 +90,12 @@ export function Sell() {
   const { data: cats = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'selectable', 'sell'],
     queryFn: () => dataClient.categories.listSelectable({}),
-    enabled: isElectron,
+    enabled: true,
   })
   const { data: chargeTypes = [] } = useQuery({
     queryKey: ['charge-types'],
     queryFn: () => dataClient.charges.listActive(),
-    enabled: isElectron,
+    enabled: true,
   })
   const catalog = useInfiniteQuery({
     queryKey: [...queryKeys.products, 'sell', search, categoryId],
@@ -102,7 +103,7 @@ export function Sell() {
       dataClient.products.list({ search, categoryId: categoryId ?? undefined, page: pageParam, limit: PAGE, stockStatus: 'all' }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
-    enabled: isElectron,
+    enabled: true,
   })
   const products = catalog.data?.pages.flatMap((p) => p.data) ?? []
 
@@ -112,7 +113,7 @@ export function Sell() {
   const { data: presetCustomer } = useQuery({
     queryKey: [...queryKeys.contacts, customerParam, 'sell-preset'],
     queryFn: () => dataClient.contacts.get(customerParam!),
-    enabled: isElectron && !!customerParam,
+    enabled: !!customerParam,
   })
   useEffect(() => {
     if (presetCustomer) setCustomer({ id: presetCustomer.id, name: presetCustomer.name, phone: presetCustomer.phone, selfieUrl: presetCustomer.selfieUrl })
@@ -134,10 +135,17 @@ export function Sell() {
   // --- cart ops ------------------------------------------------------------
   // Click routes to a picker for variant/serialized products; simple products add directly.
   const onProductClick = async (p: LocalProduct) => {
+    // Services have a dynamic/no fixed price — confirm the price before adding.
+    if (p.isService) { setServicePick(p); return }
     if (p.isSerialized) { setSerialPick(p); return }
     const variants = await dataClient.products.listVariants(p.id)
     if (variants.length > 0) { setVariantPick(p); return }
     addSimple(p)
+  }
+  // Each priced service is its own line (different jobs can have different prices).
+  const addService = (p: LocalProduct, unitPrice: number) => {
+    setCart((prev) => [...prev, { key: `svc:${p.id}:${crypto.randomUUID()}`, productId: p.id, name: p.name, unitPrice, quantity: 1 }])
+    setServicePick(null)
   }
   const addSimple = (p: LocalProduct) => {
     setCart((prev) => {
@@ -203,7 +211,7 @@ export function Sell() {
   // Hardware barcode scanners type fast and end with Enter — capture them globally
   // (capture phase, scanner-speed timing) so a scan adds to the cart wherever focus is.
   // Paused while a dialog is open so those handle their own input.
-  const overlayOpen = payOpen || custOpen || !!variantPick || !!serialPick || heldOpen || !!done
+  const overlayOpen = payOpen || custOpen || !!variantPick || !!serialPick || !!servicePick || heldOpen || !!done
   useBarcodeScanner((code) => { void handleScan(code) }, { enabled: !overlayOpen, minLength: 3 })
 
   // --- charge/discount library --------------------------------------------
@@ -431,6 +439,10 @@ export function Sell() {
         <SerialPicker product={serialPick} onClose={() => setSerialPick(null)} onAdd={(units) => addSerials(serialPick, units)} />
       ) : null}
 
+      {servicePick ? (
+        <ServicePricePicker product={servicePick} onClose={() => setServicePick(null)} onConfirm={(price) => addService(servicePick, price)} />
+      ) : null}
+
       {custOpen ? (
         <CustomerPicker
           currentId={customer?.id ?? null}
@@ -468,7 +480,7 @@ function CustomerPicker({ currentId, onClose, onPick, onWalkIn }: { currentId: s
   const { data: customers = [] } = useQuery({
     queryKey: [...queryKeys.contacts, 'customers', 'sell'],
     queryFn: () => dataClient.contacts.listAllCustomers(),
-    enabled: isElectron,
+    enabled: true,
   })
   const list = customers.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()))
   return (
@@ -501,7 +513,7 @@ function VariantPicker({ product, onClose, onPick }: { product: LocalProduct; on
   const { data: variants = [], isPending } = useQuery({
     queryKey: [...queryKeys.products, 'variants', product.id, 'sell'],
     queryFn: () => dataClient.products.listVariants(product.id),
-    enabled: isElectron,
+    enabled: true,
   })
   return (
     <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -527,6 +539,36 @@ function VariantPicker({ product, onClose, onPick }: { product: LocalProduct; on
   )
 }
 
+// --- service price picker --------------------------------------------------
+// Services have no fixed price; confirm/enter it before adding to the cart.
+function ServicePricePicker({ product, onClose, onConfirm }: { product: LocalProduct; onClose: () => void; onConfirm: (price: number) => void }) {
+  const t = useT()
+  const [price, setPrice] = useState(product.effectiveSellingPrice > 0 ? String(product.effectiveSellingPrice) : '')
+  const priceN = Number(price.replace(/\s/g, '').replace(',', '.')) || 0
+  return (
+    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="pay-modal" style={{ width: 380 }}>
+        <div className="pm-head"><h3>{product.name}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+        <div className="pm-body" style={{ paddingTop: 14 }}>
+          <div className="pm-lbl">{t('sell.servicePrice')}</div>
+          <input
+            className="input"
+            inputMode="decimal"
+            autoFocus
+            value={price}
+            placeholder="0"
+            onChange={(e) => setPrice(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onConfirm(priceN) }}
+          />
+          <button type="button" className="pm-confirm" style={{ marginTop: 14 }} onClick={() => onConfirm(priceN)}>
+            {t('sell.addToCart')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // --- serial picker ---------------------------------------------------------
 function SerialPicker({ product, onClose, onAdd }: { product: LocalProduct; onClose: () => void; onAdd: (units: LocalSerialUnit[]) => void }) {
   const t = useT()
@@ -535,7 +577,7 @@ function SerialPicker({ product, onClose, onAdd }: { product: LocalProduct; onCl
   const { data: serials = [], isPending } = useQuery({
     queryKey: [...queryKeys.products, 'in-stock-serials', product.id, q],
     queryFn: () => dataClient.products.listInStockSerials(product.id, null, q),
-    enabled: isElectron,
+    enabled: true,
   })
   const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   return (
@@ -580,7 +622,7 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
   const { data: deposit } = useQuery({
     queryKey: [...queryKeys.contacts, 'savings', customer?.id],
     queryFn: () => dataClient.savings.getForCustomer(customer!.id),
-    enabled: isElectron && !!customer,
+    enabled: !!customer,
   })
   const depBalance = deposit?.balance ?? 0
   const depAccountId = deposit?.id ?? null
@@ -807,7 +849,6 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
   const { data: receiptHtml } = useQuery({
     queryKey: ['sale-receipt-html', sale.id, lang],
     queryFn: () => dataClient.sales.receiptHtml(sale.id, lang),
-    enabled: isElectron,
   })
 
   const flash = (msg: string) => { setNote(msg); window.setTimeout(() => setNote(null), 2400) }

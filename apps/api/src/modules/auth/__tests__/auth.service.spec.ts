@@ -174,7 +174,7 @@ describe('AuthService flow', () => {
       const result = await service.requestLogin({ identifier: user.phone })
 
       expect(result.nextStep).toBe(AuthNextStep.VERIFY_PHONE)
-      expect(result?.verification?.channel).toBe(VerificationChannel.PHONE)
+      expect((result as any)?.verification?.channel).toBe(VerificationChannel.PHONE)
       expect((result as any)?.verification?.delivery).toBe(user.preferredPhoneChannel)
       expect(verificationCodesRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({

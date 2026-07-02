@@ -130,21 +130,16 @@ export class RolesService {
    * target role is within the actor's own permission set.
    * Owner users bypass all checks.
    */
-  private async requireRolesManageAccess(actor: JwtPayload, targetRoleId?: string): Promise<void> {
+  private async requireRolesManageAccess(actor: JwtPayload, _targetRoleId?: string): Promise<void> {
+    // For now, role & permission management is HARD-BLOCKED to the business owner (super
+    // admin). The delegated path below — a "roles:manage" holder may only manage roles
+    // whose permissions are a subset of their own (assertRoleContained) — is kept for when
+    // this is opened up, but is intentionally unreachable while owner-only is enforced.
     if (actor.isOwner) return
-
-    const actorPerms = await this.getActorPermissions(actor.roleId, actor.businessId as string)
-
-    if (!actorPerms.has('roles:manage')) {
-      throw new AppForbiddenException(
-        'You need the "roles:manage" permission to perform this action',
-        'INSUFFICIENT_PERMISSIONS',
-      )
-    }
-
-    if (targetRoleId) {
-      await this.assertRoleContained(targetRoleId, actorPerms)
-    }
+    throw new AppForbiddenException(
+      'Only the business owner can manage roles and permissions',
+      'INSUFFICIENT_PERMISSIONS',
+    )
   }
 
   /**

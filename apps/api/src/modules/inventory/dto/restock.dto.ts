@@ -159,6 +159,18 @@ export class RestockDto implements RestockRequest {
   @MaxLength(100)
   referenceNumber?: string
 
+  @ApiPropertyOptional({ description: 'PO this receipt fulfils; bumps received qty + PO status.' })
+  @IsOptional()
+  @IsUUID()
+  purchaseOrderId?: string | null
+
+  @ApiPropertyOptional({ description: 'Legacy single-amount settlement; superseded by payments.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  amountPaid?: number | null
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()

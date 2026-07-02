@@ -24,13 +24,7 @@ function makeService(opts: { brand?: any; model?: any; existingLinks?: any[] } =
     create: jest.fn((m: any) => m),
     update: jest.fn(async () => ({ affected: 1 })),
   }
-  const linksRepo = {
-    find: jest.fn(async () => opts.existingLinks ?? []),
-    save: jest.fn(async (x: any) => x),
-    create: jest.fn((x: any) => x),
-    softDelete: jest.fn(async () => ({ affected: 0 })),
-    manager: { getRepository: jest.fn() },
-  }
+  
   const mBrandRepo = { create: jest.fn((b: any) => b), save: jest.fn(async (b: any) => ({ id: 'b1', ...b })), update: jest.fn(async () => ({})) }
   const mModelRepo = { update: jest.fn(async () => ({})) }
   const mLinkRepo = { find: jest.fn(async () => opts.existingLinks ?? []), save: jest.fn(async (x: any) => x), create: jest.fn((x: any) => x), softDelete: jest.fn(async () => ({})) }
@@ -48,7 +42,7 @@ function makeService(opts: { brand?: any; model?: any; existingLinks?: any[] } =
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
 
   const service = new BrandsService(
-    brandsRepo as any, modelsRepo as any, linksRepo as any, dataSource as any, auditService as any, i18n as any, logger as any,
+    brandsRepo as any, modelsRepo as any, dataSource as any, auditService as any, i18n as any, logger as any,
   )
   return { service, brandsRepo, modelsRepo, mBrandRepo, mModelRepo, mLinkRepo, auditService }
 }

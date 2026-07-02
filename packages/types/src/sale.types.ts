@@ -106,6 +106,9 @@ export interface CreateSalePaymentRequest {
   method: PaymentMethod
   amount: number
   mobileMoneyReference?: string
+  // When method is SAVINGS, the customer deposit/savings account the amount is drawn
+  // from. The backend deducts the balance and records an outbound usage transaction.
+  savingsAccountId?: string | null
 }
 
 export interface CreateSaleItemRequest {
@@ -115,12 +118,34 @@ export interface CreateSaleItemRequest {
   variantId?: string
   variantName?: string
   // Required when the product is serialised (Phase 3G); the specific unit sold.
+  // serialUnitIds carries one or more units for a serialised line (one sale item is
+  // created per unit); serialUnitId remains for a single-unit payload.
   serialUnitId?: string
+  serialUnitIds?: string[]
   serialNumber?: string
   quantity: number
   unitPrice: number
   discountAmount?: number
   costPrice?: number
+}
+
+// A sale-level charge line (e.g. delivery, packaging). The backend persists each line
+// and derives the sale's chargesAmount from their sum.
+export interface CreateSaleChargeRequest {
+  chargeTypeId?: string | null
+  name: string
+  rateType: 'PERCENT' | 'FIXED'
+  rateValue: number
+  amount: number
+}
+
+// A sale-level discount line. The backend persists each line and derives the sale's
+// discountAmount from their sum.
+export interface CreateSaleDiscountRequest {
+  description: string
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  rate?: number | null
+  amount: number
 }
 
 export interface CreateSaleRequest {
@@ -130,8 +155,12 @@ export interface CreateSaleRequest {
   customerName?: string
   customerPhone?: string
   notes?: string
+  // Scalar totals are still accepted (back-compat). When charges/discounts lines are
+  // provided the backend computes the totals from the lines and persists the breakdown.
   discountAmount?: number
   chargesAmount?: number
+  charges?: CreateSaleChargeRequest[]
+  discounts?: CreateSaleDiscountRequest[]
   payments: CreateSalePaymentRequest[]
   items: CreateSaleItemRequest[]
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
 import { DebtDirection, DebtStatus, PaymentMethod } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
@@ -40,7 +40,6 @@ export function ContactPaymentModal({
   const { data, isPending } = useQuery({
     queryKey: [...queryKeys.contacts, contactId, 'debts'],
     queryFn: () => dataClient.debts.listByContact(contactId, { limit: 100 }),
-    enabled: isElectron,
   })
   const openDebts = useMemo(
     () => (data?.data ?? []).filter((d) => d.status !== DebtStatus.SETTLED && d.status !== DebtStatus.WRITTEN_OFF && d.outstandingAmount > 0),
@@ -99,13 +98,15 @@ export function ContactPaymentModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      const now = new Date().toISOString()
+      // Date-only (YYYY-MM-DD) — the API validates paymentDate as a calendar date, not a
+      // timestamp; a full ISO datetime is rejected (400).
+      const today = new Date().toLocaleDateString('en-CA')
       // One recordPayment call per method line — sequential so the outstanding recomputes.
       for (const p of payments.filter((x) => num(x.amount) > 0)) {
         await dataClient.debts.recordPayment(selected!.id, {
           amount: num(p.amount),
           method: p.method,
-          paymentDate: now,
+          paymentDate: today,
           mobileMoneyReference: isMomo(p.method) && p.momoRef.trim() ? p.momoRef.trim() : undefined,
         })
       }

@@ -50,6 +50,14 @@ type ProductModel = {
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   primaryImageUrl?: string | null
+  brandId?: string | null
+  modelId?: string | null
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 
 export class ProductResponseDto implements Product {
@@ -58,6 +66,8 @@ export class ProductResponseDto implements Product {
   sku!: string | null
   barcode!: string | null
   sellingPrice!: number
+  // Displayed "from" price: lowest variant price for variant products, else sellingPrice.
+  effectiveSellingPrice?: number
   costPrice?: number | null
   currency!: string
   taxRate!: number
@@ -90,6 +100,14 @@ export class ProductResponseDto implements Product {
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   primaryImageUrl?: string | null
+  brandId?: string | null
+  modelId?: string | null
+  isFeatured?: boolean
+  isPublishedOnline?: boolean
+  onlineDescription?: string | null
+  onlineStockReserve?: number
+  metaTitle?: string | null
+  metaDescription?: string | null
 
   static fromModel(model: ProductModel): ProductResponseDto {
     const dto = new ProductResponseDto()
@@ -98,6 +116,8 @@ export class ProductResponseDto implements Product {
     dto.sku = model.sku
     dto.barcode = model.barcode
     dto.sellingPrice = model.sellingPrice
+    dto.effectiveSellingPrice =
+      (model as { effectiveSellingPrice?: number }).effectiveSellingPrice ?? model.sellingPrice
     dto.costPrice = model.costPrice ?? null
     dto.currency = model.currency
     dto.taxRate = model.taxRate
@@ -132,6 +152,14 @@ export class ProductResponseDto implements Product {
     dto.lowStockThreshold = model.lowStockThreshold ?? null
     dto.reorderPoint = model.reorderPoint ?? null
     dto.primaryImageUrl = model.primaryImageUrl ?? null
+    dto.brandId = model.brandId ?? null
+    dto.modelId = model.modelId ?? null
+    dto.isFeatured = model.isFeatured ?? false
+    dto.isPublishedOnline = model.isPublishedOnline ?? false
+    dto.onlineDescription = model.onlineDescription ?? null
+    dto.onlineStockReserve = model.onlineStockReserve ?? 0
+    dto.metaTitle = model.metaTitle ?? null
+    dto.metaDescription = model.metaDescription ?? null
     return dto
   }
 }

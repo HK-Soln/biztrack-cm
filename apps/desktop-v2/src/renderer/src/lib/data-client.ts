@@ -21,6 +21,7 @@ import type {
   DebtsQuery,
   DebtDirection,
   ContactStatement,
+  AgeingReport,
   RecordDebtPaymentRequest,
   LocalDebt,
   CreateRfqRequest,
@@ -68,6 +69,12 @@ import type {
   LocalSale,
   LocalSaleDetail,
   LocalSalesSummary,
+  DailySalesRow,
+  CashierPerformanceRow,
+  SalesByProductRow,
+  SalesByPaymentRow,
+  RefundReasonRow,
+  RefundCashierRow,
   LocalSavingsBalance,
   CustomerDeposit,
   DepositStatement,
@@ -90,12 +97,39 @@ import type {
   CurrentSubscriptionResponse,
   QuotaUsageResponse,
   CancelPlanResponse,
+  RolesListQuery,
+  ListRolesResponse,
+  ListPermissionsResponse,
+  RoleWithPermissions,
+  CreateRoleRequest,
+  UpdateRoleRequest,
+  ListTeamMembersResponse,
+  UpdateMemberRoleResponse,
+  RemoveTeamMemberResponse,
+  UpdateMemberStatusResponse,
+  ListPendingInvitesResponse,
+  SendInviteRequest,
+  SendInviteResponse,
+  ResendInviteResponse,
+  CancelInviteResponse,
+  ListNotificationsQuery,
+  ListNotificationsResponse,
+  UnreadCountResponse,
+  MarkNotificationReadResponse,
+  MarkAllNotificationsReadResponse,
+  NotificationEventPayload,
+  ListMyInvitationsResponse,
+  AcceptInvitationResponse,
+  RejectInvitationResponse,
   OnlineOrdersQuery,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
   LocalVariant,
   MovementsQuery,
+  InventoryTurnoverRow,
+  DeadStockRow,
+  SupplierPriceRow,
   RestockInput,
   SaleInput,
   SalesListQuery,
@@ -115,6 +149,17 @@ import type {
   UnitListQuery,
   UploadFileInput,
   UploadedFile,
+  SessionStatus,
+  AuthFlowResult,
+  OtpChannel,
+  RegisterPayload,
+  InvitePreviewResult,
+  BusinessSetupPayload,
+  PlanList,
+  BillingCycle,
+  BusinessOption,
+  SyncStatus,
+  TitleBarOverlayColors,
 } from '@shared/ipc'
 
 // The renderer's single data dependency. In Electron it resolves to the IPC bridge
@@ -194,6 +239,10 @@ export interface DataClient {
     adjust: (productId: string, input: AdjustStockInput) => Promise<void>
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
     listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
+    listAllMovements: (query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
+    turnover: (query?: MovementsQuery) => Promise<InventoryTurnoverRow[]>
+    deadStock: () => Promise<{ rows: DeadStockRow[]; stockCostTotal: number }>
+    supplierPriceTrend: () => Promise<SupplierPriceRow[]>
   }
   contacts: {
     list: (query?: ContactsQuery) => Promise<PaginatedResult<LocalContactListItem>>
@@ -210,6 +259,7 @@ export interface DataClient {
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
+    ageing: (direction: DebtDirection) => Promise<AgeingReport>
   }
   openingBalances: {
     upsert: (input: OpeningBalanceInput) => Promise<LocalOpeningBalance>
@@ -266,6 +316,12 @@ export interface DataClient {
     list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
     summary: (query?: SalesListQuery) => Promise<LocalSalesSummary>
+    dailySeries: (query?: SalesListQuery) => Promise<DailySalesRow[]>
+    cashierRoster: (query?: SalesListQuery) => Promise<CashierPerformanceRow[]>
+    byProduct: (query?: SalesListQuery) => Promise<SalesByProductRow[]>
+    byPaymentMethod: (query?: SalesListQuery) => Promise<SalesByPaymentRow[]>
+    refunds: (query?: SalesListQuery) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
+    grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
     sendReceipt: (
       saleId: string,
@@ -311,7 +367,95 @@ export interface DataClient {
     upgrade: (plan: string) => Promise<void>
     cancel: () => Promise<CancelPlanResponse>
   }
+  roles: {
+    list: (query?: RolesListQuery) => Promise<ListRolesResponse>
+    permissions: () => Promise<ListPermissionsResponse>
+    get: (id: string) => Promise<RoleWithPermissions>
+    create: (input: CreateRoleRequest) => Promise<RoleWithPermissions>
+    update: (id: string, input: UpdateRoleRequest) => Promise<RoleWithPermissions>
+    remove: (id: string) => Promise<{ deleted: boolean }>
+    setPermissions: (id: string, permissions: string[]) => Promise<RoleWithPermissions>
+  }
+  team: {
+    listMembers: () => Promise<ListTeamMembersResponse>
+    updateMemberRole: (userId: string, roleId: string) => Promise<UpdateMemberRoleResponse>
+    removeMember: (userId: string) => Promise<RemoveTeamMemberResponse>
+    setMemberActive: (userId: string, active: boolean) => Promise<UpdateMemberStatusResponse>
+    listInvites: () => Promise<ListPendingInvitesResponse>
+    sendInvite: (input: SendInviteRequest) => Promise<SendInviteResponse>
+    resendInvite: (id: string) => Promise<ResendInviteResponse>
+    cancelInvite: (id: string) => Promise<CancelInviteResponse>
+  }
+  notifications: {
+    list: (query?: ListNotificationsQuery) => Promise<ListNotificationsResponse>
+    unreadCount: () => Promise<UnreadCountResponse>
+    markRead: (id: string) => Promise<MarkNotificationReadResponse>
+    markAllRead: () => Promise<MarkAllNotificationsReadResponse>
+    connect: () => Promise<void>
+    onEvent: (cb: (payload: NotificationEventPayload) => void) => () => void
+  }
+  invitations: {
+    list: () => Promise<ListMyInvitationsResponse>
+    accept: (businessId: string) => Promise<AcceptInvitationResponse>
+    reject: (businessId: string) => Promise<RejectInvitationResponse>
+  }
+  auth: {
+    getSession: () => Promise<SessionStatus>
+    login: (identifier: string, password: string) => Promise<AuthFlowResult>
+    requestLogin: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
+    loginOtp: (identifier: string, code: string) => Promise<AuthFlowResult>
+    verifyPhone: (phone: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
+    verifyEmail: (email: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
+    resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
+    register: (payload: RegisterPayload) => Promise<AuthFlowResult>
+    getInvitePreview: (token: string) => Promise<InvitePreviewResult>
+    acceptInvite: (token: string) => Promise<AuthFlowResult>
+    rejectInvite: (token: string) => Promise<{ ok: boolean; error?: string }>
+    setupBusiness: (payload: BusinessSetupPayload) => Promise<AuthFlowResult>
+    listPlans: () => Promise<PlanList>
+    selectPlan: (plan: string, billingCycle?: BillingCycle) => Promise<AuthFlowResult>
+    selectBusiness: (businessId: string) => Promise<AuthFlowResult>
+    listBusinesses: () => Promise<BusinessOption[]>
+    offlineLogin: (password: string) => Promise<AuthFlowResult>
+    logout: () => Promise<SessionStatus>
+  }
+  sync: {
+    trigger: () => Promise<void>
+    fullSync: () => Promise<void>
+    retry: () => Promise<void>
+    getStatus: () => Promise<SyncStatus>
+    onStatus: (cb: (status: SyncStatus) => void) => () => void
+  }
+  theme: {
+    set: (theme: 'light' | 'dark' | 'system') => void
+  }
+  window: {
+    setTitleBarOverlay: (colors: TitleBarOverlayColors) => void
+  }
 }
+
+import { cloudAuth } from './cloud-auth'
+import {
+  cloudRoles,
+  cloudTeam,
+  cloudNotificationsRest,
+  cloudInvitations,
+  cloudBusiness,
+  cloudPlans,
+  cloudOnline,
+  cloudUploads,
+} from './cloud-data'
+import { cloudRealtimeConnect, cloudRealtimeOnEvent } from './cloud-realtime'
+import { cloudCategories, cloudBrands, cloudUnits, cloudExpenseCategories, cloudAttributes } from './cloud-catalog'
+import { cloudContacts } from './cloud-contacts'
+import { cloudProducts } from './cloud-products'
+import { cloudSales } from './cloud-sales'
+import { cloudInventory } from './cloud-inventory'
+import { cloudExpenses } from './cloud-expenses'
+import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
+import { cloudSavings, cloudDeposits } from './cloud-deposits'
+import { cloudRfqs, cloudPurchaseOrders } from './cloud-procurement'
+import { cloudAudit, cloudCharges, cloudDocuments } from './cloud-misc'
 
 /** True when running inside the Electron renderer (preload bridge present). */
 export const isElectron = typeof window !== 'undefined' && Boolean(window.api)
@@ -391,6 +535,10 @@ function electronAdapter(): DataClient {
       adjust: (productId, input) => window.api.inventory.adjust(productId, input),
       setThreshold: (productId, input) => window.api.inventory.setThreshold(productId, input),
       listMovements: (productId, query) => window.api.inventory.listMovements(productId, query),
+      listAllMovements: (query) => window.api.inventory.listAllMovements(query),
+      turnover: (query) => window.api.inventory.turnover(query),
+      deadStock: () => window.api.inventory.deadStock(),
+      supplierPriceTrend: () => window.api.inventory.supplierPriceTrend(),
     },
     contacts: {
       list: (query) => window.api.contacts.list(query),
@@ -407,6 +555,7 @@ function electronAdapter(): DataClient {
       statement: (contactId, direction) => window.api.debts.statement(contactId, direction),
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
       offset: (contactId) => window.api.debts.offset(contactId),
+      ageing: (direction) => window.api.debts.ageing(direction),
     },
     openingBalances: {
       upsert: (input) => window.api.openingBalances.upsert(input),
@@ -463,6 +612,12 @@ function electronAdapter(): DataClient {
       list: (query) => window.api.sales.list(query),
       listAll: (query) => window.api.sales.listAll(query),
       summary: (query) => window.api.sales.summary(query),
+      dailySeries: (query) => window.api.sales.dailySeries(query),
+      cashierRoster: (query) => window.api.sales.cashierRoster(query),
+      byProduct: (query) => window.api.sales.byProduct(query),
+      byPaymentMethod: (query) => window.api.sales.byPaymentMethod(query),
+      refunds: (query) => window.api.sales.refunds(query),
+      grossProfit: (query) => window.api.sales.grossProfit(query),
       get: (id) => window.api.sales.get(id),
       sendReceipt: (saleId, channel, locale, opts) => window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
@@ -503,6 +658,71 @@ function electronAdapter(): DataClient {
       upgrade: (plan) => window.api.plans.upgrade(plan),
       cancel: () => window.api.plans.cancel(),
     },
+    roles: {
+      list: (query) => window.api.roles.list(query),
+      permissions: () => window.api.roles.permissions(),
+      get: (id) => window.api.roles.get(id),
+      create: (input) => window.api.roles.create(input),
+      update: (id, input) => window.api.roles.update(id, input),
+      remove: (id) => window.api.roles.remove(id),
+      setPermissions: (id, permissions) => window.api.roles.setPermissions(id, permissions),
+    },
+    team: {
+      listMembers: () => window.api.team.listMembers(),
+      updateMemberRole: (userId, roleId) => window.api.team.updateMemberRole(userId, roleId),
+      removeMember: (userId) => window.api.team.removeMember(userId),
+      setMemberActive: (userId, active) => window.api.team.setMemberActive(userId, active),
+      listInvites: () => window.api.team.listInvites(),
+      sendInvite: (input) => window.api.team.sendInvite(input),
+      resendInvite: (id) => window.api.team.resendInvite(id),
+      cancelInvite: (id) => window.api.team.cancelInvite(id),
+    },
+    notifications: {
+      list: (query) => window.api.notifications.list(query),
+      unreadCount: () => window.api.notifications.unreadCount(),
+      markRead: (id) => window.api.notifications.markRead(id),
+      markAllRead: () => window.api.notifications.markAllRead(),
+      connect: () => window.api.notifications.connect(),
+      onEvent: (cb) => window.api.notifications.onEvent(cb),
+    },
+    invitations: {
+      list: () => window.api.invitations.list(),
+      accept: (businessId) => window.api.invitations.accept(businessId),
+      reject: (businessId) => window.api.invitations.reject(businessId),
+    },
+    auth: {
+      getSession: () => window.api.auth.getSession(),
+      login: (identifier, password) => window.api.auth.login(identifier, password),
+      requestLogin: (identifier, channel) => window.api.auth.requestLogin(identifier, channel),
+      loginOtp: (identifier, code) => window.api.auth.loginOtp(identifier, code),
+      verifyPhone: (phone, code, inviteToken) => window.api.auth.verifyPhone(phone, code, inviteToken),
+      verifyEmail: (email, code, inviteToken) => window.api.auth.verifyEmail(email, code, inviteToken),
+      resendOtp: (identifier, type, channel) => window.api.auth.resendOtp(identifier, type, channel),
+      register: (payload) => window.api.auth.register(payload),
+      getInvitePreview: (token) => window.api.auth.getInvitePreview(token),
+      acceptInvite: (token) => window.api.auth.acceptInvite(token),
+      rejectInvite: (token) => window.api.auth.rejectInvite(token),
+      setupBusiness: (payload) => window.api.auth.setupBusiness(payload),
+      listPlans: () => window.api.auth.listPlans(),
+      selectPlan: (plan, billingCycle) => window.api.auth.selectPlan(plan, billingCycle),
+      selectBusiness: (businessId) => window.api.auth.selectBusiness(businessId),
+      listBusinesses: () => window.api.auth.listBusinesses(),
+      offlineLogin: (password) => window.api.auth.offlineLogin(password),
+      logout: () => window.api.auth.logout(),
+    },
+    sync: {
+      trigger: () => window.api.sync.trigger(),
+      fullSync: () => window.api.sync.fullSync(),
+      retry: () => window.api.sync.retry(),
+      getStatus: () => window.api.sync.getStatus(),
+      onStatus: (cb) => window.api.sync.onStatus(cb),
+    },
+    theme: {
+      set: (theme) => window.api.theme.set(theme),
+    },
+    window: {
+      setTitleBarOverlay: (colors) => window.api.window.setTitleBarOverlay(colors),
+    },
   }
 }
 
@@ -518,71 +738,53 @@ function cloudAdapter(): DataClient {
   }
   return {
     skeleton: { getCheck: notWired, getHealth: notWired },
-    categories: { list: notWired, listAll: notWired, listSelectable: notWired, listParentOptions: notWired, create: notWired, update: notWired, remove: notWired },
-    attributes: {
-      listGroups: notWired,
-      listAllGroups: notWired,
-      createGroup: notWired,
-      updateGroup: notWired,
-      deleteGroup: notWired,
-      addOption: notWired,
-      updateOption: notWired,
-      deleteOption: notWired,
-      listCategoryLinks: notWired,
-      setCategoryLinks: notWired,
+    categories: cloudCategories,
+    attributes: cloudAttributes,
+    units: cloudUnits,
+    brands: cloudBrands,
+    products: cloudProducts,
+    inventory: cloudInventory,
+    contacts: cloudContacts,
+    debts: cloudDebts,
+    openingBalances: cloudOpeningBalances,
+    expenses: cloudExpenses,
+    expenseCategories: cloudExpenseCategories,
+    rfqs: cloudRfqs,
+    purchaseOrders: cloudPurchaseOrders,
+    documents: cloudDocuments,
+    audit: cloudAudit,
+    uploads: cloudUploads,
+    charges: cloudCharges,
+    sales: cloudSales,
+    savings: cloudSavings,
+    deposits: cloudDeposits,
+    online: cloudOnline,
+    business: cloudBusiness,
+    plans: cloudPlans,
+    roles: cloudRoles,
+    team: cloudTeam,
+    notifications: { ...cloudNotificationsRest, connect: cloudRealtimeConnect, onEvent: cloudRealtimeOnEvent },
+    invitations: cloudInvitations,
+    auth: cloudAuth,
+    // Cloud is online-only: there is no local sync engine, so report a stable
+    // "synced" status and treat trigger/retry as no-ops.
+    sync: {
+      trigger: async () => { },
+      fullSync: async () => { },
+      retry: async () => { },
+      getStatus: async () => ({
+        state: 'idle',
+        lastSyncedAt: new Date().toISOString(),
+        pendingCount: 0,
+        deferredCount: 0,
+        failedCount: 0,
+        deadCount: 0,
+        lastError: null,
+      }),
+      onStatus: () => () => { },
     },
-    units: { list: notWired, create: notWired, update: notWired, remove: notWired },
-    brands: {
-      list: notWired,
-      get: notWired,
-      create: notWired,
-      update: notWired,
-      remove: notWired,
-      addModel: notWired,
-      updateModel: notWired,
-      removeModel: notWired,
-    },
-    products: {
-      list: notWired,
-      stats: notWired,
-      get: notWired,
-      create: notWired,
-      update: notWired,
-      remove: notWired,
-      listImages: notWired,
-      setImages: notWired,
-      listVariants: notWired,
-      setVariants: notWired,
-      addVariant: notWired,
-      updateVariant: notWired,
-      removeVariant: notWired,
-      listSerialUnits: notWired,
-      listInStockSerials: notWired,
-      resolveScan: notWired,
-      setSerialUnits: notWired,
-      addSerialUnits: notWired,
-      retireSerialUnit: notWired,
-      updateSerialNumber: notWired,
-      listMovements: notWired,
-    },
-    inventory: { list: notWired, stats: notWired, reorderSuggestions: notWired, restock: notWired, adjust: notWired, setThreshold: notWired, listMovements: notWired },
-    contacts: { list: notWired, summary: notWired, listAllSuppliers: notWired, listAllCustomers: notWired, get: notWired, create: notWired, update: notWired, remove: notWired },
-    debts: { listByContact: notWired, statement: notWired, recordPayment: notWired, offset: notWired },
-    openingBalances: { upsert: notWired, listForContact: notWired },
-    expenses: { list: notWired, get: notWired, summary: notWired, trend: notWired, create: notWired, update: notWired, setStatus: notWired, remove: notWired },
-    expenseCategories: { listAll: notWired, create: notWired },
-    rfqs: { list: notWired, get: notWired, create: notWired, recordQuote: notWired, buildDocument: notWired, send: notWired },
-    purchaseOrders: { list: notWired, get: notWired, create: notWired, createFromRfq: notWired, buildDocument: notWired, send: notWired, cancel: notWired },
-    documents: { send: notWired, downloadPdf: notWired, downloadHtmlPdf: notWired, shareHtmlPdf: notWired },
-    audit: { list: notWired },
-    uploads: { file: notWired },
-    charges: { listActive: notWired },
-    sales: { create: notWired, list: notWired, listAll: notWired, summary: notWired, get: notWired, sendReceipt: notWired, printReceipt: notWired, downloadReceipt: notWired, receiptHtml: notWired },
-    savings: { getForCustomer: notWired },
-    deposits: { list: notWired, get: notWired, statement: notWired, summary: notWired, create: notWired, addPayment: notWired, close: notWired, receiptHtml: notWired, reportHtml: notWired },
-    online: { getStore: notWired, createStore: notWired, updateStore: notWired, publishStore: notWired, listOrders: notWired, getOrder: notWired, updateOrderStatus: notWired },
-    business: { getProfile: notWired, update: notWired },
-    plans: { list: notWired, subscription: notWired, quotaUsage: notWired, upgrade: notWired, cancel: notWired },
+    theme: { set: () => { } }, // theme.store already persists to localStorage
+    window: { setTitleBarOverlay: () => { } }, // no native window controls in the browser
   }
 }
 

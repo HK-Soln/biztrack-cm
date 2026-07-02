@@ -1,12 +1,14 @@
 import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthShell } from '@/components/layout/AuthShell'
-import { RequireAuth, RequireGuest } from '@/components/RouteGuards'
+import { RequireAuth, RequireGuest, RequireOwner } from '@/components/RouteGuards'
 import { RouteError } from '@/components/RouteError'
 import { Dashboard } from '@/routes/Dashboard'
 import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
 import { SignUp } from '@/routes/SignUp'
+import { Invite } from '@/routes/Invite'
+import { Invitations } from '@/routes/Invitations'
 import { Sso } from '@/routes/Sso'
 import { SelectBusiness } from '@/routes/SelectBusiness'
 import { SetupBusiness } from '@/routes/SetupBusiness'
@@ -40,6 +42,10 @@ import { OnlineOrders } from '@/routes/OnlineOrders'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
 import { UserSettings } from '@/routes/UserSettings'
+import { Team } from '@/routes/Team'
+import { Roles } from '@/routes/Roles'
+import { ReportViewer } from '@/routes/ReportViewer'
+import { RoleForm } from '@/routes/RoleForm'
 
 // Two layout groups: AuthShell (RequireGuest) for non-authenticated routes,
 // AppShell (RequireAuth) for the app.
@@ -58,6 +64,7 @@ export const router = createHashRouter([
     children: [
       { path: '/signin', element: <SignIn /> },
       { path: '/signup', element: <SignUp /> },
+      { path: '/invite', element: <Invite /> },
       { path: '/sso', element: <Sso /> },
       { path: '/select-business', element: <SelectBusiness /> },
       { path: '/setup-business', element: <SetupBusiness /> },
@@ -72,6 +79,7 @@ export const router = createHashRouter([
     ),
     children: [
       { path: '/', element: <Dashboard /> },
+      { path: '/invitations', element: <Invitations /> },
       { path: '/sell', element: <Sell /> },
       { path: '/products', element: <Products /> },
       { path: '/products/new', element: <ProductForm /> },
@@ -102,9 +110,12 @@ export const router = createHashRouter([
       { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
       { path: '/expenses', element: <Expenses /> },
       { path: '/deposits', element: <Deposits /> },
-      { path: '/reports', element: <Placeholder titleKey="nav.reports" /> },
-      { path: '/team', element: <Placeholder titleKey="nav.team" /> },
-      { path: '/roles', element: <Placeholder titleKey="nav.roles" /> },
+      { path: '/reports', element: <ReportViewer /> },
+      { path: '/reports/:reportId', element: <ReportViewer /> },
+      { path: '/team', element: <Team /> },
+      { path: '/roles', element: <RequireOwner><Roles /></RequireOwner> },
+      { path: '/roles/new', element: <RequireOwner><RoleForm /></RequireOwner> },
+      { path: '/roles/:id/edit', element: <RequireOwner><RoleForm /></RequireOwner> },
       { path: '/settings', element: <Settings /> },
       { path: '/profile', element: <UserSettings /> },
       { path: '/more', element: <Placeholder titleKey="nav.more" /> },

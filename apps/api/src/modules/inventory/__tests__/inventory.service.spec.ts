@@ -194,7 +194,7 @@ describe('InventoryService', () => {
         lastRestockAt: expect.any(Date),
       }),
     )
-    expect(result.items).toEqual([{ productId: 'product-1', quantity: 2, newQuantity: 2 }])
+    expect(result.items).toEqual([{ productId: 'product-1', variantId: null, quantity: 2, newQuantity: 2 }])
   })
 
   it('uses the saved restock id as the debt reference when credit restocks omit a reference number', async () => {

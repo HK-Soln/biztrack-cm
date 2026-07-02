@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Modal } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
 import { ManageVariants } from '@/components/products/ManageVariants'
@@ -38,24 +38,24 @@ export function ProductDetail() {
   const { data: product, isPending } = useQuery({
     queryKey: [...queryKeys.products, 'one', id],
     queryFn: () => dataClient.products.get(id!),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
   const { data: images = [] } = useQuery({
     queryKey: [...queryKeys.products, 'images', id],
     queryFn: () => dataClient.products.listImages(id!),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
   const { data: movements = [] } = useQuery({
     queryKey: [...queryKeys.products, 'movements', id],
     queryFn: () => dataClient.products.listMovements(id!),
-    enabled: isElectron && !!id && !!product?.trackInventory,
+    enabled: !!id && !!product?.trackInventory,
   })
   // Deduped with ManageVariants (same query key) — used only to tell whether the
   // product is "direct" (no variants), so product-level stock actions apply.
   const { data: variants = [] } = useQuery({
     queryKey: [...queryKeys.products, 'variants', id],
     queryFn: () => dataClient.products.listVariants(id!),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
 
   const removeM = useMutation({

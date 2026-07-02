@@ -93,7 +93,7 @@ export class DebtsService {
       const sortOrder = query.sortOrder ?? 'DESC'
       const [rows, total] = await qb
         .orderBy(sort, sortOrder)
-        .addOrderBy('debt.created_at', 'DESC')
+        .addOrderBy('debt.createdAt', 'DESC')
         .skip(skip)
         .take(limit)
         .getManyAndCount()
@@ -126,7 +126,7 @@ export class DebtsService {
       const sortOrder = query.sortOrder ?? 'DESC'
       const [rows, total] = await qb
         .orderBy(sort, sortOrder)
-        .addOrderBy('debt.created_at', 'DESC')
+        .addOrderBy('debt.createdAt', 'DESC')
         .skip(skip)
         .take(limit)
         .getManyAndCount()
@@ -829,16 +829,20 @@ export class DebtsService {
   }
 
   private resolveSortField(field?: string) {
+    // Use ENTITY PROPERTY names (not raw snake_case columns): with .skip()/.take()
+    // pagination + a join, TypeORM resolves the order-by column against entity metadata
+    // to build its distinct subquery — a raw column name breaks that ("undefined
+    // reading 'databaseName'"). WHERE clauses can stay raw; ORDER BY must be properties.
     const sortMap: Record<string, string> = {
-      createdAt: 'debt.created_at',
-      dueDate: 'debt.due_date',
-      originalAmount: 'debt.original_amount',
-      sourceReference: 'debt.source_reference',
+      createdAt: 'debt.createdAt',
+      dueDate: 'debt.dueDate',
+      originalAmount: 'debt.originalAmount',
+      sourceReference: 'debt.sourceReference',
       status: 'debt.status',
       contactName: 'contact.name',
     }
 
-    return sortMap[field ?? ''] ?? 'debt.created_at'
+    return sortMap[field ?? ''] ?? 'debt.createdAt'
   }
 
   private async mapDebtList(rows: DebtEntity[]): Promise<DebtListItem[]> {

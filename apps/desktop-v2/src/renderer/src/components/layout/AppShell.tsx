@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
+import { Icon, TABS, filterNav, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useSyncStatus } from '@/lib/useSyncStatus'
 import { dataClient, isElectron } from '@/lib/data-client'
@@ -10,6 +10,9 @@ import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { NotificationToasts } from '@/components/notifications/NotificationToasts'
+import { useNotificationsStore } from '@/stores/notifications.store'
 
 const ROLE_LABEL: Record<string, MessageKey> = {
   OWNER: 'selectBiz.role.owner',
@@ -96,6 +99,7 @@ function Sidebar({
   onToggle?: () => void
 }) {
   const t = useT()
+  const isOwner = (useSessionStore((s) => s.status.user?.role) ?? '').toUpperCase() === 'OWNER'
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
       {collapsible ? (
@@ -129,7 +133,7 @@ function Sidebar({
       ) : null}
       <div className="nav-sec">{t('nav.workspace')}</div>
       <nav className="nav">
-        {NAV.map((entry, i) =>
+        {filterNav(isOwner).map((entry, i) =>
           isGroup(entry) ? (
             <NavGroup
               key={`g${i}`}
@@ -284,17 +288,20 @@ function TopBar() {
       ? `${t('sync.syncing')}…`
       : `${t('top.lastSyncLabel')} ${relativeSync(sync.lastSyncedAt, now, t)}`
   return (
-    <header className="topbar app-drag" style={isWindows ? { paddingRight: 138 } : undefined}>
+    <header className="topbar app-drag" style={isWindows && isElectron ? { paddingRight: 138 } : undefined}>
       <button type="button" className="biz app-no-drag">
         <span className="biz-tile">{initials(businessName)}</span>
         <span>
           <span className="nm">{businessName || 'BizTrack CM'}</span>
-          <span className="sub">{lastSync}</span>
+          <span className="sub">{isElectron && lastSync}</span>
         </span>
       </button>
       <PlanChip now={now} />
       <div className="tb-right">
-        <SyncIndicator />
+        {
+          isElectron  && <SyncIndicator />
+        }
+        <NotificationBell />
         <LanguageToggle />
         <ModeToggle />
       </div>
@@ -360,7 +367,7 @@ function SyncIndicator() {
         className="tb-sync app-no-drag"
         style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer', font: 'inherit' }}
         title={t('sync.retry')}
-        onClick={() => void window.api?.sync?.retry()}
+        onClick={() => void dataClient.sync.retry()}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
@@ -376,10 +383,13 @@ function SyncIndicator() {
   const disabled = syncing || cooling
   const label = syncing ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
 
-  async function onSync() {
+  async function onSync(full = false) {
     if (disabled) return
     try {
-      await window.api?.sync?.trigger()
+      // Shift/Alt-click = full resync (reset the pull cursor + re-pull everything from
+      // the server). Recovers from a wiped/diverged local DB; the normal click is the
+      // incremental push+pull.
+      await (full ? dataClient.sync.fullSync() : dataClient.sync.trigger())
       setCooldownUntil(Date.now() + 60_000)
     } catch {
       /* leave the button enabled so they can retry */
@@ -393,7 +403,7 @@ function SyncIndicator() {
       style={{ background: 'none', border: 0, font: 'inherit', cursor: disabled ? 'default' : 'pointer', ...(s.state === 'error' ? { color: 'var(--danger)' } : {}) }}
       title={cooling ? t('sync.justSynced') : t('sync.syncNow')}
       disabled={disabled}
-      onClick={() => void onSync()}
+      onClick={(e) => void onSync(e.shiftKey || e.altKey)}
     >
       <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} className={syncing ? 'spin' : undefined}>
         <path d="M16 3v4h-4M4 17v-4h4" />
@@ -478,6 +488,18 @@ export function AppShell() {
     return () => cancelAnimationFrame(id)
   }, [mode, palette, chrome, resolvedDark])
 
+  // Realtime in-app notifications: (re)connect the socket for this user, load the
+  // feed, and subscribe to live pushes (toast + bell). AppShell only mounts when
+  // authenticated, so this is the right place to open the connection.
+  useEffect(() => {
+    void dataClient.notifications.connect()
+    void useNotificationsStore.getState().load()
+    const off = dataClient.notifications.onEvent((payload) => {
+      useNotificationsStore.getState().receive(payload.notification, payload.unreadCount)
+    })
+    return off
+  }, [])
+
   if (bp === 'mobile') {
     return (
       <div className="m-shell">
@@ -486,6 +508,7 @@ export function AppShell() {
           <Outlet />
         </div>
         <TabBar />
+        <NotificationToasts />
       </div>
     )
   }
@@ -504,6 +527,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </div>
+      <NotificationToasts />
     </div>
   )
 }

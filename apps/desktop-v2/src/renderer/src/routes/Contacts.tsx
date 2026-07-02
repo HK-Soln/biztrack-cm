@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Pagination, Select } from '@biztrack/ui/biztrack'
 import { ContactType } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
@@ -43,13 +43,13 @@ export function Contacts() {
   const { data: summary } = useQuery({
     queryKey: [...queryKeys.contacts, 'summary'],
     queryFn: () => dataClient.contacts.summary(),
-    enabled: isElectron,
+    enabled: true,
   })
 
   const { items, total, page, limit, totalPages, isPending, search, setSearch, setPage } = usePaged<LocalContactListItem>(
     queryKeys.contacts,
     (q) => dataClient.contacts.list(q),
-    { enabled: isElectron, extra: { ...TAB_FILTER[tab], ...SORT_QUERY[sort] } },
+    { enabled: true, extra: { ...TAB_FILTER[tab], ...SORT_QUERY[sort] } },
   )
 
   const setTab = (next: Tab) => {

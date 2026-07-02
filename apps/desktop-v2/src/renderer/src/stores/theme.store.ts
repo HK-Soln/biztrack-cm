@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { dataClient } from '@/lib/data-client'
 
 // Drives the design-system token attributes on <html>:
 //   data-theme   = light | dark   (resolved from mode: light | dark | system)
@@ -81,7 +82,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     window.localStorage.setItem(MODE_KEY, mode)
     apply(mode, get().palette, get().chrome)
     set({ mode, resolvedDark: document.documentElement.getAttribute('data-theme') === 'dark' })
-    window.api?.theme?.set?.(mode)
+    dataClient.theme.set(mode)
   },
 
   setPalette: (palette) => {

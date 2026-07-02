@@ -43,6 +43,18 @@ export const COST_EXPR = `(CASE
     ELSE p.cost_price
   END)`
 
+/**
+ * Displayed selling price for a product card: a variant product shows its LOWEST variant
+ * effective price (a "from X" price); otherwise the product's own price. (PRICE_EXPR — the
+ * average — is kept for catalog valuation, not card display.)
+ */
+export const DISPLAY_PRICE_EXPR = `(CASE
+    WHEN EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) THEN (
+      SELECT MIN(COALESCE(pv.price_override, p.price)) FROM product_variants pv
+      WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+    ELSE p.price
+  END)`
+
 /** Effective on-hand stock for one product (serial count / variant sum / own qty). */
 export function effectiveStock(db: DatabaseService, productId: string): number {
   const row = db.get<{ s: number | null }>(`SELECT ${STOCK_EXPR} AS s FROM products p WHERE p.id = ?`, [productId])

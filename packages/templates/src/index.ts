@@ -8,6 +8,25 @@ export { renderDepositReceiptHtml, depositReceiptLabels } from './deposit-receip
 export type { DepositReceiptLabels, DepositReceiptOptions } from './deposit-receipt.template'
 export { renderDepositReportHtml, depositReportLabels } from './deposit-report.template'
 export type { DepositReportLabels, DepositReportOptions } from './deposit-report.template'
+export { renderReportDocumentHtml, reportLabels } from './report.template'
+export type { ReportLabels } from './report.template'
+export {
+  buildExpenseBreakdownReport,
+  buildStockValuationReport,
+  buildLowStockReport,
+  buildAgeingReport,
+  buildStockMovementsReport,
+  buildDailySalesReport,
+  buildCashierPerformanceReport,
+  buildSalesByProductReport,
+  buildSalesByCategoryReport,
+  buildSalesByPaymentReport,
+  buildRefundsReport,
+  buildIncomeStatementReport,
+  buildInventoryTurnoverReport,
+  buildDeadStockReport,
+  buildSupplierPriceReport,
+} from './report-builders'
 export { purchaseOrderMessageText, rfqMessageText } from './message'
 export { DOCUMENT_CSS } from './styles'
 export { formatMoney, formatNumber, escapeHtml, escapeMultiline } from './format'

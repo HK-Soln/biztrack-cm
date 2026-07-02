@@ -1,15 +1,25 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { Not } from 'typeorm'
 import type {
+  AcceptInvitationResponse,
   BulkUpdateMemberRoleRequest,
   BulkUpdateMemberRoleResponse,
   CreateBusinessRequest,
   JwtPayload,
+  ListMyInvitationsResponse,
   ListTeamMembersResponse,
+  RejectInvitationResponse,
   RemoveTeamMemberResponse,
   UpdateBusinessRequest,
   UpdateMemberRoleRequest,
   UpdateMemberRoleResponse,
+  UpdateMemberStatusResponse,
 } from '@biztrack/types'
+import type { AuditContext } from '@biztrack/types'
+import { RedisService } from '@/common/redis/redis.service'
+import { AuditService } from '@/modules/audit/audit.service'
+import { RealtimeService } from '@/modules/realtime/services/realtime.service'
+import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
 import { generateSlug } from '@biztrack/utils'
@@ -35,6 +45,9 @@ export class BusinessService {
     private rolesService: RolesService,
     private attributeGroupsService: AttributeGroupsService,
     private i18n: I18nService<I18nTranslations>,
+    private redis: RedisService,
+    private auditService: AuditService,
+    private realtime: RealtimeService,
     @Inject(LOGGER) private logger: Logger,
   ) {
     this.logger.setContext('BusinessService')
@@ -150,7 +163,7 @@ export class BusinessService {
 
     try {
       const members = await this.membersRepo.find({
-        where: { businessId, status: BusinessMemberStatus.ACTIVE },
+        where: { businessId, status: Not(BusinessMemberStatus.REMOVED) },
         relations: ['user', 'roleRecord'],
         order: { createdAt: 'ASC' },
       })
@@ -214,6 +227,10 @@ export class BusinessService {
       }
 
       await this.membersRepo.update(target.id, { status: BusinessMemberStatus.REMOVED })
+      // Drop the cached membership status so the removed member loses access at once.
+      await this.redis.del(memberStatusCacheKey(businessId, targetUserId))
+      // Kick the removed member's live realtime sockets right away.
+      this.realtime.revokeUser(targetUserId)
 
       return { removed: true }
     } catch (error) {
@@ -222,6 +239,151 @@ export class BusinessService {
         requestingUserId,
         targetUserId,
       })
+    }
+  }
+
+  /** Suspend (revoke access) or reactivate a member. Owner-only; can't target self or
+   * the owner. Suspended members are denied at sign-in, select-business and token
+   * refresh, so access drops by the next refresh (≤ access-token lifetime). */
+  async setMemberActive(
+    businessId: string,
+    requestingUserId: string,
+    targetUserId: string,
+    active: boolean,
+    context: AuditContext,
+  ): Promise<UpdateMemberStatusResponse> {
+    this.logger.debug('Set member active', 'BusinessService', { businessId, targetUserId, active })
+    try {
+      const requester = await this.membersRepo.findOne({
+        where: { businessId, userId: requestingUserId, status: BusinessMemberStatus.ACTIVE },
+      })
+      if (!requester || requester.role !== BusinessMemberRole.OWNER) {
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
+      }
+      if (requestingUserId === targetUserId) {
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'TEAM_CANNOT_SUSPEND_SELF')
+      }
+      const target = await this.membersRepo.findOne({
+        where: { businessId, userId: targetUserId },
+        relations: ['user'],
+      })
+      if (!target || target.status === BusinessMemberStatus.REMOVED) {
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
+      }
+      if (target.role === BusinessMemberRole.OWNER) {
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'TEAM_CANNOT_SUSPEND_OWNER')
+      }
+      const before = target.status
+      const status = active ? BusinessMemberStatus.ACTIVE : BusinessMemberStatus.SUSPENDED
+      await this.membersRepo.update(target.id, { status })
+
+      // Invalidate the cached membership status so JwtStrategy re-reads it immediately.
+      await this.redis.del(memberStatusCacheKey(businessId, targetUserId))
+      // On deactivation, kick the member's live realtime sockets right away.
+      if (!active) this.realtime.revokeUser(targetUserId)
+
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'business_member',
+        entityId: target.id,
+        entityLabel: target.user?.name ?? target.user?.email ?? targetUserId,
+        changes: { before: { status: before }, after: { status } },
+      })
+
+      return { memberId: target.id, status }
+    } catch (error) {
+      return this.handleServiceError('setMemberActive', error, { businessId, requestingUserId, targetUserId })
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Invitee side: an existing user accepting/declining a pending membership
+  // (created when an admin invites someone who already has an account).
+  // -------------------------------------------------------------------------
+
+  /** List the current user's pending business invitations (memberships in PENDING). */
+  async listMyInvitations(userId: string): Promise<ListMyInvitationsResponse> {
+    const pending = await this.membersRepo.find({
+      where: { userId, status: BusinessMemberStatus.PENDING },
+      relations: ['business', 'roleRecord'],
+      order: { createdAt: 'DESC' },
+    })
+    return {
+      items: pending
+        .filter((m) => m.business)
+        .map((m) => ({
+          businessId: m.businessId,
+          businessName: m.business?.name ?? '',
+          role: m.roleRecord?.name ?? m.role ?? null,
+          invitedAt: (m.createdAt instanceof Date
+            ? m.createdAt
+            : new Date(m.createdAt as unknown as string)
+          ).toISOString(),
+        })),
+    }
+  }
+
+  /** Accept a pending invitation → membership becomes ACTIVE. */
+  async acceptInvitation(
+    userId: string,
+    businessId: string,
+    context: AuditContext,
+  ): Promise<AcceptInvitationResponse> {
+    try {
+      const membership = await this.membersRepo.findOne({
+        where: { userId, businessId },
+        relations: ['business'],
+      })
+      if (!membership || membership.status !== BusinessMemberStatus.PENDING) {
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'INVITE_INVALID')
+      }
+      await this.membersRepo.update(membership.id, { status: BusinessMemberStatus.ACTIVE })
+      await this.redis.del(memberStatusCacheKey(businessId, userId))
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'business_member',
+        entityId: membership.id,
+        entityLabel: membership.business?.name ?? businessId,
+        changes: {
+          before: { status: BusinessMemberStatus.PENDING },
+          after: { status: BusinessMemberStatus.ACTIVE },
+        },
+      })
+      return { businessId, accepted: true }
+    } catch (error) {
+      return this.handleServiceError('acceptInvitation', error, { userId, businessId })
+    }
+  }
+
+  /** Decline a pending invitation → membership becomes REMOVED. */
+  async rejectInvitation(
+    userId: string,
+    businessId: string,
+    context: AuditContext,
+  ): Promise<RejectInvitationResponse> {
+    try {
+      const membership = await this.membersRepo.findOne({
+        where: { userId, businessId },
+        relations: ['business'],
+      })
+      if (!membership || membership.status !== BusinessMemberStatus.PENDING) {
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'INVITE_INVALID')
+      }
+      await this.membersRepo.update(membership.id, { status: BusinessMemberStatus.REMOVED })
+      await this.redis.del(memberStatusCacheKey(businessId, userId))
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'business_member',
+        entityId: membership.id,
+        entityLabel: membership.business?.name ?? businessId,
+        changes: {
+          before: { status: BusinessMemberStatus.PENDING },
+          after: { status: BusinessMemberStatus.REMOVED },
+        },
+      })
+      return { businessId, rejected: true }
+    } catch (error) {
+      return this.handleServiceError('rejectInvitation', error, { userId, businessId })
     }
   }
 

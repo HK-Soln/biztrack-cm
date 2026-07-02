@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, DataTable, Input, Modal, Select } from '@biztrack/ui/biztrack'
 import type { DataTableColumn } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
@@ -55,7 +55,7 @@ export function Products() {
     setSearch,
     setPage,
   } = usePaged<LocalProduct>(queryKeys.products, (q) => dataClient.products.list(q), {
-    enabled: isElectron,
+    enabled: true,
     extra: {
       ...(categoryId ? { categoryId } : {}),
       ...(stockStatus !== 'all' ? { stockStatus } : {}),
@@ -67,17 +67,17 @@ export function Products() {
   const { data: stats } = useQuery({
     queryKey: [...queryKeys.products, 'stats'],
     queryFn: () => dataClient.products.stats(),
-    enabled: isElectron,
+    enabled: true,
   })
   const { data: categories = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
-    enabled: isElectron,
+    enabled: true,
   })
   const { data: brandPage } = useQuery({
     queryKey: [...queryKeys.brands, 'filter-list'],
     queryFn: () => dataClient.brands.list({ limit: 100, sortBy: 'name' }),
-    enabled: isElectron && filtersOpen,
+    enabled: filtersOpen,
   })
 
   const [deleteTarget, setDeleteTarget] = useState<LocalProduct | null>(null)

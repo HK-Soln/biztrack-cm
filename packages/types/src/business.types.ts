@@ -80,6 +80,9 @@ export enum BusinessMemberRole {
 export enum BusinessMemberStatus {
   ACTIVE = 'ACTIVE',
   PENDING = 'PENDING',
+  /** Access revoked but the member is kept (can be reactivated). Denied at sign-in,
+   * select-business and token refresh. */
+  SUSPENDED = 'SUSPENDED',
   REMOVED = 'REMOVED',
 }
 
@@ -195,6 +198,39 @@ export interface ListTeamMembersResponse {
 
 export interface RemoveTeamMemberResponse {
   removed: boolean
+}
+
+export interface UpdateMemberStatusRequest {
+  /** true → reactivate (ACTIVE); false → deactivate/suspend (SUSPENDED). */
+  active: boolean
+}
+
+export interface UpdateMemberStatusResponse {
+  memberId: string
+  status: BusinessMemberStatus
+}
+
+// --- Invitee side: an existing user's pending business invitations (accept/reject) ---
+export interface PendingInvitationItem {
+  businessId: string
+  businessName: string
+  /** Role display name the invitee would join as (null if unset). */
+  role: string | null
+  invitedAt: string
+}
+
+export interface ListMyInvitationsResponse {
+  items: PendingInvitationItem[]
+}
+
+export interface AcceptInvitationResponse {
+  businessId: string
+  accepted: true
+}
+
+export interface RejectInvitationResponse {
+  businessId: string
+  rejected: true
 }
 
 export interface UpdateMemberRoleRequest {

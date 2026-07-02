@@ -11,6 +11,7 @@ import { WhatsAppProvider } from './providers/whatsapp.provider'
 import { NotificationsService } from './services/notifications.service'
 import { NotificationsProcessor } from './processors/notifications.processor'
 import { NotificationsWebhookController } from './controllers/notifications-webhook.controller'
+import { NotificationsController } from './controllers/notifications.controller'
 import { ResendWebhookGuard } from './guards/resend-webhook.guard'
 import { WahaWebhookGuard } from './guards/waha-webhook.guard'
 import { RedisModule } from '@/common/redis/redis.module'
@@ -21,7 +22,7 @@ import { RedisModule } from '@/common/redis/redis.module'
     BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE }),
     RedisModule,
   ],
-  controllers: [NotificationsWebhookController],
+  controllers: [NotificationsWebhookController, NotificationsController],
   providers: [
     WahaHttpClient,
     EmailProvider,

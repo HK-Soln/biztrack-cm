@@ -24,6 +24,12 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesList, (_e, query?: SalesListQuery) => sales.list(query))
   ipcMain.handle(IPC.salesListAll, (_e, query?: SalesListQuery) => sales.listAll(query))
   ipcMain.handle(IPC.salesSummary, (_e, query?: SalesListQuery) => sales.summary(query))
+  ipcMain.handle(IPC.salesDailySeries, (_e, query?: SalesListQuery) => sales.dailySeries(query))
+  ipcMain.handle(IPC.salesCashierRoster, (_e, query?: SalesListQuery) => sales.cashierRoster(query))
+  ipcMain.handle(IPC.salesByProduct, (_e, query?: SalesListQuery) => sales.byProduct(query))
+  ipcMain.handle(IPC.salesByPayment, (_e, query?: SalesListQuery) => sales.byPaymentMethod(query))
+  ipcMain.handle(IPC.salesRefunds, (_e, query?: SalesListQuery) => sales.refunds(query))
+  ipcMain.handle(IPC.salesGrossProfit, (_e, query?: SalesListQuery) => sales.grossProfit(query))
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
   ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) => savings.getForCustomer(customerId))
 

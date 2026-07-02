@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { ContactStatementEntryType } from '@biztrack/types'
-import type { ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
+import type { AgeingEntry, AgeingReport, ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
 import type { DebtsQuery, LocalDebt, PaginatedResult, RecordDebtPaymentRequest } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import type { AuditLogger } from './audit.service'
@@ -316,6 +316,108 @@ export class DebtsService {
     base.entries = entries
     base.closingBalance = balance
     return base
+  }
+
+  /**
+   * Ageing report (receivable or payable). Buckets each contact's outstanding balance by
+   * the age of the underlying debt — ≤7d current, 8–15d moderate, 16–30d aged, 30d+ overdue
+   * — then adds the contact's opening balance to its total. Replicates the API
+   * OpeningBalancesService.getAgeingReport verbatim (same buckets, rounding, opening-balance
+   * inclusion, sort) so a fully-synced desktop and the cloud return an identical report.
+   */
+  getAgeing(direction: DebtDirection): AgeingReport {
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10)
+    const emptyTotals = { openingBalance: 0, current: 0, moderate: 0, aged: 0, overdue: 0, totalOutstanding: 0 }
+    const businessId = this.getBusinessId()
+    if (!businessId) return { direction, asOf: today, entries: [], totals: emptyTotals }
+
+    const debts = this.db.query<{ id: string; contact_id: string; original_amount: number; created_at: string; paid_amount: number }>(
+      `SELECT d.id, d.contact_id, d.original_amount, d.created_at, ${PAID} AS paid_amount
+       FROM debts d WHERE d.business_id = ? AND d.direction = ? AND d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`,
+      [businessId, direction],
+    )
+
+    const openingBalances = this.db.query<{ contact_id: string; amount: number }>(
+      `SELECT contact_id, amount FROM contact_opening_balances WHERE business_id = ? AND direction = ?`,
+      [businessId, direction],
+    )
+    const obByContact = new Map(openingBalances.map((ob) => [ob.contact_id, ob.amount]))
+
+    const msPerDay = 1000 * 60 * 60 * 24
+    interface Bucket {
+      current: number
+      moderate: number
+      aged: number
+      overdue: number
+      total: number
+    }
+    const buckets = new Map<string, Bucket>()
+
+    for (const d of debts) {
+      const paid = round2(d.paid_amount ?? 0)
+      const outstanding = round2(Math.max(0, d.original_amount - paid))
+      if (outstanding <= 0) continue
+      const ageDays = Math.floor((now.getTime() - new Date(d.created_at).getTime()) / msPerDay)
+      const b = buckets.get(d.contact_id) ?? { current: 0, moderate: 0, aged: 0, overdue: 0, total: 0 }
+      if (ageDays <= 7) b.current = round2(b.current + outstanding)
+      else if (ageDays <= 15) b.moderate = round2(b.moderate + outstanding)
+      else if (ageDays <= 30) b.aged = round2(b.aged + outstanding)
+      else b.overdue = round2(b.overdue + outstanding)
+      b.total = round2(b.total + outstanding)
+      buckets.set(d.contact_id, b)
+    }
+
+    // Include contacts that only have an opening balance (no open debt rows).
+    for (const ob of openingBalances) {
+      if (!buckets.has(ob.contact_id)) buckets.set(ob.contact_id, { current: 0, moderate: 0, aged: 0, overdue: 0, total: 0 })
+    }
+
+    const contactIds = [...buckets.keys()]
+    const contactInfo = new Map<string, { name: string; phone: string | null }>()
+    if (contactIds.length > 0) {
+      const ph = contactIds.map(() => '?').join(',')
+      const rows = this.db.query<{ id: string; name: string; phone: string | null }>(
+        `SELECT id, name, phone FROM contacts WHERE business_id = ? AND id IN (${ph})`,
+        [businessId, ...contactIds],
+      )
+      for (const r of rows) contactInfo.set(r.id, { name: r.name, phone: r.phone })
+    }
+
+    const entries: AgeingEntry[] = contactIds
+      .filter((id) => contactInfo.has(id)) // skip debts whose contact row is missing (mirrors API `if (!debt.contact) continue`)
+      .map((id) => {
+        const b = buckets.get(id)!
+        const info = contactInfo.get(id)!
+        const ob = obByContact.get(id) ?? 0
+        return {
+          contactId: id,
+          contactName: info.name,
+          contactPhone: info.phone,
+          openingBalance: ob,
+          current: b.current,
+          moderate: b.moderate,
+          aged: b.aged,
+          overdue: b.overdue,
+          totalOutstanding: round2(ob + b.total),
+        }
+      })
+
+    entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
+
+    const totals = entries.reduce(
+      (acc, e) => ({
+        openingBalance: round2(acc.openingBalance + e.openingBalance),
+        current: round2(acc.current + e.current),
+        moderate: round2(acc.moderate + e.moderate),
+        aged: round2(acc.aged + e.aged),
+        overdue: round2(acc.overdue + e.overdue),
+        totalOutstanding: round2(acc.totalOutstanding + e.totalOutstanding),
+      }),
+      { ...emptyTotals },
+    )
+
+    return { direction, asOf: today, entries, totals }
   }
 
   // ---- internals -----------------------------------------------------------

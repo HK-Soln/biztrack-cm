@@ -19,10 +19,13 @@ const api: BridgeApi = {
     login: (identifier, password) => ipcRenderer.invoke(IPC.authLogin, identifier, password),
     requestLogin: (identifier, channel) => ipcRenderer.invoke(IPC.authRequestLogin, identifier, channel),
     loginOtp: (identifier, code) => ipcRenderer.invoke(IPC.authLoginOtp, identifier, code),
-    verifyPhone: (phone, code) => ipcRenderer.invoke(IPC.authVerifyPhone, phone, code),
-    verifyEmail: (email, code) => ipcRenderer.invoke(IPC.authVerifyEmail, email, code),
+    verifyPhone: (phone, code, inviteToken) => ipcRenderer.invoke(IPC.authVerifyPhone, phone, code, inviteToken),
+    verifyEmail: (email, code, inviteToken) => ipcRenderer.invoke(IPC.authVerifyEmail, email, code, inviteToken),
     resendOtp: (identifier, type, channel) => ipcRenderer.invoke(IPC.authResendOtp, identifier, type, channel),
     register: (payload) => ipcRenderer.invoke(IPC.authRegister, payload),
+    getInvitePreview: (token) => ipcRenderer.invoke(IPC.authInvitePreview, token),
+    acceptInvite: (token) => ipcRenderer.invoke(IPC.authAcceptInvite, token),
+    rejectInvite: (token) => ipcRenderer.invoke(IPC.authRejectInvite, token),
     setupBusiness: (payload) => ipcRenderer.invoke(IPC.authSetupBusiness, payload),
     listPlans: () => ipcRenderer.invoke(IPC.authListPlans),
     selectPlan: (plan, billingCycle) => ipcRenderer.invoke(IPC.authSelectPlan, plan, billingCycle),
@@ -33,6 +36,7 @@ const api: BridgeApi = {
   },
   sync: {
     trigger: () => ipcRenderer.invoke(IPC.syncTrigger),
+    fullSync: () => ipcRenderer.invoke(IPC.syncFull),
     retry: () => ipcRenderer.invoke(IPC.syncRetry),
     getStatus: () => ipcRenderer.invoke(IPC.syncGetStatus),
     onStatus: (cb) => {
@@ -110,6 +114,10 @@ const api: BridgeApi = {
     adjust: (productId, input) => ipcRenderer.invoke(IPC.inventoryAdjust, productId, input),
     setThreshold: (productId, input) => ipcRenderer.invoke(IPC.inventorySetThreshold, productId, input),
     listMovements: (productId, query) => ipcRenderer.invoke(IPC.inventoryListMovements, productId, query),
+    listAllMovements: (query) => ipcRenderer.invoke(IPC.inventoryListAllMovements, query),
+    turnover: (query) => ipcRenderer.invoke(IPC.inventoryTurnover, query),
+    deadStock: () => ipcRenderer.invoke(IPC.inventoryDeadStock),
+    supplierPriceTrend: () => ipcRenderer.invoke(IPC.inventorySupplierTrend),
   },
   contacts: {
     list: (query) => ipcRenderer.invoke(IPC.contactsList, query),
@@ -126,6 +134,7 @@ const api: BridgeApi = {
     statement: (contactId, direction) => ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
     offset: (contactId) => ipcRenderer.invoke(IPC.debtsOffset, contactId),
+    ageing: (direction) => ipcRenderer.invoke(IPC.debtsAgeing, direction),
   },
   expenses: {
     list: (query) => ipcRenderer.invoke(IPC.expensesList, query),
@@ -182,6 +191,12 @@ const api: BridgeApi = {
     list: (query) => ipcRenderer.invoke(IPC.salesList, query),
     listAll: (query) => ipcRenderer.invoke(IPC.salesListAll, query),
     summary: (query) => ipcRenderer.invoke(IPC.salesSummary, query),
+    dailySeries: (query) => ipcRenderer.invoke(IPC.salesDailySeries, query),
+    cashierRoster: (query) => ipcRenderer.invoke(IPC.salesCashierRoster, query),
+    byProduct: (query) => ipcRenderer.invoke(IPC.salesByProduct, query),
+    byPaymentMethod: (query) => ipcRenderer.invoke(IPC.salesByPayment, query),
+    refunds: (query) => ipcRenderer.invoke(IPC.salesRefunds, query),
+    grossProfit: (query) => ipcRenderer.invoke(IPC.salesGrossProfit, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
     sendReceipt: (saleId, channel, locale, opts) => ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
     printReceipt: (saleId, locale) => ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale),
@@ -221,6 +236,42 @@ const api: BridgeApi = {
     quotaUsage: () => ipcRenderer.invoke(IPC.plansQuotaUsage),
     upgrade: (plan) => ipcRenderer.invoke(IPC.plansUpgrade, plan),
     cancel: () => ipcRenderer.invoke(IPC.plansCancel),
+  },
+  roles: {
+    list: (query) => ipcRenderer.invoke(IPC.rolesList, query),
+    permissions: () => ipcRenderer.invoke(IPC.rolesPermissions),
+    get: (id) => ipcRenderer.invoke(IPC.rolesGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.rolesCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.rolesUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC.rolesRemove, id),
+    setPermissions: (id, permissions) => ipcRenderer.invoke(IPC.rolesSetPermissions, id, permissions),
+  },
+  team: {
+    listMembers: () => ipcRenderer.invoke(IPC.teamListMembers),
+    updateMemberRole: (userId, roleId) => ipcRenderer.invoke(IPC.teamUpdateMemberRole, userId, roleId),
+    removeMember: (userId) => ipcRenderer.invoke(IPC.teamRemoveMember, userId),
+    setMemberActive: (userId, active) => ipcRenderer.invoke(IPC.teamSetMemberStatus, userId, active),
+    listInvites: () => ipcRenderer.invoke(IPC.teamListInvites),
+    sendInvite: (input) => ipcRenderer.invoke(IPC.teamSendInvite, input),
+    resendInvite: (id) => ipcRenderer.invoke(IPC.teamResendInvite, id),
+    cancelInvite: (id) => ipcRenderer.invoke(IPC.teamCancelInvite, id),
+  },
+  notifications: {
+    list: (query) => ipcRenderer.invoke(IPC.notificationsList, query),
+    unreadCount: () => ipcRenderer.invoke(IPC.notificationsUnreadCount),
+    markRead: (id) => ipcRenderer.invoke(IPC.notificationsMarkRead, id),
+    markAllRead: () => ipcRenderer.invoke(IPC.notificationsMarkAllRead),
+    connect: () => ipcRenderer.invoke(IPC.notificationsConnect),
+    onEvent: (cb) => {
+      const listener = (_e: unknown, payload: Parameters<typeof cb>[0]) => cb(payload)
+      ipcRenderer.on(IPC.notificationEvent, listener)
+      return () => ipcRenderer.removeListener(IPC.notificationEvent, listener)
+    },
+  },
+  invitations: {
+    list: () => ipcRenderer.invoke(IPC.invitationsList),
+    accept: (businessId) => ipcRenderer.invoke(IPC.invitationsAccept, businessId),
+    reject: (businessId) => ipcRenderer.invoke(IPC.invitationsReject, businessId),
   },
 }
 

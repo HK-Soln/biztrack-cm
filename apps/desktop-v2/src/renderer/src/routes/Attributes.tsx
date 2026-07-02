@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
@@ -31,7 +31,7 @@ export function Attributes() {
     setSearch,
     setPage,
   } = usePaged<LocalAttributeGroup>(queryKeys.attributeGroups, (q) => dataClient.attributes.listGroups(q), {
-    enabled: isElectron,
+    enabled: true,
   })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)

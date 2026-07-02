@@ -92,7 +92,7 @@ export function SubscriptionSection({ onManageBilling }: { onManageBilling: () =
       // Pull new entitlements + any newly-available data into the local store so
       // gating is correct locally, immediately. (Expiry is preserved server-side.)
       try {
-        await window.api?.sync?.trigger?.()
+        await dataClient.sync.trigger()
       } catch {
         /* sync errors surface in the sync indicator; not fatal to the plan change */
       }

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
+import { Business } from '@/entities/business.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import { SavingsController } from './controllers/savings.controller'
@@ -8,7 +9,7 @@ import { PermissionsModule } from '../permissions/permissions.module'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CustomerDeposit, DepositTransaction]),
+    TypeOrmModule.forFeature([CustomerDeposit, DepositTransaction, Business]),
     PermissionsModule,
   ],
   controllers: [SavingsController],

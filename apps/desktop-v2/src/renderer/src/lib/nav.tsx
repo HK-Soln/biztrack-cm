@@ -144,7 +144,9 @@ export const Icon = {
   ),
 }
 
-export type NavLeaf = { to: string; label: MessageKey; icon?: keyof typeof Icon; badge?: MessageKey }
+// `owner: true` restricts an item to the business owner (super admin) — e.g. Roles &
+// permissions management. Hidden for everyone else (and the route is guarded too).
+export type NavLeaf = { to: string; label: MessageKey; icon?: keyof typeof Icon; badge?: MessageKey; owner?: boolean }
 export type NavEntry = NavLeaf | { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] }
 
 export function isGroup(e: NavEntry): e is { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] } {
@@ -193,11 +195,23 @@ export const NAV: NavEntry[] = [
     icon: 'org',
     children: [
       { to: '/team', label: 'nav.team', icon: 'contacts' },
-      { to: '/roles', label: 'nav.roles', icon: 'shield' },
+      { to: '/roles', label: 'nav.roles', icon: 'shield', owner: true },
     ],
   },
   { to: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
+
+/** NAV with owner-only items removed for non-owners (and empty groups dropped). */
+export function filterNav(isOwner: boolean): NavEntry[] {
+  const keepLeaf = (l: NavLeaf) => isOwner || !l.owner
+  return NAV.flatMap<NavEntry>((entry) => {
+    if (isGroup(entry)) {
+      const children = entry.children.filter(keepLeaf)
+      return children.length ? [{ ...entry, children }] : []
+    }
+    return keepLeaf(entry) ? [entry] : []
+  })
+}
 
 // Mobile bottom tab bar (5 slots, Sell centered).
 export const TABS: Array<NavLeaf & { center?: boolean }> = [

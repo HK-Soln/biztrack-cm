@@ -372,11 +372,14 @@ export class ContactsService {
   }
 
   private resolveSortField(field?: string) {
+    // Entity PROPERTY paths (not raw columns): findAll joins createdBy + paginates, so
+    // TypeORM resolves orderBy against entity metadata — raw columns (contact.created_at)
+    // break it with a databaseName error.
     const sortMap: Record<string, string> = {
       name: 'contact.name',
       type: 'contact.type',
-      createdAt: 'contact.created_at',
-      updatedAt: 'contact.updated_at',
+      createdAt: 'contact.createdAt',
+      updatedAt: 'contact.updatedAt',
     }
 
     return sortMap[field ?? ''] ?? 'contact.name'

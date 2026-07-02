@@ -8,6 +8,7 @@ import { BusinessModule } from '@/modules/business/business.module'
 import { ProductsModule } from '@/modules/products/products.module'
 import { BrandsModule } from '@/modules/brands/brands.module'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { ChargesModule } from '@/modules/charges/charges.module'
 import { OnlineModule } from '@/modules/online/online.module'
 import { SyncModule } from '@/modules/sync/sync.module'
 import { RolesModule } from '@/modules/roles/roles.module'
@@ -38,6 +39,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'
 import { QueuesModule } from './common/queues/queues.module'
 import { RedisModule } from './common/redis/redis.module'
+import { RealtimeModule } from './modules/realtime/realtime.module'
 import { UserLocaleResolver } from './common/resolvers/user-locale.resolver'
 import { User } from './entities/user.entity'
 import { HealthController } from './health.controller'
@@ -112,12 +114,14 @@ function resolveI18nPath() {
     PermissionsModule,
     PlansModule,
     AuditModule,
+    ChargesModule,
     OnlineModule,
     SubscriptionsModule,
     NotificationsModule,
     MarketingModule,
     StorageModule,
     RedisModule,
+    RealtimeModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
