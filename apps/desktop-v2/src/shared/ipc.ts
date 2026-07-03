@@ -132,6 +132,7 @@ export const IPC = {
   onlineOrdersList: 'online:orders-list',
   onlineOrderGet: 'online:order-get',
   onlineOrderUpdateStatus: 'online:order-update-status',
+  onlineSlugCheck: 'online:slug-check',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   plansList: 'plans:list',
@@ -210,11 +211,21 @@ export const IPC = {
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
 export type { ChargeType } from '@biztrack/types'
 export type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
-export type { SalesByProductRow, SalesByPaymentRow, RefundReasonRow, RefundCashierRow } from '@biztrack/types'
+export type {
+  SalesByProductRow,
+  SalesByPaymentRow,
+  RefundReasonRow,
+  RefundCashierRow,
+} from '@biztrack/types'
 export type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
 import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
 import type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
-import type { SalesByProductRow, SalesByPaymentRow, RefundReasonRow, RefundCashierRow } from '@biztrack/types'
+import type {
+  SalesByProductRow,
+  SalesByPaymentRow,
+  RefundReasonRow,
+  RefundCashierRow,
+} from '@biztrack/types'
 import type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
 import type { ChargeType as ChargeTypeT } from '@biztrack/types'
 import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
@@ -297,7 +308,13 @@ export interface AuditListQuery extends ListQueryT {
 // Request/query shapes are the shared @biztrack/types contracts so desktop ↔ API
 // stay aligned. ContactType is a runtime enum — import it from '@biztrack/types'
 // directly in components that need its values.
-export type { ContactType, CreateContactRequest, UpdateContactRequest, ContactsQuery, ContactsSummary } from '@biztrack/types'
+export type {
+  ContactType,
+  CreateContactRequest,
+  UpdateContactRequest,
+  ContactsQuery,
+  ContactsSummary,
+} from '@biztrack/types'
 export { IdDocumentType } from '@biztrack/types'
 import type {
   ContactType as ContactTypeT,
@@ -339,7 +356,14 @@ export interface LocalContactListItem extends LocalContact {
 }
 
 // ---- Debts & payments ------------------------------------------------------
-export type { DebtsQuery, RecordDebtPaymentRequest, ContactStatement, ContactStatementEntry, DebtDirection, AgeingReport } from '@biztrack/types'
+export type {
+  DebtsQuery,
+  RecordDebtPaymentRequest,
+  ContactStatement,
+  ContactStatementEntry,
+  DebtDirection,
+  AgeingReport,
+} from '@biztrack/types'
 import type {
   DebtsQuery,
   RecordDebtPaymentRequest,
@@ -368,7 +392,13 @@ export interface LocalDebt {
 }
 
 // ---- RFQ (request for quotation) ------------------------------------------
-export type { CreateRfqRequest, RfqsQuery, RecordRfqQuoteRequest, RfqDocument, RfqSendChannel } from '@biztrack/types'
+export type {
+  CreateRfqRequest,
+  RfqsQuery,
+  RecordRfqQuoteRequest,
+  RfqDocument,
+  RfqSendChannel,
+} from '@biztrack/types'
 import type {
   CreateRfqRequest,
   RfqsQuery,
@@ -1623,22 +1653,38 @@ export interface BridgeApi {
     /** Add a variant post-creation (opening stock → stock-in movement). */
     addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
     /** Edit a variant's catalog info (no movement). */
-    updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
+    updateVariant: (
+      productId: string,
+      variantId: string,
+      input: VariantInput,
+    ) => Promise<LocalVariant>
     /** Remove a variant (writes off its stock) with a reason. */
     removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     /** IN_STOCK serial units a sale can consume (optionally scoped to a variant + serial search). */
-    listInStockSerials: (productId: string, variantId?: string | null, search?: string) => Promise<LocalSerialUnit[]>
+    listInStockSerials: (
+      productId: string,
+      variantId?: string | null,
+      search?: string,
+    ) => Promise<LocalSerialUnit[]>
     /** Resolve a scanned/typed code (barcode, SKU, serial) to something sellable. */
     resolveScan: (code: string) => Promise<ScanHit | null>
     /** Set a product's initial serial units at creation (opening stock). */
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
     /** Add units to stock post-creation (a stock-in movement); revives retired numbers. */
-    addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
+    addSerialUnits: (
+      productId: string,
+      units: SerialUnitInput[],
+      notes?: string | null,
+    ) => Promise<LocalSerialUnit[]>
     /** Retire a unit from stock (a stock-out movement) with a reason. */
     retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
     /** Correct a unit's serial number (no movement). */
-    updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
+    updateSerialNumber: (
+      productId: string,
+      unitId: string,
+      serialNumber: string,
+    ) => Promise<LocalSerialUnit>
     /** Stock-ledger entries for the detail stock card (newest first). */
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
@@ -1656,7 +1702,10 @@ export interface BridgeApi {
     /** Set reorder/low-stock thresholds (no movement). */
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
     /** Paginated stock-movement ledger for a product. */
-    listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
+    listMovements: (
+      productId: string,
+      query?: MovementsQuery,
+    ) => Promise<PaginatedT<LocalStockMovement>>
     /** Paginated stock-movement ledger across ALL products (for the Stock Movements report). */
     listAllMovements: (query?: MovementsQuery) => Promise<PaginatedT<LocalStockMovement>>
     /** Inventory turnover per product over the range (Inventory Turnover report). */
@@ -1734,7 +1783,10 @@ export interface BridgeApi {
     get: (id: string) => Promise<LocalPurchaseOrderDetail | null>
     create: (input: CreatePurchaseOrderRequest) => Promise<LocalPurchaseOrderDetail>
     /** Create a PO from a chosen RFQ supplier quote (marks the RFQ converted). */
-    createFromRfq: (rfqId: string, input: ConvertRfqToPoRequest) => Promise<LocalPurchaseOrderDetail>
+    createFromRfq: (
+      rfqId: string,
+      input: ConvertRfqToPoRequest,
+    ) => Promise<LocalPurchaseOrderDetail>
     buildDocument: (poId: string) => Promise<PurchaseOrderDocument>
     /** Generate the PDF + open the WhatsApp/email composer for the supplier; marks sent. */
     send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
@@ -1779,7 +1831,9 @@ export interface BridgeApi {
     /** Sales split by payment method over the range (Sales by Payment Method report). */
     byPaymentMethod: (query?: SalesListQuery) => Promise<SalesByPaymentRow[]>
     /** Refunds & returns (by reason + by cashier) over the range. */
-    refunds: (query?: SalesListQuery) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
+    refunds: (
+      query?: SalesListQuery,
+    ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     /** Product revenue + COGS over the range (feeds the Income Statement). */
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
@@ -1791,7 +1845,10 @@ export interface BridgeApi {
       opts?: { recipient?: DocumentRecipient; online?: boolean },
     ) => Promise<void>
     /** Print the receipt directly to the connected printer; falls back to saving a PDF. */
-    printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    printReceipt: (
+      saleId: string,
+      locale: string,
+    ) => Promise<{ printed: boolean; pdfPath?: string }>
     /** Render the receipt to a PDF and save it via the native dialog. */
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
     /** The compiled receipt HTML (for the success-screen preview). */
