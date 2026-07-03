@@ -12,8 +12,14 @@ type OTPPrimitiveProps = {
   autoFocus?: boolean
 }
 
-const OTPInputPrimitive = OTPInput as unknown as React.ComponentType<any>
-const OTPInputContextPrimitive = OTPInputContext as unknown as React.Context<any>
+type OTPSlotState = { char?: string | null; isActive?: boolean }
+type OTPRenderContext = { slots?: Array<OTPSlotState | undefined> }
+
+const OTPInputPrimitive = OTPInput as unknown as React.ForwardRefExoticComponent<
+  OTPPrimitiveProps & React.RefAttributes<HTMLInputElement>
+>
+const OTPInputContextPrimitive =
+  OTPInputContext as unknown as React.Context<OTPRenderContext>
 
 const InputOTP = React.forwardRef<HTMLInputElement, OTPPrimitiveProps>(
   ({ className, ...props }, ref) => (

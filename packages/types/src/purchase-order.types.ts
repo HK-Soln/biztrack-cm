@@ -47,7 +47,7 @@ export interface PurchaseOrderListItem extends PurchaseOrder {
   receivedRatio: number
 }
 
-export interface PurchaseOrderListResult extends PaginatedResult<PurchaseOrderListItem> {}
+export type PurchaseOrderListResult = PaginatedResult<PurchaseOrderListItem>
 
 export interface PurchaseOrdersQuery extends ListQuery {
   status?: PurchaseOrderStatus

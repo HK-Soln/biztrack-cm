@@ -48,7 +48,7 @@ export interface Expense {
   isDeleted?: boolean
 }
 
-export interface ExpenseListItem extends Expense {}
+export type ExpenseListItem = Expense
 
 export interface ExpenseListResult extends PaginatedResult<ExpenseListItem> {
   totalAmount: number
@@ -113,7 +113,7 @@ export interface CreateExpenseRequest {
   receiptUrl?: string
 }
 
-export interface UpdateExpenseRequest extends Partial<CreateExpenseRequest> {}
+export type UpdateExpenseRequest = Partial<CreateExpenseRequest>
 
 export interface CreateExpenseCategoryRequest {
   name: string
@@ -122,4 +122,4 @@ export interface CreateExpenseCategoryRequest {
   sortOrder?: number
 }
 
-export interface UpdateExpenseCategoryRequest extends Partial<CreateExpenseCategoryRequest> {}
+export type UpdateExpenseCategoryRequest = Partial<CreateExpenseCategoryRequest>

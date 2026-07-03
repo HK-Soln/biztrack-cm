@@ -1,4 +1,3 @@
-// @ts-ignore — package ships its own CSS without types
 import 'react-phone-number-input/style.css'
 import { forwardRef } from 'react'
 import type { ComponentType } from 'react'

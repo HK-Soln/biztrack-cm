@@ -359,7 +359,7 @@ export class SyncService {
 
   private async pollBatch(batchId: string): Promise<SyncBatchStatusResponse> {
     const deadline = Date.now() + BATCH_POLL_TIMEOUT_MS
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       const status = await this.request<SyncBatchStatusResponse>('GET', `/sync/batches/${batchId}`)
       if (TERMINAL_BATCH_STATUSES.includes(status.status)) return status

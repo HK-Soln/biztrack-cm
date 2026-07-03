@@ -61,7 +61,7 @@ export interface RfqListItem extends Rfq {
   quoteCount: number
 }
 
-export interface RfqListResult extends PaginatedResult<RfqListItem> {}
+export type RfqListResult = PaginatedResult<RfqListItem>
 
 export interface RfqsQuery extends ListQuery {
   status?: RfqStatus

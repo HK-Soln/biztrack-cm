@@ -6,7 +6,7 @@ export function generateSKU(name: string, id: string): string {
 
 export function isValidBarcode(barcode: string): boolean {
   // EAN-13, EAN-8, UPC-A, Code128
-  return /^[0-9]{8,14}$/.test(barcode) || /^[A-Za-z0-9\-\.\ \$\/\+\%]{1,48}$/.test(barcode)
+  return /^[0-9]{8,14}$/.test(barcode) || /^[A-Za-z0-9\-. $/+%]{1,48}$/.test(barcode)
 }
 
 export function generateReceiptNumber(businessId: string, timestamp: Date): string {

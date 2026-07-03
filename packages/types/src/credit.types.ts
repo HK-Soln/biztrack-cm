@@ -42,7 +42,7 @@ export enum ContactStatementEntryType {
   WRITE_OFF = 'WRITE_OFF',
 }
 
-export interface ContactUserSummary extends ProductUserSummary {}
+export type ContactUserSummary = ProductUserSummary
 
 export interface Contact {
   id: string
@@ -79,9 +79,9 @@ export interface ContactListItem extends Contact {
   oldestUnpaidAt?: string | null
 }
 
-export interface ContactDetail extends ContactListItem {}
+export type ContactDetail = ContactListItem
 
-export interface ContactListResult extends PaginatedResult<ContactListItem> {}
+export type ContactListResult = PaginatedResult<ContactListItem>
 
 export interface DebtContactSummary {
   id: string
@@ -90,7 +90,7 @@ export interface DebtContactSummary {
   phone?: string | null
 }
 
-export interface DebtPaymentRecordedBySummary extends ProductUserSummary {}
+export type DebtPaymentRecordedBySummary = ProductUserSummary
 
 export interface DebtPayment {
   id: string
@@ -129,9 +129,9 @@ export interface Debt {
   payments?: DebtPayment[]
 }
 
-export interface DebtListItem extends Debt {}
+export type DebtListItem = Debt
 
-export interface DebtListResult extends PaginatedResult<DebtListItem> {}
+export type DebtListResult = PaginatedResult<DebtListItem>
 
 export interface DebtDirectionSummary {
   direction: DebtDirection
@@ -267,7 +267,7 @@ export interface CreateContactRequest {
   selfieUrl?: string | null
 }
 
-export interface UpdateContactRequest extends Partial<CreateContactRequest> {}
+export type UpdateContactRequest = Partial<CreateContactRequest>
 
 export interface RecordDebtPaymentRequest {
   amount: number

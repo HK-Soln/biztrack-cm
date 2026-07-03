@@ -289,7 +289,7 @@ export interface OnlineOrderDetail extends OnlineOrder {
 }
 
 /** Paginated owner order list. */
-export interface OnlineOrderListResult extends PaginatedResult<OnlineOrder> {}
+export type OnlineOrderListResult = PaginatedResult<OnlineOrder>
 
 /** Public tracking page payload (no auth, by tracking token). */
 export interface PublicOrderTracking {

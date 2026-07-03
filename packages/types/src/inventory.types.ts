@@ -45,7 +45,7 @@ export interface InventoryAlert {
   shortfall: number
 }
 
-export interface InventoryMovementPerformer extends ProductUserSummary {}
+export type InventoryMovementPerformer = ProductUserSummary
 
 export interface InventoryMovement {
   id: string
@@ -118,7 +118,7 @@ export interface InventoryQuery extends ListQuery {
   lowStockOnly?: boolean
 }
 
-export interface InventoryAlertsQuery extends ListQuery {}
+export type InventoryAlertsQuery = ListQuery
 
 export interface InventoryMovementsQuery extends ListQuery {
   productId?: string
