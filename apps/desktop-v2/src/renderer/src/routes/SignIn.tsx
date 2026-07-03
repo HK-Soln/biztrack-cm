@@ -5,7 +5,8 @@ import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { signInSchema, type SignInMode } from '@/lib/schemas'
-import { routeForNextStep } from '@/lib/auth-routing'
+import { normalizeNextStep, routeForNextStep } from '@/lib/auth-routing'
+import { dataClient } from '@/lib/data-client'
 
 // Feature 1: minimally wired to the BFF (password login) so the auth gate works
 // end-to-end. The full designed sign-in (OTP/"SSO" tabs, offline) is Feature 2.
@@ -38,12 +39,24 @@ export function SignIn() {
       return
     }
     setErrors({})
-    if (busy || !window.api?.auth) return
+    if (busy) return
     setBusy(true)
-    const res = await window.api.auth.login(identifier, password)
+    const res = await dataClient.auth.login(identifier, password)
     setBusy(false)
     if (!res.ok) {
       setServerError(res.error ?? 'Sign in failed.')
+      return
+    }
+    // The account still owes a verification step (abandoned onboarding) — login sent a
+    // fresh OTP and returned the step. Resume it on the sign-up screen, carrying the
+    // channel + the identifier we have so that page can verify.
+    const step = normalizeNextStep(res.nextStep)
+    if (step === 'verify_phone' || step === 'verify_email') {
+      const q = new URLSearchParams()
+      q.set('verify', step === 'verify_email' ? 'email' : 'phone')
+      if (mode === 'email') q.set('email', identifier)
+      else q.set('phone', identifier)
+      navigate(`/signup?${q.toString()}`)
       return
     }
     setStatus(res.session)

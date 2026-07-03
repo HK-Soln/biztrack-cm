@@ -68,10 +68,10 @@ const makeService = () => {
   const businessesRepo = { findOne: jest.fn() }
   const unitsRepo = { findOne: jest.fn() }
   const inventoryLevelsRepo = { findOne: jest.fn(), find: jest.fn() }
-  const inventoryMovementsRepo = { find: jest.fn() }
   const imagesRepo = { find: jest.fn(), createQueryBuilder: jest.fn() }
   const bundleComponentsRepo = { find: jest.fn() }
-  const serialUnitsRepo = { find: jest.fn() }
+  const serialUnitsRepo = { find: jest.fn(), findOne: jest.fn() }
+  const variantsRepo = { findOne: jest.fn() }
   const slugService = { generateProductSlug: jest.fn() }
   const skuService = { generate: jest.fn(), validateAndNormalize: jest.fn() }
   const barcodeService = { generateFromSKU: jest.fn(), validateAndNormalize: jest.fn() }
@@ -96,10 +96,10 @@ const makeService = () => {
     businessesRepo as any,
     unitsRepo as any,
     inventoryLevelsRepo as any,
-    inventoryMovementsRepo as any,
     imagesRepo as any,
     bundleComponentsRepo as any,
     serialUnitsRepo as any,
+    variantsRepo as any,
     slugService as any,
     skuService as any,
     barcodeService as any,

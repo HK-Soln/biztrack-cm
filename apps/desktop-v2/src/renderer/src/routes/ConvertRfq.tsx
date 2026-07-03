@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, Input, Select } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { todayIso } from '@/lib/date'
@@ -11,7 +11,7 @@ import { useT } from '@/i18n'
 import type { LocalVariant } from '@shared/ipc'
 
 const num = (s: string) => (s?.trim() ? Number(s.replace(/\s/g, '')) : 0)
-const newKey = () => Math.random().toString(36).slice(2)
+const newKey = () => crypto.randomUUID()
 
 interface Line { key: string; productId: string; variantId: string | null; description: string; quantity: string; unitPrice: string }
 
@@ -27,13 +27,13 @@ export function ConvertRfq() {
   const { data: rfq, isPending } = useQuery({
     queryKey: [...queryKeys.rfqs, id],
     queryFn: () => dataClient.rfqs.get(id),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
   const supplier = rfq?.suppliers.find((s) => s.id === supplierId) ?? null
 
   const { data: variantsByProduct = {} } = useQuery({
     queryKey: [...queryKeys.rfqs, id, 'convert-variants'],
-    enabled: isElectron && !!rfq,
+    enabled: !!rfq,
     queryFn: async () => {
       const ids = [...new Set((rfq?.items ?? []).map((i) => i.productId))]
       const entries = await Promise.all(ids.map(async (pid) => [pid, await dataClient.products.listVariants(pid)] as const))

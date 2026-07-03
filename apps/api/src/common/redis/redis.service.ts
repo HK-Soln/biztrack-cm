@@ -148,4 +148,19 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
     return this.redisUrl
   }
+
+  /**
+   * Create a fresh, dedicated ioredis connection with the same options as the shared
+   * client. Used for things that need an exclusive connection — e.g. the Socket.IO
+   * Redis adapter's pub/sub pair (a subscriber connection can't run normal commands).
+   * Caller owns the lifecycle (must disconnect it).
+   */
+  duplicateConnection(): Redis {
+    return new Redis(this.getClientOptions())
+  }
+
+  /** True when REDIS_URL is configured (realtime/adapter features require it). */
+  isConfigured(): boolean {
+    return !!this.redisUrl
+  }
 }

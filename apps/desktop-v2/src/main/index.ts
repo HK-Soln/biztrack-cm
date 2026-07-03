@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron'
 import { join } from 'path'
-import { DatabaseService, SecureStoreService, SyncService } from '@biztrack/electron-core'
+import { DatabaseService, RealtimeClient, SecureStoreService, SyncService } from '@biztrack/electron-core'
 import { IPC, type SyncStatus, type TitleBarOverlayColors } from '../shared/ipc'
 import { API_BASE_URL } from './config'
 import { SkeletonService } from './services/skeleton.service'
@@ -47,6 +47,16 @@ import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { OnlineService } from './services/online.service'
 import { registerOnlineIpc } from './ipc/online.ipc'
+import { BusinessService } from './services/business.service'
+import { registerBusinessIpc } from './ipc/business.ipc'
+import { PlansService } from './services/plans.service'
+import { registerPlansIpc } from './ipc/plans.ipc'
+import { RolesService } from './services/roles.service'
+import { registerRolesIpc } from './ipc/roles.ipc'
+import { TeamService } from './services/team.service'
+import { registerTeamIpc } from './ipc/team.ipc'
+import { NotificationsService } from './services/notifications.service'
+import { registerNotificationsIpc } from './ipc/notifications.ipc'
 import { AuditService } from './services/audit.service'
 import { registerAuditIpc } from './ipc/audit.ipc'
 
@@ -164,6 +174,22 @@ app.whenReady().then(() => {
   sync.start()
   registerSyncIpc(sync)
   app.on('before-quit', () => sync.stop())
+
+  // Realtime in-app notifications: one Socket.IO connection to the app-wide realtime
+  // gateway, authenticated with the ACCESS token → the gateway auto-joins the user room.
+  // Pushes arrive on the `notification` event and are forwarded to the renderer.
+  const realtime = new RealtimeClient({
+    apiBaseUrl: API_BASE_URL,
+    getAccessToken: () => tokenStore.getTokens()?.accessToken ?? null,
+    onNotification: (payload) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send(IPC.notificationEvent, payload)
+    },
+  })
+  realtime.start()
+  app.on('before-quit', () => realtime.stop())
+
+  const notifications = new NotificationsService(authHttp)
+  registerNotificationsIpc(notifications, realtime)
 
   // Append-only local audit trail: every mutating service action records who/what/when.
   // Actor + device are snapshotted from the active session at write time.
@@ -353,6 +379,23 @@ app.whenReady().then(() => {
 
   // Online store/orders: API-only, proxied through main (tokens never reach the renderer).
   registerOnlineIpc(new OnlineService(authHttp))
+
+  // Business profile (Settings → General): server-owned, proxied through main.
+  registerBusinessIpc(
+    new BusinessService(
+      authHttp,
+      () => authService.getSession().businessId,
+      () => authService.getSession().user?.id ?? null,
+      localCache,
+    ),
+  )
+
+  // Plans / subscription (Settings → Subscription): API-only, proxied through main.
+  registerPlansIpc(new PlansService(authHttp))
+
+  // Organization → Roles & Team: server-owned, online-only, proxied through main.
+  registerRolesIpc(new RolesService(authHttp))
+  registerTeamIpc(new TeamService(authHttp))
 
   // Renderer pushes the resolved header colours so the native controls blend.
   ipcMain.on(IPC.titlebarSetOverlay, (_event, colors: TitleBarOverlayColors) => {

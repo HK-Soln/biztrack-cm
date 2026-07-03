@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, FilterSelect } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { Button } from '@biztrack/ui/biztrack'
+import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
@@ -52,8 +52,8 @@ function advanceLabel(t: ReturnType<typeof useT>, s: OnlineOrderStatus): string 
     default: return ''
   }
 }
-function initials(name: string): string {
-  const p = name.trim().split(/\s+/).filter(Boolean)
+function initials(name?: string | null): string {
+  const p = (name ?? '').trim().split(/\s+/).filter(Boolean)
   return ((p[0]?.[0] ?? '') + (p[1]?.[0] ?? '')).toUpperCase() || '—'
 }
 
@@ -69,7 +69,7 @@ export function OnlineOrders() {
   const list = useQuery({
     queryKey: ['online', 'orders', status],
     queryFn: () => dataClient.online.listOrders({ status: status || undefined, limit: 100 }),
-    enabled: isElectron,
+    enabled: true,
     retry: false,
   })
 
@@ -90,7 +90,7 @@ export function OnlineOrders() {
   const rows = all.filter((o) => {
     if (fulfil && o.fulfillmentType !== fulfil) return false
     const q = search.trim().toLowerCase()
-    if (q && !(o.orderNumber.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q))) return false
+    if (q && !((o.orderNumber ?? '').toLowerCase().includes(q) || (o.customerName ?? '').toLowerCase().includes(q))) return false
     return true
   })
 
@@ -109,33 +109,21 @@ export function OnlineOrders() {
 
       <div className="panel">
         <div className="panel-head">
-          <h3 style={{ flex: 'none' }}>{t('online.orders')}</h3>
-          <div className="field" style={{ flex: 1, minWidth: 200 }}>
+          <h3>{t('online.orders')}</h3>
+          <div className="field" style={{ flex: 1, minWidth: 200, marginLeft: 16 }}>
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
-            <input className="input ic" style={{ height: 38 }} placeholder={t('online.searchOrders')} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="input ic" style={{ height: 36 }} placeholder={t('online.searchOrders')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <FilterSelect
-            ariaLabel={t('online.colStatus')}
-            value={status}
-            onChange={(v) => setStatus(v as OnlineOrderStatus | '')}
-            minWidth={170}
-            options={[
-              { value: '', label: t('online.allStatuses') },
-              ...FLOW.map((s) => ({ value: s, label: statusMeta(t, s).label, dot: statusDot(s) })),
-              { value: 'CANCELLED', label: statusMeta(t, 'CANCELLED').label, dot: statusDot('CANCELLED') },
-            ]}
-          />
-          <FilterSelect
-            ariaLabel={t('online.colFulfilment')}
-            value={fulfil}
-            onChange={(v) => setFulfil(v as '' | 'DELIVERY' | 'PICKUP')}
-            minWidth={150}
-            options={[
-              { value: '', label: t('online.allFulfilment') },
-              { value: 'DELIVERY', label: t('online.delivery') },
-              { value: 'PICKUP', label: t('online.pickup') },
-            ]}
-          />
+          <select className="select" style={{ height: 36 }} value={status} onChange={(e) => setStatus(e.target.value as OnlineOrderStatus | '')}>
+            <option value="">{t('online.allStatuses')}</option>
+            {FLOW.map((s) => <option key={s} value={s}>{statusMeta(t, s).label}</option>)}
+            <option value="CANCELLED">{statusMeta(t, 'CANCELLED').label}</option>
+          </select>
+          <select className="select" style={{ height: 36 }} value={fulfil} onChange={(e) => setFulfil(e.target.value as '' | 'DELIVERY' | 'PICKUP')}>
+            <option value="">{t('online.allFulfilment')}</option>
+            <option value="DELIVERY">{t('online.delivery')}</option>
+            <option value="PICKUP">{t('online.pickup')}</option>
+          </select>
         </div>
 
         {list.error ? (
@@ -155,7 +143,7 @@ export function OnlineOrders() {
                     <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => setOpenId(o.id)}>
                       <td className="mono">#{o.orderNumber}</td>
                       <td>{formatTime(o.createdAt, lang)}</td>
-                      <td><div className="ord-cust"><div className="av">{initials(o.customerName)}</div><div><div className="nm">{o.customerName}</div><div className="sub">{o.customerPhone ?? '—'}</div></div></div></td>
+                      <td><div className="ord-cust"><div className="av">{initials(o.customerName)}</div><div><div className="nm">{o.customerName ?? t('online.guest')}</div><div className="sub">{o.customerPhone ?? '—'}</div></div></div></td>
                       <td className="center">{o.items?.length ?? 0}</td>
                       <td><span className="deliv">{o.fulfillmentType === 'PICKUP' ? I.bag : I.truck}{o.fulfillmentType === 'PICKUP' ? t('online.pickup') : t('online.delivery')}{o.deliveryCity ? ` · ${o.deliveryCity}` : ''}</span></td>
                       <td>{o.paymentMethod ? <span className="pill-tag">{o.paymentMethod}</span> : <span className="pill-tag">—</span>}</td>
@@ -184,7 +172,7 @@ function OrderDrawer({ id, t, onClose }: { id: string; t: ReturnType<typeof useT
   const qc = useQueryClient()
   const [error, setError] = useState<string | null>(null)
 
-  const { data: order } = useQuery({ queryKey: ['online', 'order', id], queryFn: () => dataClient.online.getOrder(id), enabled: isElectron, retry: false })
+  const { data: order } = useQuery({ queryKey: ['online', 'order', id], queryFn: () => dataClient.online.getOrder(id), enabled: true, retry: false })
 
   const advance = useMutation({
     mutationFn: (next: OnlineOrderStatus) => dataClient.online.updateOrderStatus(id, { status: next }),

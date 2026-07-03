@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Input, Select } from '@biztrack/ui/biztrack'
 import { FileUpload } from '@/components/FileUpload'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
@@ -35,7 +35,7 @@ export function CategoryForm() {
   const { data: categories = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'all'],
     queryFn: () => dataClient.categories.listAll(),
-    enabled: isElectron,
+    enabled: true,
   })
 
   const current = id ? (categories.find((c) => c.id === id) ?? null) : null
@@ -47,12 +47,12 @@ export function CategoryForm() {
   const { data: allGroups = [] } = useQuery({
     queryKey: [...queryKeys.attributeGroups, 'all'],
     queryFn: () => dataClient.attributes.listAllGroups(),
-    enabled: isElectron,
+    enabled: true,
   })
   const linksQuery = useQuery({
     queryKey: queryKeys.categoryAttributeLinks(id ?? 'new'),
     queryFn: () => dataClient.attributes.listCategoryLinks(id!),
-    enabled: isElectron && editing,
+    enabled: editing,
   })
   const existingLinks = linksQuery.data ?? []
   // For a new category there are no links to load; for an existing one we must wait
@@ -134,7 +134,7 @@ export function CategoryForm() {
   const { data: parentOptions = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'parent-options', id ?? 'new'],
     queryFn: () => dataClient.categories.listParentOptions({ excludeId: id }),
-    enabled: isElectron,
+    enabled: true,
   })
 
   const parent = categories.find((c) => c.id === parentId) ?? null

@@ -9,10 +9,16 @@ import {
   ProductType,
   SaleStatus,
   SerialUnitStatus,
+  type CashierPerformanceRow,
   type CashierShiftSummary,
+  type DailySalesRow,
   type DailySalesSummary,
   type JwtPayload,
+  type RefundCashierRow,
+  type RefundReasonRow,
   type SaleSyncPayload,
+  type SalesByPaymentRow,
+  type SalesByProductRow,
   type SalesQuery,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
@@ -44,12 +50,22 @@ import { DepositsService } from '@/modules/savings/services/savings.service'
 import { ProcurementSendService } from '@/modules/documents/procurement-send.service'
 import { Contact } from '@/entities/contact.entity'
 import { renderSaleReceiptHtml, saleReceiptLabels } from '@biztrack/templates'
-import type { CreateSaleDto } from '../dto/create-sale.dto'
+import type { CreateSaleDto, CreateSaleItemDto } from '../dto/create-sale.dto'
 import type { SendSaleReceiptDto } from '../dto/send-sale-receipt.dto'
 import type { VoidSaleDto } from '../dto/void-sale.dto'
 import { SaleReceiptDto } from '../dto/sale-response.dto'
 import { DailySalesSummaryService } from './daily-sales-summary.service'
 import { SaleNumberService } from './sale-number.service'
+
+export interface SalesSummary {
+  revenue: number
+  transactions: number
+  averageBasket: number
+  itemsSold: number
+  refundCount: number
+  refundAmount: number
+  currency: string
+}
 
 type ComputedSaleItem = {
   product: Product
@@ -134,12 +150,25 @@ export class SalesService {
 
         const soldAt = this.normalizeDate(dto.soldAt)
         const saleDate = soldAt.toISOString().slice(0, 10)
+        // Serialised lines carry serialUnitIds[]; expand each into one item per unit so
+        // the rest of the pipeline (load/validate/mark) works one-unit-at-a-time. When
+        // charge/discount lines are supplied, derive the sale totals from their sum.
+        const computeDto: CreateSaleDto = {
+          ...dto,
+          items: this.expandSerialItems(dto.items),
+          chargesAmount: dto.charges?.length
+            ? this.roundMoney(dto.charges.reduce((sum, c) => sum + (c.amount || 0), 0))
+            : dto.chargesAmount,
+          discountAmount: dto.discounts?.length
+            ? this.roundMoney(dto.discounts.reduce((sum, d) => sum + (d.amount || 0), 0))
+            : dto.discountAmount,
+        }
         const { products, variantsById, serialUnitsById } = await this.loadProductsForSale(
           manager,
           businessId,
-          dto,
+          computeDto,
         )
-        const computed = this.computeSale(products, variantsById, serialUnitsById, dto)
+        const computed = this.computeSale(products, variantsById, serialUnitsById, computeDto)
         const amountPaid = this.roundMoney(
           dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
@@ -218,9 +247,60 @@ export class SalesService {
               method: payment.method,
               amount: this.roundMoney(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
+              savingsAccountId: payment.savingsAccountId ?? null,
             }),
           ),
         )
+
+        // Persist the charge/discount breakdown (totals already folded into the sale).
+        if (dto.charges?.length) {
+          const chargeRepo = manager.getRepository(SaleCharge)
+          await chargeRepo.save(
+            dto.charges.map((c) =>
+              chargeRepo.create({
+                saleId: sale.id,
+                businessId,
+                chargeTypeId: c.chargeTypeId ?? null,
+                name: c.name,
+                rateType: c.rateType,
+                rateValue: c.rateValue,
+                amount: this.roundMoney(c.amount),
+              }),
+            ),
+          )
+        }
+        if (dto.discounts?.length) {
+          const discountRepo = manager.getRepository(SaleDiscount)
+          await discountRepo.save(
+            dto.discounts.map((d) =>
+              discountRepo.create({
+                saleId: sale.id,
+                businessId,
+                description: d.description,
+                discountType: d.discountType,
+                rate: d.rate ?? null,
+                amount: this.roundMoney(d.amount),
+              }),
+            ),
+          )
+        }
+
+        // Draw down customer deposits for any SAVINGS payments (deduct + usage txn).
+        for (const payment of dto.payments) {
+          if (payment.method === PaymentMethod.SAVINGS && payment.savingsAccountId) {
+            await this.savingsService.recordSaleUsage(
+              manager,
+              businessId,
+              {
+                savingsId: payment.savingsAccountId,
+                saleId: sale.id,
+                amount: this.roundMoney(payment.amount),
+                recordedById: user.sub,
+              },
+              now,
+            )
+          }
+        }
 
         await this.inventoryService.deductForSale(
           businessId,
@@ -669,6 +749,316 @@ export class SalesService {
       return sale
     } catch (error) {
       return this.handleServiceError('findByNumber', error, { saleNumber, businessId })
+    }
+  }
+
+  /**
+   * Range sales summary (revenue/transactions/basket/units/refunds) for the period filter,
+   * matching the desktop sales.summary. COMPLETED sales count as revenue; VOIDED = refunds.
+   */
+  async getRangeSummary(
+    businessId: string,
+    query: { customerId?: string | null; dateFrom?: string; dateTo?: string },
+  ): Promise<SalesSummary> {
+    try {
+      const params: unknown[] = [businessId]
+      const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
+      if (query.customerId) {
+        params.push(query.customerId)
+        conds.push(`s.customer_id = $${params.length}`)
+      }
+      if (query.dateFrom) {
+        params.push(query.dateFrom)
+        conds.push(`s.sale_date >= $${params.length}`)
+      }
+      if (query.dateTo) {
+        params.push(query.dateTo)
+        conds.push(`s.sale_date <= $${params.length}`)
+      }
+      const where = conds.join(' AND ')
+      const mgr = this.salesRepo.manager
+      const [tot] = (await mgr.query(
+        `SELECT COALESCE(SUM(s.total_amount), 0) AS revenue, COUNT(*)::int AS txns
+         FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+        params,
+      )) as Array<{ revenue: string; txns: number }>
+      const [units] = (await mgr.query(
+        `SELECT COALESCE(SUM(si.quantity), 0) AS units
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
+        params,
+      )) as Array<{ units: string }>
+      const [ref] = (await mgr.query(
+        `SELECT COUNT(*)::int AS n, COALESCE(SUM(s.total_amount), 0) AS amt
+         FROM sales s WHERE ${where} AND s.status = 'VOIDED'`,
+        params,
+      )) as Array<{ n: number; amt: string }>
+      const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [businessId])) as Array<{
+        currency: string | null
+      }>
+
+      const revenue = this.roundMoney(Number(tot?.revenue ?? 0))
+      const transactions = Number(tot?.txns ?? 0)
+      return {
+        revenue,
+        transactions,
+        averageBasket: transactions > 0 ? this.roundMoney(revenue / transactions) : 0,
+        itemsSold: Number(units?.units ?? 0),
+        refundCount: Number(ref?.n ?? 0),
+        refundAmount: this.roundMoney(Number(ref?.amt ?? 0)),
+        currency: biz?.currency ?? 'XAF',
+      }
+    } catch (error) {
+      return this.handleServiceError('getRangeSummary', error, { businessId })
+    }
+  }
+
+  /**
+   * Daily sales series (one row per calendar day) for the Daily Sales Summary report.
+   * Aggregates live from `sales` + `sale_payments` grouped by the `sale_date` column (the
+   * same column the desktop groups by), so a fully-synced desktop and the cloud return
+   * identical rows. `total` = SUM(total_amount) for COMPLETED sales; the payment split
+   * (cash / momo=MTN+Orange / card) comes from sale_payments; `credit` = SUM(credit_amount).
+   */
+  async getDailySeries(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<DailySalesRow[]> {
+    try {
+      const params: unknown[] = [businessId]
+      const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
+      if (query.dateFrom) {
+        params.push(query.dateFrom)
+        conds.push(`s.sale_date >= $${params.length}`)
+      }
+      if (query.dateTo) {
+        params.push(query.dateTo)
+        conds.push(`s.sale_date <= $${params.length}`)
+      }
+      const where = conds.join(' AND ')
+      const rows = (await this.salesRepo.manager.query(
+        `SELECT d.sale_date AS date, d.txns, d.total, d.credit,
+                COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
+         FROM (
+           SELECT s.sale_date, COUNT(*)::int AS txns,
+                  COALESCE(SUM(s.total_amount), 0) AS total,
+                  COALESCE(SUM(s.credit_amount), 0) AS credit
+           FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+           GROUP BY s.sale_date
+         ) d
+         LEFT JOIN (
+           SELECT s.sale_date,
+                  SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
+                  SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
+                  SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
+           FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+           WHERE ${where} AND s.status = 'COMPLETED'
+           GROUP BY s.sale_date
+         ) p ON p.sale_date = d.sale_date
+         ORDER BY d.sale_date ASC`,
+        params,
+      )) as Array<{ date: string | Date; txns: number; total: string; credit: string; cash: string; momo: string; card: string }>
+      return rows.map((r) => ({
+        date: typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10),
+        transactions: Number(r.txns ?? 0),
+        total: this.roundMoney(Number(r.total ?? 0)),
+        cash: this.roundMoney(Number(r.cash ?? 0)),
+        momo: this.roundMoney(Number(r.momo ?? 0)),
+        card: this.roundMoney(Number(r.card ?? 0)),
+        credit: this.roundMoney(Number(r.credit ?? 0)),
+      }))
+    } catch (error) {
+      return this.handleServiceError('getDailySeries', error, { businessId })
+    }
+  }
+
+  /**
+   * Cashier performance roster (one row per cashier) for the Cashier Performance report.
+   * Aggregates live from `sales` grouped by cashier over the `sale_date` range — mirrors the
+   * desktop cashierRoster exactly (shifts = distinct trading days; refunds = VOIDED sale
+   * totals; discounts = sale-level discount_amount) so both sides tie out when synced.
+   */
+  async getCashierRoster(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<CashierPerformanceRow[]> {
+    try {
+      const params: unknown[] = [businessId]
+      const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
+      if (query.dateFrom) {
+        params.push(query.dateFrom)
+        conds.push(`s.sale_date >= $${params.length}`)
+      }
+      if (query.dateTo) {
+        params.push(query.dateTo)
+        conds.push(`s.sale_date <= $${params.length}`)
+      }
+      const where = conds.join(' AND ')
+      const rows = (await this.salesRepo.manager.query(
+        `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
+                COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN s.sale_date END)::int AS shifts,
+                COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END)::int AS transactions,
+                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
+                COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
+                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.discount_amount ELSE 0 END), 0) AS discounts
+         FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
+         WHERE ${where}
+         GROUP BY s.cashier_id, u.name
+         ORDER BY sales DESC`,
+        params,
+      )) as Array<{ cashierId: string; name: string; shifts: number; transactions: number; sales: string; refunds: string; discounts: string }>
+      return rows.map((r) => ({
+        cashierId: r.cashierId,
+        name: r.name || '—',
+        shifts: Number(r.shifts ?? 0),
+        transactions: Number(r.transactions ?? 0),
+        sales: this.roundMoney(Number(r.sales ?? 0)),
+        refunds: this.roundMoney(Number(r.refunds ?? 0)),
+        discounts: this.roundMoney(Number(r.discounts ?? 0)),
+      }))
+    } catch (error) {
+      return this.handleServiceError('getCashierRoster', error, { businessId })
+    }
+  }
+
+  private rangeWhere(query: { dateFrom?: string; dateTo?: string }): { where: string; params: unknown[] } {
+    const params: unknown[] = []
+    const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
+    params.push('')
+    if (query.dateFrom) {
+      params.push(query.dateFrom)
+      conds.push(`s.sale_date >= $${params.length}`)
+    }
+    if (query.dateTo) {
+      params.push(query.dateTo)
+      conds.push(`s.sale_date <= $${params.length}`)
+    }
+    return { where: conds.join(' AND '), params }
+  }
+
+  /**
+   * Sales by product (per-product revenue / COGS / margin, ranked by revenue) for the report.
+   * Aggregates `sale_items` for COMPLETED sales in the `sale_date` range, joining the product
+   * category — identical logic + columns to the desktop getSalesByProduct so both tie out.
+   */
+  async getSalesByProduct(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<SalesByProductRow[]> {
+    try {
+      const { where, params } = this.rangeWhere(query)
+      params[0] = businessId
+      const rows = (await this.salesRepo.manager.query(
+        `SELECT si.product_id AS "productId", si.product_name AS name, c.name AS category,
+                COALESCE(SUM(si.quantity), 0) AS quantity,
+                COALESCE(SUM(si.line_total), 0) AS revenue,
+                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+         FROM sale_items si
+           JOIN sales s ON s.id = si.sale_id
+           LEFT JOIN products p ON p.id = si.product_id
+           LEFT JOIN product_categories c ON c.id = p.category_id
+         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL
+         GROUP BY si.product_id, si.product_name, c.name
+         ORDER BY revenue DESC`,
+        params,
+      )) as Array<{ productId: string; name: string; category: string | null; quantity: string; revenue: string; cogs: string }>
+      return rows.map((r) => ({
+        productId: r.productId,
+        name: r.name,
+        category: r.category ?? null,
+        quantity: Number(r.quantity ?? 0),
+        revenue: this.roundMoney(Number(r.revenue ?? 0)),
+        cogs: this.roundMoney(Number(r.cogs ?? 0)),
+      }))
+    } catch (error) {
+      return this.handleServiceError('getSalesByProduct', error, { businessId })
+    }
+  }
+
+  /** Sales split by payment method (txns + amount per method) — mirrors the desktop. */
+  async getSalesByPaymentMethod(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<SalesByPaymentRow[]> {
+    try {
+      const { where, params } = this.rangeWhere(query)
+      params[0] = businessId
+      const rows = (await this.salesRepo.manager.query(
+        `SELECT sp.method AS method,
+                COUNT(DISTINCT sp.sale_id)::int AS transactions,
+                COALESCE(SUM(sp.amount), 0) AS amount
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+         WHERE ${where} AND s.status = 'COMPLETED'
+         GROUP BY sp.method
+         ORDER BY amount DESC`,
+        params,
+      )) as Array<{ method: string; transactions: number; amount: string }>
+      return rows.map((r) => ({ method: r.method, transactions: Number(r.transactions ?? 0), amount: this.roundMoney(Number(r.amount ?? 0)) }))
+    } catch (error) {
+      return this.handleServiceError('getSalesByPaymentMethod', error, { businessId })
+    }
+  }
+
+  /**
+   * Refunds & returns: VOIDED sales grouped by void reason + by cashier, plus gross completed
+   * sales (the refund-rate denominator). Mirrors the desktop getRefundsSummary.
+   */
+  async getRefundsSummary(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }> {
+    try {
+      const { where, params } = this.rangeWhere(query)
+      params[0] = businessId
+      const byReason = (await this.salesRepo.manager.query(
+        `SELECT s.void_reason AS reason, COUNT(*)::int AS count, COALESCE(SUM(s.total_amount), 0) AS amount
+         FROM sales s WHERE ${where} AND s.status = 'VOIDED'
+         GROUP BY s.void_reason ORDER BY amount DESC`,
+        params,
+      )) as Array<{ reason: string | null; count: number; amount: string }>
+      const byCashier = (await this.salesRepo.manager.query(
+        `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
+                COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
+                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales
+         FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
+         WHERE ${where} AND s.status IN ('VOIDED', 'COMPLETED')
+         GROUP BY s.cashier_id, u.name
+         HAVING SUM(CASE WHEN s.status = 'VOIDED' THEN 1 ELSE 0 END) > 0
+         ORDER BY refunds DESC`,
+        params,
+      )) as Array<{ cashierId: string; name: string; refunds: string; sales: string }>
+      const [gross] = (await this.salesRepo.manager.query(
+        `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+        params,
+      )) as Array<{ gross: string }>
+      return {
+        byReason: byReason.map((r) => ({ reason: r.reason ?? null, count: Number(r.count ?? 0), amount: this.roundMoney(Number(r.amount ?? 0)) })),
+        byCashier: byCashier.map((r) => ({ cashierId: r.cashierId, name: r.name || '—', refunds: this.roundMoney(Number(r.refunds ?? 0)), sales: this.roundMoney(Number(r.sales ?? 0)) })),
+        grossSales: this.roundMoney(Number(gross?.gross ?? 0)),
+      }
+    } catch (error) {
+      return this.handleServiceError('getRefundsSummary', error, { businessId })
+    }
+  }
+
+  /** Product revenue (Σ line totals) + COGS (Σ cost×qty) for completed sales — feeds the P&L. */
+  async getGrossProfit(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<{ revenue: number; cogs: number }> {
+    try {
+      const { where, params } = this.rangeWhere(query)
+      params[0] = businessId
+      const [row] = (await this.salesRepo.manager.query(
+        `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
+                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
+        params,
+      )) as Array<{ revenue: string; cogs: string }>
+      return { revenue: this.roundMoney(Number(row?.revenue ?? 0)), cogs: this.roundMoney(Number(row?.cogs ?? 0)) }
+    } catch (error) {
+      return this.handleServiceError('getGrossProfit', error, { businessId })
     }
   }
 
@@ -1284,6 +1674,34 @@ export class SalesService {
     }
   }
 
+  // A serialised line carries serialUnitIds[]; expand it into one item per unit (quantity
+  // 1) so load/validate/mark all operate one-unit-at-a-time. The line discount lands on
+  // the first unit so the line total is preserved. Non-serialised items pass through.
+  private expandSerialItems(items: CreateSaleItemDto[]): CreateSaleItemDto[] {
+    const out: CreateSaleItemDto[] = []
+    for (const item of items) {
+      const serialIds = item.serialUnitIds?.length
+        ? [...new Set(item.serialUnitIds)]
+        : item.serialUnitId
+          ? [item.serialUnitId]
+          : null
+      if (!serialIds) {
+        out.push(item)
+        continue
+      }
+      serialIds.forEach((serialUnitId, idx) => {
+        out.push({
+          ...item,
+          serialUnitId,
+          serialUnitIds: undefined,
+          quantity: 1,
+          discountAmount: idx === 0 ? (item.discountAmount ?? 0) : 0,
+        })
+      })
+    }
+    return out
+  }
+
   private computeSale(
     products: Product[],
     variantsById: Map<string, ProductVariant>,
@@ -1455,17 +1873,20 @@ export class SalesService {
   }
 
   private resolveSortField(sortBy?: string) {
+    // Entity PROPERTY paths (not raw columns): findAll uses loadRelationCountAndMap on the
+    // items collection + skip/take, so TypeORM paginates via a distinct subquery and
+    // resolves orderBy against entity metadata — raw columns (sale.sold_at) break it.
     const sortMap: Record<string, string> = {
-      saleDate: 'sale.sale_date',
-      soldAt: 'sale.sold_at',
-      createdAt: 'sale.created_at',
-      totalAmount: 'sale.total_amount',
-      saleNumber: 'sale.sale_number',
-      customerName: 'sale.customer_name',
+      saleDate: 'sale.saleDate',
+      soldAt: 'sale.soldAt',
+      createdAt: 'sale.createdAt',
+      totalAmount: 'sale.totalAmount',
+      saleNumber: 'sale.saleNumber',
+      customerName: 'sale.customerName',
       status: 'sale.status',
     }
 
-    return sortMap[sortBy ?? ''] ?? 'sale.sold_at'
+    return sortMap[sortBy ?? ''] ?? 'sale.soldAt'
   }
 
   private normalizeDate(value: string) {

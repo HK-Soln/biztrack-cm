@@ -29,3 +29,14 @@ export function RequireGuest({ children }: { children: ReactNode }) {
   if (isDashboardStep(status.nextStep)) return <Navigate to="/" replace />
   return <>{children}</>
 }
+
+/**
+ * Owner-only routes (role & permission management). Non-owners are bounced to the
+ * dashboard — these routes are also hidden from the nav; this is the hard backstop.
+ */
+export function RequireOwner({ children }: { children: ReactNode }) {
+  const { status, hydrated } = useSessionStore()
+  if (!hydrated) return <Splash />
+  if ((status.user?.role ?? '').toUpperCase() !== 'OWNER') return <Navigate to="/" replace />
+  return <>{children}</>
+}

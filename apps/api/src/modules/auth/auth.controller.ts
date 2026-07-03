@@ -29,6 +29,7 @@ import type {
   AuthNextStepResponse,
   JwtPayload,
   LogoutResponse,
+  SessionStatus,
   TokensResponse,
 } from '@biztrack/types'
 import { AuthRateLimitGuard } from '@/common/guards/auth-rate-limit.guard'
@@ -245,5 +246,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user from JWT payload' })
   me(@CurrentUser() user: JwtPayload): AuthMeResponse {
     return serializeDto(CurrentUserDto.fromPayload(user))
+  }
+
+  @Get('session')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Full session status (user + active business + nextStep)' })
+  async session(@CurrentUser() user: JwtPayload): Promise<SessionStatus> {
+    return this.authService.buildSessionStatus(user)
   }
 }

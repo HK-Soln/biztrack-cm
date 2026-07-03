@@ -13,7 +13,7 @@ import type { RestockChargeLineInput, RestockDiscountLineInput, RestockItemInput
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 const round2 = (n: number) => Math.round(n * 100) / 100
-const newId = () => Math.random().toString(36).slice(2)
+const newId = () => crypto.randomUUID()
 
 const TENDERS: PaymentMethod[] = [PaymentMethod.CASH, PaymentMethod.MTN_MOMO, PaymentMethod.ORANGE_MONEY, PaymentMethod.CARD]
 const isMomo = (m: PaymentMethod) => m === PaymentMethod.MTN_MOMO || m === PaymentMethod.ORANGE_MONEY

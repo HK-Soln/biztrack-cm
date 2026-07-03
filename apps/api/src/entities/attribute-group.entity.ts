@@ -30,4 +30,8 @@ export class AttributeGroup extends BaseEntity {
 
   @OneToMany(() => AttributeOption, (option) => option.group)
   options?: AttributeOption[]
+
+  /** Transient (not persisted): how many categories this group is linked to. Populated
+   * by listGroups so list responses can show the attachment count. */
+  categoryCount?: number
 }

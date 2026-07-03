@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Modal } from '@biztrack/ui/biztrack'
 import { renderPurchaseOrderHtml } from '@biztrack/templates'
 import { PurchaseOrderStatus } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
@@ -39,7 +39,7 @@ export function PoDetail() {
   const { data: po, isPending } = useQuery({
     queryKey: [...queryKeys.purchaseOrders, id],
     queryFn: () => dataClient.purchaseOrders.get(id),
-    enabled: isElectron && !!id,
+    enabled: !!id,
   })
 
   const invalidate = () => {

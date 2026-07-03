@@ -2,17 +2,28 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
-// Dev-only: the local API serves uploaded images over http://localhost:<port>, which
-// the production CSP (https only) blocks. Loosen img-src to localhost in dev serve;
-// the packaged build keeps the strict policy (images come from R2 over https).
-const devImageCspPlugin = {
-  name: 'biztrack-dev-image-csp',
+// Dev-only CSP loosening (serve mode). The packaged Electron build keeps the strict
+// policy because the MAIN process makes API calls + opens the realtime socket — the
+// renderer never talks to the network directly there. But in the browser / cloud build
+// the renderer DOES call apps/api and open a websocket, and Vite's HMR injects inline
+// scripts, so in dev we allow:
+//   - img-src   → localhost (API-served upload images)
+//   - connect-src → localhost http + ws/wss (API fetch + realtime socket)
+//   - script-src  → 'unsafe-inline' (no-flash theme script + Vite HMR client)
+const devCspPlugin = {
+  name: 'biztrack-dev-csp',
   apply: 'serve' as const,
   transformIndexHtml(html: string) {
-    return html.replace(
-      "img-src 'self' data: https:",
-      "img-src 'self' data: https: http://localhost:* http://127.0.0.1:*",
-    )
+    return html
+      .replace(
+        "img-src 'self' data: https:",
+        "img-src 'self' data: https: http://localhost:* http://127.0.0.1:*",
+      )
+      .replace(
+        "connect-src 'self'",
+        "connect-src 'self' http://localhost:* https://localhost:* ws://localhost:* wss://localhost:* http://127.0.0.1:* ws://127.0.0.1:*",
+      )
+      .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
   },
 }
 
@@ -46,6 +57,9 @@ export default defineConfig({
         '@biztrack/types': resolve(__dirname, '../../packages/types/src'),
         '@biztrack/utils': resolve(__dirname, '../../packages/utils/src'),
         '@biztrack/templates': resolve(__dirname, '../../packages/templates/src'),
+        // Cloud HTTP client (browser flavor) — alias to source so the renderer bundles
+        // it as ESM (the published dist is CJS, which Rollup can't named-import here).
+        '@biztrack/http-client/browser': resolve(__dirname, '../../packages/http-client/src/browser.ts'),
         '@biztrack/ui/styles.css': resolve(__dirname, '../../packages/ui/src/styles/biztrack.css'),
         '@biztrack/ui/biztrack': resolve(__dirname, '../../packages/ui/src/biztrack/index.ts'),
       },
@@ -55,6 +69,6 @@ export default defineConfig({
         input: { index: resolve(__dirname, 'src/renderer/index.html') },
       },
     },
-    plugins: [react(), devImageCspPlugin],
+    plugins: [react(), devCspPlugin],
   },
 })

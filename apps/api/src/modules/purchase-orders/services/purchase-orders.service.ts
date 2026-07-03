@@ -52,7 +52,10 @@ export class PurchaseOrdersService {
     try {
       const page = Math.max(query.page ?? 1, 1)
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
-      const sortColumn = query.sortBy === 'number' ? 'p.number' : 'p.created_at'
+      // Property path (not raw column): with the items collection join below, TypeORM
+      // paginates via a distinct subquery + resolves orderBy against entity metadata —
+      // a raw column (p.created_at) breaks that with a databaseName error.
+      const sortColumn = query.sortBy === 'number' ? 'p.number' : 'p.createdAt'
       const order = query.sortOrder === 'ASC' ? 'ASC' : 'DESC'
 
       const qb = this.poRepo

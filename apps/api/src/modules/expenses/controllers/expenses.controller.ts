@@ -41,7 +41,7 @@ import { MonthlyExpenseSummaryQueryDto } from '../dto/monthly-expense-summary-qu
 import { PnlSummaryQueryDto } from '../dto/pnl-summary-query.dto'
 import { RangeExpenseSummaryQueryDto } from '../dto/range-expense-summary-query.dto'
 import { UpdateExpenseDto } from '../dto/update-expense.dto'
-import { ExpensesService } from '../services/expenses.service'
+import { ExpensesService, type ExpenseSummaryCard, type ExpenseTrendItem } from '../services/expenses.service'
 
 @ApiTags('Expenses')
 @ApiBearerAuth()
@@ -141,6 +141,27 @@ export class ExpensesController {
         ),
       ),
     )
+  }
+
+  @Get('summary')
+  @RequireResource(Resource.EXPENSES_VIEW)
+  @ApiOperation({ summary: 'Expense summary cards' })
+  async getSummaryCard(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListExpensesQueryDto,
+  ): Promise<ExpenseSummaryCard> {
+    return this.expensesService.getSummaryCard(user.businessId as string, {
+      categoryId: query.categoryId,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
+  }
+
+  @Get('trend')
+  @RequireResource(Resource.EXPENSES_VIEW)
+  @ApiOperation({ summary: 'Expense monthly trend' })
+  async getTrend(@CurrentUser() user: JwtPayload): Promise<ExpenseTrendItem[]> {
+    return this.expensesService.getTrend(user.businessId as string)
   }
 
   @Get(':id')

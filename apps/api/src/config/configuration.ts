@@ -41,7 +41,7 @@ const envSchema = z.object({
   JWT_SECRET: z.preprocess(normalizeEnvString, z.string().min(1)),
   JWT_EXPIRES_IN: z.preprocess(normalizeEnvString, z.string().min(1)).default('15m'),
   JWT_REFRESH_SECRET: z.preprocess(normalizeEnvString, z.string().min(1)),
-  JWT_REFRESH_EXPIRES_IN: z.preprocess(normalizeEnvString, z.string().min(1)).default('7d'),
+  JWT_REFRESH_EXPIRES_IN: z.preprocess(normalizeEnvString, z.string().min(1)).default('30d'),
   SYNC_JWT_SECRET: z.preprocess(normalizeEnvString, z.string().min(1)).optional(),
   PORT: z.preprocess(normalizeNumber, z.number().int().positive()).default(3001),
   API_URL: z.preprocess(normalizeEnvString, z.string().min(1)),

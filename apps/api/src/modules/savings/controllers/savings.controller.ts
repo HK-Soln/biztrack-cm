@@ -1,13 +1,19 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import type { DepositStatement, JwtPayload, PaginatedResult } from '@biztrack/types'
+import type {
+  DepositStatement,
+  DepositReceipt,
+  DepositReport,
+  JwtPayload,
+  PaginatedResult,
+} from '@biztrack/types'
 import { Resource } from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import type { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { AddDepositPaymentDto, CloseDepositDto, CreateDepositDto, ListDepositsQueryDto } from '../dto/deposit.dto'
-import { DepositsService } from '../services/savings.service'
+import { DepositsService, type DepositSummary } from '../services/savings.service'
 
 @ApiTags('Deposits')
 @ApiBearerAuth()
@@ -30,6 +36,13 @@ export class SavingsController {
     return this.depositsService.list(user.businessId as string, query)
   }
 
+  @Get('summary')
+  @RequireResource(Resource.DEPOSITS)
+  @ApiOperation({ summary: 'Deposit headline stats' })
+  getSummary(@CurrentUser() user: JwtPayload): Promise<DepositSummary> {
+    return this.depositsService.getSummary(user.businessId as string)
+  }
+
   @Get('open/:customerId')
   @RequireResource(Resource.DEPOSITS)
   @ApiOperation({ summary: "A customer's open deposit session (or null)" })
@@ -49,6 +62,23 @@ export class SavingsController {
   @ApiOperation({ summary: 'Deposit session statement' })
   statement(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<DepositStatement> {
     return this.depositsService.getStatement(id, user.businessId as string)
+  }
+
+  @Get('transactions/:transactionId/receipt')
+  @RequireResource(Resource.DEPOSITS)
+  @ApiOperation({ summary: 'Structured deposit/refund transaction receipt' })
+  receipt(
+    @CurrentUser() user: JwtPayload,
+    @Param('transactionId') transactionId: string,
+  ): Promise<DepositReceipt> {
+    return this.depositsService.buildDepositReceipt(transactionId, user.businessId as string)
+  }
+
+  @Get(':id/report')
+  @RequireResource(Resource.DEPOSITS)
+  @ApiOperation({ summary: 'Deposit session report' })
+  report(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<DepositReport> {
+    return this.depositsService.buildDepositReport(id, user.businessId as string)
   }
 
   @Post(':id/payments')

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsOptional, IsUUID, IsBoolean } from 'class-validator'
+import { IsOptional, IsUUID, IsBoolean, IsIn } from 'class-validator'
 import { Transform } from 'class-transformer'
 import type { ProductsQuery } from '@biztrack/types'
 import { ListQueryDto } from '@/common/dto/list-query.dto'
@@ -53,4 +53,14 @@ export class ListProductsQueryDto extends ListQueryDto implements ProductsQuery 
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
   trackInventory?: boolean
+
+  @ApiPropertyOptional({ description: 'Filter by brand ID' })
+  @IsOptional()
+  @IsUUID()
+  brandId?: string
+
+  @ApiPropertyOptional({ description: 'Filter by effective stock status', enum: ['in', 'low', 'out'] })
+  @IsOptional()
+  @IsIn(['in', 'low', 'out'])
+  stockStatus?: 'in' | 'low' | 'out'
 }

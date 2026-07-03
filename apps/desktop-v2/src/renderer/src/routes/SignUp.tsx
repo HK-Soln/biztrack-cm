@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Input, OtpInput, PhoneInput } from '@biztrack/ui/biztrack'
 import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { passwordStrength, signUpSchema } from '@/lib/schemas'
 import { normalizeNextStep, routeForNextStep } from '@/lib/auth-routing'
+import { dataClient } from '@/lib/data-client'
 
 type Step = 'form' | 'verify'
 type VerifyChannel = 'phone' | 'email'
@@ -20,12 +21,27 @@ export function SignUp() {
   const t = useT()
   const lang = useLangStore((s) => s.lang)
   const setStatus = useSessionStore((s) => s.setStatus)
+  const [params] = useSearchParams()
 
-  const [step, setStep] = useState<Step>('form')
+  // Arriving from the accept-invite page after register: ?phone=… means the OTP was
+  // already sent — resume directly on the phone-verification step instead of the form.
+  // ?email=… seeds the email so the follow-on email-verify step (same page) has it.
+  const resumePhone = params.get('phone') ?? ''
+  const resumeEmail = params.get('email') ?? ''
+  // Arriving from the accept-invite page (existing-user tab): carry the invite token so
+  // completing verification also accepts the invite server-side.
+  const inviteToken = params.get('token') || undefined
+  // Which channel to resume verifying (set by SignIn when login returns a verify step,
+  // or implied by ?phone= after register). 'phone' | 'email'.
+  const resumeVerify = params.get('verify')
+  const resumeChannel: VerifyChannel = resumeVerify === 'email' ? 'email' : 'phone'
+  const resuming = !!resumePhone || resumeVerify === 'phone' || resumeVerify === 'email'
+
+  const [step, setStep] = useState<Step>(resuming ? 'verify' : 'form')
   const [businessName, setBusinessName] = useState('')
   const [name, setName] = useState('')
-  const [phone, setPhone] = useState<string | undefined>(undefined)
-  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState<string | undefined>(resumePhone || undefined)
+  const [email, setEmail] = useState(resumeEmail)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [terms, setTerms] = useState(false)
@@ -34,9 +50,9 @@ export function SignUp() {
   const [serverError, setServerError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [code, setCode] = useState('')
-  const [verifyChannel, setVerifyChannel] = useState<VerifyChannel>('phone')
-  const [maskedDest, setMaskedDest] = useState('')
-  const [resendIn, setResendIn] = useState(0)
+  const [verifyChannel, setVerifyChannel] = useState<VerifyChannel>(resumeChannel)
+  const [maskedDest, setMaskedDest] = useState(resumeChannel === 'email' ? resumeEmail : resumePhone)
+  const [resendIn, setResendIn] = useState(resuming ? 30 : 0)
 
   const strength = passwordStrength(password)
 
@@ -45,6 +61,23 @@ export function SignUp() {
     const id = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000)
     return () => clearInterval(id)
   }, [step, resendIn])
+
+  // Resuming an invite (token in the URL): pull the invited contact + masked label from
+  // the invite so the OTP screen has the address to verify and a nice masked destination,
+  // without every value having to be threaded through the URL. URL params win if present.
+  useEffect(() => {
+    if (!inviteToken) return
+    let alive = true
+    void dataClient.auth.getInvitePreview(inviteToken).then((res) => {
+      if (!alive || !res.ok) return
+      if (res.preview.phone) setPhone((p) => p || res.preview.phone || undefined)
+      if (res.preview.email) setEmail((e) => e || res.preview.email || '')
+      if (res.preview.sentTo) setMaskedDest((m) => m || res.preview.sentTo || '')
+    })
+    return () => {
+      alive = false
+    }
+  }, [inviteToken])
 
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,10 +105,10 @@ export function SignUp() {
       return
     }
     setErrors({})
-    if (busy || !window.api?.auth) return
+    if (busy) return
     setBusy(true)
     const trimmedEmail = email.trim()
-    const res = await window.api.auth.register({
+    const res = await dataClient.auth.register({
       name,
       phone: phone!,
       password,
@@ -98,13 +131,14 @@ export function SignUp() {
 
   const verify = async (value?: string) => {
     const otp = value ?? code
-    if (otp.length !== 6 || busy || !window.api?.auth || !phone) return
+    if (otp.length !== 6 || busy) return
+    if (verifyChannel === 'phone' ? !phone : !email.trim()) return
     setBusy(true)
     setServerError(null)
     const res =
       verifyChannel === 'phone'
-        ? await window.api.auth.verifyPhone(phone, otp)
-        : await window.api.auth.verifyEmail(email.trim(), otp)
+        ? await dataClient.auth.verifyPhone(phone!, otp, inviteToken)
+        : await dataClient.auth.verifyEmail(email.trim(), otp, inviteToken)
     setBusy(false)
     if (!res.ok) {
       setServerError(res.error ?? t('sso.invalidCode'))
@@ -123,9 +157,9 @@ export function SignUp() {
   }
 
   const resend = async () => {
-    if (resendIn > 0 || !window.api?.auth) return
-    if (verifyChannel === 'phone' && phone) await window.api.auth.resendOtp(phone, 'VERIFY_PHONE')
-    else if (verifyChannel === 'email') await window.api.auth.resendOtp(email.trim(), 'VERIFY_EMAIL')
+    if (resendIn > 0) return
+    if (verifyChannel === 'phone' && phone) await dataClient.auth.resendOtp(phone, 'VERIFY_PHONE')
+    else if (verifyChannel === 'email') await dataClient.auth.resendOtp(email.trim(), 'VERIFY_EMAIL')
     setResendIn(30)
   }
 
@@ -136,12 +170,14 @@ export function SignUp() {
           <div className="mk">B</div>
           <div className="wm">BizTrack CM</div>
         </div>
-        <button type="button" className="auth-back" onClick={() => setStep('form')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-          {t('sso.changeChannel')}
-        </button>
+        {resumePhone ? null : (
+          <button type="button" className="auth-back" onClick={() => setStep('form')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            {t('sso.changeChannel')}
+          </button>
+        )}
         <div className="auth-h">
           <h1>{verifyChannel === 'email' ? t('verify.emailTitle') : t('verify.title')}</h1>
           <p>

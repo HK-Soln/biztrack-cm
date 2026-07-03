@@ -1,73 +1,36 @@
 import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { dataClient, isElectron } from '@/lib/data-client'
-import { queryKeys } from '@/lib/query'
-import { useT } from '@/i18n'
+import { dataClient } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
+import { roleKeyFor } from '@/components/home/home-kit'
+import { OwnerHome } from '@/components/home/OwnerHome'
+import { ManagerHome } from '@/components/home/ManagerHome'
+import { AccountantHome } from '@/components/home/AccountantHome'
+import { CashierHome } from '@/components/home/CashierHome'
+import { GeneralHome } from '@/components/home/GeneralHome'
 
+// The Home route dispatches to a role-tailored dashboard. Every variant reads
+// real data through the DataClient (offline SQLite or cloud API), so the same
+// screen works in both builds. Mobile/tablet layouts (built next) reuse the
+// same data hooks + widgets from components/home.
 export function Dashboard() {
-  const t = useT()
-  const businessName = useSessionStore((s) => s.status.businessName)
+  const role = useSessionStore((s) => s.status.user?.role)
 
-  // Kick a sync when the workspace opens so freshly-onboarded data lands promptly
-  // (the engine also runs on its own interval).
+  // Kick a sync when the workspace opens so freshly-onboarded data lands
+  // promptly (the engine also runs on its own interval).
   useEffect(() => {
-    void window.api?.sync?.trigger()
+    void dataClient.sync.trigger()
   }, [])
-  const { data, isPending, isError, error } = useQuery({
-    queryKey: queryKeys.health,
-    queryFn: () => dataClient.skeleton.getHealth(),
-    enabled: isElectron,
-  })
 
-  return (
-    <div className="frame">
-      <div className="page-head">
-        <div>
-          <h1>{t('dash.title')}</h1>
-          <p>{businessName ? `${t('dash.welcome')} — ${businessName}` : t('dash.welcome')}</p>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-h">
-          <div>
-            <h3>{t('dash.localCheck')}</h3>
-            <p>{t('dash.localCheckSub')}</p>
-          </div>
-          <span className={`badge ${data ? 'b-up' : 'b-warn'}`}>
-            {!isElectron ? t('dash.cloudPreview') : data ? t('dash.ok') : t('dash.loading')}
-          </span>
-        </div>
-        {!isElectron ? (
-          <p style={{ color: 'var(--text-2)', fontSize: 13.5 }}>{t('dash.cloudPreviewBody')}</p>
-        ) : isPending ? (
-          <p style={{ color: 'var(--text-2)' }}>{t('dash.loading')}</p>
-        ) : isError ? (
-          <p style={{ color: 'var(--danger)' }}>
-            {error instanceof Error ? error.message : t('dash.reachError')}
-          </p>
-        ) : (
-          <div className="grid3">
-            <div className="kpi-s">
-              <div className="lab">{t('dash.products')}</div>
-              <div className="val">{data?.productCount}</div>
-            </div>
-            <div className="kpi-s">
-              <div className="lab">{t('dash.source')}</div>
-              <div className="val" style={{ fontSize: 15 }}>
-                {data?.source}
-              </div>
-            </div>
-            <div className="kpi-s">
-              <div className="lab">{t('dash.marker')}</div>
-              <div className="val" style={{ fontSize: 13 }}>
-                {data?.skeletonValue ?? '—'}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+  switch (roleKeyFor(role)) {
+    case 'owner':
+      return <OwnerHome />
+    case 'manager':
+      return <ManagerHome />
+    case 'accountant':
+      return <AccountantHome />
+    case 'cashier':
+      return <CashierHome />
+    default:
+      return <GeneralHome />
+  }
 }

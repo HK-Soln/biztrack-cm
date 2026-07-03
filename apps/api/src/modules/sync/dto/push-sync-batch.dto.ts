@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import {
   ArrayMaxSize,
   IsArray,
@@ -79,6 +79,9 @@ export class PushSyncBatchDto {
   deviceId!: string
 
   @ApiPropertyOptional({ nullable: true })
+  // An empty cursor (e.g. a forced full resync) means "from epoch" — normalize to null
+  // so @IsOptional skips the ISO check instead of rejecting "".
+  @Transform(({ value }) => (value === '' ? null : value))
   @IsOptional()
   @IsISO8601()
   baseCursor!: string | null

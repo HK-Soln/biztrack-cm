@@ -86,6 +86,10 @@ export class SaleItemDto implements SaleItem {
   id!: string
   saleId!: string
   productId!: string
+  variantId?: string | null
+  variantName?: string | null
+  serialUnitId?: string | null
+  serialNumber?: string | null
   productName!: string
   productSku?: string | null
   unitOfMeasure?: string | null
@@ -104,6 +108,10 @@ export class SaleItemDto implements SaleItem {
     dto.id = entity.id
     dto.saleId = entity.saleId
     dto.productId = entity.productId
+    dto.variantId = entity.variantId ?? null
+    dto.variantName = entity.variantName ?? null
+    dto.serialUnitId = entity.serialUnitId ?? null
+    dto.serialNumber = entity.serialNumber ?? null
     dto.productName = entity.productName
     dto.productSku = entity.productSku ?? null
     dto.unitOfMeasure = entity.unitOfMeasure ?? null

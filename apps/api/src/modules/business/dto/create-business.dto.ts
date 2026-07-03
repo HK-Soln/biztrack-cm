@@ -62,6 +62,12 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @IsString()
   currency?: string
 
+  @ApiPropertyOptional({ description: 'Logo URL (shown on receipts / storefront).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  logoUrl?: string
+
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })
   @IsOptional()

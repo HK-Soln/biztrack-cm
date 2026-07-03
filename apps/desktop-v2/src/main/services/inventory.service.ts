@@ -2,8 +2,10 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   AdjustStockInput,
+  DeadStockRow,
   InventoryListQuery,
   InventoryStats,
+  InventoryTurnoverRow,
   LocalInventoryItem,
   LocalReorderSuggestion,
   LocalStockMovement,
@@ -12,6 +14,7 @@ import type {
   RestockInput,
   SerialType,
   StockMovementType,
+  SupplierPriceRow,
   ThresholdInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
@@ -32,6 +35,11 @@ interface MovementRow {
   notes: string | null
   performed_by_name: string | null
   created_at: string
+}
+
+interface AllMovementRow extends MovementRow {
+  product_id: string
+  product_name: string | null
 }
 
 interface ProductMeta {
@@ -134,11 +142,23 @@ export class InventoryService {
     return row ?? empty
   }
 
-  /** Direct products at/below their reorder threshold, with a suggested restock qty.
-   * Drives the "needs reordering" banner + the Generate-PO (auto-filled restock). */
+  /** Products at/below their reorder threshold, with a suggested restock qty.
+   * Drives the "needs reordering" banner + the Generate-PO (auto-filled restock).
+   * Covers all product types (matching the API's low-stock alerts):
+   *  - simple / serialized → the product's effective stock vs its product-level threshold
+   *  - variant             → flagged when ANY variant is out of stock or at/below its own
+   *                          threshold; the shown target is the sum of the variants' thresholds. */
   reorderSuggestions(): LocalReorderSuggestion[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    const hasVariants = `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)`
+    // A single variant is low when it's out of stock, or at/below its own threshold (when set).
+    const variantLow = `pv.stock_quantity <= 0 OR (COALESCE(pv.low_stock_threshold, 0) > 0 AND pv.stock_quantity <= COALESCE(pv.low_stock_threshold, 0))`
+    const anyVariantLow = `EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0 AND (${variantLow}))`
+    // Displayed reorder point: sum of the variants' thresholds for variant products, else the product-level threshold.
+    const targetExpr = `CASE WHEN ${hasVariants}
+        THEN (SELECT COALESCE(SUM(COALESCE(pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
+        ELSE ${INV_THRESHOLD} END`
     const rows = this.db.query<{
       id: string
       name: string
@@ -148,11 +168,13 @@ export class InventoryService {
       stock: number | null
       target: number | null
     }>(
-      `SELECT p.id, p.name, p.sku, p.cost_price, p.currency, ${STOCK_EXPR} AS stock, ${INV_THRESHOLD} AS target
+      `SELECT p.id, p.name, p.sku, p.cost_price, p.currency, ${STOCK_EXPR} AS stock, (${targetExpr}) AS target
        FROM products p
-       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1 AND p.is_serialized = 0
-         AND NOT EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
-         AND (${STOCK_EXPR} <= 0 OR (${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}))
+       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1
+         AND (
+           (${hasVariants} AND ${anyVariantLow})
+           OR (NOT ${hasVariants} AND (${STOCK_EXPR} <= 0 OR (${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD})))
+         )
        ORDER BY ${STOCK_EXPR} ASC`,
       [businessId],
     )
@@ -480,6 +502,157 @@ export class InventoryService {
     )
   }
 
+  /**
+   * Paginated stock-movement ledger across ALL products (for the Stock Movements report).
+   * Mirrors the API InventoryService.getAllMovements (same filters: type, dateFrom, dateTo;
+   * newest first) and joins the product name so a fully-synced desktop and the cloud produce
+   * the same report.
+   */
+  listAllMovements(query: MovementsQuery = {}): PaginatedResult<LocalStockMovement> {
+    const businessId = this.getBusinessId()
+    if (!businessId) return toPaginated<LocalStockMovement>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+
+    let where = 'm.business_id = ?'
+    const params: unknown[] = [businessId]
+    if (query.type) {
+      where += ' AND m.type = ?'
+      params.push(query.type)
+    }
+    if (query.dateFrom) {
+      where += ' AND m.created_at >= ?'
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      where += ' AND m.created_at <= ?'
+      params.push(query.dateTo)
+    }
+
+    const { rows, ...meta } = paginateRows<AllMovementRow>(
+      this.db,
+      {
+        from: 'inventory_movements m LEFT JOIN products p ON p.id = m.product_id',
+        columns:
+          'm.id, m.product_id, p.name AS product_name, m.type, m.quantity_change, m.quantity_before, m.quantity_after, m.reference_type, m.reference_id, m.notes, m.performed_by_name, m.created_at',
+        where,
+        params,
+        searchColumns: ['m.notes', 'p.name'],
+        defaultSort: 'm.created_at DESC, m.rowid DESC',
+        sortMap: { createdAt: 'm.created_at', type: 'm.type' },
+      },
+      query,
+    )
+    return toPaginated(
+      rows.map((r) => ({
+        id: r.id,
+        productId: r.product_id,
+        productName: r.product_name,
+        type: r.type as StockMovementType,
+        quantityChange: r.quantity_change,
+        quantityBefore: r.quantity_before,
+        quantityAfter: r.quantity_after,
+        referenceType: r.reference_type,
+        referenceId: r.reference_id,
+        notes: r.notes,
+        performedByName: r.performed_by_name,
+        createdAt: r.created_at,
+      })),
+      meta,
+    )
+  }
+
+  /**
+   * Inventory turnover (current stock value at cost + annualised COGS) per tracked, in-stock
+   * product. Same two aggregations + merge as the API getInventoryTurnover (STOCK_EXPR/COST_EXPR
+   * mirror the API stock/cost expressions) so both tie out once synced.
+   */
+  turnover(query: MovementsQuery = {}): InventoryTurnoverRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const stockRows = this.db.query<{ productId: string; name: string; avgStockCost: number }>(
+      `SELECT p.id AS productId, p.name AS name, COALESCE(${COST_EXPR}, 0) * ${STOCK_EXPR} AS avgStockCost
+       FROM products p
+       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1 AND ${STOCK_EXPR} > 0`,
+      [businessId],
+    )
+    const conds = ['s.business_id = ?', 's.is_deleted = 0', "s.status = 'COMPLETED'", 'si.is_deleted = 0']
+    const params: unknown[] = [businessId]
+    if (query.dateFrom) { conds.push('s.sale_date >= ?'); params.push(query.dateFrom) }
+    if (query.dateTo) { conds.push('s.sale_date <= ?'); params.push(query.dateTo) }
+    const cogsRows = this.db.query<{ productId: string; cogs: number }>(
+      `SELECT si.product_id AS productId, COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE ${conds.join(' AND ')}
+       GROUP BY si.product_id`,
+      params,
+    )
+    const cogsById = new Map(cogsRows.map((r) => [r.productId, Number(r.cogs ?? 0)]))
+    const factor = annualiseFactor(query.dateFrom, query.dateTo)
+    return stockRows
+      .map((r) => ({
+        productId: r.productId,
+        name: r.name,
+        avgStockCost: round2(Number(r.avgStockCost ?? 0)),
+        annualCogs: round2((cogsById.get(r.productId) ?? 0) * factor),
+      }))
+      .sort((a, b) => b.avgStockCost - a.avgStockCost)
+  }
+
+  /**
+   * Dead / slow-moving stock: tracked in-stock products with no completed sale in 60+ days (or
+   * never). Mirrors the API getDeadStock (last-sale via MAX(sold_at); days computed in JS).
+   */
+  deadStock(): { rows: DeadStockRow[]; stockCostTotal: number } {
+    const businessId = this.getBusinessId()
+    if (!businessId) return { rows: [], stockCostTotal: 0 }
+    const stockRows = this.db.query<{ productId: string; name: string; sku: string | null; qty: number; costValue: number }>(
+      `SELECT p.id AS productId, p.name AS name, p.sku AS sku,
+              ${STOCK_EXPR} AS qty, COALESCE(${COST_EXPR}, 0) * ${STOCK_EXPR} AS costValue
+       FROM products p
+       WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1 AND ${STOCK_EXPR} > 0`,
+      [businessId],
+    )
+    const lastRows = this.db.query<{ productId: string; lastSoldAt: string | null }>(
+      `SELECT si.product_id AS productId, MAX(s.sold_at) AS lastSoldAt
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE s.business_id = ? AND s.is_deleted = 0 AND s.status = 'COMPLETED'
+       GROUP BY si.product_id`,
+      [businessId],
+    )
+    const lastById = new Map(lastRows.map((r) => [r.productId, r.lastSoldAt]))
+    const stockCostTotal = round2(stockRows.reduce((s, r) => s + Number(r.costValue ?? 0), 0))
+    const rows = stockRows
+      .map((r) => ({
+        productId: r.productId,
+        name: r.name,
+        sku: r.sku ?? null,
+        quantity: Number(r.qty ?? 0),
+        costValue: round2(Number(r.costValue ?? 0)),
+        daysSinceLastSale: daysSince(lastById.get(r.productId) ?? null),
+      }))
+      .filter((r) => r.daysSinceLastSale === null || r.daysSinceLastSale >= 60)
+    return { rows, stockCostTotal }
+  }
+
+  /**
+   * Supplier price trend: restock unit cost most recently / ~3mo / ~6mo per product + latest
+   * supplier. Same fetch + JS bucketing as the API getSupplierPriceTrend.
+   */
+  supplierPriceTrend(): SupplierPriceRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const rows = this.db.query<{ productId: string; name: string; supplier: string | null; unitCost: number | null; createdAt: string }>(
+      `SELECT ri.product_id AS productId, p.name AS name, rr.supplier_name AS supplier,
+              ri.unit_cost AS unitCost, rr.created_at AS createdAt
+       FROM restock_items ri
+         JOIN restock_records rr ON rr.id = ri.restock_record_id
+         JOIN products p ON p.id = ri.product_id
+       WHERE rr.business_id = ? AND ri.unit_cost IS NOT NULL
+       ORDER BY rr.created_at ASC`,
+      [businessId],
+    )
+    return bucketSupplierPrices(rows)
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private requireProduct(productId: string, businessId: string): ProductMeta {
@@ -555,6 +728,59 @@ function toInventoryItem(r: InventoryRow): LocalInventoryItem {
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+const MS_PER_DAY = 86400000
+
+// ── Report helpers — kept VERBATIM in sync with apps/api inventory.service.ts so the
+//    offline (SQLite) and online (API) turnover/dead-stock/supplier-price reports tie out. ──
+
+/** Annualise a period COGS by 365 / periodDays (inclusive). */
+function annualiseFactor(dateFrom?: string, dateTo?: string): number {
+  if (!dateFrom || !dateTo) return 1
+  const days = Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1)
+  return 365 / days
+}
+
+/** Whole days between a last-sale timestamp and now; null when never sold. */
+function daysSince(ts: string | Date | null): number | null {
+  if (!ts) return null
+  const t = ts instanceof Date ? ts.getTime() : new Date(ts).getTime()
+  if (!Number.isFinite(t)) return null
+  return Math.max(0, Math.floor((Date.now() - t) / MS_PER_DAY))
+}
+
+/** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. */
+function bucketSupplierPrices(
+  rows: Array<{ productId: string; name: string; supplier: string | null; unitCost: string | number | null; createdAt: string | Date }>,
+): SupplierPriceRow[] {
+  const now = Date.now()
+  const cut3 = now - 90 * MS_PER_DAY
+  const cut6 = now - 180 * MS_PER_DAY
+  const byProduct = new Map<string, { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }>()
+  for (const r of rows) {
+    if (r.unitCost === null) continue
+    const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
+    const cost = Number(r.unitCost)
+    if (!Number.isFinite(t) || !Number.isFinite(cost)) continue
+    const g = byProduct.get(r.productId) ?? { name: r.name, supplier: r.supplier, entries: [] }
+    g.name = r.name
+    g.supplier = r.supplier // rows arrive ASC by created_at → last write is the latest supplier
+    g.entries.push({ cost, t })
+    byProduct.set(r.productId, g)
+  }
+  const pick = (entries: Array<{ cost: number; t: number }>, before: number): number | null => {
+    let best: { cost: number; t: number } | null = null
+    for (const e of entries) if (e.t <= before && (!best || e.t > best.t)) best = e
+    return best ? round2(best.cost) : null
+  }
+  const out: SupplierPriceRow[] = []
+  for (const [productId, g] of byProduct) {
+    const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
+    const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
+    out.push({ productId, name: g.name, supplier: g.supplier, cost6mo: pick(sorted, cut6), cost3mo: pick(sorted, cut3), current })
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function normalizeThreshold(v: number | null): number | null {

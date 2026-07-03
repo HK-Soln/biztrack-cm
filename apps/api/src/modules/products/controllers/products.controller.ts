@@ -20,8 +20,10 @@ import type {
   PaginatedResult,
   PreviewVariantsResponse,
   Product,
+  ProductScanResult,
 } from '@biztrack/types'
 import { serializeDto, serializeDtos, serializePaginatedResult } from '@/common/http/serialization'
+import type { ProductStats } from '@/common/stats/stock-stats'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import type { AuditContext } from '@biztrack/types'
@@ -91,6 +93,13 @@ export class ProductsController {
     )
   }
 
+  @Get('stats')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'Catalog headline stats' })
+  async getStats(@CurrentUser() user: JwtPayload): Promise<ProductStats> {
+    return this.productsService.getStats(user.businessId as string)
+  }
+
   @Get('by-barcode/:barcode')
   @RequireResource(Resource.PRODUCTS_VIEW)
   @ApiOperation({ summary: 'Find product by barcode' })
@@ -125,6 +134,36 @@ export class ProductsController {
         await this.productsService.findBySlug(slug, user.businessId as string),
       ),
     )
+  }
+
+  @Get('scan')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'Resolve a scanned code (serial/barcode/SKU) to a product, variant, or serial' })
+  async scan(
+    @CurrentUser() user: JwtPayload,
+    @Query('code') code?: string,
+  ): Promise<ProductScanResult | null> {
+    const r = await this.productsService.resolveScan(code ?? '', user.businessId as string)
+    if (!r) return null
+    const product = serializeDto(ProductDetailResponseDto.fromModel(r.product))
+    if (r.kind === 'serial') {
+      return {
+        kind: 'serial',
+        product,
+        serial: {
+          id: r.serial.id,
+          productId: r.serial.productId,
+          variantId: r.serial.variantId ?? null,
+          serialNumber: r.serial.serialNumber,
+          serialType: r.serial.serialType,
+          status: r.serial.status,
+        },
+      }
+    }
+    if (r.kind === 'variant') {
+      return { kind: 'variant', product, variant: r.variant }
+    }
+    return { kind: 'product', product }
   }
 
   @Post(':id/assign-barcode')

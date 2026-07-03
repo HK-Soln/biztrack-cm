@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Pagination, Select } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
@@ -32,7 +32,7 @@ export function Units() {
     search,
     setSearch,
     setPage,
-  } = usePaged<LocalUnit>(queryKeys.units, (q) => dataClient.units.list(q), { enabled: isElectron })
+  } = usePaged<LocalUnit>(queryKeys.units, (q) => dataClient.units.list(q), { enabled: true })
 
   const [edit, setEdit] = useState<{ unit?: LocalUnit } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<LocalUnit | null>(null)

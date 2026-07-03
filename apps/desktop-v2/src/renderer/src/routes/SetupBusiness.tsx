@@ -7,6 +7,7 @@ import type { BusinessSetupPayload } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
 import { isValidEmail } from '@/lib/schemas'
 import { routeForNextStep } from '@/lib/auth-routing'
+import { dataClient } from '@/lib/data-client'
 
 const STEPS: MessageKey[] = ['setup.stepIdentity', 'setup.stepContact', 'setup.stepFiscal']
 
@@ -58,7 +59,7 @@ export function SetupBusiness() {
   }
 
   const submit = async () => {
-    if (busy || !window.api?.auth) return
+    if (busy) return
     setBusy(true)
     setError(null)
     const trimmedEmail = email.trim()
@@ -77,7 +78,7 @@ export function SetupBusiness() {
       defaultVatRate: vatRegistered && Number.isFinite(rate) ? rate : undefined,
       fiscalRegime: fiscalRegime || undefined,
     }
-    const res = await window.api.auth.setupBusiness(payload)
+    const res = await dataClient.auth.setupBusiness(payload)
     setBusy(false)
     if (!res.ok) {
       setError(res.error ?? t('setup.error'))

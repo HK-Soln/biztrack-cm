@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, CommandSelect, Input, ScanInput, Select, Stepper } from '@biztrack/ui/biztrack'
 import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { SERIAL_TYPES, validateSerial } from '@/lib/serial'
 import { useCurrency } from '@/lib/currency'
@@ -173,39 +173,39 @@ export function ProductForm() {
   const { data: existing } = useQuery({
     queryKey: [...queryKeys.products, 'one', id],
     queryFn: () => dataClient.products.get(id!),
-    enabled: isElectron && editing,
+    enabled: editing,
   })
   const { data: selectedBrand } = useQuery({
     queryKey: [...queryKeys.brands, 'one', d.brandId],
     queryFn: () => dataClient.brands.get(d.brandId),
-    enabled: isElectron && !!d.brandId,
+    enabled: !!d.brandId,
   })
   // Terminal categories under the selected brand (service expands linked branches to
   // their leaves). Used to auto-pick when the brand resolves to a single category.
   const { data: brandSelectable = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'selectable', d.brandId],
     queryFn: () => dataClient.categories.listSelectable({ brandId: d.brandId }),
-    enabled: isElectron && !!d.brandId,
+    enabled: !!d.brandId,
   })
   const { data: existingImages } = useQuery({
     queryKey: [...queryKeys.products, 'images', id],
     queryFn: () => dataClient.products.listImages(id!),
-    enabled: isElectron && editing,
+    enabled: editing,
   })
   const { data: categoryLinks = [] } = useQuery({
     queryKey: queryKeys.categoryAttributeLinks(d.categoryId || 'none'),
     queryFn: () => dataClient.attributes.listCategoryLinks(d.categoryId),
-    enabled: isElectron && !!d.categoryId,
+    enabled: !!d.categoryId,
   })
   const { data: existingVariants } = useQuery({
     queryKey: [...queryKeys.products, 'variants', id],
     queryFn: () => dataClient.products.listVariants(id!),
-    enabled: isElectron && editing,
+    enabled: editing,
   })
   const { data: existingSerials } = useQuery({
     queryKey: [...queryKeys.products, 'serials', id],
     queryFn: () => dataClient.products.listSerialUnits(id!),
-    enabled: isElectron && editing,
+    enabled: editing,
   })
 
   // --- editing: seed scalars once -------------------------------------------
@@ -449,7 +449,9 @@ export function ProductForm() {
         if (!d.unitId) return t('prodf.unitRequired')
         return null
       case 'pricing':
-        if (priceN <= 0) return t('prodf.priceRequired')
+        // Services often have no fixed price (e.g. phone repairs); price stays optional and
+        // saves as 0. Other product types still require a positive price.
+        if (d.productType !== 'SERVICE' && priceN <= 0) return t('prodf.priceRequired')
         return null
       case 'variants':
         if (d.variants.length === 1) return t('prodf.variantsMinTwo')

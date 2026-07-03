@@ -28,7 +28,7 @@ export function OnlineUpsell() {
         <div className="online-gate-ic">{LOCK}</div>
         <h2>{t('online.upsellTitle')}</h2>
         <p>{t('online.upsellBody')}</p>
-        <Button variant="primary" onClick={() => { window.location.hash = '#/settings/subscription' }}>{t('online.upsellCta')}</Button>
+        <Button variant="primary" onClick={() => { window.location.hash = '#/settings?section=subscription' }}>{t('online.upsellCta')}</Button>
       </div>
     </div>
   )

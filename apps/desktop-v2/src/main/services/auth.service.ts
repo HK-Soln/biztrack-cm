@@ -5,6 +5,8 @@ import type {
   BillingCycle,
   BusinessOption,
   BusinessSetupPayload,
+  InvitePreviewResponse,
+  InvitePreviewResult,
   OtpChannel,
   PlanList,
   RegisterPayload,
@@ -121,12 +123,12 @@ export class AuthService {
     }
   }
 
-  async verifyPhone(phone: string, code: string): Promise<AuthFlowResult> {
-    return this.verify('/auth/verify-phone', { phone, code })
+  async verifyPhone(phone: string, code: string, inviteToken?: string): Promise<AuthFlowResult> {
+    return this.verify('/auth/verify-phone', { phone, code, ...(inviteToken ? { inviteToken } : {}) })
   }
 
-  async verifyEmail(email: string, code: string): Promise<AuthFlowResult> {
-    return this.verify('/auth/verify-email', { email, code })
+  async verifyEmail(email: string, code: string, inviteToken?: string): Promise<AuthFlowResult> {
+    return this.verify('/auth/verify-email', { email, code, ...(inviteToken ? { inviteToken } : {}) })
   }
 
   private async verify(path: string, body: Record<string, unknown>): Promise<AuthFlowResult> {
@@ -161,6 +163,42 @@ export class AuthService {
       return this.ok(data)
     } catch (e) {
       return this.fail(e)
+    }
+  }
+
+  /** Public preview of an invite by token (GET /invites/:token). Returns the invite
+   * details (business, role, inviter, locked email/phone) or an error for an
+   * expired/revoked/invalid token. No auth required. */
+  async getInvitePreview(token: string): Promise<InvitePreviewResult> {
+    try {
+      const preview = await this.get<InvitePreviewResponse>(`/invites/${encodeURIComponent(token)}`, PUBLIC)
+      return { ok: true, preview }
+    } catch (e) {
+      return { ok: false, error: this.errorText(e) }
+    }
+  }
+
+  /** Existing signed-in user accepts an invite (POST /invites/:token/accept). Issues a
+   * phase-2 token for the joined business and refreshes the session. */
+  async acceptInvite(token: string): Promise<AuthFlowResult> {
+    try {
+      const data = await this.post<AuthResponseData>(`/invites/${encodeURIComponent(token)}/accept`, {})
+      if (data.tokens) {
+        this.tokens.setTokens(data.tokens)
+        this.applyTokens(data.tokens, false, data.nextStep)
+      }
+      return this.ok(data)
+    } catch (e) {
+      return this.fail(e)
+    }
+  }
+
+  async rejectInvite(token: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.post(`/invites/${encodeURIComponent(token)}/reject`, {})
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: this.errorText(e) }
     }
   }
 
@@ -436,13 +474,15 @@ export class AuthService {
     }
   }
 
-  private fail(e: unknown): AuthFlowResult {
-    let message = 'Something went wrong. Please try again.'
+  private errorText(e: unknown): string {
     if (e instanceof HttpError) {
-      message = (e.response?.data as { message?: string } | undefined)?.message ?? e.message
-    } else if (e instanceof Error) {
-      message = e.message
+      return (e.response?.data as { message?: string } | undefined)?.message ?? e.message
     }
-    return { ok: false, nextStep: null, session: this.session, context: null, error: message }
+    if (e instanceof Error) return e.message
+    return 'Something went wrong. Please try again.'
+  }
+
+  private fail(e: unknown): AuthFlowResult {
+    return { ok: false, nextStep: null, session: this.session, context: null, error: this.errorText(e) }
   }
 }

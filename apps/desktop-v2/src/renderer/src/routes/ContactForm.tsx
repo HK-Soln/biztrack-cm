@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
 import { ContactType, DebtDirection, IdDocumentType } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
@@ -27,7 +27,7 @@ export function ContactForm() {
   const { data: existing } = useQuery({
     queryKey: [...queryKeys.contacts, id],
     queryFn: () => dataClient.contacts.get(id!),
-    enabled: isElectron && editing,
+    enabled: editing,
   })
 
   const [type, setType] = useState<ContactType>(ContactType.CUSTOMER)

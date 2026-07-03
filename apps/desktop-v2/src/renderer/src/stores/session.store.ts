@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { SessionStatus } from '@shared/ipc'
+import { dataClient } from '@/lib/data-client'
 
 const EMPTY: SessionStatus = {
   authenticated: false,
@@ -26,21 +27,20 @@ export const useSessionStore = create<SessionState>((set) => ({
   status: EMPTY,
   hydrated: false,
   refresh: async () => {
-    if (!window.api?.auth) {
-      // Browser/cloud build: no IPC bridge yet (cloud adapter lands later).
-      set({ status: EMPTY, hydrated: true })
-      return
-    }
     try {
-      const status = await window.api.auth.getSession()
+      const status = await dataClient.auth.getSession()
       set({ status, hydrated: true })
     } catch {
+      // Electron with no session, or cloud with no/expired cookie → signed out.
       set({ status: EMPTY, hydrated: true })
     }
   },
   setStatus: (status) => set({ status }),
   logout: async () => {
-    const status = window.api?.auth ? await window.api.auth.logout() : EMPTY
-    set({ status })
+    try {
+      set({ status: await dataClient.auth.logout() })
+    } catch {
+      set({ status: EMPTY })
+    }
   },
 }))

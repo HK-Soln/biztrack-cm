@@ -100,8 +100,19 @@ export class AttributeGroupsService {
         list.push(option)
         optionsByGroup.set(option.groupId, list)
       }
+      // Category-link counts per group (for the "attached to N categories" badge).
+      const linkRows = await this.linksRepo
+        .createQueryBuilder('l')
+        .select('l.attributeGroupId', 'gid')
+        .addSelect('COUNT(*)', 'cnt')
+        .where('l.businessId = :businessId', { businessId })
+        .andWhere('l.deletedAt IS NULL')
+        .groupBy('l.attributeGroupId')
+        .getRawMany<{ gid: string; cnt: string }>()
+      const countByGroup = new Map(linkRows.map((r) => [r.gid, Number(r.cnt)]))
       for (const group of groups) {
         group.options = optionsByGroup.get(group.id) ?? []
+        group.categoryCount = countByGroup.get(group.id) ?? 0
       }
       return groups
     } catch (error) {

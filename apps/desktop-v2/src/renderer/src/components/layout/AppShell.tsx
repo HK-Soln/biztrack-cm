@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Icon, NAV, TABS, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
+import { useQuery } from '@tanstack/react-query'
+import { Icon, TABS, filterNav, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useSyncStatus } from '@/lib/useSyncStatus'
+import { dataClient, isElectron } from '@/lib/data-client'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { NotificationToasts } from '@/components/notifications/NotificationToasts'
+import { useNotificationsStore } from '@/stores/notifications.store'
 
 const ROLE_LABEL: Record<string, MessageKey> = {
   OWNER: 'selectBiz.role.owner',
@@ -94,6 +99,7 @@ function Sidebar({
   onToggle?: () => void
 }) {
   const t = useT()
+  const isOwner = (useSessionStore((s) => s.status.user?.role) ?? '').toUpperCase() === 'OWNER'
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
       {collapsible ? (
@@ -127,7 +133,7 @@ function Sidebar({
       ) : null}
       <div className="nav-sec">{t('nav.workspace')}</div>
       <nav className="nav">
-        {NAV.map((entry, i) =>
+        {filterNav(isOwner).map((entry, i) =>
           isGroup(entry) ? (
             <NavGroup
               key={`g${i}`}
@@ -251,21 +257,51 @@ function LanguageToggle() {
   )
 }
 
+// Re-render every `intervalMs` so relative timestamps + day countdowns stay fresh.
+function useNowTick(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs)
+    return () => window.clearInterval(id)
+  }, [intervalMs])
+  return now
+}
+
+function relativeSync(iso: string | null, now: number, t: (k: MessageKey) => string): string {
+  if (!iso) return t('top.neverSynced')
+  const sec = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000))
+  if (sec < 45) return t('top.justNow')
+  const min = Math.round(sec / 60)
+  if (min < 60) return t('top.minAgo').replace('{n}', String(min))
+  const hr = Math.round(min / 60)
+  if (hr < 24) return t('top.hrAgo').replace('{n}', String(hr))
+  return t('top.dayAgo').replace('{n}', String(Math.round(hr / 24)))
+}
+
 function TopBar() {
   const t = useT()
   const businessName = useSessionStore((s) => s.status.businessName)
+  const sync = useSyncStatus()
+  const now = useNowTick(30_000)
+  const lastSync =
+    sync.state === 'syncing'
+      ? `${t('sync.syncing')}…`
+      : `${t('top.lastSyncLabel')} ${relativeSync(sync.lastSyncedAt, now, t)}`
   return (
-    <header className="topbar app-drag" style={isWindows ? { paddingRight: 138 } : undefined}>
+    <header className="topbar app-drag" style={isWindows && isElectron ? { paddingRight: 138 } : undefined}>
       <button type="button" className="biz app-no-drag">
         <span className="biz-tile">{initials(businessName)}</span>
         <span>
           <span className="nm">{businessName || 'BizTrack CM'}</span>
-          <span className="sub">{t('top.lastSync')}</span>
+          <span className="sub">{isElectron && lastSync}</span>
         </span>
       </button>
-      <span className="tb-chip">{t('top.businessPlan')}</span>
+      <PlanChip now={now} />
       <div className="tb-right">
-        <SyncIndicator />
+        {
+          isElectron  && <SyncIndicator />
+        }
+        <NotificationBell />
         <LanguageToggle />
         <ModeToggle />
       </div>
@@ -273,9 +309,56 @@ function TopBar() {
   )
 }
 
+function PlanChip({ now }: { now: number }) {
+  const t = useT()
+  const q = useQuery({
+    queryKey: ['plans', 'subscription'],
+    queryFn: () => dataClient.plans.subscription(),
+    enabled: isElectron,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const sub = q.data
+  if (!sub) return null
+
+  const expiryIso = sub.cancelAtPeriodEnd
+    ? sub.currentPeriodEnd
+    : sub.status === 'TRIAL'
+      ? sub.trialEndsAt
+      : sub.currentPeriodEnd
+  const daysLeft = expiryIso ? Math.ceil((new Date(expiryIso).getTime() - now) / 86_400_000) : null
+  const showExp = daysLeft != null && daysLeft <= 30
+
+  return (
+    <span className="tb-chip">
+      {sub.plan} {t('top.plan')}
+      {showExp ? (
+        <span className={`tb-exp${daysLeft <= 7 ? ' danger' : ''}`}>
+          {daysLeft <= 0 ? t('top.expired') : t('top.expiresInDays').replace('{n}', String(daysLeft))}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function SyncIndicator() {
   const t = useT()
   const s = useSyncStatus()
+  // After a successful manual sync, throttle the button for 60s — but re-enable early
+  // if a new outbox event arrives (pending count rises), whichever comes first.
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null)
+  const prevPending = useRef(s.pendingCount)
+
+  useEffect(() => {
+    if (cooldownUntil == null) return
+    const id = window.setTimeout(() => setCooldownUntil(null), Math.max(0, cooldownUntil - Date.now()))
+    return () => window.clearTimeout(id)
+  }, [cooldownUntil])
+
+  useEffect(() => {
+    if (cooldownUntil != null && s.pendingCount > prevPending.current) setCooldownUntil(null)
+    prevPending.current = s.pendingCount
+  }, [s.pendingCount, cooldownUntil])
 
   if (s.deadCount > 0) {
     return (
@@ -284,7 +367,7 @@ function SyncIndicator() {
         className="tb-sync app-no-drag"
         style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer', font: 'inherit' }}
         title={t('sync.retry')}
-        onClick={() => void window.api?.sync?.retry()}
+        onClick={() => void dataClient.sync.retry()}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
@@ -295,15 +378,39 @@ function SyncIndicator() {
     )
   }
 
-  const label = s.state === 'syncing' ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
+  const syncing = s.state === 'syncing'
+  const cooling = cooldownUntil != null
+  const disabled = syncing || cooling
+  const label = syncing ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
+
+  async function onSync(full = false) {
+    if (disabled) return
+    try {
+      // Shift/Alt-click = full resync (reset the pull cursor + re-pull everything from
+      // the server). Recovers from a wiped/diverged local DB; the normal click is the
+      // incremental push+pull.
+      await (full ? dataClient.sync.fullSync() : dataClient.sync.trigger())
+      setCooldownUntil(Date.now() + 60_000)
+    } catch {
+      /* leave the button enabled so they can retry */
+    }
+  }
+
   return (
-    <span className="tb-sync" style={s.state === 'error' ? { color: 'var(--danger)' } : undefined}>
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+    <button
+      type="button"
+      className="tb-sync app-no-drag"
+      style={{ background: 'none', border: 0, font: 'inherit', cursor: disabled ? 'default' : 'pointer', ...(s.state === 'error' ? { color: 'var(--danger)' } : {}) }}
+      title={cooling ? t('sync.justSynced') : t('sync.syncNow')}
+      disabled={disabled}
+      onClick={(e) => void onSync(e.shiftKey || e.altKey)}
+    >
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} className={syncing ? 'spin' : undefined}>
         <path d="M16 3v4h-4M4 17v-4h4" />
         <path d="M15 8A6 6 0 0 0 5 5L4 7M5 12a6 6 0 0 0 10 3l1-2" />
       </svg>
       {label}
-    </span>
+    </button>
   )
 }
 
@@ -381,6 +488,18 @@ export function AppShell() {
     return () => cancelAnimationFrame(id)
   }, [mode, palette, chrome, resolvedDark])
 
+  // Realtime in-app notifications: (re)connect the socket for this user, load the
+  // feed, and subscribe to live pushes (toast + bell). AppShell only mounts when
+  // authenticated, so this is the right place to open the connection.
+  useEffect(() => {
+    void dataClient.notifications.connect()
+    void useNotificationsStore.getState().load()
+    const off = dataClient.notifications.onEvent((payload) => {
+      useNotificationsStore.getState().receive(payload.notification, payload.unreadCount)
+    })
+    return off
+  }, [])
+
   if (bp === 'mobile') {
     return (
       <div className="m-shell">
@@ -389,6 +508,7 @@ export function AppShell() {
           <Outlet />
         </div>
         <TabBar />
+        <NotificationToasts />
       </div>
     )
   }
@@ -407,6 +527,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </div>
+      <NotificationToasts />
     </div>
   )
 }
