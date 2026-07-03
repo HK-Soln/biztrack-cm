@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, Pagination } from '@biztrack/ui/biztrack'
 import { RfqStatus } from '@biztrack/types'
@@ -6,6 +7,8 @@ import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { DetailDrawer } from '@/components/DetailDrawer'
+import { RfqDetailBody } from '@/components/procurement/RfqDetailBody'
 import type { LocalRfqListItem } from '@shared/ipc'
 
 const STATUS_CLASS: Record<string, string> = {
@@ -21,6 +24,8 @@ export function Rfqs() {
   const t = useT()
   const bp = useBreakpoint()
   const navigate = useNavigate()
+
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const { items, total, page, limit, totalPages, isPending, search, setSearch, setPage } = usePaged<LocalRfqListItem>(
     queryKeys.rfqs,
@@ -82,7 +87,7 @@ export function Rfqs() {
             </thead>
             <tbody>
               {items.map((r) => (
-                <tr key={r.id} className="clickable" onClick={() => navigate(`/purchasing/rfqs/${r.id}`)}>
+                <tr key={r.id} className="clickable" onClick={() => setOpenId(r.id)}>
                   <td><div className="nm">{r.number}</div>{r.title ? <div className="sub">{r.title}</div> : null}</td>
                   <td>{statusPill(r.status)}</td>
                   <td className="right num">{r.itemCount}</td>
@@ -95,6 +100,11 @@ export function Rfqs() {
         )}
         <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPage={setPage} prevLabel={t('common.prev')} nextLabel={t('common.next')} />
       </div>
+
+      {/* Tablet/desktop open the RFQ in a side drawer; mobile navigates to the route. */}
+      <DetailDrawer openId={openId} onClose={() => setOpenId(null)}>
+        {(id) => <RfqDetailBody id={id} />}
+      </DetailDrawer>
     </div>
   )
 }

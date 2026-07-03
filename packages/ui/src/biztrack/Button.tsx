@@ -2,8 +2,8 @@ import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 // Design-system button (new BizTrack design). Wraps the .btn classes from
-// @biztrack/ui/styles.css. Namespaced under @biztrack/ui/biztrack so it does not
-// clash with the v1 Button while apps/desktop (v1) still exists.
+// @biztrack/ui/styles.css. Namespaced under @biztrack/ui/biztrack to keep it
+// separate from the legacy top-level Button export.
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'default' | 'ghost' | 'soft'
   block?: boolean

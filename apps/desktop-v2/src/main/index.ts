@@ -101,6 +101,9 @@ function createWindow(): void {
     minHeight: 600,
     backgroundColor: '#16467A',
     show: false,
+    // Window/taskbar icon. Packaged builds use the electron-builder-embedded exe
+    // (Windows) / bundle (macOS) icon; this covers the dev run on Windows/Linux.
+    ...(!isMac && !app.isPackaged ? { icon: join(app.getAppPath(), 'assets', 'icon.png') } : {}),
     autoHideMenuBar: true,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac

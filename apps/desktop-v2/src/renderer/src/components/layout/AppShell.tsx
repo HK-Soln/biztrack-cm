@@ -42,36 +42,83 @@ function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   )
 }
 
-function NavGroup({
-  entry,
-  collapsedRail,
-  onExpand,
-}: {
-  entry: Extract<NavEntry, { children: unknown }>
-  collapsedRail?: boolean
-  onExpand?: () => void
-}) {
+function NavGroup({ entry, rail }: { entry: Extract<NavEntry, { children: unknown }>; rail?: boolean }) {
   const t = useT()
   const { pathname } = useLocation()
   const hasActiveChild = entry.children.some((c) => pathname === c.to || pathname.startsWith(c.to + '/'))
   const [open, setOpen] = useState(hasActiveChild)
+  // Icon-rail flyout: children are hidden in the rail, so a click opens a fixed popover
+  // (fixed so it escapes the .nav overflow clip) listing the child links with labels.
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
   useEffect(() => {
-    if (hasActiveChild) setOpen(true)
-  }, [hasActiveChild])
+    if (hasActiveChild && !rail) setOpen(true)
+  }, [hasActiveChild, rail])
+
+  useEffect(() => {
+    if (!pos) return
+    const onDown = (e: MouseEvent) => {
+      const n = e.target as Node
+      if (btnRef.current?.contains(n) || popRef.current?.contains(n)) return
+      setPos(null)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPos(null) }
+    const onScroll = () => setPos(null)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onScroll)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [pos])
+
+  if (rail) {
+    return (
+      <div className="nav-grp">
+        <button
+          ref={btnRef}
+          type="button"
+          className={`nav-item${hasActiveChild ? ' active' : ''}`}
+          title={t(entry.label)}
+          aria-label={t(entry.label)}
+          onClick={() => {
+            if (pos) { setPos(null); return }
+            const r = btnRef.current?.getBoundingClientRect()
+            if (r) setPos({ top: r.top, left: r.right + 6 })
+          }}
+        >
+          {Icon[entry.icon]}
+          <span className="lab">{t(entry.label)}</span>
+        </button>
+        {pos ? (
+          <div ref={popRef} className="nav-flyout" role="menu" style={{ top: pos.top, left: pos.left }}>
+            <div className="nav-flyout-h">{t(entry.label)}</div>
+            {entry.children.map((c) => (
+              <NavLink
+                key={c.to}
+                to={c.to}
+                end={c.to === '/'}
+                className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                onClick={() => setPos(null)}
+              >
+                {c.icon ? Icon[c.icon] : <span style={{ width: 16 }} />}
+                <span className="lab">{t(c.label)}</span>
+                {c.badge ? <span className="badge-a">{t(c.badge)}</span> : null}
+              </NavLink>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <div className={`nav-grp${open ? ' open' : ''}`}>
-      <button
-        type="button"
-        className="nav-item"
-        onClick={() => {
-          // In the collapsed icon rail, children are hidden — expand the sidebar instead.
-          if (collapsedRail) {
-            onExpand?.()
-            return
-          }
-          setOpen((o) => !o)
-        }}
-      >
+      <button type="button" className="nav-item" onClick={() => setOpen((o) => !o)}>
         {Icon[entry.icon]}
         <span className="lab">{t(entry.label)}</span>
         <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
@@ -135,12 +182,7 @@ function Sidebar({
       <nav className="nav">
         {filterNav(isOwner).map((entry, i) =>
           isGroup(entry) ? (
-            <NavGroup
-              key={`g${i}`}
-              entry={entry}
-              collapsedRail={rail && collapsible}
-              onExpand={onToggle}
-            />
+            <NavGroup key={`g${i}`} entry={entry} rail={rail} />
           ) : (
             <NavLeafLink key={entry.to} {...entry} />
           ),
@@ -463,6 +505,7 @@ const SIDEBAR_COLLAPSED_KEY = 'biztrack.sidebar.collapsed'
 
 export function AppShell() {
   const bp = useBreakpoint()
+  const { pathname } = useLocation()
   const mode = useThemeStore((s) => s.mode)
   const palette = useThemeStore((s) => s.palette)
   const chrome = useThemeStore((s) => s.chrome)
@@ -501,9 +544,32 @@ export function AppShell() {
   }, [])
 
   if (bp === 'mobile') {
+    // Some routes render their own full-bleed header (home's m-hero, Sell's m-head),
+    // so they own the top of the screen — suppress the generic mobile top bar there.
+    const OWN_HEADER = new Set([
+      '/',
+      '/sell',
+      '/products',
+      '/products/categories',
+      '/products/units',
+      '/products/brands',
+      '/products/attributes',
+      '/inventory',
+      '/sales',
+      '/contacts',
+      '/online/orders',
+      '/expenses',
+      '/deposits',
+      '/team',
+      '/roles',
+      '/settings',
+      '/more',
+    ])
+    // Reports owns its header on both the library index and the /reports/:id viewer.
+    const ownsHeader = OWN_HEADER.has(pathname) || pathname.startsWith('/reports')
     return (
       <div className="m-shell">
-        <MobileTopBar />
+        {ownsHeader ? null : <MobileTopBar />}
         <div className="m-content">
           <Outlet />
         </div>

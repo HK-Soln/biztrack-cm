@@ -6,7 +6,6 @@
     "dev": "turbo dev",
     "dev:all": "turbo dev",
     "dev:web": "pnpm -C apps/web dev",
-    "dev:desktop": "pnpm -C apps/desktop dev",
     "dev:desktop-v2": "pnpm -C apps/desktop-v2 dev",
     "lint": "turbo lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
@@ -20,7 +19,7 @@
     "turbo": "^2.3.3",
     "typescript": "^5.7.2"
   },
-  "packageManager": "pnpm@11.2.2",
+  "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=20.0.0"
   }

@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
 import { FileUpload } from '@/components/FileUpload'
 import { dataClient } from '@/lib/data-client'
 import { useT, useLangStore } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { MessageKey } from '@/i18n/messages'
 import { useCurrency } from '@/lib/currency'
 import { useSessionStore } from '@/stores/session.store'
@@ -101,15 +102,80 @@ function useOnline(): boolean {
 
 export function Settings() {
   const t = useT()
+  const bp = useBreakpoint()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const initial = params.get('section')
   const [section, setSection] = useState<SectionKey>(
     initial && (SECTION_KEYS as string[]).includes(initial) ? (initial as SectionKey) : 'business',
   )
+  // On mobile the page is a drill-in: the section list, then the chosen section.
+  // Deep-linking to ?section=… opens that section directly.
+  const [mobileOpen, setMobileOpen] = useState(!!initial && (SECTION_KEYS as string[]).includes(initial))
 
   function selectSection(key: SectionKey) {
     setSection(key)
     setParams(key === 'business' ? {} : { section: key }, { replace: true })
+  }
+
+  const sectionBody =
+    section === 'business' ? (
+      <BusinessProfileSection />
+    ) : section === 'security' ? (
+      <BusinessSecuritySection />
+    ) : section === 'subscription' ? (
+      <SubscriptionSection onManageBilling={() => selectSection('billing')} />
+    ) : section === 'billing' ? (
+      <BillingSection />
+    ) : section === 'tax' ? (
+      <TaxSection />
+    ) : section === 'receipts' ? (
+      <ReceiptsSection />
+    ) : section === 'notifications' ? (
+      <NotificationsSection />
+    ) : (
+      <SectionStub titleKey={SECTION_LABEL[section]} />
+    )
+
+  // --- mobile: settings section list → tap drills into that section ---
+  if (bp === 'mobile') {
+    if (mobileOpen) {
+      return (
+        <>
+          <header className="m-head">
+            <button type="button" className="back" onClick={() => setMobileOpen(false)} aria-label={t('settings.title')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <div className="m-tt"><div className="m-title">{t(SECTION_LABEL[section])}</div></div>
+          </header>
+          {sectionBody}
+        </>
+      )
+    }
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('settings.title')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt"><div className="m-title">{t('settings.title')}</div><div className="m-sub">{t('settings.subtitle')}</div></div>
+        </header>
+        {NAV_GROUPS.map((g) => (
+          <Fragment key={g.label}>
+            <div className="m-sec">{t(g.label)}</div>
+            <div className="mlist" style={{ marginBottom: 18 }}>
+              {g.items.map((it) => (
+                <button key={it.key} type="button" className="mrow" onClick={() => { selectSection(it.key); setMobileOpen(true) }}>
+                  <div className="th">{it.icon}</div>
+                  <div className="mt"><div className="nm">{t(it.label)}</div></div>
+                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+                </button>
+              ))}
+            </div>
+          </Fragment>
+        ))}
+      </>
+    )
   }
 
   return (
@@ -141,25 +207,7 @@ export function Settings() {
           ))}
         </nav>
 
-        <div>
-          {section === 'business' ? (
-            <BusinessProfileSection />
-          ) : section === 'security' ? (
-            <BusinessSecuritySection />
-          ) : section === 'subscription' ? (
-            <SubscriptionSection onManageBilling={() => selectSection('billing')} />
-          ) : section === 'billing' ? (
-            <BillingSection />
-          ) : section === 'tax' ? (
-            <TaxSection />
-          ) : section === 'receipts' ? (
-            <ReceiptsSection />
-          ) : section === 'notifications' ? (
-            <NotificationsSection />
-          ) : (
-            <SectionStub titleKey={SECTION_LABEL[section]} />
-          )}
-        </div>
+        <div>{sectionBody}</div>
       </div>
     </div>
   )

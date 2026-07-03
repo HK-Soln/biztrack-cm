@@ -158,20 +158,124 @@ export function Products() {
     { key: 'actions', header: t('prod.colActions'), align: 'right', render: actions },
   ]
 
-  const mobileCard = (p: LocalProduct) => (
-    <div className="u-card clickable" onClick={() => openDetail(p.id)}>
-      <span className="th">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}</span>
-      <div className="u-main">
-        <div className="u-nm">{p.name}</div>
-        <div className="u-sub">
-          {p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : null}
-          <span className="num">{money.format(p.effectiveSellingPrice)}</span>
-          {statusPill(p)}
-        </div>
-      </div>
-      {actions(p)}
+  // Extra filters (brand + active status) — shared by the desktop toolbar and the mobile header.
+  const filterControl = (
+    <div className="flt-wrap">
+      <button
+        type="button"
+        className={`icon-btn${moreCount > 0 || filtersOpen ? ' on' : ''}`}
+        title={t('prod.moreFilters')}
+        onClick={() => setFiltersOpen((v) => !v)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path d="M3 5h18M6 12h12M10 19h4" />
+        </svg>
+        {moreCount > 0 ? <span className="dot">{moreCount}</span> : null}
+      </button>
+      {filtersOpen ? (
+        <>
+          <div className="flt-backdrop" onClick={() => setFiltersOpen(false)} />
+          <div className="flt-pop" role="dialog">
+            <div className="ff">
+              <label className="lbl2">{t('prod.colBrand')}</label>
+              <Select value={brandId} onChange={(e) => { setBrandId(e.target.value); setPage(1) }}>
+                <option value="">{t('prod.allBrands')}</option>
+                {(brandPage?.data ?? []).map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="ff">
+              <label className="lbl2">{t('prod.colStatus')}</label>
+              <Select value={status} onChange={(e) => { setStatus(e.target.value as StatusFilter); setPage(1) }}>
+                <option value="all">{t('prod.statusAll')}</option>
+                <option value="active">{t('prod.active')}</option>
+                <option value="inactive">{t('prod.inactive')}</option>
+              </Select>
+            </div>
+            <div className="flt-foot">
+              <button type="button" className="flt-clear" onClick={resetMore}>{t('prod.clearFilters')}</button>
+              <Button variant="soft" onClick={() => setFiltersOpen(false)}>{t('prod.done')}</Button>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
+
+  // --- mobile: header + search + filter chips + tappable list + FAB ---------
+  if (bp === 'mobile') {
+    const mPill = (p: LocalProduct) => {
+      const s = stockState(p)
+      if (s === 'out') return <span className="mst mst-out"><span className="d" />{t('prod.stockOut')}</span>
+      if (s === 'low') return <span className="mst mst-low"><span className="d" />{t('prod.stockLow')}</span>
+      if (s === 'in') return <span className="mst mst-ok"><span className="d" />{t('prod.stockIn')}</span>
+      return <span className="mst mst-neutral"><span className="d" />{p.isActive ? t('prod.active') : t('prod.inactive')}</span>
+    }
+    return (
+      <>
+        <header className="m-head">
+          <div className="m-tt">
+            <div className="m-title">{t('prod.title')}</div>
+            <div className="m-sub">
+              {stats
+                ? t('prod.subtitleStats').replace('{n}', String(stats.totalSkus)).replace('{c}', String(stats.categories))
+                : t('prod.subtitle')}
+            </div>
+          </div>
+          {filterControl}
+        </header>
+
+        <div className="msearch" style={{ marginBottom: 13 }}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
+          <input value={search} placeholder={t('prod.search')} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+
+        <div className="mchips" style={{ marginBottom: 16 }}>
+          <button type="button" className={`mchip${categoryId === '' && stockStatus === 'all' ? ' active' : ''}`} onClick={() => { setCategoryId(''); setStockStatus('all'); setPage(1) }}>{t('prod.allCategories')}</button>
+          <button type="button" className={`mchip${stockStatus === 'low' ? ' active' : ''}`} onClick={() => { setStockStatus(stockStatus === 'low' ? 'all' : 'low'); setPage(1) }}>{t('prod.stockLow')}</button>
+          {categories.map((c) => (
+            <button key={c.id} type="button" className={`mchip${categoryId === c.id ? ' active' : ''}`} onClick={() => { setCategoryId(categoryId === c.id ? '' : c.id); setPage(1) }}>{c.name}</button>
+          ))}
+        </div>
+
+        <div className="mlist">
+          {products.map((p) => (
+            <button key={p.id} type="button" className="mrow" onClick={() => openDetail(p.id)}>
+              <div className="th">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}</div>
+              <div className="mt">
+                <div className="nm">{p.name}</div>
+                <div className="sub">{p.sku ? p.sku : t('prod.noSku')}{p.categoryName ? ` · ${p.categoryName}` : ''}</div>
+              </div>
+              <div className="rt">
+                <div className="v">{money.format(p.effectiveSellingPrice)}</div>
+                <div className="s">{mPill(p)}</div>
+              </div>
+              <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+            </button>
+          ))}
+          {!isPending && products.length === 0 ? (
+            <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('prod.empty')}</div></div></div>
+          ) : null}
+          {isPending && products.length === 0 ? (
+            <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('prod.loading')}</div></div></div>
+          ) : null}
+        </div>
+
+        {totalPages > 1 ? (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage(page - 1)}>{t('common.prev')}</button>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{t('common.next')}</button>
+          </div>
+        ) : null}
+
+        <div style={{ height: 76 }} />
+        <button type="button" className="mfab" onClick={() => navigate('/products/new')} aria-label={t('prod.new')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </>
+    )
+  }
 
   return (
     <div className="frame">
@@ -266,65 +370,7 @@ export function Products() {
           <option value="out">{t('prod.stockOut')}</option>
         </Select>
 
-        <div className="flt-wrap">
-          <button
-            type="button"
-            className={`icon-btn${moreCount > 0 || filtersOpen ? ' on' : ''}`}
-            title={t('prod.moreFilters')}
-            onClick={() => setFiltersOpen((v) => !v)}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M3 5h18M6 12h12M10 19h4" />
-            </svg>
-            {moreCount > 0 ? <span className="dot">{moreCount}</span> : null}
-          </button>
-          {filtersOpen ? (
-            <>
-              <div className="flt-backdrop" onClick={() => setFiltersOpen(false)} />
-              <div className="flt-pop" role="dialog">
-                <div className="ff">
-                  <label className="lbl2">{t('prod.colBrand')}</label>
-                  <Select
-                    value={brandId}
-                    onChange={(e) => {
-                      setBrandId(e.target.value)
-                      setPage(1)
-                    }}
-                  >
-                    <option value="">{t('prod.allBrands')}</option>
-                    {(brandPage?.data ?? []).map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="ff">
-                  <label className="lbl2">{t('prod.colStatus')}</label>
-                  <Select
-                    value={status}
-                    onChange={(e) => {
-                      setStatus(e.target.value as StatusFilter)
-                      setPage(1)
-                    }}
-                  >
-                    <option value="all">{t('prod.statusAll')}</option>
-                    <option value="active">{t('prod.active')}</option>
-                    <option value="inactive">{t('prod.inactive')}</option>
-                  </Select>
-                </div>
-                <div className="flt-foot">
-                  <button type="button" className="flt-clear" onClick={resetMore}>
-                    {t('prod.clearFilters')}
-                  </button>
-                  <Button variant="soft" onClick={() => setFiltersOpen(false)}>
-                    {t('prod.done')}
-                  </Button>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </div>
+        {filterControl}
       </div>
 
       <DataTable<LocalProduct>
@@ -337,8 +383,6 @@ export function Products() {
         empty={t('prod.empty')}
         title={t('prod.all')}
         countLabel={t('prod.count').replace('{n}', String(total))}
-        mobile={bp === 'mobile'}
-        renderMobileCard={mobileCard}
         pagination={{
           page,
           totalPages,

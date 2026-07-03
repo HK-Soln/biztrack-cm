@@ -58,3 +58,27 @@ export function usePendingExpenses(range: Range, limit = 5) {
     queryFn: () => dataClient.expenses.list({ ...range, status: 'PENDING', page: 1, limit }),
   })
 }
+
+/** Team performance (one row per cashier) — for the mobile Owner/Manager screens. */
+export function useCashierRoster(range: Range) {
+  return useQuery({
+    queryKey: [KEY, 'cashier-roster', range],
+    queryFn: () => dataClient.sales.cashierRoster(range),
+  })
+}
+
+/** Per-product revenue/COGS — the mobile Owner screen ranks these by profit. */
+export function useSalesByProduct(range: Range) {
+  return useQuery({
+    queryKey: [KEY, 'sales-by-product', range],
+    queryFn: () => dataClient.sales.byProduct(range),
+  })
+}
+
+/** Product revenue + COGS → blended gross margin, for the mobile Owner/Accountant screens. */
+export function useGrossProfit(range: Range) {
+  return useQuery({
+    queryKey: [KEY, 'gross-profit', range],
+    queryFn: () => dataClient.sales.grossProfit(range),
+  })
+}

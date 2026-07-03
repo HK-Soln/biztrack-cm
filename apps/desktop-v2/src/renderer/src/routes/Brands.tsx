@@ -268,36 +268,8 @@ export function Brands() {
     </div>
   )
 
-  return (
-    <div className="frame">
-      <div className="page-head">
-        <div>
-          <h1>{t('brand.title')}</h1>
-          <p>{t('brand.subtitle')}</p>
-        </div>
-        <Button variant="primary" onClick={() => setBrandModal({})}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          {t('brand.new')}
-        </Button>
-      </div>
-
-      {isPending ? (
-        <div className="cat-empty">{t('brand.loading')}</div>
-      ) : bp === 'mobile' ? (
-        selected ? (
-          detail
-        ) : (
-          brandList
-        )
-      ) : (
-        <div className="mdlayout wide">
-          {brandList}
-          {detail}
-        </div>
-      )}
-
+  const modals = (
+    <>
       {brandModal ? (
         <BrandModal
           brand={brandModal.brand}
@@ -335,6 +307,87 @@ export function Brands() {
           {t('brand.deleteBody').replace('{name}', deleteTarget?.name ?? '')}
         </p>
       </Modal>
+    </>
+  )
+
+  // --- mobile: master-detail (list → tap → detail with back) + FAB ---------
+  if (bp === 'mobile') {
+    return (
+      <>
+        {selected ? (
+          detail
+        ) : (
+          <>
+            <header className="m-head">
+              <div className="m-tt">
+                <div className="m-title">{t('brand.title')}</div>
+                <div className="m-sub">{t('brand.subtitle')}</div>
+              </div>
+            </header>
+
+            <div className="msearch" style={{ marginBottom: 13 }}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
+              <input value={search} placeholder={t('brand.search')} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+
+            <div className="mlist">
+              {isPending && brands.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('brand.loading')}</div></div></div> : null}
+              {!isPending && brands.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('brand.empty')}</div></div></div> : null}
+              {brands.map((b) => (
+                <button key={b.id} type="button" className="mrow" onClick={() => setSelectedId(b.id)}>
+                  <div className="th">{b.logoUrl ? <img src={b.logoUrl} alt="" /> : initials(b.name)}</div>
+                  <div className="mt">
+                    <div className="nm">{b.name}</div>
+                    <div className="sub">{b.categoryIds.length} {t('brand.catsWord')} · {b.models.length} {t('brand.modelsWord')}</div>
+                  </div>
+                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+                </button>
+              ))}
+            </div>
+
+            {totalPages > 1 ? (
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
+                <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage(page - 1)}>{t('common.prev')}</button>
+                <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{t('common.next')}</button>
+              </div>
+            ) : null}
+
+            <div style={{ height: 76 }} />
+            <button type="button" className="mfab" onClick={() => setBrandModal({})} aria-label={t('brand.new')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+          </>
+        )}
+        {modals}
+      </>
+    )
+  }
+
+  return (
+    <div className="frame">
+      <div className="page-head">
+        <div>
+          <h1>{t('brand.title')}</h1>
+          <p>{t('brand.subtitle')}</p>
+        </div>
+        <Button variant="primary" onClick={() => setBrandModal({})}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          {t('brand.new')}
+        </Button>
+      </div>
+
+      {isPending ? (
+        <div className="cat-empty">{t('brand.loading')}</div>
+      ) : (
+        <div className="mdlayout wide">
+          {brandList}
+          {detail}
+        </div>
+      )}
+
+      {modals}
     </div>
   )
 }

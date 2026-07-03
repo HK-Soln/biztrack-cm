@@ -5,6 +5,7 @@ import { Button } from '@biztrack/ui/biztrack'
 import { PermissionEditor } from '@/components/roles/PermissionEditor'
 import { dataClient } from '@/lib/data-client'
 import { useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { MessageKey } from '@/i18n/messages'
 import { errorMessage } from '@/lib/error'
 import type { RoleItem } from '@shared/ipc'
@@ -16,6 +17,7 @@ const Plus = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
 export function Roles() {
   const t = useT()
+  const bp = useBreakpoint()
   const qc = useQueryClient()
   const nav = useNavigate()
   const rolesQ = useQuery({ queryKey: ['roles', 'list'], queryFn: () => dataClient.roles.list({ limit: 100 }) })
@@ -23,6 +25,7 @@ export function Roles() {
 
   const roles = rolesQ.data?.roles ?? []
   const [picked, setPicked] = useState<string | null>(null)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const activeId = picked ?? roles[0]?.id ?? null
   const roleQ = useQuery({ queryKey: ['roles', 'detail', activeId], queryFn: () => dataClient.roles.get(activeId as string), enabled: !!activeId })
 
@@ -47,6 +50,69 @@ export function Roles() {
           <Button variant="soft" type="button" onClick={() => void rolesQ.refetch()}>{t('roles.retry')}</Button>
         </div>
       </div>
+    )
+  }
+
+  const delModal = confirmDel && role ? (
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmDel(false) }}>
+      <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 400 }}>
+        <div className="modal-head"><h2>{t('roles.deleteTitle')}</h2></div>
+        <div className="modal-body" style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>{t('roles.deleteBody').replace('{name}', role.name)}</div>
+        <div className="modal-foot">
+          <Button variant="soft" type="button" onClick={() => setConfirmDel(false)}>{t('roles.cancel')}</Button>
+          <Button variant="primary" type="button" loading={del.isPending} onClick={() => del.mutate()} style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}>{t('roles.deleteConfirm')}</Button>
+        </div>
+      </div>
+    </div>
+  ) : null
+
+  // --- mobile: role list → tap opens the role detail (permission matrix) full-screen ---
+  if (bp === 'mobile') {
+    if (mobileOpen) {
+      return (
+        <>
+          <header className="m-head">
+            <button type="button" className="back" onClick={() => setMobileOpen(false)} aria-label={t('roles.roles')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <div className="m-tt"><div className="m-title">{role?.name ?? t('roles.roles')}</div><div className="m-sub">{role ? t('roles.memberCount').replace('{n}', String(role.userCount)) : ''}</div></div>
+          </header>
+          {!role ? (
+            <div className="cat-empty">…</div>
+          ) : (
+            <RoleDetail key={role.id} role={role} catalogue={catalogue} permSet={permSet} totalPerms={catalogue.length} t={t}
+              onEdit={() => nav(`/roles/${role.id}/edit`)} onDelete={() => setConfirmDel(true)} />
+          )}
+          {delModal}
+        </>
+      )
+    }
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => nav(-1)} aria-label={t('roles.title')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt"><div className="m-title">{t('roles.title')}</div><div className="m-sub">{t('roles.subtitle')}</div></div>
+        </header>
+        {error ? <div className="banner warn" style={{ marginBottom: 12 }}><span>{error}</span></div> : null}
+        <div className="mlist">
+          {roles.map((r) => (
+            <button key={r.id} type="button" className="mrow" onClick={() => { setPicked(r.id); setMobileOpen(true) }}>
+              <div className="th round" style={{ color: r.colour || 'var(--brand-int)' }}><Shield /></div>
+              <div className="mt">
+                <div className="nm">{r.name}{!r.isSystem ? <span className="chip-tag" style={{ fontSize: 9.5, marginLeft: 6 }}>{t('roles.custom')}</span> : null}</div>
+                <div className="sub">{t('roles.memberCount').replace('{n}', String(r.userCount))}</div>
+              </div>
+              <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="mfab" onClick={() => nav('/roles/new')} aria-label={t('roles.newRole')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        {delModal}
+      </>
     )
   }
 
@@ -86,18 +152,7 @@ export function Roles() {
         </div>
       </div>
 
-      {confirmDel && role ? (
-        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmDel(false) }}>
-          <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 400 }}>
-            <div className="modal-head"><h2>{t('roles.deleteTitle')}</h2></div>
-            <div className="modal-body" style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>{t('roles.deleteBody').replace('{name}', role.name)}</div>
-            <div className="modal-foot">
-              <Button variant="soft" type="button" onClick={() => setConfirmDel(false)}>{t('roles.cancel')}</Button>
-              <Button variant="primary" type="button" loading={del.isPending} onClick={() => del.mutate()} style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}>{t('roles.deleteConfirm')}</Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {delModal}
     </div>
   )
 }

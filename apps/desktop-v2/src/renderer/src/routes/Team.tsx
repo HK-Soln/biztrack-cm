@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { ActionMenu } from '@/components/ActionMenu'
 import { RoleSelect } from '@/components/roles/RoleSelect'
 import { dataClient } from '@/lib/data-client'
 import { useLangStore, useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import type { MessageKey } from '@/i18n/messages'
 import { errorMessage } from '@/lib/error'
 import { isValidEmail } from '@/lib/schemas'
@@ -45,7 +47,9 @@ interface TeamEntry {
 
 export function Team() {
   const t = useT()
+  const bp = useBreakpoint()
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const lang = useLangStore((s) => s.lang)
   const currentUserId = useSessionStore((s) => s.status.user?.id ?? null)
 
@@ -147,6 +151,121 @@ export function Team() {
     )
   }
 
+  // Row action menu for a member/invite — shared by the desktop table and mobile list.
+  const buildItems = (e: TeamEntry): { label: string; onClick: () => void; danger?: boolean }[] => {
+    const items: { label: string; onClick: () => void; danger?: boolean }[] = []
+    if (e.kind === 'member') {
+      const isOwner = e.member?.role === 'OWNER'
+      const isSelf = e.member?.userId === currentUserId
+      if (!isOwner) items.push({ label: t('team.changeRole'), onClick: () => e.member && setChangeFor(e.member) })
+      if (!isOwner && !isSelf) {
+        if (e.status === 'SUSPENDED') items.push({ label: t('team.reactivate'), onClick: () => e.member && setActive.mutate({ userId: e.member.userId, active: true }) })
+        else if (e.status === 'ACTIVE') items.push({ label: t('team.deactivate'), onClick: () => e.member && setActive.mutate({ userId: e.member.userId, active: false }) })
+        items.push({ label: t('team.remove'), onClick: () => e.member && setRemoveFor(e.member), danger: true })
+      }
+    } else {
+      items.push({ label: t('team.resendShare'), onClick: () => e.invite && resend.mutate(e.invite.id) })
+      items.push({ label: t('team.cancelInvite'), onClick: () => e.invite && cancel.mutate(e.invite.id), danger: true })
+    }
+    return items
+  }
+
+  // Modals + toast, shared by the desktop and mobile layouts.
+  const overlays = (
+    <>
+      {inviteOpen ? (
+        <InviteModal
+          roles={roles} t={t}
+          onClose={() => setInviteOpen(false)}
+          onSent={(res) => {
+            setInviteOpen(false)
+            invalidate()
+            if (res.status === 'pending_invite' && res.inviteUrl) { flash(t('team.inviteCreated')); setShareUrl(res.inviteUrl) }
+            else flash(t('team.inviteSent'))
+          }}
+          onError={(m) => setError(m)}
+        />
+      ) : null}
+      {changeFor ? <ChangeRoleModal member={changeFor} onClose={() => setChangeFor(null)} onSaved={() => { setChangeFor(null); flash(t('team.roleChanged')); invalidate() }} onError={(m) => setError(m)} t={t} /> : null}
+      {removeFor ? (
+        <ConfirmModal
+          title={t('team.removeTitle')} body={t('team.removeBody').replace('{name}', removeFor.name ?? removeFor.email ?? '')}
+          confirmLabel={t('team.removeConfirm')} pending={remove.isPending}
+          onCancel={() => setRemoveFor(null)} onConfirm={() => remove.mutate(removeFor.userId)} t={t}
+        />
+      ) : null}
+      {shareUrl ? <InviteLinkDialog url={shareUrl} t={t} onClose={() => setShareUrl(null)} onCopied={() => flash(t('team.linkCopied'))} /> : null}
+      {toast ? (
+        <div style={{ position: 'fixed', right: 22, bottom: 22, zIndex: 60, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow)', fontSize: 13, fontWeight: 600 }}>
+          <span style={{ color: 'var(--success)', display: 'inline-flex' }}><Check /></span>{toast}
+        </div>
+      ) : null}
+    </>
+  )
+
+  // --- mobile: header + KPIs + search + role chips + member list + FAB ---
+  if (bp === 'mobile') {
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('team.title')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt"><div className="m-title">{t('team.title')}</div><div className="m-sub">{t('team.subtitle')}</div></div>
+        </header>
+
+        <div className="mkpis" style={{ marginBottom: 16 }}>
+          <div className="mkpi"><div className="v">{members.length}</div><div className="k">{t('team.kpiMembers')}</div></div>
+          <div className="mkpi"><div className="v">{pendingCount}</div><div className="k">{t('team.kpiPending')}</div></div>
+        </div>
+
+        <div className="msearch" style={{ marginBottom: 13 }}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
+          <input placeholder={t('team.searchPh')} value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+
+        {roles.length > 0 ? (
+          <div className="mchips" style={{ marginBottom: 16 }}>
+            <button type="button" className={`mchip${!roleFilter ? ' active' : ''}`} onClick={() => setRoleFilter('')}>{t('team.allRoles')}</button>
+            {roles.map((r) => (
+              <button key={r.id} type="button" className={`mchip${roleFilter === r.id ? ' active' : ''}`} onClick={() => setRoleFilter(r.id)}>{r.name}</button>
+            ))}
+          </div>
+        ) : null}
+
+        {error ? <div className="banner warn" style={{ marginBottom: 12 }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg><span>{error}</span></div> : null}
+
+        <div className="mlist">
+          {visible.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('team.empty')}</div></div></div> : null}
+          {visible.map((e) => {
+            const items = buildItems(e)
+            const isMember = e.kind === 'member'
+            const isSelf = e.member?.userId === currentUserId
+            return (
+              <div key={e.key} className="mrow" style={{ cursor: 'default' }}>
+                <div className="th brand round" style={isMember ? undefined : { background: 'var(--inset)', color: 'var(--text-muted)', borderStyle: 'dashed' }}>
+                  {isMember ? initials(e.title) : initials(e.invite?.email || e.invite?.phone, '@')}
+                </div>
+                <div className="mt">
+                  <div className="nm">{e.title}{isSelf ? <span className="chip-tag" style={{ fontSize: 9.5, marginLeft: 6 }}>{t('team.you')}</span> : null}</div>
+                  <div className="sub">{e.roleName}</div>
+                </div>
+                <div className="rt"><StatusPill status={e.status} t={t} /></div>
+                {items.length ? <ActionMenu items={items} /> : null}
+              </div>
+            )
+          })}
+        </div>
+
+        <button type="button" className="mfab" onClick={() => setInviteOpen(true)} aria-label={t('team.invite')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+        </button>
+
+        {overlays}
+      </>
+    )
+  }
+
   return (
     <div className="frame">
       <div className="page-head">
@@ -197,34 +316,7 @@ export function Team() {
         </table>
       </div>
 
-      {inviteOpen ? (
-        <InviteModal
-          roles={roles} t={t}
-          onClose={() => setInviteOpen(false)}
-          onSent={(res) => {
-            setInviteOpen(false)
-            invalidate()
-            if (res.status === 'pending_invite' && res.inviteUrl) { flash(t('team.inviteCreated')); setShareUrl(res.inviteUrl) }
-            else flash(t('team.inviteSent'))
-          }}
-          onError={(m) => setError(m)}
-        />
-      ) : null}
-      {changeFor ? <ChangeRoleModal member={changeFor} onClose={() => setChangeFor(null)} onSaved={() => { setChangeFor(null); flash(t('team.roleChanged')); invalidate() }} onError={(m) => setError(m)} t={t} /> : null}
-      {removeFor ? (
-        <ConfirmModal
-          title={t('team.removeTitle')} body={t('team.removeBody').replace('{name}', removeFor.name ?? removeFor.email ?? '')}
-          confirmLabel={t('team.removeConfirm')} pending={remove.isPending}
-          onCancel={() => setRemoveFor(null)} onConfirm={() => remove.mutate(removeFor.userId)} t={t}
-        />
-      ) : null}
-      {shareUrl ? <InviteLinkDialog url={shareUrl} t={t} onClose={() => setShareUrl(null)} onCopied={() => flash(t('team.linkCopied'))} /> : null}
-
-      {toast ? (
-        <div style={{ position: 'fixed', right: 22, bottom: 22, zIndex: 60, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow)', fontSize: 13, fontWeight: 600 }}>
-          <span style={{ color: 'var(--success)', display: 'inline-flex' }}><Check /></span>{toast}
-        </div>
-      ) : null}
+      {overlays}
     </div>
   )
 }
