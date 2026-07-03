@@ -1,0 +1,4 @@
+# Force LF line endings for shell scripts and git hooks — CRLF breaks `sh`
+# execution (the `\r` corrupts the shebang and every command) in Docker and CI.
+*.sh text eol=lf
+.husky/* text eol=lf

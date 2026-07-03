@@ -59,4 +59,6 @@ USER nestjs
 # API default port (config default + main.ts fallback = 3001; overridable via
 # the PORT env var, which Railway/ECS inject). EXPOSE is documentation only.
 EXPOSE 3001
+# Entrypoint runs DB migrations (+ any release scripts) first, then execs the CMD.
+ENTRYPOINT ["sh", "apps/api/scripts/docker-entrypoint.sh"]
 CMD ["node", "apps/api/dist/main.js"]
