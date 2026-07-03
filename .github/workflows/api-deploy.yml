@@ -1,0 +1,80 @@
+name: Deploy API
+
+# The deployable unit is a Docker image pushed to GHCR. Railway pulls that image now;
+# moving to AWS (ECS/App Runner) later means swapping only the deploy job — the image
+# and Dockerfile stay put.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/api-deploy.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: api-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/biztrack-api
+
+jobs:
+  build-and-push:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          # Context is the repo ROOT so the Dockerfile sees the pnpm workspace; it
+          # prunes down to the API with `turbo prune`.
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-railway:
+    name: Deploy to Railway
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+    steps:
+      # One-time setup: point the Railway service "Source" at the GHCR image
+      # ghcr.io/<owner>/biztrack-api:latest. `redeploy` then pulls the newest digest.
+      # See docs/cicd/CICD_SETUP.md.
+      - name: Redeploy service (pulls new :latest digest)
+        run: railway redeploy --service "$RAILWAY_SERVICE_ID" --yes

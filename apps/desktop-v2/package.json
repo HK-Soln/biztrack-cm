@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsc -p ../../packages/electron-core/tsconfig.json && electron-vite dev",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.config.web.ts",
     "start": "electron-vite preview",
     "seed:dev": "node scripts/seed-dev-db.js",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
