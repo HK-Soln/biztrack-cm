@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsEmail, IsOptional, IsString, IsUUID } from 'class-validator'
+import { IsEmail, IsOptional, IsUUID } from 'class-validator'
 import type { SendInviteRequest } from '@biztrack/types'
 import { IsValidPhone } from '@/common/validators/is-identifier.validator'
 

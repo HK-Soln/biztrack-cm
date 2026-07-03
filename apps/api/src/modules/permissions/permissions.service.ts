@@ -143,7 +143,7 @@ export class PermissionsService {
         currentPeriodStart: true,
         currentPeriodEnd: true,
         cancelAtPeriodEnd: true,
-      } as any,
+      },
     })
 
     return business ? this.resolveBusinessEntitlement(business) : null
@@ -268,7 +268,7 @@ export class PermissionsService {
       where: [
         { businessId, expiresAt: IsNull() },
         { businessId, expiresAt: MoreThan(new Date()) },
-      ] as any,
+      ],
     })
   }
 

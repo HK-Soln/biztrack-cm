@@ -75,7 +75,7 @@ export class SyncController {
     @CurrentUser() user: JwtPayload,
     @Query() query: PullSyncQueryDto,
   ): Promise<SyncPullResponse> {
-    return this.syncService.pullChanges(user.businessId as string, query.cursor ?? null, query.limit)
+    return this.syncService.pullChanges(user.businessId as string, query.cursor ?? null)
   }
 
   private assertDeviceBinding(user: JwtPayload, deviceId: string) {

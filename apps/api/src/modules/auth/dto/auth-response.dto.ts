@@ -54,18 +54,24 @@ export class AuthContextDto implements AuthContext {
 }
 
 export class AuthNextStepResponseDto {
-  static fromResult(result: any): AuthNextStepResponse {
+  static fromResult(result: Record<string, unknown>): AuthNextStepResponse {
+    const subscription = result.subscription as
+      | ({ trialEndsAt?: Date | string | number | null } & Record<string, unknown>)
+      | null
+      | undefined
     return {
       ...result,
-      context: AuthContextDto.fromModel(result.context),
-      verification: AuthVerificationDto.fromModel(result.verification),
-      subscription: result.subscription
+      context: AuthContextDto.fromModel(result.context as AuthContext | null | undefined),
+      verification: AuthVerificationDto.fromModel(
+        result.verification as Parameters<typeof AuthVerificationDto.fromModel>[0],
+      ),
+      subscription: subscription
         ? {
-            ...result.subscription,
-            trialEndsAt: toIsoString(result.subscription.trialEndsAt) ?? null,
+            ...subscription,
+            trialEndsAt: toIsoString(subscription.trialEndsAt) ?? null,
           }
         : undefined,
-    } as AuthNextStepResponse
+    } as unknown as AuthNextStepResponse
   }
 }
 

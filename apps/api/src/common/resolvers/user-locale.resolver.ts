@@ -3,7 +3,7 @@ import { I18nResolver } from 'nestjs-i18n'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { User } from '@/entities/user.entity'
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '@/common/enums/locale.enum'
+import { DEFAULT_LOCALE, Locale, SUPPORTED_LOCALES } from '@/common/enums/locale.enum'
 
 @Injectable()
 export class UserLocaleResolver implements I18nResolver {
@@ -20,7 +20,7 @@ export class UserLocaleResolver implements I18nResolver {
         where: { id: req.user.sub },
         select: ['language'],
       })
-      if (user?.language && SUPPORTED_LOCALES.includes(user.language as any)) {
+      if (user?.language && SUPPORTED_LOCALES.includes(user.language as Locale)) {
         return user.language
       }
     }
@@ -38,7 +38,7 @@ export class UserLocaleResolver implements I18nResolver {
     const acceptLang = req?.headers?.['accept-language']
     if (acceptLang) {
       const preferred = String(acceptLang).split(',')[0]?.split('-')[0]?.toLowerCase()
-      if (SUPPORTED_LOCALES.includes(preferred as any)) return preferred || DEFAULT_LOCALE
+      if (SUPPORTED_LOCALES.includes(preferred as Locale)) return preferred || DEFAULT_LOCALE
     }
 
     return DEFAULT_LOCALE

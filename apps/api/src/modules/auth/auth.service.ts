@@ -913,7 +913,7 @@ export class AuthService {
       const business = await this.businessesRepo.findOne({
         where: { id: invite.businessId },
         select: { id: true, name: true },
-      } as any)
+      })
 
       if (!business) {
         throw new AppNotFoundException('errors.invite_invalid', 'INVITE_INVALID')
@@ -923,7 +923,7 @@ export class AuthService {
         ? await this.usersRepo.findOne({
           where: { id: invite.invitedById },
           select: { id: true, name: true },
-        } as any)
+        })
         : null
 
       const sentTo = invite.phone

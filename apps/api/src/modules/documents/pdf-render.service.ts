@@ -13,6 +13,7 @@ const SYSTEM_CHROME_ARGS = ['--no-sandbox', '--disable-setuid-sandbox', '--disab
 // is not set and we're not on a Linux container with the bundled chromium.
 function systemChromeCandidates(): string[] {
   if (process.platform === 'win32') {
+    // eslint-disable-next-line turbo/no-undeclared-env-vars -- per-machine Windows path; must not be declared in turbo.json (would break cache sharing)
     const localAppData = process.env.LOCALAPPDATA ?? ''
     return [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',

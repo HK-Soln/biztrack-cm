@@ -7,7 +7,7 @@ import type {
   TeamMember,
   UpdateMemberRoleResponse,
 } from '@biztrack/types'
-import { Business as BusinessEntity, BusinessType } from '@/entities/business.entity'
+import { Business as BusinessEntity } from '@/entities/business.entity'
 import { BusinessMember } from '@/entities/business-member.entity'
 import { toIsoString } from '@/common/http/serialization'
 

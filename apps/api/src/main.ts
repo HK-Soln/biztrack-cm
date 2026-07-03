@@ -10,7 +10,6 @@ import { RedisService } from './common/redis/redis.service'
 import { NodeEnv, type AppConfig } from './config/configuration'
 import { createI18nValidationPipe } from './common/pipes/i18n-validation.pipe'
 import cookieParser from 'cookie-parser'
-import crypto from 'crypto'
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true })
