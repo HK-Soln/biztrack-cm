@@ -1,0 +1,8 @@
+# Lockfiles + generated/build output — never reformat these.
+pnpm-lock.yaml
+**/dist/
+**/out/
+**/.next/
+**/release/
+**/*.tsbuildinfo
+**/i18n.generated.ts
