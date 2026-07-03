@@ -43,9 +43,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Compiles renderer + main/preload (electron-vite). Does NOT run electron-builder.
+      # VITE_API_URL is baked into the packaged app at build time (main-process API base
+      # URL + renderer CSP). Set the repo variable to your production API, e.g.
+      # https://<api-host>/api/v1 (must include the /api/v1 prefix).
       - name: Build app
         working-directory: apps/desktop-v2
         run: pnpm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          # Optional per-build override (takes precedence over VITE_API_URL):
+          # DESKTOP_API_URL: ${{ vars.DESKTOP_API_URL }}
 
       - name: Package installer (NSIS)
         working-directory: apps/desktop-v2

@@ -34,6 +34,15 @@ const devCspPlugin = {
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    // Bake the API base URL into the packaged main-process bundle at BUILD time.
+    // electron-vite does NOT inline process.env for the main process, so without this
+    // the installed app reads process.env on the user's machine (unset) and falls back
+    // to localhost. Set VITE_API_URL (or DESKTOP_API_URL) in the build env — see
+    // desktop-v2-release.yml. src/main/config.ts reads exactly these two keys.
+    define: {
+      'process.env.DESKTOP_API_URL': JSON.stringify(process.env.DESKTOP_API_URL ?? ''),
+      'process.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL ?? ''),
+    },
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/main/index.ts') },
@@ -59,7 +68,10 @@ export default defineConfig({
         '@biztrack/templates': resolve(__dirname, '../../packages/templates/src'),
         // Cloud HTTP client (browser flavor) — alias to source so the renderer bundles
         // it as ESM (the published dist is CJS, which Rollup can't named-import here).
-        '@biztrack/http-client/browser': resolve(__dirname, '../../packages/http-client/src/browser.ts'),
+        '@biztrack/http-client/browser': resolve(
+          __dirname,
+          '../../packages/http-client/src/browser.ts',
+        ),
         '@biztrack/ui/styles.css': resolve(__dirname, '../../packages/ui/src/styles/biztrack.css'),
         '@biztrack/ui/biztrack': resolve(__dirname, '../../packages/ui/src/biztrack/index.ts'),
       },
