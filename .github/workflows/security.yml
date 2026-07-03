@@ -1,0 +1,92 @@
+name: Security
+
+# Secret scanning, SAST, dependency audit, and container image scanning.
+# Runs on PRs, pushes to main/develop, and a weekly schedule (catches newly
+# disclosed CVEs in code that hasn't changed).
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks can scan all commits in the range
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE is only required for GitHub Organizations, not personal repos.
+
+  codeql:
+    name: CodeQL (JS/TS SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # 'security-and-quality' adds maintainability queries on top of security.
+          queries: security-and-quality
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # Report-only. `pnpm audit` scans the ENTIRE workspace lockfile and can't be
+      # scoped per-package, so it's dominated by out-of-scope deps (e.g. the WIP mobile
+      # app's react-native transitive tree). The hard production-dependency gate is the
+      # Trivy scan of the shipped API image below, which sees only what actually ships.
+      - name: Audit (report)
+        run: pnpm audit --audit-level=moderate || true
+
+  image-scan:
+    name: API image scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # Building here also proves the API Dockerfile builds on CI.
+      - name: Build API image
+        run: docker build -f apps/api/Dockerfile -t biztrack-api:scan .
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: biztrack-api:scan
+          format: table
+          severity: CRITICAL,HIGH
+          # Ignore CVEs with no upstream fix (e.g. base-OS packages the app never invokes)
+          # so the gate stays actionable; fail on fixable HIGH/CRITICAL.
+          ignore-unfixed: true
+          exit-code: '1'
