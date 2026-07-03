@@ -1,0 +1,117 @@
+name: CI
+
+# One shared gate for the monorepo: type-check, lint, test, build via Turborepo.
+# Runs on every PR and on pushes to main/develop.
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Scope note: CI covers api + desktop-v2 (+ their shared-package deps via the `...`
+  # filters in the steps below). mobile / storefront / admin-* / web are WIP and not
+  # green yet — add their filters as each goes green.
+  # Turborepo remote cache — optional. No-op if the token/team aren't configured,
+  # so CI works out of the box and gets faster once they're set.
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  verify:
+    name: Type-check · Lint · Test · Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Installs the whole workspace (frozen lockfile). desktop-v2's postinstall
+      # rebuilds better-sqlite3 against Electron's ABI here — CI is strict, so it
+      # must succeed (ubuntu-latest has the python3 + build-essential toolchain).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Blocking gate: full suite for the API and ALL shared packages (the
+      # `desktop-v2^...` filter is desktop-v2's dependencies, not the app itself).
+      - name: Type-check · Lint · Test · Build (api + shared packages)
+        run: pnpm turbo run type-check lint test build --filter=@biztrack/api... --filter=@biztrack/desktop-v2^...
+
+      # Blocking gate: the desktop-v2 app's build + test.
+      - name: desktop-v2 app — build + test
+        run: pnpm turbo run build test --filter=@biztrack/desktop-v2
+
+      # Report-only: the desktop-v2 app's lint + type-check. main's WIP online-store
+      # feature (OnlineStore.tsx / data-client) has pre-existing lint/type errors that
+      # predate this gate. Fold these back into the blocking step above once fixed.
+      - name: desktop-v2 app — lint + type-check (report-only)
+        run: pnpm turbo run lint type-check --filter=@biztrack/desktop-v2 || true
+
+  migrations:
+    name: Migrations (ephemeral Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: biztrack
+          POSTGRES_PASSWORD: biztrack
+          POSTGRES_DB: biztrack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U biztrack"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # Migrations run through data-source.ts, which validates the FULL env schema —
+      # so every required var must be present. These are throwaway CI values, not secrets.
+      NODE_ENV: test
+      DATABASE_URL: postgres://biztrack:biztrack@localhost:5432/biztrack_test
+      JWT_SECRET: ci-not-a-real-secret
+      JWT_REFRESH_SECRET: ci-not-a-real-refresh-secret
+      API_URL: http://localhost:3001
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      REDIS_URL: redis://localhost:6379
+      RESEND_SENDER_DOMAINS: example.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Migrations run under ts-node and import entities, which import the shared
+      # packages — so those need their dist built first (deps only, not the API itself).
+      - name: Build workspace deps
+        run: pnpm turbo run build --filter=@biztrack/api^...
+
+      # Applies every migration in order to a clean database — fails if any migration
+      # is broken or out of order. (A schema-drift check via migration:generate needs
+      # TypeORM's typeorm_metadata table, which a fresh migration:run doesn't create —
+      # left as a future enhancement.)
+      - name: Run migrations
+        working-directory: apps/api
+        run: pnpm run migration:run

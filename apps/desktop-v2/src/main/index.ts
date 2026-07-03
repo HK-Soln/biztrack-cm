@@ -101,6 +101,9 @@ function createWindow(): void {
     minHeight: 600,
     backgroundColor: '#16467A',
     show: false,
+    // Window/taskbar icon. Packaged builds use the electron-builder-embedded exe
+    // (Windows) / bundle (macOS) icon; this covers the dev run on Windows/Linux.
+    ...(!isMac && !app.isPackaged ? { icon: join(app.getAppPath(), 'assets', 'icon.png') } : {}),
     autoHideMenuBar: true,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac
@@ -152,9 +155,8 @@ app.whenReady().then(() => {
   const secureStore = new SecureStoreService()
   const tokenStore = new TokenStore(secureStore)
   const localCache = new LocalCache(db)
-  let authService: AuthService
   const authHttp = createAuthHttp(tokenStore, () => authService?.onTokensCleared())
-  authService = new AuthService(authHttp, tokenStore, localCache)
+  const authService = new AuthService(authHttp, tokenStore, localCache)
   registerAuthIpc(authService)
 
   // Offline-first sync engine: drains the outbox + pulls catalog changes into local

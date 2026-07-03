@@ -57,7 +57,7 @@ async function main() {
   await AppDataSource.initialize()
 
   const repo = AppDataSource.getRepository(PlanConfig)
-  const existing = await repo.find({ order: { createdAt: 'ASC' as any } })
+  const existing = await repo.find({ order: { createdAt: 'ASC' as const } })
 
   console.log('Existing plan configs:')
   if (existing.length === 0) {
@@ -109,7 +109,7 @@ async function main() {
     }
   }
 
-  const refreshed = await repo.find({ order: { createdAt: 'ASC' as any } })
+  const refreshed = await repo.find({ order: { createdAt: 'ASC' as const } })
   console.log('Plan configs after seeding:')
   console.table(
     refreshed.map((plan) => ({

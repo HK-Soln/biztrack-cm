@@ -19,7 +19,7 @@ export enum SaleStatus {
   CANCELLED = 'CANCELLED',
 }
 
-export interface SaleCashierSummary extends ProductUserSummary {}
+export type SaleCashierSummary = ProductUserSummary
 
 export interface SalePayment {
   id: string

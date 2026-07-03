@@ -302,7 +302,7 @@ export function ProductForm() {
     if (d.modelId && !d.modelLabel) {
       patch({ modelLabel: selectedBrand.models.find((m) => m.id === d.modelId)?.name ?? null })
     }
-  }, [selectedBrand, brandSelectable])
+  }, [selectedBrand, brandSelectable, d.categoryId, d.modelId, d.modelLabel])
 
   // --- derived --------------------------------------------------------------
   const costN = Number(d.cost.replace(/\s/g, '')) || 0

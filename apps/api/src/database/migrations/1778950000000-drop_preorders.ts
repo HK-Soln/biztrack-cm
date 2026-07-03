@@ -23,7 +23,7 @@ export class DropPreorders1778950000000 implements MigrationInterface {
     `)
   }
 
-  public async down(_queryRunner: QueryRunner): Promise<void> {
+  public async down(): Promise<void> {
     // Intentionally empty — preorder tables are permanently removed and data is not recoverable.
   }
 }

@@ -5,7 +5,6 @@ import { plainToInstance } from 'class-transformer'
 import { validate, type ValidationError } from 'class-validator'
 import type {
   ChangeSet,
-  ContactSyncPayload,
   ContactSyncRecord,
   DebtPaymentSyncPayload,
   DebtSyncPayload,
@@ -641,11 +640,7 @@ export class SyncService {
     }
   }
 
-  async pullChanges(
-    businessId: string,
-    cursor: string | null,
-    _limit?: number,
-  ): Promise<SyncPullResponse> {
+  async pullChanges(businessId: string, cursor: string | null): Promise<SyncPullResponse> {
     try {
       const since = cursor ? new Date(cursor) : new Date(0)
       const pulledAt = new Date()

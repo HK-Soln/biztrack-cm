@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
@@ -182,6 +182,25 @@ export function Categories() {
     </div>
   )
 
+  // --- mobile: full-bleed header + tree list (tap → edit page) + FAB -------
+  if (bp === 'mobile') {
+    return (
+      <>
+        <header className="m-head">
+          <div className="m-tt">
+            <div className="m-title">{t('cat.title')}</div>
+            <div className="m-sub">{t('cat.subtitle')}</div>
+          </div>
+        </header>
+        {isPending ? <div className="cat-empty">{t('cat.loading')}</div> : list}
+        <div style={{ height: 76 }} />
+        <button type="button" className="mfab" onClick={() => navigate('/products/categories/new')} aria-label={t('cat.new')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </>
+    )
+  }
+
   return (
     <div className="frame">
       <div className="page-head">
@@ -199,8 +218,6 @@ export function Categories() {
 
       {isPending ? (
         <div className="cat-empty">{t('cat.loading')}</div>
-      ) : bp === 'mobile' ? (
-        list
       ) : (
         <div className="md">
           {list}

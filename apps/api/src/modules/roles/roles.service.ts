@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { In, Repository } from 'typeorm'
+import { Repository } from 'typeorm'
 import type {
   CreateRoleRequest,
   JwtPayload,
@@ -24,7 +24,6 @@ import {
 import {
   PERMISSION_CATALOGUE,
   PERMISSION_KEYS,
-  SYSTEM_ROLE_NAMES,
   SYSTEM_ROLE_PERMISSIONS,
 } from './permissions.catalogue'
 
@@ -101,7 +100,7 @@ export class RolesService {
 
     const perms = await this.rolePermsRepo.find({ where: { roleId: id } })
 
-    const memberCount = await this.membersRepo.count({ where: { businessId, roleId: id } as any })
+    const memberCount = await this.membersRepo.count({ where: { businessId, roleId: id } })
 
     return {
       id: role.id,
@@ -130,7 +129,11 @@ export class RolesService {
    * target role is within the actor's own permission set.
    * Owner users bypass all checks.
    */
-  private async requireRolesManageAccess(actor: JwtPayload, _targetRoleId?: string): Promise<void> {
+  private async requireRolesManageAccess(
+    actor: JwtPayload,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for the delegated (subset-containment) path described below, currently gated to owner-only
+    _targetRoleId?: string,
+  ): Promise<void> {
     // For now, role & permission management is HARD-BLOCKED to the business owner (super
     // admin). The delegated path below — a "roles:manage" holder may only manage roles
     // whose permissions are a subset of their own (assertRoleContained) — is kept for when
@@ -247,7 +250,7 @@ export class RolesService {
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
     if (role.isSystem) throw new AppForbiddenException('System roles cannot be deleted', 'ROLE_SYSTEM_IMMUTABLE')
 
-    const memberCount = await this.membersRepo.count({ where: { businessId, roleId: id } as any })
+    const memberCount = await this.membersRepo.count({ where: { businessId, roleId: id } })
     if (memberCount > 0) {
       throw new AppBadRequestException(
         'Cannot delete a role that is assigned to users',

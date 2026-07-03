@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
@@ -29,6 +30,7 @@ const I = {
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6}><path d="m4 12 5 5L20 6" /></svg>,
   bell: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M10.3 21a2 2 0 0 0 3.4 0" /></svg>,
   print: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z" /></svg>,
+  chevR: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>,
 }
 
 type TenderKey = 'cash' | 'momo' | 'om' | 'card' | 'deposit' | 'credit' | 'split'
@@ -68,8 +70,10 @@ function writeHeld(h: Held[]): void { try { localStorage.setItem(HELD_KEY, JSON.
 export function Sell() {
   const t = useT()
   const money = useCurrency()
+  const bp = useBreakpoint()
 
   const [search, setSearch] = useState('')
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [cart, setCart] = useState<CartLine[]>([])
   const [forceDeposit, setForceDeposit] = useState(false)
@@ -211,7 +215,7 @@ export function Sell() {
   // Hardware barcode scanners type fast and end with Enter — capture them globally
   // (capture phase, scanner-speed timing) so a scan adds to the cart wherever focus is.
   // Paused while a dialog is open so those handle their own input.
-  const overlayOpen = payOpen || custOpen || !!variantPick || !!serialPick || !!servicePick || heldOpen || !!done
+  const overlayOpen = payOpen || custOpen || !!variantPick || !!serialPick || !!servicePick || heldOpen || !!done || sheetOpen
   useBarcodeScanner((code) => { void handleScan(code) }, { enabled: !overlayOpen, minLength: 3 })
 
   // --- charge/discount library --------------------------------------------
@@ -256,6 +260,157 @@ export function Sell() {
   })
 
   const startNew = () => { setCart([]); setCharges([]); setCustomer(null); setDone(null); void catalog.refetch() }
+
+  // Shared modals/overlays — same on desktop, tablet and mobile (they're all triggered
+  // by the same state, so both layout branches render them).
+  const renderOverlays = () => (
+    <>
+      {heldOpen ? (
+        <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) setHeldOpen(false) }}>
+          <div className="pay-modal" style={{ width: 440 }}>
+            <div className="pm-head"><h3>{t('sell.heldSales')}</h3><button type="button" className="x" onClick={() => setHeldOpen(false)}>{I.x}</button></div>
+            <div className="cust-list">
+              {held.length === 0 ? <div className="cat-empty">{t('sell.noHeld')}</div> : null}
+              {held.map((h) => {
+                const items = h.cart.reduce((a, l) => a + l.quantity, 0)
+                const tot = h.cart.reduce((a, l) => a + l.unitPrice * l.quantity, 0)
+                return (
+                  <button key={h.id} type="button" onClick={() => resume(h)}>
+                    <div className="a">{I.receipt}</div>
+                    <div className="t"><div className="nm">{h.customer?.name ?? t('sell.walkIn')} · {items} {t('sell.itemsWord')}</div><div className="s">{money.format(tot)}</div></div>
+                    <div className="rt"><span className="trm" role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); dropHeld(h.id) }} style={{ display: 'inline-flex' }}>{I.x}</span></div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {variantPick ? (
+        <VariantPicker product={variantPick} onClose={() => setVariantPick(null)} onPick={(v) => addVariant(variantPick, v)} />
+      ) : null}
+
+      {serialPick ? (
+        <SerialPicker product={serialPick} onClose={() => setSerialPick(null)} onAdd={(units) => addSerials(serialPick, units)} />
+      ) : null}
+
+      {servicePick ? (
+        <ServicePricePicker product={servicePick} onClose={() => setServicePick(null)} onConfirm={(price) => addService(servicePick, price)} />
+      ) : null}
+
+      {custOpen ? (
+        <CustomerPicker
+          currentId={customer?.id ?? null}
+          onClose={() => setCustOpen(false)}
+          onPick={(c) => { setCustomer(c); setCustOpen(false) }}
+          onWalkIn={() => { setCustomer(null); setCustOpen(false) }}
+        />
+      ) : null}
+
+      {payOpen ? (
+        <PaymentModal
+          total={calc.total}
+          subtotal={calc.subtotal}
+          disc={calc.disc}
+          chg={calc.chg}
+          customer={customer}
+          defaultTender={forceDeposit ? 'deposit' : undefined}
+          forceDeposit={forceDeposit}
+          onClose={() => setPayOpen(false)}
+          onPickCustomer={() => { setPayOpen(false); setCustOpen(true) }}
+          busy={checkout.isPending}
+          onConfirm={(payments) => checkout.mutate(buildInput(payments))}
+        />
+      ) : null}
+
+      {done ? <SuccessModal sale={done} customerName={customer?.name ?? t('sell.walkIn')} onNew={startNew} /> : null}
+    </>
+  )
+
+  // --- mobile POS: full-width catalog + floating cart bar + checkout sheet ---
+  if (bp === 'mobile') {
+    return (
+      <>
+        <header className="m-head">
+          <div className="m-tt">
+            <div className="m-title">{t('sell.title')}</div>
+            <div className="m-sub">{customer?.name ?? t('sell.walkIn')} · {t('sell.tapToAdd')}</div>
+          </div>
+          <button type="button" className="m-ic" onClick={() => setCustOpen(true)} aria-label={t('sell.selectCustomer')}>{I.user}</button>
+        </header>
+
+        <div className="msearch" style={{ marginBottom: 13 }}>
+          {I.search}
+          <input
+            value={search}
+            placeholder={t('sell.searchPh')}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && search.trim()) {
+                e.preventDefault()
+                void handleScan(search.trim(), { silent: true }).then((ok) => { if (ok) setSearch('') })
+              }
+            }}
+          />
+        </div>
+        {scanMiss ? <div className="scan-miss">{t('sell.scanMiss').replace('{code}', scanMiss)}</div> : null}
+
+        <div className="mchips" style={{ marginBottom: 14 }}>
+          <button type="button" className={`mchip${categoryId === null ? ' active' : ''}`} onClick={() => setCategoryId(null)}>{t('sell.allCats')}</button>
+          {cats.map((c) => (
+            <button key={c.id} type="button" className={`mchip${categoryId === c.id ? ' active' : ''}`} onClick={() => setCategoryId(c.id)}>{c.name}</button>
+          ))}
+        </div>
+
+        <div className="pos-grid">
+          {products.map((p) => {
+            const out = p.trackInventory && p.currentStock <= 0
+            return (
+              <button key={p.id} type="button" className="pos-tile" disabled={out} onClick={() => void onProductClick(p)}>
+                <span className="padd">{I.plus}</span>
+                <div className="pth">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.trim().charAt(0).toUpperCase()}</div>
+                <div className="pn">{p.name}</div>
+                <div className="pp">
+                  <span>{money.format(p.effectiveSellingPrice)}</span>
+                  {p.trackInventory ? <span className={`ps${out ? ' out' : ''}`}>{out ? t('sell.outOfStock') : p.currentStock}</span> : null}
+                </div>
+              </button>
+            )
+          })}
+          {!catalog.isPending && products.length === 0 ? <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>{t('sell.noProducts')}</div> : null}
+        </div>
+        {catalog.hasNextPage ? (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <button type="button" className="mbtn" onClick={() => void catalog.fetchNextPage()}>{t('sell.loadMore')}</button>
+          </div>
+        ) : null}
+
+        {itemCount > 0 ? (
+          <button type="button" className="cartbar" onClick={() => setSheetOpen(true)}>
+            <span className="cc">{itemCount}</span>
+            <span className="ct"><span className="l">{t('sell.viewTicket')}</span><span className="v">{money.format(calc.total)}</span></span>
+            <span className="go">{t('sell.charge')}{I.chevR}</span>
+          </button>
+        ) : null}
+
+        {sheetOpen ? (
+          <MobileTicketSheet
+            cart={cart}
+            calc={calc}
+            money={money}
+            t={t}
+            itemCount={itemCount}
+            setQty={setQty}
+            onClose={() => setSheetOpen(false)}
+            onCharge={() => { setSheetOpen(false); setPayOpen(true) }}
+          />
+        ) : null}
+
+        {renderOverlays()}
+      </>
+    )
+  }
 
   return (
     <div className="frame">
@@ -409,67 +564,61 @@ export function Sell() {
         </div>
       </div>
 
-      {heldOpen ? (
-        <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) setHeldOpen(false) }}>
-          <div className="pay-modal" style={{ width: 440 }}>
-            <div className="pm-head"><h3>{t('sell.heldSales')}</h3><button type="button" className="x" onClick={() => setHeldOpen(false)}>{I.x}</button></div>
-            <div className="cust-list">
-              {held.length === 0 ? <div className="cat-empty">{t('sell.noHeld')}</div> : null}
-              {held.map((h) => {
-                const items = h.cart.reduce((a, l) => a + l.quantity, 0)
-                const tot = h.cart.reduce((a, l) => a + l.unitPrice * l.quantity, 0)
-                return (
-                  <button key={h.id} type="button" onClick={() => resume(h)}>
-                    <div className="a">{I.receipt}</div>
-                    <div className="t"><div className="nm">{h.customer?.name ?? t('sell.walkIn')} · {items} {t('sell.itemsWord')}</div><div className="s">{money.format(tot)}</div></div>
-                    <div className="rt"><span className="trm" role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); dropHeld(h.id) }} style={{ display: 'inline-flex' }}>{I.x}</span></div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {variantPick ? (
-        <VariantPicker product={variantPick} onClose={() => setVariantPick(null)} onPick={(v) => addVariant(variantPick, v)} />
-      ) : null}
-
-      {serialPick ? (
-        <SerialPicker product={serialPick} onClose={() => setSerialPick(null)} onAdd={(units) => addSerials(serialPick, units)} />
-      ) : null}
-
-      {servicePick ? (
-        <ServicePricePicker product={servicePick} onClose={() => setServicePick(null)} onConfirm={(price) => addService(servicePick, price)} />
-      ) : null}
-
-      {custOpen ? (
-        <CustomerPicker
-          currentId={customer?.id ?? null}
-          onClose={() => setCustOpen(false)}
-          onPick={(c) => { setCustomer(c); setCustOpen(false) }}
-          onWalkIn={() => { setCustomer(null); setCustOpen(false) }}
-        />
-      ) : null}
-
-      {payOpen ? (
-        <PaymentModal
-          total={calc.total}
-          subtotal={calc.subtotal}
-          disc={calc.disc}
-          chg={calc.chg}
-          customer={customer}
-          defaultTender={forceDeposit ? 'deposit' : undefined}
-          forceDeposit={forceDeposit}
-          onClose={() => setPayOpen(false)}
-          onPickCustomer={() => { setPayOpen(false); setCustOpen(true) }}
-          busy={checkout.isPending}
-          onConfirm={(payments) => checkout.mutate(buildInput(payments))}
-        />
-      ) : null}
-
-      {done ? <SuccessModal sale={done} customerName={customer?.name ?? t('sell.walkIn')} onNew={startNew} /> : null}
+      {renderOverlays()}
     </div>
+  )
+}
+
+// --- mobile checkout sheet -------------------------------------------------
+// Bottom sheet that reviews/edits the ticket then hands off to the shared PaymentModal.
+function MobileTicketSheet({ cart, calc, money, t, itemCount, setQty, onClose, onCharge }: {
+  cart: CartLine[]
+  calc: { subtotal: number; disc: number; chg: number; total: number; amountOf: (c: ChargeLine) => number }
+  money: ReturnType<typeof useCurrency>
+  t: ReturnType<typeof useT>
+  itemCount: number
+  setQty: (key: string, d: number) => void
+  onClose: () => void
+  onCharge: () => void
+}) {
+  return (
+    <>
+      <div className="msheet-ov" onClick={onClose} />
+      <div className="msheet">
+        <div className="grab" />
+        <div className="sh-h">
+          <h3>{t('sell.currentSale')} · {itemCount} {t('sell.itemsWord')}</h3>
+          <button type="button" className="m-ic" onClick={onClose} aria-label={t('sell.remove')}>{I.x}</button>
+        </div>
+        <div className="sh-b">
+          {cart.map((l) => (
+            <div key={l.key} className="sh-line">
+              <div className="th">{l.name.trim().charAt(0).toUpperCase()}</div>
+              <div className="li">
+                <div className="nm">{l.name}</div>
+                <div className="up">{money.format(l.unitPrice)} × {l.quantity}</div>
+              </div>
+              {l.serialUnitId ? (
+                <div className="sh-qty"><b>1</b></div>
+              ) : (
+                <div className="sh-qty">
+                  <button type="button" onClick={() => setQty(l.key, -1)}>−</button>
+                  <b>{l.quantity}</b>
+                  <button type="button" onClick={() => setQty(l.key, 1)}>+</button>
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="sh-tot">
+            <div className="r"><span>{t('sell.subtotal')}</span><span>{money.format(calc.subtotal)}</span></div>
+            {calc.disc > 0 ? <div className="r"><span>{t('sell.discounts')}</span><span>− {money.format(calc.disc)}</span></div> : null}
+            {calc.chg > 0 ? <div className="r"><span>{t('sell.charges')}</span><span>+ {money.format(calc.chg)}</span></div> : null}
+            <div className="r grand"><span>{t('sell.total')}</span><span>{money.format(calc.total)}</span></div>
+          </div>
+          <button type="button" className="mbtn mbtn-primary" onClick={onCharge}>{t('sell.charge')} {money.format(calc.total)}</button>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -579,7 +728,7 @@ function SerialPicker({ product, onClose, onAdd }: { product: LocalProduct; onCl
     queryFn: () => dataClient.products.listInStockSerials(product.id, null, q),
     enabled: true,
   })
-  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   return (
     <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="pay-modal" style={{ width: 440 }}>

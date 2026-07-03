@@ -6,12 +6,54 @@
   "scripts": {
     "dev": "tsc -p ../../packages/electron-core/tsconfig.json && electron-vite dev",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.config.web.ts",
     "start": "electron-vite preview",
     "seed:dev": "node scripts/seed-dev-db.js",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "type-check": "npm run typecheck",
+    "lint": "eslint . --max-warnings 0",
+    "icon": "node scripts/gen-icon.mjs",
+    "dist": "electron-vite build && electron-builder",
     "postinstall": "node scripts/rebuild-sqlite.js"
+  },
+  "build": {
+    "appId": "cm.biztrack.desktop",
+    "productName": "BizTrack CM",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "icon": "assets/icon.png",
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.business"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/icon.png",
+      "category": "Office"
+    }
   },
   "dependencies": {
     "@biztrack/electron-core": "workspace:*",
@@ -32,8 +74,10 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@biztrack/eslint-config": "workspace:*",
     "@biztrack/typescript-config": "workspace:*",
     "@electron/rebuild": "3.6.1",
+    "eslint": "^9.32.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",

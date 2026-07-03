@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { FileUpload } from '@/components/FileUpload'
 import { FieldError } from '@/components/FieldError'
@@ -48,8 +50,10 @@ function donutGradient(slices: ExpenseCategorySlice[]): string {
 
 export function Expenses() {
   const t = useT()
+  const bp = useBreakpoint()
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const [period, setPeriod] = useState<Period>('month')
@@ -85,6 +89,126 @@ export function Expenses() {
 
   // Compact number WITHOUT the currency symbol (money.compact appends it).
   const compactNum = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}K` : money.plain(n))
+
+  // Add / edit + mark-paid modals, shared by the desktop and mobile layouts.
+  const modals = (
+    <>
+      {formOpen ? (
+        <ExpenseFormModal
+          expense={editing}
+          categories={cats}
+          t={t}
+          onClose={() => setFormOpen(false)}
+          onSaved={() => { refresh(); setFormOpen(false) }}
+        />
+      ) : null}
+      {markPaidExpense ? (
+        <MarkPaidDialog
+          expense={markPaidExpense}
+          t={t}
+          onClose={() => setMarkPaidExpense(null)}
+          onSaved={() => { refresh(); setMarkPaidExpense(null) }}
+        />
+      ) : null}
+    </>
+  )
+
+  const donutCard = (
+    <div className="mcard" style={{ marginBottom: 16 }}>
+      <div className="donut-wrap">
+        <div className="donut" style={{ background: donutGradient(s?.byCategory ?? []) }}>
+          <div className="ctr"><div><div className="b">{compactNum(s?.total ?? 0)}</div><div className="s">{money.symbol}</div></div></div>
+        </div>
+        <div className="cat-legend">
+          {(s?.byCategory ?? []).slice(0, 6).map((c) => (
+            <div key={c.categoryId} className="cl">
+              <span className="sw" style={{ background: c.color }} />
+              <span className="nm">{c.name}</span>
+              <span className="pct">{c.percentage}%</span>
+              <span className="amt">{money.format(c.amount)}</span>
+            </div>
+          ))}
+          {(s?.byCategory ?? []).length === 0 ? <div className="hint">{t('expenses.noData')}</div> : null}
+        </div>
+      </div>
+    </div>
+  )
+
+  // --- mobile: header + category donut + spend-trend card + ledger list + FAB ---
+  if (bp === 'mobile') {
+    const monthLabel = new Date().toLocaleDateString(lang, { month: 'long', year: 'numeric' })
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('common.back')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt">
+            <div className="m-title">{t('expenses.title')}</div>
+            <div className="m-sub">{monthLabel} · {money.compact(s?.total ?? 0)}</div>
+          </div>
+        </header>
+
+        {donutCard}
+
+        <div className="mcard" style={{ marginBottom: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 650 }}>{t('expenses.trend')}</span>
+            {s && s.changePct !== 0 ? (
+              <span className={`mst ${s.changePct > 0 ? 'mst-out' : 'mst-ok'}`} style={{ fontSize: 10.5 }}><span className="d" />{s.changePct > 0 ? '▲' : '▼'} {Math.abs(s.changePct).toFixed(1)}%</span>
+            ) : null}
+          </div>
+          <div className="bars">
+            {trendItems.map((m) => (
+              <div key={`${m.year}-${m.month}`} className="bar-col">
+                <div className="bar-pair"><div className="bar cur" style={{ height: `${Math.max(3, Math.round((m.total / maxTrend) * 100))}%` }} /></div>
+                <div className="bar-lab">{m.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="stat-row">
+            <div className="well"><div className="k">{t('expenses.thisMonth')}</div><div className="v">{money.compact(thisMonth)}</div></div>
+            <div className="well"><div className="k">{t('expenses.avg6')}</div><div className="v">{money.compact(avg6)}</div></div>
+            <div className="well"><div className="k">{t('expenses.vsLast')}</div><div className="v" style={{ color: change > 0 ? 'var(--danger)' : 'var(--success)' }}>{change >= 0 ? '+' : '−'}{money.compact(Math.abs(change))}</div></div>
+          </div>
+        </div>
+
+        <div className="m-sec">{t('expenses.ledger')}</div>
+        <div className="mlist">
+          {list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('expenses.loading')}</div></div></div> : null}
+          {!list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('expenses.empty')}</div></div></div> : null}
+          {rows.map((e) => (
+            <button key={e.id} type="button" className="mrow" onClick={() => { setEditing(e); setFormOpen(true) }}>
+              <div className="th">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ width: 18, height: 18 }}><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z" /><path d="M8 8h8M8 12h8" /></svg>
+              </div>
+              <div className="mt">
+                <div className="nm">{e.description}</div>
+                <div className="sub">{e.categoryName ?? '—'} · {formatDay(e.expenseDate, lang)}</div>
+              </div>
+              <div className="rt">
+                <div className="v">{money.format(e.amount)}</div>
+                <div className="s"><span className={`mst ${e.status === 'PENDING' ? 'mst-low' : 'mst-ok'}`}><span className="d" />{e.status === 'PENDING' ? t('expenses.pending') : t('expenses.paid')}</span></div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {(list.data?.totalPages ?? 1) > 1 ? (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{t('expenses.prev')}</button>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={(list.data?.page ?? 1) >= (list.data?.totalPages ?? 1)} onClick={() => setPage((p) => p + 1)}>{t('expenses.next')}</button>
+          </div>
+        ) : null}
+
+        <button type="button" className="mfab" onClick={() => { setEditing(null); setFormOpen(true) }} aria-label={t('expenses.add')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+
+        {modals}
+      </>
+    )
+  }
 
   return (
     <div className="frame">
@@ -232,24 +356,7 @@ export function Expenses() {
         </div>
       </div>
 
-      {formOpen ? (
-        <ExpenseFormModal
-          expense={editing}
-          categories={cats}
-          t={t}
-          onClose={() => setFormOpen(false)}
-          onSaved={() => { refresh(); setFormOpen(false) }}
-        />
-      ) : null}
-
-      {markPaidExpense ? (
-        <MarkPaidDialog
-          expense={markPaidExpense}
-          t={t}
-          onClose={() => setMarkPaidExpense(null)}
-          onSaved={() => { refresh(); setMarkPaidExpense(null) }}
-        />
-      ) : null}
+      {modals}
     </div>
   )
 }

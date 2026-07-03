@@ -158,36 +158,8 @@ export function Attributes() {
     </div>
   )
 
-  return (
-    <div className="frame">
-      <div className="page-head">
-        <div>
-          <h1>{t('attr.title')}</h1>
-          <p>{t('attr.subtitle')}</p>
-        </div>
-        <Button variant="primary" onClick={() => setGroupModal({ mode: 'create' })}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          {t('attr.newGroup')}
-        </Button>
-      </div>
-
-      {isPending ? (
-        <div className="cat-empty">{t('attr.loading')}</div>
-      ) : bp === 'mobile' ? (
-        selected ? (
-          detail
-        ) : (
-          groupList
-        )
-      ) : (
-        <div className="mdlayout wide">
-          {groupList}
-          {detail}
-        </div>
-      )}
-
+  const modals = (
+    <>
       {groupModal ? (
         <GroupModal
           mode={groupModal.mode}
@@ -225,6 +197,60 @@ export function Attributes() {
           {t('attr.deleteGroupBody').replace('{name}', deleteTarget?.name ?? '')}
         </p>
       </Modal>
+    </>
+  )
+
+  // --- mobile: master-detail (group list → tap → detail with back) + FAB ---
+  if (bp === 'mobile') {
+    return (
+      <>
+        {selected ? (
+          detail
+        ) : (
+          <>
+            <header className="m-head">
+              <div className="m-tt">
+                <div className="m-title">{t('attr.title')}</div>
+                <div className="m-sub">{t('attr.subtitle')}</div>
+              </div>
+            </header>
+            {isPending ? <div className="cat-empty">{t('attr.loading')}</div> : groupList}
+            <div style={{ height: 76 }} />
+            <button type="button" className="mfab" onClick={() => setGroupModal({ mode: 'create' })} aria-label={t('attr.newGroup')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+          </>
+        )}
+        {modals}
+      </>
+    )
+  }
+
+  return (
+    <div className="frame">
+      <div className="page-head">
+        <div>
+          <h1>{t('attr.title')}</h1>
+          <p>{t('attr.subtitle')}</p>
+        </div>
+        <Button variant="primary" onClick={() => setGroupModal({ mode: 'create' })}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          {t('attr.newGroup')}
+        </Button>
+      </div>
+
+      {isPending ? (
+        <div className="cat-empty">{t('attr.loading')}</div>
+      ) : (
+        <div className="mdlayout wide">
+          {groupList}
+          {detail}
+        </div>
+      )}
+
+      {modals}
     </div>
   )
 }

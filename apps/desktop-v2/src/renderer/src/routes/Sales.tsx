@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { SaleDetailDrawer } from '@/components/sales/SaleDetailDrawer'
-import { formatSaleTime, salePayLabel, saleStatusInfo } from '@/components/sales/sale-format'
+import { SaleReceiptView } from '@/components/sales/SaleReceiptView'
+import { MobileSheet } from '@/components/MobileSheet'
+import { formatSaleTime, saleInitials, salePayLabel, saleStatusInfo } from '@/components/sales/sale-format'
 import type { SalesListQuery } from '@shared/ipc'
 
 const PAGE = 12
@@ -31,8 +35,10 @@ function rangeFor(period: Period): { dateFrom: string; dateTo: string } {
 
 export function Sales() {
   const t = useT()
+  const bp = useBreakpoint()
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
+  const navigate = useNavigate()
 
   const [period, setPeriod] = useState<Period>('week')
   const [payment, setPayment] = useState<string>('')
@@ -46,8 +52,8 @@ export function Sales() {
     [range, payment, search],
   )
 
-  // Reset to page 1 whenever the filters change.
-  useEffect(() => { setPage(1) }, [period, payment, search])
+  // Reset to page 1 (and drop the tablet selection) whenever the filters change.
+  useEffect(() => { setPage(1); setOpenId(null) }, [period, payment, search])
 
   const summary = useQuery({
     queryKey: ['sales', 'summary', range, payment, search],
@@ -78,6 +84,146 @@ export function Sales() {
     a.download = `sales-${period}-${range.dateTo}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const periodSub = `${t('sales.txns').replace('{n}', String(summary.data?.transactions ?? 0))} · ${money.format(summary.data?.revenue ?? 0)}`
+  const saleRow = (s: (typeof rows)[number]) => {
+    const st = saleStatusInfo(t, s)
+    const name = s.customerName ?? t('sales.walkIn')
+    return { st, name, initials: saleInitials(name) }
+  }
+
+  // --- mobile: header + period segments + KPIs + transaction list + receipt sheet ---
+  if (bp === 'mobile') {
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('common.back')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt">
+            <div className="m-title">{t('sales.title')}</div>
+            <div className="m-sub">{periodSub}</div>
+          </div>
+          <button type="button" className="m-ic" onClick={() => void exportCsv()} aria-label={t('sales.export')}>{I.export}</button>
+        </header>
+
+        <div className="mseg" style={{ marginBottom: 16 }}>
+          {(['today', 'week', 'month'] as Period[]).map((p) => (
+            <button key={p} type="button" aria-pressed={period === p} onClick={() => setPeriod(p)}>{t(`sales.${p}` as Parameters<typeof t>[0])}</button>
+          ))}
+        </div>
+
+        <div className="mkpis" style={{ marginBottom: 18 }}>
+          <div className="mkpi">
+            <div className="top"><span className="ic b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 3v18h18" /><path d="m7 14 3-4 3 3 4-6" /></svg></span></div>
+            <div className="v">{money.compact(summary.data?.revenue ?? 0)}</div>
+            <div className="k">{t('sales.kpiRevenue').replace('{period}', t(`sales.${period}` as Parameters<typeof t>[0]).toLowerCase())}</div>
+          </div>
+          <div className="mkpi">
+            <div className="top"><span className="ic g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg></span></div>
+            <div className="v">{money.compact(summary.data?.averageBasket ?? 0)}</div>
+            <div className="k">{t('sales.kpiBasket')}</div>
+          </div>
+        </div>
+
+        <div className="m-sec">{t('sales.transactions')}</div>
+        <div className="mlist">
+          {list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('sales.loading')}</div></div></div> : null}
+          {!list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('sales.empty')}</div></div></div> : null}
+          {rows.map((s) => {
+            const r = saleRow(s)
+            return (
+              <button key={s.id} type="button" className="mrow" onClick={() => setOpenId(s.id)}>
+                <div className="th brand round">{r.initials}</div>
+                <div className="mt">
+                  <div className="nm">{r.name} · #{s.saleNumber}</div>
+                  <div className="sub">{salePayLabel(t, s.paymentMethod)} · {formatSaleTime(s.soldAt, lang)}</div>
+                </div>
+                <div className="rt">
+                  <div className="v">{money.format(s.totalAmount)}</div>
+                  <div className="s"><span className={`mst ${r.st.cls.replace('st-', 'mst-')}`}><span className="d" />{r.st.label}</span></div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        {(meta?.totalPages ?? 1) > 1 ? (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{t('common.prev')}</button>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={(meta?.page ?? 1) >= (meta?.totalPages ?? 1)} onClick={() => setPage((p) => p + 1)}>{t('common.next')}</button>
+          </div>
+        ) : null}
+
+        {openId ? (
+          <MobileSheet title={t('sales.receipt')} onClose={() => setOpenId(null)}>
+            <SaleReceiptView saleId={openId} />
+          </MobileSheet>
+        ) : null}
+      </>
+    )
+  }
+
+  // --- tablet: two-pane master-detail (transaction list left, receipt right) ---
+  if (bp === 'tablet') {
+    const selectedId = openId ?? rows[0]?.id ?? null
+    return (
+      <div className="tpane">
+        <div className="page-head" style={{ marginBottom: 16 }}>
+          <div>
+            <h1>{t('sales.title')}</h1>
+            <p>{periodSub}</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="seg2">
+              {(['today', 'week', 'month'] as Period[]).map((p) => (
+                <button key={p} type="button" aria-pressed={period === p} onClick={() => setPeriod(p)}>{t(`sales.${p}` as Parameters<typeof t>[0])}</button>
+              ))}
+            </span>
+            <button type="button" className="btn" onClick={() => void exportCsv()}>{I.export}{t('sales.export')}</button>
+          </div>
+        </div>
+
+        <div className="tsplit">
+          <div className="tsplit-list">
+            <div className="tslh">
+              <span className="chip-tag">{t('sales.count').replace('{n}', String(meta?.total ?? 0)).replace('{amt}', money.format(summary.data?.revenue ?? 0))}</span>
+              <div style={{ flex: 1 }} />
+              <div className="select-wrap" style={{ width: 150 }}>
+                <select className="select" style={{ height: 34, fontSize: 12 }} value={payment} onChange={(e) => setPayment(e.target.value)}>
+                  <option value="">{t('sales.allPayments')}</option>
+                  {PAY_FILTERS.map((m) => <option key={m} value={m}>{salePayLabel(t, m)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="tslb">
+              {list.isPending && rows.length === 0 ? <div className="cat-empty">{t('sales.loading')}</div> : null}
+              {!list.isPending && rows.length === 0 ? <div className="cat-empty">{t('sales.empty')}</div> : null}
+              {rows.map((s) => {
+                const r = saleRow(s)
+                return (
+                  <button key={s.id} type="button" className={`trow${s.id === selectedId ? ' sel' : ''}`} onClick={() => setOpenId(s.id)}>
+                    <div className="th brand round">{r.initials}</div>
+                    <div className="tt">
+                      <div className="nm">{r.name} · #{s.saleNumber}</div>
+                      <div className="sub">{salePayLabel(t, s.paymentMethod)} · {formatSaleTime(s.soldAt, lang)}</div>
+                    </div>
+                    <div className="rt">
+                      <div className="v">{money.format(s.totalAmount)}</div>
+                      <div className="s"><span className={`st ${r.st.cls}`}><span className="d" />{r.st.label}</span></div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="tsplit-detail">
+            {selectedId ? <div className="tsdpad"><SaleReceiptView saleId={selectedId} /></div> : <div className="receipt-empty">{t('sales.empty')}</div>}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -4,7 +4,6 @@ import { AuthShell } from '@/components/layout/AuthShell'
 import { RequireAuth, RequireGuest, RequireOwner } from '@/components/RouteGuards'
 import { RouteError } from '@/components/RouteError'
 import { Dashboard } from '@/routes/Dashboard'
-import { Placeholder } from '@/routes/Placeholder'
 import { SignIn } from '@/routes/SignIn'
 import { SignUp } from '@/routes/SignUp'
 import { Invite } from '@/routes/Invite'
@@ -42,6 +41,7 @@ import { OnlineOrders } from '@/routes/OnlineOrders'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
 import { UserSettings } from '@/routes/UserSettings'
+import { More } from '@/routes/More'
 import { Team } from '@/routes/Team'
 import { Roles } from '@/routes/Roles'
 import { ReportViewer } from '@/routes/ReportViewer'
@@ -118,7 +118,7 @@ export const router = createHashRouter([
       { path: '/roles/:id/edit', element: <RequireOwner><RoleForm /></RequireOwner> },
       { path: '/settings', element: <Settings /> },
       { path: '/profile', element: <UserSettings /> },
-      { path: '/more', element: <Placeholder titleKey="nav.more" /> },
+      { path: '/more', element: <More /> },
     ],
   },
     ],

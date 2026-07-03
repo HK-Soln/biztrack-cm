@@ -3,8 +3,6 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type {
   AcceptInvitationResponse,
   BulkUpdateMemberRoleResponse,
-  Business,
-  BusinessMembershipSummary,
   JwtPayload,
   ListMyInvitationsResponse,
   ListTeamMembersResponse,
@@ -20,7 +18,6 @@ import { BusinessMembersRepository } from './repositories/business-members.repos
 import { BusinessService } from './business.service'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import {
-  BusinessDto,
   BusinessMembershipSummaryDto,
   ListTeamMembersResponseDto,
   RemoveTeamMemberResponseDto,

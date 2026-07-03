@@ -6,6 +6,7 @@ import type { ReportBusiness } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useSessionStore } from '@/stores/session.store'
 import { LOADERS, REPORTS, REPORT_CATEGORIES, isRoutable, reportById } from '@/components/reports/registry'
 import { periodLabel, rangeFor, type ReportPeriodKey } from '@/components/reports/period'
@@ -38,6 +39,7 @@ function download(name: string, text: string, mime: string) {
 
 export function ReportViewer() {
   const t = useT()
+  const bp = useBreakpoint()
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
   const fr = lang.startsWith('fr')
@@ -166,8 +168,88 @@ export function ReportViewer() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fs, routable, html])
+
+  // --- mobile: library index (period + KPIs + report list) and a full-width viewer ---
+  if (bp === 'mobile') {
+    const backBtn = (onClick: () => void) => (
+      <button type="button" className="back" onClick={onClick} aria-label={t('common.back')}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+      </button>
+    )
+    const periodSeg = (
+      <div className="mseg" style={{ marginBottom: 14 }}>
+        {PERIODS.map((p) => (
+          <button key={p} type="button" aria-pressed={period === p} onClick={() => setPeriod(p)}>{t(`reports.${p}` as Parameters<typeof t>[0])}</button>
+        ))}
+      </div>
+    )
+
+    if (!id) {
+      return (
+        <>
+          <header className="m-head">
+            {backBtn(() => navigate(-1))}
+            <div className="m-tt"><div className="m-title">{t('nav.reports')}</div><div className="m-sub">{label} · {t('reports.glance')}</div></div>
+          </header>
+          {periodSeg}
+          <div className="mkpis" style={{ marginBottom: 18 }}>
+            <div className="mkpi"><div className="v">{money.compact(revenue)}</div><div className="k">{t('reports.kRevenue')}</div></div>
+            <div className="mkpi"><div className="v">{money.compact(spend)}</div><div className="k">{t('reports.kExpenses')}</div></div>
+            <div className="mkpi"><div className="v">{money.compact(revenue - spend)}</div><div className="k">{t('reports.kOperating')}</div></div>
+            <div className="mkpi"><div className="v">{money.compact(kpi.contacts.data?.totalReceivable ?? 0)}</div><div className="k">{t('reports.kReceivable')}</div></div>
+          </div>
+          <div className="m-sec">{t('reports.library')}</div>
+          <div className="mlist">
+            {grouped.flatMap(({ cat, reps }) =>
+              reps.map((r) => {
+                const on = r.built && !!LOADERS[r.id]
+                const inner = (
+                  <>
+                    <div className="th"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ width: 18, height: 18 }}><path d="M5 3h11l4 4v14H5z" /><path d="M15 3v5h5M8 13h8M8 17h5" /></svg></div>
+                    <div className="mt"><div className="nm">{fr ? r.fr : r.name}</div><div className="sub">{fr ? r.name : r.fr}</div></div>
+                    {cat.tag ? <span className="chip-tag">{cat.tag}</span> : !on ? <span className="chip-tag">{t('reports.soonTag')}</span> : null}
+                    {on ? <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg> : null}
+                  </>
+                )
+                return on ? (
+                  <button key={r.id} type="button" className="mrow" onClick={() => select(r.id)}>{inner}</button>
+                ) : (
+                  <div key={r.id} className="mrow" style={{ opacity: 0.55, cursor: 'default' }}>{inner}</div>
+                )
+              }),
+            )}
+          </div>
+        </>
+      )
+    }
+
+    return (
+      <>
+        <header className="m-head">
+          {backBtn(() => navigate(`/reports?period=${period}`))}
+          <div className="m-tt"><div className="m-title">{meta ? (fr ? meta.fr : meta.name) : t('nav.reports')}</div><div className="m-sub">{label}</div></div>
+        </header>
+        {periodSeg}
+        {routable ? (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {canCsv ? <button type="button" className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={exportCsv}>{I.csv}CSV</button> : null}
+            <button type="button" className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={print} disabled={!html}>{I.print}{t('reports.print')}</button>
+            <button type="button" className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => void exportPdf()} disabled={!html || busy}>{I.pdf}{busy ? '…' : t('reports.exportPdf')}</button>
+          </div>
+        ) : null}
+        {!routable ? (
+          <div className="mcard"><p className="hint">{t('reports.soonBody')}</p></div>
+        ) : report.isError ? (
+          <div className="mcard"><p className="hint">{t('reports.loadErrorBody')}</p></div>
+        ) : report.isPending || !html ? (
+          <div className="mcard"><p className="hint">{t('reports.loading')}</p></div>
+        ) : (
+          <div className="rv-paper" style={{ height: '72vh' }}><iframe ref={iframeRef} srcDoc={html} title={meta ? meta.name : 'report'} /></div>
+        )}
+      </>
+    )
+  }
 
   return (
     <>

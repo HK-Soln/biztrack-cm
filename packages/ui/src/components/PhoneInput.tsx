@@ -1,5 +1,4 @@
 'use client'
-//@ts-ignore
 import 'react-phone-number-input/style.css'
 import * as React from 'react'
 import PhoneInputBase, { type Country } from 'react-phone-number-input'
@@ -28,7 +27,8 @@ export interface PhoneInputProps
 
 const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
   ({ className, value, onChange, disableCountrySelect = false, ...props }, ref) => {
-    const PhoneInputPrimitive = PhoneInputBase as unknown as React.ComponentType<any>
+    const PhoneInputPrimitive =
+      PhoneInputBase as unknown as React.ComponentType<Record<string, unknown>>
 
     return (
       <div
@@ -39,7 +39,7 @@ const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
       >
         <PhoneInputPrimitive
           {...props}
-          ref={ref as any}
+          ref={ref}
           international
           defaultCountry={'CM' as Country}
           country={'CM' as Country}

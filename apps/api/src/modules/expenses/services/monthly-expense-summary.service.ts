@@ -72,7 +72,7 @@ export class MonthlyExpenseSummaryService {
         categoryBreakdown,
         expenseCount,
         recurringAmount: this.roundMoney(recurringAmount),
-      } as any,
+      },
       ['businessId', 'summaryYear', 'summaryMonth'],
     )
   }

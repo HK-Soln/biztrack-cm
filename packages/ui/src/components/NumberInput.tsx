@@ -4,7 +4,7 @@ import React from 'react'
 import { cn } from '../lib/utils'
 import { Input, type InputProps } from './Input'
 
-export interface NumberInputProps extends Omit<InputProps, 'type'> {}
+export type NumberInputProps = Omit<InputProps, 'type'>
 
 export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
   ({ className, inputMode = 'decimal', ...props }, ref) => {

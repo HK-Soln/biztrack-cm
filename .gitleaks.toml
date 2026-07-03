@@ -1,0 +1,31 @@
+title = "BizTrack gitleaks config"
+
+# Start from gitleaks' built-in rule set, then narrow with allowlists below.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and CI placeholders — not production secrets"
+# Vendor/build/output dirs (never source; full of example keys) + Postman collections
+# with captured/expired test tokens. Real secrets live in untracked .env / GitHub Secrets.
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)out/''',
+  '''(^|/)\.next/''',
+  '''(^|/)\.history/''',
+  '''(^|/)release/''',
+  '''(^|/)coverage/''',
+  '''(^|/)\.git/''',
+  '''\.tsbuildinfo$''',
+  '''pnpm-lock\.yaml$''',
+  '''docs/postman/.*''',
+  # Deprecated/removed legacy app — a `key: '...' as const` constant trips the
+  # generic-api-key rule in old history; it's not a credential.
+  '''(^|/)apps/desktop/.*''',
+]
+# Obvious non-secrets used as throwaway values in CI workflow files.
+regexes = [
+  '''ci-not-a-real-secret''',
+  '''ci-not-a-real-refresh-secret''',
+]

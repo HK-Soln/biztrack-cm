@@ -78,6 +78,112 @@ export function Units() {
       </span>
     )
 
+  const editModal = edit ? (
+    <UnitModal
+      unit={edit.unit}
+      onClose={() => setEdit(null)}
+      onSaved={() => {
+        invalidate()
+        setEdit(null)
+      }}
+    />
+  ) : null
+  const deleteModal = (
+    <Modal
+      open={!!deleteTarget}
+      onClose={() => setDeleteTarget(null)}
+      title={t('unit.deleteTitle')}
+      footer={
+        <>
+          <Button variant="soft" onClick={() => setDeleteTarget(null)} disabled={removeM.isPending}>
+            {t('unit.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            loading={removeM.isPending}
+            style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+            onClick={() => void confirmDelete()}
+          >
+            {t('unit.delete')}
+          </Button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+        {t('unit.deleteBody').replace('{name}', deleteTarget?.name ?? '')}
+      </p>
+    </Modal>
+  )
+
+  // --- mobile: full-bleed header + search + tappable list + FAB -------------
+  if (bp === 'mobile') {
+    const mRole = (u: LocalUnit) =>
+      u.isSystem ? (
+        <span className="mst mst-neutral"><span className="d" />{t('unit.system')}</span>
+      ) : u.isDefault ? (
+        <span className="mst mst-ok"><span className="d" />{t('unit.default')}</span>
+      ) : (
+        <span className="mst mst-neutral"><span className="d" />{t('unit.custom')}</span>
+      )
+    return (
+      <>
+        <header className="m-head">
+          <div className="m-tt">
+            <div className="m-title">{t('unit.title')}</div>
+            <div className="m-sub">{t('unit.subtitle')}</div>
+          </div>
+        </header>
+
+        <div className="msearch" style={{ marginBottom: 13 }}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
+          <input value={search} placeholder={t('unit.search')} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+
+        <div className="mlist">
+          {isPending && filtered.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('unit.loading')}</div></div></div> : null}
+          {!isPending && filtered.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('unit.empty')}</div></div></div> : null}
+          {filtered.map((u) => (
+            <div
+              key={u.id}
+              className="mrow"
+              style={{ cursor: u.isSystem ? 'default' : 'pointer' }}
+              onClick={() => { if (!u.isSystem) setEdit({ unit: u }) }}
+            >
+              <div className="th">{u.abbreviation || u.name.slice(0, 3)}</div>
+              <div className="mt">
+                <div className="nm">{u.name}</div>
+                <div className="sub">{t(TYPE_LABEL[u.type] as Parameters<typeof t>[0])}</div>
+              </div>
+              <div className="rt"><div className="s">{mRole(u)}</div></div>
+              {u.isSystem ? (
+                <span className="mrow-lock">{t('unit.locked')}</span>
+              ) : (
+                <button type="button" className="mrow-x" onClick={(e) => { e.stopPropagation(); setDeleteTarget(u) }} aria-label={t('unit.delete')}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {totalPages > 1 ? (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage(page - 1)}>{t('common.prev')}</button>
+            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{t('common.next')}</button>
+          </div>
+        ) : null}
+
+        <div style={{ height: 76 }} />
+        <button type="button" className="mfab" onClick={() => setEdit({})} aria-label={t('unit.new')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+
+        {editModal}
+        {deleteModal}
+      </>
+    )
+  }
+
   return (
     <div className="frame">
       <div className="page-head">
@@ -109,21 +215,6 @@ export function Units() {
           <div className="cat-empty">{t('unit.loading')}</div>
         ) : filtered.length === 0 ? (
           <div className="cat-empty">{t('unit.empty')}</div>
-        ) : bp === 'mobile' ? (
-          <div className="u-cards">
-            {filtered.map((u) => (
-              <div key={u.id} className="u-card">
-                <span className="u-abbr">{u.abbreviation || u.name.slice(0, 3)}</span>
-                <div className="u-main">
-                  <div className="u-nm">{u.name}</div>
-                  <div className="u-sub">
-                    <span className="chip-tag">{t(TYPE_LABEL[u.type] as Parameters<typeof t>[0])}</span> {roleBadge(u)}
-                  </div>
-                </div>
-                {actions(u)}
-              </div>
-            ))}
-          </div>
         ) : (
           <table className="utbl">
             <thead>
@@ -166,41 +257,8 @@ export function Units() {
         />
       </div>
 
-      {edit ? (
-        <UnitModal
-          unit={edit.unit}
-          onClose={() => setEdit(null)}
-          onSaved={() => {
-            invalidate()
-            setEdit(null)
-          }}
-        />
-      ) : null}
-
-      <Modal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title={t('unit.deleteTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setDeleteTarget(null)} disabled={removeM.isPending}>
-              {t('unit.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              loading={removeM.isPending}
-              style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
-              onClick={() => void confirmDelete()}
-            >
-              {t('unit.delete')}
-            </Button>
-          </>
-        }
-      >
-        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          {t('unit.deleteBody').replace('{name}', deleteTarget?.name ?? '')}
-        </p>
-      </Modal>
+      {editModal}
+      {deleteModal}
     </div>
   )
 }

@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
 import type { OnlineOrderStatus } from '@shared/ipc'
@@ -59,8 +61,10 @@ function initials(name?: string | null): string {
 
 export function OnlineOrders() {
   const t = useT()
+  const bp = useBreakpoint()
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
+  const navigate = useNavigate()
   const [status, setStatus] = useState<OnlineOrderStatus | ''>('')
   const [fulfil, setFulfil] = useState<'' | 'DELIVERY' | 'PICKUP'>('')
   const [search, setSearch] = useState('')
@@ -93,6 +97,78 @@ export function OnlineOrders() {
     if (q && !((o.orderNumber ?? '').toLowerCase().includes(q) || (o.customerName ?? '').toLowerCase().includes(q))) return false
     return true
   })
+
+  const STATUS_CHIPS: Array<OnlineOrderStatus | ''> = ['', ...FLOW, 'CANCELLED']
+
+  // --- mobile: header + KPIs + search + status chips + order list (reuses OrderDrawer) ---
+  if (bp === 'mobile') {
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('common.back')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt">
+            <div className="m-title">{t('online.ordersTitle')}</div>
+            <div className="m-sub">{t('online.kpiOrders').replace('{n}', String(kpis.total))} · {money.format(kpis.sales)}</div>
+          </div>
+        </header>
+
+        <div className="mkpis" style={{ marginBottom: 16 }}>
+          <div className="mkpi">
+            <div className="top"><span className="ic b">{I.bag}</span></div>
+            <div className="v" style={{ color: 'var(--brand)' }}>{kpis.newCount}</div>
+            <div className="k">{t('online.kpiNew')}</div>
+          </div>
+          <div className="mkpi">
+            <div className="top"><span className="ic w">{I.truck}</span></div>
+            <div className="v" style={{ color: 'var(--warning)' }}>{kpis.toShip}</div>
+            <div className="k">{t('online.kpiToShip')}</div>
+          </div>
+        </div>
+
+        {list.error ? (
+          <OnlineError error={list.error} onRetry={() => list.refetch()} />
+        ) : (
+          <>
+            <div className="msearch" style={{ marginBottom: 12 }}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
+              <input placeholder={t('online.searchOrders')} value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <div className="mchips" style={{ marginBottom: 16 }}>
+              {STATUS_CHIPS.map((s) => (
+                <button key={s || 'all'} type="button" className={`mchip${status === s ? ' active' : ''}`} onClick={() => setStatus(s)}>
+                  {s ? statusMeta(t, s).label : t('online.allStatuses')}
+                </button>
+              ))}
+            </div>
+            <div className="mlist">
+              {list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('online.loading')}</div></div></div> : null}
+              {!list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('online.noOrders')}</div></div></div> : null}
+              {rows.map((o) => {
+                const st = statusMeta(t, o.status)
+                return (
+                  <button key={o.id} type="button" className="mrow" onClick={() => setOpenId(o.id)}>
+                    <div className="th brand round">{initials(o.customerName)}</div>
+                    <div className="mt">
+                      <div className="nm">#{o.orderNumber} · {o.customerName ?? t('online.guest')}</div>
+                      <div className="sub">{o.fulfillmentType === 'PICKUP' ? t('online.pickup') : t('online.delivery')} · {formatTime(o.createdAt, lang)} · {t('online.colItems')} {o.items?.length ?? 0}</div>
+                    </div>
+                    <div className="rt">
+                      <div className="v">{money.format(o.totalAmount)}</div>
+                      <div className="s"><span className={`mst ${st.cls.replace('st-', 'mst-')}`}><span className="d" />{st.label}</span></div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {openId ? <OrderDrawer id={openId} t={t} onClose={() => setOpenId(null)} /> : null}
+      </>
+    )
+  }
 
   return (
     <div className="frame">

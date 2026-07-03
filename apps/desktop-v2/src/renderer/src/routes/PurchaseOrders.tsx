@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, Pagination } from '@biztrack/ui/biztrack'
 import { PurchaseOrderStatus } from '@biztrack/types'
@@ -7,6 +8,8 @@ import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { DetailDrawer } from '@/components/DetailDrawer'
+import { PoDetailBody } from '@/components/procurement/PoDetailBody'
 import type { LocalPurchaseOrderListItem } from '@shared/ipc'
 
 const STATUS_CLASS: Record<string, string> = {
@@ -23,6 +26,8 @@ export function PurchaseOrders() {
   const bp = useBreakpoint()
   const money = useCurrency()
   const navigate = useNavigate()
+
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const { items, total, page, limit, totalPages, isPending, search, setSearch, setPage } = usePaged<LocalPurchaseOrderListItem>(
     queryKeys.purchaseOrders,
@@ -84,7 +89,7 @@ export function PurchaseOrders() {
             </thead>
             <tbody>
               {items.map((p) => (
-                <tr key={p.id} className="clickable" onClick={() => navigate(`/purchasing/orders/${p.id}`)}>
+                <tr key={p.id} className="clickable" onClick={() => setOpenId(p.id)}>
                   <td><div className="nm">{p.number}</div>{p.title ? <div className="sub">{p.title}</div> : null}</td>
                   <td>{p.supplierName ?? '—'}</td>
                   <td>{statusPill(p.status)}</td>
@@ -98,6 +103,11 @@ export function PurchaseOrders() {
         )}
         <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPage={setPage} prevLabel={t('common.prev')} nextLabel={t('common.next')} />
       </div>
+
+      {/* Tablet/desktop open the PO in a side drawer; mobile navigates to the route. */}
+      <DetailDrawer openId={openId} onClose={() => setOpenId(null)}>
+        {(id) => <PoDetailBody id={id} />}
+      </DetailDrawer>
     </div>
   )
 }

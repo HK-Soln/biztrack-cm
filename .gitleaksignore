@@ -1,0 +1,7 @@
+# Baselined gitleaks findings (reviewed, accepted). One fingerprint per line.
+# Format: <commit>:<path>:<rule>:<line>
+#
+# PASSWORD_PEPPER value committed in the .env.example template (2026-03-29). Reviewed
+# as a placeholder/sample, not a live production secret (the real pepper lives in the
+# untracked .env). If it IS a real value, rotate it and replace with an empty placeholder.
+d89a5a0b778b55b7cfb9116488d9d596bd80c3fb:.env.example:generic-api-key:26

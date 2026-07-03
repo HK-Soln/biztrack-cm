@@ -64,7 +64,10 @@ export function ContactPaymentModal({
     setInited(true)
   }, [inited, openDebts, preselectDebtId])
 
-  const dirLabel = (d: { direction: DebtDirection }) => (d.direction === DebtDirection.PAYABLE ? t('debt.payable') : t('debt.receivable'))
+  const dirLabel = useCallback(
+    (d: { direction: DebtDirection }) => (d.direction === DebtDirection.PAYABLE ? t('debt.payable') : t('debt.receivable')),
+    [t],
+  )
   const loadDebtOptions = useCallback(
     async (search: string) => {
       const q = search.trim().toLowerCase()
@@ -72,7 +75,7 @@ export function ContactPaymentModal({
         .filter((d) => !q || d.sourceReference.toLowerCase().includes(q))
         .map((d) => ({ value: d.id, label: d.sourceReference, sublabel: `${dirLabel(d)} · ${money.format(d.outstandingAmount)}` }))
     },
-    [openDebts],
+    [openDebts, dirLabel, money],
   )
 
   const pickDebt = (id: string | null) => {

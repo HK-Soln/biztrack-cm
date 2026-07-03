@@ -128,7 +128,7 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   logoUrl?: string | null
 }
 
-export interface UpdateBusinessRequest extends Partial<CreateBusinessRequest> {}
+export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
 
 /** Editable business-profile view used by the desktop Settings → Business profile
  * section. Read from GET /businesses/mine (the membership's business summary) and

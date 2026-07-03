@@ -1,13 +1,17 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'
 
 # Dependency version overrides (moved here from package.json — pnpm v11+)
 overrides:
-  react: "19.2.4"
-  react-dom: "19.2.4"
-  "@types/react": "^19.0.0"
-  "@types/react-dom": "^19.0.0"
+  react: '19.2.4'
+  react-dom: '19.2.4'
+  '@types/react': '^19.0.0'
+  '@types/react-dom': '^19.0.0'
+  # Security: pull transitive deps up to patched versions (fixable HIGH CVEs flagged
+  # by the Trivy image scan). undici via @biztrack/http-client; ws via socket.io.
+  undici: '^8.5.0'
+  ws: '^8.21.0'
 
 # pnpm v11 requires explicitly approving packages that run install scripts.
 allowBuilds:

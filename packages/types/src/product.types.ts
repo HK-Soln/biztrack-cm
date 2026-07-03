@@ -554,13 +554,13 @@ export interface CreateProductRequest {
   warrantyMonths?: number
 }
 
-export interface UpdateProductRequest extends Partial<CreateProductRequest> {}
+export type UpdateProductRequest = Partial<CreateProductRequest>
 
 export interface AssignBarcodeRequest {
   barcode: string
 }
 
-export interface CategoriesQuery extends ListQuery {}
+export type CategoriesQuery = ListQuery
 
 export interface CreateCategoryRequest {
   name: string
@@ -639,7 +639,7 @@ export interface BrandsQuery extends ListQuery {
   categoryId?: string
 }
 
-export interface ProductImagesQuery extends ListQuery {}
+export type ProductImagesQuery = ListQuery
 
 export interface CreateProductImageRequest {
   url: string
@@ -647,9 +647,9 @@ export interface CreateProductImageRequest {
   sortOrder?: number
 }
 
-export interface UpdateProductImageRequest extends Partial<CreateProductImageRequest> {}
+export type UpdateProductImageRequest = Partial<CreateProductImageRequest>
 
-export interface UnitOfMeasuresQuery extends ListQuery {}
+export type UnitOfMeasuresQuery = ListQuery
 
 export interface CreateUnitOfMeasureRequest {
   name: string

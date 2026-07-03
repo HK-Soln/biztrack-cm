@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
+import { MobileSheet } from '@/components/MobileSheet'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import type { CartLine } from '@/routes/Sell'
 import type { CloseDepositInput, CustomerDeposit, DepositTaggedProduct, DepositTransaction, LocalProduct, LocalSerialUnit, LocalVariant } from '@shared/ipc'
@@ -26,12 +28,15 @@ function initials(name: string): string {
 
 export function Deposits() {
   const t = useT()
+  const bp = useBreakpoint()
   const money = useCurrency()
   const lang = useLangStore((s) => s.lang)
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const [status, setStatus] = useState<'OPEN' | 'CLOSED' | ''>('OPEN')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null) // mobile detail sheet
   const [createOpen, setCreateOpen] = useState(false)
 
   const summary = useQuery({ queryKey: ['deposits', 'summary'], queryFn: () => dataClient.deposits.summary(), enabled: true })
@@ -40,7 +45,7 @@ export function Deposits() {
     queryFn: () => dataClient.deposits.list({ status: status || undefined, limit: 100 }),
     enabled: true,
   })
-  const rows = list.data?.data ?? []
+  const rows = useMemo(() => list.data?.data ?? [], [list.data])
 
   useEffect(() => {
     if (rows.length === 0) { setSelectedId(null); return }
@@ -49,6 +54,68 @@ export function Deposits() {
 
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['deposits'] }) }
   const s = summary.data
+
+  const depStatusCls = (d: CustomerDeposit) => (d.status === 'OPEN' ? 'mst-low' : d.outcome === 'REFUNDED' || !d.outcome ? 'mst-neutral' : 'mst-ok')
+
+  // --- mobile: header + KPIs + status segments + preorder list + detail sheet + FAB ---
+  if (bp === 'mobile') {
+    const openRow = rows.find((r) => r.id === openId)
+    return (
+      <>
+        <header className="m-head">
+          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('common.back')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div className="m-tt">
+            <div className="m-title">{t('dep.title')}</div>
+            <div className="m-sub">{t('dep.mHeadSub').replace('{n}', String(s?.openCount ?? 0)).replace('{amt}', money.compact(s?.depositsHeld ?? 0))}</div>
+          </div>
+        </header>
+
+        <div className="mkpis" style={{ marginBottom: 16 }}>
+          <div className="mkpi"><div className="v">{money.compact(s?.depositsHeld ?? 0)}</div><div className="k">{t('dep.kpiHeld')}</div></div>
+          <div className="mkpi"><div className="v">{money.compact(s?.collectedAmount ?? 0)}</div><div className="k">{t('dep.kpiCollected')}</div></div>
+        </div>
+
+        <div className="mseg" style={{ marginBottom: 16 }}>
+          <button type="button" aria-pressed={status === ''} onClick={() => setStatus('')}>{t('dep.all')}</button>
+          <button type="button" aria-pressed={status === 'OPEN'} onClick={() => setStatus('OPEN')}>{t('dep.open')}</button>
+          <button type="button" aria-pressed={status === 'CLOSED'} onClick={() => setStatus('CLOSED')}>{t('dep.closed')}</button>
+        </div>
+
+        <div className="m-sec">{t('dep.sessions')}</div>
+        <div className="mlist">
+          {list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('dep.loading')}</div></div></div> : null}
+          {!list.isPending && rows.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('dep.empty')}</div></div></div> : null}
+          {rows.map((d) => (
+            <button key={d.id} type="button" className="mrow" onClick={() => setOpenId(d.id)}>
+              <div className="th brand round">{initials(d.customerName ?? '—')}</div>
+              <div className="mt">
+                <div className="nm">{d.customerName ?? '—'}</div>
+                <div className="sub">{d.accountNumber} · {formatDay(d.createdAt, lang)}</div>
+              </div>
+              <div className="rt">
+                <div className="v">{money.format(d.balance)}</div>
+                <div className="s"><span className={`mst ${depStatusCls(d)}`}><span className="d" />{statusLabel(t, d)}</span></div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <button type="button" className="mfab" onClick={() => setCreateOpen(true)} aria-label={t('dep.new')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+
+        {openId ? (
+          <MobileSheet title={openRow?.customerName ?? t('dep.sessions')} onClose={() => setOpenId(null)}>
+            <DepositDetail id={openId} t={t} onChanged={refresh} />
+          </MobileSheet>
+        ) : null}
+
+        {createOpen ? <NewDepositModal t={t} onClose={() => setCreateOpen(false)} onSaved={(d) => { refresh(); setOpenId(d.id); setCreateOpen(false) }} /> : null}
+      </>
+    )
+  }
 
   return (
     <div className="frame">

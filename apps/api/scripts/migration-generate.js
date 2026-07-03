@@ -1,3 +1,7 @@
+/* eslint-disable turbo/no-undeclared-env-vars -- dev-only tooling script: reads
+   npm/OS vars (MIGRATION_NAME, npm_config_name, LOCALAPPDATA) that must NOT be
+   declared in turbo.json (LOCALAPPDATA is per-machine and would break cache sharing). */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS dev tooling script
 const { spawnSync } = require('child_process')
 
 const args = process.argv.slice(2)

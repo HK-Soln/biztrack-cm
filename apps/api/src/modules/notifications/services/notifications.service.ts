@@ -470,7 +470,7 @@ Next step: contact ${entry.name} on WhatsApp within 48 hours.
 
     const [founderResult, clientResult] = await Promise.allSettled([
       this.emailProvider.sendRaw({
-        from: founderNotif?.sender!,
+        from: founderNotif?.sender ?? this.emailProvider.noReplySender,
         to: founderEmail,
         reply_to: entry.email,
         subject,
@@ -478,7 +478,7 @@ Next step: contact ${entry.name} on WhatsApp within 48 hours.
         text,
       }),
       this.emailProvider.sendRaw({
-        from: clientNotif?.sender!,
+        from: clientNotif?.sender ?? this.emailProvider.noReplySender,
         to: entry.email,
         subject: confirmSubject,
         html: confirmHtml,

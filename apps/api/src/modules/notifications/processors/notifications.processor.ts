@@ -180,7 +180,8 @@ export class NotificationsProcessor extends WorkerHost {
         businessId: invite.businessId,
       })
 
-      result === 'ok' ? sent.push('email') : failed.push('email')
+      if (result === 'ok') sent.push('email')
+      else failed.push('email')
     }
 
     if (invite.phone) {
@@ -204,8 +205,10 @@ export class NotificationsProcessor extends WorkerHost {
         businessId: invite.businessId,
       })
 
-      smsResult === 'ok' ? sent.push('sms') : failed.push('sms')
-      waResult === 'ok' ? sent.push('whatsapp') : failed.push('whatsapp')
+      if (smsResult === 'ok') sent.push('sms')
+      else failed.push('sms')
+      if (waResult === 'ok') sent.push('whatsapp')
+      else failed.push('whatsapp')
     }
 
     this.logger.log('Invite notifications processed', 'NotificationsProcessor', {

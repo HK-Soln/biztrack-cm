@@ -16,18 +16,12 @@ const normalizeEnvString = (value: unknown) => {
   return hasMatchingQuotes ? text.slice(1, -1) : text
 }
 
-const normalizeEnvBoolean = (value: unknown) => {
-  if (value === undefined) return value
-  const text = String(value).trim().toLowerCase()
-  return text === 'true' || text === '1'
-}
-
 const normalizeEnvArray = (value: unknown) => {
   if (value === undefined) return value
   if (Array.isArray(value)) return value.map(normalizeEnvString)
-  
-    typeof value === 'string' && value.includes(',') ? value.split(',').map(normalizeEnvString) : [normalizeEnvString(value)]
-  return [normalizeEnvString(value)]
+  return typeof value === 'string' && value.includes(',')
+    ? value.split(',').map(normalizeEnvString)
+    : [normalizeEnvString(value)]
 }
 
 const normalizeNumber = (value: unknown) => {

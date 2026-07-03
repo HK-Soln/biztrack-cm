@@ -1,0 +1,13 @@
+# Fast pre-commit gate: secret scan + format staged files.
+# gitleaks is optional locally (skips with a note if it isn't installed) — CI enforces
+# it as a hard, required check. Install locally: https://github.com/gitleaks/gitleaks
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact || {
+    echo "✖ gitleaks flagged a potential secret in staged changes. Commit blocked."
+    exit 1
+  }
+else
+  echo "• gitleaks not installed locally — skipping secret scan (CI will enforce it)."
+fi
+
+pnpm exec lint-staged
