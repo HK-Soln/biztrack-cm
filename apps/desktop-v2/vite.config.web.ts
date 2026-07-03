@@ -29,7 +29,7 @@ function webCspPlugin() {
     apply: 'build' as const,
     transformIndexHtml(html: string) {
       const { http, ws } = apiOrigins()
-      const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+      const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map(
         (m) => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`,
       )
       const csp = [
