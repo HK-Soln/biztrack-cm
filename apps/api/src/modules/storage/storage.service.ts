@@ -78,4 +78,12 @@ export class StorageService {
     }
     return this.driver.presignPut(key, contentType, expiresInSeconds)
   }
+
+  /** Redirect target for a GET: presigned URL (S3/R2) or static file URL (local). */
+  presignGet(key: string, expiresInSeconds?: number): Promise<string> {
+    if (!this.driver.presignGet) {
+      throw new Error('The active storage driver does not support presigned downloads.')
+    }
+    return this.driver.presignGet(key, expiresInSeconds)
+  }
 }

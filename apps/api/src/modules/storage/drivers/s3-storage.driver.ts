@@ -1,4 +1,10 @@
-import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { StorageDriver } from '../storage.types'
 
@@ -52,5 +58,11 @@ export class S3StorageDriver implements StorageDriver {
       new PutObjectCommand({ Bucket: this.bucket, Key: key, ContentType: contentType }),
       { expiresIn: expiresInSeconds },
     )
+  }
+
+  presignGet(key: string, expiresInSeconds = 300): Promise<string> {
+    return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
+      expiresIn: expiresInSeconds,
+    })
   }
 }

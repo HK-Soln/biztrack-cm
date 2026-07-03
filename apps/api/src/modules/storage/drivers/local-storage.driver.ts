@@ -45,4 +45,9 @@ export class LocalStorageDriver implements StorageDriver {
     const key = url.slice(prefix.length)
     return key.length > 0 ? key : null
   }
+
+  async presignGet(key: string): Promise<string> {
+    // Dev has no signing — redirect the /files route to the statically-served file.
+    return this.url(key)
+  }
 }

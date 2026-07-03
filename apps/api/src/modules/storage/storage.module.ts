@@ -8,6 +8,7 @@ import { LocalStorageDriver } from './drivers/local-storage.driver'
 import { S3StorageDriver } from './drivers/s3-storage.driver'
 import { StorageService } from './storage.service'
 import { StorageController } from './storage.controller'
+import { FilesController } from './files.controller'
 
 function createDriver(config: ConfigService<AppConfig>): StorageDriver {
   if (config.get('STORAGE_DRIVER', { infer: true }) === 's3') {
@@ -26,6 +27,11 @@ function createDriver(config: ConfigService<AppConfig>): StorageDriver {
       endpoint,
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true,
+      // Cloudflare R2 rejects the AWS SDK's default flexible checksums (added by
+      // default in recent SDK versions) — it surfaces as an opaque "UnknownError".
+      // Only compute/validate checksums when a command actually requires them.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     })
     return new S3StorageDriver(client, bucket, publicUrl)
   }
@@ -42,7 +48,7 @@ function createDriver(config: ConfigService<AppConfig>): StorageDriver {
  */
 @Global()
 @Module({
-  controllers: [StorageController],
+  controllers: [StorageController, FilesController],
   providers: [
     { provide: STORAGE_DRIVER, useFactory: createDriver, inject: [ConfigService] },
     StorageService,

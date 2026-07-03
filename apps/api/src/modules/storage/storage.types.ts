@@ -34,4 +34,9 @@ export interface StorageDriver {
   keyFromUrl(url: string): string | null
   /** Presigned PUT for direct browser→storage upload (optional per driver). */
   presignPut?(key: string, contentType: string, expiresInSeconds?: number): Promise<string>
+  /**
+   * URL to redirect a GET to: a short-lived presigned URL for S3/R2, or the static
+   * file URL for local. Backs the /files redirect endpoint (optional per driver).
+   */
+  presignGet?(key: string, expiresInSeconds?: number): Promise<string>
 }
