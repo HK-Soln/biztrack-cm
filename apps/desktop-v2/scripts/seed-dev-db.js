@@ -3,6 +3,7 @@
  * The app also self-seeds on boot; this script is for explicit setup/testing.
  * Uses its own DB file so v1's dev DB is never touched.
  */
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS dev/seed script */
 const path = require('path')
 const { DatabaseService } = require('@biztrack/electron-core/database')
 

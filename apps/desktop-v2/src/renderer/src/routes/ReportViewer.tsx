@@ -168,7 +168,6 @@ export function ReportViewer() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fs, routable, html])
 
   // --- mobile: library index (period + KPIs + report list) and a full-width viewer ---

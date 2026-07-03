@@ -67,7 +67,7 @@ export function Team() {
   const [error, setError] = useState<string | null>(null)
   const flash = (m: string) => { setToast(m); window.setTimeout(() => setToast((c) => (c === m ? null : c)), 2400) }
 
-  const roles = rolesQ.data?.roles ?? []
+  const roles = useMemo(() => rolesQ.data?.roles ?? [], [rolesQ.data])
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles])
 
   const invalidate = () => {
@@ -95,8 +95,8 @@ export function Team() {
     onError: (e) => setError(errorMessage(e, t('team.actionError'))),
   })
 
-  const members = membersQ.data?.members ?? []
-  const invites = invitesQ.data?.invites ?? []
+  const members = useMemo(() => membersQ.data?.members ?? [], [membersQ.data])
+  const invites = useMemo(() => invitesQ.data?.invites ?? [], [invitesQ.data])
 
   // Merge members + invites into one normalised, searchable list. Members first
   // (owner/active/pending-member), then the token invites — matching the design.

@@ -435,6 +435,9 @@ importers:
         specifier: ^5.0.2
         version: 5.0.11(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
+      '@biztrack/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
       '@biztrack/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
@@ -471,6 +474,9 @@ importers:
       electron-vite:
         specifier: ^2.3.0
         version: 2.3.0(@swc/core@1.15.24)(vite@6.4.3(@types/node@22.19.15)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+      eslint:
+        specifier: ^9.32.0
+        version: 9.39.4(jiti@1.21.7)
       postcss:
         specifier: ^8.4.49
         version: 8.4.49

@@ -39,7 +39,7 @@ export function RoleForm() {
   }, [editing, roleQ.data])
 
   const catalogue = permsQ.data?.permissions ?? []
-  const toggle = (key: string) => setPerms((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const toggle = (key: string) => setPerms((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n })
   const selectAll = () => setPerms(new Set(catalogue.map((p) => p.key)))
   const clearAll = () => setPerms(new Set())
 

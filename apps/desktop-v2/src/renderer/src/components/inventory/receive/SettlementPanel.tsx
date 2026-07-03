@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input } from '@biztrack/ui/biztrack'
 import { PaymentMethod } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'

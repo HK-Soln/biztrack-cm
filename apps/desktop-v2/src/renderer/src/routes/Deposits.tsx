@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import { MobileSheet } from '@/components/MobileSheet'
 import { useCurrency } from '@/lib/currency'
@@ -45,7 +45,7 @@ export function Deposits() {
     queryFn: () => dataClient.deposits.list({ status: status || undefined, limit: 100 }),
     enabled: true,
   })
-  const rows = list.data?.data ?? []
+  const rows = useMemo(() => list.data?.data ?? [], [list.data])
 
   useEffect(() => {
     if (rows.length === 0) { setSelectedId(null); return }

@@ -155,9 +155,8 @@ app.whenReady().then(() => {
   const secureStore = new SecureStoreService()
   const tokenStore = new TokenStore(secureStore)
   const localCache = new LocalCache(db)
-  let authService: AuthService
   const authHttp = createAuthHttp(tokenStore, () => authService?.onTokensCleared())
-  authService = new AuthService(authHttp, tokenStore, localCache)
+  const authService = new AuthService(authHttp, tokenStore, localCache)
   registerAuthIpc(authService)
 
   // Offline-first sync engine: drains the outbox + pulls catalog changes into local

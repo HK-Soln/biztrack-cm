@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BackButton, Button, Input, Select } from '@biztrack/ui/biztrack'
@@ -54,7 +54,7 @@ export function CategoryForm() {
     queryFn: () => dataClient.attributes.listCategoryLinks(id!),
     enabled: editing,
   })
-  const existingLinks = linksQuery.data ?? []
+  const existingLinks = useMemo(() => linksQuery.data ?? [], [linksQuery.data])
   // For a new category there are no links to load; for an existing one we must wait
   // until the links query resolves before we can safely persist (see save below).
   const linksReady = !editing || linksQuery.isSuccess

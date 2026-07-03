@@ -15,6 +15,8 @@
  * CI (any `CI` env var) is strict: it has no running apps, so a rebuild must actually
  * succeed — failures there exit non-zero.
  */
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS postinstall script */
+/* eslint-disable turbo/no-undeclared-env-vars -- reads CI (universal, must not be a turbo cache key) */
 const fs = require('fs')
 const os = require('os')
 const path = require('path')

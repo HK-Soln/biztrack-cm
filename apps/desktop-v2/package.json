@@ -11,6 +11,8 @@
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "type-check": "npm run typecheck",
+    "lint": "eslint . --max-warnings 0",
     "icon": "node scripts/gen-icon.mjs",
     "dist": "electron-vite build && electron-builder",
     "postinstall": "node scripts/rebuild-sqlite.js"
@@ -71,8 +73,10 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@biztrack/eslint-config": "workspace:*",
     "@biztrack/typescript-config": "workspace:*",
     "@electron/rebuild": "3.6.1",
+    "eslint": "^9.32.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",

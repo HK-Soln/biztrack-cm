@@ -433,7 +433,6 @@ export type {
 import type {
   CreatePurchaseOrderRequest,
   PurchaseOrdersQuery,
-  SendPurchaseOrderRequest,
   PurchaseOrderSendChannel,
   PurchaseOrderDocument,
   ConvertRfqToPoRequest,

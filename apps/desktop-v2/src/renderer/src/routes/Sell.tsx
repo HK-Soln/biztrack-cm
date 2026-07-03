@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
-import { dataClient, isElectron } from '@/lib/data-client'
+import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { useBreakpoint } from '@/lib/useBreakpoint'
@@ -728,7 +728,7 @@ function SerialPicker({ product, onClose, onAdd }: { product: LocalProduct; onCl
     queryFn: () => dataClient.products.listInStockSerials(product.id, null, q),
     enabled: true,
   })
-  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   return (
     <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="pay-modal" style={{ width: 440 }}>

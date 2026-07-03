@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { Button, Input, ScanInput, Select } from '@biztrack/ui/biztrack'
-import { useCurrency } from '@/lib/currency'
+import { Input, ScanInput, Select } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import { validateSerial } from '@/lib/serial'
 import type { LocalPurchaseOrderItem, LocalProduct, LocalVariant, SerialType } from '@shared/ipc'
@@ -52,7 +51,6 @@ export function ReceiveLine({
   onRemoveLine?: () => void
 }) {
   const t = useT()
-  const money = useCurrency()
   // Per-group draft text for the serial scan/typed input (committed on Enter/scan).
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const serialized = product.isSerialized
