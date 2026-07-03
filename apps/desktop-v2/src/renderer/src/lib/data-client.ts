@@ -122,6 +122,7 @@ import type {
   AcceptInvitationResponse,
   RejectInvitationResponse,
   OnlineOrdersQuery,
+  OnlineSlugCheck,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
@@ -355,6 +356,7 @@ export interface DataClient {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResult>
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
+    checkSlug: (slug: string) => Promise<OnlineSlugCheck>
   }
   business: {
     getProfile: () => Promise<BusinessProfile | null>
@@ -646,6 +648,7 @@ function electronAdapter(): DataClient {
       listOrders: (query) => window.api.online.listOrders(query),
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
+      checkSlug: (slug) => window.api.online.checkSlug(slug),
     },
     business: {
       getProfile: () => window.api.business.getProfile(),

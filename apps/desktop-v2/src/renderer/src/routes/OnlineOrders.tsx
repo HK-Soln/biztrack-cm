@@ -34,6 +34,15 @@ function statusMeta(t: ReturnType<typeof useT>, s: OnlineOrderStatus): { label: 
     default: return { label: s, cls: 'st-neutral' }
   }
 }
+function statusDot(s: OnlineOrderStatus): string {
+  switch (s) {
+    case 'PENDING': return 'var(--brand)'
+    case 'CONFIRMED': case 'PREPARING': return 'var(--warning)'
+    case 'DISPATCHED': return 'var(--text-muted)'
+    case 'DELIVERED': return 'var(--success)'
+    default: return 'var(--danger)'
+  }
+}
 function advanceLabel(t: ReturnType<typeof useT>, s: OnlineOrderStatus): string {
   switch (s) {
     case 'PENDING': return t('online.advance.PENDING')

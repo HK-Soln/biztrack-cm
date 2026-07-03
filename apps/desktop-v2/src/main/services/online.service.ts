@@ -58,6 +58,10 @@ export class OnlineService {
     return this.run(async () => (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store/publish', {})).data.data)
   }
 
+  checkSlug(slug: string): Promise<{ slug: string; available: boolean; reason?: 'invalid' | 'reserved' | 'taken' }> {
+    return this.run(async () => (await this.http.get<ApiEnvelope<{ slug: string; available: boolean; reason?: 'invalid' | 'reserved' | 'taken' }>>(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`)).data.data)
+  }
+
   // ---- orders ----
   listOrders(query: OnlineOrdersQuery = {}): Promise<OnlineOrderListResult> {
     const params = new URLSearchParams()
