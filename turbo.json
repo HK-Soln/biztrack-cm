@@ -7,7 +7,16 @@
     "DESKTOP_FORCE_PRODUCTION",
     "DESKTOP_API_URL",
     "DESKTOP_RENDERER_URL",
-    "NEXT_PUBLIC_API_URL"
+    "NEXT_PUBLIC_API_URL",
+    "LOG_LEVEL",
+    "LOG_DIR",
+    "STORAGE_LOCAL_DIR",
+    "S3_REGION",
+    "S3_ACCESS_KEY_ID",
+    "CHROMIUM_PATH",
+    "PLAN_CONFIGS_UPDATED_BY",
+    "DESKTOP_DB_PATH",
+    "ELECTRON_RENDERER_URL"
   ],
   "tasks": {
     "build": {
@@ -19,7 +28,10 @@
         ".env*"
       ],
       "outputs": [
-        "dist/**"
+        "dist/**",
+        "out/**",
+        ".next/**",
+        "!.next/cache/**"
       ]
     },
     "dev": {
@@ -34,6 +46,14 @@
     "type-check": {
       "dependsOn": [
         "^type-check"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "coverage/**"
       ]
     }
   },

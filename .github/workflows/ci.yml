@@ -1,0 +1,52 @@
+name: CI
+
+# One shared gate for the monorepo: type-check, lint, test, build via Turborepo.
+# Runs on every PR and on pushes to main/develop.
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Scope: the apps with active CI/CD (api, desktop-v2) plus their shared-package
+  # deps (the `...` suffix pulls those in). mobile / storefront / admin-* / web are
+  # still WIP and not green yet (e.g. mobile's type-check fails on missing jest
+  # types) — add their filters here as each one goes green.
+  TURBO_FILTERS: --filter=@biztrack/api... --filter=@biztrack/desktop-v2...
+  # Turborepo remote cache — optional. No-op if the token/team aren't configured,
+  # so CI works out of the box and gets faster once they're set.
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  verify:
+    name: Type-check · Lint · Test · Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # Installs the whole workspace (frozen lockfile). desktop-v2's postinstall
+      # rebuilds better-sqlite3 against Electron's ABI here — CI is strict, so it
+      # must succeed (ubuntu-latest has the python3 + build-essential toolchain).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Single Turbo pass — it schedules by task graph and parallelises. Exits
+      # non-zero if any task fails.
+      - name: Verify
+        run: pnpm turbo run type-check lint test build ${{ env.TURBO_FILTERS }}
