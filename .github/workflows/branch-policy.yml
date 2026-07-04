@@ -1,0 +1,38 @@
+name: Branch policy
+
+# Enforces the PR-source rules that GitHub branch protection can't express natively:
+#   - PRs into `main` may only come from `staging`
+#   - PRs into `staging` may only come from `dev` or `hotfix/*`
+# Mark this job ("PR source branch") as a REQUIRED status check on main + staging so
+# non-conforming PRs are blocked from merging.
+
+on:
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  check-source:
+    name: PR source branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          echo "PR: $HEAD -> $BASE"
+          if [ "$BASE" = "main" ]; then
+            if [ "$HEAD" != "staging" ]; then
+              echo "::error::PRs into 'main' must come from 'staging' (got '$HEAD'). Promote via staging."
+              exit 1
+            fi
+          elif [ "$BASE" = "staging" ]; then
+            case "$HEAD" in
+              dev|hotfix/*) : ;;
+              *)
+                echo "::error::PRs into 'staging' must come from 'dev' or 'hotfix/*' (got '$HEAD')."
+                exit 1
+                ;;
+            esac
+          fi
+          echo "Source branch OK."

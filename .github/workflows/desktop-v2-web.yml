@@ -11,7 +11,7 @@ name: Deploy desktop-v2 (Cloud → Vercel)
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging] # main -> production, staging -> staging
     paths:
       - 'apps/desktop-v2/**'
       - 'packages/**'
@@ -23,15 +23,17 @@ concurrency:
   group: desktop-v2-web-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  # A Vercel project separate from admin-web — its own project id.
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DESKTOP_V2_PROJECT_ID }}
-
 jobs:
   deploy:
-    name: Build & deploy (production)
+    name: Deploy (${{ github.ref_name == 'main' && 'production' || 'staging' }})
     runs-on: ubuntu-latest
+    # `production` carries the manual-approval gate; the VERCEL_* secrets are
+    # ENVIRONMENT-scoped so each env deploys to its own Vercel project (with its own
+    # VITE_API_URL). Configure both in Settings -> Environments.
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DESKTOP_V2_PROJECT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

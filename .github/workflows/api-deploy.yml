@@ -6,7 +6,7 @@ name: Deploy API
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging] # main -> production, staging -> staging
     paths:
       - 'apps/api/**'
       - 'packages/**'
@@ -47,8 +47,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
+          # Branch-named tags let each environment pull its own image: prod pulls
+          # `:main` (or `:latest`), staging pulls `:staging`.
           tags: |
             type=sha,format=long
+            type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build & push
@@ -65,16 +68,19 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy-railway:
-    name: Deploy to Railway
+    name: Deploy (${{ github.ref_name == 'main' && 'production' || 'staging' }})
     needs: build-and-push
     runs-on: ubuntu-latest
+    # Maps to a GitHub Environment: `production` carries the manual-approval gate, and
+    # RAILWAY_TOKEN / RAILWAY_SERVICE_ID are ENVIRONMENT-scoped so each deploys its own
+    # Railway service. Configure both environments in Settings -> Environments.
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     container: ghcr.io/railwayapp/cli:latest
     env:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
     steps:
-      # One-time setup: point the Railway service "Source" at the GHCR image
-      # ghcr.io/<owner>/biztrack-api:latest. `redeploy` then pulls the newest digest.
-      # See docs/cicd/CICD_SETUP.md.
-      - name: Redeploy service (pulls new :latest digest)
+      # One-time per env: point that Railway service's Source at the matching image tag
+      # (prod -> :main/:latest, staging -> :staging). `redeploy` pulls the newest digest.
+      - name: Redeploy service
         run: railway redeploy --service "$RAILWAY_SERVICE_ID" --yes
