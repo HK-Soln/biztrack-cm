@@ -5,7 +5,7 @@ import { dataClient, isElectron } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
 import { STORE_ROOT_DOMAIN } from '@/lib/config'
 import { useCurrency } from '@/lib/currency'
-import { useT } from '@/i18n'
+import { useLangStore, useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
 import { FileUpload } from '@/components/FileUpload'
@@ -316,6 +316,87 @@ function CityEditor({
   )
 }
 
+/** Publish history + rollback. Each publish is an immutable version; restoring an older one
+ *  republishes it as a new version (append-only), and refreshes the editable draft. */
+function PublishHistory({ t }: { t: ReturnType<typeof useT> }) {
+  const qc = useQueryClient()
+  const lang = useLangStore((s) => s.lang)
+  const [confirming, setConfirming] = useState<number | null>(null)
+
+  const list = useQuery({
+    queryKey: ['online', 'publications'],
+    queryFn: () => dataClient.online.listPublications(),
+    retry: false,
+  })
+  const restore = useMutation({
+    mutationFn: (version: number) => dataClient.online.restorePublication(version),
+    onSuccess: () => {
+      setConfirming(null)
+      void qc.invalidateQueries({ queryKey: ['online', 'store'] })
+      void qc.invalidateQueries({ queryKey: ['online', 'publications'] })
+    },
+  })
+
+  const rows = list.data ?? []
+
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div className="ci">{ICO.rocket}</div>
+        <div className="ti">
+          <h3>{t('online.historyTitle')}</h3>
+          <p>{t('online.historyBody')}</p>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="reserved-note">{t('online.historyEmpty')}</div>
+      ) : (
+        rows.map((p, i) => (
+          <div className="gen-row" key={p.id}>
+            <div className="gt">
+              <div className="nm">
+                v{p.version}
+                {i === 0 ? (
+                  <span className="st st-ok" style={{ marginLeft: 8 }}>
+                    <span className="d" />
+                    {t('online.live2')}
+                  </span>
+                ) : null}
+              </div>
+              <div className="ds">
+                {new Date(p.publishedAt).toLocaleString(lang)}
+                {p.publishedByName ? ` · ${p.publishedByName}` : ''}
+                {p.sourceVersion
+                  ? ` · ${t('online.restoredFrom').replace('{v}', String(p.sourceVersion))}`
+                  : ''}
+              </div>
+            </div>
+            {i === 0 ? null : confirming === p.version ? (
+              <span style={{ display: 'inline-flex', gap: 6 }}>
+                <Button
+                  variant="primary"
+                  type="button"
+                  loading={restore.isPending}
+                  onClick={() => restore.mutate(p.version)}
+                >
+                  {t('online.hRestoreConfirm')}
+                </Button>
+                <Button variant="soft" type="button" onClick={() => setConfirming(null)}>
+                  {t('online.hCancel')}
+                </Button>
+              </span>
+            ) : (
+              <Button variant="soft" type="button" onClick={() => setConfirming(p.version)}>
+                {t('online.hRestore')}
+              </Button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
 export function OnlineStore() {
   const t = useT()
   const qc = useQueryClient()
@@ -425,6 +506,7 @@ function StoreConfig({
   onSaved: () => void
 }) {
   const money = useCurrency()
+  const qc = useQueryClient()
   const [form, setForm] = useState<Form>(() => toForm(store))
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
   const [error, setError] = useState<string | null>(null)
@@ -527,6 +609,7 @@ function StoreConfig({
     mutationFn: () => dataClient.online.publishStore(),
     onSuccess: () => {
       setToast(t('online.published'))
+      void qc.invalidateQueries({ queryKey: ['online', 'publications'] })
       onSaved()
     },
     onError: (e) => setError(errorMessage(e, t('online.saveError'))),
@@ -1079,6 +1162,8 @@ function StoreConfig({
               ))}
             </div>
           </div>
+
+          <PublishHistory t={t} />
         </div>
 
         {/* live preview */}

@@ -136,6 +136,8 @@ export const IPC = {
   onlineProductsList: 'online:products-list',
   onlineProductSetPublished: 'online:product-set-published',
   onlineOrderUpdatePayment: 'online:order-update-payment',
+  onlinePublicationsList: 'online:publications-list',
+  onlinePublicationRestore: 'online:publication-restore',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   plansList: 'plans:list',
@@ -1265,6 +1267,7 @@ export type {
   OnlineAdminProductsQuery,
   OnlinePaymentMethod,
   UpdateOrderPaymentRequest,
+  OnlineStorePublicationSummary,
   ProductPublishBlocker,
   ProductPublishability,
 } from '@biztrack/types'
@@ -1290,6 +1293,7 @@ import type {
   UpdateOrderPaymentRequest as UpdateOrderPaymentT,
   OnlineAdminProduct as OnlineAdminProductT,
   OnlineAdminProductsQuery as OnlineAdminProductsQueryT,
+  OnlineStorePublicationSummary as OnlineStorePublicationSummaryT,
 } from '@biztrack/types'
 
 // --- Business profile (Settings → General) — reuse the shared business shapes ---
@@ -1906,6 +1910,8 @@ export interface BridgeApi {
     createStore: (input: CreateOnlineStoreT) => Promise<OnlineStoreT>
     updateStore: (input: UpdateOnlineStoreT) => Promise<OnlineStoreT>
     publishStore: () => Promise<OnlineStoreT>
+    listPublications: () => Promise<OnlineStorePublicationSummaryT[]>
+    restorePublication: (version: number) => Promise<OnlineStoreT>
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
