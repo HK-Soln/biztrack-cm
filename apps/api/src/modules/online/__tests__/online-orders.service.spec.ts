@@ -44,6 +44,12 @@ const makeService = (opts: {
             config: {
               currency: (opts.store as Record<string, unknown>).currency ?? 'XAF',
               minOrderAmount: (opts.store as Record<string, unknown>).minOrderAmount ?? null,
+              fulfilment: {
+                offerDelivery: true,
+                offerPickup: true,
+                deliveryFee: 0,
+                deliveryCities: [],
+              },
             },
           }
         : null,

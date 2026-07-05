@@ -136,6 +136,7 @@ describe('PublicStorefrontService', () => {
           sellingPrice: 1000,
           isSerialized: false,
           hasVariants: false,
+          trackInventory: true,
           onlineStockReserve: 2,
         },
         {
@@ -145,6 +146,7 @@ describe('PublicStorefrontService', () => {
           sellingPrice: 500,
           isSerialized: false,
           hasVariants: false,
+          trackInventory: true,
           onlineStockReserve: 0,
         },
       ],

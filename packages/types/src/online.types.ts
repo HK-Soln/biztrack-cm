@@ -335,6 +335,8 @@ export interface PublicProductListItem {
   categoryName?: string | null
   inStock: number
   hasVariants: boolean
+  /** When false, the product isn't stock-tracked → always available (ignore inStock). */
+  trackInventory: boolean
 }
 
 export interface PublicProductDetail extends PublicProductListItem {

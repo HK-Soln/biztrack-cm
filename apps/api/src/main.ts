@@ -18,23 +18,45 @@ async function bootstrap() {
 
   // Serve locally-stored uploads (local storage driver) at /uploads. Harmless when the
   // S3/R2 driver is active (the folder is just empty and unused).
-  const uploadsDir = config.get('STORAGE_LOCAL_DIR', { infer: true }) ?? join(process.cwd(), 'uploads')
+  const uploadsDir =
+    config.get('STORAGE_LOCAL_DIR', { infer: true }) ?? join(process.cwd(), 'uploads')
   app.useStaticAssets(uploadsDir, { prefix: '/uploads/' })
   const redis = app.get<RedisService>(RedisService)
   const nodeEnv = config.get('NODE_ENV', { infer: true })
   const corsOriginsRaw = config.get('CORS_ORIGINS', { infer: true })
   const allowNullOriginRaw = config.get('CORS_ALLOW_NULL_ORIGIN', { infer: true })
   const allowNullOrigin = allowNullOriginRaw === 'true'
-  const allowedOrigins = new Set(
-    (corsOriginsRaw ?? '')
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter(Boolean),
-  )
-  const allowAllInDev = nodeEnv !== NodeEnv.PRODUCTION && allowedOrigins.size === 0
+  // Exact origins plus wildcard suffixes. A CORS_ORIGINS entry like `*.biztrack.cm`
+  // matches the apex and any subdomain (host-only, so scheme/port are ignored) — needed
+  // because storefronts live on dynamic `{slug}.biztrack.cm` subdomains that can't be listed.
+  const exactOrigins = new Set<string>()
+  const wildcardSuffixes: string[] = []
+  for (const entry of (corsOriginsRaw ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)) {
+    if (entry.startsWith('*.'))
+      wildcardSuffixes.push(entry.slice(1)) // '.biztrack.cm'
+    else exactOrigins.add(entry)
+  }
+  const configuredCount = exactOrigins.size + wildcardSuffixes.length
+  const allowAllInDev = nodeEnv !== NodeEnv.PRODUCTION && configuredCount === 0
 
-  if (nodeEnv === NodeEnv.PRODUCTION && allowedOrigins.size === 0) {
-    logger.warn('CORS_ORIGINS is empty in production. No browser origins will be allowed.', 'Bootstrap')
+  const matchesWildcard = (origin: string): boolean => {
+    if (wildcardSuffixes.length === 0) return false
+    try {
+      const host = new URL(origin).hostname
+      return wildcardSuffixes.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))
+    } catch {
+      return false
+    }
+  }
+
+  if (nodeEnv === NodeEnv.PRODUCTION && configuredCount === 0) {
+    logger.warn(
+      'CORS_ORIGINS is empty in production. No browser origins will be allowed.',
+      'Bootstrap',
+    )
   }
 
   app.enableCors({
@@ -43,12 +65,23 @@ async function bootstrap() {
       if (!origin) return callback(null, true)
       if (origin === 'null' && allowNullOrigin) return callback(null, true)
       if (allowAllInDev) return callback(null, true)
-      if (allowedOrigins.has(origin)) return callback(null, true)
+      if (exactOrigins.has(origin) || matchesWildcard(origin)) return callback(null, true)
       return callback(new Error(`Origin not allowed by CORS: ${origin}`), false)
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Request-Id', 'X-Skip-Auth-Refresh', 'X-Skip-Auth', 'X-Device-Type', 'X-Platform'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'X-Request-Id',
+      'X-Skip-Auth-Refresh',
+      'X-Skip-Auth',
+      'X-Device-Type',
+      'X-Platform',
+    ],
     exposedHeaders: ['X-Request-Id'],
     maxAge: 86400,
   })
@@ -75,7 +108,7 @@ async function bootstrap() {
   const port = config.get('PORT', { infer: true }) ?? 3001
   await app.listen(port, '::') // Listen on all interfaces (IPv4 & IPv6)
 
-  logger.log(`API is running on port ${port}`, 'Bootstrap');
+  logger.log(`API is running on port ${port}`, 'Bootstrap')
 }
 
 bootstrap()

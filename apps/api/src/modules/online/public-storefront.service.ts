@@ -87,11 +87,15 @@ export class PublicStorefrontService {
 
     const stockByProduct = await this.resolveStock(store.businessId, products)
     // Out-of-stock hiding applies within the page; pagination keeps the request bounded.
+    // Non-tracked products and variant products are always considered available.
     const data = products
       .map((product) =>
         this.toListItem(product, config.currency, stockByProduct.get(product.id) ?? 0),
       )
-      .filter((item) => config.showOutOfStock || item.inStock > 0 || item.hasVariants)
+      .filter(
+        (item) =>
+          config.showOutOfStock || !item.trackInventory || item.inStock > 0 || item.hasVariants,
+      )
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
@@ -126,6 +130,14 @@ export class PublicStorefrontService {
         : Promise.resolve([]),
     ])
 
+    // Gallery = product_images, with the primary imageUrl prepended when it isn't
+    // already one of them (many products only set imageUrl and have no image rows).
+    const galleryUrls = images.map((image) => image.url)
+    const allImages =
+      product.imageUrl && !galleryUrls.includes(product.imageUrl)
+        ? [product.imageUrl, ...galleryUrls]
+        : galleryUrls
+
     const base = this.toListItem(product, config.currency, stockByProduct.get(product.id) ?? 0)
     const publicVariants: PublicProductVariant[] = (variants ?? []).map((variant) => ({
       id: variant.id,
@@ -145,7 +157,7 @@ export class PublicStorefrontService {
       onlineDescription: product.onlineDescription ?? null,
       metaTitle: product.metaTitle ?? null,
       metaDescription: product.metaDescription ?? null,
-      images: images.map((image) => image.url),
+      images: allImages,
       variants: publicVariants,
     }
   }
@@ -223,6 +235,7 @@ export class PublicStorefrontService {
       categoryName: product.category?.name ?? null,
       inStock,
       hasVariants: Boolean(product.hasVariants),
+      trackInventory: Boolean(product.trackInventory),
     }
   }
 

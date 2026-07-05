@@ -207,15 +207,24 @@ export class OnlineOrdersService {
         )
       }
 
-      const totalAmount = Math.round(
+      // Min-order gates the GOODS value (subtotal), not delivery.
+      const subtotal = Math.round(
         items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
       )
-      if (config.minOrderAmount && totalAmount < config.minOrderAmount) {
+      if (config.minOrderAmount && subtotal < config.minOrderAmount) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.online_min_order_not_met'),
           'ONLINE_MIN_ORDER_NOT_MET',
         )
       }
+
+      // Delivery orders carry the store's flat delivery fee; pickup is free.
+      const fulfillmentType = dto.fulfillmentType ?? 'DELIVERY'
+      const deliveryFee =
+        fulfillmentType === 'DELIVERY' && config.fulfilment.offerDelivery
+          ? Math.max(0, Math.round(config.fulfilment.deliveryFee ?? 0))
+          : 0
+      const totalAmount = subtotal + deliveryFee
 
       const order = await this.ordersRepo.save(
         this.ordersRepo.create({
@@ -229,7 +238,7 @@ export class OnlineOrdersService {
           customerName: dto.customerName.trim(),
           customerEmail: dto.customerEmail?.trim() ?? null,
           customerPhone: dto.customerPhone.trim(),
-          fulfillmentType: dto.fulfillmentType ?? 'DELIVERY',
+          fulfillmentType,
           deliveryAddress: dto.deliveryAddress?.trim() ?? null,
           deliveryCity: dto.deliveryCity?.trim() ?? null,
           deliveryNotes: dto.deliveryNotes?.trim() ?? null,
