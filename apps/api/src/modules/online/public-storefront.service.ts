@@ -231,7 +231,12 @@ export class PublicStorefrontService {
       logoUrl: config.logoUrl,
       bannerUrl: config.bannerUrl,
       primaryColor: config.primaryColor,
+      themeId: config.appearance.themeId,
+      appearance: config.appearance.appearance,
+      layoutTemplate: config.appearance.layoutTemplate,
       phone: config.phone,
+      email: config.email,
+      address: config.address,
       whatsappNumber: config.whatsappNumber,
       city: config.city,
       currency: config.currency,
@@ -243,6 +248,25 @@ export class PublicStorefrontService {
         mtnMomo: config.payment.mtnMomo,
         orangeMoney: config.payment.orangeMoney,
         card: config.payment.card,
+      },
+      fulfilment: {
+        offerDelivery: config.fulfilment.offerDelivery,
+        offerPickup: config.fulfilment.offerPickup,
+        deliveryFee: config.fulfilment.deliveryFee,
+        pickupAddress: config.fulfilment.pickupAddress,
+        deliveryCities: config.fulfilment.deliveryCities,
+      },
+      socials: {
+        instagram: config.socials.instagram,
+        facebook: config.socials.facebook,
+        tiktok: config.socials.tiktok,
+        x: config.socials.x,
+        linkedin: config.socials.linkedin,
+      },
+      seo: {
+        title: config.seo.seoTitle,
+        description: config.seo.seoDescription,
+        ogImageUrl: config.seo.ogImageUrl,
       },
     }
   }

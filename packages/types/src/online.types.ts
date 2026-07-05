@@ -270,7 +270,13 @@ export interface PublicStore {
   logoUrl?: string | null
   bannerUrl?: string | null
   primaryColor: string
+  /** Theme preset (a–d) + light/dark, driving the storefront's CSS tokens. */
+  themeId: string
+  appearance: OnlineStoreAppearance
+  layoutTemplate: OnlineStoreLayout
   phone?: string | null
+  email?: string | null
+  address?: string | null
   whatsappNumber?: string | null
   city?: string | null
   currency: string
@@ -282,6 +288,25 @@ export interface PublicStore {
     mtnMomo: boolean
     orangeMoney: boolean
     card: boolean
+  }
+  fulfilment: {
+    offerDelivery: boolean
+    offerPickup: boolean
+    deliveryFee: number
+    pickupAddress?: string | null
+    deliveryCities: string[]
+  }
+  socials: {
+    instagram?: string | null
+    facebook?: string | null
+    tiktok?: string | null
+    x?: string | null
+    linkedin?: string | null
+  }
+  seo: {
+    title?: string | null
+    description?: string | null
+    ogImageUrl?: string | null
   }
 }
 
