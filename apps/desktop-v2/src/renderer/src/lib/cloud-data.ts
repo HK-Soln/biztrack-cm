@@ -43,6 +43,9 @@ import type {
   OnlineOrderDetail,
   OnlineOrder,
   OnlineSlugCheck,
+  OnlineAdminProduct,
+  OnlineAdminProductsQuery,
+  PaginatedResult,
   UpdateOrderStatusRequest,
   // uploads
   UploadFileInput,
@@ -185,6 +188,17 @@ export const cloudOnline = {
     cpatch<OnlineOrder>(`/online-store/orders/${id}/status`, input),
   checkSlug: (slug: string) =>
     cget<OnlineSlugCheck>(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`),
+  listProducts: (query: OnlineAdminProductsQuery = {}) => {
+    const params = new URLSearchParams()
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+    })
+    const qs = params.toString()
+    return cget<PaginatedResult<OnlineAdminProduct>>(`/online-store/products${qs ? `?${qs}` : ''}`)
+  },
+  setProductPublished: async (id: string, published: boolean) => {
+    await cpatch(`/online-store/products/${id}`, { isPublishedOnline: published })
+  },
 }
 
 export const cloudUploads = {
