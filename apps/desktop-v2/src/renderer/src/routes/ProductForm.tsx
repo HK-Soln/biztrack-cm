@@ -364,14 +364,12 @@ export function ProductForm() {
   )
   const loadUnits = useCallback(
     (s: string) =>
-      dataClient.units
-        .list({ search: s, limit: 20 })
-        .then((r) =>
-          r.data.map((u) => ({
-            value: u.id,
-            label: u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name,
-          })),
-        ),
+      dataClient.units.list({ search: s, limit: 20 }).then((r) =>
+        r.data.map((u) => ({
+          value: u.id,
+          label: u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name,
+        })),
+      ),
     [],
   )
   const loadModels = useCallback(
@@ -1245,72 +1243,59 @@ export function ProductForm() {
 
           {stepKey === 'online' ? (
             <div className="fform">
-              <div className="set-line" style={{ paddingTop: 0 }}>
-                <div className="t">
-                  <div className="nm">{t('prodf.publish')}</div>
-                  <div className="ds">{t('prodf.publishHint')}</div>
-                </div>
-                <button
-                  type="button"
-                  className={`switch${d.publishOnline ? ' on' : ''}`}
-                  aria-pressed={d.publishOnline}
-                  onClick={() => patch({ publishOnline: !d.publishOnline })}
+              <div className="hint" style={{ marginBottom: 4 }}>
+                {t('prodf.onlineNote')}
+              </div>
+              <div className="ff">
+                <label className="lbl2">
+                  {t('prodf.onlineDesc')} <span className="opt">SEO</span>
+                </label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  style={{ resize: 'vertical', paddingTop: 10 }}
+                  placeholder={t('prodf.onlineDescPh')}
+                  value={d.onlineDescription}
+                  onChange={(e) => patch({ onlineDescription: e.target.value })}
                 />
               </div>
-              {d.publishOnline ? (
-                <>
-                  <div className="ff">
-                    <label className="lbl2">
-                      {t('prodf.onlineDesc')} <span className="opt">SEO</span>
-                    </label>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      style={{ resize: 'vertical', paddingTop: 10 }}
-                      placeholder={t('prodf.onlineDescPh')}
-                      value={d.onlineDescription}
-                      onChange={(e) => patch({ onlineDescription: e.target.value })}
-                    />
-                  </div>
-                  {tracksInventory ? (
-                    <div className="ff" style={{ maxWidth: 200 }}>
-                      <label className="lbl2">{t('prodf.reserve')}</label>
-                      <Input
-                        value={d.onlineReserve}
-                        inputMode="numeric"
-                        placeholder="0"
-                        onChange={(e) => patch({ onlineReserve: e.target.value })}
-                      />
-                      <div className="hint">{t('prodf.reserveHint')}</div>
-                    </div>
-                  ) : null}
-                  <div className="ff">
-                    <label className="lbl2">
-                      {t('prodf.metaTitle')} <span className="opt">SEO</span>
-                    </label>
-                    <Input
-                      value={d.metaTitle}
-                      placeholder={d.name || t('prodf.metaTitlePh')}
-                      onChange={(e) => patch({ metaTitle: e.target.value })}
-                    />
-                    <div className="hint">{t('prodf.metaTitleHint')}</div>
-                  </div>
-                  <div className="ff">
-                    <label className="lbl2">
-                      {t('prodf.metaDescription')} <span className="opt">SEO</span>
-                    </label>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      style={{ resize: 'vertical', paddingTop: 10 }}
-                      placeholder={t('prodf.metaDescriptionPh')}
-                      value={d.metaDescription}
-                      onChange={(e) => patch({ metaDescription: e.target.value })}
-                    />
-                    <div className="hint">{t('prodf.metaDescriptionHint')}</div>
-                  </div>
-                </>
+              {tracksInventory ? (
+                <div className="ff" style={{ maxWidth: 200 }}>
+                  <label className="lbl2">{t('prodf.reserve')}</label>
+                  <Input
+                    value={d.onlineReserve}
+                    inputMode="numeric"
+                    placeholder="0"
+                    onChange={(e) => patch({ onlineReserve: e.target.value })}
+                  />
+                  <div className="hint">{t('prodf.reserveHint')}</div>
+                </div>
               ) : null}
+              <div className="ff">
+                <label className="lbl2">
+                  {t('prodf.metaTitle')} <span className="opt">SEO</span>
+                </label>
+                <Input
+                  value={d.metaTitle}
+                  placeholder={d.name || t('prodf.metaTitlePh')}
+                  onChange={(e) => patch({ metaTitle: e.target.value })}
+                />
+                <div className="hint">{t('prodf.metaTitleHint')}</div>
+              </div>
+              <div className="ff">
+                <label className="lbl2">
+                  {t('prodf.metaDescription')} <span className="opt">SEO</span>
+                </label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  style={{ resize: 'vertical', paddingTop: 10 }}
+                  placeholder={t('prodf.metaDescriptionPh')}
+                  value={d.metaDescription}
+                  onChange={(e) => patch({ metaDescription: e.target.value })}
+                />
+                <div className="hint">{t('prodf.metaDescriptionHint')}</div>
+              </div>
             </div>
           ) : null}
 
