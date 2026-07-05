@@ -33,6 +33,14 @@ export interface OnlineStore {
   paymentMtnMomo: boolean
   paymentOrangeMoney: boolean
   paymentCard: boolean
+  // Fulfilment: which options the store offers + delivery economics/reach.
+  offerDelivery: boolean
+  offerPickup: boolean
+  /** Flat delivery fee in the store currency (minor unit not used — whole XAF). */
+  deliveryFee: number
+  pickupAddress?: string | null
+  /** Cities/zones the store delivers to (empty = anywhere the customer enters). */
+  deliveryCities: string[]
   // Storefront appearance + catalog + SEO + lifecycle (design-store-config / issue #91)
   layoutTemplate: OnlineStoreLayout
   themeId: string
@@ -88,6 +96,11 @@ export interface UpdateOnlineStoreRequest {
   paymentMtnMomo?: boolean
   paymentOrangeMoney?: boolean
   paymentCard?: boolean
+  offerDelivery?: boolean
+  offerPickup?: boolean
+  deliveryFee?: number
+  pickupAddress?: string | null
+  deliveryCities?: string[]
   storeSlug?: string
   layoutTemplate?: OnlineStoreLayout
   themeId?: string

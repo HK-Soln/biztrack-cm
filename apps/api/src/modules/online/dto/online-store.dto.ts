@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Transform, Type } from 'class-transformer'
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEmail,
   IsHexColor,
@@ -181,6 +183,36 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @IsOptional()
   @IsBoolean()
   paymentCard?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  offerDelivery?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  offerPickup?: boolean
+
+  @ApiPropertyOptional({ description: 'Flat delivery fee in whole store-currency units.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  deliveryFee?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  pickupAddress?: string | null
+
+  @ApiPropertyOptional({ type: [String], description: 'Cities/zones the store delivers to.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  deliveryCities?: string[]
 
   @ApiPropertyOptional({ description: 'URL slug (subdomain).' })
   @IsOptional()

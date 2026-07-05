@@ -189,6 +189,11 @@ type Form = {
   city: string
   allowOrderNotes: boolean
   minOrderAmount: string
+  offerDelivery: boolean
+  offerPickup: boolean
+  deliveryFee: string
+  pickupAddress: string
+  deliveryCities: string[]
   layoutTemplate: OnlineStoreLayout
   themeId: string
   appearance: OnlineStoreAppearance
@@ -219,6 +224,11 @@ function toForm(s: Store): Form {
     city: s.city ?? '',
     allowOrderNotes: s.allowOrderNotes,
     minOrderAmount: s.minOrderAmount != null ? String(s.minOrderAmount) : '',
+    offerDelivery: s.offerDelivery,
+    offerPickup: s.offerPickup,
+    deliveryFee: s.deliveryFee != null ? String(s.deliveryFee) : '',
+    pickupAddress: s.pickupAddress ?? '',
+    deliveryCities: s.deliveryCities ?? [],
     layoutTemplate: s.layoutTemplate,
     themeId: s.themeId,
     appearance: s.appearance,
@@ -236,6 +246,73 @@ function toForm(s: Store): Form {
     whatsappNumber: s.whatsappNumber ?? '',
     socialTiktok: s.socialTiktok ?? '',
   }
+}
+
+/** Tag-style editor for the delivery-cities list (add on Enter/button, remove per chip). */
+function CityEditor({
+  cities,
+  onChange,
+  t,
+}: {
+  cities: string[]
+  onChange: (c: string[]) => void
+  t: ReturnType<typeof useT>
+}) {
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const v = draft.trim()
+    if (v && !cities.some((c) => c.toLowerCase() === v.toLowerCase())) onChange([...cities, v])
+    setDraft('')
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Input
+          value={draft}
+          placeholder={t('online.addCity')}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+        />
+        <Button type="button" variant="soft" onClick={add}>
+          {t('online.add')}
+        </Button>
+      </div>
+      {cities.length ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+          {cities.map((c) => (
+            <span
+              key={c}
+              className="pill-tag"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              {c}
+              <button
+                type="button"
+                aria-label={c}
+                onClick={() => onChange(cities.filter((x) => x !== c))}
+                style={{
+                  background: 'none',
+                  border: 0,
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  lineHeight: 1,
+                  fontSize: 15,
+                  padding: 0,
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function OnlineStore() {
@@ -411,6 +488,13 @@ function StoreConfig({
         paymentMtnMomo: false,
         paymentOrangeMoney: false,
         paymentCard: false,
+        offerDelivery: form.offerDelivery,
+        offerPickup: form.offerPickup,
+        deliveryFee: form.deliveryFee.trim()
+          ? Math.max(0, Math.round(Number(form.deliveryFee)))
+          : 0,
+        pickupAddress: form.pickupAddress.trim() || null,
+        deliveryCities: form.deliveryCities,
         layoutTemplate: form.layoutTemplate,
         themeId: form.themeId,
         primaryColor: brand,
@@ -826,6 +910,80 @@ function StoreConfig({
               {ICO.lock}
               <span>{t('online.paymentsSoon')}</span>
             </div>
+          </div>
+
+          {/* Fulfilment */}
+          <div className="card">
+            <div className="card-h">
+              <div className="ci">{ICO.box}</div>
+              <div className="ti">
+                <h3>{t('online.fulfilTitle')}</h3>
+                <p>{t('online.fulfilBody')}</p>
+              </div>
+            </div>
+            <div className="set-line">
+              <div className="t">
+                <div className="nm">{t('online.offerDelivery')}</div>
+                <div className="ds">{t('online.offerDeliveryDesc')}</div>
+              </div>
+              <button
+                type="button"
+                className={`switch${form.offerDelivery ? ' on' : ''}`}
+                aria-pressed={form.offerDelivery}
+                onClick={() => set('offerDelivery', !form.offerDelivery)}
+              />
+            </div>
+            {form.offerDelivery ? (
+              <>
+                <label className="lbl" style={{ marginTop: 6 }}>
+                  {t('online.deliveryFee')}
+                </label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  value={form.deliveryFee}
+                  placeholder="0"
+                  onChange={(e) => set('deliveryFee', e.target.value.replace(/[^0-9]/g, ''))}
+                />
+                <div className="reserved-note">{t('online.deliveryFeeHint')}</div>
+                <label className="lbl" style={{ marginTop: 14 }}>
+                  {t('online.deliveryCities')}
+                </label>
+                <CityEditor
+                  cities={form.deliveryCities}
+                  onChange={(c) => set('deliveryCities', c)}
+                  t={t}
+                />
+                <div className="reserved-note">{t('online.deliveryCitiesHint')}</div>
+              </>
+            ) : null}
+            <div className="divider" />
+            <div className="set-line">
+              <div className="t">
+                <div className="nm">{t('online.offerPickup')}</div>
+                <div className="ds">{t('online.offerPickupDesc')}</div>
+              </div>
+              <button
+                type="button"
+                className={`switch${form.offerPickup ? ' on' : ''}`}
+                aria-pressed={form.offerPickup}
+                onClick={() => set('offerPickup', !form.offerPickup)}
+              />
+            </div>
+            {form.offerPickup ? (
+              <>
+                <label className="lbl" style={{ marginTop: 6 }}>
+                  {t('online.pickupAddress')}
+                </label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={form.pickupAddress}
+                  placeholder={t('online.pickupAddressPh')}
+                  onChange={(e) => set('pickupAddress', e.target.value)}
+                />
+              </>
+            ) : null}
           </div>
 
           {/* SEO & sharing */}

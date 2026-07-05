@@ -123,6 +123,15 @@ export class OnlineStoreService {
         paymentMtnMomo: dto.paymentMtnMomo ?? store.paymentMtnMomo,
         paymentOrangeMoney: dto.paymentOrangeMoney ?? store.paymentOrangeMoney,
         paymentCard: dto.paymentCard ?? store.paymentCard,
+        // Fulfilment (delivery / pickup)
+        offerDelivery: dto.offerDelivery ?? store.offerDelivery,
+        offerPickup: dto.offerPickup ?? store.offerPickup,
+        deliveryFee: dto.deliveryFee ?? store.deliveryFee,
+        pickupAddress:
+          dto.pickupAddress === undefined
+            ? store.pickupAddress
+            : (dto.pickupAddress?.trim() ?? null),
+        deliveryCities: dto.deliveryCities ?? store.deliveryCities,
         // Appearance + catalog + SEO/social (design-store-config)
         layoutTemplate: dto.layoutTemplate ?? store.layoutTemplate,
         themeId: dto.themeId ?? store.themeId,

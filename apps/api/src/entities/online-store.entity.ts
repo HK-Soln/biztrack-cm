@@ -87,6 +87,24 @@ export class OnlineStore extends BaseEntity {
   @Column({ name: 'payment_card', default: false })
   paymentCard!: boolean
 
+  // ---- Fulfilment (delivery / pickup) ----
+  @Column({ name: 'offer_delivery', default: true })
+  offerDelivery!: boolean
+
+  @Column({ name: 'offer_pickup', default: true })
+  offerPickup!: boolean
+
+  /** Flat delivery fee in whole store-currency units (XAF). */
+  @Column({ name: 'delivery_fee', type: 'int', default: 0 })
+  deliveryFee!: number
+
+  @Column({ name: 'pickup_address', type: 'text', nullable: true })
+  pickupAddress?: string | null
+
+  /** Cities/zones the store delivers to (empty = no restriction). */
+  @Column({ name: 'delivery_cities', type: 'jsonb', default: () => "'[]'" })
+  deliveryCities!: string[]
+
   // ---- Storefront appearance (design-store-config) ----
   /** Layout template: classic | boutique | catalog | landing. */
   @Column({ name: 'layout_template', length: 20, default: 'classic' })
@@ -140,7 +158,12 @@ export class OnlineStore extends BaseEntity {
   @Column({ length: 12, default: 'draft' })
   status!: string
 
-  @Column({ name: 'published_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'published_at',
+    type: 'timestamptz',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   publishedAt?: Date | null
 
   /** Set on any config edit, cleared on publish — drives the "unpublished changes" chip. */
