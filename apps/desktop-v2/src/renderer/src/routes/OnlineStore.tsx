@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input } from '@biztrack/ui/biztrack'
+import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
 import { STORE_ROOT_DOMAIN } from '@/lib/config'
@@ -180,6 +180,15 @@ const SOC = {
 type Form = {
   storeName: string
   storeSlug: string
+  tagline: string
+  logoUrl: string
+  bannerUrl: string
+  phone: string
+  email: string
+  address: string
+  city: string
+  allowOrderNotes: boolean
+  minOrderAmount: string
   layoutTemplate: OnlineStoreLayout
   themeId: string
   appearance: OnlineStoreAppearance
@@ -201,6 +210,15 @@ function toForm(s: Store): Form {
   return {
     storeName: s.storeName,
     storeSlug: s.storeSlug,
+    tagline: s.tagline ?? '',
+    logoUrl: s.logoUrl ?? '',
+    bannerUrl: s.bannerUrl ?? '',
+    phone: s.phone ?? '',
+    email: s.email ?? '',
+    address: s.address ?? '',
+    city: s.city ?? '',
+    allowOrderNotes: s.allowOrderNotes,
+    minOrderAmount: s.minOrderAmount != null ? String(s.minOrderAmount) : '',
     layoutTemplate: s.layoutTemplate,
     themeId: s.themeId,
     appearance: s.appearance,
@@ -377,6 +395,22 @@ function StoreConfig({
       const dto: UpdateOnlineStoreRequest = {
         storeName: form.storeName.trim(),
         storeSlug: form.storeSlug.trim(),
+        tagline: form.tagline.trim() || null,
+        logoUrl: form.logoUrl.trim() || null,
+        bannerUrl: form.bannerUrl.trim() || null,
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        address: form.address.trim() || null,
+        city: form.city.trim() || null,
+        allowOrderNotes: form.allowOrderNotes,
+        minOrderAmount: form.minOrderAmount.trim()
+          ? Math.max(0, Math.round(Number(form.minOrderAmount)))
+          : null,
+        // Online payments are COD-only until Paytrack ships (dynamic methods land then).
+        paymentCashOnDelivery: true,
+        paymentMtnMomo: false,
+        paymentOrangeMoney: false,
+        paymentCard: false,
         layoutTemplate: form.layoutTemplate,
         themeId: form.themeId,
         primaryColor: brand,
@@ -540,6 +574,72 @@ function StoreConfig({
             </div>
           </div>
 
+          {/* Store profile */}
+          <div className="card">
+            <div className="card-h">
+              <div className="ci">{ICO.globe}</div>
+              <div className="ti">
+                <h3>{t('online.profileTitle')}</h3>
+                <p>{t('online.profileBody')}</p>
+              </div>
+            </div>
+            <label className="lbl">{t('online.tagline')}</label>
+            <Input
+              value={form.tagline}
+              placeholder={t('online.taglinePh')}
+              onChange={(e) => set('tagline', e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: 14, marginTop: 14 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label className="lbl">{t('online.logo')}</label>
+                <FileUpload
+                  variant="image"
+                  value={form.logoUrl || null}
+                  onChange={(url) => set('logoUrl', url ?? '')}
+                  folder="online-store"
+                  label={t('online.logoCta')}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label className="lbl">{t('online.banner')}</label>
+                <FileUpload
+                  variant="image"
+                  value={form.bannerUrl || null}
+                  onChange={(url) => set('bannerUrl', url ?? '')}
+                  folder="online-store"
+                  label={t('online.bannerCta')}
+                />
+              </div>
+            </div>
+            <div className="divider" />
+            <label className="lbl">{t('online.phone')}</label>
+            <PhoneInput
+              value={form.phone || undefined}
+              defaultCountry="CM"
+              placeholder="6 78 22 14 02"
+              onChange={(v) => set('phone', v ?? '')}
+            />
+            <label className="lbl" style={{ marginTop: 14 }}>
+              {t('online.email')}
+            </label>
+            <Input
+              type="email"
+              value={form.email}
+              placeholder="store@business.cm"
+              onChange={(e) => set('email', e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: 14, marginTop: 14 }}>
+              <div style={{ flex: 2, minWidth: 0 }}>
+                <label className="lbl">{t('online.address')}</label>
+                <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label className="lbl">{t('online.city')}</label>
+                <Input value={form.city} onChange={(e) => set('city', e.target.value)} />
+              </div>
+            </div>
+          </div>
+
           {/* Theme & appearance */}
           <div className="card">
             <div className="card-h">
@@ -675,6 +775,56 @@ function StoreConfig({
                 aria-pressed={form.showLowStockBadges}
                 onClick={() => set('showLowStockBadges', !form.showLowStockBadges)}
               />
+            </div>
+          </div>
+
+          {/* Orders & payment */}
+          <div className="card">
+            <div className="card-h">
+              <div className="ci">{ICO.box}</div>
+              <div className="ti">
+                <h3>{t('online.ordersCfgTitle')}</h3>
+                <p>{t('online.ordersCfgBody')}</p>
+              </div>
+            </div>
+            <div className="set-line">
+              <div className="t">
+                <div className="nm">{t('online.allowNotes')}</div>
+                <div className="ds">{t('online.allowNotesDesc')}</div>
+              </div>
+              <button
+                type="button"
+                className={`switch${form.allowOrderNotes ? ' on' : ''}`}
+                aria-pressed={form.allowOrderNotes}
+                onClick={() => set('allowOrderNotes', !form.allowOrderNotes)}
+              />
+            </div>
+            <label className="lbl" style={{ marginTop: 6 }}>
+              {t('online.minOrder')}
+            </label>
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={form.minOrderAmount}
+              placeholder="0"
+              onChange={(e) => set('minOrderAmount', e.target.value.replace(/[^0-9]/g, ''))}
+            />
+            <div className="reserved-note">{t('online.minOrderHint')}</div>
+            <div className="divider" />
+            <label className="lbl">{t('online.payments')}</label>
+            <div className="set-line">
+              <div className="t">
+                <div className="nm">{t('online.cod')}</div>
+                <div className="ds">{t('online.codDesc')}</div>
+              </div>
+              <span className="st st-ok">
+                <span className="d" />
+                {t('online.active')}
+              </span>
+            </div>
+            <div className="form-note" style={{ marginTop: 12 }}>
+              {ICO.lock}
+              <span>{t('online.paymentsSoon')}</span>
             </div>
           </div>
 
