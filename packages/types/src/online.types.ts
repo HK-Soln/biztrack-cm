@@ -210,30 +210,127 @@ export interface UpdateCartItemRequest {
 
 export type OnlineFulfillmentType = 'DELIVERY' | 'PICKUP'
 
+/**
+ * Fulfilment status — the PHYSICAL order lifecycle (separate from the payment axis).
+ * The flow branches by fulfilment type (see ONLINE_ORDER_TRANSITIONS):
+ *   shared:    PENDING → CONFIRMED → PREPARING → …
+ *   PICKUP:    … → READY_FOR_PICKUP → PICKED_UP
+ *   DELIVERY:  … → READY_FOR_DISPATCH → OUT_FOR_DELIVERY → DELIVERED
+ *              (OUT_FOR_DELIVERY → DELIVERY_FAILED → retry | cancel)
+ *   off-flow:  CANCELLED (pre-completion), RETURNED (post-completion)
+ * Refunds live on the PAYMENT axis (OnlinePaymentStatus), not here.
+ */
 export type OnlineOrderStatus =
   | 'PENDING'
   | 'CONFIRMED'
   | 'PREPARING'
-  | 'DISPATCHED'
-  | 'DELIVERED'
-  | 'CANCELLED'
-  | 'REFUNDED'
+  | 'READY_FOR_PICKUP' // pickup
+  | 'PICKED_UP' // pickup (terminal)
+  | 'READY_FOR_DISPATCH' // delivery
+  | 'OUT_FOR_DELIVERY' // delivery
+  | 'DELIVERED' // delivery (terminal)
+  | 'DELIVERY_FAILED' // delivery (retry or cancel)
+  | 'RETURNED' // post-completion
+  | 'CANCELLED' // terminal
 
-export type OnlinePaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
+const DELIVERY_TRANSITIONS: Record<OnlineOrderStatus, readonly OnlineOrderStatus[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY_FOR_DISPATCH', 'CANCELLED'],
+  READY_FOR_DISPATCH: ['OUT_FOR_DELIVERY', 'CANCELLED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED'],
+  DELIVERY_FAILED: ['OUT_FOR_DELIVERY', 'CANCELLED'],
+  DELIVERED: ['RETURNED'],
+  RETURNED: [],
+  CANCELLED: [],
+  READY_FOR_PICKUP: [], // not reachable in a delivery order
+  PICKED_UP: [],
+}
+
+const PICKUP_TRANSITIONS: Record<OnlineOrderStatus, readonly OnlineOrderStatus[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY_FOR_PICKUP', 'CANCELLED'],
+  READY_FOR_PICKUP: ['PICKED_UP', 'CANCELLED'],
+  PICKED_UP: ['RETURNED'],
+  RETURNED: [],
+  CANCELLED: [],
+  READY_FOR_DISPATCH: [], // not reachable in a pickup order
+  OUT_FOR_DELIVERY: [],
+  DELIVERED: [],
+  DELIVERY_FAILED: [],
+}
+
+/**
+ * The fulfilment state machine, branched by fulfilment type. The API enforces these
+ * transitions in updateStatus; the admin UI derives its available actions from the map.
+ */
+export const ONLINE_ORDER_TRANSITIONS: Record<
+  OnlineFulfillmentType,
+  Record<OnlineOrderStatus, readonly OnlineOrderStatus[]>
+> = {
+  DELIVERY: DELIVERY_TRANSITIONS,
+  PICKUP: PICKUP_TRANSITIONS,
+}
+
+/** Statuses that mark a successfully completed order (money is due/collected). */
+export const ONLINE_ORDER_COMPLETION_STATUSES: readonly OnlineOrderStatus[] = [
+  'DELIVERED',
+  'PICKED_UP',
+]
+
+/** True if `to` is a valid next status from `from` for the given fulfilment type. */
+export function canTransitionOnlineOrder(
+  fulfillment: OnlineFulfillmentType,
+  from: OnlineOrderStatus,
+  to: OnlineOrderStatus,
+): boolean {
+  return ONLINE_ORDER_TRANSITIONS[fulfillment]?.[from]?.includes(to) ?? false
+}
+
+/** True if the status has no onward transitions for the given fulfilment type. */
+export function isTerminalOnlineOrderStatus(
+  fulfillment: OnlineFulfillmentType,
+  status: OnlineOrderStatus,
+): boolean {
+  return (ONLINE_ORDER_TRANSITIONS[fulfillment]?.[status]?.length ?? 0) === 0
+}
+
+/**
+ * Payment status — the MONEY axis (independent of fulfilment). COD drives
+ * PENDING → PAID on completion; a gateway (paytrack) drives PENDING → AUTHORIZED →
+ * PAID / FAILED, and PAID → REFUNDED / PARTIALLY_REFUNDED.
+ */
+export type OnlinePaymentStatus =
+  | 'PENDING'
+  | 'AUTHORIZED'
+  | 'PAID'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'PARTIALLY_REFUNDED'
 
 export type OnlineOrderEventType =
   | 'ORDER_PLACED'
-  | 'PAYMENT_INITIATED'
-  | 'PAYMENT_RECEIVED'
-  | 'PAYMENT_FAILED'
   | 'ORDER_CONFIRMED'
   | 'PREPARATION_STARTED'
-  | 'ORDER_DISPATCHED'
-  | 'ORDER_DELIVERED'
-  | 'ORDER_CANCELLED'
-  | 'ORDER_REFUNDED'
-  | 'NOTE_ADDED'
+  | 'ORDER_PACKED' // ready for dispatch/pickup
+  | 'ORDER_READY_FOR_PICKUP'
+  | 'ORDER_PICKED_UP'
+  | 'COURIER_ASSIGNED'
+  | 'ORDER_OUT_FOR_DELIVERY'
   | 'DELIVERY_ATTEMPTED'
+  | 'DELIVERY_FAILED'
+  | 'ORDER_DELIVERED'
+  | 'ORDER_RETURNED'
+  | 'ORDER_CANCELLED'
+  | 'NOTE_ADDED'
+  // Payment axis
+  | 'PAYMENT_INITIATED'
+  | 'PAYMENT_AUTHORIZED'
+  | 'PAYMENT_RECEIVED'
+  | 'PAYMENT_FAILED'
+  | 'PAYMENT_REFUNDED'
+  | 'PAYMENT_PARTIALLY_REFUNDED'
 
 export interface CheckoutRequest {
   customerName: string
@@ -277,8 +374,15 @@ export interface OnlineOrder {
   totalAmount: number
   createdAt?: IsoDateString
   confirmedAt?: IsoDateString | null
-  dispatchedAt?: IsoDateString | null
+  readyAt?: IsoDateString | null
+  outForDeliveryAt?: IsoDateString | null
   deliveredAt?: IsoDateString | null
+  pickedUpAt?: IsoDateString | null
+  returnedAt?: IsoDateString | null
+  // Delivery-service (courier) integration seam.
+  courierName?: string | null
+  courierTrackingNumber?: string | null
+  courierTrackingUrl?: string | null
 }
 
 export interface UpdateOrderStatusRequest {

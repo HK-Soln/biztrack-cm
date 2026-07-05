@@ -79,11 +79,32 @@ export class OnlineOrder {
   @Column({ name: 'confirmed_at', type: 'timestamp', nullable: true })
   confirmedAt?: Date | null
 
-  @Column({ name: 'dispatched_at', type: 'timestamp', nullable: true })
-  dispatchedAt?: Date | null
+  // Packed and ready (for pickup or dispatch).
+  @Column({ name: 'ready_at', type: 'timestamp', nullable: true })
+  readyAt?: Date | null
+
+  @Column({ name: 'out_for_delivery_at', type: 'timestamp', nullable: true })
+  outForDeliveryAt?: Date | null
 
   @Column({ name: 'delivered_at', type: 'timestamp', nullable: true })
   deliveredAt?: Date | null
+
+  @Column({ name: 'picked_up_at', type: 'timestamp', nullable: true })
+  pickedUpAt?: Date | null
+
+  @Column({ name: 'returned_at', type: 'timestamp', nullable: true })
+  returnedAt?: Date | null
+
+  // Delivery-service integration seam — a courier integration fills these and moves the
+  // status; no schema restructure needed when it lands.
+  @Column({ name: 'courier_name', length: 120, nullable: true, type: 'varchar' })
+  courierName?: string | null
+
+  @Column({ name: 'courier_tracking_number', length: 120, nullable: true, type: 'varchar' })
+  courierTrackingNumber?: string | null
+
+  @Column({ name: 'courier_tracking_url', type: 'text', nullable: true })
+  courierTrackingUrl?: string | null
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date

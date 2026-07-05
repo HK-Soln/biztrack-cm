@@ -4,6 +4,8 @@ import { IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import {
   PaymentMethod,
+  ONLINE_ORDER_COMPLETION_STATUSES,
+  canTransitionOnlineOrder,
   type AddCartItemRequest,
   type CheckoutRequest,
   type OnlineCart as OnlineCartShape,
@@ -30,17 +32,27 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { SalesService } from '@/modules/sales/services/sales.service'
 
-const cartItemKey = (item: { productId: string; variantId?: string | null; serialUnitId?: string | null }) =>
-  `${item.productId}:${item.variantId ?? ''}:${item.serialUnitId ?? ''}`
+const cartItemKey = (item: {
+  productId: string
+  variantId?: string | null
+  serialUnitId?: string | null
+}) => `${item.productId}:${item.variantId ?? ''}:${item.serialUnitId ?? ''}`
 
-const STATUS_EVENT: Record<OnlineOrderStatus, { type: OnlineOrderEvent['eventType']; message: string }> = {
+const STATUS_EVENT: Record<
+  OnlineOrderStatus,
+  { type: OnlineOrderEvent['eventType']; message: string }
+> = {
   PENDING: { type: 'ORDER_PLACED', message: 'Your order has been placed.' },
   CONFIRMED: { type: 'ORDER_CONFIRMED', message: 'Your order has been confirmed.' },
   PREPARING: { type: 'PREPARATION_STARTED', message: 'Your order is being prepared.' },
-  DISPATCHED: { type: 'ORDER_DISPATCHED', message: 'Your order is on its way.' },
+  READY_FOR_PICKUP: { type: 'ORDER_READY_FOR_PICKUP', message: 'Your order is ready for pickup.' },
+  PICKED_UP: { type: 'ORDER_PICKED_UP', message: 'Your order has been picked up.' },
+  READY_FOR_DISPATCH: { type: 'ORDER_PACKED', message: 'Your order is packed and ready to ship.' },
+  OUT_FOR_DELIVERY: { type: 'ORDER_OUT_FOR_DELIVERY', message: 'Your order is out for delivery.' },
   DELIVERED: { type: 'ORDER_DELIVERED', message: 'Your order has been delivered.' },
+  DELIVERY_FAILED: { type: 'DELIVERY_FAILED', message: 'A delivery attempt was unsuccessful.' },
+  RETURNED: { type: 'ORDER_RETURNED', message: 'Your order has been returned.' },
   CANCELLED: { type: 'ORDER_CANCELLED', message: 'Your order has been cancelled.' },
-  REFUNDED: { type: 'ORDER_REFUNDED', message: 'Your order has been refunded.' },
 }
 
 @Injectable()
@@ -223,7 +235,11 @@ export class OnlineOrdersService {
       // Cart consumed.
       await this.cartsRepo.delete({ id: cart.id })
 
-      return { orderNumber: order.orderNumber, trackingToken: order.trackingToken, status: order.status }
+      return {
+        orderNumber: order.orderNumber,
+        trackingToken: order.trackingToken,
+        status: order.status,
+      }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })
     }
@@ -312,19 +328,32 @@ export class OnlineOrdersService {
       }
       const fromStatus = order.status
       const toStatus = dto.status
+
+      // Enforce the fulfilment state machine for THIS order's fulfilment type (shared with
+      // the admin UI). Rejects illegal jumps, backward moves, wrong-branch and no-op updates.
+      if (!canTransitionOnlineOrder(order.fulfillmentType, fromStatus, toStatus)) {
+        throw new AppBadRequestException(
+          `Cannot change a ${order.fulfillmentType.toLowerCase()} order from ${fromStatus} to ${toStatus}.`,
+          'ONLINE_ORDER_INVALID_TRANSITION',
+        )
+      }
+
       const now = new Date()
       const patch: Partial<OnlineOrder> = { status: toStatus }
       if (toStatus === 'CONFIRMED') patch.confirmedAt = now
-      if (toStatus === 'DISPATCHED') patch.dispatchedAt = now
+      if (toStatus === 'READY_FOR_PICKUP' || toStatus === 'READY_FOR_DISPATCH') patch.readyAt = now
+      if (toStatus === 'OUT_FOR_DELIVERY') patch.outForDeliveryAt = now
+      if (toStatus === 'DELIVERED') patch.deliveredAt = now
+      if (toStatus === 'PICKED_UP') patch.pickedUpAt = now
+      if (toStatus === 'RETURNED') patch.returnedAt = now
 
-      // Deferred-sale policy: the financial sale is created only when the order is
-      // both paid AND delivered. COD cash is collected at delivery, so DELIVERED
-      // marks the order PAID and records the sale (deducting inventory) once.
-      if (toStatus === 'DELIVERED') {
-        patch.deliveredAt = now
-        if (!order.saleId) {
-          const sale = await this.createSaleForOrder(order, actor.id)
-          patch.saleId = sale.id
+      // Deferred-sale policy: the financial sale is created once the order is COMPLETED
+      // (DELIVERED for delivery, PICKED_UP for pickup) — inventory deducts then, idempotent
+      // by order id. For COD (not yet paid), completion also collects payment → PAID.
+      if (ONLINE_ORDER_COMPLETION_STATUSES.includes(toStatus) && !order.saleId) {
+        const sale = await this.createSaleForOrder(order, actor.id)
+        patch.saleId = sale.id
+        if (order.paymentStatus !== 'PAID') {
           patch.paymentStatus = 'PAID'
           await this.eventsRepo.save(
             this.eventsRepo.create({
@@ -335,7 +364,7 @@ export class OnlineOrdersService {
               actorId: actor.id,
               actorName: actor.name,
               isCustomerVisible: false,
-              internalNote: `Sale ${sale.saleNumber} recorded on delivery.`,
+              internalNote: `Sale ${sale.saleNumber} recorded on ${toStatus.toLowerCase()}.`,
               trackingToken: order.trackingToken,
             }),
           )
