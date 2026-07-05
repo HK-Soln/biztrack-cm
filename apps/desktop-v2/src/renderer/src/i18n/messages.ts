@@ -307,7 +307,8 @@ export const en = {
   'cat.attrTitle': 'Variant attributes',
   'cat.attrNote':
     'Attribute groups apply to leaf categories (no sub-categories) and define product variant dimensions. Available once Attributes is set up.',
-  'cat.attrLeafOnly': 'Attribute groups apply to leaf categories. Save this as a leaf (no sub-categories) to attach variant dimensions.',
+  'cat.attrLeafOnly':
+    'Attribute groups apply to leaf categories. Save this as a leaf (no sub-categories) to attach variant dimensions.',
   'cat.attrAttach': 'Attach',
   'cat.attrRequired': 'Required',
   'cat.attrOptional': 'Optional',
@@ -392,7 +393,8 @@ export const en = {
   'unit.typeCustom': 'Custom',
 
   'brand.title': 'Brands',
-  'brand.subtitle': 'Map a brand to its categories — products pick up the category & attributes automatically.',
+  'brand.subtitle':
+    'Map a brand to its categories — products pick up the category & attributes automatically.',
   'brand.new': 'New brand',
   'brand.all': 'All brands',
   'brand.loading': 'Loading brands…',
@@ -428,8 +430,10 @@ export const en = {
   'brand.nameRequired': 'Enter a brand name',
   'brand.catRequired': 'Pick at least one category',
   'brand.catEmpty': 'Create categories first — a brand must link to at least one.',
-  'brand.catEmptyL3': 'No L3 (subcategory) categories yet. Brands attach to the deepest (L3) categories — create some first.',
-  'brand.categoriesPickHint': 'Optional — link any level (a top-level category covers everything beneath it). Leave empty to allow all categories.',
+  'brand.catEmptyL3':
+    'No L3 (subcategory) categories yet. Brands attach to the deepest (L3) categories — create some first.',
+  'brand.categoriesPickHint':
+    'Optional — link any level (a top-level category covers everything beneath it). Leave empty to allow all categories.',
   'brand.catSearch': 'Search categories…',
   'brand.catNoMatch': 'No categories match your search.',
   'brand.saveError': 'Could not save. Please try again.',
@@ -485,7 +489,8 @@ export const en = {
   'share.download': 'Download PDF',
   'share.downloadSub': 'Save the PDF to your computer',
   'share.needsOnline': 'Requires an internet connection',
-  'share.offlineNote': "You're offline — you can still download the PDF. Sending resumes when you reconnect.",
+  'share.offlineNote':
+    "You're offline — you can still download the PDF. Sending resumes when you reconnect.",
   'share.rendering': 'Preparing the PDF…',
   'share.toSupplier': 'Send to {name}',
   'share.recipientPhone': 'WhatsApp number',
@@ -626,11 +631,13 @@ export const en = {
   'prodf.addTitle': 'Add product',
   'prodf.editTitle': 'Edit product info',
   'prodf.subtitle': 'Pick a brand and the category fills from it.',
-  'prodf.editSubtitle': 'Edit catalog details only. Stock, variants and serial units are managed from the product page.',
+  'prodf.editSubtitle':
+    'Edit catalog details only. Stock, variants and serial units are managed from the product page.',
   'prodf.serializedLocked': 'Stock type can’t be changed after creation.',
   // ---- Sell / POS ----
   'sell.title': 'New sale',
-  'sell.subtitle': 'Tap products to add them. Add charges, pick a customer & payment method, and check out.',
+  'sell.subtitle':
+    'Tap products to add them. Add charges, pick a customer & payment method, and check out.',
   'sell.searchPh': 'Search products or scan a barcode…',
   'sell.allCats': 'All',
   'sell.outOfStock': 'Out',
@@ -687,7 +694,8 @@ export const en = {
   'sell.remainingCredit': 'Remaining → on credit',
   'sell.changeCash': 'Change to give (cash)',
   'sell.fullyAllocated': 'Fully allocated',
-  'sell.creditNeedsCustomer': 'Credit sales must be linked to a registered customer. Choose one to continue.',
+  'sell.creditNeedsCustomer':
+    'Credit sales must be linked to a registered customer. Choose one to continue.',
   'sell.chooseCustomer': 'Choose customer',
   'sell.partPaid': 'Part-paid · rest on credit',
   'sell.onCreditTitle': 'Sale recorded on credit',
@@ -707,7 +715,8 @@ export const en = {
   'sell.balanceAfter': 'Balance after this sale:',
   'sell.payRemainingCash': 'Pay remaining {amt} with cash',
   'sell.payRemaining': 'Collect the remaining {amt}',
-  'sell.noDeposit': 'This customer has no deposit balance. Pick a customer who has one, or use another method.',
+  'sell.noDeposit':
+    'This customer has no deposit balance. Pick a customer who has one, or use another method.',
   'sell.max': 'Max',
   'sell.hold': 'Hold',
   'sell.resume': 'Held',
@@ -908,7 +917,8 @@ export const en = {
   'dep.collect': 'Collect',
   'dep.exportReport': 'Export',
   'dep.collectTitle': 'Collect goods',
-  'dep.collectHint': 'Choose what the customer is collecting. Checkout opens with their deposit applied.',
+  'dep.collectHint':
+    'Choose what the customer is collecting. Checkout opens with their deposit applied.',
   'dep.collectNoItems': 'No tagged items. Add products to the session, or ring them up in Sell.',
   'dep.noSerials': 'No units in stock.',
   'dep.collectTotal': 'Total',
@@ -970,15 +980,18 @@ export const en = {
   'dep.invalidEmail': 'Enter a valid email address.',
   // --- Online store / orders ---
   'online.upsellTitle': 'Online store is a Business feature',
-  'online.upsellBody': 'Sell online with a free storefront. Upgrade to Business or Pro to set up your store and receive online orders.',
+  'online.upsellBody':
+    'Sell online with a free storefront. Upgrade to Business or Pro to set up your store and receive online orders.',
   'online.upsellCta': 'See plans',
   'online.offlineTitle': 'You’re offline',
-  'online.offlineBody': 'Online store and orders need an internet connection. Reconnect and try again.',
+  'online.offlineBody':
+    'Online store and orders need an internet connection. Reconnect and try again.',
   'online.errorTitle': 'Couldn’t load',
   'online.errorBody': 'Something went wrong loading your online store. Please try again.',
   'online.retry': 'Retry',
   'online.ordersTitle': 'Online orders',
-  'online.ordersSubtitle': 'Orders placed on your storefront. Fulfil, track delivery and keep stock in sync.',
+  'online.ordersSubtitle':
+    'Orders placed on your storefront. Fulfil, track delivery and keep stock in sync.',
   'online.kpiSales': 'Online sales',
   'online.kpiOrders': '{n} orders',
   'online.kpiNew': 'New · awaiting action',
@@ -1006,8 +1019,14 @@ export const en = {
   'online.stNew': 'New',
   'online.stConfirmed': 'Confirmed',
   'online.stPreparing': 'Preparing',
+  'online.stReadyForPickup': 'Ready for pickup',
+  'online.stPickedUp': 'Picked up',
+  'online.stReadyForDispatch': 'Ready for dispatch',
+  'online.stOutForDelivery': 'Out for delivery',
   'online.stShipped': 'Shipped',
   'online.stDelivered': 'Delivered',
+  'online.stDeliveryFailed': 'Delivery failed',
+  'online.stReturned': 'Returned',
   'online.stCancelled': 'Cancelled',
   'online.stRefunded': 'Refunded',
   'online.loading': 'Loading…',
@@ -1027,16 +1046,24 @@ export const en = {
   'online.statusError': 'Could not update the order.',
   'online.advance.PENDING': 'Confirm order',
   'online.advance.CONFIRMED': 'Mark as preparing',
-  'online.advance.PREPARING': 'Mark as shipped',
-  'online.advance.DISPATCHED': 'Mark delivered',
+  'online.advance.PREPARING': 'Mark as ready',
+  'online.advance.READY_FOR_PICKUP': 'Mark as picked up',
+  'online.advance.READY_FOR_DISPATCH': 'Mark out for delivery',
+  'online.advance.OUT_FOR_DELIVERY': 'Mark delivered',
+  'online.advance.DELIVERY_FAILED': 'Retry delivery',
+  'online.cancelOrder': 'Cancel order',
+  'online.markReturned': 'Mark as returned',
+  'online.markFailed': 'Mark delivery failed',
   'online.saveError': 'Could not save the store.',
   'online.createTitle': 'Set up your online store',
-  'online.createBody': 'Give your store a name to get started. You can configure everything else next.',
+  'online.createBody':
+    'Give your store a name to get started. You can configure everything else next.',
   'online.storeNamePlaceholder': 'Store name',
   'online.nameRequired': 'Enter a store name.',
   'online.createCta': 'Create store',
   'online.cfgTitle': 'Store configuration',
-  'online.cfgSubtitle': 'Set up your free online storefront. Changes stay in draft until you publish.',
+  'online.cfgSubtitle':
+    'Set up your free online storefront. Changes stay in draft until you publish.',
   'online.unpublished': 'Unpublished changes',
   'online.save': 'Save',
   'online.publish': 'Publish changes',
@@ -1048,7 +1075,8 @@ export const en = {
   'online.storefrontIncluded': 'Storefront included',
   'online.proNote': 'Custom builder & domains on Pro',
   'online.addressTitle': 'Store address',
-  'online.addressBody': 'The web address customers visit. Pick a free subdomain now; connect your own domain on Pro.',
+  'online.addressBody':
+    'The web address customers visit. Pick a free subdomain now; connect your own domain on Pro.',
   'online.subdomain': 'Subdomain',
   'online.slugEmpty': 'Choose a subdomain',
   'online.slugReserved': '“{slug}” is reserved — pick another',
@@ -1056,11 +1084,13 @@ export const en = {
   'online.slugChecking': 'Checking availability…',
   'online.slugTaken': 'That address is already taken — pick another',
   'online.slugInvalid': 'That address is not valid',
-  'online.slugNote': 'Lowercase letters, numbers and hyphens only. Reserved names (www, app, api, admin, shop…) can’t be used.',
+  'online.slugNote':
+    'Lowercase letters, numbers and hyphens only. Reserved names (www, app, api, admin, shop…) can’t be used.',
   'online.customDomain': 'Connect a custom domain',
   'online.customDomainHint': 'e.g. www.yourbusiness.cm — verified by DNS, TLS auto-provisioned',
   'online.themeTitle': 'Theme & appearance',
-  'online.themeBody': 'Choose a ready-made layout, then a colour theme. The preview updates instantly.',
+  'online.themeBody':
+    'Choose a ready-made layout, then a colour theme. The preview updates instantly.',
   'online.layoutTemplate': 'Layout template',
   'online.layout.classic': 'Classic',
   'online.layout.boutique': 'Boutique',
@@ -1074,14 +1104,17 @@ export const en = {
   'online.appearance': 'Appearance',
   'online.light': 'Light',
   'online.dark': 'Dark',
-  'online.builderNote': 'Custom drag-and-drop builder — design your own layout. Available on the Pro plan.',
+  'online.builderNote':
+    'Custom drag-and-drop builder — design your own layout. Available on the Pro plan.',
   'online.catalogTitle': 'Catalog & pricing',
   'online.catalogBody': 'Choose how product prices and stock are read by your public store.',
   'online.snapshot': 'Snapshot on publish',
   'online.recommended': 'Recommended',
-  'online.snapshotDesc': 'Capture prices & stock when you publish. Public prices never change unexpectedly between publishes.',
+  'online.snapshotDesc':
+    'Capture prices & stock when you publish. Public prices never change unexpectedly between publishes.',
   'online.live': 'Live read',
-  'online.liveDesc': 'Storefront always reflects your current catalogue in real time. Best for fast-moving prices.',
+  'online.liveDesc':
+    'Storefront always reflects your current catalogue in real time. Best for fast-moving prices.',
   'online.hideOOS': 'Hide out-of-stock products',
   'online.hideOOSDesc': 'Items with zero stock won’t appear on the storefront.',
   'online.lowStock': 'Show “low stock” badges',
@@ -1110,7 +1143,8 @@ export const en = {
   'online.popular': 'Popular products',
   'online.sampleProduct': 'Product',
   'online.searchProducts': 'Search products…',
-  'online.previewNote': 'Preview shows your draft. The public site only changes when you press Publish.',
+  'online.previewNote':
+    'Preview shows your draft. The public site only changes when you press Publish.',
   'online.saved': 'Saved',
   'online.published': 'Store published',
   'prodf.back': 'Back to products',
@@ -1200,10 +1234,14 @@ export const en = {
   'prodf.main': 'Main',
   'prodf.variants': 'Variants',
   'prodf.variantCount': '{n} variants',
-  'prodf.variantsPickCategory': 'Pick a category first — its attribute groups define the variant dimensions.',
-  'prodf.variantsNoGroups': 'This category has no attribute groups. Add some in Attributes to offer variants.',
-  'prodf.variantsHint': 'Select the options this product comes in; the matrix below is generated automatically.',
-  'prodf.variantsMinTwo': 'A variant product needs at least 2 variants — select more options (or clear them for a simple product).',
+  'prodf.variantsPickCategory':
+    'Pick a category first — its attribute groups define the variant dimensions.',
+  'prodf.variantsNoGroups':
+    'This category has no attribute groups. Add some in Attributes to offer variants.',
+  'prodf.variantsHint':
+    'Select the options this product comes in; the matrix below is generated automatically.',
+  'prodf.variantsMinTwo':
+    'A variant product needs at least 2 variants — select more options (or clear them for a simple product).',
   'prodf.basePrice': 'Base price',
   'prodf.vColVariant': '{n} variants',
   'prodf.vColPrice': 'Price',
@@ -1239,7 +1277,8 @@ export const en = {
   'prodf.variantDup': 'That combination is already added.',
   'prodf.variantIncomplete': 'Pick one option for every group.',
   'prodf.variantNone': 'No variants yet — a variant product needs at least 2.',
-  'prodf.variantSingleHint': 'Add variants only if this product sells in several variations. Otherwise skip — it stays a single product.',
+  'prodf.variantSingleHint':
+    'Add variants only if this product sells in several variations. Otherwise skip — it stays a single product.',
   'prodf.serials': 'Serial numbers',
   'prodf.serialsCount': '{n} in stock',
   'prodf.serialAdd': 'Add',
@@ -1253,8 +1292,10 @@ export const en = {
   'prodf.serialsRequired': 'Add at least one serial number (stock is the unit count).',
   'prodf.variantSerialsRequired': 'Each variant needs at least one serial number.',
   'prodf.stockSerialNote': 'For serialized products, stock = the number of serial numbers entered.',
-  'prodf.serialsManageHint': 'Manage serial units (add, retire, correct) from the product page — each writes a stock movement.',
-  'prodf.variantsManageHint': 'Variants are managed from the product page after creation — add, edit or remove there (each change writes a stock movement).',
+  'prodf.serialsManageHint':
+    'Manage serial units (add, retire, correct) from the product page — each writes a stock movement.',
+  'prodf.variantsManageHint':
+    'Variants are managed from the product page after creation — add, edit or remove there (each change writes a stock movement).',
   'pvar.title': 'Variants',
   'pvar.sub': 'Add, edit or remove variants — adding/removing changes stock and writes a movement.',
   'pvar.add': 'Add variant',
@@ -1281,7 +1322,8 @@ export const en = {
   'pvar.save': 'Save changes',
   'pvar.cancel': 'Cancel',
   'pvar.removeTitle': 'Remove variant',
-  'pvar.removeBody': 'Remove “{name}” and write off its {n} in stock. This writes a stock-out movement and cannot be undone.',
+  'pvar.removeBody':
+    'Remove “{name}” and write off its {n} in stock. This writes a stock-out movement and cannot be undone.',
   'pvar.reason': 'Reason',
   'pvar.reasonPh': 'e.g. Discontinued, merged into another',
   'pvar.addError': 'Could not add the variant.',
@@ -1302,7 +1344,8 @@ export const en = {
   'psu.cancel': 'Cancel',
   'psu.retire': 'Retire',
   'psu.retireTitle': 'Retire serial unit',
-  'psu.retireBody': 'Remove {serial} from stock. This writes a stock-out movement and cannot be undone.',
+  'psu.retireBody':
+    'Remove {serial} from stock. This writes a stock-out movement and cannot be undone.',
   'psu.reason': 'Reason',
   'psu.reasonPh': 'e.g. Damaged, lost, returned to supplier',
   'psu.addError': 'Could not add the unit.',
@@ -1312,7 +1355,8 @@ export const en = {
   'psu.count': '{n} in stock',
   'psu.modeOne': 'Add one',
   'psu.modeBulk': 'Paste / scan many',
-  'psu.bulkHint': 'Paste a list, or scan units one after another. Separate by new lines, commas or spaces.',
+  'psu.bulkHint':
+    'Paste a list, or scan units one after another. Separate by new lines, commas or spaces.',
   'psu.bulkPh': 'SN-00001\nSN-00002\nSN-00003',
   'psu.bulkValid': '{n} ready',
   'psu.bulkDup': '{n} duplicate',
@@ -1419,7 +1463,8 @@ export const en = {
   'ct.offsetSettle': 'Offset & settle',
   'ct.offsetBalances': 'Offset balances',
   'ct.offsetTitle': 'Offset balances',
-  'ct.offsetBody': 'This clears {amt} from both what {name} owes you and what you owe them — one cash-neutral settlement. The net position is unchanged.',
+  'ct.offsetBody':
+    'This clears {amt} from both what {name} owes you and what you owe them — one cash-neutral settlement. The net position is unchanged.',
   'ct.offsetConfirm': 'Offset balances',
   'ct.offsetError': 'Could not offset the balances.',
   'ct.offsetAfterFavour': 'Net after — they owe you',
@@ -1615,7 +1660,8 @@ export const en = {
   'rfq.convert': 'Convert to PO',
   'rfq.createPo': 'Create purchase order',
   'rfq.convertTitle': 'Convert to purchase order',
-  'rfq.convertSub': 'Adjust quantities and unit prices for {name}; this creates a purchase order and closes the request.',
+  'rfq.convertSub':
+    'Adjust quantities and unit prices for {name}; this creates a purchase order and closes the request.',
   'rfq.convertConfirm': 'Create purchase order',
   'rfq.convertError': 'Could not convert to a purchase order.',
   'rfq.convertNoItems': 'Add at least one item to the order.',
@@ -1687,7 +1733,8 @@ export const en = {
   'po.receive': 'Receive items',
 
   'recv.title': 'Receive against {number}',
-  'recv.sub': 'Enter the quantities actually delivered, adjust unit costs, and paste serial numbers for serialized items.',
+  'recv.sub':
+    'Enter the quantities actually delivered, adjust unit costs, and paste serial numbers for serialized items.',
   'recv.colItem': 'Item',
   'recv.colOrdered': 'Remaining',
   'recv.colReceiving': 'Receiving now',
@@ -1707,7 +1754,8 @@ export const en = {
   'recv.back': 'Back',
   'recv.subtotal': 'Goods subtotal',
   'recv.adjustments': 'Charges & discounts',
-  'recv.noAdjustments': 'No charges or discounts. Add taxes, transport, packaging, or a supplier discount.',
+  'recv.noAdjustments':
+    'No charges or discounts. Add taxes, transport, packaging, or a supplier discount.',
   'recv.addChargeDiscount': 'Add charge or discount…',
   'recv.charges': 'Charges',
   'recv.discounts': 'Discounts',
@@ -1807,8 +1855,10 @@ export const en = {
   'inv.bannerAction': 'Generate PO',
   'inv.bannerReview': 'Review',
   'inv.poTitle': 'Generate purchase order',
-  'inv.poSub': 'Review the suggested restock. Recorded as a cash restock — supplier & payment terms arrive with the Contacts + Debts modules.',
-  'inv.poNone': 'No direct products to auto-restock. Variant products are restocked per-variant and serialized products by adding serial units — from their product pages. (Cash POs cover direct products for now.)',
+  'inv.poSub':
+    'Review the suggested restock. Recorded as a cash restock — supplier & payment terms arrive with the Contacts + Debts modules.',
+  'inv.poNone':
+    'No direct products to auto-restock. Variant products are restocked per-variant and serialized products by adding serial units — from their product pages. (Cash POs cover direct products for now.)',
   'inv.poEmpty': 'Select at least one item to restock.',
   'inv.poInStock': 'In stock',
   'inv.poConfirm': 'Restock · {v}',
@@ -1837,12 +1887,15 @@ export const en = {
   'inv.restockRef': 'Reference (optional)',
   'inv.restockRefPh': 'e.g. PO-0142',
   'inv.restockTotal': 'Total cost',
-  'inv.restockCashNote': 'Recorded as fully paid. Supplier credit / payables arrive with the Contacts + Debts modules.',
+  'inv.restockCashNote':
+    'Recorded as fully paid. Supplier credit / payables arrive with the Contacts + Debts modules.',
   'inv.restock': 'Restock',
   'inv.restockError': 'Could not restock.',
   'inv.gotIt': 'Got it',
-  'inv.restockSerialNote': 'To restock a serialised product, add serial units from the Serial units panel below.',
-  'inv.restockVariantNote': 'Per-variant restock isn’t available yet — adjust each variant’s stock from Manage variants for now.',
+  'inv.restockSerialNote':
+    'To restock a serialised product, add serial units from the Serial units panel below.',
+  'inv.restockVariantNote':
+    'Per-variant restock isn’t available yet — adjust each variant’s stock from Manage variants for now.',
 
   'error.title': 'Something went wrong',
   'error.body': 'An unexpected error occurred. Try reloading the app.',
@@ -2057,7 +2110,8 @@ export const en = {
   'bsec.title': 'Two-factor authentication',
   'bsec.require': 'Require 2FA for all users',
   'bsec.requireDesc': 'Every member must set up two-factor authentication before they can sign in.',
-  'bsec.roleNote': 'You can also require 2FA per role when creating or editing a role under Organization → Roles & permissions.',
+  'bsec.roleNote':
+    'You can also require 2FA per role when creating or editing a role under Organization → Roles & permissions.',
   'settings.billing': 'Billing',
   'settings.tax': 'Tax & OHADA',
   'settings.receipts': 'Receipts',
@@ -2094,7 +2148,8 @@ export const en = {
   'settings.bp.loadError': 'Could not load your business profile.',
   'settings.bp.retry': 'Retry',
   'settings.bp.ownerOnly': 'Only the business owner can edit these details.',
-  'settings.bp.onlineOnly': 'Business settings are online-only — changes apply to everyone instantly. Reconnect to edit.',
+  'settings.bp.onlineOnly':
+    'Business settings are online-only — changes apply to everyone instantly. Reconnect to edit.',
   'settings.soonBanner': 'This section is coming soon — the design is in progress.',
 
   // Settings → Subscription
@@ -2124,7 +2179,8 @@ export const en = {
   'sub.tagCurrent': 'Current',
   'sub.confirmUpTitle': 'Upgrade to {plan}?',
   'sub.confirmDownTitle': 'Downgrade to {plan}?',
-  'sub.confirmBody': 'Your plan changes immediately and features update across all your devices. You are not charged and your free-access end date does not reset. You can change again anytime.',
+  'sub.confirmBody':
+    'Your plan changes immediately and features update across all your devices. You are not charged and your free-access end date does not reset. You can change again anytime.',
   'sub.confirmUp': 'Confirm upgrade',
   'sub.confirmDown': 'Confirm downgrade',
   'sub.cancel': 'Cancel',
@@ -2144,7 +2200,8 @@ export const en = {
   'sub.desc.PRO': 'For multi-branch businesses.',
 
   // Settings → Billing (preview — no payment backend yet)
-  'bill.comingSoon': 'Interactive preview — payments aren’t live yet, so changes here are local only and nothing is billed.',
+  'bill.comingSoon':
+    'Interactive preview — payments aren’t live yet, so changes here are local only and nothing is billed.',
   'bill.momoType': 'MTN Mobile Money',
   'bill.omType': 'Orange Money',
   'bill.addTitle': 'Add payment method',
@@ -2161,14 +2218,17 @@ export const en = {
   'bill.identitySaved': 'Billing identity saved (preview only)',
   'bill.noFile': 'Invoice download is a preview — no file generated yet.',
   'bill.confirmCancelTitle': 'Cancel subscription?',
-  'bill.confirmCancelBody': 'Your plan stays active until the period end, then stops. All saved payment methods are removed on that day. (Preview — nothing is actually changed.)',
+  'bill.confirmCancelBody':
+    'Your plan stays active until the period end, then stops. All saved payment methods are removed on that day. (Preview — nothing is actually changed.)',
   'bill.keepSub': 'Keep subscription',
   'bill.cancelRequested': 'Cancellation requested (preview)',
   'bill.cantDeletePrimary': 'Make another method primary before removing this one.',
-  'bill.cancelledNote': 'Subscription cancelled — all payment methods will be removed at the end of the period.',
+  'bill.cancelledNote':
+    'Subscription cancelled — all payment methods will be removed at the end of the period.',
   'bill.cancelPending': 'Cancellation pending',
   'bill.pmTitle': 'Payment methods',
-  'bill.pmSub': 'Used to pay your BizTrack CM subscription. Mobile Money is charged automatically each cycle.',
+  'bill.pmSub':
+    'Used to pay your BizTrack CM subscription. Mobile Money is charged automatically each cycle.',
   'bill.primary': 'Primary',
   'bill.edit': 'Edit',
   'bill.makePrimary': 'Make primary',
@@ -2183,7 +2243,8 @@ export const en = {
   'bill.rccm': 'RCCM',
   'bill.address': 'Billing address',
   'bill.region': 'Region',
-  'bill.identityNote': 'Your NIU is printed on every invoice so it can be used to reclaim TVA. Manage the rate & regime under Tax & OHADA.',
+  'bill.identityNote':
+    'Your NIU is printed on every invoice so it can be used to reclaim TVA. Manage the rate & regime under Tax & OHADA.',
   'bill.cancel': 'Cancel',
   'bill.save': 'Save changes',
   'bill.invTitle': 'Invoice history',
@@ -2206,7 +2267,8 @@ export const en = {
   'bill.included': 'Included',
   'bill.tva': 'TVA (19,25%)',
   'bill.due': 'Due {date}',
-  'bill.chargeNote': 'Charged automatically to MTN MoMo on the 25th. You’ll get an SMS confirmation.',
+  'bill.chargeNote':
+    'Charged automatically to MTN MoMo on the 25th. You’ll get an SMS confirmation.',
   'bill.autoRenew': 'Auto-renew',
   'bill.autoRenewDesc': 'Keep service running each month.',
   'bill.usageAlerts': 'Usage alerts at 80%',
@@ -2214,12 +2276,14 @@ export const en = {
   'bill.cancelSub': 'Cancel subscription',
 
   // Settings → Tax & OHADA (interactive preview — most fields not yet persisted)
-  'tax.comingSoon': 'Interactive preview — tax settings aren’t saved yet; this is for layout and flow review.',
+  'tax.comingSoon':
+    'Interactive preview — tax settings aren’t saved yet; this is for layout and flow review.',
   'tax.save': 'Save changes',
   'tax.saved': 'Tax settings saved (preview only)',
   'tax.editComingSoon': 'Editing tax rates is coming soon.',
   'tax.identityTitle': 'Tax identity',
-  'tax.identitySub': 'Issued by the Direction Générale des Impôts (DGI). Printed on every fiscal document.',
+  'tax.identitySub':
+    'Issued by the Direction Générale des Impôts (DGI). Printed on every fiscal document.',
   'tax.niu': 'NIU — Numéro d’Identifiant Unique',
   'tax.niuHelp': '14-character taxpayer number from your attestation d’immatriculation.',
   'tax.rccm': 'RCCM',
@@ -2227,7 +2291,8 @@ export const en = {
   'tax.cnps': 'CNPS employer number',
   'tax.cdi': 'Tax centre (CDI)',
   'tax.regimeTitle': 'Tax regime',
-  'tax.regimeSub': 'Determines whether you charge TVA and which returns you file. Set per your DGI classification.',
+  'tax.regimeSub':
+    'Determines whether you charge TVA and which returns you file. Set per your DGI classification.',
   'tax.regLibName': 'Impôt libératoire',
   'tax.regLibDesc': 'Smallest businesses. Flat tax, no TVA charged or reclaimed.',
   'tax.regLibTag': 'No TVA on sales',
@@ -2246,7 +2311,8 @@ export const en = {
   'tax.round1': 'Round to nearest 1 FCFA',
   'tax.roundNone': 'No rounding',
   'tax.inclTva': 'Prices include TVA (TTC)',
-  'tax.inclTvaDesc': 'Shelf and catalogue prices are tax-inclusive; tax is back-calculated on each sale.',
+  'tax.inclTvaDesc':
+    'Shelf and catalogue prices are tax-inclusive; tax is back-calculated on each sale.',
   'tax.showBreakdown': 'Show tax breakdown on receipts',
   'tax.showBreakdownDesc': 'Print HT, TVA and TTC lines on every receipt & invoice.',
   'tax.withholding': 'Apply withholding (précompte 5,5%)',
@@ -2284,7 +2350,8 @@ export const en = {
   'tax.chartCustom': 'Custom plan',
   'tax.useClasses': 'Use OHADA account classes 1–9',
   'tax.useClassesDesc': 'Map products, expenses and payments to SYSCOHADA accounts automatically.',
-  'tax.ohadaNote': 'Changing the fiscal year or standard affects historical reports. Lock a period before year-end close.',
+  'tax.ohadaNote':
+    'Changing the fiscal year or standard affects historical reports. Lock a period before year-end close.',
 
   // User settings (/user/settings) — personal, per-user
   'user.title': 'Account & preferences',
@@ -2298,7 +2365,8 @@ export const en = {
   'user.securitySoon': 'Password change and two-factor authentication (2FA) are coming soon.',
 
   // /profile → Profile (personal data) — prototype
-  'prof.comingSoon': 'Prototype — changes are local for now. Email/phone changes run through a verification step (sample — no real code is sent).',
+  'prof.comingSoon':
+    'Prototype — changes are local for now. Email/phone changes run through a verification step (sample — no real code is sent).',
   'prof.identityTitle': 'Your profile',
   'prof.identitySub': 'How you appear across BizTrack.',
   'prof.name': 'Full name',
@@ -2322,7 +2390,8 @@ export const en = {
   'prof.confirm': 'Verify & confirm',
   'prof.emailUpdated': 'Email updated (preview)',
   'prof.phoneUpdated': 'Phone updated (preview)',
-  'prof.verifyNote': 'Changing your email or phone sends a one-time code to confirm it’s yours. (Prototype — no real code is sent yet.)',
+  'prof.verifyNote':
+    'Changing your email or phone sends a one-time code to confirm it’s yours. (Prototype — no real code is sent yet.)',
 
   // /profile → Security (password + 2FA) — prototype
   'sec.comingSoon': 'Prototype — security changes aren’t saved yet.',
@@ -2341,13 +2410,15 @@ export const en = {
   'sec.2faOn': '2FA is on',
   'sec.setup': 'Set up 2FA',
   'sec.disable': 'Disable',
-  'sec.scan': 'Scan this QR with Google Authenticator, Authy or a similar app — or enter the key manually.',
+  'sec.scan':
+    'Scan this QR with Google Authenticator, Authy or a similar app — or enter the key manually.',
   'sec.secretKey': 'Setup key',
   'sec.enterCode': 'Enter the 6-digit code',
   'sec.verifyEnable': 'Verify & enable',
   'sec.2faEnabled': 'Two-factor authentication enabled (preview)',
   'sec.2faDisabled': 'Two-factor authentication disabled (preview)',
-  'sec.recoveryNote': 'Save your recovery codes somewhere safe — you’ll need them if you lose your device.',
+  'sec.recoveryNote':
+    'Save your recovery codes somewhere safe — you’ll need them if you lose your device.',
   'sec.cancel': 'Cancel',
 
   // Appearance (under /user/settings) — fully functional, per-user
@@ -2382,10 +2453,12 @@ export const en = {
   'appr.secondary': 'Secondary',
   'appr.paid': 'Paid',
   'appr.partial': 'Partial',
-  'appr.systemNote': 'System mode follows your device’s light/dark setting. On desktop it tracks the OS theme in real time.',
+  'appr.systemNote':
+    'System mode follows your device’s light/dark setting. On desktop it tracks the OS theme in real time.',
 
   // Settings → Receipts (interactive preview — not persisted yet)
-  'rcp.comingSoon': 'Interactive preview — receipt settings aren’t saved yet. The receipt on the right updates live.',
+  'rcp.comingSoon':
+    'Interactive preview — receipt settings aren’t saved yet. The receipt on the right updates live.',
   'rcp.headerTitle': 'Header & footer',
   'rcp.headerSub': 'Top and bottom text on every printed receipt.',
   'rcp.bizName': 'Business name',
@@ -2449,9 +2522,11 @@ export const en = {
   'ntf.teamDesc': 'Refunds, voids, large discounts & logins.',
   'ntf.billing': 'Billing & subscription',
   'ntf.billingDesc': 'Renewals, failed charges and plan limits.',
-  'ntf.creditNote': 'SMS & WhatsApp are billed per message from your account credit. In-app & email are free.',
+  'ntf.creditNote':
+    'SMS & WhatsApp are billed per message from your account credit. In-app & email are free.',
   'ntf.quietTitle': 'Quiet hours',
-  'ntf.quietSub': 'Pause SMS, WhatsApp and push during these times. Critical billing alerts still come through.',
+  'ntf.quietSub':
+    'Pause SMS, WhatsApp and push during these times. Critical billing alerts still come through.',
   'ntf.quietEnable': 'Enable quiet hours',
   'ntf.quietEnableDesc': 'Hold non-urgent notifications overnight.',
   'ntf.from': 'From',
@@ -2525,7 +2600,8 @@ export const en = {
   'team.changeRoleTitle': 'Change role',
   'team.changeRoleBody': 'Choose a new role for {name}. Their access updates immediately.',
   'team.removeTitle': 'Remove member?',
-  'team.removeBody': 'Remove {name} from the team? They lose access immediately. This does not delete their account.',
+  'team.removeBody':
+    'Remove {name} from the team? They lose access immediately. This does not delete their account.',
   'team.removeConfirm': 'Remove member',
   'team.suspended': 'Suspended',
   'team.deactivate': 'Deactivate access',
@@ -2536,7 +2612,8 @@ export const en = {
   // Accept-invite page
   'invite.loading': 'Loading your invitation…',
   'invite.invalidTitle': 'This invitation is no longer valid',
-  'invite.invalidBody': 'This invite link has expired or been revoked. Ask an administrator for a fresh link to join.',
+  'invite.invalidBody':
+    'This invite link has expired or been revoked. Ask an administrator for a fresh link to join.',
   'invite.declinedTitle': 'Invitation declined',
   'invite.declinedBody': 'You’ve declined this invitation. You can close this page.',
   'invite.invitedByShort': 'Invited by',
@@ -2635,7 +2712,8 @@ export const en = {
   'reports.print': 'Print',
   'reports.exportPdf': 'Export PDF',
   'reports.soonTitle': 'Coming soon',
-  'reports.soonBody': 'This report is on the roadmap. OHADA/DGI statutory statements arrive with the accounting module.',
+  'reports.soonBody':
+    'This report is on the roadmap. OHADA/DGI statutory statements arrive with the accounting module.',
   'reports.loading': 'Building report…',
   'reports.loadError': 'Could not build this report',
   'reports.loadErrorBody': 'Something went wrong loading the data. Try again.',
@@ -2772,7 +2850,7 @@ export const fr: Record<MessageKey, string> = {
   'home.secMoney': 'Trésorerie',
   'home.secAttention': 'À surveiller',
   'home.secActions': 'Actions rapides',
-  'home.secOps': "Opérations du jour",
+  'home.secOps': 'Opérations du jour',
   'home.secAction': 'À traiter',
   'home.secFinance': 'Situation financière',
   'home.kRevenue': "Chiffre d'affaires",
@@ -2905,7 +2983,8 @@ export const fr: Record<MessageKey, string> = {
   'home.mPending': '{n} en attente',
 
   'soon.title': 'à venir',
-  'soon.body': 'Cet écran sera construit ensuite à partir des maquettes approuvées (bureau · tablette · mobile).',
+  'soon.body':
+    'Cet écran sera construit ensuite à partir des maquettes approuvées (bureau · tablette · mobile).',
 
   'cat.title': 'Catégories',
   'cat.subtitle': 'Organisez votre catalogue sur 3 niveaux maximum.',
@@ -2978,7 +3057,8 @@ export const fr: Record<MessageKey, string> = {
   'cat.attrTitle': 'Attributs de variantes',
   'cat.attrNote':
     'Les groupes d’attributs s’appliquent aux catégories feuilles et définissent les dimensions de variantes. Disponible une fois les attributs configurés.',
-  'cat.attrLeafOnly': 'Les groupes d’attributs s’appliquent aux catégories feuilles. Enregistrez celle-ci comme feuille (sans sous-catégories) pour attacher des dimensions.',
+  'cat.attrLeafOnly':
+    'Les groupes d’attributs s’appliquent aux catégories feuilles. Enregistrez celle-ci comme feuille (sans sous-catégories) pour attacher des dimensions.',
   'cat.attrAttach': 'Attacher',
   'cat.attrRequired': 'Requis',
   'cat.attrOptional': 'Facultatif',
@@ -2995,7 +3075,8 @@ export const fr: Record<MessageKey, string> = {
   'attr.selectHint': 'Sélectionnez un groupe pour modifier ses options.',
   'attr.groupEyebrow': 'Groupe d’attributs',
   'attr.display': 'Affichage',
-  'attr.displayHint': 'Comment les options apparaissent dans les formulaires, en caisse et en ligne',
+  'attr.displayHint':
+    'Comment les options apparaissent dans les formulaires, en caisse et en ligne',
   'attr.swatches': 'Pastilles',
   'attr.chips': 'Puces',
   'attr.dropdown': 'Liste',
@@ -3048,7 +3129,8 @@ export const fr: Record<MessageKey, string> = {
   'unit.create': 'Créer l’unité',
   'unit.editTitle': 'Modifier l’unité',
   'unit.deleteTitle': 'Supprimer l’unité',
-  'unit.deleteBody': 'Supprimer « {name} » ? Les produits l’utilisant gardent leur nom mais perdent le lien.',
+  'unit.deleteBody':
+    'Supprimer « {name} » ? Les produits l’utilisant gardent leur nom mais perdent le lien.',
   'unit.name': 'Nom',
   'unit.namePh': 'ex. Carton',
   'unit.abbr': 'Abréviation',
@@ -3063,7 +3145,8 @@ export const fr: Record<MessageKey, string> = {
   'unit.typeCustom': 'Personnalisé',
 
   'brand.title': 'Marques',
-  'brand.subtitle': 'Associez une marque à ses catégories — les produits héritent de la catégorie et des attributs.',
+  'brand.subtitle':
+    'Associez une marque à ses catégories — les produits héritent de la catégorie et des attributs.',
   'brand.new': 'Nouvelle marque',
   'brand.all': 'Toutes les marques',
   'brand.loading': 'Chargement des marques…',
@@ -3099,8 +3182,10 @@ export const fr: Record<MessageKey, string> = {
   'brand.nameRequired': 'Saisissez un nom de marque',
   'brand.catRequired': 'Choisissez au moins une catégorie',
   'brand.catEmpty': 'Créez d’abord des catégories — une marque doit en lier au moins une.',
-  'brand.catEmptyL3': 'Aucune catégorie N3 (sous-catégorie). Les marques se lient aux catégories les plus profondes (N3) — créez-en d’abord.',
-  'brand.categoriesPickHint': 'Facultatif — liez n’importe quel niveau (une catégorie de premier niveau couvre tout ce qu’elle contient). Laissez vide pour autoriser toutes les catégories.',
+  'brand.catEmptyL3':
+    'Aucune catégorie N3 (sous-catégorie). Les marques se lient aux catégories les plus profondes (N3) — créez-en d’abord.',
+  'brand.categoriesPickHint':
+    'Facultatif — liez n’importe quel niveau (une catégorie de premier niveau couvre tout ce qu’elle contient). Laissez vide pour autoriser toutes les catégories.',
   'brand.catSearch': 'Rechercher des catégories…',
   'brand.catNoMatch': 'Aucune catégorie ne correspond à votre recherche.',
   'brand.saveError': 'Échec de l’enregistrement. Veuillez réessayer.',
@@ -3123,7 +3208,8 @@ export const fr: Record<MessageKey, string> = {
   'scan.title': 'Scanner avec la caméra',
   'scan.camTitle': 'Scanner le code-barres',
   'scan.camHint': 'Pointez la caméra vers le code-barres ou le QR code.',
-  'scan.camError': "Impossible d'accéder à la caméra. Vérifiez les autorisations, ou saisissez le code manuellement.",
+  'scan.camError':
+    "Impossible d'accéder à la caméra. Vérifiez les autorisations, ou saisissez le code manuellement.",
 
   'field.add': 'Ajouter',
   'field.pickVariant': 'Variante…',
@@ -3156,7 +3242,8 @@ export const fr: Record<MessageKey, string> = {
   'share.download': 'Télécharger le PDF',
   'share.downloadSub': 'Enregistrer le PDF sur votre ordinateur',
   'share.needsOnline': 'Nécessite une connexion internet',
-  'share.offlineNote': 'Vous êtes hors ligne — vous pouvez télécharger le PDF. L’envoi reprend à la reconnexion.',
+  'share.offlineNote':
+    'Vous êtes hors ligne — vous pouvez télécharger le PDF. L’envoi reprend à la reconnexion.',
   'share.rendering': 'Préparation du PDF…',
   'share.toSupplier': 'Envoyer à {name}',
   'share.recipientPhone': 'Numéro WhatsApp',
@@ -3297,11 +3384,13 @@ export const fr: Record<MessageKey, string> = {
   'prodf.addTitle': 'Ajouter un produit',
   'prodf.editTitle': 'Modifier les infos produit',
   'prodf.subtitle': 'Choisissez une marque et la catégorie se remplit.',
-  'prodf.editSubtitle': 'Modifiez uniquement les détails catalogue. Le stock, les variantes et les unités se gèrent depuis la page produit.',
+  'prodf.editSubtitle':
+    'Modifiez uniquement les détails catalogue. Le stock, les variantes et les unités se gèrent depuis la page produit.',
   'prodf.serializedLocked': 'Le type de stock ne peut pas être modifié après la création.',
   // ---- Sell / POS ----
   'sell.title': 'Nouvelle vente',
-  'sell.subtitle': 'Touchez les produits pour les ajouter. Ajoutez des frais, choisissez un client et un mode de paiement, puis encaissez.',
+  'sell.subtitle':
+    'Touchez les produits pour les ajouter. Ajoutez des frais, choisissez un client et un mode de paiement, puis encaissez.',
   'sell.searchPh': 'Rechercher un produit ou scanner un code-barres…',
   'sell.allCats': 'Tout',
   'sell.outOfStock': 'Rupture',
@@ -3358,7 +3447,8 @@ export const fr: Record<MessageKey, string> = {
   'sell.remainingCredit': 'Reste → à crédit',
   'sell.changeCash': 'Monnaie à rendre (espèces)',
   'sell.fullyAllocated': 'Entièrement réparti',
-  'sell.creditNeedsCustomer': 'Les ventes à crédit doivent être liées à un client enregistré. Choisissez-en un pour continuer.',
+  'sell.creditNeedsCustomer':
+    'Les ventes à crédit doivent être liées à un client enregistré. Choisissez-en un pour continuer.',
   'sell.chooseCustomer': 'Choisir un client',
   'sell.partPaid': 'Partiellement payé · reste à crédit',
   'sell.onCreditTitle': 'Vente enregistrée à crédit',
@@ -3378,7 +3468,8 @@ export const fr: Record<MessageKey, string> = {
   'sell.balanceAfter': 'Solde après cette vente :',
   'sell.payRemainingCash': 'Payer le reste {amt} en espèces',
   'sell.payRemaining': 'Encaisser le reste {amt}',
-  'sell.noDeposit': 'Ce client n’a pas de solde de dépôt. Choisissez-en un qui en a, ou utilisez un autre mode.',
+  'sell.noDeposit':
+    'Ce client n’a pas de solde de dépôt. Choisissez-en un qui en a, ou utilisez un autre mode.',
   'sell.max': 'Max',
   'sell.hold': 'Mettre en attente',
   'sell.resume': 'En attente',
@@ -3401,7 +3492,8 @@ export const fr: Record<MessageKey, string> = {
   'sell.needEmail': 'Saisissez l’e-mail du client.',
   'sell.sendError': 'Échec de l’envoi. Veuillez réessayer.',
   'sell.sendOnlineNote': 'Le reçu est envoyé depuis le serveur.',
-  'sell.sendOfflineNote': 'Hors ligne — votre application WhatsApp/e-mail s’ouvre avec le PDF du reçu à joindre.',
+  'sell.sendOfflineNote':
+    'Hors ligne — votre application WhatsApp/e-mail s’ouvre avec le PDF du reçu à joindre.',
   'sell.receiptSent': 'Reçu envoyé au client.',
   'sell.composerOrServer': 'Envoyé depuis le serveur si en ligne',
   'sell.composerNote': 'Ouvre votre application avec le PDF du reçu à joindre',
@@ -3411,7 +3503,8 @@ export const fr: Record<MessageKey, string> = {
   'sell.noDepositShort': 'Aucun dépôt',
   // --- Ventes (historique) ---
   'sales.title': 'Ventes',
-  'sales.subtitle': 'Chaque transaction, synchronisée sur tous les appareils. Touchez une vente pour voir son reçu.',
+  'sales.subtitle':
+    'Chaque transaction, synchronisée sur tous les appareils. Touchez une vente pour voir son reçu.',
   'sales.today': "Aujourd'hui",
   'sales.week': 'Semaine',
   'sales.month': 'Mois',
@@ -3579,8 +3672,10 @@ export const fr: Record<MessageKey, string> = {
   'dep.collect': 'Encaisser',
   'dep.exportReport': 'Exporter',
   'dep.collectTitle': 'Encaisser les marchandises',
-  'dep.collectHint': 'Choisissez ce que le client retire. Le paiement s’ouvre avec son dépôt appliqué.',
-  'dep.collectNoItems': 'Aucun article associé. Ajoutez des produits à la session ou vendez-les dans Vente.',
+  'dep.collectHint':
+    'Choisissez ce que le client retire. Le paiement s’ouvre avec son dépôt appliqué.',
+  'dep.collectNoItems':
+    'Aucun article associé. Ajoutez des produits à la session ou vendez-les dans Vente.',
   'dep.noSerials': 'Aucune unité en stock.',
   'dep.collectTotal': 'Total',
   'dep.collectEmpty': 'Sélectionnez au moins un article à retirer.',
@@ -3641,15 +3736,18 @@ export const fr: Record<MessageKey, string> = {
   'dep.invalidEmail': 'Saisissez une adresse e-mail valide.',
   // --- Boutique en ligne / commandes ---
   'online.upsellTitle': 'La boutique en ligne est une fonctionnalité Business',
-  'online.upsellBody': 'Vendez en ligne avec une vitrine gratuite. Passez à Business ou Pro pour configurer votre boutique et recevoir des commandes en ligne.',
+  'online.upsellBody':
+    'Vendez en ligne avec une vitrine gratuite. Passez à Business ou Pro pour configurer votre boutique et recevoir des commandes en ligne.',
   'online.upsellCta': 'Voir les forfaits',
   'online.offlineTitle': 'Vous êtes hors ligne',
-  'online.offlineBody': 'La boutique et les commandes en ligne nécessitent une connexion Internet. Reconnectez-vous et réessayez.',
+  'online.offlineBody':
+    'La boutique et les commandes en ligne nécessitent une connexion Internet. Reconnectez-vous et réessayez.',
   'online.errorTitle': 'Chargement impossible',
   'online.errorBody': 'Une erreur est survenue lors du chargement de votre boutique. Réessayez.',
   'online.retry': 'Réessayer',
   'online.ordersTitle': 'Commandes en ligne',
-  'online.ordersSubtitle': 'Commandes passées sur votre vitrine. Traitez, suivez la livraison et synchronisez le stock.',
+  'online.ordersSubtitle':
+    'Commandes passées sur votre vitrine. Traitez, suivez la livraison et synchronisez le stock.',
   'online.kpiSales': 'Ventes en ligne',
   'online.kpiOrders': '{n} commandes',
   'online.kpiNew': 'Nouvelles · à traiter',
@@ -3677,8 +3775,14 @@ export const fr: Record<MessageKey, string> = {
   'online.stNew': 'Nouvelle',
   'online.stConfirmed': 'Confirmée',
   'online.stPreparing': 'En préparation',
+  'online.stReadyForPickup': 'Prête pour le retrait',
+  'online.stPickedUp': 'Retirée',
+  'online.stReadyForDispatch': 'Prête pour l’expédition',
+  'online.stOutForDelivery': 'En cours de livraison',
   'online.stShipped': 'Expédiée',
   'online.stDelivered': 'Livrée',
+  'online.stDeliveryFailed': 'Échec de livraison',
+  'online.stReturned': 'Retournée',
   'online.stCancelled': 'Annulée',
   'online.stRefunded': 'Remboursée',
   'online.loading': 'Chargement…',
@@ -3698,16 +3802,24 @@ export const fr: Record<MessageKey, string> = {
   'online.statusError': 'Impossible de mettre à jour la commande.',
   'online.advance.PENDING': 'Confirmer la commande',
   'online.advance.CONFIRMED': 'Marquer en préparation',
-  'online.advance.PREPARING': 'Marquer expédiée',
-  'online.advance.DISPATCHED': 'Marquer livrée',
+  'online.advance.PREPARING': 'Marquer prête',
+  'online.advance.READY_FOR_PICKUP': 'Marquer retirée',
+  'online.advance.READY_FOR_DISPATCH': 'Marquer en cours de livraison',
+  'online.advance.OUT_FOR_DELIVERY': 'Marquer livrée',
+  'online.advance.DELIVERY_FAILED': 'Réessayer la livraison',
+  'online.cancelOrder': 'Annuler la commande',
+  'online.markReturned': 'Marquer retournée',
+  'online.markFailed': 'Marquer échec de livraison',
   'online.saveError': 'Impossible d’enregistrer la boutique.',
   'online.createTitle': 'Configurez votre boutique en ligne',
-  'online.createBody': 'Donnez un nom à votre boutique pour commencer. Vous configurerez le reste ensuite.',
+  'online.createBody':
+    'Donnez un nom à votre boutique pour commencer. Vous configurerez le reste ensuite.',
   'online.storeNamePlaceholder': 'Nom de la boutique',
   'online.nameRequired': 'Saisissez un nom de boutique.',
   'online.createCta': 'Créer la boutique',
   'online.cfgTitle': 'Configuration de la boutique',
-  'online.cfgSubtitle': 'Configurez votre vitrine gratuite. Les changements restent en brouillon jusqu’à publication.',
+  'online.cfgSubtitle':
+    'Configurez votre vitrine gratuite. Les changements restent en brouillon jusqu’à publication.',
   'online.unpublished': 'Changements non publiés',
   'online.save': 'Enregistrer',
   'online.publish': 'Publier les changements',
@@ -3719,7 +3831,8 @@ export const fr: Record<MessageKey, string> = {
   'online.storefrontIncluded': 'Vitrine incluse',
   'online.proNote': 'Constructeur & domaines personnalisés sur Pro',
   'online.addressTitle': 'Adresse de la boutique',
-  'online.addressBody': 'L’adresse web visitée par les clients. Choisissez un sous-domaine gratuit ; domaine personnalisé sur Pro.',
+  'online.addressBody':
+    'L’adresse web visitée par les clients. Choisissez un sous-domaine gratuit ; domaine personnalisé sur Pro.',
   'online.subdomain': 'Sous-domaine',
   'online.slugEmpty': 'Choisissez un sous-domaine',
   'online.slugReserved': '« {slug} » est réservé — choisissez-en un autre',
@@ -3727,11 +3840,13 @@ export const fr: Record<MessageKey, string> = {
   'online.slugChecking': 'Vérification de la disponibilité…',
   'online.slugTaken': 'Cette adresse est déjà prise — choisissez-en une autre',
   'online.slugInvalid': 'Cette adresse n’est pas valide',
-  'online.slugNote': 'Lettres minuscules, chiffres et tirets uniquement. Les noms réservés (www, app, api, admin, shop…) sont interdits.',
+  'online.slugNote':
+    'Lettres minuscules, chiffres et tirets uniquement. Les noms réservés (www, app, api, admin, shop…) sont interdits.',
   'online.customDomain': 'Connecter un domaine personnalisé',
   'online.customDomainHint': 'ex. www.votreentreprise.cm — vérifié par DNS, TLS auto-provisionné',
   'online.themeTitle': 'Thème & apparence',
-  'online.themeBody': 'Choisissez une mise en page, puis un thème de couleur. L’aperçu se met à jour instantanément.',
+  'online.themeBody':
+    'Choisissez une mise en page, puis un thème de couleur. L’aperçu se met à jour instantanément.',
   'online.layoutTemplate': 'Modèle de mise en page',
   'online.layout.classic': 'Classique',
   'online.layout.boutique': 'Boutique',
@@ -3745,20 +3860,25 @@ export const fr: Record<MessageKey, string> = {
   'online.appearance': 'Apparence',
   'online.light': 'Clair',
   'online.dark': 'Sombre',
-  'online.builderNote': 'Constructeur glisser-déposer — créez votre propre mise en page. Disponible sur le forfait Pro.',
+  'online.builderNote':
+    'Constructeur glisser-déposer — créez votre propre mise en page. Disponible sur le forfait Pro.',
   'online.catalogTitle': 'Catalogue & prix',
-  'online.catalogBody': 'Choisissez comment les prix et le stock sont lus par votre boutique publique.',
+  'online.catalogBody':
+    'Choisissez comment les prix et le stock sont lus par votre boutique publique.',
   'online.snapshot': 'Instantané à la publication',
   'online.recommended': 'Recommandé',
-  'online.snapshotDesc': 'Capture les prix & le stock à la publication. Les prix publics ne changent pas entre deux publications.',
+  'online.snapshotDesc':
+    'Capture les prix & le stock à la publication. Les prix publics ne changent pas entre deux publications.',
   'online.live': 'Lecture en direct',
-  'online.liveDesc': 'La vitrine reflète toujours votre catalogue en temps réel. Idéal pour les prix changeants.',
+  'online.liveDesc':
+    'La vitrine reflète toujours votre catalogue en temps réel. Idéal pour les prix changeants.',
   'online.hideOOS': 'Masquer les produits en rupture',
   'online.hideOOSDesc': 'Les articles à stock zéro n’apparaissent pas sur la vitrine.',
   'online.lowStock': 'Afficher les badges « stock faible »',
   'online.lowStockDesc': 'Incitez les acheteurs quand il reste peu d’unités.',
   'online.seoTitle': 'SEO & partage',
-  'online.seoBody': 'Comment votre boutique apparaît sur Google et lors du partage sur les réseaux sociaux.',
+  'online.seoBody':
+    'Comment votre boutique apparaît sur Google et lors du partage sur les réseaux sociaux.',
   'online.storeTitle': 'Titre de la boutique',
   'online.metaDesc': 'Méta description',
   'online.yourStoreTitle': 'Titre de votre boutique',
@@ -3781,7 +3901,8 @@ export const fr: Record<MessageKey, string> = {
   'online.popular': 'Produits populaires',
   'online.sampleProduct': 'Produit',
   'online.searchProducts': 'Rechercher des produits…',
-  'online.previewNote': 'L’aperçu montre votre brouillon. Le site public ne change qu’à la publication.',
+  'online.previewNote':
+    'L’aperçu montre votre brouillon. Le site public ne change qu’à la publication.',
   'online.saved': 'Enregistré',
   'online.published': 'Boutique publiée',
   'prodf.back': 'Retour aux produits',
@@ -3831,7 +3952,8 @@ export const fr: Record<MessageKey, string> = {
   'prodf.serviceHint': 'Pas de suivi de stock',
   'prodf.active': 'Actif',
   'prodf.activeHint': 'Vendable en caisse',
-  'prodf.deferredNote': 'Les variantes, le stock initial et la boutique en ligne arrivent plus tard.',
+  'prodf.deferredNote':
+    'Les variantes, le stock initial et la boutique en ligne arrivent plus tard.',
   'prodf.nameRequired': 'Saisissez un nom de produit',
   'prodf.priceRequired': 'Saisissez un prix de vente',
   'prodf.unitRequired': 'Choisissez une unité de mesure',
@@ -3862,7 +3984,8 @@ export const fr: Record<MessageKey, string> = {
   'prodf.serial_SERIAL_NUMBER': 'N° série',
   'prodf.serial_BARCODE': 'Code-barres',
   'prodf.warranty': 'Garantie (mois)',
-  'prodf.variantsNote': 'Les variantes (matrices taille/couleur) arrivent à la prochaine mise à jour.',
+  'prodf.variantsNote':
+    'Les variantes (matrices taille/couleur) arrivent à la prochaine mise à jour.',
   'prodf.gallery': 'Galerie',
   'prodf.galleryAdd': 'Ajouter des images',
   'prodf.galleryEmpty': 'Aucune image supplémentaire. Ajoutez-en pour la boutique en ligne.',
@@ -3871,10 +3994,14 @@ export const fr: Record<MessageKey, string> = {
   'prodf.main': 'Principale',
   'prodf.variants': 'Variantes',
   'prodf.variantCount': '{n} variantes',
-  'prodf.variantsPickCategory': 'Choisissez d’abord une catégorie — ses groupes d’attributs définissent les variantes.',
-  'prodf.variantsNoGroups': 'Cette catégorie n’a pas de groupes d’attributs. Ajoutez-en dans Attributs pour proposer des variantes.',
-  'prodf.variantsHint': 'Sélectionnez les options proposées ; la matrice ci-dessous est générée automatiquement.',
-  'prodf.variantsMinTwo': 'Un produit à variantes nécessite au moins 2 variantes — sélectionnez plus d’options (ou aucune pour un produit simple).',
+  'prodf.variantsPickCategory':
+    'Choisissez d’abord une catégorie — ses groupes d’attributs définissent les variantes.',
+  'prodf.variantsNoGroups':
+    'Cette catégorie n’a pas de groupes d’attributs. Ajoutez-en dans Attributs pour proposer des variantes.',
+  'prodf.variantsHint':
+    'Sélectionnez les options proposées ; la matrice ci-dessous est générée automatiquement.',
+  'prodf.variantsMinTwo':
+    'Un produit à variantes nécessite au moins 2 variantes — sélectionnez plus d’options (ou aucune pour un produit simple).',
   'prodf.basePrice': 'Prix de base',
   'prodf.vColVariant': '{n} variantes',
   'prodf.vColPrice': 'Prix',
@@ -3910,7 +4037,8 @@ export const fr: Record<MessageKey, string> = {
   'prodf.variantDup': 'Cette combinaison est déjà ajoutée.',
   'prodf.variantIncomplete': 'Choisissez une option pour chaque groupe.',
   'prodf.variantNone': 'Aucune variante — un produit à variantes en nécessite au moins 2.',
-  'prodf.variantSingleHint': 'Ajoutez des variantes seulement si ce produit se vend en plusieurs variations. Sinon, ignorez — il reste un produit simple.',
+  'prodf.variantSingleHint':
+    'Ajoutez des variantes seulement si ce produit se vend en plusieurs variations. Sinon, ignorez — il reste un produit simple.',
   'prodf.serials': 'Numéros de série',
   'prodf.serialsCount': '{n} en stock',
   'prodf.serialAdd': 'Ajouter',
@@ -3923,11 +4051,15 @@ export const fr: Record<MessageKey, string> = {
   'prodf.productSerials': 'Numéros de série des unités',
   'prodf.serialsRequired': 'Ajoutez au moins un numéro de série (le stock = le nombre d’unités).',
   'prodf.variantSerialsRequired': 'Chaque variante nécessite au moins un numéro de série.',
-  'prodf.stockSerialNote': 'Pour les produits sérialisés, le stock = le nombre de numéros de série saisis.',
-  'prodf.serialsManageHint': 'Gérez les unités (ajout, retrait, correction) depuis la page produit — chaque action crée un mouvement de stock.',
-  'prodf.variantsManageHint': 'Les variantes se gèrent depuis la page produit après la création — ajout, modification ou suppression (chaque changement crée un mouvement de stock).',
+  'prodf.stockSerialNote':
+    'Pour les produits sérialisés, le stock = le nombre de numéros de série saisis.',
+  'prodf.serialsManageHint':
+    'Gérez les unités (ajout, retrait, correction) depuis la page produit — chaque action crée un mouvement de stock.',
+  'prodf.variantsManageHint':
+    'Les variantes se gèrent depuis la page produit après la création — ajout, modification ou suppression (chaque changement crée un mouvement de stock).',
   'pvar.title': 'Variantes',
-  'pvar.sub': 'Ajoutez, modifiez ou supprimez des variantes — l’ajout/retrait modifie le stock et crée un mouvement.',
+  'pvar.sub':
+    'Ajoutez, modifiez ou supprimez des variantes — l’ajout/retrait modifie le stock et crée un mouvement.',
   'pvar.add': 'Ajouter',
   'pvar.pick': 'Choisir',
   'pvar.pickAll': 'Choisissez une option pour chaque attribut.',
@@ -3935,7 +4067,8 @@ export const fr: Record<MessageKey, string> = {
   'pvar.opening': 'Stock initial',
   'pvar.needCategory': 'Définissez une catégorie pour activer les variantes.',
   'pvar.noGroups': 'Aucun attribut de variante lié à cette catégorie.',
-  'pvar.serializedNote': 'Sérialisé : les nouvelles variantes démarrent à 0 — ajoutez des unités pour les approvisionner.',
+  'pvar.serializedNote':
+    'Sérialisé : les nouvelles variantes démarrent à 0 — ajoutez des unités pour les approvisionner.',
   'pvar.empty': 'Aucune variante pour le moment.',
   'pvar.colVariant': 'Variante',
   'pvar.colPrice': 'Prix',
@@ -3952,12 +4085,14 @@ export const fr: Record<MessageKey, string> = {
   'pvar.save': 'Enregistrer',
   'pvar.cancel': 'Annuler',
   'pvar.removeTitle': 'Supprimer la variante',
-  'pvar.removeBody': 'Supprimer « {name} » et retirer ses {n} en stock. Cela crée un mouvement de sortie et est irréversible.',
+  'pvar.removeBody':
+    'Supprimer « {name} » et retirer ses {n} en stock. Cela crée un mouvement de sortie et est irréversible.',
   'pvar.reason': 'Motif',
   'pvar.reasonPh': 'ex. Abandonné, fusionné',
   'pvar.addError': 'Impossible d’ajouter la variante.',
   'psu.title': 'Unités sérialisées',
-  'psu.sub': 'Ajoutez, retirez ou corrigez des unités — chaque changement crée un mouvement de stock.',
+  'psu.sub':
+    'Ajoutez, retirez ou corrigez des unités — chaque changement crée un mouvement de stock.',
   'psu.add': 'Ajouter',
   'psu.variantPick': 'Choisir la variante',
   'psu.variantRequired': 'Sélectionnez une variante pour cette unité.',
@@ -3973,7 +4108,8 @@ export const fr: Record<MessageKey, string> = {
   'psu.cancel': 'Annuler',
   'psu.retire': 'Retirer',
   'psu.retireTitle': 'Retirer une unité',
-  'psu.retireBody': 'Retirer {serial} du stock. Cela crée un mouvement de sortie et est irréversible.',
+  'psu.retireBody':
+    'Retirer {serial} du stock. Cela crée un mouvement de sortie et est irréversible.',
   'psu.reason': 'Motif',
   'psu.reasonPh': 'ex. Endommagé, perdu, retourné au fournisseur',
   'psu.addError': 'Impossible d’ajouter l’unité.',
@@ -3983,7 +4119,8 @@ export const fr: Record<MessageKey, string> = {
   'psu.count': '{n} en stock',
   'psu.modeOne': 'Ajouter une',
   'psu.modeBulk': 'Coller / scanner',
-  'psu.bulkHint': 'Collez une liste, ou scannez les unités les unes après les autres. Séparez par des sauts de ligne, virgules ou espaces.',
+  'psu.bulkHint':
+    'Collez une liste, ou scannez les unités les unes après les autres. Séparez par des sauts de ligne, virgules ou espaces.',
   'psu.bulkPh': 'SN-00001\nSN-00002\nSN-00003',
   'psu.bulkValid': '{n} prêtes',
   'psu.bulkDup': '{n} en double',
@@ -4082,7 +4219,7 @@ export const fr: Record<MessageKey, string> = {
   'ct.mNetOwe': 'Vous devez net',
   'ct.mOldest': 'Plus ancienne impayée',
   'ct.mOldestDays': '{n} jours',
-  'ct.mOldestSub': "Jours en souffrance",
+  'ct.mOldestSub': 'Jours en souffrance',
   'ct.mSince': 'Client depuis',
   'ct.mSinceSub': 'Première fiche',
   'ct.offsetFavour': 'Après compensation, il vous doit {v} net.',
@@ -4090,7 +4227,8 @@ export const fr: Record<MessageKey, string> = {
   'ct.offsetSettle': 'Compenser & régler',
   'ct.offsetBalances': 'Compenser les soldes',
   'ct.offsetTitle': 'Compenser les soldes',
-  'ct.offsetBody': 'Ceci efface {amt} à la fois de ce que {name} vous doit et de ce que vous lui devez — un règlement neutre en trésorerie. La position nette reste inchangée.',
+  'ct.offsetBody':
+    'Ceci efface {amt} à la fois de ce que {name} vous doit et de ce que vous lui devez — un règlement neutre en trésorerie. La position nette reste inchangée.',
   'ct.offsetConfirm': 'Compenser',
   'ct.offsetError': 'Impossible de compenser les soldes.',
   'ct.offsetAfterFavour': 'Net après — il vous doit',
@@ -4105,7 +4243,8 @@ export const fr: Record<MessageKey, string> = {
   'ct.payCardSub': 'Régler le solde restant',
   'ct.info': 'Détails',
   'ct.transactions': 'Transactions',
-  'ct.transactionsSoon': 'Les dettes, paiements et réapprovisionnements de ce contact apparaîtront ici.',
+  'ct.transactionsSoon':
+    'Les dettes, paiements et réapprovisionnements de ce contact apparaîtront ici.',
   'ct.edit': 'Modifier',
   'ct.delete': 'Retirer',
   'ct.cancel': 'Annuler',
@@ -4121,7 +4260,8 @@ export const fr: Record<MessageKey, string> = {
   'ct.phonePh': 'ex. 6 00 00 00 00',
   'ct.email': 'E-mail',
   'ct.emailPh': 'nom@exemple.com',
-  'ct.formSub': 'Coordonnées client & fournisseur. La pièce d’identité est facultative mais utile pour le crédit.',
+  'ct.formSub':
+    'Coordonnées client & fournisseur. La pièce d’identité est facultative mais utile pour le crédit.',
   'ct.detailsSection': 'Coordonnées',
   'ct.obSection': "Solde d'ouverture",
   'ct.obSub': "Facultatif — un solde reporté d'avant BizTrack.",
@@ -4285,8 +4425,9 @@ export const fr: Record<MessageKey, string> = {
   'rfq.quoteUploadError': 'Impossible de téléverser le fichier.',
   'rfq.convert': 'Convertir en BC',
   'rfq.createPo': 'Créer un bon de commande',
-  'rfq.convertTitle': "Convertir en bon de commande",
-  'rfq.convertSub': 'Ajustez les quantités et les prix unitaires pour {name} ; cela crée un bon de commande et clôt la demande.',
+  'rfq.convertTitle': 'Convertir en bon de commande',
+  'rfq.convertSub':
+    'Ajustez les quantités et les prix unitaires pour {name} ; cela crée un bon de commande et clôt la demande.',
   'rfq.convertConfirm': 'Créer le bon de commande',
   'rfq.convertError': 'Impossible de convertir en bon de commande.',
   'rfq.convertNoItems': 'Ajoutez au moins un article à la commande.',
@@ -4358,7 +4499,8 @@ export const fr: Record<MessageKey, string> = {
   'po.receive': 'Réceptionner',
 
   'recv.title': 'Réception de {number}',
-  'recv.sub': 'Saisissez les quantités réellement livrées, ajustez les coûts unitaires et collez les numéros de série pour les articles sérialisés.',
+  'recv.sub':
+    'Saisissez les quantités réellement livrées, ajustez les coûts unitaires et collez les numéros de série pour les articles sérialisés.',
   'recv.colItem': 'Article',
   'recv.colOrdered': 'Restant',
   'recv.colReceiving': 'Reçu maintenant',
@@ -4378,7 +4520,8 @@ export const fr: Record<MessageKey, string> = {
   'recv.back': 'Retour',
   'recv.subtotal': 'Sous-total marchandises',
   'recv.adjustments': 'Frais & remises',
-  'recv.noAdjustments': 'Aucun frais ni remise. Ajoutez taxes, transport, emballage ou une remise fournisseur.',
+  'recv.noAdjustments':
+    'Aucun frais ni remise. Ajoutez taxes, transport, emballage ou une remise fournisseur.',
   'recv.addChargeDiscount': 'Ajouter un frais ou une remise…',
   'recv.charges': 'Frais',
   'recv.discounts': 'Remises',
@@ -4409,7 +4552,7 @@ export const fr: Record<MessageKey, string> = {
   'recv.pageTitle': 'Réceptionner la marchandise',
   'recv.stockTitle': 'Réceptionner du stock',
   'recv.stockSub': 'Réceptionnez sur un bon de commande, ou ajoutez des articles manuellement.',
-  'recv.fromPo': "Depuis un bon de commande",
+  'recv.fromPo': 'Depuis un bon de commande',
   'recv.pickPo': 'Sélectionner un bon de commande',
   'recv.searchPo': 'Rechercher des commandes…',
   'recv.fromPoHint': 'Choisir une commande pré-remplit tout pour la réceptionner.',
@@ -4451,7 +4594,8 @@ export const fr: Record<MessageKey, string> = {
   'inv.reasonRequired': 'Ajoutez un motif (au moins 3 caractères).',
   'inv.adjustError': 'Impossible d’ajuster le stock.',
   'inv.thresholdTitle': 'Seuils de réapprovisionnement',
-  'inv.thresholdSub': 'Lorsque le stock atteint ces niveaux, le produit est signalé bas / à réapprovisionner.',
+  'inv.thresholdSub':
+    'Lorsque le stock atteint ces niveaux, le produit est signalé bas / à réapprovisionner.',
   'inv.lowStock': 'Seuil de stock bas',
   'inv.reorderPt': 'Point de réappro',
   'inv.thresholdHint': 'Laissez vide pour effacer. 0 = aucune alerte de stock bas.',
@@ -4478,8 +4622,10 @@ export const fr: Record<MessageKey, string> = {
   'inv.bannerAction': 'Générer le BC',
   'inv.bannerReview': 'Vérifier',
   'inv.poTitle': 'Générer un bon de commande',
-  'inv.poSub': 'Vérifiez le réappro suggéré. Enregistré comme un réappro au comptant — le fournisseur et les conditions de paiement arrivent avec les modules Contacts + Dettes.',
-  'inv.poNone': 'Aucun produit direct à réapprovisionner automatiquement. Les variantes se réapprovisionnent par variante et les produits sérialisés en ajoutant des unités — depuis leurs pages produit. (Les BC au comptant couvrent les produits directs pour l’instant.)',
+  'inv.poSub':
+    'Vérifiez le réappro suggéré. Enregistré comme un réappro au comptant — le fournisseur et les conditions de paiement arrivent avec les modules Contacts + Dettes.',
+  'inv.poNone':
+    'Aucun produit direct à réapprovisionner automatiquement. Les variantes se réapprovisionnent par variante et les produits sérialisés en ajoutant des unités — depuis leurs pages produit. (Les BC au comptant couvrent les produits directs pour l’instant.)',
   'inv.poEmpty': 'Sélectionnez au moins un article.',
   'inv.poInStock': 'En stock',
   'inv.poConfirm': 'Réapprovisionner · {v}',
@@ -4508,12 +4654,15 @@ export const fr: Record<MessageKey, string> = {
   'inv.restockRef': 'Référence (facultatif)',
   'inv.restockRefPh': 'ex. PO-0142',
   'inv.restockTotal': 'Coût total',
-  'inv.restockCashNote': 'Enregistré comme payé. Le crédit fournisseur / les dettes arrivent avec les modules Contacts + Dettes.',
+  'inv.restockCashNote':
+    'Enregistré comme payé. Le crédit fournisseur / les dettes arrivent avec les modules Contacts + Dettes.',
   'inv.restock': 'Réapprovisionner',
   'inv.restockError': 'Impossible de réapprovisionner.',
   'inv.gotIt': 'Compris',
-  'inv.restockSerialNote': 'Pour réapprovisionner un produit sérialisé, ajoutez des unités depuis le panneau Unités sérialisées ci-dessous.',
-  'inv.restockVariantNote': 'Le réappro par variante n’est pas encore disponible — ajustez le stock de chaque variante depuis Gérer les variantes pour l’instant.',
+  'inv.restockSerialNote':
+    'Pour réapprovisionner un produit sérialisé, ajoutez des unités depuis le panneau Unités sérialisées ci-dessous.',
+  'inv.restockVariantNote':
+    'Le réappro par variante n’est pas encore disponible — ajustez le stock de chaque variante depuis Gérer les variantes pour l’instant.',
 
   'error.title': 'Une erreur est survenue',
   'error.body': "Une erreur inattendue s'est produite. Essayez de recharger l'application.",
@@ -4727,8 +4876,10 @@ export const fr: Record<MessageKey, string> = {
   'bsec.comingSoon': 'La politique de sécurité est un aperçu — pas encore appliquée.',
   'bsec.title': 'Authentification à deux facteurs',
   'bsec.require': 'Exiger la 2FA pour tous les utilisateurs',
-  'bsec.requireDesc': 'Chaque membre doit configurer l’authentification à deux facteurs avant de pouvoir se connecter.',
-  'bsec.roleNote': 'Vous pouvez aussi exiger la 2FA par rôle lors de la création ou modification d’un rôle sous Organisation → Rôles & permissions.',
+  'bsec.requireDesc':
+    'Chaque membre doit configurer l’authentification à deux facteurs avant de pouvoir se connecter.',
+  'bsec.roleNote':
+    'Vous pouvez aussi exiger la 2FA par rôle lors de la création ou modification d’un rôle sous Organisation → Rôles & permissions.',
   'settings.billing': 'Facturation',
   'settings.tax': 'Fiscalité & OHADA',
   'settings.receipts': 'Reçus',
@@ -4765,7 +4916,8 @@ export const fr: Record<MessageKey, string> = {
   'settings.bp.loadError': 'Impossible de charger le profil du commerce.',
   'settings.bp.retry': 'Réessayer',
   'settings.bp.ownerOnly': 'Seul le propriétaire du commerce peut modifier ces informations.',
-  'settings.bp.onlineOnly': 'Les paramètres du commerce sont en ligne uniquement — les changements s’appliquent à tous instantanément. Reconnectez-vous pour modifier.',
+  'settings.bp.onlineOnly':
+    'Les paramètres du commerce sont en ligne uniquement — les changements s’appliquent à tous instantanément. Reconnectez-vous pour modifier.',
   'settings.soonBanner': 'Cette section arrive bientôt — le design est en cours.',
 
   // Settings → Subscription
@@ -4795,7 +4947,8 @@ export const fr: Record<MessageKey, string> = {
   'sub.tagCurrent': 'Actuel',
   'sub.confirmUpTitle': 'Passer à {plan} ?',
   'sub.confirmDownTitle': 'Rétrograder vers {plan} ?',
-  'sub.confirmBody': 'Votre forfait change immédiatement et les fonctionnalités sont mises à jour sur tous vos appareils. Vous n’êtes pas facturé et votre date de fin d’accès gratuit n’est pas réinitialisée. Vous pouvez changer à tout moment.',
+  'sub.confirmBody':
+    'Votre forfait change immédiatement et les fonctionnalités sont mises à jour sur tous vos appareils. Vous n’êtes pas facturé et votre date de fin d’accès gratuit n’est pas réinitialisée. Vous pouvez changer à tout moment.',
   'sub.confirmUp': 'Confirmer',
   'sub.confirmDown': 'Confirmer',
   'sub.cancel': 'Annuler',
@@ -4804,7 +4957,8 @@ export const fr: Record<MessageKey, string> = {
   'sub.loadError': 'Impossible de charger votre abonnement.',
   'sub.billingPrefs': 'Préférences de facturation',
   'sub.autoRenew': 'Renouvellement automatique',
-  'sub.autoRenewDesc': 'Renouveler automatiquement à chaque période pour ne jamais interrompre le service.',
+  'sub.autoRenewDesc':
+    'Renouveler automatiquement à chaque période pour ne jamais interrompre le service.',
   'sub.emailInvoices': 'Envoyer les factures au comptable',
   'sub.emailInvoicesDesc': 'Envoyer une copie de chaque facture à votre comptable.',
   'sub.usageAlerts': 'Alertes d’utilisation',
@@ -4815,7 +4969,8 @@ export const fr: Record<MessageKey, string> = {
   'sub.desc.PRO': 'Pour les entreprises multi-boutiques.',
 
   // Settings → Billing (aperçu — pas encore de paiement)
-  'bill.comingSoon': 'Aperçu interactif — les paiements ne sont pas encore actifs : les changements sont locaux et rien n’est facturé.',
+  'bill.comingSoon':
+    'Aperçu interactif — les paiements ne sont pas encore actifs : les changements sont locaux et rien n’est facturé.',
   'bill.momoType': 'MTN Mobile Money',
   'bill.omType': 'Orange Money',
   'bill.addTitle': 'Ajouter un moyen de paiement',
@@ -4832,14 +4987,18 @@ export const fr: Record<MessageKey, string> = {
   'bill.identitySaved': 'Identité de facturation enregistrée (aperçu)',
   'bill.noFile': 'Le téléchargement de facture est un aperçu — aucun fichier généré.',
   'bill.confirmCancelTitle': 'Résilier l’abonnement ?',
-  'bill.confirmCancelBody': 'Votre forfait reste actif jusqu’à la fin de la période, puis s’arrête. Tous les moyens de paiement enregistrés seront supprimés ce jour-là. (Aperçu — rien n’est réellement modifié.)',
+  'bill.confirmCancelBody':
+    'Votre forfait reste actif jusqu’à la fin de la période, puis s’arrête. Tous les moyens de paiement enregistrés seront supprimés ce jour-là. (Aperçu — rien n’est réellement modifié.)',
   'bill.keepSub': 'Conserver l’abonnement',
   'bill.cancelRequested': 'Résiliation demandée (aperçu)',
-  'bill.cantDeletePrimary': 'Définissez un autre moyen comme principal avant de supprimer celui-ci.',
-  'bill.cancelledNote': 'Abonnement résilié — tous les moyens de paiement seront supprimés à la fin de la période.',
+  'bill.cantDeletePrimary':
+    'Définissez un autre moyen comme principal avant de supprimer celui-ci.',
+  'bill.cancelledNote':
+    'Abonnement résilié — tous les moyens de paiement seront supprimés à la fin de la période.',
   'bill.cancelPending': 'Résiliation en attente',
   'bill.pmTitle': 'Moyens de paiement',
-  'bill.pmSub': 'Utilisé pour payer votre abonnement BizTrack CM. Le Mobile Money est débité automatiquement à chaque cycle.',
+  'bill.pmSub':
+    'Utilisé pour payer votre abonnement BizTrack CM. Le Mobile Money est débité automatiquement à chaque cycle.',
   'bill.primary': 'Principal',
   'bill.edit': 'Modifier',
   'bill.makePrimary': 'Définir principal',
@@ -4847,14 +5006,16 @@ export const fr: Record<MessageKey, string> = {
   'bill.addPm': 'Ajouter un moyen de paiement',
   'bill.backup': 'Moyen de secours',
   'bill.identityTitle': 'Identité de facturation',
-  'bill.identitySub': 'Apparaît sur les factures que BizTrack CM vous délivre, comme requis par l’OHADA.',
+  'bill.identitySub':
+    'Apparaît sur les factures que BizTrack CM vous délivre, comme requis par l’OHADA.',
   'bill.legalName': 'Raison sociale',
   'bill.billingEmail': 'Email de facturation',
   'bill.niu': 'NIU (numéro contribuable)',
   'bill.rccm': 'RCCM',
   'bill.address': 'Adresse de facturation',
   'bill.region': 'Région',
-  'bill.identityNote': 'Votre NIU est imprimé sur chaque facture pour récupérer la TVA. Gérez le taux et le régime sous Fiscalité & OHADA.',
+  'bill.identityNote':
+    'Votre NIU est imprimé sur chaque facture pour récupérer la TVA. Gérez le taux et le régime sous Fiscalité & OHADA.',
   'bill.cancel': 'Annuler',
   'bill.save': 'Enregistrer',
   'bill.invTitle': 'Historique des factures',
@@ -4877,7 +5038,8 @@ export const fr: Record<MessageKey, string> = {
   'bill.included': 'Inclus',
   'bill.tva': 'TVA (19,25 %)',
   'bill.due': 'Échéance {date}',
-  'bill.chargeNote': 'Débité automatiquement sur MTN MoMo le 25. Vous recevrez une confirmation par SMS.',
+  'bill.chargeNote':
+    'Débité automatiquement sur MTN MoMo le 25. Vous recevrez une confirmation par SMS.',
   'bill.autoRenew': 'Renouvellement automatique',
   'bill.autoRenewDesc': 'Garder le service actif chaque mois.',
   'bill.usageAlerts': 'Alertes d’utilisation à 80 %',
@@ -4885,12 +5047,14 @@ export const fr: Record<MessageKey, string> = {
   'bill.cancelSub': 'Résilier l’abonnement',
 
   // Settings → Fiscalité & OHADA (aperçu interactif — non persisté)
-  'tax.comingSoon': 'Aperçu interactif — les paramètres fiscaux ne sont pas encore enregistrés ; pour revue de la mise en page et du flux.',
+  'tax.comingSoon':
+    'Aperçu interactif — les paramètres fiscaux ne sont pas encore enregistrés ; pour revue de la mise en page et du flux.',
   'tax.save': 'Enregistrer',
   'tax.saved': 'Paramètres fiscaux enregistrés (aperçu)',
   'tax.editComingSoon': 'La modification des taux arrive bientôt.',
   'tax.identityTitle': 'Identité fiscale',
-  'tax.identitySub': 'Délivrée par la Direction Générale des Impôts (DGI). Imprimée sur chaque document fiscal.',
+  'tax.identitySub':
+    'Délivrée par la Direction Générale des Impôts (DGI). Imprimée sur chaque document fiscal.',
   'tax.niu': 'NIU — Numéro d’Identifiant Unique',
   'tax.niuHelp': 'Numéro contribuable à 14 caractères de votre attestation d’immatriculation.',
   'tax.rccm': 'RCCM',
@@ -4898,18 +5062,23 @@ export const fr: Record<MessageKey, string> = {
   'tax.cnps': 'Numéro employeur CNPS',
   'tax.cdi': 'Centre des impôts (CDI)',
   'tax.regimeTitle': 'Régime fiscal',
-  'tax.regimeSub': 'Détermine si vous facturez la TVA et quelles déclarations vous déposez. À définir selon votre classification DGI.',
+  'tax.regimeSub':
+    'Détermine si vous facturez la TVA et quelles déclarations vous déposez. À définir selon votre classification DGI.',
   'tax.regLibName': 'Impôt libératoire',
-  'tax.regLibDesc': 'Très petites entreprises. Impôt forfaitaire, pas de TVA facturée ni récupérée.',
+  'tax.regLibDesc':
+    'Très petites entreprises. Impôt forfaitaire, pas de TVA facturée ni récupérée.',
   'tax.regLibTag': 'Pas de TVA sur les ventes',
   'tax.regSimplName': 'Régime simplifié',
-  'tax.regSimplDesc': 'Chiffre d’affaires 10M–50M FCFA. Comptabilité simplifiée & TVA trimestrielle.',
+  'tax.regSimplDesc':
+    'Chiffre d’affaires 10M–50M FCFA. Comptabilité simplifiée & TVA trimestrielle.',
   'tax.regSimplTag': 'TVA optionnelle',
   'tax.regReelName': 'Régime du réel',
-  'tax.regReelDesc': 'Chiffre d’affaires supérieur à 50M FCFA. Comptabilité SYSCOHADA complète & TVA mensuelle.',
+  'tax.regReelDesc':
+    'Chiffre d’affaires supérieur à 50M FCFA. Comptabilité SYSCOHADA complète & TVA mensuelle.',
   'tax.regReelTag': 'TVA facturée & récupérable',
   'tax.tvaTitle': 'Gestion de la TVA',
-  'tax.tvaSub': 'Comment la taxe est calculée et affichée au POS, sur les reçus et la boutique en ligne.',
+  'tax.tvaSub':
+    'Comment la taxe est calculée et affichée au POS, sur les reçus et la boutique en ligne.',
   'tax.stdRate': 'Taux de TVA standard',
   'tax.stdRateHelp': 'Taux standard du Cameroun (17,5% + 10% CAC).',
   'tax.rounding': 'Arrondi',
@@ -4954,8 +5123,10 @@ export const fr: Record<MessageKey, string> = {
   'tax.chartStd': 'Plan standard SYSCOHADA',
   'tax.chartCustom': 'Plan personnalisé',
   'tax.useClasses': 'Utiliser les classes de comptes OHADA 1–9',
-  'tax.useClassesDesc': 'Associer automatiquement produits, dépenses et paiements aux comptes SYSCOHADA.',
-  'tax.ohadaNote': 'Changer l’exercice ou le référentiel affecte les rapports historiques. Verrouillez une période avant la clôture annuelle.',
+  'tax.useClassesDesc':
+    'Associer automatiquement produits, dépenses et paiements aux comptes SYSCOHADA.',
+  'tax.ohadaNote':
+    'Changer l’exercice ou le référentiel affecte les rapports historiques. Verrouillez une période avant la clôture annuelle.',
 
   // Paramètres utilisateur (/user/settings)
   'user.title': 'Compte & préférences',
@@ -4966,10 +5137,12 @@ export const fr: Record<MessageKey, string> = {
   'user.profile': 'Profil',
   'user.appearance': 'Apparence',
   'user.security': 'Mot de passe & 2FA',
-  'user.securitySoon': 'Le changement de mot de passe et l’authentification à deux facteurs (2FA) arrivent bientôt.',
+  'user.securitySoon':
+    'Le changement de mot de passe et l’authentification à deux facteurs (2FA) arrivent bientôt.',
 
   // /profile → Profil (données personnelles) — prototype
-  'prof.comingSoon': 'Prototype — les changements sont locaux pour l’instant. Les changements d’email/téléphone passent par une étape de vérification (exemple — aucun code réel envoyé).',
+  'prof.comingSoon':
+    'Prototype — les changements sont locaux pour l’instant. Les changements d’email/téléphone passent par une étape de vérification (exemple — aucun code réel envoyé).',
   'prof.identityTitle': 'Votre profil',
   'prof.identitySub': 'Votre apparence dans BizTrack.',
   'prof.name': 'Nom complet',
@@ -4993,7 +5166,8 @@ export const fr: Record<MessageKey, string> = {
   'prof.confirm': 'Vérifier & confirmer',
   'prof.emailUpdated': 'Email mis à jour (aperçu)',
   'prof.phoneUpdated': 'Téléphone mis à jour (aperçu)',
-  'prof.verifyNote': 'Changer votre email ou téléphone envoie un code unique pour confirmer qu’il vous appartient. (Prototype — aucun code réel envoyé.)',
+  'prof.verifyNote':
+    'Changer votre email ou téléphone envoie un code unique pour confirmer qu’il vous appartient. (Prototype — aucun code réel envoyé.)',
 
   // /profile → Sécurité (mot de passe + 2FA) — prototype
   'sec.comingSoon': 'Prototype — les changements de sécurité ne sont pas encore enregistrés.',
@@ -5012,13 +5186,15 @@ export const fr: Record<MessageKey, string> = {
   'sec.2faOn': '2FA activée',
   'sec.setup': 'Configurer la 2FA',
   'sec.disable': 'Désactiver',
-  'sec.scan': 'Scannez ce QR avec Google Authenticator, Authy ou une app similaire — ou saisissez la clé manuellement.',
+  'sec.scan':
+    'Scannez ce QR avec Google Authenticator, Authy ou une app similaire — ou saisissez la clé manuellement.',
   'sec.secretKey': 'Clé de configuration',
   'sec.enterCode': 'Saisissez le code à 6 chiffres',
   'sec.verifyEnable': 'Vérifier & activer',
   'sec.2faEnabled': 'Authentification à deux facteurs activée (aperçu)',
   'sec.2faDisabled': 'Authentification à deux facteurs désactivée (aperçu)',
-  'sec.recoveryNote': 'Conservez vos codes de récupération en lieu sûr — ils vous serviront si vous perdez votre appareil.',
+  'sec.recoveryNote':
+    'Conservez vos codes de récupération en lieu sûr — ils vous serviront si vous perdez votre appareil.',
   'sec.cancel': 'Annuler',
 
   // Apparence (sous /user/settings) — fonctionnel, par utilisateur
@@ -5053,10 +5229,12 @@ export const fr: Record<MessageKey, string> = {
   'appr.secondary': 'Secondaire',
   'appr.paid': 'Payé',
   'appr.partial': 'Partiel',
-  'appr.systemNote': 'Le mode Système suit le réglage clair/sombre de votre appareil. Sur ordinateur, il suit le thème du système en temps réel.',
+  'appr.systemNote':
+    'Le mode Système suit le réglage clair/sombre de votre appareil. Sur ordinateur, il suit le thème du système en temps réel.',
 
   // Paramètres → Reçus (aperçu interactif — non persisté)
-  'rcp.comingSoon': 'Aperçu interactif — les paramètres de reçu ne sont pas encore enregistrés. Le reçu à droite se met à jour en direct.',
+  'rcp.comingSoon':
+    'Aperçu interactif — les paramètres de reçu ne sont pas encore enregistrés. Le reçu à droite se met à jour en direct.',
   'rcp.headerTitle': 'En-tête & pied de page',
   'rcp.headerSub': 'Texte en haut et en bas de chaque reçu imprimé.',
   'rcp.bizName': 'Nom du commerce',
@@ -5095,10 +5273,12 @@ export const fr: Record<MessageKey, string> = {
   'rcp.printer': 'Imprimante par défaut',
   'rcp.sysDialog': 'Boîte de dialogue système',
   'rcp.livePreview': 'Aperçu en direct',
-  'rcp.previewNote': 'L’aperçu reflète une vente d’exemple. Les options & champs le mettent à jour instantanément.',
+  'rcp.previewNote':
+    'L’aperçu reflète une vente d’exemple. Les options & champs le mettent à jour instantanément.',
 
   // Paramètres → Notifications (aperçu interactif — non persisté)
-  'ntf.comingSoon': 'Aperçu interactif — les préférences de notification ne sont pas encore enregistrées.',
+  'ntf.comingSoon':
+    'Aperçu interactif — les préférences de notification ne sont pas encore enregistrées.',
   'ntf.title': 'Préférences de notification',
   'ntf.sub': 'Activez chaque événement par canal. SMS & WhatsApp utilisent votre crédit de compte.',
   'ntf.event': 'Événement',
@@ -5120,9 +5300,11 @@ export const fr: Record<MessageKey, string> = {
   'ntf.teamDesc': 'Remboursements, annulations, remises & connexions.',
   'ntf.billing': 'Facturation & abonnement',
   'ntf.billingDesc': 'Renouvellements, échecs de paiement et limites de forfait.',
-  'ntf.creditNote': 'SMS & WhatsApp sont facturés par message depuis votre crédit. In-app & email sont gratuits.',
+  'ntf.creditNote':
+    'SMS & WhatsApp sont facturés par message depuis votre crédit. In-app & email sont gratuits.',
   'ntf.quietTitle': 'Heures calmes',
-  'ntf.quietSub': 'Mettre en pause SMS, WhatsApp et push pendant ces heures. Les alertes de facturation critiques passent toujours.',
+  'ntf.quietSub':
+    'Mettre en pause SMS, WhatsApp et push pendant ces heures. Les alertes de facturation critiques passent toujours.',
   'ntf.quietEnable': 'Activer les heures calmes',
   'ntf.quietEnableDesc': 'Retenir les notifications non urgentes la nuit.',
   'ntf.from': 'De',
@@ -5135,7 +5317,8 @@ export const fr: Record<MessageKey, string> = {
 
   // Organisation → Équipe
   'team.title': 'Équipe',
-  'team.subtitle': 'Invitez des personnes, définissez leur rôle et gérez les accès. En ligne uniquement.',
+  'team.subtitle':
+    'Invitez des personnes, définissez leur rôle et gérez les accès. En ligne uniquement.',
   'team.invite': 'Inviter un membre',
   'team.members': 'Membres',
   'team.kpiMembers': 'Membres',
@@ -5171,7 +5354,8 @@ export const fr: Record<MessageKey, string> = {
   'team.inviteCancelled': 'Invitation annulée',
   'team.resendShare': 'Renvoyer & partager le lien',
   'team.inviteLinkTitle': 'Lien d’invitation prêt',
-  'team.inviteLinkBody': 'Partagez ce lien pour qu’ils puissent rejoindre. Valide jusqu’à l’expiration de l’invitation.',
+  'team.inviteLinkBody':
+    'Partagez ce lien pour qu’ils puissent rejoindre. Valide jusqu’à l’expiration de l’invitation.',
   'team.inviteLink': 'Lien d’invitation',
   'team.copyLink': 'Copier',
   'team.linkCopied': 'Lien copié',
@@ -5194,9 +5378,11 @@ export const fr: Record<MessageKey, string> = {
   'team.cancel': 'Annuler',
   'team.save': 'Enregistrer',
   'team.changeRoleTitle': 'Changer le rôle',
-  'team.changeRoleBody': 'Choisissez un nouveau rôle pour {name}. Son accès est mis à jour immédiatement.',
+  'team.changeRoleBody':
+    'Choisissez un nouveau rôle pour {name}. Son accès est mis à jour immédiatement.',
   'team.removeTitle': 'Retirer le membre ?',
-  'team.removeBody': 'Retirer {name} de l’équipe ? Il perd l’accès immédiatement. Cela ne supprime pas son compte.',
+  'team.removeBody':
+    'Retirer {name} de l’équipe ? Il perd l’accès immédiatement. Cela ne supprime pas son compte.',
   'team.removeConfirm': 'Retirer le membre',
   'team.suspended': 'Suspendu',
   'team.deactivate': 'Désactiver l’accès',
@@ -5207,7 +5393,8 @@ export const fr: Record<MessageKey, string> = {
   // Page d’acceptation d’invitation
   'invite.loading': 'Chargement de votre invitation…',
   'invite.invalidTitle': 'Cette invitation n’est plus valide',
-  'invite.invalidBody': 'Ce lien d’invitation a expiré ou a été révoqué. Demandez un nouveau lien à un administrateur pour rejoindre l’équipe.',
+  'invite.invalidBody':
+    'Ce lien d’invitation a expiré ou a été révoqué. Demandez un nouveau lien à un administrateur pour rejoindre l’équipe.',
   'invite.declinedTitle': 'Invitation refusée',
   'invite.declinedBody': 'Vous avez refusé cette invitation. Vous pouvez fermer cette page.',
   'invite.invitedByShort': 'Invité par',
@@ -5306,18 +5493,21 @@ export const fr: Record<MessageKey, string> = {
   'reports.print': 'Imprimer',
   'reports.exportPdf': 'Exporter PDF',
   'reports.soonTitle': 'Bientôt disponible',
-  'reports.soonBody': 'Ce rapport est prévu. Les états OHADA/DGI arriveront avec le module comptable.',
+  'reports.soonBody':
+    'Ce rapport est prévu. Les états OHADA/DGI arriveront avec le module comptable.',
   'reports.loading': 'Génération du rapport…',
   'reports.loadError': 'Impossible de générer ce rapport',
   'reports.loadErrorBody': 'Une erreur est survenue lors du chargement. Réessayez.',
   'reports.overview': 'Vue d’ensemble',
   'reports.overviewSub': 'Indicateurs de la période',
   'reports.pickTitle': 'Sélectionnez un rapport',
-  'reports.pickBody': 'Choisissez un rapport dans la liste pour l’afficher ici, puis exportez en PDF ou CSV.',
+  'reports.pickBody':
+    'Choisissez un rapport dans la liste pour l’afficher ici, puis exportez en PDF ou CSV.',
   'reports.fullscreen': 'Plein écran (F11)',
   'reports.exitFs': 'Quitter',
   'roles.deleteTitle': 'Supprimer le rôle ?',
-  'roles.deleteBody': 'Supprimer le rôle « {name} » ? Les membres concernés devront recevoir un nouveau rôle.',
+  'roles.deleteBody':
+    'Supprimer le rôle « {name} » ? Les membres concernés devront recevoir un nouveau rôle.',
   'roles.deleteConfirm': 'Supprimer le rôle',
   'roles.cancel': 'Annuler',
   'roles.backToRoles': 'Retour aux rôles',

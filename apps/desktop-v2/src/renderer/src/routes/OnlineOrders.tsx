@@ -8,7 +8,11 @@ import { useLangStore, useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
-import type { OnlineOrderStatus } from '@shared/ipc'
+import {
+  ONLINE_ORDER_TRANSITIONS,
+  type OnlineOrderStatus,
+  type OnlineFulfillmentType,
+} from '@shared/ipc'
 
 const I = {
   truck: (
@@ -41,13 +45,53 @@ const I = {
   ),
 }
 
-// The fulfilment progression (cancelled/refunded are terminal off-flow states).
-const FLOW: OnlineOrderStatus[] = ['PENDING', 'CONFIRMED', 'PREPARING', 'DISPATCHED', 'DELIVERED']
-const NEXT: Partial<Record<OnlineOrderStatus, OnlineOrderStatus>> = {
-  PENDING: 'CONFIRMED',
-  CONFIRMED: 'PREPARING',
-  PREPARING: 'DISPATCHED',
-  DISPATCHED: 'DELIVERED',
+// Ordered fulfilment progression per type (drives the tracking stepper). Kept in lockstep
+// with the API state machine (ONLINE_ORDER_TRANSITIONS).
+const DELIVERY_FLOW: OnlineOrderStatus[] = [
+  'PENDING',
+  'CONFIRMED',
+  'PREPARING',
+  'READY_FOR_DISPATCH',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+]
+const PICKUP_FLOW: OnlineOrderStatus[] = [
+  'PENDING',
+  'CONFIRMED',
+  'PREPARING',
+  'READY_FOR_PICKUP',
+  'PICKED_UP',
+]
+function flowFor(f: OnlineFulfillmentType): OnlineOrderStatus[] {
+  return f === 'PICKUP' ? PICKUP_FLOW : DELIVERY_FLOW
+}
+// Statuses offered in the list filters (both branches; CANCELLED added at the call site).
+const FILTER_STATUSES: OnlineOrderStatus[] = [
+  'PENDING',
+  'CONFIRMED',
+  'PREPARING',
+  'READY_FOR_DISPATCH',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+  'READY_FOR_PICKUP',
+  'PICKED_UP',
+  'DELIVERY_FAILED',
+  'RETURNED',
+]
+// The primary forward action from a status (excludes the cancel / failed / return
+// branches — those are separate actions). For DELIVERY_FAILED this yields OUT_FOR_DELIVERY
+// (retry). Undefined at a completed/terminal state.
+function primaryNext(
+  f: OnlineFulfillmentType,
+  s: OnlineOrderStatus,
+): OnlineOrderStatus | undefined {
+  return (ONLINE_ORDER_TRANSITIONS[f][s] ?? []).find(
+    (o) => o !== 'CANCELLED' && o !== 'DELIVERY_FAILED' && o !== 'RETURNED',
+  )
+}
+// Off-flow terminal states (no more fulfilment actions).
+function isOffFlow(s: OnlineOrderStatus): boolean {
+  return s === 'CANCELLED' || s === 'RETURNED'
 }
 
 function statusMeta(
@@ -61,18 +105,27 @@ function statusMeta(
       return { label: t('online.stConfirmed'), cls: 'st-low' }
     case 'PREPARING':
       return { label: t('online.stPreparing'), cls: 'st-low' }
-    case 'DISPATCHED':
-      return { label: t('online.stShipped'), cls: 'st-neutral' }
+    case 'READY_FOR_PICKUP':
+      return { label: t('online.stReadyForPickup'), cls: 'st-low' }
+    case 'PICKED_UP':
+      return { label: t('online.stPickedUp'), cls: 'st-ok' }
+    case 'READY_FOR_DISPATCH':
+      return { label: t('online.stReadyForDispatch'), cls: 'st-low' }
+    case 'OUT_FOR_DELIVERY':
+      return { label: t('online.stOutForDelivery'), cls: 'st-neutral' }
     case 'DELIVERED':
       return { label: t('online.stDelivered'), cls: 'st-ok' }
+    case 'DELIVERY_FAILED':
+      return { label: t('online.stDeliveryFailed'), cls: 'st-out' }
+    case 'RETURNED':
+      return { label: t('online.stReturned'), cls: 'st-out' }
     case 'CANCELLED':
       return { label: t('online.stCancelled'), cls: 'st-out' }
-    case 'REFUNDED':
-      return { label: t('online.stRefunded'), cls: 'st-out' }
     default:
       return { label: s, cls: 'st-neutral' }
   }
 }
+// Label for the primary forward action, keyed by the CURRENT status.
 function advanceLabel(t: ReturnType<typeof useT>, s: OnlineOrderStatus): string {
   switch (s) {
     case 'PENDING':
@@ -81,8 +134,14 @@ function advanceLabel(t: ReturnType<typeof useT>, s: OnlineOrderStatus): string 
       return t('online.advance.CONFIRMED')
     case 'PREPARING':
       return t('online.advance.PREPARING')
-    case 'DISPATCHED':
-      return t('online.advance.DISPATCHED')
+    case 'READY_FOR_PICKUP':
+      return t('online.advance.READY_FOR_PICKUP')
+    case 'READY_FOR_DISPATCH':
+      return t('online.advance.READY_FOR_DISPATCH')
+    case 'OUT_FOR_DELIVERY':
+      return t('online.advance.OUT_FOR_DELIVERY')
+    case 'DELIVERY_FAILED':
+      return t('online.advance.DELIVERY_FAILED')
     default:
       return ''
   }
@@ -115,10 +174,18 @@ export function OnlineOrders() {
   // so hook order stays stable across the upsell/error branches.
   const kpis = useMemo(() => {
     const newCount = all.filter((o) => o.status === 'PENDING').length
-    const toShip = all.filter((o) => o.status === 'CONFIRMED' || o.status === 'PREPARING').length
-    const delivered = all.filter((o) => o.status === 'DELIVERED')
+    const inProgress: OnlineOrderStatus[] = [
+      'CONFIRMED',
+      'PREPARING',
+      'READY_FOR_DISPATCH',
+      'READY_FOR_PICKUP',
+      'OUT_FOR_DELIVERY',
+      'DELIVERY_FAILED',
+    ]
+    const toShip = all.filter((o) => inProgress.includes(o.status)).length
+    const delivered = all.filter((o) => o.status === 'DELIVERED' || o.status === 'PICKED_UP')
     const sales = all
-      .filter((o) => o.status !== 'CANCELLED' && o.status !== 'REFUNDED')
+      .filter((o) => o.status !== 'CANCELLED' && o.status !== 'RETURNED')
       .reduce((a, o) => a + o.totalAmount, 0)
     return { newCount, toShip, delivered: delivered.length, sales, total: all.length }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,7 +207,7 @@ export function OnlineOrders() {
     return true
   })
 
-  const STATUS_CHIPS: Array<OnlineOrderStatus | ''> = ['', ...FLOW, 'CANCELLED']
+  const STATUS_CHIPS: Array<OnlineOrderStatus | ''> = ['', ...FILTER_STATUSES, 'CANCELLED']
 
   // --- mobile: header + KPIs + search + status chips + order list (reuses OrderDrawer) ---
   if (bp === 'mobile') {
@@ -324,7 +391,7 @@ export function OnlineOrders() {
             onChange={(e) => setStatus(e.target.value as OnlineOrderStatus | '')}
           >
             <option value="">{t('online.allStatuses')}</option>
-            {FLOW.map((s) => (
+            {FILTER_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {statusMeta(t, s).label}
               </option>
@@ -454,9 +521,14 @@ function OrderDrawer({
   })
 
   const o = order
-  const cancelled = o ? o.status === 'CANCELLED' || o.status === 'REFUNDED' : false
-  const stageIdx = o ? FLOW.indexOf(o.status) : -1
-  const next = o ? NEXT[o.status] : undefined
+  const cancelled = o ? isOffFlow(o.status) : false
+  const flow = o ? flowFor(o.fulfillmentType) : []
+  const stageIdx = o ? flow.indexOf(o.status) : -1
+  const next = o ? primaryNext(o.fulfillmentType, o.status) : undefined
+  const opts = o ? (ONLINE_ORDER_TRANSITIONS[o.fulfillmentType][o.status] ?? []) : []
+  const canCancel = opts.includes('CANCELLED')
+  const canReturn = opts.includes('RETURNED')
+  const canFail = opts.includes('DELIVERY_FAILED')
   const subtotal = o?.items?.reduce((a, it) => a + it.unitPrice * it.quantity, 0) ?? 0
   const fees = o ? Math.max(0, o.totalAmount - subtotal) : 0
   const pickup = o?.fulfillmentType === 'PICKUP'
@@ -521,7 +593,7 @@ function OrderDrawer({
               <div className="od-block">
                 <div className="bl">{t('online.fulfilment')}</div>
                 <div className="ff">
-                  {FLOW.map((s, i) => {
+                  {flow.map((s, i) => {
                     const cls = cancelled
                       ? 'future'
                       : i < stageIdx
@@ -605,25 +677,67 @@ function OrderDrawer({
                 <Button variant="soft" type="button" className="grow" disabled style={{ flex: 1 }}>
                   {statusMeta(t, o.status).label}
                 </Button>
-              ) : next ? (
-                <Button
-                  variant="primary"
-                  type="button"
-                  style={{ flex: 1 }}
-                  loading={advance.isPending}
-                  onClick={() => {
-                    setError(null)
-                    advance.mutate(next)
-                  }}
-                >
-                  {o.status === 'DISPATCHED' ? I.check : I.truck}
-                  {advanceLabel(t, o.status)}
-                </Button>
               ) : (
-                <Button variant="soft" type="button" disabled style={{ flex: 1 }}>
-                  {I.check}
-                  {t('online.fulfilled')}
-                </Button>
+                <>
+                  {next ? (
+                    <Button
+                      variant="primary"
+                      type="button"
+                      style={{ flex: 1 }}
+                      loading={advance.isPending}
+                      onClick={() => {
+                        setError(null)
+                        advance.mutate(next)
+                      }}
+                    >
+                      {next === 'DELIVERED' || next === 'PICKED_UP' ? I.check : I.truck}
+                      {advanceLabel(t, o.status)}
+                    </Button>
+                  ) : null}
+                  {canFail ? (
+                    <Button
+                      variant="soft"
+                      type="button"
+                      onClick={() => {
+                        setError(null)
+                        advance.mutate('DELIVERY_FAILED')
+                      }}
+                    >
+                      {t('online.markFailed')}
+                    </Button>
+                  ) : null}
+                  {canReturn ? (
+                    <Button
+                      variant="soft"
+                      type="button"
+                      onClick={() => {
+                        setError(null)
+                        advance.mutate('RETURNED')
+                      }}
+                    >
+                      {t('online.markReturned')}
+                    </Button>
+                  ) : null}
+                  {canCancel ? (
+                    <Button
+                      variant="soft"
+                      type="button"
+                      onClick={() => {
+                        setError(null)
+                        advance.mutate('CANCELLED')
+                      }}
+                    >
+                      {I.x}
+                      {t('online.cancelOrder')}
+                    </Button>
+                  ) : null}
+                  {!next && !canFail && !canReturn && !canCancel ? (
+                    <Button variant="soft" type="button" disabled style={{ flex: 1 }}>
+                      {I.check}
+                      {t('online.fulfilled')}
+                    </Button>
+                  ) : null}
+                </>
               )}
             </div>
           </>

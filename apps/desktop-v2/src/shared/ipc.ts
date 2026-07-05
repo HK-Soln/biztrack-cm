@@ -1259,6 +1259,13 @@ export type {
   UpdateOrderStatusRequest,
   OnlineCartItem,
 } from '@biztrack/types'
+// Value exports (order state-machine helpers) — runtime, not just types.
+export {
+  ONLINE_ORDER_TRANSITIONS,
+  ONLINE_ORDER_COMPLETION_STATUSES,
+  canTransitionOnlineOrder,
+  isTerminalOnlineOrderStatus,
+} from '@biztrack/types'
 import type {
   OnlineStore as OnlineStoreT,
   CreateOnlineStoreRequest as CreateOnlineStoreT,
