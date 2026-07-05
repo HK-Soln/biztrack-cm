@@ -708,6 +708,9 @@ importers:
       '@biztrack/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@biztrack/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@tanstack/react-query':
         specifier: ^5.62.7
         version: 5.101.0(react@19.2.4)

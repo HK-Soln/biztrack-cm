@@ -34,8 +34,10 @@ export function ProductCard({
   const [added, setAdded] = useState(false)
 
   const detailHref = `${base}/products/${product.slug}`
-  const soldOut = !product.hasVariants && product.inStock <= 0
-  const lowStock = !product.hasVariants && product.inStock > 0 && product.inStock <= 5
+  // Stock only matters for tracked simple products; variant/non-tracked stay available.
+  const tracked = product.trackInventory
+  const soldOut = !product.hasVariants && tracked && product.inStock <= 0
+  const lowStock = !product.hasVariants && tracked && product.inStock > 0 && product.inStock <= 5
 
   const handleAdd = () => {
     add.mutate(
@@ -79,7 +81,7 @@ export function ProductCard({
           </div>
 
           {product.hasVariants ? (
-            <Link className="add" href={detailHref} aria-label={t('selectOptions')}>
+            <Link className="add" href={detailHref} aria-label={t('addToCart')}>
               {IcPlus}
             </Link>
           ) : (

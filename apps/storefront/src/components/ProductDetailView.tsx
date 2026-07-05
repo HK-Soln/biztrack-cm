@@ -81,12 +81,19 @@ export function ProductDetailView({
 
   const href = (p: string) => `${base}${p}` || '/'
   const hasVariants = product.hasVariants && product.variants.length > 0
-  const selected = product.variants.find((v) => v.id === variantId)
+  const tracked = product.trackInventory
+  // Auto-select the first available variant so the buyer never has to "choose options"
+  // before adding — the selected variant is what goes in the cart.
+  const firstAvailable =
+    product.variants.find((v) => !tracked || v.inStock > 0) ?? product.variants[0]
+  const selectedId = variantId ?? (hasVariants ? firstAvailable?.id : undefined)
+  const selected = product.variants.find((v) => v.id === selectedId)
   const price = selected?.sellingPrice ?? product.sellingPrice
-  const stock = hasVariants ? (selected?.inStock ?? 0) : product.inStock
-  const needsSelection = hasVariants && !variantId
-  const soldOut = !hasVariants && product.inStock <= 0
-  const canAdd = !soldOut && !needsSelection && stock > 0
+  // Out-of-stock only blocks a tracked SIMPLE product. Variant products stay addable
+  // (staff assign serial units / confirm stock at order confirmation).
+  const soldOut = !hasVariants && tracked && product.inStock <= 0
+  const canAdd = hasVariants ? true : !soldOut
+  const maxQty = !hasVariants && tracked && product.inStock > 0 ? product.inStock : Infinity
 
   const images = product.images ?? []
   const mainImg = images[imgIndex]
@@ -95,7 +102,7 @@ export function ProductDetailView({
   const handleAdd = () => {
     if (!canAdd) return
     add.mutate(
-      { productId: product.id, variantId, quantity: qty },
+      { productId: product.id, variantId: hasVariants ? selectedId : undefined, quantity: qty },
       {
         onSuccess: () => {
           setAdded(true)
@@ -121,13 +128,7 @@ export function ProductDetailView({
   }
   feat.push({ icon: IcShield, title: t('featAuthenticTitle'), desc: t('featAuthenticDesc') })
 
-  const addLabel = added
-    ? t('added')
-    : needsSelection
-      ? t('selectOptions')
-      : soldOut
-        ? t('outOfStock')
-        : t('addToCart')
+  const addLabel = added ? t('added') : soldOut ? t('outOfStock') : t('addToCart')
 
   return (
     <div className="wrap">
@@ -197,8 +198,7 @@ export function ProductDetailView({
                   <button
                     key={v.id}
                     type="button"
-                    className={`opt${v.id === variantId ? ' on' : ''}${v.inStock <= 0 ? ' dis' : ''}`}
-                    disabled={v.inStock <= 0}
+                    className={`opt${v.id === selectedId ? ' on' : ''}`}
                     onClick={() => {
                       setVariantId(v.id)
                       setQty(1)
@@ -224,8 +224,8 @@ export function ProductDetailView({
               <span className="q">{qty}</span>
               <button
                 type="button"
-                onClick={() => setQty((q) => (stock > 0 ? Math.min(stock, q + 1) : q))}
-                disabled={!canAdd || (stock > 0 && qty >= stock)}
+                onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
+                disabled={!canAdd || qty >= maxQty}
               >
                 +
               </button>

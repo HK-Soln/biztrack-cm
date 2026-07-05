@@ -2639,3 +2639,56 @@ main {
     font-size: 24px;
   }
 }
+
+/* ---------- Shared PhoneInput (@biztrack/ui) — themed via store tokens ---------- */
+.phone-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0 13px;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.phone-field:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.phone-field.err {
+  border-color: var(--danger);
+}
+.phone-field .PhoneInputInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+}
+.phone-field .PhoneInputInput::placeholder {
+  color: var(--text-muted);
+}
+.phone-field .PhoneInputCountry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.phone-field .PhoneInputCountrySelect {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.phone-field .PhoneInputCountryIcon {
+  width: 22px;
+  height: 16px;
+  box-shadow: none;
+}
