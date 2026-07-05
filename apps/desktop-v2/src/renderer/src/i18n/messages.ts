@@ -1309,6 +1309,8 @@ export const en = {
   'prodf.online': 'Online store',
   'prodf.publish': 'Publish online',
   'prodf.publishHint': 'Show in the online store',
+  'prodf.onlineNote':
+    'Publish this product to your store from Online products. Here you set how it appears online.',
   'prodf.onlineDesc': 'Online description',
   'prodf.onlineDescPh': 'Shown on the product page…',
   'prodf.reserve': 'Reserve for in-store',
@@ -4166,6 +4168,8 @@ export const fr: Record<MessageKey, string> = {
   'prodf.online': 'Boutique en ligne',
   'prodf.publish': 'Publier en ligne',
   'prodf.publishHint': 'Afficher dans la boutique en ligne',
+  'prodf.onlineNote':
+    'Publiez ce produit dans votre boutique depuis Produits en ligne. Ici, vous définissez son apparence en ligne.',
   'prodf.onlineDesc': 'Description en ligne',
   'prodf.onlineDescPh': 'Affichée sur la fiche produit…',
   'prodf.reserve': 'Réserve magasin',
