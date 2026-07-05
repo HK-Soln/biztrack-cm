@@ -887,7 +887,6 @@ function StoreConfig({
               {t('online.minOrder')}
             </label>
             <Input
-              type="number"
               inputMode="numeric"
               value={form.minOrderAmount}
               placeholder="0"
@@ -939,7 +938,6 @@ function StoreConfig({
                   {t('online.deliveryFee')}
                 </label>
                 <Input
-                  type="number"
                   inputMode="numeric"
                   value={form.deliveryFee}
                   placeholder="0"
