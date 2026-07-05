@@ -10,6 +10,7 @@ import type {
   OnlineStore,
   PaginatedResult,
   UpdateOnlineStoreRequest,
+  UpdateOrderPaymentRequest,
   UpdateOrderStatusRequest,
 } from '@biztrack/types'
 
@@ -124,6 +125,18 @@ export class OnlineService {
         (
           await this.http.patch<ApiEnvelope<OnlineOrder>>(
             `/online-store/orders/${id}/status`,
+            input,
+          )
+        ).data.data,
+    )
+  }
+
+  updateOrderPayment(id: string, input: UpdateOrderPaymentRequest): Promise<OnlineOrderDetail> {
+    return this.run(
+      async () =>
+        (
+          await this.http.patch<ApiEnvelope<OnlineOrderDetail>>(
+            `/online-store/orders/${id}/payment`,
             input,
           )
         ).data.data,

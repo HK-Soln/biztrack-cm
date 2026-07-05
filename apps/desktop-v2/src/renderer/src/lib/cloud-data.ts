@@ -47,6 +47,7 @@ import type {
   OnlineAdminProductsQuery,
   PaginatedResult,
   UpdateOrderStatusRequest,
+  UpdateOrderPaymentRequest,
   // uploads
   UploadFileInput,
   UploadedFile,
@@ -186,6 +187,8 @@ export const cloudOnline = {
   getOrder: (id: string) => cget<OnlineOrderDetail>(`/online-store/orders/${id}`),
   updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) =>
     cpatch<OnlineOrder>(`/online-store/orders/${id}/status`, input),
+  updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) =>
+    cpatch<OnlineOrderDetail>(`/online-store/orders/${id}/payment`, input),
   checkSlug: (slug: string) =>
     cget<OnlineSlugCheck>(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`),
   listProducts: (query: OnlineAdminProductsQuery = {}) => {

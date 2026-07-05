@@ -125,6 +125,7 @@ import type {
   OnlineSlugCheck,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
+  UpdateOrderPaymentRequest,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
@@ -387,6 +388,7 @@ export interface DataClient {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResult>
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
+    updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) => Promise<OnlineOrderDetail>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQuery) => Promise<PaginatedResult<OnlineAdminProduct>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
@@ -696,6 +698,7 @@ function electronAdapter(): DataClient {
       listOrders: (query) => window.api.online.listOrders(query),
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
+      updateOrderPayment: (id, input) => window.api.online.updateOrderPayment(id, input),
       checkSlug: (slug) => window.api.online.checkSlug(slug),
       listProducts: (query) => window.api.online.listProducts(query),
       setProductPublished: (id, published) => window.api.online.setProductPublished(id, published),

@@ -6,9 +6,12 @@ import type {
   CheckoutRequest,
   OnlineFulfillmentType,
   OnlineOrderStatus,
+  OnlinePaymentStatus,
   UpdateCartItemRequest,
+  UpdateOrderPaymentRequest,
   UpdateOrderStatusRequest,
 } from '@biztrack/types'
+import { ONLINE_PAYMENT_METHODS } from '@biztrack/types'
 
 import type { PublicProductsQuery } from '@biztrack/types'
 
@@ -154,4 +157,24 @@ export class UpdateOrderStatusDto implements UpdateOrderStatusRequest {
   @IsOptional()
   @IsString()
   customerMessage?: string
+}
+
+const PAYMENT_STATUSES: OnlinePaymentStatus[] = [
+  'PENDING',
+  'AUTHORIZED',
+  'PAID',
+  'FAILED',
+  'REFUNDED',
+  'PARTIALLY_REFUNDED',
+]
+
+export class UpdateOrderPaymentDto implements UpdateOrderPaymentRequest {
+  @ApiProperty({ enum: PAYMENT_STATUSES })
+  @IsIn(PAYMENT_STATUSES)
+  paymentStatus!: OnlinePaymentStatus
+
+  @ApiPropertyOptional({ enum: ONLINE_PAYMENT_METHODS })
+  @IsOptional()
+  @IsIn(ONLINE_PAYMENT_METHODS)
+  paymentMethod?: (typeof ONLINE_PAYMENT_METHODS)[number] | null
 }

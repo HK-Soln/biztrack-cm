@@ -250,6 +250,7 @@ const api: BridgeApi = {
     listOrders: (query) => ipcRenderer.invoke(IPC.onlineOrdersList, query),
     getOrder: (id) => ipcRenderer.invoke(IPC.onlineOrderGet, id),
     updateOrderStatus: (id, input) => ipcRenderer.invoke(IPC.onlineOrderUpdateStatus, id, input),
+    updateOrderPayment: (id, input) => ipcRenderer.invoke(IPC.onlineOrderUpdatePayment, id, input),
     checkSlug: (slug) => ipcRenderer.invoke(IPC.onlineSlugCheck, slug),
     listProducts: (query) => ipcRenderer.invoke(IPC.onlineProductsList, query),
     setProductPublished: (id, published) =>
