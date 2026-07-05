@@ -1,0 +1,75 @@
+{
+  "nav": {
+    "home": "Home",
+    "shop": "Shop",
+    "contact": "Contact",
+    "cart": "Cart",
+    "allProducts": "All products"
+  },
+  "header": {
+    "searchPlaceholder": "Search for a product…",
+    "needHelp": "Need help?",
+    "contactUs": "Contact us",
+    "deliveryAvailable": "Delivery available",
+    "deliveryTo": "Delivery available in {city}",
+    "payOnDelivery": "Pay on delivery",
+    "menu": "Menu",
+    "close": "Close",
+    "language": "Language"
+  },
+  "home": {
+    "heroEyebrow": "Online store",
+    "heroSubtitle": "Order online and get it delivered with ease. Secure payment and authentic products.",
+    "shopNow": "Shop now",
+    "contactUs": "Contact us",
+    "trustDelivery": "Fast delivery",
+    "trustPayOnDelivery": "Pay on delivery",
+    "trustAuthentic": "Authentic products",
+    "categoriesTitle": "Categories",
+    "categoriesSubtitle": "Browse our selection by category",
+    "viewAll": "View all",
+    "productCount": "{count, plural, one {# product} other {# products}}",
+    "featuredTitle": "Popular products",
+    "featuredSubtitle": "A selection of our best products",
+    "promoEyebrow": "Easy payment",
+    "promoTitle": "Pay your way",
+    "promoSubtitle": "Choose the payment method that suits you at checkout.",
+    "emptyTitle": "No products yet",
+    "emptyDesc": "This store hasn't published any products yet. Check back soon!",
+    "vpropDeliveryTitle": "Home delivery",
+    "vpropDeliveryDesc": "Get your orders delivered right to your door.",
+    "vpropPickupTitle": "Store pickup",
+    "vpropPickupDesc": "Pick up your order whenever it suits you.",
+    "vpropPayTitle": "Flexible payment",
+    "vpropPayDesc": "Pay on delivery or with mobile money.",
+    "vpropAuthenticTitle": "Authentic products",
+    "vpropAuthenticDesc": "Guaranteed quality on every item.",
+    "vpropSupportTitle": "Dedicated support",
+    "vpropSupportDesc": "Our team is here to help you."
+  },
+  "product": {
+    "addToCart": "Add to cart",
+    "added": "Added",
+    "selectOptions": "Select options",
+    "outOfStock": "Out of stock",
+    "lowStock": "Only {count} left",
+    "from": "From"
+  },
+  "footer": {
+    "shop": "Shop",
+    "help": "Help",
+    "contact": "Contact",
+    "home": "Home",
+    "allProducts": "All products",
+    "cart": "Cart",
+    "contactUs": "Contact us",
+    "rights": "All rights reserved.",
+    "poweredBy": "Powered by"
+  },
+  "payment": {
+    "cashOnDelivery": "Pay on delivery",
+    "mtnMomo": "MTN MoMo",
+    "orangeMoney": "Orange Money",
+    "card": "Card"
+  }
+}

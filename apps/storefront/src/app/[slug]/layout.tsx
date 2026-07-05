@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
-import { headers } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { getStore } from '@/lib/api'
+import { resolveBase } from '@/lib/base'
 import { StoreHeader } from '@/components/StoreHeader'
 import { StoreFooter } from '@/components/StoreFooter'
 
@@ -40,10 +40,7 @@ export default async function StoreLayout({
   const store = await getStore(slug)
   if (!store) notFound()
 
-  // Subdomain access (akwa.host/…) serves at the URL root, so links carry no slug.
-  // Path access (host/akwa/…) needs the /slug prefix. Detect from the Host header.
-  const host = (await headers()).get('host')?.split(':')[0] ?? ''
-  const base = host.startsWith(`${slug}.`) ? '' : `/${slug}`
+  const base = await resolveBase(slug)
   const brand = BRANDS.includes(store.themeId) ? store.themeId : 'a'
 
   return (

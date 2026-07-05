@@ -4,9 +4,11 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import type { PublicStore } from '@biztrack/types'
 import { getCart } from '@/lib/api'
 import { useCartSession } from '@/lib/cart-store'
+import { LocaleSwitcher } from './LocaleSwitcher'
 
 const IcMenu = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -48,6 +50,8 @@ function CartCount({ slug }: { slug: string }) {
 export function StoreHeader({ store, base }: { store: PublicStore; base: string }) {
   const router = useRouter()
   const pathname = usePathname()
+  const tn = useTranslations('nav')
+  const th = useTranslations('header')
   const [menu, setMenu] = useState(false)
   const [q, setQ] = useState('')
 
@@ -60,9 +64,9 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
   }
 
   const nav = [
-    { p: '', label: 'Accueil' },
-    { p: '/products', label: 'Boutique' },
-    { p: '/contact', label: 'Contact' },
+    { p: '', label: tn('home') },
+    { p: '/products', label: tn('shop') },
+    { p: '/contact', label: tn('contact') },
   ]
 
   return (
@@ -76,7 +80,7 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
                 <circle cx="7" cy="17" r="1.6" />
                 <circle cx="17" cy="17" r="1.6" />
               </svg>
-              Livraison disponible{store.city ? ` à ${store.city}` : ''}
+              {store.city ? th('deliveryTo', { city: store.city }) : th('deliveryAvailable')}
             </span>
           ) : null}
           {store.paymentMethods.cashOnDelivery ? (
@@ -85,12 +89,12 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
                 <rect x="5" y="11" width="14" height="9" rx="2" />
                 <path d="M8 11V8a4 4 0 0 1 8 0v3" />
               </svg>
-              Paiement à la livraison
+              {th('payOnDelivery')}
             </span>
           ) : null}
           <span className="sp" />
           <span className="tk">
-            Besoin d&apos;aide ? <Link href={href('/contact')}>Nous contacter</Link>
+            {th('needHelp')} <Link href={href('/contact')}>{th('contactUs')}</Link>
           </span>
         </div>
       </div>
@@ -99,7 +103,7 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
         <div className="wrap">
           <button
             className="icon-btn burger"
-            aria-label="Menu"
+            aria-label={th('menu')}
             type="button"
             onClick={() => setMenu(true)}
           >
@@ -129,13 +133,14 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
           <form className="sf-search" onSubmit={submitSearch}>
             {IcSearch}
             <input
-              placeholder="Rechercher un produit…"
+              placeholder={th('searchPlaceholder')}
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </form>
           <div className="sf-actions">
-            <Link className="icon-btn" href={href('/cart')} aria-label="Panier">
+            <LocaleSwitcher />
+            <Link className="icon-btn" href={href('/cart')} aria-label={tn('cart')}>
               {IcCart}
               <CartCount slug={store.storeSlug} />
             </Link>
@@ -157,7 +162,12 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
               <div className="bt">{store.storeName}</div>
             </div>
           </div>
-          <button className="cd-x" type="button" aria-label="Fermer" onClick={() => setMenu(false)}>
+          <button
+            className="cd-x"
+            type="button"
+            aria-label={th('close')}
+            onClick={() => setMenu(false)}
+          >
             {IcClose}
           </button>
         </div>
@@ -173,6 +183,9 @@ export function StoreHeader({ store, base }: { store: PublicStore; base: string 
             </Link>
           ))}
         </nav>
+        <div className="mm-foot">
+          <LocaleSwitcher />
+        </div>
       </aside>
     </>
   )

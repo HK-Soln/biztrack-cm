@@ -1,0 +1,75 @@
+{
+  "nav": {
+    "home": "Accueil",
+    "shop": "Boutique",
+    "contact": "Contact",
+    "cart": "Panier",
+    "allProducts": "Tous les produits"
+  },
+  "header": {
+    "searchPlaceholder": "Rechercher un produit…",
+    "needHelp": "Besoin d'aide ?",
+    "contactUs": "Nous contacter",
+    "deliveryAvailable": "Livraison disponible",
+    "deliveryTo": "Livraison disponible à {city}",
+    "payOnDelivery": "Paiement à la livraison",
+    "menu": "Menu",
+    "close": "Fermer",
+    "language": "Langue"
+  },
+  "home": {
+    "heroEyebrow": "Boutique en ligne",
+    "heroSubtitle": "Commandez en ligne et faites-vous livrer en toute simplicité. Paiement sécurisé et produits authentiques.",
+    "shopNow": "Commander maintenant",
+    "contactUs": "Nous contacter",
+    "trustDelivery": "Livraison rapide",
+    "trustPayOnDelivery": "Paiement à la livraison",
+    "trustAuthentic": "Produits authentiques",
+    "categoriesTitle": "Catégories",
+    "categoriesSubtitle": "Parcourez notre sélection par catégorie",
+    "viewAll": "Tout voir",
+    "productCount": "{count, plural, one {# produit} other {# produits}}",
+    "featuredTitle": "Produits populaires",
+    "featuredSubtitle": "Une sélection de nos meilleurs produits",
+    "promoEyebrow": "Paiement facile",
+    "promoTitle": "Payez comme vous voulez",
+    "promoSubtitle": "Choisissez le moyen de paiement qui vous convient à la commande.",
+    "emptyTitle": "Aucun produit pour le moment",
+    "emptyDesc": "Cette boutique n'a pas encore publié de produits. Revenez bientôt !",
+    "vpropDeliveryTitle": "Livraison à domicile",
+    "vpropDeliveryDesc": "Recevez vos commandes directement chez vous.",
+    "vpropPickupTitle": "Retrait en magasin",
+    "vpropPickupDesc": "Récupérez votre commande quand vous le souhaitez.",
+    "vpropPayTitle": "Paiement flexible",
+    "vpropPayDesc": "Payez à la livraison ou par mobile money.",
+    "vpropAuthenticTitle": "Produits authentiques",
+    "vpropAuthenticDesc": "Une qualité garantie sur chaque article.",
+    "vpropSupportTitle": "Assistance dédiée",
+    "vpropSupportDesc": "Notre équipe est là pour vous aider."
+  },
+  "product": {
+    "addToCart": "Ajouter au panier",
+    "added": "Ajouté",
+    "selectOptions": "Choisir les options",
+    "outOfStock": "Rupture de stock",
+    "lowStock": "Plus que {count} en stock",
+    "from": "À partir de"
+  },
+  "footer": {
+    "shop": "Boutique",
+    "help": "Aide",
+    "contact": "Contact",
+    "home": "Accueil",
+    "allProducts": "Tous les produits",
+    "cart": "Panier",
+    "contactUs": "Nous contacter",
+    "rights": "Tous droits réservés.",
+    "poweredBy": "Propulsé par"
+  },
+  "payment": {
+    "cashOnDelivery": "Paiement à la livraison",
+    "mtnMomo": "MTN MoMo",
+    "orangeMoney": "Orange Money",
+    "card": "Carte bancaire"
+  }
+}

@@ -1,6 +1,7 @@
 import { createHttpClient, HttpError } from '@biztrack/http-client/browser'
 import type {
   AddCartItemRequest,
+  CategoryTreeResponse,
   CheckoutRequest,
   OnlineCart,
   PaginatedResult,
@@ -41,7 +42,11 @@ async function readJson<T>(
 }
 
 /** Mutation helper — throws a readable message on failure (surfaced by TanStack). */
-async function send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, data?: unknown): Promise<T> {
+async function send<T>(
+  method: 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  data?: unknown,
+): Promise<T> {
   try {
     const res =
       method === 'POST'
@@ -76,8 +81,14 @@ export function listProducts(slug: string, query: PublicProductsQuery = {}) {
   })
 }
 
+export function getCategories(slug: string) {
+  return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`)
+}
+
 export function getProduct(slug: string, productSlug: string) {
-  return readJson<PublicProductDetail>(`${storePath(slug)}/products/${encodeURIComponent(productSlug)}`)
+  return readJson<PublicProductDetail>(
+    `${storePath(slug)}/products/${encodeURIComponent(productSlug)}`,
+  )
 }
 
 export function getCart(slug: string, sessionToken: string) {
@@ -96,7 +107,12 @@ export function addCartItem(slug: string, payload: AddCartItemRequest) {
   return send<OnlineCart>('POST', `${storePath(slug)}/cart/items`, payload)
 }
 
-export function updateCartItem(slug: string, sessionToken: string, itemKey: string, quantity: number) {
+export function updateCartItem(
+  slug: string,
+  sessionToken: string,
+  itemKey: string,
+  quantity: number,
+) {
   return send<OnlineCart>(
     'PATCH',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,

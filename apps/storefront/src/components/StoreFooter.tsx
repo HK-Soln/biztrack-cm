@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { getTranslations } from 'next-intl/server'
 import type { PublicStore } from '@biztrack/types'
 
 const socialIcon: Record<string, React.ReactNode> = {
@@ -47,7 +48,8 @@ function socialHref(kind: string, value: string): string {
   return `${base[kind] ?? 'https://'}${handle}`
 }
 
-export function StoreFooter({ store, base }: { store: PublicStore; base: string }) {
+export async function StoreFooter({ store, base }: { store: PublicStore; base: string }) {
+  const t = await getTranslations('footer')
   const href = (p: string) => `${base}${p}` || '/'
   const socials = Object.entries(store.socials).filter(([, v]) => v) as Array<[string, string]>
   const year = 2026
@@ -90,15 +92,15 @@ export function StoreFooter({ store, base }: { store: PublicStore; base: string 
           </div>
 
           <div className="fc">
-            <h4>Boutique</h4>
-            <Link href={href('')}>Accueil</Link>
-            <Link href={href('/products')}>Tous les produits</Link>
-            <Link href={href('/cart')}>Panier</Link>
+            <h4>{t('shop')}</h4>
+            <Link href={href('')}>{t('home')}</Link>
+            <Link href={href('/products')}>{t('allProducts')}</Link>
+            <Link href={href('/cart')}>{t('cart')}</Link>
           </div>
 
           <div className="fc">
-            <h4>Aide</h4>
-            <Link href={href('/contact')}>Nous contacter</Link>
+            <h4>{t('help')}</h4>
+            <Link href={href('/contact')}>{t('contactUs')}</Link>
             {store.whatsappNumber ? (
               <a
                 href={`https://wa.me/${store.whatsappNumber.replace(/\D/g, '')}`}
@@ -111,7 +113,7 @@ export function StoreFooter({ store, base }: { store: PublicStore; base: string 
           </div>
 
           <div className="fc">
-            <h4>Contact</h4>
+            <h4>{t('contact')}</h4>
             {store.phone ? <a href={`tel:${store.phone}`}>{store.phone}</a> : null}
             {store.email ? <a href={`mailto:${store.email}`}>{store.email}</a> : null}
             {store.address ? (
@@ -122,10 +124,10 @@ export function StoreFooter({ store, base }: { store: PublicStore; base: string 
 
         <div className="fbot">
           <span className="cp">
-            © {year} {store.storeName}. Tous droits réservés.
+            © {year} {store.storeName}. {t('rights')}
           </span>
           <span className="pw">
-            Propulsé par <b>BizTrack CM</b>
+            {t('poweredBy')} <b>BizTrack CM</b>
           </span>
         </div>
       </div>

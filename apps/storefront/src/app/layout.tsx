@@ -1,7 +1,8 @@
-//@ts-ignore
 import './globals.css'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { NextIntlClientProvider } from 'next-intl'
+import { getLocale, getMessages } from 'next-intl/server'
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
@@ -9,11 +10,15 @@ export const metadata: Metadata = {
   description: 'Online stores powered by BizTrack CM',
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const locale = await getLocale()
+  const messages = await getMessages()
   return (
-    <html lang="fr">
+    <html lang={locale}>
       <body>
-        <Providers>{children}</Providers>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   )
