@@ -1,11 +1,14 @@
 import type { HttpClient } from '@biztrack/http-client'
 import type {
   CreateOnlineStoreRequest,
+  OnlineAdminProduct,
+  OnlineAdminProductsQuery,
   OnlineOrder,
   OnlineOrderDetail,
   OnlineOrderListResult,
   OnlineOrderStatus,
   OnlineStore,
+  PaginatedResult,
   UpdateOnlineStoreRequest,
   UpdateOrderStatusRequest,
 } from '@biztrack/types'
@@ -33,33 +36,61 @@ export class OnlineService {
     try {
       return await thunk()
     } catch (e) {
-      const err = e as { status?: number; response?: { status?: number; data?: { error?: { code?: string } } } }
+      const err = e as {
+        status?: number
+        response?: { status?: number; data?: { error?: { code?: string } } }
+      }
       const status = err?.status ?? err?.response?.status
       const code = err?.response?.data?.error?.code
-      if (status === 403 || code === 'PLAN_UPGRADE_REQUIRED') throw new Error('PLAN_UPGRADE_REQUIRED')
+      if (status === 403 || code === 'PLAN_UPGRADE_REQUIRED')
+        throw new Error('PLAN_UPGRADE_REQUIRED')
       throw e
     }
   }
 
   // ---- store config ----
   getStore(): Promise<OnlineStore | null> {
-    return this.run(async () => (await this.http.get<ApiEnvelope<OnlineStore | null>>('/online-store')).data.data)
+    return this.run(
+      async () => (await this.http.get<ApiEnvelope<OnlineStore | null>>('/online-store')).data.data,
+    )
   }
 
   createStore(input: CreateOnlineStoreRequest): Promise<OnlineStore> {
-    return this.run(async () => (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store', input)).data.data)
+    return this.run(
+      async () =>
+        (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store', input)).data.data,
+    )
   }
 
   updateStore(input: UpdateOnlineStoreRequest): Promise<OnlineStore> {
-    return this.run(async () => (await this.http.patch<ApiEnvelope<OnlineStore>>('/online-store', input)).data.data)
+    return this.run(
+      async () =>
+        (await this.http.patch<ApiEnvelope<OnlineStore>>('/online-store', input)).data.data,
+    )
   }
 
   publishStore(): Promise<OnlineStore> {
-    return this.run(async () => (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store/publish', {})).data.data)
+    return this.run(
+      async () =>
+        (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store/publish', {})).data.data,
+    )
   }
 
-  checkSlug(slug: string): Promise<{ slug: string; available: boolean; reason?: 'invalid' | 'reserved' | 'taken' }> {
-    return this.run(async () => (await this.http.get<ApiEnvelope<{ slug: string; available: boolean; reason?: 'invalid' | 'reserved' | 'taken' }>>(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`)).data.data)
+  checkSlug(
+    slug: string,
+  ): Promise<{ slug: string; available: boolean; reason?: 'invalid' | 'reserved' | 'taken' }> {
+    return this.run(
+      async () =>
+        (
+          await this.http.get<
+            ApiEnvelope<{
+              slug: string
+              available: boolean
+              reason?: 'invalid' | 'reserved' | 'taken'
+            }>
+          >(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`)
+        ).data.data,
+    )
   }
 
   // ---- orders ----
@@ -69,14 +100,63 @@ export class OnlineService {
     if (query.page) params.set('page', String(query.page))
     if (query.limit) params.set('limit', String(query.limit))
     const qs = params.toString()
-    return this.run(async () => (await this.http.get<ApiEnvelope<OnlineOrderListResult>>(`/online-store/orders${qs ? `?${qs}` : ''}`)).data.data)
+    return this.run(
+      async () =>
+        (
+          await this.http.get<ApiEnvelope<OnlineOrderListResult>>(
+            `/online-store/orders${qs ? `?${qs}` : ''}`,
+          )
+        ).data.data,
+    )
   }
 
   getOrder(id: string): Promise<OnlineOrderDetail> {
-    return this.run(async () => (await this.http.get<ApiEnvelope<OnlineOrderDetail>>(`/online-store/orders/${id}`)).data.data)
+    return this.run(
+      async () =>
+        (await this.http.get<ApiEnvelope<OnlineOrderDetail>>(`/online-store/orders/${id}`)).data
+          .data,
+    )
   }
 
   updateOrderStatus(id: string, input: UpdateOrderStatusRequest): Promise<OnlineOrder> {
-    return this.run(async () => (await this.http.patch<ApiEnvelope<OnlineOrder>>(`/online-store/orders/${id}/status`, input)).data.data)
+    return this.run(
+      async () =>
+        (
+          await this.http.patch<ApiEnvelope<OnlineOrder>>(
+            `/online-store/orders/${id}/status`,
+            input,
+          )
+        ).data.data,
+    )
+  }
+
+  // ---- products (publish management) ----
+  listProducts(query: OnlineAdminProductsQuery = {}): Promise<PaginatedResult<OnlineAdminProduct>> {
+    const params = new URLSearchParams()
+    if (query.page) params.set('page', String(query.page))
+    if (query.limit) params.set('limit', String(query.limit))
+    if (query.search) params.set('search', query.search)
+    if (query.published !== undefined) params.set('published', String(query.published))
+    const qs = params.toString()
+    return this.run(
+      async () =>
+        (
+          await this.http.get<ApiEnvelope<PaginatedResult<OnlineAdminProduct>>>(
+            `/online-store/products${qs ? `?${qs}` : ''}`,
+          )
+        ).data.data,
+    )
+  }
+
+  /** Publish/unpublish a product — a direct store write (the API enforces publishability). */
+  async setProductPublished(id: string, published: boolean): Promise<void> {
+    await this.run(
+      async () =>
+        (
+          await this.http.patch<ApiEnvelope<unknown>>(`/online-store/products/${id}`, {
+            isPublishedOnline: published,
+          })
+        ).data.data,
+    )
   }
 }

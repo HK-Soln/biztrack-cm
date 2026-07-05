@@ -44,20 +44,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Blocking gate: full suite for the API and ALL shared packages (the
-      # `desktop-v2^...` filter is desktop-v2's dependencies, not the app itself).
-      - name: Type-check · Lint · Test · Build (api + shared packages)
-        run: pnpm turbo run type-check lint test build --filter=@biztrack/api... --filter=@biztrack/desktop-v2^...
-
-      # Blocking gate: the desktop-v2 app's build + test.
-      - name: desktop-v2 app — build + test
-        run: pnpm turbo run build test --filter=@biztrack/desktop-v2
-
-      # Report-only: the desktop-v2 app's lint + type-check. main's WIP online-store
-      # feature (OnlineStore.tsx / data-client) has pre-existing lint/type errors that
-      # predate this gate. Fold these back into the blocking step above once fixed.
-      - name: desktop-v2 app — lint + type-check (report-only)
-        run: pnpm turbo run lint type-check --filter=@biztrack/desktop-v2 || true
+      # Single Turbo pass — schedules by task graph and parallelises. api + desktop-v2
+      # + all their shared deps, fully blocking (desktop-v2's online-store admin is green).
+      - name: Type-check · Lint · Test · Build
+        run: pnpm turbo run type-check lint test build --filter=@biztrack/api... --filter=@biztrack/desktop-v2...
 
   migrations:
     name: Migrations (ephemeral Postgres)

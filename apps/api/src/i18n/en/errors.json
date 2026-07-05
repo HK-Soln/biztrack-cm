@@ -22,6 +22,7 @@
   "invalid_sku_format": "SKU must contain only letters, numbers, hyphens, and underscores.",
   "sku_in_use": "SKU already in use.",
   "product_not_found": "Product not found.",
+  "product_not_publishable": "This product is not ready to be published to your store.",
   "product_inactive": "Product {name} is no longer available.",
   "product_sku_generation_failed": "Unable to generate a unique SKU.",
   "product_sku_immutable": "SKU cannot be changed once the product is created.",

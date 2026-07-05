@@ -133,6 +133,8 @@ export const IPC = {
   onlineOrderGet: 'online:order-get',
   onlineOrderUpdateStatus: 'online:order-update-status',
   onlineSlugCheck: 'online:slug-check',
+  onlineProductsList: 'online:products-list',
+  onlineProductSetPublished: 'online:product-set-published',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   plansList: 'plans:list',
@@ -1258,6 +1260,19 @@ export type {
   OnlinePaymentStatus,
   UpdateOrderStatusRequest,
   OnlineCartItem,
+  OnlineAdminProduct,
+  OnlineAdminProductsQuery,
+  ProductPublishBlocker,
+  ProductPublishability,
+} from '@biztrack/types'
+// Value export — storefront-readiness check (runtime, shared with the API).
+export { checkProductPublishable } from '@biztrack/types'
+// Value exports (order state-machine helpers) — runtime, not just types.
+export {
+  ONLINE_ORDER_TRANSITIONS,
+  ONLINE_ORDER_COMPLETION_STATUSES,
+  canTransitionOnlineOrder,
+  isTerminalOnlineOrderStatus,
 } from '@biztrack/types'
 import type {
   OnlineStore as OnlineStoreT,
@@ -1268,6 +1283,8 @@ import type {
   OnlineOrderListResult as OnlineOrderListResultT,
   OnlineOrderStatus as OnlineOrderStatusT,
   UpdateOrderStatusRequest as UpdateOrderStatusT,
+  OnlineAdminProduct as OnlineAdminProductT,
+  OnlineAdminProductsQuery as OnlineAdminProductsQueryT,
 } from '@biztrack/types'
 
 // --- Business profile (Settings → General) — reuse the shared business shapes ---
@@ -1888,6 +1905,8 @@ export interface BridgeApi {
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
+    listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
+    setProductPublished: (id: string, published: boolean) => Promise<void>
   }
   /** Business profile (Settings → General) — server-owned, proxied through main. */
   business: {

@@ -334,9 +334,13 @@ export class ProductsService {
         if (query.stockStatus === 'out') {
           qb.andWhere(`product.track_inventory = true AND ${stock} <= 0`)
         } else if (query.stockStatus === 'low') {
-          qb.andWhere(`product.track_inventory = true AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`)
+          qb.andWhere(
+            `product.track_inventory = true AND ${stock} > 0 AND ${thr} > 0 AND ${stock} <= ${thr}`,
+          )
         } else if (query.stockStatus === 'in') {
-          qb.andWhere(`product.track_inventory = true AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`)
+          qb.andWhere(
+            `product.track_inventory = true AND ${stock} > 0 AND (${thr} = 0 OR ${stock} > ${thr})`,
+          )
         }
       }
 
@@ -506,7 +510,9 @@ export class ProductsService {
             where: { businessId, productId: In(componentIds), variantId: IsNull() },
           })
         : []
-      const stockByProduct = new Map(levels.map((level) => [level.productId, Number(level.quantity)]))
+      const stockByProduct = new Map(
+        levels.map((level) => [level.productId, Number(level.quantity)]),
+      )
 
       let minCanMake = Infinity
       let limitedBy: string | null = null
@@ -644,12 +650,7 @@ export class ProductsService {
     }
   }
 
-  async update(
-    id: string,
-    businessId: string,
-    dto: UpdateProductRequest,
-    context?: AuditContext,
-  ) {
+  async update(id: string, businessId: string, dto: UpdateProductRequest, context?: AuditContext) {
     try {
       const product = await this.findById(id, businessId)
       const beforeSnapshot = sanitizeForAudit({
@@ -691,9 +692,13 @@ export class ProductsService {
             ? false
             : product.trackInventory
 
-      const slug = dto.name
-        ? await this.slugService.generateProductSlug(dto.name, businessId, id)
-        : product.slug
+      // Only regenerate the slug when the name actually changes — an unchanged name must keep
+      // the existing slug untouched (regenerating can shift it, e.g. reclaiming a base slug a
+      // soft-deleted product still holds, which then collides on the unique index).
+      const slug =
+        dto.name && dto.name.trim() !== product.name
+          ? await this.slugService.generateProductSlug(dto.name, businessId, id)
+          : product.slug
 
       await this.dataSource.transaction(async (manager) => {
         await manager.getRepository(Product).update(id, {
@@ -802,12 +807,17 @@ export class ProductsService {
         // Remaining stock = serial count / sum of variant+product levels.
         let stockBefore = 0
         if (product.isSerialized) {
-          stockBefore = await serialRepo.count({ where: { businessId, productId: id, status: SerialUnitStatus.IN_STOCK } })
+          stockBefore = await serialRepo.count({
+            where: { businessId, productId: id, status: SerialUnitStatus.IN_STOCK },
+          })
           await serialRepo
             .createQueryBuilder()
             .update()
             .set({ status: SerialUnitStatus.DAMAGED, deletedAt: now })
-            .where('business_id = :businessId AND product_id = :id AND deleted_at IS NULL', { businessId, id })
+            .where('business_id = :businessId AND product_id = :id AND deleted_at IS NULL', {
+              businessId,
+              id,
+            })
             .execute()
         } else {
           const row = await levelRepo
@@ -819,10 +829,15 @@ export class ProductsService {
         }
 
         // Cascade soft-delete children.
-        const variants = await variantRepo.find({ where: { productId: id, businessId, deletedAt: IsNull() } })
+        const variants = await variantRepo.find({
+          where: { productId: id, businessId, deletedAt: IsNull() },
+        })
         if (variants.length) {
           await optionRepo.softDelete({ variantId: In(variants.map((v) => v.id)), businessId })
-          await variantRepo.update({ productId: id, businessId, deletedAt: IsNull() }, { isActive: false, deletedAt: now })
+          await variantRepo.update(
+            { productId: id, businessId, deletedAt: IsNull() },
+            { isActive: false, deletedAt: now },
+          )
         }
         await levelRepo.update({ productId: id, businessId }, { quantity: 0, updatedAt: now })
         await imageRepo.delete({ productId: id })
@@ -844,7 +859,9 @@ export class ProductsService {
           )
         }
 
-        await manager.getRepository(Product).update(id, { isActive: false, deletedAt: now, updatedAt: now })
+        await manager
+          .getRepository(Product)
+          .update(id, { isActive: false, deletedAt: now, updatedAt: now })
       })
 
       if (context) {
@@ -898,8 +915,9 @@ export class ProductsService {
       const COST = costExpr('p')
       const PRICE = priceExpr('p')
       const THR = thresholdExpr('p')
-      const rows: Array<Record<string, string | number>> = await this.inventoryLevelsRepo.manager.query(
-        `SELECT
+      const rows: Array<Record<string, string | number>> =
+        await this.inventoryLevelsRepo.manager.query(
+          `SELECT
            COUNT(*)::int AS "totalSkus",
            COUNT(DISTINCT p.category_id)::int AS "categories",
            COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "catalogValueCost",
@@ -908,12 +926,13 @@ export class ProductsService {
            COALESCE(SUM(CASE WHEN p.track_inventory AND ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
          FROM products p
          WHERE p.business_id = $1 AND p.deleted_at IS NULL`,
-        [businessId],
-      )
+          [businessId],
+        )
       const r = rows[0] ?? {}
       const catalogValueCost = round2(Number(r.catalogValueCost ?? 0))
       const retailValue = round2(Number(r.retailValue ?? 0))
-      const blendedMarginPct = retailValue > 0 ? round2(((retailValue - catalogValueCost) / retailValue) * 100) : 0
+      const blendedMarginPct =
+        retailValue > 0 ? round2(((retailValue - catalogValueCost) / retailValue) * 100) : 0
       return {
         totalSkus: Number(r.totalSkus ?? 0),
         categories: Number(r.categories ?? 0),

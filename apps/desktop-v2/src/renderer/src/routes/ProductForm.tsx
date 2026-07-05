@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, CommandSelect, Input, ScanInput, Select, Stepper } from '@biztrack/ui/biztrack'
+import {
+  BackButton,
+  Button,
+  CommandSelect,
+  Input,
+  ScanInput,
+  Select,
+  Stepper,
+} from '@biztrack/ui/biztrack'
 import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -143,7 +151,7 @@ export function ProductForm() {
   const editing = Boolean(id)
   const qc = useQueryClient()
 
-  const initial = useRef<Draft>(editing ? DEFAULT_DRAFT : readDraft() ?? DEFAULT_DRAFT).current
+  const initial = useRef<Draft>(editing ? DEFAULT_DRAFT : (readDraft() ?? DEFAULT_DRAFT)).current
   const [d, patch] = useReducer(reducer, initial)
   const [draftRestored, setDraftRestored] = useState(() => !editing && readDraft() != null)
   const [maxReached, setMaxReached] = useState(initial.step)
@@ -232,7 +240,8 @@ export function ProductForm() {
       isActive: existing.isActive,
       isFeatured: existing.isFeatured,
       reorderPoint: existing.reorderPoint != null ? String(existing.reorderPoint) : '',
-      lowStockThreshold: existing.lowStockThreshold != null ? String(existing.lowStockThreshold) : '',
+      lowStockThreshold:
+        existing.lowStockThreshold != null ? String(existing.lowStockThreshold) : '',
       publishOnline: existing.isPublishedOnline,
       onlineDescription: existing.onlineDescription ?? '',
       onlineReserve: existing.onlineStockReserve ? String(existing.onlineStockReserve) : '',
@@ -348,14 +357,21 @@ export function ProductForm() {
   // --- loaders (search reaches SQLite/API, not just the loaded page) ---------
   const loadBrands = useCallback(
     (s: string) =>
-      dataClient.brands.list({ search: s, limit: 20 }).then((r) => r.data.map((b) => ({ value: b.id, label: b.name }))),
+      dataClient.brands
+        .list({ search: s, limit: 20 })
+        .then((r) => r.data.map((b) => ({ value: b.id, label: b.name }))),
     [],
   )
   const loadUnits = useCallback(
     (s: string) =>
       dataClient.units
         .list({ search: s, limit: 20 })
-        .then((r) => r.data.map((u) => ({ value: u.id, label: u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name }))),
+        .then((r) =>
+          r.data.map((u) => ({
+            value: u.id,
+            label: u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name,
+          })),
+        ),
     [],
   )
   const loadModels = useCallback(
@@ -377,7 +393,14 @@ export function ProductForm() {
   )
 
   const onBrandChange = (value: string | null, option?: CommandSelectOption) =>
-    patch({ brandId: value ?? '', brandLabel: option?.label ?? null, categoryId: '', categoryLabel: null, modelId: '', modelLabel: null })
+    patch({
+      brandId: value ?? '',
+      brandLabel: option?.label ?? null,
+      categoryId: '',
+      categoryLabel: null,
+      modelId: '',
+      modelLabel: null,
+    })
 
   // --- variant builder ------------------------------------------------------
   const addVariant = () => {
@@ -389,20 +412,32 @@ export function ProductForm() {
     const options: DraftOption[] = categoryLinks.map((g) => {
       const optId = builderSel[g.attributeGroupId]!
       const o = g.options.find((x) => x.id === optId)
-      return { attributeGroupId: g.attributeGroupId, attributeOptionId: optId, groupName: g.name, value: o?.value ?? '?', colorHex: o?.colorHex ?? null }
+      return {
+        attributeGroupId: g.attributeGroupId,
+        attributeOptionId: optId,
+        groupName: g.name,
+        value: o?.value ?? '?',
+        colorHex: o?.colorHex ?? null,
+      }
     })
     const key = sigOf(options.map((o) => o.attributeOptionId))
     if (d.variants.some((v) => v.key === key)) {
       setVarError(t('prodf.variantDup'))
       return
     }
-    patch((s) => ({ variants: [...s.variants, { key, options, price: '', cost: '', stock: '', serials: [], active: true }] }))
+    patch((s) => ({
+      variants: [
+        ...s.variants,
+        { key, options, price: '', cost: '', stock: '', serials: [], active: true },
+      ],
+    }))
     setBuilderSel({})
     setVarError(null)
   }
   const updateVariant = (key: string, p: Partial<DraftVariant>) =>
     patch((s) => ({ variants: s.variants.map((v) => (v.key === key ? { ...v, ...p } : v)) }))
-  const removeVariant = (key: string) => patch((s) => ({ variants: s.variants.filter((v) => v.key !== key) }))
+  const removeVariant = (key: string) =>
+    patch((s) => ({ variants: s.variants.filter((v) => v.key !== key) }))
 
   // --- image upload ---------------------------------------------------------
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -414,7 +449,12 @@ export function ProductForm() {
     setUploading(true)
     try {
       const bytes = await file.arrayBuffer()
-      const res = await dataClient.uploads.file({ bytes, filename: file.name, contentType: file.type, folder: 'products' })
+      const res = await dataClient.uploads.file({
+        bytes,
+        filename: file.name,
+        contentType: file.type,
+        folder: 'products',
+      })
       patch({ imageUrl: res.url })
     } catch {
       setImageError(t('prodf.imageError'))
@@ -431,7 +471,12 @@ export function ProductForm() {
     try {
       for (const file of valid) {
         const bytes = await file.arrayBuffer()
-        const res = await dataClient.uploads.file({ bytes, filename: file.name, contentType: file.type, folder: 'products' })
+        const res = await dataClient.uploads.file({
+          bytes,
+          filename: file.name,
+          contentType: file.type,
+          folder: 'products',
+        })
         patch((s) => ({ gallery: [...s.gallery, { url: res.url }] }))
       }
     } catch {
@@ -456,15 +501,33 @@ export function ProductForm() {
       case 'variants':
         if (d.variants.length === 1) return t('prodf.variantsMinTwo')
         // Serials are only captured at creation; on edit they're managed on the detail page.
-        if (!editing && d.isSerialized && hasVariants && d.variants.some((v) => v.serials.length === 0)) return t('prodf.variantSerialsRequired')
+        if (
+          !editing &&
+          d.isSerialized &&
+          hasVariants &&
+          d.variants.some((v) => v.serials.length === 0)
+        )
+          return t('prodf.variantSerialsRequired')
         // A serialized product in a category with no variant groups is itself the unit —
         // its serials are entered here, under the toggle.
-        if (!editing && d.isSerialized && !hasVariants && categoryLinks.length === 0 && d.productSerials.length === 0)
+        if (
+          !editing &&
+          d.isSerialized &&
+          !hasVariants &&
+          categoryLinks.length === 0 &&
+          d.productSerials.length === 0
+        )
           return t('prodf.serialsRequired')
         return null
       case 'stock':
         // Serialized product with variant groups but no variants built — serials captured here.
-        if (!editing && d.isSerialized && !hasVariants && categoryLinks.length > 0 && d.productSerials.length === 0)
+        if (
+          !editing &&
+          d.isSerialized &&
+          !hasVariants &&
+          categoryLinks.length > 0 &&
+          d.productSerials.length === 0
+        )
           return t('prodf.serialsRequired')
         return null
       default:
@@ -521,13 +584,18 @@ export function ProductForm() {
         onlineStockReserve: numOrU(d.onlineReserve) ?? 0,
         isSerialized: tracksInventory ? d.isSerialized : false,
         serialType: tracksInventory && d.isSerialized ? d.serialType : null,
-        warrantyMonths: tracksInventory && d.isSerialized ? numOrU(d.warrantyMonths) ?? null : null,
+        warrantyMonths:
+          tracksInventory && d.isSerialized ? (numOrU(d.warrantyMonths) ?? null) : null,
         // Stock is owned by variants when present, and by serial-unit count when serialized.
-        openingStock: tracksInventory && !hasVariants && !d.isSerialized ? numOrU(d.openingStock) ?? 0 : 0,
-        lowStockThreshold: tracksInventory ? numOrU(d.lowStockThreshold) ?? null : null,
-        reorderPoint: tracksInventory ? numOrU(d.reorderPoint) ?? null : null,
+        openingStock:
+          tracksInventory && !hasVariants && !d.isSerialized ? (numOrU(d.openingStock) ?? 0) : 0,
+        lowStockThreshold: tracksInventory ? (numOrU(d.lowStockThreshold) ?? null) : null,
+        reorderPoint: tracksInventory ? (numOrU(d.reorderPoint) ?? null) : null,
       }
-      const saved = editing && id ? await dataClient.products.update(id, input) : await dataClient.products.create(input)
+      const saved =
+        editing && id
+          ? await dataClient.products.update(id, input)
+          : await dataClient.products.create(input)
       await dataClient.products.setImages(saved.id, d.gallery)
 
       // Variants are captured only at CREATION. After creation they're managed from
@@ -537,9 +605,12 @@ export function ProductForm() {
           name: v.options.map((o) => o.value).join(' / '),
           priceOverride: numOrNull(v.price),
           costPriceOverride: numOrNull(v.cost),
-          openingStock: d.isSerialized ? 0 : numOrU(v.stock) ?? 0,
+          openingStock: d.isSerialized ? 0 : (numOrU(v.stock) ?? 0),
           isActive: v.active,
-          options: v.options.map((o) => ({ attributeGroupId: o.attributeGroupId, attributeOptionId: o.attributeOptionId })),
+          options: v.options.map((o) => ({
+            attributeGroupId: o.attributeGroupId,
+            attributeOptionId: o.attributeOptionId,
+          })),
         }))
         await dataClient.products.setVariants(saved.id, variantInputs)
       }
@@ -551,13 +622,17 @@ export function ProductForm() {
         const units: SerialUnitInput[] = []
         if (hasVariants) {
           const live = await dataClient.products.listVariants(saved.id)
-          const idBySig = new Map(live.map((v) => [sigOf(v.options.map((o) => o.attributeOptionId)), v.id]))
+          const idBySig = new Map(
+            live.map((v) => [sigOf(v.options.map((o) => o.attributeOptionId)), v.id]),
+          )
           for (const v of d.variants) {
             const variantId = idBySig.get(v.key) ?? null
-            for (const sn of v.serials) units.push({ variantId, serialNumber: sn, serialType: d.serialType })
+            for (const sn of v.serials)
+              units.push({ variantId, serialNumber: sn, serialType: d.serialType })
           }
         } else {
-          for (const sn of d.productSerials) units.push({ variantId: null, serialNumber: sn, serialType: d.serialType })
+          for (const sn of d.productSerials)
+            units.push({ variantId: null, serialNumber: sn, serialType: d.serialType })
         }
         await dataClient.products.setSerialUnits(saved.id, units)
       }
@@ -574,7 +649,10 @@ export function ProductForm() {
       void qc.invalidateQueries({ queryKey: queryKeys.products })
       navigate('/products')
     },
-    onError: () => setError(t('prodf.saveError')),
+    onError: (err) => {
+      console.error('[ProductForm] save failed', err)
+      setError(t('prodf.saveError'))
+    },
   })
 
   const submit = () => {
@@ -606,15 +684,25 @@ export function ProductForm() {
       {draftRestored ? (
         <div className="form-note" style={{ marginBottom: 16, justifyContent: 'space-between' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
             {t('prodf.draftFound')}
           </span>
-          <button type="button" className="gallery-add" onClick={discardDraft}>{t('prodf.draftDiscard')}</button>
+          <button type="button" className="gallery-add" onClick={discardDraft}>
+            {t('prodf.draftDiscard')}
+          </button>
         </div>
       ) : null}
 
       <div className="card">
-        <Stepper steps={stepperSteps} current={step} maxReached={maxReached} onStepClick={(i) => goTo(i)} />
+        <Stepper
+          steps={stepperSteps}
+          current={step}
+          maxReached={maxReached}
+          onStepClick={(i) => goTo(i)}
+        />
 
         <div className="wiz-body" style={{ marginTop: 22 }}>
           <h2 className="wiz-step-title">{STEP_LABEL[stepKey]}</h2>
@@ -623,14 +711,29 @@ export function ProductForm() {
           {stepKey === 'basics' ? (
             <div className="fform">
               <div className="ff">
-                <label className="lbl2">{t('prodf.name')} <span className="req">*</span></label>
-                <Input value={d.name} placeholder={t('prodf.namePh')} onChange={(e) => { patch({ name: e.target.value }); setError(null) }} error={!!error && !d.name.trim()} />
+                <label className="lbl2">
+                  {t('prodf.name')} <span className="req">*</span>
+                </label>
+                <Input
+                  value={d.name}
+                  placeholder={t('prodf.namePh')}
+                  onChange={(e) => {
+                    patch({ name: e.target.value })
+                    setError(null)
+                  }}
+                  error={!!error && !d.name.trim()}
+                />
               </div>
               <div className="ff">
                 <label className="lbl2">{t('prodf.type')}</label>
                 <div className="seg-pick">
                   {PRODUCT_TYPES.map((pt) => (
-                    <button key={pt} type="button" aria-pressed={pt === d.productType} onClick={() => patch({ productType: pt })}>
+                    <button
+                      key={pt}
+                      type="button"
+                      aria-pressed={pt === d.productType}
+                      onClick={() => patch({ productType: pt })}
+                    >
                       {t(`prodf.type_${pt}` as Parameters<typeof t>[0])}
                     </button>
                   ))}
@@ -639,28 +742,73 @@ export function ProductForm() {
               <div className="form-2col">
                 <div className="ff">
                   <label className="lbl2">{t('prodf.brand')}</label>
-                  <CommandSelect value={d.brandId || null} valueLabel={d.brandLabel} onChange={onBrandChange} loadOptions={loadBrands} placeholder={t('prodf.brandNone')} searchPlaceholder={t('prodf.searchBrands')} clearLabel={t('prodf.brandNone')} />
+                  <CommandSelect
+                    value={d.brandId || null}
+                    valueLabel={d.brandLabel}
+                    onChange={onBrandChange}
+                    loadOptions={loadBrands}
+                    placeholder={t('prodf.brandNone')}
+                    searchPlaceholder={t('prodf.searchBrands')}
+                    clearLabel={t('prodf.brandNone')}
+                  />
                   <div className="hint">{t('prodf.brandHint')}</div>
                 </div>
                 <div className="ff">
                   <label className="lbl2">{t('prodf.category')}</label>
-                  <CommandSelect value={d.categoryId || null} valueLabel={d.categoryLabel} onChange={(v, o) => patch({ categoryId: v ?? '', categoryLabel: o?.label ?? null })} loadOptions={loadCategories} placeholder={t('prodf.categoryNone')} searchPlaceholder={t('prodf.searchCategories')} clearLabel={t('prodf.categoryNone')} />
+                  <CommandSelect
+                    value={d.categoryId || null}
+                    valueLabel={d.categoryLabel}
+                    onChange={(v, o) =>
+                      patch({ categoryId: v ?? '', categoryLabel: o?.label ?? null })
+                    }
+                    loadOptions={loadCategories}
+                    placeholder={t('prodf.categoryNone')}
+                    searchPlaceholder={t('prodf.searchCategories')}
+                    clearLabel={t('prodf.categoryNone')}
+                  />
                 </div>
               </div>
               <div className="form-2col">
                 <div className="ff">
                   <label className="lbl2">{t('prodf.model')}</label>
-                  <CommandSelect value={d.modelId || null} valueLabel={d.modelLabel} onChange={(v, o) => patch({ modelId: v ?? '', modelLabel: o?.label ?? null })} loadOptions={loadModels} placeholder={selectedBrand ? t('prodf.modelPick') : t('prodf.modelNoBrand')} searchPlaceholder={t('prodf.searchModels')} emptyText={t('prodf.modelNone')} clearLabel={t('prodf.modelClear')} disabled={!selectedBrand} />
+                  <CommandSelect
+                    value={d.modelId || null}
+                    valueLabel={d.modelLabel}
+                    onChange={(v, o) => patch({ modelId: v ?? '', modelLabel: o?.label ?? null })}
+                    loadOptions={loadModels}
+                    placeholder={selectedBrand ? t('prodf.modelPick') : t('prodf.modelNoBrand')}
+                    searchPlaceholder={t('prodf.searchModels')}
+                    emptyText={t('prodf.modelNone')}
+                    clearLabel={t('prodf.modelClear')}
+                    disabled={!selectedBrand}
+                  />
                 </div>
                 <div className="ff">
-                  <label className="lbl2">{t('prodf.unit')} <span className="req">*</span></label>
-                  <CommandSelect value={d.unitId || null} valueLabel={d.unitLabel} onChange={(v, o) => { patch({ unitId: v ?? '', unitLabel: o?.label ?? null }); setError(null) }} loadOptions={loadUnits} placeholder={t('prodf.unitPick')} searchPlaceholder={t('prodf.searchUnits')} invalid={!!error && !d.unitId} />
+                  <label className="lbl2">
+                    {t('prodf.unit')} <span className="req">*</span>
+                  </label>
+                  <CommandSelect
+                    value={d.unitId || null}
+                    valueLabel={d.unitLabel}
+                    onChange={(v, o) => {
+                      patch({ unitId: v ?? '', unitLabel: o?.label ?? null })
+                      setError(null)
+                    }}
+                    loadOptions={loadUnits}
+                    placeholder={t('prodf.unitPick')}
+                    searchPlaceholder={t('prodf.searchUnits')}
+                    invalid={!!error && !d.unitId}
+                  />
                 </div>
               </div>
               <div className="form-2col">
                 <div className="ff">
                   <label className="lbl2">{t('prodf.sku')}</label>
-                  <Input value={d.sku} placeholder={t('prodf.skuPh')} onChange={(e) => patch({ sku: e.target.value })} />
+                  <Input
+                    value={d.sku}
+                    placeholder={t('prodf.skuPh')}
+                    onChange={(e) => patch({ sku: e.target.value })}
+                  />
                 </div>
                 <div className="ff">
                   <label className="lbl2">{t('prodf.barcode')}</label>
@@ -677,8 +825,17 @@ export function ProductForm() {
                 </div>
               </div>
               <div className="ff">
-                <label className="lbl2">{t('prodf.description')} <span className="opt">{t('prodf.optional')}</span></label>
-                <textarea className="input" rows={2} style={{ resize: 'vertical', paddingTop: 10 }} placeholder={t('prodf.descriptionPh')} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
+                <label className="lbl2">
+                  {t('prodf.description')} <span className="opt">{t('prodf.optional')}</span>
+                </label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  style={{ resize: 'vertical', paddingTop: 10 }}
+                  placeholder={t('prodf.descriptionPh')}
+                  value={d.description}
+                  onChange={(e) => patch({ description: e.target.value })}
+                />
               </div>
             </div>
           ) : null}
@@ -688,21 +845,44 @@ export function ProductForm() {
               <div className="form-2col">
                 <div className="ff">
                   <label className="lbl2">{t('prodf.cost')}</label>
-                  <Input value={d.cost} inputMode="decimal" placeholder="0" onChange={(e) => patch({ cost: e.target.value })} />
+                  <Input
+                    value={d.cost}
+                    inputMode="decimal"
+                    placeholder="0"
+                    onChange={(e) => patch({ cost: e.target.value })}
+                  />
                 </div>
                 <div className="ff">
-                  <label className="lbl2">{t('prodf.price')} <span className="req">*</span></label>
-                  <Input value={d.price} inputMode="decimal" placeholder="0" onChange={(e) => { patch({ price: e.target.value }); setError(null) }} error={!!error && priceN <= 0} />
+                  <label className="lbl2">
+                    {t('prodf.price')} <span className="req">*</span>
+                  </label>
+                  <Input
+                    value={d.price}
+                    inputMode="decimal"
+                    placeholder="0"
+                    onChange={(e) => {
+                      patch({ price: e.target.value })
+                      setError(null)
+                    }}
+                    error={!!error && priceN <= 0}
+                  />
                 </div>
               </div>
               <div className="calc-row">
                 <span>{t('prodf.margin')}</span>
                 <span>
-                  <span className="big">{marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}</span>
+                  <span className="big">
+                    {marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}
+                  </span>
                   {marginPct != null ? <> · {money.format(priceN - costN)}</> : null}
                 </span>
               </div>
-              <button type="button" className={`switch-line${d.taxable ? ' on' : ''}`} onClick={() => patch({ taxable: !d.taxable })} aria-pressed={d.taxable}>
+              <button
+                type="button"
+                className={`switch-line${d.taxable ? ' on' : ''}`}
+                onClick={() => patch({ taxable: !d.taxable })}
+                aria-pressed={d.taxable}
+              >
                 <span className={`switch${d.taxable ? ' on' : ''}`} />
                 <span>{t('prodf.taxable')}</span>
               </button>
@@ -712,12 +892,29 @@ export function ProductForm() {
           {stepKey === 'variants' ? (
             <div className="fform">
               <div className="card" style={{ background: 'var(--inset)', padding: 14 }}>
-                <div className="set-line" style={{ paddingTop: 0, borderBottom: d.isSerialized ? '1px solid var(--border)' : 0 }}>
+                <div
+                  className="set-line"
+                  style={{
+                    paddingTop: 0,
+                    borderBottom: d.isSerialized ? '1px solid var(--border)' : 0,
+                  }}
+                >
                   <div className="t">
                     <div className="nm">{t('prodf.serialized')}</div>
-                    <div className="ds">{editing ? t('prodf.serializedLocked') : t('prodf.serializedHint')}</div>
+                    <div className="ds">
+                      {editing ? t('prodf.serializedLocked') : t('prodf.serializedHint')}
+                    </div>
                   </div>
-                  <button type="button" className={`switch${d.isSerialized ? ' on' : ''}`} aria-pressed={d.isSerialized} disabled={editing} title={editing ? t('prodf.serializedLocked') : undefined} onClick={() => { if (!editing) patch({ isSerialized: !d.isSerialized }) }} />
+                  <button
+                    type="button"
+                    className={`switch${d.isSerialized ? ' on' : ''}`}
+                    aria-pressed={d.isSerialized}
+                    disabled={editing}
+                    title={editing ? t('prodf.serializedLocked') : undefined}
+                    onClick={() => {
+                      if (!editing) patch({ isSerialized: !d.isSerialized })
+                    }}
+                  />
                 </div>
                 {d.isSerialized ? (
                   <div className="form-2col" style={{ marginTop: 12 }}>
@@ -725,7 +922,15 @@ export function ProductForm() {
                       <label className="lbl2">{t('prodf.serialType')}</label>
                       <div className="seg-pick">
                         {SERIAL_TYPES.map((st) => (
-                          <button key={st} type="button" aria-pressed={st === d.serialType} disabled={editing} onClick={() => { if (!editing) patch({ serialType: st }) }}>
+                          <button
+                            key={st}
+                            type="button"
+                            aria-pressed={st === d.serialType}
+                            disabled={editing}
+                            onClick={() => {
+                              if (!editing) patch({ serialType: st })
+                            }}
+                          >
                             {t(`prodf.serial_${st}` as Parameters<typeof t>[0])}
                           </button>
                         ))}
@@ -733,121 +938,233 @@ export function ProductForm() {
                     </div>
                     <div className="ff">
                       <label className="lbl2">{t('prodf.warranty')}</label>
-                      <Input value={d.warrantyMonths} inputMode="numeric" placeholder="0" onChange={(e) => patch({ warrantyMonths: e.target.value })} />
+                      <Input
+                        value={d.warrantyMonths}
+                        inputMode="numeric"
+                        placeholder="0"
+                        onChange={(e) => patch({ warrantyMonths: e.target.value })}
+                      />
                     </div>
                   </div>
                 ) : null}
               </div>
 
               {editing ? (
-                <div className="form-note"><span>{t('prodf.variantsManageHint')}</span></div>
-              ) : (
-              <>
-              <div className="form-note">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
-                <span>{t('prodf.variantSingleHint')}</span>
-              </div>
-
-              {!d.categoryId ? (
-                <div className="form-note"><span>{t('prodf.variantsPickCategory')}</span></div>
-              ) : categoryLinks.length === 0 ? (
-                d.isSerialized ? (
-                  // No variant groups → the product itself is the serialized unit; enter
-                  // its serial numbers right here, under the toggle.
-                  <div className="ff">
-                    <label className="lbl2">
-                      {t('prodf.productSerials')}{' '}
-                      <span className="cnt" style={{ color: 'var(--brand-int)', fontWeight: 700 }}>
-                        {t('prodf.serialsCount').replace('{n}', String(d.productSerials.length))}
-                      </span>
-                    </label>
-                    <div className="form-note" style={{ marginBottom: 8 }}><span>{t('prodf.stockSerialNote')}</span></div>
-                    <SerialsEditor serials={d.productSerials} type={d.serialType} onChange={(productSerials) => { patch({ productSerials }); setError(null) }} t={t} />
-                  </div>
-                ) : (
-                  <div className="form-note"><span>{t('prodf.variantsNoGroups')}</span></div>
-                )
+                <div className="form-note">
+                  <span>{t('prodf.variantsManageHint')}</span>
+                </div>
               ) : (
                 <>
-                  <div className="vbuilder">
-                    <div className="lbl2" style={{ marginBottom: 8 }}>{t('prodf.variantBuild')}</div>
-                    <div className="vbuilder-grid">
-                      {categoryLinks.map((g) => (
-                        <div className="ff" key={g.id} style={{ margin: 0 }}>
-                          <label className="lbl2">{g.name}</label>
-                          <Select
-                            value={builderSel[g.attributeGroupId] ?? ''}
-                            onChange={(e) => { setBuilderSel((p) => ({ ...p, [g.attributeGroupId]: e.target.value })); setVarError(null) }}
-                          >
-                            <option value="">{t('prodf.variantPick')}</option>
-                            {g.options.map((o) => (
-                              <option key={o.id} value={o.id}>{o.value}</option>
-                            ))}
-                          </Select>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="vbuilder-acts">
-                      <Button type="button" variant="primary" onClick={addVariant}>+ {t('prodf.variantAdd')}</Button>
-                    </div>
-                    {varError ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">{varError}</p> : null}
+                  <div className="form-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v5M12 8h.01" />
+                    </svg>
+                    <span>{t('prodf.variantSingleHint')}</span>
                   </div>
 
-                  {d.variants.length === 0 ? (
-                    <div className="form-note"><span>{t('prodf.variantNone')}</span></div>
-                  ) : (
-                    <div className="vlist">
-                      {d.variants.map((v) => (
-                        <div key={v.key} className="vcard">
-                          <div className="vcard-top">
-                            <span className="vcard-name">
-                              {v.options.map((o) => (
-                                <span className="vopt-chip" key={o.attributeGroupId}>
-                                  {o.colorHex ? <span className="vopt-sw2" style={{ background: o.colorHex }} /> : null}
-                                  {o.value}
-                                </span>
-                              ))}
-                            </span>
-                            <span className="vcard-sw">
-                              <button type="button" className={`switch${v.active ? ' on' : ''}`} aria-pressed={v.active} onClick={() => updateVariant(v.key, { active: !v.active })} />
-                              <button type="button" className="vcard-del" title={t('prodf.galleryRemove')} onClick={() => removeVariant(v.key)}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>
-                              </button>
-                            </span>
-                          </div>
-                          <div className="vcard-fields">
-                            <div className="ff">
-                              <label className="lbl2">{t('prodf.vColPrice')}</label>
-                              <Input value={v.price} inputMode="decimal" placeholder={d.price || t('prodf.basePrice')} onChange={(e) => updateVariant(v.key, { price: e.target.value })} style={{ height: 36 }} />
-                            </div>
-                            <div className="ff">
-                              <label className="lbl2">{t('prodf.vColCost')}</label>
-                              <Input value={v.cost} inputMode="decimal" placeholder={d.cost || '0'} onChange={(e) => updateVariant(v.key, { cost: e.target.value })} style={{ height: 36 }} />
-                            </div>
-                            {!d.isSerialized ? (
-                              <div className="ff">
-                                <label className="lbl2">{t('prodf.vColStock')}</label>
-                                <Input value={v.stock} inputMode="numeric" placeholder="0" onChange={(e) => updateVariant(v.key, { stock: e.target.value })} style={{ height: 36 }} />
-                              </div>
-                            ) : (
-                              <div className="ff">
-                                <label className="lbl2">{t('prodf.vColStock')}</label>
-                                <div className="input" style={{ height: 36, display: 'flex', alignItems: 'center', background: 'var(--inset)' }}>{v.serials.length}</div>
-                              </div>
-                            )}
-                          </div>
-                          {d.isSerialized && !editing ? (
-                            <SerialsEditor serials={v.serials} type={d.serialType} onChange={(serials) => updateVariant(v.key, { serials })} t={t} />
-                          ) : d.isSerialized && editing ? (
-                            <div className="hint" style={{ marginTop: 8 }}>{t('prodf.serialsManageHint')}</div>
-                          ) : null}
-                        </div>
-                      ))}
+                  {!d.categoryId ? (
+                    <div className="form-note">
+                      <span>{t('prodf.variantsPickCategory')}</span>
                     </div>
+                  ) : categoryLinks.length === 0 ? (
+                    d.isSerialized ? (
+                      // No variant groups → the product itself is the serialized unit; enter
+                      // its serial numbers right here, under the toggle.
+                      <div className="ff">
+                        <label className="lbl2">
+                          {t('prodf.productSerials')}{' '}
+                          <span
+                            className="cnt"
+                            style={{ color: 'var(--brand-int)', fontWeight: 700 }}
+                          >
+                            {t('prodf.serialsCount').replace(
+                              '{n}',
+                              String(d.productSerials.length),
+                            )}
+                          </span>
+                        </label>
+                        <div className="form-note" style={{ marginBottom: 8 }}>
+                          <span>{t('prodf.stockSerialNote')}</span>
+                        </div>
+                        <SerialsEditor
+                          serials={d.productSerials}
+                          type={d.serialType}
+                          onChange={(productSerials) => {
+                            patch({ productSerials })
+                            setError(null)
+                          }}
+                          t={t}
+                        />
+                      </div>
+                    ) : (
+                      <div className="form-note">
+                        <span>{t('prodf.variantsNoGroups')}</span>
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      <div className="vbuilder">
+                        <div className="lbl2" style={{ marginBottom: 8 }}>
+                          {t('prodf.variantBuild')}
+                        </div>
+                        <div className="vbuilder-grid">
+                          {categoryLinks.map((g) => (
+                            <div className="ff" key={g.id} style={{ margin: 0 }}>
+                              <label className="lbl2">{g.name}</label>
+                              <Select
+                                value={builderSel[g.attributeGroupId] ?? ''}
+                                onChange={(e) => {
+                                  setBuilderSel((p) => ({
+                                    ...p,
+                                    [g.attributeGroupId]: e.target.value,
+                                  }))
+                                  setVarError(null)
+                                }}
+                              >
+                                <option value="">{t('prodf.variantPick')}</option>
+                                {g.options.map((o) => (
+                                  <option key={o.id} value={o.id}>
+                                    {o.value}
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="vbuilder-acts">
+                          <Button type="button" variant="primary" onClick={addVariant}>
+                            + {t('prodf.variantAdd')}
+                          </Button>
+                        </div>
+                        {varError ? (
+                          <p
+                            style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }}
+                            role="alert"
+                          >
+                            {varError}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {d.variants.length === 0 ? (
+                        <div className="form-note">
+                          <span>{t('prodf.variantNone')}</span>
+                        </div>
+                      ) : (
+                        <div className="vlist">
+                          {d.variants.map((v) => (
+                            <div key={v.key} className="vcard">
+                              <div className="vcard-top">
+                                <span className="vcard-name">
+                                  {v.options.map((o) => (
+                                    <span className="vopt-chip" key={o.attributeGroupId}>
+                                      {o.colorHex ? (
+                                        <span
+                                          className="vopt-sw2"
+                                          style={{ background: o.colorHex }}
+                                        />
+                                      ) : null}
+                                      {o.value}
+                                    </span>
+                                  ))}
+                                </span>
+                                <span className="vcard-sw">
+                                  <button
+                                    type="button"
+                                    className={`switch${v.active ? ' on' : ''}`}
+                                    aria-pressed={v.active}
+                                    onClick={() => updateVariant(v.key, { active: !v.active })}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="vcard-del"
+                                    title={t('prodf.galleryRemove')}
+                                    onClick={() => removeVariant(v.key)}
+                                  >
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth={2}
+                                    >
+                                      <path d="M6 6l12 12M18 6 6 18" />
+                                    </svg>
+                                  </button>
+                                </span>
+                              </div>
+                              <div className="vcard-fields">
+                                <div className="ff">
+                                  <label className="lbl2">{t('prodf.vColPrice')}</label>
+                                  <Input
+                                    value={v.price}
+                                    inputMode="decimal"
+                                    placeholder={d.price || t('prodf.basePrice')}
+                                    onChange={(e) =>
+                                      updateVariant(v.key, { price: e.target.value })
+                                    }
+                                    style={{ height: 36 }}
+                                  />
+                                </div>
+                                <div className="ff">
+                                  <label className="lbl2">{t('prodf.vColCost')}</label>
+                                  <Input
+                                    value={v.cost}
+                                    inputMode="decimal"
+                                    placeholder={d.cost || '0'}
+                                    onChange={(e) => updateVariant(v.key, { cost: e.target.value })}
+                                    style={{ height: 36 }}
+                                  />
+                                </div>
+                                {!d.isSerialized ? (
+                                  <div className="ff">
+                                    <label className="lbl2">{t('prodf.vColStock')}</label>
+                                    <Input
+                                      value={v.stock}
+                                      inputMode="numeric"
+                                      placeholder="0"
+                                      onChange={(e) =>
+                                        updateVariant(v.key, { stock: e.target.value })
+                                      }
+                                      style={{ height: 36 }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="ff">
+                                    <label className="lbl2">{t('prodf.vColStock')}</label>
+                                    <div
+                                      className="input"
+                                      style={{
+                                        height: 36,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        background: 'var(--inset)',
+                                      }}
+                                    >
+                                      {v.serials.length}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              {d.isSerialized && !editing ? (
+                                <SerialsEditor
+                                  serials={v.serials}
+                                  type={d.serialType}
+                                  onChange={(serials) => updateVariant(v.key, { serials })}
+                                  t={t}
+                                />
+                              ) : d.isSerialized && editing ? (
+                                <div className="hint" style={{ marginTop: 8 }}>
+                                  {t('prodf.serialsManageHint')}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
-              )}
-              </>
               )}
             </div>
           ) : null}
@@ -855,36 +1172,72 @@ export function ProductForm() {
           {stepKey === 'stock' ? (
             <div className="fform">
               {hasVariants ? (
-                <div className="form-note"><span>{t('prodf.stepVariantsSub')}</span></div>
+                <div className="form-note">
+                  <span>{t('prodf.stepVariantsSub')}</span>
+                </div>
               ) : d.isSerialized && categoryLinks.length > 0 && editing ? (
-                <div className="form-note"><span>{t('prodf.serialsManageHint')}</span></div>
+                <div className="form-note">
+                  <span>{t('prodf.serialsManageHint')}</span>
+                </div>
               ) : d.isSerialized && categoryLinks.length > 0 ? (
                 // Category has variant groups but no variants were built — the product is
                 // the serialized unit, so capture its serials here.
                 <>
-                  <div className="form-note"><span>{t('prodf.stockSerialNote')}</span></div>
+                  <div className="form-note">
+                    <span>{t('prodf.stockSerialNote')}</span>
+                  </div>
                   <div className="ff">
-                    <label className="lbl2">{t('prodf.productSerials')} <span className="cnt" style={{ color: 'var(--brand-int)', fontWeight: 700 }}>{t('prodf.serialsCount').replace('{n}', String(d.productSerials.length))}</span></label>
-                    <SerialsEditor serials={d.productSerials} type={d.serialType} onChange={(productSerials) => { patch({ productSerials }); setError(null) }} t={t} />
+                    <label className="lbl2">
+                      {t('prodf.productSerials')}{' '}
+                      <span className="cnt" style={{ color: 'var(--brand-int)', fontWeight: 700 }}>
+                        {t('prodf.serialsCount').replace('{n}', String(d.productSerials.length))}
+                      </span>
+                    </label>
+                    <SerialsEditor
+                      serials={d.productSerials}
+                      type={d.serialType}
+                      onChange={(productSerials) => {
+                        patch({ productSerials })
+                        setError(null)
+                      }}
+                      t={t}
+                    />
                   </div>
                 </>
               ) : d.isSerialized ? (
                 // No variant groups → serials are entered in the Variants step under the toggle.
-                <div className="form-note"><span>{editing ? t('prodf.serialsManageHint') : t('prodf.stockSerialNote')}</span></div>
+                <div className="form-note">
+                  <span>{editing ? t('prodf.serialsManageHint') : t('prodf.stockSerialNote')}</span>
+                </div>
               ) : !editing ? (
                 <div className="ff" style={{ maxWidth: 260 }}>
                   <label className="lbl2">{t('prodf.openingStock')}</label>
-                  <Input value={d.openingStock} inputMode="numeric" placeholder="0" onChange={(e) => patch({ openingStock: e.target.value })} />
+                  <Input
+                    value={d.openingStock}
+                    inputMode="numeric"
+                    placeholder="0"
+                    onChange={(e) => patch({ openingStock: e.target.value })}
+                  />
                 </div>
               ) : null}
               <div className="form-2col">
                 <div className="ff">
                   <label className="lbl2">{t('prodf.lowStock')}</label>
-                  <Input value={d.lowStockThreshold} inputMode="numeric" placeholder="0" onChange={(e) => patch({ lowStockThreshold: e.target.value })} />
+                  <Input
+                    value={d.lowStockThreshold}
+                    inputMode="numeric"
+                    placeholder="0"
+                    onChange={(e) => patch({ lowStockThreshold: e.target.value })}
+                  />
                 </div>
                 <div className="ff">
                   <label className="lbl2">{t('prodf.reorderPoint')}</label>
-                  <Input value={d.reorderPoint} inputMode="numeric" placeholder="0" onChange={(e) => patch({ reorderPoint: e.target.value })} />
+                  <Input
+                    value={d.reorderPoint}
+                    inputMode="numeric"
+                    placeholder="0"
+                    onChange={(e) => patch({ reorderPoint: e.target.value })}
+                  />
                 </div>
               </div>
             </div>
@@ -897,29 +1250,63 @@ export function ProductForm() {
                   <div className="nm">{t('prodf.publish')}</div>
                   <div className="ds">{t('prodf.publishHint')}</div>
                 </div>
-                <button type="button" className={`switch${d.publishOnline ? ' on' : ''}`} aria-pressed={d.publishOnline} onClick={() => patch({ publishOnline: !d.publishOnline })} />
+                <button
+                  type="button"
+                  className={`switch${d.publishOnline ? ' on' : ''}`}
+                  aria-pressed={d.publishOnline}
+                  onClick={() => patch({ publishOnline: !d.publishOnline })}
+                />
               </div>
               {d.publishOnline ? (
                 <>
                   <div className="ff">
-                    <label className="lbl2">{t('prodf.onlineDesc')} <span className="opt">SEO</span></label>
-                    <textarea className="input" rows={2} style={{ resize: 'vertical', paddingTop: 10 }} placeholder={t('prodf.onlineDescPh')} value={d.onlineDescription} onChange={(e) => patch({ onlineDescription: e.target.value })} />
+                    <label className="lbl2">
+                      {t('prodf.onlineDesc')} <span className="opt">SEO</span>
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      style={{ resize: 'vertical', paddingTop: 10 }}
+                      placeholder={t('prodf.onlineDescPh')}
+                      value={d.onlineDescription}
+                      onChange={(e) => patch({ onlineDescription: e.target.value })}
+                    />
                   </div>
                   {tracksInventory ? (
                     <div className="ff" style={{ maxWidth: 200 }}>
                       <label className="lbl2">{t('prodf.reserve')}</label>
-                      <Input value={d.onlineReserve} inputMode="numeric" placeholder="0" onChange={(e) => patch({ onlineReserve: e.target.value })} />
+                      <Input
+                        value={d.onlineReserve}
+                        inputMode="numeric"
+                        placeholder="0"
+                        onChange={(e) => patch({ onlineReserve: e.target.value })}
+                      />
                       <div className="hint">{t('prodf.reserveHint')}</div>
                     </div>
                   ) : null}
                   <div className="ff">
-                    <label className="lbl2">{t('prodf.metaTitle')} <span className="opt">SEO</span></label>
-                    <Input value={d.metaTitle} placeholder={d.name || t('prodf.metaTitlePh')} onChange={(e) => patch({ metaTitle: e.target.value })} />
+                    <label className="lbl2">
+                      {t('prodf.metaTitle')} <span className="opt">SEO</span>
+                    </label>
+                    <Input
+                      value={d.metaTitle}
+                      placeholder={d.name || t('prodf.metaTitlePh')}
+                      onChange={(e) => patch({ metaTitle: e.target.value })}
+                    />
                     <div className="hint">{t('prodf.metaTitleHint')}</div>
                   </div>
                   <div className="ff">
-                    <label className="lbl2">{t('prodf.metaDescription')} <span className="opt">SEO</span></label>
-                    <textarea className="input" rows={2} style={{ resize: 'vertical', paddingTop: 10 }} placeholder={t('prodf.metaDescriptionPh')} value={d.metaDescription} onChange={(e) => patch({ metaDescription: e.target.value })} />
+                    <label className="lbl2">
+                      {t('prodf.metaDescription')} <span className="opt">SEO</span>
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      style={{ resize: 'vertical', paddingTop: 10 }}
+                      placeholder={t('prodf.metaDescriptionPh')}
+                      value={d.metaDescription}
+                      onChange={(e) => patch({ metaDescription: e.target.value })}
+                    />
                     <div className="hint">{t('prodf.metaDescriptionHint')}</div>
                   </div>
                 </>
@@ -931,34 +1318,85 @@ export function ProductForm() {
             <div className="fform">
               <div className="ff">
                 <label className="lbl2">{t('prodf.image')}</label>
-                <input ref={fileRef} type="file" accept={ALLOWED_IMAGE_TYPES.join(',')} style={{ display: 'none' }} onChange={onPickImage} />
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept={ALLOWED_IMAGE_TYPES.join(',')}
+                  style={{ display: 'none' }}
+                  onChange={onPickImage}
+                />
                 {d.imageUrl ? (
                   <>
                     <div className="imgpreview">
                       <img src={d.imageUrl} alt={d.name || t('prodf.image')} />
-                      {uploading ? <div className="imgpreview-overlay">{t('prodf.imageUploading')}</div> : null}
+                      {uploading ? (
+                        <div className="imgpreview-overlay">{t('prodf.imageUploading')}</div>
+                      ) : null}
                     </div>
                     <div className="img-acts">
-                      <Button variant="soft" type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>{t('prodf.imageReplace')}</Button>
-                      <Button variant="soft" type="button" onClick={() => patch({ imageUrl: null })} disabled={uploading}>{t('prodf.imageRemove')}</Button>
+                      <Button
+                        variant="soft"
+                        type="button"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading}
+                      >
+                        {t('prodf.imageReplace')}
+                      </Button>
+                      <Button
+                        variant="soft"
+                        type="button"
+                        onClick={() => patch({ imageUrl: null })}
+                        disabled={uploading}
+                      >
+                        {t('prodf.imageRemove')}
+                      </Button>
                     </div>
                   </>
                 ) : (
-                  <button type="button" className="imgdrop" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>
-                    <div className="t">{uploading ? t('prodf.imageUploading') : t('prodf.imageUpload')}</div>
+                  <button
+                    type="button"
+                    className="imgdrop"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <circle cx="9" cy="9" r="2" />
+                      <path d="m21 15-5-5L5 21" />
+                    </svg>
+                    <div className="t">
+                      {uploading ? t('prodf.imageUploading') : t('prodf.imageUpload')}
+                    </div>
                     <div className="s">{t('prodf.imageHint')}</div>
                   </button>
                 )}
-                {imageError ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">{imageError}</p> : null}
+                {imageError ? (
+                  <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
+                    {imageError}
+                  </p>
+                ) : null}
               </div>
 
               <div className="ff">
                 <div className="gallery-head">
                   <span>{t('prodf.gallery')}</span>
-                  <button type="button" className="gallery-add" onClick={() => galleryRef.current?.click()} disabled={uploading}>+ {t('prodf.galleryAdd')}</button>
+                  <button
+                    type="button"
+                    className="gallery-add"
+                    onClick={() => galleryRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    + {t('prodf.galleryAdd')}
+                  </button>
                 </div>
-                <input ref={galleryRef} type="file" accept={ALLOWED_IMAGE_TYPES.join(',')} multiple style={{ display: 'none' }} onChange={onPickGallery} />
+                <input
+                  ref={galleryRef}
+                  type="file"
+                  accept={ALLOWED_IMAGE_TYPES.join(',')}
+                  multiple
+                  style={{ display: 'none' }}
+                  onChange={onPickGallery}
+                />
                 {d.gallery.length === 0 ? (
                   <div className="gallery-empty">{t('prodf.galleryEmpty')}</div>
                 ) : (
@@ -967,14 +1405,40 @@ export function ProductForm() {
                       <div key={g.id ?? `new-${i}`} className="gallery-thumb">
                         <img src={g.url} alt="" />
                         <div className="gallery-acts">
-                          <button type="button" title={t('prodf.setMain')} onClick={() => patch({ imageUrl: g.url })}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m12 3 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.3 6.8 19l1-5.8L3.6 9.1l5.8-.8L12 3Z" /></svg>
+                          <button
+                            type="button"
+                            title={t('prodf.setMain')}
+                            onClick={() => patch({ imageUrl: g.url })}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path d="m12 3 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.3 6.8 19l1-5.8L3.6 9.1l5.8-.8L12 3Z" />
+                            </svg>
                           </button>
-                          <button type="button" title={t('prodf.galleryRemove')} onClick={() => patch((s) => ({ gallery: s.gallery.filter((_, idx) => idx !== i) }))}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>
+                          <button
+                            type="button"
+                            title={t('prodf.galleryRemove')}
+                            onClick={() =>
+                              patch((s) => ({ gallery: s.gallery.filter((_, idx) => idx !== i) }))
+                            }
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path d="M6 6l12 12M18 6 6 18" />
+                            </svg>
                           </button>
                         </div>
-                        {d.imageUrl === g.url ? <span className="gallery-main-tag">{t('prodf.main')}</span> : null}
+                        {d.imageUrl === g.url ? (
+                          <span className="gallery-main-tag">{t('prodf.main')}</span>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -986,19 +1450,33 @@ export function ProductForm() {
                   <div className="nm">{t('prodf.active')}</div>
                   <div className="ds">{t('prodf.activeHint')}</div>
                 </div>
-                <button type="button" className={`switch${d.isActive ? ' on' : ''}`} aria-pressed={d.isActive} onClick={() => patch({ isActive: !d.isActive })} />
+                <button
+                  type="button"
+                  className={`switch${d.isActive ? ' on' : ''}`}
+                  aria-pressed={d.isActive}
+                  onClick={() => patch({ isActive: !d.isActive })}
+                />
               </div>
               <div className="set-line" style={{ borderBottom: 0 }}>
                 <div className="t">
                   <div className="nm">{t('prodf.featured')}</div>
                   <div className="ds">{t('prodf.featuredHint')}</div>
                 </div>
-                <button type="button" className={`switch${d.isFeatured ? ' on' : ''}`} aria-pressed={d.isFeatured} onClick={() => patch({ isFeatured: !d.isFeatured })} />
+                <button
+                  type="button"
+                  className={`switch${d.isFeatured ? ' on' : ''}`}
+                  aria-pressed={d.isFeatured}
+                  onClick={() => patch({ isFeatured: !d.isFeatured })}
+                />
               </div>
             </div>
           ) : null}
 
-          {error ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 14 }} role="alert">{error}</p> : null}
+          {error ? (
+            <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 14 }} role="alert">
+              {error}
+            </p>
+          ) : null}
 
           <div className="wiz-foot">
             <Button variant="soft" type="button" onClick={goPrev} disabled={save.isPending}>
@@ -1006,7 +1484,9 @@ export function ProductForm() {
             </Button>
             <span className="spacer" />
             {!isLast ? (
-              <Button variant="primary" type="button" onClick={goNext}>{t('prodf.next')}</Button>
+              <Button variant="primary" type="button" onClick={goNext}>
+                {t('prodf.next')}
+              </Button>
             ) : (
               <Button variant="primary" type="button" loading={save.isPending} onClick={submit}>
                 {editing ? t('prodf.save') : t('prodf.create')}
@@ -1037,7 +1517,13 @@ function SerialsEditor({
     const v = raw.trim()
     if (!v) return
     if (serials.includes(v)) return setErr(t('prodf.serialDup'))
-    if (!validateSerial(v, type)) return setErr(t('prodf.serialInvalid').replace('{type}', t(`prodf.serial_${type}` as Parameters<typeof t>[0])))
+    if (!validateSerial(v, type))
+      return setErr(
+        t('prodf.serialInvalid').replace(
+          '{type}',
+          t(`prodf.serial_${type}` as Parameters<typeof t>[0]),
+        ),
+      )
     onChange([...serials, v])
     setVal('')
     setErr(null)
@@ -1047,26 +1533,44 @@ function SerialsEditor({
     <div className="serials">
       <div className="serials-head">
         <span className="lbl2">{t('prodf.serials')}</span>
-        <span className="cnt">{t('prodf.serialsCount').replace('{n}', String(serials.length))}</span>
+        <span className="cnt">
+          {t('prodf.serialsCount').replace('{n}', String(serials.length))}
+        </span>
       </div>
       <div className="serials-add">
         <ScanInput
           value={val}
           placeholder={t(`prodf.serialPh_${type}` as Parameters<typeof t>[0])}
           inputMode={type === 'IMEI' ? 'numeric' : 'text'}
-          onChange={(e) => { setVal(e.target.value); setErr(null) }}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          onChange={(e) => {
+            setVal(e.target.value)
+            setErr(null)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
           onScan={addValue}
           scanTitle={t('scan.title')}
           cameraTitle={t('scan.camTitle')}
           cameraHint={t('scan.camHint')}
           cameraError={t('scan.camError')}
         />
-        <Button type="button" variant="soft" onClick={add}>{t('prodf.serialAdd')}</Button>
+        <Button type="button" variant="soft" onClick={add}>
+          {t('prodf.serialAdd')}
+        </Button>
       </div>
-      {err ? <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }} role="alert">{err}</p> : null}
+      {err ? (
+        <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }} role="alert">
+          {err}
+        </p>
+      ) : null}
       {serials.length === 0 ? (
-        <div className="hint" style={{ marginTop: 8 }}>{t('prodf.serialsEmpty')}</div>
+        <div className="hint" style={{ marginTop: 8 }}>
+          {t('prodf.serialsEmpty')}
+        </div>
       ) : (
         <div className="serials-list">
           {serials.map((s) => {
@@ -1075,7 +1579,9 @@ function SerialsEditor({
               <span key={s} className={`serial-pill${ok ? '' : ' bad'}`}>
                 {s}
                 <button type="button" onClick={() => onChange(serials.filter((x) => x !== s))}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
                 </button>
               </span>
             )

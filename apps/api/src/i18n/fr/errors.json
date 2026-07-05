@@ -22,6 +22,7 @@
   "invalid_sku_format": "Le SKU ne peut contenir que des lettres, des chiffres, des tirets et des underscores.",
   "sku_in_use": "Ce SKU est deja utilise.",
   "product_not_found": "Produit introuvable.",
+  "product_not_publishable": "Ce produit n'est pas prêt à être publié dans votre boutique.",
   "product_inactive": "Le produit {name} n'est plus disponible.",
   "product_sku_generation_failed": "Impossible de generer un SKU unique.",
   "product_sku_immutable": "Le SKU ne peut pas etre modifie apres la creation du produit.",

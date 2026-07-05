@@ -146,10 +146,18 @@ export const Icon = {
 
 // `owner: true` restricts an item to the business owner (super admin) — e.g. Roles &
 // permissions management. Hidden for everyone else (and the route is guarded too).
-export type NavLeaf = { to: string; label: MessageKey; icon?: keyof typeof Icon; badge?: MessageKey; owner?: boolean }
+export type NavLeaf = {
+  to: string
+  label: MessageKey
+  icon?: keyof typeof Icon
+  badge?: MessageKey
+  owner?: boolean
+}
 export type NavEntry = NavLeaf | { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] }
 
-export function isGroup(e: NavEntry): e is { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] } {
+export function isGroup(
+  e: NavEntry,
+): e is { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] } {
   return 'children' in e
 }
 
@@ -183,6 +191,7 @@ export const NAV: NavEntry[] = [
     icon: 'store',
     children: [
       { to: '/online/orders', label: 'nav.onlineOrders', icon: 'sell' },
+      { to: '/online/products', label: 'nav.onlineProducts', icon: 'products' },
       { to: '/online/store', label: 'nav.onlineStore', icon: 'settings' },
     ],
   },

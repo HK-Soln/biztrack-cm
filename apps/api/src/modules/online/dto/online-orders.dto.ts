@@ -44,10 +44,14 @@ const ORDER_STATUSES: OnlineOrderStatus[] = [
   'PENDING',
   'CONFIRMED',
   'PREPARING',
-  'DISPATCHED',
+  'READY_FOR_PICKUP',
+  'PICKED_UP',
+  'READY_FOR_DISPATCH',
+  'OUT_FOR_DELIVERY',
   'DELIVERED',
+  'DELIVERY_FAILED',
+  'RETURNED',
   'CANCELLED',
-  'REFUNDED',
 ]
 
 export class AddCartItemDto implements AddCartItemRequest {

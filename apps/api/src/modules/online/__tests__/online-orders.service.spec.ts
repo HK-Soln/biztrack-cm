@@ -22,11 +22,17 @@ const makeService = (opts: {
     find: jest.fn(),
     update: jest.fn(),
   }
-  const eventsRepo = { create: jest.fn((i: any) => i), save: jest.fn(async (i: any) => i), find: jest.fn() }
+  const eventsRepo = {
+    create: jest.fn((i: any) => i),
+    save: jest.fn(async (i: any) => i),
+    find: jest.fn(),
+  }
   const storesRepo = { findOne: jest.fn().mockResolvedValue(opts.store ?? null) }
   const productsRepo = { findOne: jest.fn().mockResolvedValue(opts.product ?? null) }
   const variantsRepo = { findOne: jest.fn() }
-  const salesService = { createFromSync: jest.fn(async () => ({ id: 'sale-1', saleNumber: 'V-1' })) }
+  const salesService = {
+    createFromSync: jest.fn(async () => ({ id: 'sale-1', saleNumber: 'V-1' })),
+  }
   const i18n = { translate: jest.fn(async (key: string) => key) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
 
@@ -63,7 +69,10 @@ describe('OnlineOrdersService.addItem', () => {
 
 describe('OnlineOrdersService.checkout', () => {
   it('rejects an empty cart', async () => {
-    const { service } = makeService({ store, cart: { id: 'cart-1', onlineStoreId: 'store-1', items: [] } })
+    const { service } = makeService({
+      store,
+      cart: { id: 'cart-1', onlineStoreId: 'store-1', items: [] },
+    })
     await expect(
       service.checkout('akwa', 'sess-1', { customerName: 'A', customerPhone: '650000000' }),
     ).rejects.toBeInstanceOf(AppBadRequestException)
@@ -103,7 +112,9 @@ describe('OnlineOrdersService.updateStatus (deferred sale)', () => {
     const order = {
       id: 'order-1',
       businessId: 'biz-1',
-      status: 'DISPATCHED',
+      fulfillmentType: 'DELIVERY',
+      status: 'OUT_FOR_DELIVERY',
+      paymentStatus: 'PENDING',
       saleId: null,
       orderNumber: 'ORD-1',
       trackingToken: 'tok',

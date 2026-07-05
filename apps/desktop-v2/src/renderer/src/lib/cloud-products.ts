@@ -43,7 +43,9 @@ function variantCreatePayload(v: VariantInput): Record<string, unknown> {
   })
 }
 function serialPayload(units: SerialUnitInput[]): Array<Record<string, unknown>> {
-  return units.map((u) => clean({ serialNumber: u.serialNumber, serialType: u.serialType, variantId: u.variantId }))
+  return units.map((u) =>
+    clean({ serialNumber: u.serialNumber, serialType: u.serialType, variantId: u.variantId }),
+  )
 }
 
 /**
@@ -54,7 +56,6 @@ function serialPayload(units: SerialUnitInput[]): Array<Record<string, unknown>>
  * sub-resources (images/variants/serials/movements), and `resolveScan` are wired to
  * their API endpoints.
  */
-
 
 function qs(query?: Record<string, unknown>): string {
   if (!query) return ''
@@ -144,10 +145,21 @@ function toLocalProduct(p: ApiProduct): LocalProduct {
   }
 }
 
-
 // Keys the API products list (ListProductsQueryDto + forbidNonWhitelisted) accepts.
 // `stockStatus: 'all'` is dropped below (the API only knows in/low/out).
-const PRODUCT_QUERY_KEYS = ['page', 'limit', 'search', 'sortBy', 'sortOrder', 'categoryId', 'isActive', 'isService', 'trackInventory', 'brandId', 'stockStatus']
+const PRODUCT_QUERY_KEYS = [
+  'page',
+  'limit',
+  'search',
+  'sortBy',
+  'sortOrder',
+  'categoryId',
+  'isActive',
+  'isService',
+  'trackInventory',
+  'brandId',
+  'stockStatus',
+]
 function productQuery(query?: ProductListQuery): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (query) {
@@ -204,7 +216,13 @@ interface ApiProductImage {
   sortOrder: number
 }
 function toLocalProductImage(i: ApiProductImage): LocalProductImage {
-  return { id: i.id, productId: i.productId, url: i.url, altText: i.altText ?? null, sortOrder: i.sortOrder }
+  return {
+    id: i.id,
+    productId: i.productId,
+    url: i.url,
+    altText: i.altText ?? null,
+    sortOrder: i.sortOrder,
+  }
 }
 
 interface ApiMovement {
@@ -249,15 +267,24 @@ export const cloudProducts = {
   },
   remove: (id: string): Promise<void> => cdelete<void>(`/products/${id}`),
   create: async (input: ProductInput): Promise<LocalProduct> =>
-    toLocalProduct(await cpost<ApiProduct>('/products', clean(input as unknown as Record<string, unknown>))),
+    toLocalProduct(
+      await cpost<ApiProduct>('/products', clean(input as unknown as Record<string, unknown>)),
+    ),
   update: async (id: string, input: ProductInput): Promise<LocalProduct> =>
-    toLocalProduct(await cpatch<ApiProduct>(`/products/${id}`, clean(input as unknown as Record<string, unknown>))),
+    toLocalProduct(
+      await cpatch<ApiProduct>(
+        `/products/${id}`,
+        clean(input as unknown as Record<string, unknown>),
+      ),
+    ),
+  // GET /products/:id/images is paginated ({ data, total, … }) — cgetAll flattens the pages
+  // into a plain array (never treat the paginated envelope as the array itself).
   listImages: async (productId: string): Promise<LocalProductImage[]> =>
-    (await cget<ApiProductImage[]>(`/products/${productId}/images`)).map(toLocalProductImage),
+    (await cgetAll<ApiProductImage>(`/products/${productId}/images`)).map(toLocalProductImage),
   // No bulk endpoint — reconcile the desired gallery against the current rows (images are
   // stateless url+alt+order, so this is safe).
   setImages: async (productId: string, images: ProductImageInput[]): Promise<void> => {
-    const current = await cget<ApiProductImage[]>(`/products/${productId}/images`)
+    const current = await cgetAll<ApiProductImage>(`/products/${productId}/images`)
     const desiredIds = new Set(images.map((i) => i.id).filter(Boolean))
     for (const c of current) {
       if (!desiredIds.has(c.id)) await cdelete<unknown>(`/products/${productId}/images/${c.id}`)
@@ -265,7 +292,8 @@ export const cloudProducts = {
     let sortOrder = 0
     for (const img of images) {
       const body = clean({ url: img.url, altText: img.altText, sortOrder: sortOrder++ })
-      if (img.id && current.some((c) => c.id === img.id)) await cpatch<unknown>(`/products/${productId}/images/${img.id}`, body)
+      if (img.id && current.some((c) => c.id === img.id))
+        await cpatch<unknown>(`/products/${productId}/images/${img.id}`, body)
       else await cpost<unknown>(`/products/${productId}/images`, body)
     }
   },
@@ -273,11 +301,18 @@ export const cloudProducts = {
     (await cget<ProductVariant[]>(`/products/${productId}/variants`)).map(toLocalVariant),
   // Only called at product creation (no pre-existing variants) — add each.
   setVariants: async (productId: string, variants: VariantInput[]): Promise<void> => {
-    for (const v of variants) await cpost<unknown>(`/products/${productId}/variants`, variantCreatePayload(v))
+    for (const v of variants)
+      await cpost<unknown>(`/products/${productId}/variants`, variantCreatePayload(v))
   },
   addVariant: async (productId: string, input: VariantInput): Promise<LocalVariant> =>
-    toLocalVariant(await cpost<ProductVariant>(`/products/${productId}/variants`, variantCreatePayload(input))),
-  updateVariant: async (productId: string, variantId: string, input: VariantInput): Promise<LocalVariant> =>
+    toLocalVariant(
+      await cpost<ProductVariant>(`/products/${productId}/variants`, variantCreatePayload(input)),
+    ),
+  updateVariant: async (
+    productId: string,
+    variantId: string,
+    input: VariantInput,
+  ): Promise<LocalVariant> =>
     toLocalVariant(
       await cpatch<ProductVariant>(
         `/products/${productId}/variants/${variantId}`,
@@ -301,9 +336,9 @@ export const cloudProducts = {
   ): Promise<LocalSerialUnit[]> => {
     const params = new URLSearchParams({ status: SerialUnitStatus.IN_STOCK })
     if (variantId) params.set('variantId', variantId)
-    const units = (await cgetAll<ApiSerialUnit>(`/products/${productId}/serial-units?${params.toString()}`)).map(
-      toLocalSerialUnit,
-    )
+    const units = (
+      await cgetAll<ApiSerialUnit>(`/products/${productId}/serial-units?${params.toString()}`)
+    ).map(toLocalSerialUnit)
     const q = search?.trim().toLowerCase()
     return q ? units.filter((u) => u.serialNumber.toLowerCase().includes(q)) : units
   },
@@ -314,10 +349,18 @@ export const cloudProducts = {
       const r = await cget<ApiScanResult | null>(`/products/scan?code=${encodeURIComponent(c)}`)
       if (!r) return null
       if (r.kind === 'serial') {
-        return { kind: 'serial', product: toLocalProduct(r.product), serial: toLocalSerialUnit(r.serial) }
+        return {
+          kind: 'serial',
+          product: toLocalProduct(r.product),
+          serial: toLocalSerialUnit(r.serial),
+        }
       }
       if (r.kind === 'variant') {
-        return { kind: 'variant', product: toLocalProduct(r.product), variant: toLocalVariant(r.variant) }
+        return {
+          kind: 'variant',
+          product: toLocalProduct(r.product),
+          variant: toLocalVariant(r.variant),
+        }
       }
       return { kind: 'product', product: toLocalProduct(r.product) }
     } catch {
@@ -335,14 +378,27 @@ export const cloudProducts = {
     notes?: string | null,
   ): Promise<LocalSerialUnit[]> =>
     (
-      await cpost<ApiSerialUnit[]>(`/products/${productId}/serial-units`, clean({ units: serialPayload(units), notes }))
+      await cpost<ApiSerialUnit[]>(
+        `/products/${productId}/serial-units`,
+        clean({ units: serialPayload(units), notes }),
+      )
     ).map(toLocalSerialUnit),
   retireSerialUnit: (productId: string, unitId: string, reason: string): Promise<void> =>
     cpost<void>(`/products/${productId}/serial-units/${unitId}/retire`, { reason }),
-  updateSerialNumber: async (productId: string, unitId: string, serialNumber: string): Promise<LocalSerialUnit> =>
-    toLocalSerialUnit(await cpatch<ApiSerialUnit>(`/products/${productId}/serial-units/${unitId}`, { serialNumber })),
+  updateSerialNumber: async (
+    productId: string,
+    unitId: string,
+    serialNumber: string,
+  ): Promise<LocalSerialUnit> =>
+    toLocalSerialUnit(
+      await cpatch<ApiSerialUnit>(`/products/${productId}/serial-units/${unitId}`, {
+        serialNumber,
+      }),
+    ),
   listMovements: async (productId: string): Promise<LocalStockMovement[]> => {
-    const res = await cget<PaginatedResult<ApiMovement>>(`/inventory/${productId}/movements?limit=100`)
+    const res = await cget<PaginatedResult<ApiMovement>>(
+      `/inventory/${productId}/movements?limit=100`,
+    )
     return res.data.map(toLocalStockMovement)
   },
 }
