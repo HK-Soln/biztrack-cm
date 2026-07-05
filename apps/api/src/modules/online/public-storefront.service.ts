@@ -76,7 +76,10 @@ export class PublicStorefrontService {
     }
 
     const [products, total] = await qb
-      .orderBy('product.online_sort_order', 'ASC')
+      // orderBy resolves ENTITY PROPERTY names, not snake columns — with leftJoinAndSelect +
+      // skip/take, TypeORM looks the column up via metadata and a snake name 500s
+      // ("Cannot read properties of undefined (reading 'databaseName')"). Where clauses take snake SQL.
+      .orderBy('product.onlineSortOrder', 'ASC')
       .addOrderBy('product.name', 'ASC')
       .skip((page - 1) * limit)
       .take(limit)
