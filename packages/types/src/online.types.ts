@@ -115,6 +115,66 @@ export interface ProductOnlineFields {
   onlineStockReserve?: number
 }
 
+/**
+ * Why a product would not show correctly on the storefront:
+ * - `inactive`  — the product is disabled (the public storefront filters `is_active = true`).
+ * - `no_price`  — no positive selling price to display/charge.
+ * - `no_image`  — no image, so it renders as a blank card.
+ * These are advisory: publishing is never hard-blocked (the storefront already only surfaces
+ * active + published products), but the admin should be nudged to fix them.
+ */
+export type ProductPublishBlocker = 'inactive' | 'no_price' | 'no_image'
+
+/** The minimal product shape needed to judge storefront-readiness. */
+export interface ProductPublishInput {
+  isActive: boolean
+  sellingPrice: number
+  imageUrl?: string | null
+}
+
+export interface ProductPublishability {
+  /** True when the product would display correctly once published. */
+  ready: boolean
+  blockers: ProductPublishBlocker[]
+}
+
+/** Shared storefront-readiness check, used by the desktop admin and the API alike. */
+export function checkProductPublishable(p: ProductPublishInput): ProductPublishability {
+  const blockers: ProductPublishBlocker[] = []
+  if (!p.isActive) blockers.push('inactive')
+  if (!(p.sellingPrice > 0)) blockers.push('no_price')
+  if (!p.imageUrl) blockers.push('no_image')
+  return { ready: blockers.length === 0, blockers }
+}
+
+// ---- Admin (store owner) product management --------------------------------
+
+/**
+ * A product row in the "Online products" manager (desktop + cloud). Served by the online-store
+ * module and mutated through it directly (never the offline sync set) — publish state must
+ * reflect the live storefront immediately.
+ */
+export interface OnlineAdminProduct {
+  id: string
+  name: string
+  sku?: string | null
+  imageUrl?: string | null
+  sellingPrice: number
+  categoryName?: string | null
+  inStock: number
+  trackInventory: boolean
+  isActive: boolean
+  isPublishedOnline: boolean
+}
+
+export interface OnlineAdminProductsQuery {
+  page?: number
+  limit?: number
+  search?: string
+  /** true = published only, false = drafts only, omitted = all. */
+  published?: boolean
+}
+
 // ---- Public (storefront) read shapes ---------------------------------------
 
 export interface PublicStore {

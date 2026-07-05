@@ -66,6 +66,7 @@ export interface I18nTranslations {
     invalid_sku_format: string
     sku_in_use: string
     product_not_found: string
+    product_not_publishable: string
     product_inactive: string
     product_sku_generation_failed: string
     product_sku_immutable: string

@@ -8,6 +8,7 @@ import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/res
 import { OnlineStoreService } from './online-store.service'
 import {
   CreateOnlineStoreDto,
+  ListOnlineProductsDto,
   UpdateOnlineStoreDto,
   UpdateProductOnlineDto,
 } from './dto/online-store.dto'
@@ -27,7 +28,9 @@ export class OnlineStoreController {
   }
 
   @Get('slug-check')
-  @ApiOperation({ summary: 'Check whether a subdomain slug is available (format + reserved + uniqueness)' })
+  @ApiOperation({
+    summary: 'Check whether a subdomain slug is available (format + reserved + uniqueness)',
+  })
   checkSlug(@CurrentUser() user: JwtPayload, @Query('slug') slug: string) {
     return this.onlineStoreService.checkSlug(user.businessId as string, slug ?? '')
   }
@@ -48,6 +51,12 @@ export class OnlineStoreController {
   @ApiOperation({ summary: 'Publish the current draft (go live, clear unpublished changes)' })
   publish(@CurrentUser() user: JwtPayload) {
     return this.onlineStoreService.publishStore(user.businessId as string)
+  }
+
+  @Get('products')
+  @ApiOperation({ summary: 'List products with their online-store publish state (admin)' })
+  listProducts(@CurrentUser() user: JwtPayload, @Query() query: ListOnlineProductsDto) {
+    return this.onlineStoreService.listProducts(user.businessId as string, query)
   }
 
   @Patch('products/:id')
