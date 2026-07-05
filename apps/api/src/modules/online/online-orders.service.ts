@@ -11,8 +11,10 @@ import {
   type OnlineCart as OnlineCartShape,
   type OnlineCartItem,
   type OnlineOrderStatus,
+  type OnlinePaymentStatus,
   type PublicOrderTracking,
   type SaleSyncPayload,
+  type UpdateOrderPaymentRequest,
   type UpdateOrderStatusRequest,
 } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -53,6 +55,21 @@ const STATUS_EVENT: Record<
   DELIVERY_FAILED: { type: 'DELIVERY_FAILED', message: 'A delivery attempt was unsuccessful.' },
   RETURNED: { type: 'ORDER_RETURNED', message: 'Your order has been returned.' },
   CANCELLED: { type: 'ORDER_CANCELLED', message: 'Your order has been cancelled.' },
+}
+
+const PAYMENT_EVENT: Record<
+  OnlinePaymentStatus,
+  { type: OnlineOrderEvent['eventType']; message: string }
+> = {
+  PENDING: { type: 'PAYMENT_INITIATED', message: 'Awaiting payment.' },
+  AUTHORIZED: { type: 'PAYMENT_AUTHORIZED', message: 'Payment authorised.' },
+  PAID: { type: 'PAYMENT_RECEIVED', message: 'Payment received.' },
+  FAILED: { type: 'PAYMENT_FAILED', message: 'Payment failed.' },
+  REFUNDED: { type: 'PAYMENT_REFUNDED', message: 'Your order has been refunded.' },
+  PARTIALLY_REFUNDED: {
+    type: 'PAYMENT_PARTIALLY_REFUNDED',
+    message: 'Your order has been partially refunded.',
+  },
 }
 
 @Injectable()
@@ -393,6 +410,60 @@ export class OnlineOrdersService {
       return this.getOrder(businessId, id)
     } catch (error) {
       return this.handleServiceError('updateStatus', error, { businessId, id })
+    }
+  }
+
+  /**
+   * Record how an online order was paid (payment axis — independent of fulfilment). The
+   * admin marks the order paid at any time once it's confirmed and picks the static method
+   * the customer used; that method flows to the deferred sale created on completion. Dynamic
+   * per-business methods arrive with PayTrack.
+   */
+  async updatePayment(
+    businessId: string,
+    id: string,
+    dto: UpdateOrderPaymentRequest,
+    actor: { id: string | null; name: string | null },
+  ) {
+    try {
+      const order = await this.ordersRepo.findOne({ where: { id, businessId } })
+      if (!order) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.online_order_not_found'),
+          'ONLINE_ORDER_NOT_FOUND',
+        )
+      }
+      // Payment can only be recorded once the order is real (confirmed) and not cancelled.
+      if (order.status === 'PENDING' || order.status === 'CANCELLED') {
+        throw new AppBadRequestException(
+          `Cannot record payment for a ${order.status.toLowerCase()} order.`,
+          'ONLINE_ORDER_PAYMENT_NOT_ALLOWED',
+        )
+      }
+
+      const patch: Partial<OnlineOrder> = { paymentStatus: dto.paymentStatus }
+      if (dto.paymentMethod !== undefined) patch.paymentMethod = dto.paymentMethod ?? null
+      await this.ordersRepo.update(id, patch)
+
+      const mapping = PAYMENT_EVENT[dto.paymentStatus]
+      await this.eventsRepo.save(
+        this.eventsRepo.create({
+          onlineOrderId: id,
+          businessId,
+          eventType: mapping.type,
+          triggeredBy: 'MERCHANT',
+          actorId: actor.id,
+          actorName: actor.name,
+          isCustomerVisible: dto.paymentStatus === 'PAID' || dto.paymentStatus.includes('REFUNDED'),
+          customerMessage: mapping.message,
+          internalNote: dto.paymentMethod ? `Method: ${dto.paymentMethod}` : null,
+          trackingToken: order.trackingToken,
+        }),
+      )
+
+      return this.getOrder(businessId, id)
+    } catch (error) {
+      return this.handleServiceError('updatePayment', error, { businessId, id })
     }
   }
 

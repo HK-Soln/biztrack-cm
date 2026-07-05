@@ -4,6 +4,7 @@ import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
 import { STORE_ROOT_DOMAIN } from '@/lib/config'
+import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
@@ -423,6 +424,7 @@ function StoreConfig({
   t: ReturnType<typeof useT>
   onSaved: () => void
 }) {
+  const money = useCurrency()
   const [form, setForm] = useState<Form>(() => toForm(store))
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
   const [error, setError] = useState<string | null>(null)
@@ -884,10 +886,9 @@ function StoreConfig({
               />
             </div>
             <label className="lbl" style={{ marginTop: 6 }}>
-              {t('online.minOrder')}
+              {t('online.minOrder').replace('{currency}', money.currency)}
             </label>
             <Input
-              type="number"
               inputMode="numeric"
               value={form.minOrderAmount}
               placeholder="0"
@@ -936,10 +937,9 @@ function StoreConfig({
             {form.offerDelivery ? (
               <>
                 <label className="lbl" style={{ marginTop: 6 }}>
-                  {t('online.deliveryFee')}
+                  {t('online.deliveryFeeAmt').replace('{currency}', money.currency)}
                 </label>
                 <Input
-                  type="number"
                   inputMode="numeric"
                   value={form.deliveryFee}
                   placeholder="0"

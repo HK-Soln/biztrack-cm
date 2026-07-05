@@ -143,3 +143,46 @@ describe('OnlineOrdersService.updateStatus (deferred sale)', () => {
     )
   })
 })
+
+describe('OnlineOrdersService.updatePayment', () => {
+  const base = {
+    id: 'order-1',
+    businessId: 'biz-1',
+    status: 'CONFIRMED',
+    paymentStatus: 'PENDING',
+    trackingToken: 'tok',
+  }
+
+  it('rejects payment on an unconfirmed (PENDING) order', async () => {
+    const { service, ordersRepo } = makeService({ store })
+    ordersRepo.findOne.mockResolvedValue({ ...base, status: 'PENDING' })
+    await expect(
+      service.updatePayment(
+        'biz-1',
+        'order-1',
+        { paymentStatus: 'PAID', paymentMethod: 'CASH' },
+        { id: 'u', name: 'P' },
+      ),
+    ).rejects.toBeInstanceOf(AppBadRequestException)
+    expect(ordersRepo.update).not.toHaveBeenCalled()
+  })
+
+  it('records PAID + method + a PAYMENT_RECEIVED event on a confirmed order', async () => {
+    const { service, ordersRepo, eventsRepo } = makeService({ store })
+    ordersRepo.findOne.mockResolvedValue(base)
+    eventsRepo.find.mockResolvedValue([])
+    await service.updatePayment(
+      'biz-1',
+      'order-1',
+      { paymentStatus: 'PAID', paymentMethod: 'MTN_MOMO' },
+      { id: 'u', name: 'P' },
+    )
+    expect(ordersRepo.update).toHaveBeenCalledWith(
+      'order-1',
+      expect.objectContaining({ paymentStatus: 'PAID', paymentMethod: 'MTN_MOMO' }),
+    )
+    expect(eventsRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'PAYMENT_RECEIVED' }),
+    )
+  })
+})

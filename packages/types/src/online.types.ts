@@ -382,6 +382,20 @@ export type OnlinePaymentStatus =
   | 'REFUNDED'
   | 'PARTIALLY_REFUNDED'
 
+/**
+ * Static payment methods an admin can record against an online order. COD-era set —
+ * dynamic, per-business methods arrive with PayTrack. Mirrors the sale PaymentMethod enum
+ * (minus SAVINGS/MIXED, which aren't online-order concepts).
+ */
+export const ONLINE_PAYMENT_METHODS = ['CASH', 'MTN_MOMO', 'ORANGE_MONEY', 'CARD'] as const
+export type OnlinePaymentMethod = (typeof ONLINE_PAYMENT_METHODS)[number]
+
+/** Admin records how/whether an online order was paid (separate from the fulfilment axis). */
+export interface UpdateOrderPaymentRequest {
+  paymentStatus: OnlinePaymentStatus
+  paymentMethod?: OnlinePaymentMethod | null
+}
+
 export type OnlineOrderEventType =
   | 'ORDER_PLACED'
   | 'ORDER_CONFIRMED'

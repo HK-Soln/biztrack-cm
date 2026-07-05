@@ -135,6 +135,7 @@ export const IPC = {
   onlineSlugCheck: 'online:slug-check',
   onlineProductsList: 'online:products-list',
   onlineProductSetPublished: 'online:product-set-published',
+  onlineOrderUpdatePayment: 'online:order-update-payment',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   plansList: 'plans:list',
@@ -1262,17 +1263,20 @@ export type {
   OnlineCartItem,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
+  OnlinePaymentMethod,
+  UpdateOrderPaymentRequest,
   ProductPublishBlocker,
   ProductPublishability,
 } from '@biztrack/types'
 // Value export — storefront-readiness check (runtime, shared with the API).
 export { checkProductPublishable } from '@biztrack/types'
-// Value exports (order state-machine helpers) — runtime, not just types.
+// Value exports (order state-machine helpers + payment methods) — runtime, not just types.
 export {
   ONLINE_ORDER_TRANSITIONS,
   ONLINE_ORDER_COMPLETION_STATUSES,
   canTransitionOnlineOrder,
   isTerminalOnlineOrderStatus,
+  ONLINE_PAYMENT_METHODS,
 } from '@biztrack/types'
 import type {
   OnlineStore as OnlineStoreT,
@@ -1283,6 +1287,7 @@ import type {
   OnlineOrderListResult as OnlineOrderListResultT,
   OnlineOrderStatus as OnlineOrderStatusT,
   UpdateOrderStatusRequest as UpdateOrderStatusT,
+  UpdateOrderPaymentRequest as UpdateOrderPaymentT,
   OnlineAdminProduct as OnlineAdminProductT,
   OnlineAdminProductsQuery as OnlineAdminProductsQueryT,
 } from '@biztrack/types'
@@ -1904,6 +1909,7 @@ export interface BridgeApi {
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
+    updateOrderPayment: (id: string, input: UpdateOrderPaymentT) => Promise<OnlineOrderDetailT>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
     setProductPublished: (id: string, published: boolean) => Promise<void>

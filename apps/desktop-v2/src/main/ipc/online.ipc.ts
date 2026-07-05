@@ -3,6 +3,7 @@ import type {
   CreateOnlineStoreRequest,
   OnlineAdminProductsQuery,
   UpdateOnlineStoreRequest,
+  UpdateOrderPaymentRequest,
   UpdateOrderStatusRequest,
 } from '@biztrack/types'
 import { IPC, type OnlineOrdersQuery } from '../../shared/ipc'
@@ -21,6 +22,9 @@ export function registerOnlineIpc(online: OnlineService): void {
   ipcMain.handle(IPC.onlineOrderGet, (_e, id: string) => online.getOrder(id))
   ipcMain.handle(IPC.onlineOrderUpdateStatus, (_e, id: string, input: UpdateOrderStatusRequest) =>
     online.updateOrderStatus(id, input),
+  )
+  ipcMain.handle(IPC.onlineOrderUpdatePayment, (_e, id: string, input: UpdateOrderPaymentRequest) =>
+    online.updateOrderPayment(id, input),
   )
   ipcMain.handle(IPC.onlineSlugCheck, (_e, slug: string) => online.checkSlug(slug))
   ipcMain.handle(IPC.onlineProductsList, (_e, query?: OnlineAdminProductsQuery) =>

@@ -10,8 +10,11 @@ import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
 import {
   ONLINE_ORDER_TRANSITIONS,
+  ONLINE_PAYMENT_METHODS,
   type OnlineOrderStatus,
   type OnlineFulfillmentType,
+  type OnlinePaymentMethod,
+  type OnlinePaymentStatus,
 } from '@shared/ipc'
 
 const I = {
@@ -149,6 +152,22 @@ function advanceLabel(t: ReturnType<typeof useT>, s: OnlineOrderStatus): string 
 function initials(name?: string | null): string {
   const p = (name ?? '').trim().split(/\s+/).filter(Boolean)
   return ((p[0]?.[0] ?? '') + (p[1]?.[0] ?? '')).toUpperCase() || '—'
+}
+function paymentLabel(t: ReturnType<typeof useT>, s: OnlinePaymentStatus): string {
+  switch (s) {
+    case 'PAID':
+      return t('online.payPaid')
+    case 'AUTHORIZED':
+      return t('online.payAuthorized')
+    case 'FAILED':
+      return t('online.payFailed')
+    case 'REFUNDED':
+      return t('online.payRefunded')
+    case 'PARTIALLY_REFUNDED':
+      return t('online.payPartRefund')
+    default:
+      return t('online.payPending')
+  }
 }
 
 export function OnlineOrders() {
@@ -520,7 +539,24 @@ function OrderDrawer({
     onError: (e) => setError(errorMessage(e, t('online.statusError'))),
   })
 
+  const [payMethod, setPayMethod] = useState<OnlinePaymentMethod | ''>('')
+  const pay = useMutation({
+    mutationFn: () =>
+      dataClient.online.updateOrderPayment(id, {
+        paymentStatus: 'PAID',
+        paymentMethod: payMethod || undefined,
+      }),
+    onSuccess: () => {
+      setPayMethod('')
+      void qc.invalidateQueries({ queryKey: ['online'] })
+    },
+    onError: (e) => setError(errorMessage(e, t('online.payError'))),
+  })
+
   const o = order
+  const paid = o?.paymentStatus === 'PAID'
+  // Admin records payment once the order is real (confirmed) and not cancelled.
+  const canRecordPayment = o ? o.status !== 'PENDING' && o.status !== 'CANCELLED' && !paid : false
   const cancelled = o ? isOffFlow(o.status) : false
   const flow = o ? flowFor(o.fulfillmentType) : []
   const stageIdx = o ? flow.indexOf(o.status) : -1
@@ -661,6 +697,46 @@ function OrderDrawer({
                   <span>{t('online.total')}</span>
                   <span>{money.format(o.totalAmount)}</span>
                 </div>
+              </div>
+
+              <div className="od-block" style={{ marginTop: 14 }}>
+                <div className="bl">{t('online.payment')}</div>
+                <div className="od-status" style={{ marginTop: 6 }}>
+                  <span className={`st ${paid ? 'st-ok' : 'st-low'}`}>
+                    <span className="d" />
+                    {paymentLabel(t, o.paymentStatus)}
+                  </span>
+                  {o.paymentMethod ? <span className="chip-tag">{o.paymentMethod}</span> : null}
+                </div>
+                {canRecordPayment ? (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <select
+                      className="select"
+                      style={{ height: 36, flex: 1 }}
+                      value={payMethod}
+                      onChange={(e) => setPayMethod(e.target.value as OnlinePaymentMethod | '')}
+                    >
+                      <option value="">{t('online.selectMethod')}</option>
+                      {ONLINE_PAYMENT_METHODS.map((m) => (
+                        <option key={m} value={m}>
+                          {t(`online.method.${m}`)}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="primary"
+                      type="button"
+                      disabled={!payMethod}
+                      loading={pay.isPending}
+                      onClick={() => {
+                        setError(null)
+                        pay.mutate()
+                      }}
+                    >
+                      {t('online.markPaid')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
               {error ? (
                 <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
