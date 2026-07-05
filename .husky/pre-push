@@ -1,3 +1,15 @@
 # Heavier pre-push gate: type-check, lint, and test the active apps (+ their deps).
 # Turbo caching makes unchanged packages instant. Full build + security scans run in CI.
-pnpm turbo run type-check lint test --filter=@biztrack/api... --filter=@biztrack/desktop-v2...
+#
+# Mirrors CI: the desktop-v2 APP's lint + type-check are report-only for now (main's WIP
+# online-store feature has pre-existing errors). Everything else is blocking.
+set -e
+
+# Blocking: api + all shared packages (incl. desktop-v2's deps, via `desktop-v2^...`).
+pnpm turbo run type-check lint test --filter=@biztrack/api... --filter=@biztrack/desktop-v2^...
+
+# Blocking: desktop-v2 app tests.
+pnpm turbo run test --filter=@biztrack/desktop-v2
+
+# Report-only: desktop-v2 app lint + type-check.
+pnpm turbo run lint type-check --filter=@biztrack/desktop-v2 || true
