@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { JwtPayload } from '@biztrack/types'
 import { Resource } from '@biztrack/types'
@@ -48,9 +58,32 @@ export class OnlineStoreController {
   }
 
   @Post('publish')
-  @ApiOperation({ summary: 'Publish the current draft (go live, clear unpublished changes)' })
+  @ApiOperation({ summary: 'Publish the current draft (snapshot the config; go live)' })
   publish(@CurrentUser() user: JwtPayload) {
-    return this.onlineStoreService.publishStore(user.businessId as string)
+    return this.onlineStoreService.publishStore(user.businessId as string, this.actor(user))
+  }
+
+  @Get('publications')
+  @ApiOperation({ summary: 'Publish history (audit trail), newest first' })
+  listPublications(@CurrentUser() user: JwtPayload) {
+    return this.onlineStoreService.listPublications(user.businessId as string)
+  }
+
+  @Post('publications/:version/restore')
+  @ApiOperation({ summary: 'Roll back: restore + republish an earlier published version' })
+  restorePublication(
+    @CurrentUser() user: JwtPayload,
+    @Param('version', ParseIntPipe) version: number,
+  ) {
+    return this.onlineStoreService.restorePublication(
+      user.businessId as string,
+      version,
+      this.actor(user),
+    )
+  }
+
+  private actor(user: JwtPayload): { id: string | null; name: string | null } {
+    return { id: user.sub, name: (user as { name?: string }).name ?? null }
   }
 
   @Get('products')

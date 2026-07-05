@@ -16,7 +16,9 @@ const makeService = (opts: {
     addOrderBy: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
     take: jest.fn().mockReturnThis(),
-    getManyAndCount: jest.fn().mockResolvedValue([opts.products ?? [], (opts.products ?? []).length]),
+    getManyAndCount: jest
+      .fn()
+      .mockResolvedValue([opts.products ?? [], (opts.products ?? []).length]),
   }
   const productsRepo = {
     find: jest.fn().mockResolvedValue(opts.products ?? []),
@@ -29,6 +31,12 @@ const makeService = (opts: {
   const categoriesService = { getTree: jest.fn() }
   const variantsService = { listVariantsForProduct: jest.fn() }
   const i18n = { translate: jest.fn(async (key: string) => key) }
+  // The storefront reads the PUBLISHED snapshot resolved by OnlineStoreService.
+  const storeService = {
+    getPublishedStore: jest
+      .fn()
+      .mockResolvedValue(opts.store ? { store: opts.store, config: toConfig(opts.store) } : null),
+  }
 
   const service = new PublicStorefrontService(
     storesRepo as any,
@@ -39,9 +47,51 @@ const makeService = (opts: {
     categoriesService as any,
     variantsService as any,
     i18n as any,
+    storeService as any,
   )
-  return { service, storesRepo, productsRepo }
+  return { service, storesRepo, productsRepo, storeService }
 }
+
+/** Build a published-config snapshot from a flat store fixture. */
+const toConfig = (s: Record<string, any>) => ({
+  storeName: s.storeName,
+  storeSlug: s.storeSlug,
+  tagline: s.tagline ?? null,
+  logoUrl: null,
+  bannerUrl: null,
+  primaryColor: s.primaryColor,
+  phone: s.phone ?? null,
+  email: null,
+  address: null,
+  city: s.city ?? null,
+  whatsappNumber: s.whatsappNumber ?? null,
+  currency: s.currency,
+  showOutOfStock: s.showOutOfStock,
+  allowOrderNotes: s.allowOrderNotes,
+  minOrderAmount: s.minOrderAmount ?? null,
+  payment: {
+    cashOnDelivery: s.paymentCashOnDelivery,
+    mtnMomo: s.paymentMtnMomo,
+    orangeMoney: s.paymentOrangeMoney,
+    card: s.paymentCard,
+  },
+  fulfilment: {
+    offerDelivery: true,
+    offerPickup: true,
+    deliveryFee: 0,
+    pickupAddress: null,
+    deliveryCities: [],
+  },
+  appearance: {
+    layoutTemplate: 'classic',
+    themeId: 'a',
+    appearance: 'light',
+    catalogBinding: 'snapshot',
+    showLowStockBadges: false,
+  },
+  seo: { seoTitle: null, seoDescription: null, ogImageUrl: null, robotsIndex: true },
+  socials: { instagram: null, facebook: null, tiktok: null, x: null, linkedin: null },
+})
 
 const store = {
   businessId: 'biz-1',
@@ -79,8 +129,24 @@ describe('PublicStorefrontService', () => {
     const { service } = makeService({
       store,
       products: [
-        { id: 'p1', name: 'A', slug: 'a', sellingPrice: 1000, isSerialized: false, hasVariants: false, onlineStockReserve: 2 },
-        { id: 'p2', name: 'B', slug: 'b', sellingPrice: 500, isSerialized: false, hasVariants: false, onlineStockReserve: 0 },
+        {
+          id: 'p1',
+          name: 'A',
+          slug: 'a',
+          sellingPrice: 1000,
+          isSerialized: false,
+          hasVariants: false,
+          onlineStockReserve: 2,
+        },
+        {
+          id: 'p2',
+          name: 'B',
+          slug: 'b',
+          sellingPrice: 500,
+          isSerialized: false,
+          hasVariants: false,
+          onlineStockReserve: 0,
+        },
       ],
       levels: [
         { productId: 'p1', quantity: 5 },

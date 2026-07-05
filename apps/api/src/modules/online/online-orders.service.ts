@@ -12,6 +12,7 @@ import {
   type OnlineCartItem,
   type OnlineOrderStatus,
   type OnlinePaymentStatus,
+  type OnlineStorePublishedConfig,
   type PublicOrderTracking,
   type SaleSyncPayload,
   type UpdateOrderPaymentRequest,
@@ -33,6 +34,7 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { SalesService } from '@/modules/sales/services/sales.service'
+import { OnlineStoreService } from './online-store.service'
 
 const cartItemKey = (item: {
   productId: string
@@ -90,6 +92,7 @@ export class OnlineOrdersService {
     private readonly salesService: SalesService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
+    private readonly storeService: OnlineStoreService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -97,7 +100,7 @@ export class OnlineOrdersService {
   // ---- Cart ---------------------------------------------------------------
 
   async getCart(slug: string, sessionToken: string): Promise<OnlineCartShape> {
-    const store = await this.requireStore(slug)
+    const { store } = await this.requireStore(slug)
     const cart = await this.cartsRepo.findOne({
       where: { onlineStoreId: store.id, sessionToken },
     })
@@ -105,7 +108,7 @@ export class OnlineOrdersService {
   }
 
   async addItem(slug: string, sessionToken: string | undefined, dto: AddCartItemRequest) {
-    const store = await this.requireStore(slug)
+    const { store } = await this.requireStore(slug)
     const token = sessionToken?.trim() || crypto.randomUUID()
 
     const product = await this.productsRepo.findOne({
@@ -194,7 +197,7 @@ export class OnlineOrdersService {
 
   async checkout(slug: string, sessionToken: string, dto: CheckoutRequest) {
     try {
-      const store = await this.requireStore(slug)
+      const { store, config } = await this.requireStore(slug)
       const cart = await this.requireCart(slug, sessionToken)
       const items = cart.items ?? []
       if (items.length === 0) {
@@ -207,7 +210,7 @@ export class OnlineOrdersService {
       const totalAmount = Math.round(
         items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
       )
-      if (store.minOrderAmount && totalAmount < store.minOrderAmount) {
+      if (config.minOrderAmount && totalAmount < config.minOrderAmount) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.online_min_order_not_met'),
           'ONLINE_MIN_ORDER_NOT_MET',
@@ -263,7 +266,7 @@ export class OnlineOrdersService {
   }
 
   async getTracking(slug: string, trackingToken: string): Promise<PublicOrderTracking> {
-    const store = await this.requireStore(slug)
+    const { store, config } = await this.requireStore(slug)
     const order = await this.ordersRepo.findOne({
       where: { onlineStoreId: store.id, trackingToken },
     })
@@ -282,7 +285,7 @@ export class OnlineOrdersService {
       status: order.status,
       customerName: order.customerName,
       totalAmount: order.totalAmount,
-      currency: store.currency,
+      currency: config.currency,
       fulfillmentType: order.fulfillmentType,
       events: events.map((event) => ({
         id: event.id,
@@ -519,21 +522,23 @@ export class OnlineOrdersService {
 
   // ---- internals ----------------------------------------------------------
 
-  private async requireStore(slug: string): Promise<OnlineStore> {
-    const store = await this.storesRepo.findOne({
-      where: { storeSlug: slug, isActive: true, deletedAt: IsNull() },
-    })
-    if (!store) {
+  /** Customers only ever interact with the PUBLISHED store (its snapshot config) — a draft /
+   *  suspended / never-published store 404s, so carts and checkout can't run against a draft. */
+  private async requireStore(
+    slug: string,
+  ): Promise<{ store: OnlineStore; config: OnlineStorePublishedConfig }> {
+    const published = await this.storeService.getPublishedStore(slug)
+    if (!published) {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.online_store_not_found'),
         'ONLINE_STORE_NOT_FOUND',
       )
     }
-    return store
+    return published
   }
 
   private async requireCart(slug: string, sessionToken: string): Promise<OnlineCart> {
-    const store = await this.requireStore(slug)
+    const { store } = await this.requireStore(slug)
     const cart = await this.cartsRepo.findOne({ where: { onlineStoreId: store.id, sessionToken } })
     if (!cart) {
       throw new AppNotFoundException(

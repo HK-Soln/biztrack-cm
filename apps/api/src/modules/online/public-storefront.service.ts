@@ -4,6 +4,7 @@ import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import type {
   CategoryTreeResponse,
+  OnlineStorePublishedConfig,
   PaginatedResult,
   PublicProductDetail,
   PublicProductListItem,
@@ -21,6 +22,10 @@ import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { CategoriesService } from '@/modules/products/services/categories.service'
 import { ProductVariantsService } from '@/modules/products/services/product-variants.service'
+import { OnlineStoreService } from './online-store.service'
+
+/** The live storefront view: the store row (identity + catalogue scope) + its published config. */
+type PublishedStore = { store: OnlineStore; config: OnlineStorePublishedConfig }
 
 @Injectable()
 export class PublicStorefrontService {
@@ -38,18 +43,19 @@ export class PublicStorefrontService {
     private readonly categoriesService: CategoriesService,
     private readonly variantsService: ProductVariantsService,
     private readonly i18n: I18nService<I18nTranslations>,
+    private readonly storeService: OnlineStoreService,
   ) {}
 
   async getStore(slug: string): Promise<PublicStore> {
-    const store = await this.requireStore(slug)
-    return this.toPublicStore(store)
+    const { config } = await this.requireStore(slug)
+    return this.toPublicStore(config)
   }
 
   async listProducts(
     slug: string,
     query: PublicProductsQuery = {},
   ): Promise<PaginatedResult<PublicProductListItem>> {
-    const store = await this.requireStore(slug)
+    const { store, config } = await this.requireStore(slug)
     const page = Math.max(query.page ?? 1, 1)
     const limit = Math.min(Math.max(query.limit ?? 24, 1), 100)
 
@@ -79,14 +85,16 @@ export class PublicStorefrontService {
     const stockByProduct = await this.resolveStock(store.businessId, products)
     // Out-of-stock hiding applies within the page; pagination keeps the request bounded.
     const data = products
-      .map((product) => this.toListItem(product, store.currency, stockByProduct.get(product.id) ?? 0))
-      .filter((item) => store.showOutOfStock || item.inStock > 0 || item.hasVariants)
+      .map((product) =>
+        this.toListItem(product, config.currency, stockByProduct.get(product.id) ?? 0),
+      )
+      .filter((item) => config.showOutOfStock || item.inStock > 0 || item.hasVariants)
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
   async getProduct(slug: string, productSlug: string): Promise<PublicProductDetail> {
-    const store = await this.requireStore(slug)
+    const { store, config } = await this.requireStore(slug)
     const product = await this.productsRepo.findOne({
       where: {
         businessId: store.businessId,
@@ -115,7 +123,7 @@ export class PublicStorefrontService {
         : Promise.resolve([]),
     ])
 
-    const base = this.toListItem(product, store.currency, stockByProduct.get(product.id) ?? 0)
+    const base = this.toListItem(product, config.currency, stockByProduct.get(product.id) ?? 0)
     const publicVariants: PublicProductVariant[] = (variants ?? []).map((variant) => ({
       id: variant.id,
       name: variant.name,
@@ -140,27 +148,30 @@ export class PublicStorefrontService {
   }
 
   async getCategories(slug: string): Promise<CategoryTreeResponse> {
-    const store = await this.requireStore(slug)
+    const { store } = await this.requireStore(slug)
     return this.categoriesService.getTree(store.businessId)
   }
 
   // ---- internals ----------------------------------------------------------
 
-  private async requireStore(slug: string): Promise<OnlineStore> {
-    const store = await this.storesRepo.findOne({
-      where: { storeSlug: slug, isActive: true, deletedAt: IsNull() },
-    })
-    if (!store) {
+  /** The storefront only ever sees the PUBLISHED snapshot — a draft / suspended / never-published
+   *  store 404s here, so unpublished edits never leak to customers. */
+  private async requireStore(slug: string): Promise<PublishedStore> {
+    const published = await this.storeService.getPublishedStore(slug)
+    if (!published) {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.online_store_not_found'),
         'ONLINE_STORE_NOT_FOUND',
       )
     }
-    return store
+    return published
   }
 
   /** Effective online stock per product (variant sum / serial count, less reserve). */
-  private async resolveStock(businessId: string, products: Product[]): Promise<Map<string, number>> {
+  private async resolveStock(
+    businessId: string,
+    products: Product[],
+  ): Promise<Map<string, number>> {
     const result = new Map<string, number>()
     const ids = products.map((product) => product.id)
     const serializedIds = products.filter((p) => p.isSerialized).map((p) => p.id)
@@ -212,26 +223,26 @@ export class PublicStorefrontService {
     }
   }
 
-  private toPublicStore(store: OnlineStore): PublicStore {
+  private toPublicStore(config: OnlineStorePublishedConfig): PublicStore {
     return {
-      storeName: store.storeName,
-      storeSlug: store.storeSlug,
-      tagline: store.tagline ?? null,
-      logoUrl: store.logoUrl ?? null,
-      bannerUrl: store.bannerUrl ?? null,
-      primaryColor: store.primaryColor,
-      phone: store.phone ?? null,
-      whatsappNumber: store.whatsappNumber ?? null,
-      city: store.city ?? null,
-      currency: store.currency,
-      showOutOfStock: store.showOutOfStock,
-      allowOrderNotes: store.allowOrderNotes,
-      minOrderAmount: store.minOrderAmount ?? null,
+      storeName: config.storeName,
+      storeSlug: config.storeSlug,
+      tagline: config.tagline,
+      logoUrl: config.logoUrl,
+      bannerUrl: config.bannerUrl,
+      primaryColor: config.primaryColor,
+      phone: config.phone,
+      whatsappNumber: config.whatsappNumber,
+      city: config.city,
+      currency: config.currency,
+      showOutOfStock: config.showOutOfStock,
+      allowOrderNotes: config.allowOrderNotes,
+      minOrderAmount: config.minOrderAmount,
       paymentMethods: {
-        cashOnDelivery: store.paymentCashOnDelivery,
-        mtnMomo: store.paymentMtnMomo,
-        orangeMoney: store.paymentOrangeMoney,
-        card: store.paymentCard,
+        cashOnDelivery: config.payment.cashOnDelivery,
+        mtnMomo: config.payment.mtnMomo,
+        orangeMoney: config.payment.orangeMoney,
+        card: config.payment.card,
       },
     }
   }

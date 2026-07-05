@@ -71,6 +71,7 @@
   "serial_invalid_format": "{serial} is not a valid {type}.",
   "online_store_exists": "This business already has an online store.",
   "online_store_not_found": "Online store not found.",
+  "online_store_publication_not_found": "That published version was not found.",
   "online_cart_not_found": "Cart not found.",
   "online_cart_empty": "Your cart is empty.",
   "online_order_not_found": "Order not found.",

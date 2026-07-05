@@ -35,6 +35,20 @@ const makeService = (opts: {
   }
   const i18n = { translate: jest.fn(async (key: string) => key) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
+  // Customer flows resolve the PUBLISHED snapshot via OnlineStoreService.
+  const storeService = {
+    getPublishedStore: jest.fn().mockResolvedValue(
+      opts.store
+        ? {
+            store: opts.store,
+            config: {
+              currency: (opts.store as Record<string, unknown>).currency ?? 'XAF',
+              minOrderAmount: (opts.store as Record<string, unknown>).minOrderAmount ?? null,
+            },
+          }
+        : null,
+    ),
+  }
 
   const service = new OnlineOrdersService(
     cartsRepo as any,
@@ -46,8 +60,9 @@ const makeService = (opts: {
     salesService as any,
     i18n as any,
     logger as any,
+    storeService as any,
   )
-  return { service, cartsRepo, ordersRepo, eventsRepo, salesService }
+  return { service, cartsRepo, ordersRepo, eventsRepo, salesService, storeService }
 }
 
 describe('OnlineOrdersService.addItem', () => {

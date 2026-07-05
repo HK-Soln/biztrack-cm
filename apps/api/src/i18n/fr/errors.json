@@ -71,6 +71,7 @@
   "serial_invalid_format": "{serial} n'est pas un {type} valide.",
   "online_store_exists": "Cette entreprise a deja une boutique en ligne.",
   "online_store_not_found": "Boutique en ligne introuvable.",
+  "online_store_publication_not_found": "Cette version publiée est introuvable.",
   "online_cart_not_found": "Panier introuvable.",
   "online_cart_empty": "Votre panier est vide.",
   "online_order_not_found": "Commande introuvable.",

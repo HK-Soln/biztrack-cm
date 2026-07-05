@@ -118,6 +118,79 @@ export interface UpdateOnlineStoreRequest {
   socialLinkedin?: string | null
 }
 
+// ---- Publish snapshots (draft → published) ---------------------------------
+
+/**
+ * The immutable, published-facing store configuration captured at publish time. The public
+ * storefront renders from THIS snapshot, never the editable draft (the `online_stores` row) —
+ * so admins can stage config changes and only go live on publish. Product catalogue/stock stays
+ * live for now (Tier 1); a future tier snapshots the catalogue too via `appearance.catalogBinding`.
+ */
+export interface OnlineStorePublishedConfig {
+  storeName: string
+  storeSlug: string
+  tagline: string | null
+  logoUrl: string | null
+  bannerUrl: string | null
+  primaryColor: string
+  phone: string | null
+  email: string | null
+  address: string | null
+  city: string | null
+  whatsappNumber: string | null
+  currency: string
+  showOutOfStock: boolean
+  allowOrderNotes: boolean
+  minOrderAmount: number | null
+  payment: { cashOnDelivery: boolean; mtnMomo: boolean; orangeMoney: boolean; card: boolean }
+  fulfilment: {
+    offerDelivery: boolean
+    offerPickup: boolean
+    deliveryFee: number
+    pickupAddress: string | null
+    deliveryCities: string[]
+  }
+  appearance: {
+    layoutTemplate: OnlineStoreLayout
+    themeId: string
+    appearance: OnlineStoreAppearance
+    catalogBinding: OnlineCatalogBinding
+    showLowStockBadges: boolean
+  }
+  seo: {
+    seoTitle: string | null
+    seoDescription: string | null
+    ogImageUrl: string | null
+    robotsIndex: boolean
+  }
+  socials: {
+    instagram: string | null
+    facebook: string | null
+    tiktok: string | null
+    x: string | null
+    linkedin: string | null
+  }
+}
+
+/** One immutable publish of a store — the audit/rollback trail. */
+export interface OnlineStorePublication {
+  id: string
+  version: number
+  publishedAt: IsoDateString
+  publishedById?: string | null
+  publishedByName?: string | null
+  /** Set when this publish restored an earlier version (rollback provenance). */
+  sourceVersion?: number | null
+  config: OnlineStorePublishedConfig
+}
+
+/** Publication row without the (large) config — for the audit/history list. */
+export type OnlineStorePublicationSummary = Omit<OnlineStorePublication, 'config'>
+
+export interface RestorePublicationRequest {
+  version: number
+}
+
 /** Product online-store fields (Phase 3I), set on create/update. */
 export interface ProductOnlineFields {
   isPublishedOnline?: boolean
