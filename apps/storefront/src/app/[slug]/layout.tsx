@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { getStore } from '@/lib/api'
 import { resolveBase } from '@/lib/base'
+import { storeFaviconUrl } from '@/lib/favicon'
 import { StoreHeader } from '@/components/StoreHeader'
 import { StoreFooter } from '@/components/StoreFooter'
 
@@ -18,9 +19,11 @@ export async function generateMetadata({
   if (!store) return { title: 'Boutique introuvable' }
   const title = store.seo.title || store.storeName
   const description = store.seo.description || store.tagline || undefined
+  const favicon = storeFaviconUrl(store)
   return {
     title,
     description,
+    icons: { icon: favicon, shortcut: favicon, apple: favicon },
     openGraph: {
       title,
       description,
