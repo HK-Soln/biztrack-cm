@@ -45,6 +45,7 @@ import type {
   OnlineSlugCheck,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
+  OnlineStorePublicationSummary,
   PaginatedResult,
   UpdateOrderStatusRequest,
   UpdateOrderPaymentRequest,
@@ -176,6 +177,9 @@ export const cloudOnline = {
   createStore: (input: CreateOnlineStoreRequest) => cpost<OnlineStore>('/online-store', input),
   updateStore: (input: UpdateOnlineStoreRequest) => cpatch<OnlineStore>('/online-store', input),
   publishStore: () => cpost<OnlineStore>('/online-store/publish', {}),
+  listPublications: () => cget<OnlineStorePublicationSummary[]>('/online-store/publications'),
+  restorePublication: (version: number) =>
+    cpost<OnlineStore>(`/online-store/publications/${version}/restore`, {}),
   listOrders: (query: OnlineOrdersQuery = {}) => {
     const params = new URLSearchParams()
     Object.entries(query).forEach(([k, v]) => {

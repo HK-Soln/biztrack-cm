@@ -18,6 +18,10 @@ export function registerOnlineIpc(online: OnlineService): void {
     online.updateStore(input),
   )
   ipcMain.handle(IPC.onlineStorePublish, () => online.publishStore())
+  ipcMain.handle(IPC.onlinePublicationsList, () => online.listPublications())
+  ipcMain.handle(IPC.onlinePublicationRestore, (_e, version: number) =>
+    online.restorePublication(version),
+  )
   ipcMain.handle(IPC.onlineOrdersList, (_e, query?: OnlineOrdersQuery) => online.listOrders(query))
   ipcMain.handle(IPC.onlineOrderGet, (_e, id: string) => online.getOrder(id))
   ipcMain.handle(IPC.onlineOrderUpdateStatus, (_e, id: string, input: UpdateOrderStatusRequest) =>

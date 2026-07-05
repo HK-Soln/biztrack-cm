@@ -115,6 +115,7 @@ export interface I18nTranslations {
     serial_invalid_format: string
     online_store_exists: string
     online_store_not_found: string
+    online_store_publication_not_found: string
     online_cart_not_found: string
     online_cart_empty: string
     online_order_not_found: string

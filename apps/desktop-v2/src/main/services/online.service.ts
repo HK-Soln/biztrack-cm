@@ -8,6 +8,7 @@ import type {
   OnlineOrderListResult,
   OnlineOrderStatus,
   OnlineStore,
+  OnlineStorePublicationSummary,
   PaginatedResult,
   UpdateOnlineStoreRequest,
   UpdateOrderPaymentRequest,
@@ -74,6 +75,29 @@ export class OnlineService {
     return this.run(
       async () =>
         (await this.http.post<ApiEnvelope<OnlineStore>>('/online-store/publish', {})).data.data,
+    )
+  }
+
+  listPublications(): Promise<OnlineStorePublicationSummary[]> {
+    return this.run(
+      async () =>
+        (
+          await this.http.get<ApiEnvelope<OnlineStorePublicationSummary[]>>(
+            '/online-store/publications',
+          )
+        ).data.data,
+    )
+  }
+
+  restorePublication(version: number): Promise<OnlineStore> {
+    return this.run(
+      async () =>
+        (
+          await this.http.post<ApiEnvelope<OnlineStore>>(
+            `/online-store/publications/${version}/restore`,
+            {},
+          )
+        ).data.data,
     )
   }
 

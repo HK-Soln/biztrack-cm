@@ -6,6 +6,8 @@ import type {
   CreateOnlineStoreRequest,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
+  OnlineStorePublishedConfig,
+  OnlineStorePublicationSummary,
   PaginatedResult,
   ProductOnlineFields,
   UpdateOnlineStoreRequest,
@@ -20,6 +22,7 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { OnlineStore } from '@/entities/online-store.entity'
+import { OnlineStorePublication } from '@/entities/online-store-publication.entity'
 import { Product } from '@/entities/product.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
@@ -33,6 +36,8 @@ export class OnlineStoreService {
   constructor(
     @InjectRepository(OnlineStore)
     private readonly storesRepo: Repository<OnlineStore>,
+    @InjectRepository(OnlineStorePublication)
+    private readonly publicationsRepo: Repository<OnlineStorePublication>,
     @InjectRepository(Product)
     private readonly productsRepo: Repository<Product>,
     @InjectRepository(InventoryLevel)
@@ -170,21 +175,225 @@ export class OnlineStoreService {
     }
   }
 
-  /** Publish the current draft: go live + clear the unpublished-changes flag. */
-  async publishStore(businessId: string): Promise<OnlineStore> {
+  /**
+   * Publish the current draft: capture an immutable, versioned snapshot of the config that the
+   * storefront will serve, and clear the unpublished-changes flag. The `online_stores` row stays
+   * the editable draft — edits after this don't reach customers until the next publish.
+   */
+  async publishStore(
+    businessId: string,
+    actor: { id: string | null; name: string | null },
+  ): Promise<OnlineStore> {
     try {
       const store = await this.requireStore(businessId)
-      const merged = this.storesRepo.merge(store, {
-        status: 'published',
-        isActive: true,
-        publishedAt: new Date(),
-        hasUnpublishedChanges: false,
-      })
-      // NOTE: snapshot-on-publish capture + CDN revalidate land with the storefront SSR phase (#91).
-      return await this.storesRepo.save(merged)
+      return await this.publishSnapshot(store, this.buildPublishedConfig(store), actor, null)
     } catch (error) {
       return this.handleServiceError('publishStore', error, { businessId })
     }
+  }
+
+  /** Audit trail: every publish, newest first (without the heavy config blob). */
+  async listPublications(businessId: string): Promise<OnlineStorePublicationSummary[]> {
+    try {
+      const store = await this.requireStore(businessId)
+      const rows = await this.publicationsRepo.find({
+        where: { onlineStoreId: store.id },
+        order: { version: 'DESC' },
+      })
+      return rows.map((p) => ({
+        id: p.id,
+        version: p.version,
+        publishedAt: p.createdAt.toISOString(),
+        publishedById: p.publishedById ?? null,
+        publishedByName: p.publishedByName ?? null,
+        sourceVersion: p.sourceVersion ?? null,
+      }))
+    } catch (error) {
+      return this.handleServiceError('listPublications', error, { businessId })
+    }
+  }
+
+  /**
+   * Rollback: restore an earlier published version. Its config becomes the draft again AND is
+   * republished as a NEW version (history is append-only — nothing is rewritten), so the live
+   * site reverts and the trail records the restore.
+   */
+  async restorePublication(
+    businessId: string,
+    version: number,
+    actor: { id: string | null; name: string | null },
+  ): Promise<OnlineStore> {
+    try {
+      const store = await this.requireStore(businessId)
+      const source = await this.publicationsRepo.findOne({
+        where: { onlineStoreId: store.id, version },
+      })
+      if (!source) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.online_store_publication_not_found'),
+          'ONLINE_STORE_PUBLICATION_NOT_FOUND',
+        )
+      }
+      await this.applyConfigToStore(store, source.config)
+      const refreshed = await this.requireStore(businessId)
+      return await this.publishSnapshot(refreshed, source.config, actor, version)
+    } catch (error) {
+      return this.handleServiceError('restorePublication', error, { businessId })
+    }
+  }
+
+  /**
+   * Resolve the LIVE storefront view for a slug: the store (identity + catalogue scope) plus the
+   * latest published config snapshot. Returns null when the store isn't live (draft / suspended /
+   * never published) so public callers 404 — a draft is never reachable.
+   */
+  async getPublishedStore(
+    slug: string,
+  ): Promise<{ store: OnlineStore; config: OnlineStorePublishedConfig } | null> {
+    const store = await this.storesRepo.findOne({
+      where: { storeSlug: slug, status: 'published', isActive: true, deletedAt: IsNull() },
+    })
+    if (!store) return null
+    const latest = await this.publicationsRepo.findOne({
+      where: { onlineStoreId: store.id },
+      order: { version: 'DESC' },
+    })
+    if (!latest) return null
+    return { store, config: latest.config }
+  }
+
+  /** Write a versioned snapshot + flip the store live. Shared by publish + restore. */
+  private async publishSnapshot(
+    store: OnlineStore,
+    config: OnlineStorePublishedConfig,
+    actor: { id: string | null; name: string | null },
+    sourceVersion: number | null,
+  ): Promise<OnlineStore> {
+    const last = await this.publicationsRepo.findOne({
+      where: { onlineStoreId: store.id },
+      order: { version: 'DESC' },
+    })
+    const version = (last?.version ?? 0) + 1
+    await this.publicationsRepo.save(
+      this.publicationsRepo.create({
+        businessId: store.businessId,
+        onlineStoreId: store.id,
+        version,
+        config,
+        publishedById: actor.id,
+        publishedByName: actor.name,
+        sourceVersion,
+      }),
+    )
+    const merged = this.storesRepo.merge(store, {
+      status: 'published',
+      isActive: true,
+      publishedAt: new Date(),
+      hasUnpublishedChanges: false,
+    })
+    return this.storesRepo.save(merged)
+  }
+
+  /** Serialize the editable draft into the published-facing config snapshot. */
+  private buildPublishedConfig(store: OnlineStore): OnlineStorePublishedConfig {
+    return {
+      storeName: store.storeName,
+      storeSlug: store.storeSlug,
+      tagline: store.tagline ?? null,
+      logoUrl: store.logoUrl ?? null,
+      bannerUrl: store.bannerUrl ?? null,
+      primaryColor: store.primaryColor,
+      phone: store.phone ?? null,
+      email: store.email ?? null,
+      address: store.address ?? null,
+      city: store.city ?? null,
+      whatsappNumber: store.whatsappNumber ?? null,
+      currency: store.currency,
+      showOutOfStock: store.showOutOfStock,
+      allowOrderNotes: store.allowOrderNotes,
+      minOrderAmount: store.minOrderAmount ?? null,
+      payment: {
+        cashOnDelivery: store.paymentCashOnDelivery,
+        mtnMomo: store.paymentMtnMomo,
+        orangeMoney: store.paymentOrangeMoney,
+        card: store.paymentCard,
+      },
+      fulfilment: {
+        offerDelivery: store.offerDelivery,
+        offerPickup: store.offerPickup,
+        deliveryFee: store.deliveryFee,
+        pickupAddress: store.pickupAddress ?? null,
+        deliveryCities: store.deliveryCities ?? [],
+      },
+      appearance: {
+        layoutTemplate:
+          store.layoutTemplate as OnlineStorePublishedConfig['appearance']['layoutTemplate'],
+        themeId: store.themeId,
+        appearance: store.appearance as OnlineStorePublishedConfig['appearance']['appearance'],
+        catalogBinding:
+          store.catalogBinding as OnlineStorePublishedConfig['appearance']['catalogBinding'],
+        showLowStockBadges: store.showLowStockBadges,
+      },
+      seo: {
+        seoTitle: store.seoTitle ?? null,
+        seoDescription: store.seoDescription ?? null,
+        ogImageUrl: store.ogImageUrl ?? null,
+        robotsIndex: store.robotsIndex,
+      },
+      socials: {
+        instagram: store.socialInstagram ?? null,
+        facebook: store.socialFacebook ?? null,
+        tiktok: store.socialTiktok ?? null,
+        x: store.socialX ?? null,
+        linkedin: store.socialLinkedin ?? null,
+      },
+    }
+  }
+
+  /** Write a snapshot config back onto the editable draft columns (used by restore). Identity
+   *  fields (slug, currency) are left as the store's current values. */
+  private async applyConfigToStore(
+    store: OnlineStore,
+    config: OnlineStorePublishedConfig,
+  ): Promise<void> {
+    await this.storesRepo.update(store.id, {
+      storeName: config.storeName,
+      tagline: config.tagline,
+      logoUrl: config.logoUrl,
+      bannerUrl: config.bannerUrl,
+      primaryColor: config.primaryColor,
+      phone: config.phone,
+      email: config.email,
+      address: config.address,
+      city: config.city,
+      whatsappNumber: config.whatsappNumber,
+      showOutOfStock: config.showOutOfStock,
+      allowOrderNotes: config.allowOrderNotes,
+      minOrderAmount: config.minOrderAmount,
+      paymentCashOnDelivery: config.payment.cashOnDelivery,
+      paymentMtnMomo: config.payment.mtnMomo,
+      paymentOrangeMoney: config.payment.orangeMoney,
+      paymentCard: config.payment.card,
+      offerDelivery: config.fulfilment.offerDelivery,
+      offerPickup: config.fulfilment.offerPickup,
+      deliveryFee: config.fulfilment.deliveryFee,
+      pickupAddress: config.fulfilment.pickupAddress,
+      deliveryCities: config.fulfilment.deliveryCities,
+      layoutTemplate: config.appearance.layoutTemplate,
+      themeId: config.appearance.themeId,
+      appearance: config.appearance.appearance,
+      catalogBinding: config.appearance.catalogBinding,
+      showLowStockBadges: config.appearance.showLowStockBadges,
+      seoTitle: config.seo.seoTitle,
+      seoDescription: config.seo.seoDescription,
+      ogImageUrl: config.seo.ogImageUrl,
+      robotsIndex: config.seo.robotsIndex,
+      socialInstagram: config.socials.instagram,
+      socialFacebook: config.socials.facebook,
+      socialTiktok: config.socials.tiktok,
+      socialX: config.socials.x,
+      socialLinkedin: config.socials.linkedin,
+    })
   }
 
   /**

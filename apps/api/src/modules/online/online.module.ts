@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { OnlineStore } from '@/entities/online-store.entity'
+import { OnlineStorePublication } from '@/entities/online-store-publication.entity'
 import { OnlineCart } from '@/entities/online-cart.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
@@ -25,6 +26,7 @@ import { OnlineOrdersService } from './online-orders.service'
     TypeOrmModule.forFeature([
       Business,
       OnlineStore,
+      OnlineStorePublication,
       OnlineCart,
       OnlineOrder,
       OnlineOrderEvent,
