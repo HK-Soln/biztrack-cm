@@ -1065,7 +1065,8 @@ main {
   gap: 7px;
   margin-top: 34px;
 }
-.pager button {
+.pager button,
+.pager a {
   min-width: 40px;
   height: 40px;
   padding: 0 12px;
@@ -1075,6 +1076,12 @@ main {
   color: var(--text-2);
   font-weight: 650;
   font-size: 13.5px;
+  display: inline-grid;
+  place-items: center;
+}
+.pager a:hover {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 .pager button.on {
   background: var(--brand);
