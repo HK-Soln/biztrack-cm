@@ -1,8 +1,11 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import { getStore } from '@/lib/api'
 import { resolveBase } from '@/lib/base'
 import { CheckoutView } from '@/components/CheckoutView'
+
+export const metadata: Metadata = { robots: { index: false, follow: true } }
 
 const IcChevron = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

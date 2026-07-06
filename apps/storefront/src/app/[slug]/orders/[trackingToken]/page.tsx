@@ -1,6 +1,10 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getLocale, getTranslations } from 'next-intl/server'
+
+// Tokenised, per-customer page — never index.
+export const metadata: Metadata = { robots: { index: false, follow: false } }
 import type { OnlineOrderStatus, PublicOrderTracking } from '@biztrack/types'
 import { formatMoney, getOrderTracking, getStore } from '@/lib/api'
 import { resolveBase } from '@/lib/base'

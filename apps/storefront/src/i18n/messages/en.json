@@ -182,5 +182,27 @@
     "mtnMomo": "MTN MoMo",
     "orangeMoney": "Orange Money",
     "card": "Card"
+  },
+  "contact": {
+    "title": "Contact us",
+    "subtitle": "A question about an order, a product or delivery? We're here to help.",
+    "addressLabel": "Address",
+    "phoneLabel": "Phone & WhatsApp",
+    "whatsapp": "WhatsApp",
+    "emailLabel": "Email",
+    "formHeading": "Send us a message",
+    "formSub": "We'll get back to you as soon as possible.",
+    "name": "Full name",
+    "phone": "Phone",
+    "email": "Email",
+    "subject": "Subject",
+    "message": "Message",
+    "messagePlaceholder": "How can we help you?",
+    "send": "Send message",
+    "subjectOrder": "Question about an order",
+    "subjectAvailability": "Product availability",
+    "subjectDelivery": "Delivery",
+    "subjectPayment": "Mobile Money payment",
+    "subjectOther": "Other"
   }
 }

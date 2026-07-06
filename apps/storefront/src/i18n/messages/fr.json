@@ -182,5 +182,27 @@
     "mtnMomo": "MTN MoMo",
     "orangeMoney": "Orange Money",
     "card": "Carte bancaire"
+  },
+  "contact": {
+    "title": "Nous contacter",
+    "subtitle": "Une question sur une commande, un produit ou la livraison ? Nous sommes là pour vous aider.",
+    "addressLabel": "Adresse",
+    "phoneLabel": "Téléphone & WhatsApp",
+    "whatsapp": "WhatsApp",
+    "emailLabel": "E-mail",
+    "formHeading": "Envoyez-nous un message",
+    "formSub": "Nous vous répondrons dans les meilleurs délais.",
+    "name": "Nom complet",
+    "phone": "Téléphone",
+    "email": "E-mail",
+    "subject": "Sujet",
+    "message": "Message",
+    "messagePlaceholder": "Comment pouvons-nous vous aider ?",
+    "send": "Envoyer le message",
+    "subjectOrder": "Question sur une commande",
+    "subjectAvailability": "Disponibilité d'un produit",
+    "subjectDelivery": "Livraison",
+    "subjectPayment": "Paiement Mobile Money",
+    "subjectOther": "Autre"
   }
 }

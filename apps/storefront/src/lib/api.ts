@@ -85,6 +85,19 @@ export function getCategories(slug: string) {
   return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`)
 }
 
+/** All published product slugs for a store (paginated, capped) — used by the sitemap. */
+export async function listAllProductSlugs(slug: string, cap = 1000): Promise<string[]> {
+  const slugs: string[] = []
+  const limit = 100
+  for (let page = 1; slugs.length < cap; page++) {
+    const res = await listProducts(slug, { page, limit })
+    if (!res || res.data.length === 0) break
+    slugs.push(...res.data.map((p) => p.slug))
+    if (page >= (res.totalPages ?? 1)) break
+  }
+  return slugs.slice(0, cap)
+}
+
 export function getProduct(slug: string, productSlug: string) {
   return readJson<PublicProductDetail>(
     `${storePath(slug)}/products/${encodeURIComponent(productSlug)}`,

@@ -11,8 +11,12 @@ export function middleware(request: NextRequest) {
   const host = (request.headers.get('host') ?? '').split(':')[0] ?? ''
   const { pathname } = request.nextUrl
 
+  // SEO files must still resolve per-store (rewritten into the [slug] segment below),
+  // even though they contain a dot.
+  const isSeoFile = pathname === '/sitemap.xml' || pathname === '/robots.txt'
+
   // Skip Next internals and static assets.
-  if (pathname.startsWith('/_next') || pathname.includes('.')) {
+  if (!isSeoFile && (pathname.startsWith('/_next') || pathname.includes('.'))) {
     return NextResponse.next()
   }
 
