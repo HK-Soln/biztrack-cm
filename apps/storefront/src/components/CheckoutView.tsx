@@ -87,9 +87,24 @@ export function CheckoutView({
 
   if (!sessionToken || (cart && items.length === 0)) {
     return (
-      <p className="page-sub" style={{ padding: '10px 0 40px' }}>
-        {tc('emptyTitle')} — <Link href={`${base}/products`}>{tc('startShopping')}</Link>
-      </p>
+      <div className="empty">
+        <div className="ei">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
+            <circle cx="9" cy="20" r="1.5" />
+            <circle cx="18" cy="20" r="1.5" />
+            <path d="M2 3h3l2.2 12.2a1.5 1.5 0 0 0 1.5 1.3h8.4a1.5 1.5 0 0 0 1.5-1.2L21 7H6" />
+          </svg>
+        </div>
+        <h3>{tc('emptyTitle')}</h3>
+        <p>{tc('emptyDesc')}</p>
+        <Link
+          className="btn btn-primary btn-lg"
+          style={{ marginTop: 22 }}
+          href={`${base}/products`}
+        >
+          {tc('startShopping')}
+        </Link>
+      </div>
     )
   }
 
