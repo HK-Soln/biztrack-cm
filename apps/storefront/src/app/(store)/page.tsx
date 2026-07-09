@@ -171,7 +171,7 @@ export default async function StoreHomePage() {
             </div>
             <div className="cat-strip">
               {categories.map((cat) => (
-                <Link className="cat" key={cat.id} href={href(`/products?categoryId=${cat.id}`)}>
+                <Link className="cat" key={cat.id} href={href(`/products?categoryIds=${cat.id}`)}>
                   <div className="ci">{IcTag}</div>
                   <div className="cn">{cat.name}</div>
                   <div className="cc">{t('productCount', { count: cat.productCount })}</div>

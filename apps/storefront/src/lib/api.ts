@@ -5,6 +5,7 @@ import type {
   CheckoutRequest,
   OnlineCart,
   PaginatedResult,
+  PublicFacets,
   PublicOrderTracking,
   PublicProductDetail,
   PublicProductListItem,
@@ -72,12 +73,23 @@ export function getStore(slug: string) {
   return readJson<PublicStore>(storePath(slug))
 }
 
+const joinIds = (ids?: string[]) => (ids && ids.length ? ids.join(',') : undefined)
+
 export function listProducts(slug: string, query: PublicProductsQuery = {}) {
   return readJson<PaginatedResult<PublicProductListItem>>(`${storePath(slug)}/products`, {
     page: query.page,
     limit: query.limit,
-    categoryId: query.categoryId,
+    categoryIds: joinIds(query.categoryIds),
+    brandIds: joinIds(query.brandIds),
+    modelIds: joinIds(query.modelIds),
+    attributeOptionIds: joinIds(query.attributeOptionIds),
     search: query.search,
+  })
+}
+
+export function getFacets(slug: string, categoryIds?: string[]) {
+  return readJson<PublicFacets>(`${storePath(slug)}/facets`, {
+    categoryIds: joinIds(categoryIds),
   })
 }
 

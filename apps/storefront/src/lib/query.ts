@@ -29,5 +29,6 @@ export const queryKeys = {
   products: (slug: string, query: unknown) => ['products', slug, query] as const,
   product: (slug: string, productSlug: string) => ['product', slug, productSlug] as const,
   categories: (slug: string) => ['categories', slug] as const,
+  facets: (slug: string, categoryIds: string[]) => ['facets', slug, categoryIds] as const,
   cart: (slug: string, sessionToken: string) => ['cart', slug, sessionToken] as const,
 }
