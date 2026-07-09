@@ -6,6 +6,8 @@ import type {
   CategoryTreeResponse,
   OnlineStorePublishedConfig,
   PaginatedResult,
+  PublicAttributeGroupFacet,
+  PublicFacets,
   PublicProductDetail,
   PublicProductListItem,
   PublicProductsQuery,
@@ -68,8 +70,27 @@ export class PublicStorefrontService {
       .andWhere('product.is_active = true')
       .andWhere('product.deleted_at IS NULL')
 
-    if (query.categoryId) {
-      qb.andWhere('product.category_id = :categoryId', { categoryId: query.categoryId })
+    if (query.categoryIds?.length) {
+      qb.andWhere('product.category_id IN (:...categoryIds)', { categoryIds: query.categoryIds })
+    }
+    if (query.brandIds?.length) {
+      qb.andWhere('product.brand_id IN (:...brandIds)', { brandIds: query.brandIds })
+    }
+    if (query.modelIds?.length) {
+      qb.andWhere('product.model_id IN (:...modelIds)', { modelIds: query.modelIds })
+    }
+    if (query.attributeOptionIds?.length) {
+      // Attributes live on variants: keep products that have a variant carrying a selected option.
+      qb.andWhere(
+        `product.id IN (
+          SELECT pv.product_id FROM product_variants pv
+          INNER JOIN product_variant_options pvo ON pvo.variant_id = pv.id
+          WHERE pvo.attribute_option_id IN (:...attributeOptionIds)
+            AND pv.business_id = :attrBusinessId
+            AND pv.deleted_at IS NULL
+        )`,
+        { attributeOptionIds: query.attributeOptionIds, attrBusinessId: store.businessId },
+      )
     }
     if (query.search) {
       qb.andWhere('LOWER(product.name) LIKE LOWER(:search)', { search: `%${query.search}%` })
@@ -165,6 +186,79 @@ export class PublicStorefrontService {
   async getCategories(slug: string): Promise<CategoryTreeResponse> {
     const { store } = await this.requireStore(slug)
     return this.categoriesService.getTree(store.businessId)
+  }
+
+  /**
+   * Filterable facets for the shop page — brands, models, and attribute options that
+   * actually appear on the store's published products (so empty facets never show).
+   * Scoped by category when provided. Counts are intentionally omitted (v1).
+   */
+  async getFacets(slug: string, categoryIds?: string[]): Promise<PublicFacets> {
+    const { store } = await this.requireStore(slug)
+    const manager = this.productsRepo.manager
+    const cats = (categoryIds ?? []).filter(Boolean)
+    const hasCat = cats.length > 0
+    const catClause = hasCat ? ' AND p.category_id = ANY($2::uuid[])' : ''
+    const params: unknown[] = hasCat ? [store.businessId, cats] : [store.businessId]
+    const published =
+      'p.business_id = $1 AND p.is_published_online = true AND p.is_active = true AND p.deleted_at IS NULL'
+
+    const brandRows = (await manager.query(
+      `SELECT DISTINCT b.id, b.name, b.slug, b.sort_order
+       FROM brands b INNER JOIN products p ON p.brand_id = b.id
+       WHERE ${published} AND b.is_active = true${catClause}
+       ORDER BY b.sort_order, b.name`,
+      params,
+    )) as Array<{ id: string; name: string; slug: string }>
+
+    const modelRows = (await manager.query(
+      `SELECT DISTINCT m.id, m.name, m.slug, m.brand_id, m.sort_order
+       FROM models m INNER JOIN products p ON p.model_id = m.id
+       WHERE ${published} AND m.is_active = true${catClause}
+       ORDER BY m.sort_order, m.name`,
+      params,
+    )) as Array<{ id: string; name: string; slug: string; brand_id: string }>
+
+    const optionRows = (await manager.query(
+      `SELECT DISTINCT ao.id AS opt_id, ao.value, ao.color_hex, ao.sort_order AS opt_sort,
+              g.id AS grp_id, g.name AS grp_name, g.display_type, g.sort_order AS grp_sort
+       FROM product_variant_options pvo
+       INNER JOIN attribute_options ao ON ao.id = pvo.attribute_option_id
+       INNER JOIN attribute_groups g ON g.id = ao.group_id
+       INNER JOIN product_variants pv ON pv.id = pvo.variant_id
+       INNER JOIN products p ON p.id = pv.product_id
+       WHERE ${published} AND pv.deleted_at IS NULL AND ao.is_active = true AND g.is_active = true${catClause}
+       ORDER BY g.sort_order, g.name, ao.sort_order, ao.value`,
+      params,
+    )) as Array<{
+      opt_id: string
+      value: string
+      color_hex: string | null
+      grp_id: string
+      grp_name: string
+      display_type: string
+    }>
+
+    const groups = new Map<string, PublicAttributeGroupFacet>()
+    for (const row of optionRows) {
+      let group = groups.get(row.grp_id)
+      if (!group) {
+        group = { id: row.grp_id, name: row.grp_name, displayType: row.display_type, options: [] }
+        groups.set(row.grp_id, group)
+      }
+      group.options.push({ id: row.opt_id, value: row.value, colorHex: row.color_hex ?? null })
+    }
+
+    return {
+      brands: brandRows.map((b) => ({ id: b.id, name: b.name, slug: b.slug })),
+      models: modelRows.map((m) => ({
+        id: m.id,
+        name: m.name,
+        slug: m.slug,
+        brandId: m.brand_id,
+      })),
+      attributeGroups: [...groups.values()],
+    }
   }
 
   // ---- internals ----------------------------------------------------------

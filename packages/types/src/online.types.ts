@@ -321,8 +321,45 @@ export interface PublicProductVariant {
 export interface PublicProductsQuery {
   page?: number
   limit?: number
-  categoryId?: string
+  categoryIds?: string[]
+  brandIds?: string[]
+  modelIds?: string[]
+  attributeOptionIds?: string[]
   search?: string
+}
+
+/** A selectable facet value (brand, model, or attribute option) available in a store. */
+export interface PublicFacetOption {
+  id: string
+  value: string
+  colorHex?: string | null
+}
+
+export interface PublicAttributeGroupFacet {
+  id: string
+  name: string
+  displayType: string
+  options: PublicFacetOption[]
+}
+
+export interface PublicBrandFacet {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface PublicModelFacet {
+  id: string
+  name: string
+  slug: string
+  brandId: string
+}
+
+/** Filterable facets present on a store's published products (empty values omitted). */
+export interface PublicFacets {
+  brands: PublicBrandFacet[]
+  models: PublicModelFacet[]
+  attributeGroups: PublicAttributeGroupFacet[]
 }
 
 export interface PublicProductListItem {

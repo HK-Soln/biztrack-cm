@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { Type } from 'class-transformer'
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
+import { Transform, Type } from 'class-transformer'
+import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
 import type {
   AddCartItemRequest,
   CheckoutRequest,
@@ -14,6 +14,15 @@ import type {
 import { ONLINE_PAYMENT_METHODS } from '@biztrack/types'
 
 import type { PublicProductsQuery } from '@biztrack/types'
+
+/** Normalise a query param into a clean string[] (accepts `a,b` or repeated params). */
+const toIdArray = ({ value }: { value: unknown }): string[] | undefined => {
+  if (value == null) return undefined
+  const parts = (Array.isArray(value) ? value : String(value).split(','))
+    .map((v) => String(v).trim())
+    .filter(Boolean)
+  return parts.length ? parts : undefined
+}
 
 export class PublicProductsQueryDto implements PublicProductsQuery {
   @ApiPropertyOptional({ default: 1 })
@@ -30,10 +39,33 @@ export class PublicProductsQueryDto implements PublicProductsQuery {
   @Min(1)
   limit?: number
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: [String] })
   @IsOptional()
-  @IsUUID()
-  categoryId?: string
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  categoryIds?: string[]
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  brandIds?: string[]
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  modelIds?: string[]
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  attributeOptionIds?: string[]
 
   @ApiPropertyOptional()
   @IsOptional()

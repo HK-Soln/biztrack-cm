@@ -39,6 +39,18 @@ export class PublicStorefrontController {
     return this.storefront.getCategories(slug)
   }
 
+  @Get(':slug/facets')
+  @ApiOperation({ summary: 'Available filter facets (brands, models, attribute options)' })
+  getFacets(@Param('slug') slug: string, @Query('categoryIds') categoryIds?: string) {
+    const ids = categoryIds
+      ? categoryIds
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean)
+      : undefined
+    return this.storefront.getFacets(slug, ids)
+  }
+
   @Get(':slug/products/:productSlug')
   @ApiOperation({ summary: 'Product detail with variants' })
   getProduct(@Param('slug') slug: string, @Param('productSlug') productSlug: string) {
