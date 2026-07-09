@@ -1262,6 +1262,7 @@ export type {
   OnlineFulfillmentType,
   OnlinePaymentStatus,
   UpdateOrderStatusRequest,
+  OrderSerialSelection,
   OnlineCartItem,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
