@@ -203,6 +203,8 @@
     "subjectAvailability": "Disponibilité d'un produit",
     "subjectDelivery": "Livraison",
     "subjectPayment": "Paiement Mobile Money",
-    "subjectOther": "Autre"
+    "subjectOther": "Autre",
+    "emptyTitle": "Coordonnées bientôt disponibles",
+    "emptyDesc": "Cette boutique n'a pas encore ajouté ses coordonnées."
   }
 }

@@ -47,6 +47,9 @@ export default async function ContactPage() {
 
   const whatsappDigits = store?.whatsappNumber?.replace(/\D/g, '') ?? null
   const hasChannel = Boolean(store?.whatsappNumber || store?.email)
+  const hasAnyContact = Boolean(
+    store?.address || store?.city || store?.phone || store?.whatsappNumber || store?.email,
+  )
 
   return (
     <div className="wrap">
@@ -58,63 +61,75 @@ export default async function ContactPage() {
       <h1 className="page-title">{t('title')}</h1>
       <p className="page-sub">{t('subtitle')}</p>
 
-      <div className="ct-grid">
-        <div className="ct-info">
-          {store?.address || store?.city ? (
-            <div className="ct-item">
-              <div className="ii">{IcPin}</div>
-              <div>
-                <div className="t">{t('addressLabel')}</div>
-                <div className="d">
-                  {store.address ? <>{store.address}</> : null}
-                  {store.address && store.city ? <br /> : null}
-                  {store.city}
+      {!hasAnyContact ? (
+        <div className="empty">
+          <div className="ei">{IcMail}</div>
+          <h3>{t('emptyTitle')}</h3>
+          <p>{t('emptyDesc')}</p>
+        </div>
+      ) : (
+        <div className="ct-grid">
+          <div className="ct-info">
+            {store?.address || store?.city ? (
+              <div className="ct-item">
+                <div className="ii">{IcPin}</div>
+                <div>
+                  <div className="t">{t('addressLabel')}</div>
+                  <div className="d">
+                    {store.address ? <>{store.address}</> : null}
+                    {store.address && store.city ? <br /> : null}
+                    {store.city}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {store?.phone || store?.whatsappNumber ? (
-            <div className="ct-item">
-              <div className="ii">{IcPhone}</div>
-              <div>
-                <div className="t">{t('phoneLabel')}</div>
-                <div className="d">
-                  {store.phone ? <a href={`tel:${store.phone}`}>{store.phone}</a> : null}
-                  {whatsappDigits ? (
-                    <>
-                      {store.phone ? <br /> : null}
-                      <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer">
-                        {t('whatsapp')}
-                        {store.whatsappNumber ? ` · ${store.whatsappNumber}` : ''}
-                      </a>
-                    </>
-                  ) : null}
+            {store?.phone || store?.whatsappNumber ? (
+              <div className="ct-item">
+                <div className="ii">{IcPhone}</div>
+                <div>
+                  <div className="t">{t('phoneLabel')}</div>
+                  <div className="d">
+                    {store.phone ? <a href={`tel:${store.phone}`}>{store.phone}</a> : null}
+                    {whatsappDigits ? (
+                      <>
+                        {store.phone ? <br /> : null}
+                        <a
+                          href={`https://wa.me/${whatsappDigits}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t('whatsapp')}
+                          {store.whatsappNumber ? ` · ${store.whatsappNumber}` : ''}
+                        </a>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {store?.email ? (
-            <div className="ct-item">
-              <div className="ii">{IcMail}</div>
-              <div>
-                <div className="t">{t('emailLabel')}</div>
-                <div className="d">
-                  <a href={`mailto:${store.email}`}>{store.email}</a>
+            {store?.email ? (
+              <div className="ct-item">
+                <div className="ii">{IcMail}</div>
+                <div>
+                  <div className="t">{t('emailLabel')}</div>
+                  <div className="d">
+                    <a href={`mailto:${store.email}`}>{store.email}</a>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : null}
+          </div>
+
+          {hasChannel ? (
+            <ContactForm
+              whatsappNumber={store?.whatsappNumber ?? null}
+              email={store?.email ?? null}
+            />
           ) : null}
         </div>
-
-        {hasChannel ? (
-          <ContactForm
-            whatsappNumber={store?.whatsappNumber ?? null}
-            email={store?.email ?? null}
-          />
-        ) : null}
-      </div>
+      )}
     </div>
   )
 }

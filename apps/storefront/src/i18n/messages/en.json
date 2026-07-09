@@ -203,6 +203,8 @@
     "subjectAvailability": "Product availability",
     "subjectDelivery": "Delivery",
     "subjectPayment": "Mobile Money payment",
-    "subjectOther": "Other"
+    "subjectOther": "Other",
+    "emptyTitle": "Contact details coming soon",
+    "emptyDesc": "This store hasn't added its contact details yet."
   }
 }
