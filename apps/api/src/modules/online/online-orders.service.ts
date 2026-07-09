@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { IsNull, Repository } from 'typeorm'
+import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import {
   PaymentMethod,
   ONLINE_ORDER_COMPLETION_STATUSES,
+  SerialUnitStatus,
   canTransitionOnlineOrder,
   type AddCartItemRequest,
   type CheckoutRequest,
@@ -13,6 +14,7 @@ import {
   type OnlineOrderStatus,
   type OnlinePaymentStatus,
   type OnlineStorePublishedConfig,
+  type OrderSerialSelection,
   type PublicOrderTracking,
   type SaleSyncPayload,
   type UpdateOrderPaymentRequest,
@@ -31,6 +33,7 @@ import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { OnlineStore } from '@/entities/online-store.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { SalesService } from '@/modules/sales/services/sales.service'
@@ -89,6 +92,8 @@ export class OnlineOrdersService {
     private readonly productsRepo: Repository<Product>,
     @InjectRepository(ProductVariant)
     private readonly variantsRepo: Repository<ProductVariant>,
+    @InjectRepository(ProductSerialUnit)
+    private readonly serialUnitsRepo: Repository<ProductSerialUnit>,
     private readonly salesService: SalesService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -376,6 +381,24 @@ export class OnlineOrdersService {
       if (toStatus === 'PICKED_UP') patch.pickedUpAt = now
       if (toStatus === 'RETURNED') patch.returnedAt = now
 
+      // Serial-unit assignment: the admin chooses serials for serialized items (typically at
+      // CONFIRMED). We reserve them now; the deferred sale marks them SOLD on completion.
+      if (toStatus === 'CONFIRMED' || ONLINE_ORDER_COMPLETION_STATUSES.includes(toStatus)) {
+        const reservedItems = await this.assignSerialUnits(
+          order,
+          dto.serialUnitSelections,
+          actor.id,
+        )
+        if (reservedItems) {
+          order.items = reservedItems
+          patch.items = reservedItems
+        }
+      }
+      // Cancelling before completion frees any serials reserved at confirmation.
+      if (toStatus === 'CANCELLED') {
+        await this.releaseReservedSerials(order)
+      }
+
       // Deferred-sale policy: the financial sale is created once the order is COMPLETED
       // (DELIVERED for delivery, PICKED_UP for pickup) — inventory deducts then, idempotent
       // by order id. For COD (not yet paid), completion also collects payment → PAID.
@@ -484,6 +507,115 @@ export class OnlineOrdersService {
    * policy). The delivering merchant is the cashier; payment is the full total.
    * createFromSync is idempotent by clientId (= order id), so retries are safe.
    */
+  /**
+   * Assign + reserve the serial units an admin chose for serialized items. Splits a
+   * serialized item of quantity N into N lines (one serial each) so the deferred sale can
+   * consume them. Returns the rewritten item list, or null when nothing serialized needs it.
+   * Throws if serials are missing/insufficient/unavailable.
+   */
+  private async assignSerialUnits(
+    order: OnlineOrder,
+    selections: OrderSerialSelection[] | undefined,
+    actorId: string | null,
+  ): Promise<OnlineCartItem[] | null> {
+    const items = order.items ?? []
+    const productIds = [...new Set(items.map((i) => i.productId))]
+    if (productIds.length === 0) return null
+    const products = await this.productsRepo.find({
+      where: { id: In(productIds), businessId: order.businessId },
+    })
+    const serializedIds = new Set(products.filter((p) => p.isSerialized).map((p) => p.id))
+
+    // Only items that are serialized AND not already assigned need a choice.
+    const pending = items.filter((i) => serializedIds.has(i.productId) && !i.serialUnitId)
+    if (pending.length === 0) return null
+
+    const selByKey = new Map<string, OrderSerialSelection>()
+    for (const sel of selections ?? []) {
+      selByKey.set(`${sel.productId}:${sel.variantId ?? ''}`, sel)
+    }
+
+    // Resolve the chosen ids per pending item and validate counts.
+    const chosen: Array<{ item: OnlineCartItem; ids: string[] }> = []
+    for (const item of pending) {
+      const sel = selByKey.get(`${item.productId}:${item.variantId ?? ''}`)
+      const ids = sel?.serialUnitIds ?? []
+      if (ids.length !== item.quantity) {
+        throw new AppBadRequestException(
+          `Select ${item.quantity} unit(s) for "${item.productName}".`,
+          'SERIAL_UNIT_REQUIRED',
+        )
+      }
+      chosen.push({ item, ids })
+    }
+
+    const allIds = chosen.flatMap((c) => c.ids)
+    if (new Set(allIds).size !== allIds.length) {
+      throw new AppBadRequestException(
+        'A serial unit was selected more than once.',
+        'SERIAL_UNIT_DUPLICATE',
+      )
+    }
+
+    const units = await this.serialUnitsRepo.find({
+      where: { id: In(allIds), businessId: order.businessId, deletedAt: IsNull() },
+    })
+    const unitById = new Map(units.map((u) => [u.id, u]))
+    for (const { item, ids } of chosen) {
+      for (const id of ids) {
+        const unit = unitById.get(id)
+        if (!unit || unit.status !== SerialUnitStatus.IN_STOCK) {
+          throw new AppBadRequestException(
+            `A selected unit for "${item.productName}" is no longer available.`,
+            'SERIAL_UNIT_UNAVAILABLE',
+          )
+        }
+        if (
+          unit.productId !== item.productId ||
+          (unit.variantId ?? null) !== (item.variantId ?? null)
+        ) {
+          throw new AppBadRequestException(
+            `A selected unit does not match "${item.productName}".`,
+            'SERIAL_UNIT_MISMATCH',
+          )
+        }
+      }
+    }
+
+    // Reserve the units (freed again on cancel; the sale flips them to SOLD on completion).
+    await this.serialUnitsRepo.update(
+      { id: In(allIds) },
+      { status: SerialUnitStatus.RESERVED, reservedAt: new Date(), reservedBy: actorId },
+    )
+
+    // Rewrite items: expand each serialized item into one line per chosen serial.
+    const pendingSet = new Set(pending)
+    const chosenByItem = new Map(chosen.map((c) => [c.item, c.ids]))
+    const rewritten: OnlineCartItem[] = []
+    for (const item of items) {
+      if (pendingSet.has(item)) {
+        for (const serialUnitId of chosenByItem.get(item) ?? []) {
+          rewritten.push({ ...item, quantity: 1, serialUnitId })
+        }
+      } else {
+        rewritten.push(item)
+      }
+    }
+    return rewritten
+  }
+
+  /** Release serials reserved for an order (on cancellation) back to IN_STOCK. */
+  private async releaseReservedSerials(order: OnlineOrder): Promise<void> {
+    const ids = (order.items ?? [])
+      .map((i) => i.serialUnitId)
+      .filter((id): id is string => Boolean(id))
+    if (ids.length === 0) return
+    await this.serialUnitsRepo.update(
+      { id: In(ids), businessId: order.businessId, status: SerialUnitStatus.RESERVED },
+      { status: SerialUnitStatus.IN_STOCK, reservedAt: null, reservedBy: null },
+    )
+  }
+
   private async createSaleForOrder(order: OnlineOrder, actorId: string | null) {
     const payload: SaleSyncPayload = {
       saleId: crypto.randomUUID(),

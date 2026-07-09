@@ -609,10 +609,19 @@ export interface OnlineOrder {
   courierTrackingUrl?: string | null
 }
 
+/** Admin's serial-unit choices for a serialized order item (one id per unit ordered). */
+export interface OrderSerialSelection {
+  productId: string
+  variantId?: string | null
+  serialUnitIds: string[]
+}
+
 export interface UpdateOrderStatusRequest {
   status: OnlineOrderStatus
   internalNote?: string
   customerMessage?: string
+  /** Serial units chosen for serialized items — required when confirming such an order. */
+  serialUnitSelections?: OrderSerialSelection[]
 }
 
 /** Owner order detail: the order with its full event timeline. */

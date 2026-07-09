@@ -28,8 +28,12 @@ const makeService = (opts: {
     find: jest.fn(),
   }
   const storesRepo = { findOne: jest.fn().mockResolvedValue(opts.store ?? null) }
-  const productsRepo = { findOne: jest.fn().mockResolvedValue(opts.product ?? null) }
+  const productsRepo = {
+    findOne: jest.fn().mockResolvedValue(opts.product ?? null),
+    find: jest.fn().mockResolvedValue([]),
+  }
   const variantsRepo = { findOne: jest.fn() }
+  const serialUnitsRepo = { find: jest.fn().mockResolvedValue([]), update: jest.fn() }
   const salesService = {
     createFromSync: jest.fn(async () => ({ id: 'sale-1', saleNumber: 'V-1' })),
   }
@@ -63,6 +67,7 @@ const makeService = (opts: {
     storesRepo as any,
     productsRepo as any,
     variantsRepo as any,
+    serialUnitsRepo as any,
     salesService as any,
     i18n as any,
     logger as any,

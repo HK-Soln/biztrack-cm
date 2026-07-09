@@ -1,12 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Transform, Type } from 'class-transformer'
-import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import type {
   AddCartItemRequest,
   CheckoutRequest,
   OnlineFulfillmentType,
   OnlineOrderStatus,
   OnlinePaymentStatus,
+  OrderSerialSelection,
   UpdateCartItemRequest,
   UpdateOrderPaymentRequest,
   UpdateOrderStatusRequest,
@@ -175,6 +186,19 @@ export class CheckoutDto implements CheckoutRequest {
   paymentMethod?: string
 }
 
+export class OrderSerialSelectionDto implements OrderSerialSelection {
+  @IsUUID()
+  productId!: string
+
+  @IsOptional()
+  @IsUUID()
+  variantId?: string | null
+
+  @IsArray()
+  @IsUUID('all', { each: true })
+  serialUnitIds!: string[]
+}
+
 export class UpdateOrderStatusDto implements UpdateOrderStatusRequest {
   @ApiProperty({ enum: ORDER_STATUSES })
   @IsIn(ORDER_STATUSES)
@@ -189,6 +213,13 @@ export class UpdateOrderStatusDto implements UpdateOrderStatusRequest {
   @IsOptional()
   @IsString()
   customerMessage?: string
+
+  @ApiPropertyOptional({ type: [OrderSerialSelectionDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderSerialSelectionDto)
+  serialUnitSelections?: OrderSerialSelectionDto[]
 }
 
 const PAYMENT_STATUSES: OnlinePaymentStatus[] = [
