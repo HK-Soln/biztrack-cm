@@ -1541,6 +1541,50 @@ main {
   padding: 24px 0 60px;
   align-items: start;
 }
+.co-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.co-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.co-step .n {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+}
+.co-step.on {
+  color: var(--text);
+}
+.co-step.on .n {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+.co-step.done .n {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+.co-sep {
+  flex: 1;
+  min-width: 20px;
+  height: 1.5px;
+  background: var(--border);
+  max-width: 60px;
+}
 .cocard {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2637,6 +2681,15 @@ main {
   }
   .oc-hero h1 {
     font-size: 24px;
+  }
+  .co-steps {
+    gap: 5px;
+  }
+  .co-step .lbl {
+    display: none;
+  }
+  .co-sep {
+    max-width: none;
   }
 }
 
