@@ -126,8 +126,7 @@ function variantSignature(optionIds: string[]): string {
   return [...optionIds].sort().join('|')
 }
 
-const COLS =
-  `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
+const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.cost_price, p.currency, p.tax_rate,
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
    p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
@@ -135,8 +134,7 @@ const COLS =
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
    ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
-const FROM =
-  `products p
+const FROM = `products p
    LEFT JOIN product_categories c ON c.id = p.category_id
    LEFT JOIN brands b ON b.id = p.brand_id
    LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id`
@@ -158,13 +156,36 @@ function productType(input: ProductInput): ProductType {
 
 /** Field-level before/after diff for the audit trail (only changed scalars). */
 const AUDITED_FIELDS: (keyof LocalProduct)[] = [
-  'name', 'description', 'sku', 'barcode', 'sellingPrice', 'costPrice', 'taxRate',
-  'productType', 'categoryId', 'brandId', 'modelId', 'unitOfMeasureId', 'imageUrl',
-  'isActive', 'isFeatured', 'isPublishedOnline', 'onlineDescription', 'onlineStockReserve',
-  'metaTitle', 'metaDescription', 'isSerialized', 'serialType', 'warrantyMonths',
-  'lowStockThreshold', 'reorderPoint',
+  'name',
+  'description',
+  'sku',
+  'barcode',
+  'sellingPrice',
+  'costPrice',
+  'taxRate',
+  'productType',
+  'categoryId',
+  'brandId',
+  'modelId',
+  'unitOfMeasureId',
+  'imageUrl',
+  'isActive',
+  'isFeatured',
+  'isPublishedOnline',
+  'onlineDescription',
+  'onlineStockReserve',
+  'metaTitle',
+  'metaDescription',
+  'isSerialized',
+  'serialType',
+  'warrantyMonths',
+  'lowStockThreshold',
+  'reorderPoint',
 ]
-function diffProduct(before: LocalProduct | null, after: LocalProduct): { before: Record<string, unknown>; after: Record<string, unknown> } {
+function diffProduct(
+  before: LocalProduct | null,
+  after: LocalProduct,
+): { before: Record<string, unknown>; after: Record<string, unknown> } {
   const b: Record<string, unknown> = {}
   const a: Record<string, unknown> = {}
   for (const f of AUDITED_FIELDS) {
@@ -192,7 +213,8 @@ export class ProductsService {
 
   list(query: ProductListQuery = {}): PaginatedResult<LocalProduct> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalProduct>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalProduct>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'p.business_id = ? AND p.is_deleted = 0'
     const params: unknown[] = [businessId]
@@ -229,7 +251,12 @@ export class ProductsService {
         params,
         searchColumns: ['p.name', 'p.sku', 'p.barcode'],
         defaultSort: 'p.name ASC',
-        sortMap: { name: 'p.name', price: 'p.price', createdAt: 'p.created_at', updatedAt: 'p.updated_at' },
+        sortMap: {
+          name: 'p.name',
+          price: 'p.price',
+          createdAt: 'p.created_at',
+          updatedAt: 'p.updated_at',
+        },
       },
       query,
     )
@@ -272,7 +299,8 @@ export class ProductsService {
       [businessId],
     )
     if (!row) return empty
-    const blendedMarginPct = row.retailValue > 0 ? ((row.retailValue - row.catalogValueCost) / row.retailValue) * 100 : 0
+    const blendedMarginPct =
+      row.retailValue > 0 ? ((row.retailValue - row.catalogValueCost) / row.retailValue) * 100 : 0
     return { ...row, blendedMarginPct }
   }
 
@@ -335,7 +363,13 @@ export class ProductsService {
     this.syncOpeningStock(id, businessId, now)
     this.onMutated()
     const created = this.getOne(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'product', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'product',
+      entityId: id,
+      entityLabel: created.name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -393,7 +427,13 @@ export class ProductsService {
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
     this.onMutated()
     const after = this.getOne(id)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: id, entityLabel: after.name, changes: diffProduct(before, after) })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product',
+      entityId: id,
+      entityLabel: after.name,
+      changes: diffProduct(before, after),
+    })
     return after
   }
 
@@ -416,7 +456,10 @@ export class ProductsService {
       [businessId, id],
     )
     for (const s of serials) {
-      this.db.run(`UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`, [now, s.id])
+      this.db.run(
+        `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
+        [now, s.id],
+      )
       this.enqueueSerialUnit(s.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     const variants = this.db.query<{ id: string }>(
@@ -424,8 +467,14 @@ export class ProductsService {
       [businessId, id],
     )
     for (const v of variants) {
-      this.db.run(`UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`, [now, v.id])
-      this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
+      this.db.run(
+        `UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`,
+        [now, v.id],
+      )
+      this.db.run(
+        `UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`,
+        [now, v.id],
+      )
       this.enqueueVariant('productVariants', v.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     const images = this.db.query<{ id: string }>(
@@ -433,7 +482,10 @@ export class ProductsService {
       [businessId, id],
     )
     for (const im of images) {
-      this.db.run(`UPDATE product_images SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, im.id])
+      this.db.run(`UPDATE product_images SET is_deleted = 1, updated_at = ? WHERE id = ?`, [
+        now,
+        im.id,
+      ])
       this.enqueueImage(im.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
 
@@ -447,10 +499,22 @@ export class ProductsService {
     // Write off any remaining stock (ledger → 0). effectiveStock is 0 now, so
     // recordStockMovement records before=stockBefore, after=0.
     if (stockBefore > 0) {
-      this.recordStockMovement(id, businessId, -stockBefore, { referenceType: 'product', referenceId: id, notes: 'Product deleted' }, now)
+      this.recordStockMovement(
+        id,
+        businessId,
+        -stockBefore,
+        { referenceType: 'product', referenceId: id, notes: 'Product deleted' },
+        now,
+      )
     }
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'product', entityId: id, entityLabel: before.name, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'product',
+      entityId: id,
+      entityLabel: before.name,
+      changes: { before, after: null },
+    })
   }
 
   /** Single product by id (for the edit form). */
@@ -470,7 +534,14 @@ export class ProductsService {
     if (!c) return null
 
     // 1) a serialized unit that's still in stock
-    const su = this.db.get<{ id: string; product_id: string; variant_id: string | null; serial_number: string; serial_type: string; status: string }>(
+    const su = this.db.get<{
+      id: string
+      product_id: string
+      variant_id: string | null
+      serial_number: string
+      serial_type: string
+      status: string
+    }>(
       `SELECT id, product_id, variant_id, serial_number, serial_type, status FROM product_serial_units
        WHERE business_id = ? AND serial_number = ? AND is_deleted = 0 AND status = 'IN_STOCK'`,
       [businessId, c],
@@ -481,7 +552,14 @@ export class ProductsService {
         return {
           kind: 'serial',
           product,
-          serial: { id: su.id, productId: su.product_id, variantId: su.variant_id, serialNumber: su.serial_number, serialType: su.serial_type as LocalSerialUnit['serialType'], status: su.status as LocalSerialUnit['status'] },
+          serial: {
+            id: su.id,
+            productId: su.product_id,
+            variantId: su.variant_id,
+            serialNumber: su.serial_number,
+            serialType: su.serial_type as LocalSerialUnit['serialType'],
+            status: su.status as LocalSerialUnit['status'],
+          },
         }
       }
     }
@@ -521,7 +599,13 @@ export class ProductsService {
        ORDER BY sort_order ASC`,
       [businessId, productId],
     )
-    return rows.map((r) => ({ id: r.id, productId: r.product_id, url: r.url, altText: r.alt_text, sortOrder: r.sort_order }))
+    return rows.map((r) => ({
+      id: r.id,
+      productId: r.product_id,
+      url: r.url,
+      altText: r.alt_text,
+      sortOrder: r.sort_order,
+    }))
   }
 
   /** Replace a product's gallery with `images` (diff: add new, soft-delete removed, reindex). */
@@ -538,13 +622,10 @@ export class ProductsService {
     images.forEach((img, index) => {
       const id = img.id ?? randomUUID()
       if (img.id && existing.some((e) => e.id === img.id)) {
-        this.db.run(`UPDATE product_images SET url = ?, alt_text = ?, sort_order = ?, updated_at = ? WHERE id = ?`, [
-          img.url,
-          img.altText ?? null,
-          index,
-          now,
-          id,
-        ])
+        this.db.run(
+          `UPDATE product_images SET url = ?, alt_text = ?, sort_order = ?, updated_at = ? WHERE id = ?`,
+          [img.url, img.altText ?? null, index, now, id],
+        )
       } else {
         this.db.run(
           `INSERT INTO product_images (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
@@ -552,16 +633,31 @@ export class ProductsService {
           [id, businessId, productId, img.url, img.altText ?? null, index, now, now],
         )
       }
-      this.enqueueImage(id, 'UPSERT', businessId, { productId, url: img.url, altText: img.altText ?? null, sortOrder: index }, now)
+      this.enqueueImage(
+        id,
+        'UPSERT',
+        businessId,
+        { productId, url: img.url, altText: img.altText ?? null, sortOrder: index },
+        now,
+      )
     })
 
     for (const e of existing) {
       if (keepIds.has(e.id)) continue
-      this.db.run(`UPDATE product_images SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, e.id])
+      this.db.run(`UPDATE product_images SET is_deleted = 1, updated_at = ? WHERE id = ?`, [
+        now,
+        e.id,
+      ])
       this.enqueueImage(e.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { gallery: images.length } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product',
+      entityId: productId,
+      entityLabel: this.getOne(productId)?.name ?? null,
+      changes: { before: null, after: { gallery: images.length } },
+    })
   }
 
   // ---- variants ------------------------------------------------------------
@@ -612,7 +708,9 @@ export class ProductsService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const existing = this.listVariants(productId)
-    const existingBySig = new Map(existing.map((v) => [variantSignature(v.options.map((o) => o.attributeOptionId)), v]))
+    const existingBySig = new Map(
+      existing.map((v) => [variantSignature(v.options.map((o) => o.attributeOptionId)), v]),
+    )
     const keepIds = new Set<string>()
 
     variants.forEach((v, index) => {
@@ -625,13 +723,59 @@ export class ProductsService {
         this.db.run(
           `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, low_stock_threshold = ?, updated_at = ?
            WHERE id = ? AND business_id = ?`,
-          [v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, v.lowStockThreshold ?? null, now, id, businessId],
+          [
+            v.name,
+            v.priceOverride ?? null,
+            v.costPriceOverride ?? null,
+            v.sku ?? null,
+            v.isActive === false ? 0 : 1,
+            index,
+            v.lowStockThreshold ?? null,
+            now,
+            id,
+            businessId,
+          ],
         )
+        // Backfill: re-enqueue this variant's existing option links so they reach the cloud
+        // even if they predate variant-option sync (their combo is unchanged, so no re-insert).
+        const priorOpts = this.db.query<VariantOptionRow>(
+          `SELECT id, variant_id, attribute_group_id, attribute_option_id FROM product_variant_options
+           WHERE variant_id = ? AND business_id = ? AND is_deleted = 0`,
+          [id, businessId],
+        )
+        for (const po of priorOpts) {
+          this.enqueueVariant(
+            'productVariantOptions',
+            po.id,
+            'UPSERT',
+            businessId,
+            {
+              variantId: id,
+              attributeGroupId: po.attribute_group_id,
+              attributeOptionId: po.attribute_option_id,
+            },
+            now,
+          )
+        }
       } else {
         this.db.run(
           `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, businessId, productId, v.name, v.priceOverride ?? null, v.costPriceOverride ?? null, v.sku ?? null, v.isActive === false ? 0 : 1, index, Math.max(v.openingStock ?? 0, 0), v.lowStockThreshold ?? null, now, now],
+          [
+            id,
+            businessId,
+            productId,
+            v.name,
+            v.priceOverride ?? null,
+            v.costPriceOverride ?? null,
+            v.sku ?? null,
+            v.isActive === false ? 0 : 1,
+            index,
+            Math.max(v.openingStock ?? 0, 0),
+            v.lowStockThreshold ?? null,
+            now,
+            now,
+          ],
         )
         // Insert this variant's option links (new combos only).
         for (const opt of v.options) {
@@ -641,7 +785,18 @@ export class ProductsService {
              VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
             [optId, businessId, id, opt.attributeGroupId, opt.attributeOptionId, now, now],
           )
-          this.enqueueVariant('productVariantOptions', optId, 'UPSERT', businessId, { variantId: id, attributeGroupId: opt.attributeGroupId, attributeOptionId: opt.attributeOptionId }, now)
+          this.enqueueVariant(
+            'productVariantOptions',
+            optId,
+            'UPSERT',
+            businessId,
+            {
+              variantId: id,
+              attributeGroupId: opt.attributeGroupId,
+              attributeOptionId: opt.attributeOptionId,
+            },
+            now,
+          )
         }
       }
       this.enqueueVariant(
@@ -649,20 +804,42 @@ export class ProductsService {
         id,
         'UPSERT',
         businessId,
-        { productId, name: v.name, priceOverride: v.priceOverride ?? null, costPriceOverride: v.costPriceOverride ?? null, sku: v.sku ?? null, isActive: v.isActive !== false, sortOrder: index, openingStock: prior ? undefined : (v.openingStock ?? 0), lowStockThreshold: v.lowStockThreshold ?? null },
+        {
+          productId,
+          name: v.name,
+          priceOverride: v.priceOverride ?? null,
+          costPriceOverride: v.costPriceOverride ?? null,
+          sku: v.sku ?? null,
+          isActive: v.isActive !== false,
+          sortOrder: index,
+          openingStock: prior ? undefined : (v.openingStock ?? 0),
+          lowStockThreshold: v.lowStockThreshold ?? null,
+        },
         now,
       )
     })
 
     for (const v of existing) {
       if (keepIds.has(v.id)) continue
-      this.db.run(`UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`, [now, v.id])
+      this.db.run(
+        `UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`,
+        [now, v.id],
+      )
       this.enqueueVariant('productVariants', v.id, 'DELETE', businessId, { isDeleted: true }, now)
-      this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, v.id])
+      this.db.run(
+        `UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`,
+        [now, v.id],
+      )
     }
     this.syncOpeningStock(productId, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { variants: variants.length } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product',
+      entityId: productId,
+      entityLabel: this.getOne(productId)?.name ?? null,
+      changes: { before: null, after: { variants: variants.length } },
+    })
   }
 
   // ---- variant management (movement-based, post-creation) -------------------
@@ -678,7 +855,11 @@ export class ProductsService {
     if (!product) throw new Error('Product not found.')
     const now = new Date().toISOString()
     const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
-    if (this.listVariants(productId).some((v) => variantSignature(v.options.map((o) => o.attributeOptionId)) === sig)) {
+    if (
+      this.listVariants(productId).some(
+        (v) => variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
+      )
+    ) {
       throw new Error('A variant with this combination already exists.')
     }
     const id = randomUUID()
@@ -687,7 +868,21 @@ export class ProductsService {
     this.db.run(
       `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      [id, businessId, productId, input.name, input.priceOverride ?? null, input.costPriceOverride ?? null, input.sku ?? null, input.isActive === false ? 0 : 1, sortOrder, stock, input.lowStockThreshold ?? null, now, now],
+      [
+        id,
+        businessId,
+        productId,
+        input.name,
+        input.priceOverride ?? null,
+        input.costPriceOverride ?? null,
+        input.sku ?? null,
+        input.isActive === false ? 0 : 1,
+        sortOrder,
+        stock,
+        input.lowStockThreshold ?? null,
+        now,
+        now,
+      ],
     )
     for (const opt of input.options) {
       const optId = randomUUID()
@@ -696,20 +891,57 @@ export class ProductsService {
          VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
         [optId, businessId, id, opt.attributeGroupId, opt.attributeOptionId, now, now],
       )
-      this.enqueueVariant('productVariantOptions', optId, 'UPSERT', businessId, { variantId: id, attributeGroupId: opt.attributeGroupId, attributeOptionId: opt.attributeOptionId }, now)
+      this.enqueueVariant(
+        'productVariantOptions',
+        optId,
+        'UPSERT',
+        businessId,
+        {
+          variantId: id,
+          attributeGroupId: opt.attributeGroupId,
+          attributeOptionId: opt.attributeOptionId,
+        },
+        now,
+      )
     }
     this.enqueueVariant(
       'productVariants',
       id,
       'UPSERT',
       businessId,
-      { productId, name: input.name, priceOverride: input.priceOverride ?? null, costPriceOverride: input.costPriceOverride ?? null, sku: input.sku ?? null, isActive: input.isActive !== false, sortOrder, openingStock: stock, lowStockThreshold: input.lowStockThreshold ?? null },
+      {
+        productId,
+        name: input.name,
+        priceOverride: input.priceOverride ?? null,
+        costPriceOverride: input.costPriceOverride ?? null,
+        sku: input.sku ?? null,
+        isActive: input.isActive !== false,
+        sortOrder,
+        openingStock: stock,
+        lowStockThreshold: input.lowStockThreshold ?? null,
+      },
       now,
     )
     if (!product.isSerialized && stock > 0) {
-      this.recordStockMovement(productId, businessId, stock, { referenceType: 'product_variant', referenceId: id, notes: `Added variant "${input.name}" (+${stock})` }, now)
+      this.recordStockMovement(
+        productId,
+        businessId,
+        stock,
+        {
+          referenceType: 'product_variant',
+          referenceId: id,
+          notes: `Added variant "${input.name}" (+${stock})`,
+        },
+        now,
+      )
     }
-    this.audit?.log({ action: 'CREATE', entityType: 'product_variant', entityId: id, entityLabel: input.name, changes: { before: null, after: { productId, name: input.name, openingStock: stock } } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'product_variant',
+      entityId: id,
+      entityLabel: input.name,
+      changes: { before: null, after: { productId, name: input.name, openingStock: stock } },
+    })
     this.onMutated()
     return this.listVariants(productId).find((v) => v.id === id)!
   }
@@ -723,14 +955,33 @@ export class ProductsService {
     this.db.run(
       `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
-      [input.name, input.priceOverride ?? null, input.costPriceOverride ?? null, input.sku ?? null, input.isActive === false ? 0 : 1, input.lowStockThreshold ?? null, now, variantId, businessId],
+      [
+        input.name,
+        input.priceOverride ?? null,
+        input.costPriceOverride ?? null,
+        input.sku ?? null,
+        input.isActive === false ? 0 : 1,
+        input.lowStockThreshold ?? null,
+        now,
+        variantId,
+        businessId,
+      ],
     )
     this.enqueueVariant(
       'productVariants',
       variantId,
       'UPSERT',
       businessId,
-      { productId, name: input.name, priceOverride: input.priceOverride ?? null, costPriceOverride: input.costPriceOverride ?? null, sku: input.sku ?? null, isActive: input.isActive !== false, sortOrder: prior.sortOrder, lowStockThreshold: input.lowStockThreshold ?? null },
+      {
+        productId,
+        name: input.name,
+        priceOverride: input.priceOverride ?? null,
+        costPriceOverride: input.costPriceOverride ?? null,
+        sku: input.sku ?? null,
+        isActive: input.isActive !== false,
+        sortOrder: prior.sortOrder,
+        lowStockThreshold: input.lowStockThreshold ?? null,
+      },
       now,
     )
     this.audit?.log({
@@ -738,7 +989,22 @@ export class ProductsService {
       entityType: 'product_variant',
       entityId: variantId,
       entityLabel: input.name,
-      changes: { before: { name: prior.name, priceOverride: prior.priceOverride, costPriceOverride: prior.costPriceOverride, sku: prior.sku, isActive: prior.isActive }, after: { name: input.name, priceOverride: input.priceOverride ?? null, costPriceOverride: input.costPriceOverride ?? null, sku: input.sku ?? null, isActive: input.isActive !== false } },
+      changes: {
+        before: {
+          name: prior.name,
+          priceOverride: prior.priceOverride,
+          costPriceOverride: prior.costPriceOverride,
+          sku: prior.sku,
+          isActive: prior.isActive,
+        },
+        after: {
+          name: input.name,
+          priceOverride: input.priceOverride ?? null,
+          costPriceOverride: input.costPriceOverride ?? null,
+          sku: input.sku ?? null,
+          isActive: input.isActive !== false,
+        },
+      },
     })
     this.onMutated()
     return this.listVariants(productId).find((v) => v.id === variantId)!
@@ -764,21 +1030,49 @@ export class ProductsService {
       )
       writeOff = units.length
       for (const u of units) {
-        this.db.run(`UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`, [now, u.id])
+        this.db.run(
+          `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
+          [now, u.id],
+        )
         this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
       }
     } else {
       writeOff = variant.stockQuantity
     }
 
-    this.db.run(`UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`, [now, variantId])
-    this.db.run(`UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`, [now, variantId])
-    this.enqueueVariant('productVariants', variantId, 'DELETE', businessId, { isDeleted: true }, now)
+    this.db.run(
+      `UPDATE product_variants SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?`,
+      [now, variantId],
+    )
+    this.db.run(
+      `UPDATE product_variant_options SET is_deleted = 1, updated_at = ? WHERE variant_id = ?`,
+      [now, variantId],
+    )
+    this.enqueueVariant(
+      'productVariants',
+      variantId,
+      'DELETE',
+      businessId,
+      { isDeleted: true },
+      now,
+    )
 
     if (writeOff > 0) {
-      this.recordStockMovement(productId, businessId, -writeOff, { referenceType: 'product_variant', referenceId: variantId, notes: trimmed }, now)
+      this.recordStockMovement(
+        productId,
+        businessId,
+        -writeOff,
+        { referenceType: 'product_variant', referenceId: variantId, notes: trimmed },
+        now,
+      )
     }
-    this.audit?.log({ action: 'DELETE', entityType: 'product_variant', entityId: variantId, entityLabel: variant.name, changes: { before: { name: variant.name, removeReason: trimmed }, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'product_variant',
+      entityId: variantId,
+      entityLabel: variant.name,
+      changes: { before: { name: variant.name, removeReason: trimmed }, after: null },
+    })
     this.onMutated()
   }
 
@@ -804,7 +1098,11 @@ export class ProductsService {
 
   /** IN_STOCK serial units for a product (optionally a variant) — the units a sale can
    * consume. Used by the Sell screen's serial picker. */
-  listInStockSerials(productId: string, variantId?: string | null, search?: string): LocalSerialUnit[] {
+  listInStockSerials(
+    productId: string,
+    variantId?: string | null,
+    search?: string,
+  ): LocalSerialUnit[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     let where = `business_id = ? AND product_id = ? AND is_deleted = 0 AND status = 'IN_STOCK'`
@@ -866,19 +1164,34 @@ export class ProductsService {
         id,
         'UPSERT',
         businessId,
-        { productId, variantId, serialNumber: serial, serialType: u.serialType, status: 'IN_STOCK' },
+        {
+          productId,
+          variantId,
+          serialNumber: serial,
+          serialType: u.serialType,
+          status: 'IN_STOCK',
+        },
         now,
       )
     }
 
     for (const u of existing) {
       if (keepIds.has(u.id)) continue
-      this.db.run(`UPDATE product_serial_units SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, u.id])
+      this.db.run(`UPDATE product_serial_units SET is_deleted = 1, updated_at = ? WHERE id = ?`, [
+        now,
+        u.id,
+      ])
       this.enqueueSerialUnit(u.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
     this.syncOpeningStock(productId, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'product', entityId: productId, entityLabel: this.getOne(productId)?.name ?? null, changes: { before: null, after: { serials: units.length } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product',
+      entityId: productId,
+      entityLabel: this.getOne(productId)?.name ?? null,
+      changes: { before: null, after: { serials: units.length } },
+    })
   }
 
   // ---- serial-unit management (movement-based, post-creation) ---------------
@@ -890,7 +1203,12 @@ export class ProductsService {
   /** Add serial units to stock (a stock-in). New numbers become IN_STOCK; a
    * previously retired number is revived. Writes one stock movement + a local
    * audit row per unit (with the active actor). */
-  addSerialUnits(productId: string, units: SerialUnitInput[], notes: string | null = null, movementType?: StockMovementType): LocalSerialUnit[] {
+  addSerialUnits(
+    productId: string,
+    units: SerialUnitInput[],
+    notes: string | null = null,
+    movementType?: StockMovementType,
+  ): LocalSerialUnit[] {
     const businessId = this.requireBusinessId()
     const product = this.getOne(productId)
     if (!product) throw new Error('Product not found.')
@@ -911,7 +1229,9 @@ export class ProductsService {
       )
       let id: string
       if (existing) {
-        const live = existing.is_deleted === 0 && (existing.status === 'IN_STOCK' || existing.status === 'RESERVED')
+        const live =
+          existing.is_deleted === 0 &&
+          (existing.status === 'IN_STOCK' || existing.status === 'RESERVED')
         if (live) throw new Error(`${serial} is already in stock.`)
         id = existing.id
         this.db.run(
@@ -926,8 +1246,27 @@ export class ProductsService {
           [id, businessId, productId, variantId, serial, u.serialType, now, now],
         )
       }
-      this.enqueueSerialUnit(id, 'UPSERT', businessId, { productId, variantId, serialNumber: serial, serialType: u.serialType, status: 'IN_STOCK' }, now)
-      created.push({ id, productId, variantId, serialNumber: serial, serialType: u.serialType, status: 'IN_STOCK' })
+      this.enqueueSerialUnit(
+        id,
+        'UPSERT',
+        businessId,
+        {
+          productId,
+          variantId,
+          serialNumber: serial,
+          serialType: u.serialType,
+          status: 'IN_STOCK',
+        },
+        now,
+      )
+      created.push({
+        id,
+        productId,
+        variantId,
+        serialNumber: serial,
+        serialType: u.serialType,
+        status: 'IN_STOCK',
+      })
     }
 
     if (created.length > 0) {
@@ -935,7 +1274,12 @@ export class ProductsService {
         productId,
         businessId,
         created.length,
-        { referenceType: 'serial_unit', referenceId: productId, notes: notes?.trim() || `Added ${created.length} serial unit(s)`, type: movementType },
+        {
+          referenceType: 'serial_unit',
+          referenceId: productId,
+          notes: notes?.trim() || `Added ${created.length} serial unit(s)`,
+          type: movementType,
+        },
         now,
       )
       for (const u of created) {
@@ -944,7 +1288,15 @@ export class ProductsService {
           entityType: 'product_serial_unit',
           entityId: u.id,
           entityLabel: u.serialNumber,
-          changes: { before: null, after: { productId, variantId: u.variantId, serialNumber: u.serialNumber, status: 'IN_STOCK' } },
+          changes: {
+            before: null,
+            after: {
+              productId,
+              variantId: u.variantId,
+              serialNumber: u.serialNumber,
+              status: 'IN_STOCK',
+            },
+          },
         })
       }
       this.onMutated()
@@ -966,15 +1318,27 @@ export class ProductsService {
     const trimmed = reason.trim()
     if (!trimmed) throw new Error('A reason is required to retire a unit.')
     const now = new Date().toISOString()
-    this.db.run(`UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`, [now, unitId])
+    this.db.run(
+      `UPDATE product_serial_units SET status = 'DAMAGED', is_deleted = 1, updated_at = ? WHERE id = ?`,
+      [now, unitId],
+    )
     this.enqueueSerialUnit(unitId, 'DELETE', businessId, { isDeleted: true }, now)
-    this.recordStockMovement(productId, businessId, -1, { referenceType: 'serial_unit', referenceId: unitId, notes: trimmed }, now)
+    this.recordStockMovement(
+      productId,
+      businessId,
+      -1,
+      { referenceType: 'serial_unit', referenceId: unitId, notes: trimmed },
+      now,
+    )
     this.audit?.log({
       action: 'DELETE',
       entityType: 'product_serial_unit',
       entityId: unitId,
       entityLabel: unit.serial_number,
-      changes: { before: { serialNumber: unit.serial_number, status: unit.status, retireReason: trimmed }, after: null },
+      changes: {
+        before: { serialNumber: unit.serial_number, status: unit.status, retireReason: trimmed },
+        after: null,
+      },
     })
     this.onMutated()
   }
@@ -998,12 +1362,22 @@ export class ProductsService {
       if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
     }
     const now = new Date().toISOString()
-    this.db.run(`UPDATE product_serial_units SET serial_number = ?, updated_at = ? WHERE id = ?`, [serial, now, unitId])
+    this.db.run(`UPDATE product_serial_units SET serial_number = ?, updated_at = ? WHERE id = ?`, [
+      serial,
+      now,
+      unitId,
+    ])
     this.enqueueSerialUnit(
       unitId,
       'UPSERT',
       businessId,
-      { productId, variantId: unit.variant_id, serialNumber: serial, serialType: unit.serial_type, status: unit.status },
+      {
+        productId,
+        variantId: unit.variant_id,
+        serialNumber: serial,
+        serialType: unit.serial_type,
+        status: unit.status,
+      },
       now,
     )
     this.audit?.log({
@@ -1057,8 +1431,9 @@ export class ProductsService {
   /** The active business's currency (ISO 4217), defaulting to XAF if unknown. */
   private businessCurrency(businessId: string): string {
     return (
-      this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [businessId])?.currency ??
-      'XAF'
+      this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [
+        businessId,
+      ])?.currency ?? 'XAF'
     )
   }
 
@@ -1135,7 +1510,14 @@ export class ProductsService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 
@@ -1153,7 +1535,15 @@ export class ProductsService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), entity, recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        entity,
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 
@@ -1170,7 +1560,14 @@ export class ProductsService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 
@@ -1268,7 +1665,14 @@ export class ProductsService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 }
