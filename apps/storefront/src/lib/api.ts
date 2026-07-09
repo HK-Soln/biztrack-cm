@@ -3,6 +3,7 @@ import type {
   AddCartItemRequest,
   CategoryTreeResponse,
   CheckoutRequest,
+  ContactMessageRequest,
   OnlineCart,
   PaginatedResult,
   PublicFacets,
@@ -150,6 +151,10 @@ export function removeCartItem(slug: string, sessionToken: string, itemKey: stri
     'DELETE',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
   )
+}
+
+export function sendContactMessage(slug: string, payload: ContactMessageRequest) {
+  return send<{ ok: true }>('POST', `${storePath(slug)}/contact`, payload)
 }
 
 export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {

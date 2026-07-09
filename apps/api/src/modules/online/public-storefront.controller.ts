@@ -5,6 +5,7 @@ import { OnlineOrdersService } from './online-orders.service'
 import {
   AddCartItemDto,
   CheckoutDto,
+  ContactMessageDto,
   PublicProductsQueryDto,
   UpdateCartItemDto,
 } from './dto/online-orders.dto'
@@ -55,6 +56,12 @@ export class PublicStorefrontController {
   @ApiOperation({ summary: 'Product detail with variants' })
   getProduct(@Param('slug') slug: string, @Param('productSlug') productSlug: string) {
     return this.storefront.getProduct(slug, productSlug)
+  }
+
+  @Post(':slug/contact')
+  @ApiOperation({ summary: 'Send a contact-form message to the business (email)' })
+  sendContactMessage(@Param('slug') slug: string, @Body() dto: ContactMessageDto) {
+    return this.storefront.sendContactMessage(slug, dto)
   }
 
   // ---- Cart ----------------------------------------------------------------

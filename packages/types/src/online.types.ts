@@ -362,6 +362,15 @@ export interface PublicFacets {
   attributeGroups: PublicAttributeGroupFacet[]
 }
 
+/** A message sent from a storefront's contact form to the business (delivered by email). */
+export interface ContactMessageRequest {
+  name: string
+  phone?: string
+  email?: string
+  subject: string
+  message: string
+}
+
 export interface PublicProductListItem {
   id: string
   name: string

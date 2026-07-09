@@ -4,6 +4,7 @@ import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import type {
   CategoryTreeResponse,
+  ContactMessageRequest,
   OnlineStorePublishedConfig,
   PaginatedResult,
   PublicAttributeGroupFacet,
@@ -15,7 +16,9 @@ import type {
   PublicStore,
 } from '@biztrack/types'
 import { SerialUnitStatus } from '@biztrack/types'
-import { AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { Business } from '@/entities/business.entity'
+import { NotificationChannel, NotificationType } from '@/entities/notification.entity'
 import { OnlineStore } from '@/entities/online-store.entity'
 import { Product } from '@/entities/product.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
@@ -24,6 +27,7 @@ import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { CategoriesService } from '@/modules/products/services/categories.service'
 import { ProductVariantsService } from '@/modules/products/services/product-variants.service'
+import { NotificationsService } from '@/modules/notifications/services/notifications.service'
 import { OnlineStoreService } from './online-store.service'
 
 /** The live storefront view: the store row (identity + catalogue scope) + its published config. */
@@ -46,6 +50,9 @@ export class PublicStorefrontService {
     private readonly variantsService: ProductVariantsService,
     private readonly i18n: I18nService<I18nTranslations>,
     private readonly storeService: OnlineStoreService,
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async getStore(slug: string): Promise<PublicStore> {
@@ -259,6 +266,49 @@ export class PublicStorefrontService {
       })),
       attributeGroups: [...groups.values()],
     }
+  }
+
+  /**
+   * Deliver a storefront contact-form message to the business by email (via the Resend
+   * notification pipeline). Recipient = the store's configured email, else the business email.
+   */
+  async sendContactMessage(slug: string, dto: ContactMessageRequest): Promise<{ ok: true }> {
+    const { store, config } = await this.requireStore(slug)
+    const business = await this.businessRepo.findOne({ where: { id: store.businessId } })
+    const recipient = config.email?.trim() || business?.email?.trim() || null
+    if (!recipient) {
+      throw new AppBadRequestException(
+        'This store has no contact email configured.',
+        'ONLINE_STORE_NO_CONTACT_EMAIL',
+      )
+    }
+
+    const body = [
+      `Name: ${dto.name.trim()}`,
+      dto.phone?.trim() ? `Phone: ${dto.phone.trim()}` : null,
+      dto.email?.trim() ? `Email: ${dto.email.trim()}` : null,
+      '',
+      dto.message.trim(),
+    ]
+      .filter((line) => line !== null)
+      .join('\n')
+
+    await this.notifications.createAndEnqueue({
+      channel: NotificationChannel.EMAIL,
+      type: NotificationType.PAYMENT_REMINDER, // reused (no enum migration) — metadata marks it as contact
+      recipient,
+      subject: `[${config.storeName}] ${dto.subject.trim()}`,
+      body,
+      businessId: store.businessId,
+      metadata: {
+        kind: 'contact',
+        storeSlug: config.storeSlug,
+        replyTo: dto.email?.trim() ?? null,
+        fromName: dto.name.trim(),
+        fromPhone: dto.phone?.trim() ?? null,
+      },
+    })
+    return { ok: true }
   }
 
   // ---- internals ----------------------------------------------------------

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Transform, Type } from 'class-transformer'
 import {
   IsArray,
+  IsEmail,
   IsIn,
   IsInt,
   IsOptional,
@@ -14,6 +15,7 @@ import {
 import type {
   AddCartItemRequest,
   CheckoutRequest,
+  ContactMessageRequest,
   OnlineFulfillmentType,
   OnlineOrderStatus,
   OnlinePaymentStatus,
@@ -184,6 +186,29 @@ export class CheckoutDto implements CheckoutRequest {
   @IsString()
   @MaxLength(40)
   paymentMethod?: string
+}
+
+export class ContactMessageDto implements ContactMessageRequest {
+  @IsString()
+  @MaxLength(120)
+  name!: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string
+
+  @IsOptional()
+  @IsEmail()
+  email?: string
+
+  @IsString()
+  @MaxLength(150)
+  subject!: string
+
+  @IsString()
+  @MaxLength(3000)
+  message!: string
 }
 
 export class OrderSerialSelectionDto implements OrderSerialSelection {

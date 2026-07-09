@@ -1,12 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PhoneInput } from '@biztrack/ui/biztrack'
+import { sendContactMessage } from '@/lib/api'
 
 const IcSend = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
     <path d="m4 4 16 8-16 8 4-8-4-8Z" />
+  </svg>
+)
+const IcCheck = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+    <path d="M20 6 9 17l-5-5" />
   </svg>
 )
 
@@ -18,46 +25,42 @@ const SUBJECT_KEYS = [
   'subjectOther',
 ] as const
 
-/**
- * Contact form that composes a message and opens the store's WhatsApp (preferred) or
- * an email draft — no backend needed. Rendered only when the store exposes a channel.
- */
-export function ContactForm({
-  whatsappNumber,
-  email,
-}: {
-  whatsappNumber: string | null
-  email: string | null
-}) {
+/** Contact form — posts to the backend, which emails the business (via Resend). */
+export function ContactForm({ slug }: { slug: string }) {
   const t = useTranslations('contact')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState<string | undefined>(undefined)
-  const [customerEmail, setCustomerEmail] = useState('')
+  const [email, setEmail] = useState('')
   const [subject, setSubject] = useState<string>(SUBJECT_KEYS[0])
   const [message, setMessage] = useState('')
 
+  const mutation = useMutation({
+    mutationFn: () =>
+      sendContactMessage(slug, {
+        name: name.trim(),
+        phone: phone || undefined,
+        email: email.trim() || undefined,
+        subject: t(subject),
+        message: message.trim(),
+      }),
+  })
+
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    const subjectLabel = t(subject)
-    const body = [
-      name ? `${t('name')}: ${name}` : '',
-      phone ? `${t('phone')}: ${phone}` : '',
-      customerEmail ? `${t('email')}: ${customerEmail}` : '',
-      '',
-      message,
-    ]
-      .filter((line) => line !== '' || message)
-      .join('\n')
+    if (!name.trim() || !message.trim()) return
+    mutation.mutate()
+  }
 
-    if (whatsappNumber) {
-      const digits = whatsappNumber.replace(/\D/g, '')
-      const text = `${subjectLabel}\n\n${body}`
-      window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, '_blank')
-    } else if (email) {
-      window.location.href = `mailto:${email}?subject=${encodeURIComponent(
-        subjectLabel,
-      )}&body=${encodeURIComponent(body)}`
-    }
+  if (mutation.isSuccess) {
+    return (
+      <div className="ct-form">
+        <div className="empty" style={{ padding: '40px 20px' }}>
+          <div className="ei">{IcCheck}</div>
+          <h3>{t('sentTitle')}</h3>
+          <p>{t('sentDesc')}</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -67,7 +70,7 @@ export function ContactForm({
       <div className="field-grid">
         <div className="field">
           <label>{t('name')}</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <input value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div className="field">
           <label>{t('phone')}</label>
@@ -75,11 +78,7 @@ export function ContactForm({
         </div>
         <div className="field full">
           <label>{t('email')}</label>
-          <input
-            type="email"
-            value={customerEmail}
-            onChange={(e) => setCustomerEmail(e.target.value)}
-          />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
         <div className="field full">
           <label>{t('subject')}</label>
@@ -102,10 +101,20 @@ export function ContactForm({
           />
         </div>
       </div>
-      <button className="btn btn-primary btn-lg btn-block" style={{ marginTop: 18 }} type="submit">
+      <button
+        className="btn btn-primary btn-lg btn-block"
+        style={{ marginTop: 18 }}
+        type="submit"
+        disabled={mutation.isPending}
+      >
         {IcSend}
-        {t('send')}
+        {mutation.isPending ? t('sending') : t('send')}
       </button>
+      {mutation.isError ? (
+        <p style={{ color: 'var(--danger)', marginTop: 10, fontSize: 13 }}>
+          {(mutation.error as Error).message}
+        </p>
+      ) : null}
     </form>
   )
 }

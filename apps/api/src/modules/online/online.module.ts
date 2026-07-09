@@ -14,6 +14,7 @@ import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductsModule } from '@/modules/products/products.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
+import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { OnlineStoreController } from './online-store.controller'
 import { OnlineStoreService } from './online-store.service'
 import { PublicStorefrontController } from './public-storefront.controller'
@@ -39,6 +40,7 @@ import { OnlineOrdersService } from './online-orders.service'
     ProductsModule,
     SalesModule,
     PermissionsModule,
+    NotificationsModule,
   ],
   controllers: [OnlineStoreController, PublicStorefrontController, OnlineOrdersController],
   providers: [OnlineStoreService, PublicStorefrontService, OnlineOrdersService],
