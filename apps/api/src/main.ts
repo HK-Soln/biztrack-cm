@@ -45,8 +45,14 @@ async function bootstrap() {
   const matchesWildcard = (origin: string): boolean => {
     if (wildcardSuffixes.length === 0) return false
     try {
-      const host = new URL(origin).hostname
-      return wildcardSuffixes.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))
+      const url = new URL(origin)
+      // Compare against both host (with port, e.g. sub.localhost:3010) and hostname
+      // (without port) so `*.localhost:3010` and `*.biztrack.cm` both work.
+      const candidates = [url.host, url.hostname]
+      return wildcardSuffixes.some((suffix) => {
+        const apex = suffix.slice(1) // strip leading dot
+        return candidates.some((c) => c === apex || c.endsWith(suffix))
+      })
     } catch {
       return false
     }
