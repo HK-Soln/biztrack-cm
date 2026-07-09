@@ -153,6 +153,40 @@ export function ProductDetailView({
     )
   }
 
+  // An option is "available" if some in-stock variant has it alongside the OTHER chosen
+  // options. The currently-selected option is always shown as available.
+  const optionEnabled = (groupName: string, value: string) =>
+    product.variants.some(
+      (v) =>
+        attrOf(v, groupName) === value &&
+        optionGroups.every((g) => g.name === groupName || attrOf(v, g.name) === chosen[g.name]) &&
+        variantAvailable(v),
+    )
+
+  // Pick an option; if it doesn't combine with the current selection, snap the other groups
+  // to an available variant that has it (prevents dead-ends).
+  const chooseOption = (groupName: string, value: string) => {
+    setQty(1)
+    const tentative = { ...chosen, [groupName]: value }
+    const exact = product.variants.find((v) =>
+      optionGroups.every((g) => attrOf(v, g.name) === tentative[g.name]),
+    )
+    if (exact) {
+      setSelectedOptions(tentative)
+      return
+    }
+    const candidate =
+      product.variants.find((v) => attrOf(v, groupName) === value && variantAvailable(v)) ??
+      product.variants.find((v) => attrOf(v, groupName) === value)
+    if (candidate) {
+      const next: Record<string, string> = {}
+      for (const a of candidate.attributes) next[a.groupName] = a.optionValue
+      setSelectedOptions(next)
+    } else {
+      setSelectedOptions(tentative)
+    }
+  }
+
   const feat: Array<{ icon: React.ReactNode; title: string; desc: string }> = []
   if (store?.fulfilment.offerDelivery) {
     feat.push({
@@ -245,33 +279,37 @@ export function ProductDetailView({
               <div key={group.name}>
                 <div className="opt-label">{group.name}</div>
                 <div className="opt-row">
-                  {group.options.map((o) => (
-                    <button
-                      key={o.value}
-                      type="button"
-                      className={`opt${chosen[group.name] === o.value ? ' on' : ''}`}
-                      onClick={() => {
-                        setSelectedOptions((s) => ({ ...s, [group.name]: o.value }))
-                        setQty(1)
-                      }}
-                    >
-                      {o.colorHex ? (
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 13,
-                            height: 13,
-                            borderRadius: 3,
-                            background: o.colorHex,
-                            marginRight: 7,
-                            verticalAlign: 'middle',
-                            border: '1px solid rgba(0,0,0,.18)',
-                          }}
-                        />
-                      ) : null}
-                      {o.value}
-                    </button>
-                  ))}
+                  {group.options.map((o) => {
+                    const isSel = chosen[group.name] === o.value
+                    const greyed = !isSel && !optionEnabled(group.name, o.value)
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        className={`opt${isSel ? ' on' : ''}`}
+                        style={
+                          greyed ? { opacity: 0.4, textDecoration: 'line-through' } : undefined
+                        }
+                        onClick={() => chooseOption(group.name, o.value)}
+                      >
+                        {o.colorHex ? (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 13,
+                              height: 13,
+                              borderRadius: 3,
+                              background: o.colorHex,
+                              marginRight: 7,
+                              verticalAlign: 'middle',
+                              border: '1px solid rgba(0,0,0,.18)',
+                            }}
+                          />
+                        ) : null}
+                        {o.value}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ))
