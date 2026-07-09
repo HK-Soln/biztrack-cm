@@ -166,12 +166,21 @@ export class PublicStorefrontService {
         ? [product.imageUrl, ...galleryUrls]
         : galleryUrls
 
+    // Serialized products hold stock as serial units, not inventory levels — count the
+    // IN_STOCK serials per variant so per-variant availability is accurate.
+    const serialStock =
+      product.isSerialized && (variants ?? []).length > 0
+        ? await this.serialCountByVariant(store.businessId, product.id)
+        : null
+
     const base = this.toListItem(product, config.currency, stockByProduct.get(product.id) ?? 0)
     const publicVariants: PublicProductVariant[] = (variants ?? []).map((variant) => ({
       id: variant.id,
       name: variant.name,
       sellingPrice: variant.priceOverride ?? product.sellingPrice,
-      inStock: Math.max(0, variant.currentStock ?? 0),
+      inStock: serialStock
+        ? (serialStock.get(variant.id) ?? 0)
+        : Math.max(0, variant.currentStock ?? 0),
       attributes: (variant.options ?? []).map((option) => ({
         groupName: option.groupName ?? '',
         optionValue: option.optionValue ?? '',
@@ -312,6 +321,26 @@ export class PublicStorefrontService {
   }
 
   // ---- internals ----------------------------------------------------------
+
+  /** IN_STOCK serial-unit count per variant, for serialized products. */
+  private async serialCountByVariant(
+    businessId: string,
+    productId: string,
+  ): Promise<Map<string, number>> {
+    const rows = await this.serialUnitsRepo
+      .createQueryBuilder('unit')
+      .select('unit.variant_id', 'variantId')
+      .addSelect('COUNT(*)', 'count')
+      .where('unit.business_id = :businessId', { businessId })
+      .andWhere('unit.product_id = :productId', { productId })
+      .andWhere('unit.status = :status', { status: SerialUnitStatus.IN_STOCK })
+      .andWhere('unit.deleted_at IS NULL')
+      .groupBy('unit.variant_id')
+      .getRawMany<{ variantId: string | null; count: string }>()
+    const map = new Map<string, number>()
+    for (const row of rows) if (row.variantId) map.set(row.variantId, Number(row.count))
+    return map
+  }
 
   /** The storefront only ever sees the PUBLISHED snapshot — a draft / suspended / never-published
    *  store 404s here, so unpublished edits never leak to customers. */

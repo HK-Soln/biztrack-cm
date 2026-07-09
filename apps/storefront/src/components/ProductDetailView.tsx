@@ -69,6 +69,7 @@ export function ProductDetailView({
   const ts = useTranslations('shop')
   const add = useAddToCart(slug)
   const [variantId, setVariantId] = useState<string | undefined>(undefined)
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({})
   const [imgIndex, setImgIndex] = useState(0)
   const [qty, setQty] = useState(1)
   const [added, setAdded] = useState(false)
@@ -82,18 +83,58 @@ export function ProductDetailView({
   const href = (p: string) => `${base}${p}` || '/'
   const hasVariants = product.hasVariants && product.variants.length > 0
   const tracked = product.trackInventory
-  // Auto-select the first available variant so the buyer never has to "choose options"
-  // before adding — the selected variant is what goes in the cart.
-  const firstAvailable =
-    product.variants.find((v) => !tracked || v.inStock > 0) ?? product.variants[0]
-  const selectedId = variantId ?? (hasVariants ? firstAvailable?.id : undefined)
-  const selected = product.variants.find((v) => v.id === selectedId)
-  const price = selected?.sellingPrice ?? product.sellingPrice
-  // Out-of-stock only blocks a tracked SIMPLE product. Variant products stay addable
-  // (staff assign serial units / confirm stock at order confirmation).
+  const variantAvailable = (v: (typeof product.variants)[number] | undefined) =>
+    !!v && (!tracked || v.inStock > 0)
+  const attrOf = (v: (typeof product.variants)[number], group: string) =>
+    v.attributes.find((a) => a.groupName === group)?.optionValue
+
+  // The buyer picks OPTIONS (Size, Colour, …) — derived from the variants' attributes —
+  // and we resolve which variant that combination is (and whether it's available).
+  const optionGroups: Array<{
+    name: string
+    options: Array<{ value: string; colorHex?: string | null }>
+  }> = []
+  if (hasVariants) {
+    for (const v of product.variants) {
+      for (const attr of v.attributes) {
+        let group = optionGroups.find((g) => g.name === attr.groupName)
+        if (!group) {
+          group = { name: attr.groupName, options: [] }
+          optionGroups.push(group)
+        }
+        if (!group.options.some((o) => o.value === attr.optionValue)) {
+          group.options.push({ value: attr.optionValue, colorHex: attr.colorHex })
+        }
+      }
+    }
+  }
+  const hasOptions = optionGroups.length > 0
+
+  // Default selection = the first available variant's options (as before).
+  const firstAvailable = product.variants.find(variantAvailable) ?? product.variants[0]
+  const defaults: Record<string, string> = {}
+  if (firstAvailable)
+    for (const a of firstAvailable.attributes) defaults[a.groupName] = a.optionValue
+  const chosen: Record<string, string> = {}
+  for (const g of optionGroups) chosen[g.name] = selectedOptions[g.name] ?? defaults[g.name] ?? ''
+
+  // Resolve the variant from the chosen options (or the picked/first one in name-fallback mode).
+  const matched = hasOptions
+    ? product.variants.find((v) => optionGroups.every((g) => attrOf(v, g.name) === chosen[g.name]))
+    : (product.variants.find((v) => v.id === (variantId ?? firstAvailable?.id)) ?? firstAvailable)
+
+  const price = matched?.sellingPrice ?? product.sellingPrice
   const soldOut = !hasVariants && tracked && product.inStock <= 0
-  const canAdd = hasVariants ? true : !soldOut
-  const maxQty = !hasVariants && tracked && product.inStock > 0 ? product.inStock : Infinity
+  // For variants: unavailable = no such combination, or the matched variant is out of stock.
+  const variantSoldOut = hasVariants ? !matched || !variantAvailable(matched) : false
+  const canAdd = hasVariants ? Boolean(matched) && variantAvailable(matched) : !soldOut
+  const maxQty = hasVariants
+    ? tracked && matched && matched.inStock > 0
+      ? matched.inStock
+      : Infinity
+    : tracked && product.inStock > 0
+      ? product.inStock
+      : Infinity
 
   const images = product.images ?? []
   const mainImg = images[imgIndex]
@@ -102,7 +143,7 @@ export function ProductDetailView({
   const handleAdd = () => {
     if (!canAdd) return
     add.mutate(
-      { productId: product.id, variantId: hasVariants ? selectedId : undefined, quantity: qty },
+      { productId: product.id, variantId: hasVariants ? matched?.id : undefined, quantity: qty },
       {
         onSuccess: () => {
           setAdded(true)
@@ -128,7 +169,17 @@ export function ProductDetailView({
   }
   feat.push({ icon: IcShield, title: t('featAuthenticTitle'), desc: t('featAuthenticDesc') })
 
-  const addLabel = added ? t('added') : soldOut ? t('outOfStock') : t('addToCart')
+  const addLabel = added
+    ? t('added')
+    : hasVariants
+      ? !matched
+        ? t('unavailable')
+        : !variantAvailable(matched)
+          ? t('outOfStock')
+          : t('addToCart')
+      : soldOut
+        ? t('outOfStock')
+        : t('addToCart')
 
   return (
     <div className="wrap">
@@ -175,7 +226,7 @@ export function ProductDetailView({
           <h1>{product.name}</h1>
 
           <div className="pd-meta">
-            {soldOut ? (
+            {(hasVariants ? variantSoldOut : soldOut) ? (
               <span style={{ color: 'var(--danger)', fontWeight: 650 }}>● {t('outOfStock')}</span>
             ) : (
               <span style={{ color: 'var(--success)', fontWeight: 650 }}>● {t('inStock')}</span>
@@ -183,14 +234,48 @@ export function ProductDetailView({
           </div>
 
           <div className="pd-price">
-            {hasVariants && !selected ? <span className="cur">{t('from')} </span> : null}
             <span className="now">{formatAmount(price)}</span>
             <span className="cur">{product.currency}</span>
           </div>
 
           {description ? <p className="pd-desc">{description}</p> : null}
 
-          {hasVariants ? (
+          {hasVariants && hasOptions ? (
+            optionGroups.map((group) => (
+              <div key={group.name}>
+                <div className="opt-label">{group.name}</div>
+                <div className="opt-row">
+                  {group.options.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      className={`opt${chosen[group.name] === o.value ? ' on' : ''}`}
+                      onClick={() => {
+                        setSelectedOptions((s) => ({ ...s, [group.name]: o.value }))
+                        setQty(1)
+                      }}
+                    >
+                      {o.colorHex ? (
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 13,
+                            height: 13,
+                            borderRadius: 3,
+                            background: o.colorHex,
+                            marginRight: 7,
+                            verticalAlign: 'middle',
+                            border: '1px solid rgba(0,0,0,.18)',
+                          }}
+                        />
+                      ) : null}
+                      {o.value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : hasVariants ? (
             <>
               <div className="opt-label">{t('options')}</div>
               <div className="opt-row">
@@ -198,7 +283,7 @@ export function ProductDetailView({
                   <button
                     key={v.id}
                     type="button"
-                    className={`opt${v.id === selectedId ? ' on' : ''}`}
+                    className={`opt${v.id === matched?.id ? ' on' : ''}`}
                     onClick={() => {
                       setVariantId(v.id)
                       setQty(1)

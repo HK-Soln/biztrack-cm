@@ -52,6 +52,7 @@
     "added": "Ajouté au panier",
     "selectOptions": "Choisir les options",
     "outOfStock": "Rupture de stock",
+    "unavailable": "Indisponible",
     "inStock": "En stock",
     "lowStock": "Plus que {count} en stock",
     "from": "À partir de",

@@ -52,6 +52,7 @@
     "added": "Added to cart",
     "selectOptions": "Select options",
     "outOfStock": "Out of stock",
+    "unavailable": "Unavailable",
     "inStock": "In stock",
     "lowStock": "Only {count} left",
     "from": "From",
