@@ -144,6 +144,11 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsEmail()
+  email?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean
 
