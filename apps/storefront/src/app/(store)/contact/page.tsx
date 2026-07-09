@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { getStore } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { ContactForm } from '@/components/ContactForm'
 
 const IcChevron = (
@@ -28,26 +29,21 @@ const IcMail = (
   </svg>
 )
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}): Promise<Metadata> {
-  const { slug } = await params
-  const [store, t] = await Promise.all([getStore(slug), getTranslations('contact')])
+export async function generateMetadata(): Promise<Metadata> {
+  const slug = await getStoreSlug()
+  const [store, t] = await Promise.all([slug ? getStore(slug) : null, getTranslations('contact')])
   const title = `${t('title')}${store ? ` — ${store.storeName}` : ''}`
   return { title, description: t('subtitle') }
 }
 
-export default async function ContactPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const [store, base, t, tn] = await Promise.all([
+export default async function ContactPage() {
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const [store, t, tn] = await Promise.all([
     getStore(slug),
-    resolveBase(slug),
     getTranslations('contact'),
     getTranslations('nav'),
   ])
-  const href = (p: string) => `${base}${p}` || '/'
 
   const whatsappDigits = store?.whatsappNumber?.replace(/\D/g, '') ?? null
   const hasChannel = Boolean(store?.whatsappNumber || store?.email)
@@ -55,7 +51,7 @@ export default async function ContactPage({ params }: { params: Promise<{ slug: 
   return (
     <div className="wrap">
       <div className="crumb">
-        <Link href={href('')}>{tn('home')}</Link>
+        <Link href="/">{tn('home')}</Link>
         {IcChevron}
         <span className="cur">{tn('contact')}</span>
       </div>

@@ -2,8 +2,9 @@ import { dehydrate, HydrationBoundary } from '@tanstack/react-query'
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import type { CategoryTreeNode, PublicProductsQuery } from '@biztrack/types'
+import { notFound } from 'next/navigation'
 import { getCategories, listProducts } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { getQueryClient, queryKeys } from '@/lib/query'
 import { ShopResults } from '@/components/ShopResults'
 
@@ -14,13 +15,13 @@ const IcChevron = (
 )
 
 export default async function ProductsPage({
-  params,
   searchParams,
 }: {
-  params: Promise<{ slug: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { slug } = await params
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const base = ''
   const sp = await searchParams
   const query: PublicProductsQuery = {
     page: sp.page ? Math.max(1, Number(sp.page)) : 1,
@@ -29,11 +30,7 @@ export default async function ProductsPage({
     categoryId: typeof sp.categoryId === 'string' ? sp.categoryId : undefined,
   }
 
-  const [categoryTree, base, t] = await Promise.all([
-    getCategories(slug),
-    resolveBase(slug),
-    getTranslations('shop'),
-  ])
+  const [categoryTree, t] = await Promise.all([getCategories(slug), getTranslations('shop')])
 
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({

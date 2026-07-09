@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { getStore } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { CheckoutView } from '@/components/CheckoutView'
 
 export const metadata: Metadata = { robots: { index: false, follow: true } }
@@ -18,20 +19,19 @@ const IcCheck = (
   </svg>
 )
 
-export default async function CheckoutPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const [store, base, t, tn] = await Promise.all([
+export default async function CheckoutPage() {
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const [store, t, tn] = await Promise.all([
     getStore(slug),
-    resolveBase(slug),
     getTranslations('checkout'),
     getTranslations('nav'),
   ])
-  const href = (p: string) => `${base}${p}` || '/'
 
   return (
     <div className="wrap">
       <div className="crumb">
-        <Link href={href('/cart')}>{tn('cart')}</Link>
+        <Link href="/cart">{tn('cart')}</Link>
         {IcChevron}
         <span className="cur">{t('stepDelivery')}</span>
       </div>
@@ -54,7 +54,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
         </span>
       </div>
 
-      <CheckoutView slug={slug} base={base} store={store} />
+      <CheckoutView slug={slug} base="" store={store} />
     </div>
   )
 }

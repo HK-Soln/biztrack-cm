@@ -3,16 +3,17 @@ import { notFound } from 'next/navigation'
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query'
 import type { PublicProductsQuery } from '@biztrack/types'
 import { getProduct, getStore, listProducts } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { getQueryClient, queryKeys } from '@/lib/query'
 import { ProductDetailView } from '@/components/ProductDetailView'
 import { RelatedProducts } from '@/components/RelatedProducts'
 
-type PageParams = { params: Promise<{ slug: string; productSlug: string }> }
+type PageParams = { params: Promise<{ productSlug: string }> }
 
 export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
-  const { slug, productSlug } = await params
-  const product = await getProduct(slug, productSlug)
+  const { productSlug } = await params
+  const slug = await getStoreSlug()
+  const product = slug ? await getProduct(slug, productSlug) : null
   if (!product) return { title: 'Product not found' }
   const title = product.metaTitle ?? product.name
   return {
@@ -27,12 +28,10 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
 }
 
 export default async function ProductDetailPage({ params }: PageParams) {
-  const { slug, productSlug } = await params
-  const [product, store, base] = await Promise.all([
-    getProduct(slug, productSlug),
-    getStore(slug),
-    resolveBase(slug),
-  ])
+  const { productSlug } = await params
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const [product, store] = await Promise.all([getProduct(slug, productSlug), getStore(slug)])
   if (!product) notFound()
 
   const relatedQuery: PublicProductsQuery = { page: 1, limit: 8 }
@@ -46,8 +45,8 @@ export default async function ProductDetailPage({ params }: PageParams) {
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <ProductDetailView slug={slug} productSlug={productSlug} base={base} store={store} />
-      <RelatedProducts slug={slug} base={base} currentId={product.id} query={relatedQuery} />
+      <ProductDetailView slug={slug} productSlug={productSlug} base="" store={store} />
+      <RelatedProducts slug={slug} base="" currentId={product.id} query={relatedQuery} />
     </HydrationBoundary>
   )
 }

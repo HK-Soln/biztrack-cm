@@ -2,8 +2,9 @@ import { dehydrate, HydrationBoundary } from '@tanstack/react-query'
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import type { CategoryTreeNode } from '@biztrack/types'
+import { notFound } from 'next/navigation'
 import { getStore, getCategories, listProducts } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { getQueryClient, queryKeys } from '@/lib/query'
 import { ProductRail } from '@/components/ProductRail'
 
@@ -66,12 +67,13 @@ const PAY_DOT: Record<string, string> = {
   card: '#3b82f6',
 }
 
-export default async function StoreHomePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const [store, categoryTree, base, t, tp] = await Promise.all([
+export default async function StoreHomePage() {
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const base = ''
+  const [store, categoryTree, t, tp] = await Promise.all([
     getStore(slug),
     getCategories(slug),
-    resolveBase(slug),
     getTranslations('home'),
     getTranslations('payment'),
   ])

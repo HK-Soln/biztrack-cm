@@ -2,20 +2,16 @@ import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { getStore } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { storeFaviconUrl } from '@/lib/favicon'
 import { StoreHeader } from '@/components/StoreHeader'
 import { StoreFooter } from '@/components/StoreFooter'
 
 const BRANDS = ['a', 'b', 'c', 'd', 'e', 'f']
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}): Promise<Metadata> {
-  const { slug } = await params
-  const store = await getStore(slug)
+export async function generateMetadata(): Promise<Metadata> {
+  const slug = await getStoreSlug()
+  const store = slug ? await getStore(slug) : null
   if (!store) return { title: 'Boutique introuvable' }
   const title = store.seo.title || store.storeName
   const description = store.seo.description || store.tagline || undefined
@@ -32,25 +28,18 @@ export async function generateMetadata({
   }
 }
 
-export default async function StoreLayout({
-  children,
-  params,
-}: {
-  children: ReactNode
-  params: Promise<{ slug: string }>
-}) {
-  const { slug } = await params
-  const store = await getStore(slug)
+export default async function StoreLayout({ children }: { children: ReactNode }) {
+  const slug = await getStoreSlug()
+  const store = slug ? await getStore(slug) : null
   if (!store) notFound()
 
-  const base = await resolveBase(slug)
   const brand = BRANDS.includes(store.themeId) ? store.themeId : 'a'
 
   return (
     <div className="store" data-brand={brand} data-theme={store.appearance}>
-      <StoreHeader store={store} base={base} />
+      <StoreHeader store={store} base="" />
       <main>{children}</main>
-      <StoreFooter store={store} base={base} />
+      <StoreFooter store={store} base="" />
     </div>
   )
 }

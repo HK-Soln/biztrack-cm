@@ -1,15 +1,9 @@
-/**
- * Resolve the absolute store URLs for SEO routes from the incoming request.
- * Subdomain access ({slug}.host) serves at the origin root; path access (host/{slug})
- * carries the slug prefix.
- */
-export function storeUrls(req: Request, slug: string): { origin: string; base: string } {
+/** Absolute origin for the current request (subdomain-only storefront). */
+export function storeOrigin(req: Request): string {
   const hostHeader = req.headers.get('host') ?? ''
   const host = hostHeader.split(':')[0] ?? ''
   const proto = req.headers.get('x-forwarded-proto') ?? (host === 'localhost' ? 'http' : 'https')
-  const origin = `${proto}://${hostHeader}`
-  const onSubdomain = host.startsWith(`${slug}.`)
-  return { origin, base: onSubdomain ? origin : `${origin}/${slug}` }
+  return `${proto}://${hostHeader}`
 }
 
 export const escapeXml = (value: string) =>

@@ -7,7 +7,7 @@ import { getLocale, getTranslations } from 'next-intl/server'
 export const metadata: Metadata = { robots: { index: false, follow: false } }
 import type { OnlineOrderStatus, PublicOrderTracking } from '@biztrack/types'
 import { formatMoney, getOrderTracking, getStore } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 
 const DELIVERY_STEPS: OnlineOrderStatus[] = [
   'PENDING',
@@ -71,19 +71,20 @@ const IcMsg = (
 export default async function OrderTrackingPage({
   params,
 }: {
-  params: Promise<{ slug: string; trackingToken: string }>
+  params: Promise<{ trackingToken: string }>
 }) {
-  const { slug, trackingToken } = await params
-  const [order, store, base, locale, t] = await Promise.all([
+  const { trackingToken } = await params
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const [order, store, locale, t] = await Promise.all([
     getOrderTracking(slug, trackingToken),
     getStore(slug),
-    resolveBase(slug),
     getLocale(),
     getTranslations('order'),
   ])
   if (!order) notFound()
 
-  const href = (p: string) => `${base}${p}` || '/'
+  const href = (p: string) => p || '/'
   const rows = buildTimeline(order)
   const isDelivery = order.fulfillmentType === 'DELIVERY'
   const dateFmt = (iso: string) =>

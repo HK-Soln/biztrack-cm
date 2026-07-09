@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { getStore } from '@/lib/api'
-import { resolveBase } from '@/lib/base'
+import { getStoreSlug } from '@/lib/store'
 import { CartView } from '@/components/CartView'
 
 export const metadata: Metadata = { robots: { index: false, follow: true } }
@@ -13,25 +14,24 @@ const IcChevron = (
   </svg>
 )
 
-export default async function CartPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const [store, base, t, tn] = await Promise.all([
+export default async function CartPage() {
+  const slug = await getStoreSlug()
+  if (!slug) notFound()
+  const [store, t, tn] = await Promise.all([
     getStore(slug),
-    resolveBase(slug),
     getTranslations('cart'),
     getTranslations('nav'),
   ])
-  const href = (p: string) => `${base}${p}` || '/'
 
   return (
     <div className="wrap">
       <div className="crumb">
-        <Link href={href('')}>{tn('home')}</Link>
+        <Link href="/">{tn('home')}</Link>
         {IcChevron}
         <span className="cur">{tn('cart')}</span>
       </div>
       <h1 className="page-title">{t('title')}</h1>
-      <CartView slug={slug} base={base} store={store} />
+      <CartView slug={slug} base="" store={store} />
     </div>
   )
 }
