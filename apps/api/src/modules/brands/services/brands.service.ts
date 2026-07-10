@@ -12,7 +12,11 @@ import type {
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
 import { AppException } from '@/common/exceptions/app.exception'
-import { AppInternalServerException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import {
+  AppConflictException,
+  AppInternalServerException,
+  AppNotFoundException,
+} from '@/common/exceptions/app-exceptions'
 import { Brand } from '@/entities/brand.entity'
 import { BrandCategory } from '@/entities/brand-category.entity'
 import { Model } from '@/entities/model.entity'
@@ -47,7 +51,12 @@ export class BrandsService {
       // Use entity PROPERTY paths (not raw columns): with the collection joins below,
       // TypeORM paginates via a distinct subquery and resolves orderBy against entity
       // metadata — raw column names (b.sort_order) break that with a databaseName error.
-      const sortColumn = query.sortBy === 'name' ? 'b.name' : query.sortBy === 'createdAt' ? 'b.createdAt' : 'b.sortOrder'
+      const sortColumn =
+        query.sortBy === 'name'
+          ? 'b.name'
+          : query.sortBy === 'createdAt'
+            ? 'b.createdAt'
+            : 'b.sortOrder'
       const order = query.sortOrder === 'DESC' ? 'DESC' : 'ASC'
 
       // Single query: join the relations (models + category links) and filter by
@@ -83,7 +92,10 @@ export class BrandsService {
       relations: { models: true, categoryLinks: true },
     })
     if (!brand) {
-      throw new AppNotFoundException(await this.i18n.translate('errors.brand_not_found'), 'BRAND_NOT_FOUND')
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.brand_not_found'),
+        'BRAND_NOT_FOUND',
+      )
     }
     return brand
   }
@@ -112,7 +124,10 @@ export class BrandsService {
         entityType: 'brand',
         entityId: id,
         entityLabel: dto.name.trim(),
-        changes: { before: null, after: { name: dto.name.trim(), categoryIds: dto.categoryIds ?? [] } },
+        changes: {
+          before: null,
+          after: { name: dto.name.trim(), categoryIds: dto.categoryIds ?? [] },
+        },
       })
       return this.findById(id, businessId)
     } catch (error) {
@@ -120,16 +135,26 @@ export class BrandsService {
     }
   }
 
-  async update(id: string, businessId: string, dto: UpdateBrandRequest, context: AuditContext): Promise<Brand> {
+  async update(
+    id: string,
+    businessId: string,
+    dto: UpdateBrandRequest,
+    context: AuditContext,
+  ): Promise<Brand> {
     try {
       const brand = await this.findById(id, businessId)
-      const before = { name: brand.name, isActive: brand.isActive, categoryIds: (brand.categoryLinks ?? []).map((l) => l.categoryId) }
+      const before = {
+        name: brand.name,
+        isActive: brand.isActive,
+        categoryIds: (brand.categoryLinks ?? []).map((l) => l.categoryId),
+      }
 
       await this.dataSource.transaction(async (manager) => {
         const patch: Partial<Brand> = {
           name: dto.name?.trim() ?? brand.name,
           logoUrl: dto.logoUrl === undefined ? brand.logoUrl : (dto.logoUrl?.trim() ?? null),
-          description: dto.description === undefined ? brand.description : (dto.description?.trim() ?? null),
+          description:
+            dto.description === undefined ? brand.description : (dto.description?.trim() ?? null),
           sortOrder: dto.sortOrder ?? brand.sortOrder,
           isActive: dto.isActive ?? brand.isActive,
         }
@@ -146,7 +171,14 @@ export class BrandsService {
         entityType: 'brand',
         entityId: id,
         entityLabel: after.name,
-        changes: { before, after: { name: after.name, isActive: after.isActive, categoryIds: (after.categoryLinks ?? []).map((l) => l.categoryId) } },
+        changes: {
+          before,
+          after: {
+            name: after.name,
+            isActive: after.isActive,
+            categoryIds: (after.categoryLinks ?? []).map((l) => l.categoryId),
+          },
+        },
       })
       return after
     } catch (error) {
@@ -157,11 +189,28 @@ export class BrandsService {
   async remove(id: string, businessId: string, context: AuditContext): Promise<void> {
     try {
       const brand = await this.findById(id, businessId)
+      const [inUse] = await this.brandsRepo.manager.query(
+        `SELECT 1 FROM products WHERE brand_id = $1 AND business_id = $2 AND deleted_at IS NULL LIMIT 1`,
+        [id, businessId],
+      )
+      if (inUse) {
+        throw new AppConflictException(
+          'This brand is still used by one or more products and cannot be deleted.',
+          'BRAND_IN_USE',
+        )
+      }
       const now = new Date()
       await this.dataSource.transaction(async (manager) => {
-        await manager.getRepository(Model).update({ brandId: id, businessId, deletedAt: IsNull() }, { isActive: false, deletedAt: now })
+        await manager
+          .getRepository(Model)
+          .update(
+            { brandId: id, businessId, deletedAt: IsNull() },
+            { isActive: false, deletedAt: now },
+          )
         await manager.getRepository(BrandCategory).softDelete({ brandId: id, businessId })
-        await manager.getRepository(Brand).update({ id, businessId }, { isActive: false, deletedAt: now })
+        await manager
+          .getRepository(Brand)
+          .update({ id, businessId }, { isActive: false, deletedAt: now })
       })
       this.auditService.log(context, {
         action: 'DELETE',
@@ -175,7 +224,12 @@ export class BrandsService {
     }
   }
 
-  async addModel(brandId: string, businessId: string, dto: CreateModelRequest, context: AuditContext): Promise<Model> {
+  async addModel(
+    brandId: string,
+    businessId: string,
+    dto: CreateModelRequest,
+    context: AuditContext,
+  ): Promise<Model> {
     try {
       await this.findById(brandId, businessId)
       const model = await this.modelsRepo.save(
@@ -215,7 +269,7 @@ export class BrandsService {
         { id: modelId },
         {
           name: dto.name?.trim() ?? model.name,
-          slug: dto.name ? (this.slugify(dto.name) || null) : model.slug,
+          slug: dto.name ? this.slugify(dto.name) || null : model.slug,
           sortOrder: dto.sortOrder ?? model.sortOrder,
           isActive: dto.isActive ?? model.isActive,
         },
@@ -234,9 +288,24 @@ export class BrandsService {
     }
   }
 
-  async removeModel(brandId: string, modelId: string, businessId: string, context: AuditContext): Promise<void> {
+  async removeModel(
+    brandId: string,
+    modelId: string,
+    businessId: string,
+    context: AuditContext,
+  ): Promise<void> {
     try {
       const model = await this.requireModel(brandId, modelId, businessId)
+      const [inUse] = await this.modelsRepo.manager.query(
+        `SELECT 1 FROM products WHERE model_id = $1 AND business_id = $2 AND deleted_at IS NULL LIMIT 1`,
+        [modelId, businessId],
+      )
+      if (inUse) {
+        throw new AppConflictException(
+          'This model is still used by one or more products and cannot be deleted.',
+          'MODEL_IN_USE',
+        )
+      }
       await this.modelsRepo.update({ id: modelId }, { isActive: false, deletedAt: new Date() })
       this.auditService.log(context, {
         action: 'DELETE',
@@ -253,7 +322,12 @@ export class BrandsService {
   // ---- internals -----------------------------------------------------------
 
   /** Reconcile a brand's category links to exactly `categoryIds` (soft-delete removed, add new). */
-  private async syncLinks(manager: EntityManager, businessId: string, brandId: string, categoryIds: string[]): Promise<void> {
+  private async syncLinks(
+    manager: EntityManager,
+    businessId: string,
+    brandId: string,
+    categoryIds: string[],
+  ): Promise<void> {
     const repo = manager.getRepository(BrandCategory)
     const existing = await repo.find({ where: { brandId, businessId, deletedAt: IsNull() } })
     const want = new Set(categoryIds)
@@ -269,9 +343,14 @@ export class BrandsService {
   }
 
   private async requireModel(brandId: string, modelId: string, businessId: string): Promise<Model> {
-    const model = await this.modelsRepo.findOne({ where: { id: modelId, brandId, businessId, deletedAt: IsNull() } })
+    const model = await this.modelsRepo.findOne({
+      where: { id: modelId, brandId, businessId, deletedAt: IsNull() },
+    })
     if (!model) {
-      throw new AppNotFoundException(await this.i18n.translate('errors.model_not_found'), 'MODEL_NOT_FOUND')
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.model_not_found'),
+        'MODEL_NOT_FOUND',
+      )
     }
     return model
   }
@@ -302,9 +381,18 @@ export class BrandsService {
       .slice(0, 120)
   }
 
-  private async handleServiceError(action: string, error: unknown, metadata?: LogMetadata): Promise<never> {
+  private async handleServiceError(
+    action: string,
+    error: unknown,
+    metadata?: LogMetadata,
+  ): Promise<never> {
     if (error instanceof AppException) {
-      this.logger.warn('BrandsService error', 'BrandsService', { action, code: error.code, status: error.getStatus(), ...(metadata ?? {}) })
+      this.logger.warn('BrandsService error', 'BrandsService', {
+        action,
+        code: error.code,
+        status: error.getStatus(),
+        ...(metadata ?? {}),
+      })
       throw error
     }
     this.logger.error('BrandsService unexpected error', 'BrandsService', {
@@ -312,6 +400,10 @@ export class BrandsService {
       message: error instanceof Error ? error.message : 'Unknown error',
       ...(metadata ?? {}),
     })
-    throw new AppInternalServerException(await this.i18n.translate('errors.server_error'), 'BRANDS_SERVICE_ERROR', { action })
+    throw new AppInternalServerException(
+      await this.i18n.translate('errors.server_error'),
+      'BRANDS_SERVICE_ERROR',
+      { action },
+    )
   }
 }

@@ -65,7 +65,8 @@ export class AttributesService {
   /** Paginated groups (default 20) with search, each hydrated with options + usage count. */
   listGroups(query: AttributeGroupListQuery = {}): PaginatedResult<LocalAttributeGroup> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalAttributeGroup>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalAttributeGroup>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
     const { rows, ...meta } = paginateRows<GroupRow>(
       this.db,
       {
@@ -143,12 +144,34 @@ export class AttributesService {
       `INSERT INTO attribute_groups
         (id, business_id, name, display_type, sort_order, is_active, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      [id, businessId, input.name.trim(), displayType, sortOrder, input.isActive === false ? 0 : 1, now, now],
+      [
+        id,
+        businessId,
+        input.name.trim(),
+        displayType,
+        sortOrder,
+        input.isActive === false ? 0 : 1,
+        now,
+        now,
+      ],
     )
-    this.enqueue('attributeGroups', id, 'UPSERT', businessId, this.groupPayload(input, displayType, sortOrder), now)
+    this.enqueue(
+      'attributeGroups',
+      id,
+      'UPSERT',
+      businessId,
+      this.groupPayload(input, displayType, sortOrder),
+      now,
+    )
     this.onMutated()
     const created = this.getGroup(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'attribute_group', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'attribute_group',
+      entityId: id,
+      entityLabel: created.name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -166,12 +189,33 @@ export class AttributesService {
       `UPDATE attribute_groups
        SET name = ?, display_type = ?, sort_order = ?, is_active = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
-      [input.name.trim(), displayType, sortOrder, input.isActive === false ? 0 : 1, now, id, businessId],
+      [
+        input.name.trim(),
+        displayType,
+        sortOrder,
+        input.isActive === false ? 0 : 1,
+        now,
+        id,
+        businessId,
+      ],
     )
-    this.enqueue('attributeGroups', id, 'UPSERT', businessId, this.groupPayload(input, displayType, sortOrder), now)
+    this.enqueue(
+      'attributeGroups',
+      id,
+      'UPSERT',
+      businessId,
+      this.groupPayload(input, displayType, sortOrder),
+      now,
+    )
     this.onMutated()
     const updated = this.getGroup(id)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'attribute_group', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'attribute_group',
+      entityId: id,
+      entityLabel: updated.name,
+      changes: { before: null, after: updated },
+    })
     return updated
   }
 
@@ -179,13 +223,40 @@ export class AttributesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getGroup(id)
+    const variantUse = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM product_variant_options pvo
+         JOIN product_variants pv ON pv.id = pvo.variant_id
+         JOIN products p ON p.id = pv.product_id
+       WHERE pvo.attribute_group_id = ? AND pvo.business_id = ?
+         AND pvo.is_deleted = 0 AND pv.is_deleted = 0 AND p.is_deleted = 0
+       LIMIT 1`,
+      [id, businessId],
+    )
+    if (variantUse) {
+      throw new Error(
+        'This attribute is still used by one or more product variants and cannot be deleted.',
+      )
+    }
+    const linked = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM category_attribute_groups WHERE attribute_group_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      [id, businessId],
+    )
+    if (linked) {
+      throw new Error('This attribute is linked to one or more categories and cannot be deleted.')
+    }
     this.db.run(
       `UPDATE attribute_groups SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue('attributeGroups', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'attribute_group', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'attribute_group',
+      entityId: id,
+      entityLabel: before?.name ?? null,
+      changes: { before, after: null },
+    })
   }
 
   addOption(groupId: string, input: AttributeOptionInput): LocalAttributeOption {
@@ -197,12 +268,35 @@ export class AttributesService {
       `INSERT INTO attribute_options
         (id, group_id, business_id, value, color_hex, sort_order, is_active, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      [id, groupId, businessId, input.value.trim(), input.colorHex ?? null, sortOrder, input.isActive === false ? 0 : 1, now, now],
+      [
+        id,
+        groupId,
+        businessId,
+        input.value.trim(),
+        input.colorHex ?? null,
+        sortOrder,
+        input.isActive === false ? 0 : 1,
+        now,
+        now,
+      ],
     )
-    this.enqueue('attributeOptions', id, 'UPSERT', businessId, this.optionPayload(groupId, input, sortOrder), now)
+    this.enqueue(
+      'attributeOptions',
+      id,
+      'UPSERT',
+      businessId,
+      this.optionPayload(groupId, input, sortOrder),
+      now,
+    )
     this.onMutated()
     const created = this.getOption(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'attribute_option', entityId: id, entityLabel: created.value, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'attribute_option',
+      entityId: id,
+      entityLabel: created.value,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -219,12 +313,33 @@ export class AttributesService {
       `UPDATE attribute_options
        SET value = ?, color_hex = ?, sort_order = ?, is_active = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
-      [input.value.trim(), input.colorHex ?? null, sortOrder, input.isActive === false ? 0 : 1, now, optionId, businessId],
+      [
+        input.value.trim(),
+        input.colorHex ?? null,
+        sortOrder,
+        input.isActive === false ? 0 : 1,
+        now,
+        optionId,
+        businessId,
+      ],
     )
-    this.enqueue('attributeOptions', optionId, 'UPSERT', businessId, this.optionPayload(existing.group_id, input, sortOrder), now)
+    this.enqueue(
+      'attributeOptions',
+      optionId,
+      'UPSERT',
+      businessId,
+      this.optionPayload(existing.group_id, input, sortOrder),
+      now,
+    )
     this.onMutated()
     const updated = this.getOption(optionId)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'attribute_option', entityId: optionId, entityLabel: updated.value, changes: { before: null, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'attribute_option',
+      entityId: optionId,
+      entityLabel: updated.value,
+      changes: { before: null, after: updated },
+    })
     return updated
   }
 
@@ -232,13 +347,33 @@ export class AttributesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOption(optionId)
+    const inUse = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM product_variant_options pvo
+         JOIN product_variants pv ON pv.id = pvo.variant_id
+         JOIN products p ON p.id = pv.product_id
+       WHERE pvo.attribute_option_id = ? AND pvo.business_id = ?
+         AND pvo.is_deleted = 0 AND pv.is_deleted = 0 AND p.is_deleted = 0
+       LIMIT 1`,
+      [optionId, businessId],
+    )
+    if (inUse) {
+      throw new Error(
+        'This option is still used by one or more product variants and cannot be deleted.',
+      )
+    }
     this.db.run(
       `UPDATE attribute_options SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, optionId, businessId],
     )
     this.enqueue('attributeOptions', optionId, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'attribute_option', entityId: optionId, entityLabel: before?.value ?? null, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'attribute_option',
+      entityId: optionId,
+      entityLabel: before?.value ?? null,
+      changes: { before, after: null },
+    })
   }
 
   // ---- category links ------------------------------------------------------
@@ -301,7 +436,16 @@ export class AttributesService {
           `INSERT INTO category_attribute_groups
             (id, business_id, category_id, attribute_group_id, is_required, sort_order, is_deleted, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, businessId, categoryId, link.attributeGroupId, isRequired ? 1 : 0, sortOrder, now, now],
+          [
+            id,
+            businessId,
+            categoryId,
+            link.attributeGroupId,
+            isRequired ? 1 : 0,
+            sortOrder,
+            now,
+            now,
+          ],
         )
       }
       this.enqueue(
@@ -320,7 +464,14 @@ export class AttributesService {
         `UPDATE category_attribute_groups SET is_deleted = 1, updated_at = ? WHERE id = ?`,
         [now, prior.id],
       )
-      this.enqueue('categoryAttributeGroups', prior.id, 'DELETE', businessId, { isDeleted: true }, now)
+      this.enqueue(
+        'categoryAttributeGroups',
+        prior.id,
+        'DELETE',
+        businessId,
+        { isDeleted: true },
+        now,
+      )
     }
 
     this.onMutated()
@@ -399,7 +550,15 @@ export class AttributesService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), entity, recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        entity,
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 }
