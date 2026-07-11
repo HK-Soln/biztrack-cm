@@ -53,7 +53,14 @@
       ],
       "icon": "assets/icon.png",
       "category": "Office"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "HK-Soln",
+        "repo": "biztrack-cm"
+      }
+    ]
   },
   "dependencies": {
     "@biztrack/electron-core": "workspace:*",
