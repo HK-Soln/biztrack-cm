@@ -37,10 +37,9 @@ export default defineConfig({
     // Bake the API base URL into the packaged main-process bundle at BUILD time.
     // electron-vite does NOT inline process.env for the main process, so without this
     // the installed app reads process.env on the user's machine (unset) and falls back
-    // to localhost. Set VITE_API_URL (or DESKTOP_API_URL) in the build env — see
-    // desktop-v2-release.yml. src/main/config.ts reads exactly these two keys.
+    // to localhost. Set VITE_API_URL in the build env — see
+    // desktop-v2-release.yml. src/main/config.ts reads exactly this key.
     define: {
-      'process.env.DESKTOP_API_URL': JSON.stringify(process.env.DESKTOP_API_URL ?? ''),
       'process.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL ?? ''),
     },
     build: {
