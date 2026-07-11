@@ -1,12 +1,25 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { Type } from 'class-transformer'
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
+import { Transform, Type } from 'class-transformer'
+import {
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import type {
   AddCartItemRequest,
   CheckoutRequest,
+  ContactMessageRequest,
   OnlineFulfillmentType,
   OnlineOrderStatus,
   OnlinePaymentStatus,
+  OrderSerialSelection,
   UpdateCartItemRequest,
   UpdateOrderPaymentRequest,
   UpdateOrderStatusRequest,
@@ -14,6 +27,15 @@ import type {
 import { ONLINE_PAYMENT_METHODS } from '@biztrack/types'
 
 import type { PublicProductsQuery } from '@biztrack/types'
+
+/** Normalise a query param into a clean string[] (accepts `a,b` or repeated params). */
+const toIdArray = ({ value }: { value: unknown }): string[] | undefined => {
+  if (value == null) return undefined
+  const parts = (Array.isArray(value) ? value : String(value).split(','))
+    .map((v) => String(v).trim())
+    .filter(Boolean)
+  return parts.length ? parts : undefined
+}
 
 export class PublicProductsQueryDto implements PublicProductsQuery {
   @ApiPropertyOptional({ default: 1 })
@@ -30,10 +52,33 @@ export class PublicProductsQueryDto implements PublicProductsQuery {
   @Min(1)
   limit?: number
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: [String] })
   @IsOptional()
-  @IsUUID()
-  categoryId?: string
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  categoryIds?: string[]
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  brandIds?: string[]
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  modelIds?: string[]
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(toIdArray)
+  @IsArray()
+  @IsUUID('all', { each: true })
+  attributeOptionIds?: string[]
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -143,6 +188,42 @@ export class CheckoutDto implements CheckoutRequest {
   paymentMethod?: string
 }
 
+export class ContactMessageDto implements ContactMessageRequest {
+  @IsString()
+  @MaxLength(120)
+  name!: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string
+
+  @IsOptional()
+  @IsEmail()
+  email?: string
+
+  @IsString()
+  @MaxLength(150)
+  subject!: string
+
+  @IsString()
+  @MaxLength(3000)
+  message!: string
+}
+
+export class OrderSerialSelectionDto implements OrderSerialSelection {
+  @IsUUID()
+  productId!: string
+
+  @IsOptional()
+  @IsUUID()
+  variantId?: string | null
+
+  @IsArray()
+  @IsUUID('all', { each: true })
+  serialUnitIds!: string[]
+}
+
 export class UpdateOrderStatusDto implements UpdateOrderStatusRequest {
   @ApiProperty({ enum: ORDER_STATUSES })
   @IsIn(ORDER_STATUSES)
@@ -157,6 +238,13 @@ export class UpdateOrderStatusDto implements UpdateOrderStatusRequest {
   @IsOptional()
   @IsString()
   customerMessage?: string
+
+  @ApiPropertyOptional({ type: [OrderSerialSelectionDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderSerialSelectionDto)
+  serialUnitSelections?: OrderSerialSelectionDto[]
 }
 
 const PAYMENT_STATUSES: OnlinePaymentStatus[] = [

@@ -10,11 +10,15 @@ import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
 import {
   ONLINE_ORDER_TRANSITIONS,
+  ONLINE_ORDER_COMPLETION_STATUSES,
   ONLINE_PAYMENT_METHODS,
   type OnlineOrderStatus,
   type OnlineFulfillmentType,
   type OnlinePaymentMethod,
   type OnlinePaymentStatus,
+  type OnlineCartItem,
+  type OrderSerialSelection,
+  type LocalSerialUnit,
 } from '@shared/ipc'
 
 const I = {
@@ -44,6 +48,12 @@ const I = {
   print: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z" />
+    </svg>
+  ),
+  search: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
     </svg>
   ),
 }
@@ -523,6 +533,8 @@ function OrderDrawer({
   const qc = useQueryClient()
   const [error, setError] = useState<string | null>(null)
 
+  const [serialTarget, setSerialTarget] = useState<OnlineOrderStatus | null>(null)
+
   const { data: order } = useQuery({
     queryKey: ['online', 'order', id],
     queryFn: () => dataClient.online.getOrder(id),
@@ -530,14 +542,60 @@ function OrderDrawer({
     retry: false,
   })
 
+  // Which order items are serialized (checked against the synced local catalogue —
+  // serial ids are the same locally and in the cloud).
+  const orderProductIds = useMemo(
+    () => [...new Set((order?.items ?? []).map((i) => i.productId))],
+    [order],
+  )
+  const { data: serializedSet } = useQuery({
+    queryKey: ['online', 'order-serialized', id, orderProductIds],
+    enabled: orderProductIds.length > 0,
+    queryFn: async () => {
+      const flags = await Promise.all(
+        orderProductIds.map(
+          async (pid) =>
+            [pid, (await dataClient.products.get(pid))?.isSerialized ?? false] as const,
+        ),
+      )
+      return new Set(flags.filter(([, s]) => s).map(([pid]) => pid))
+    },
+  })
+  const pendingSerialItems = useMemo(
+    () => (order?.items ?? []).filter((it) => serializedSet?.has(it.productId) && !it.serialUnitId),
+    [order, serializedSet],
+  )
+
+  // A status/payment change posts, collects on, or refunds the order's sale — which moves
+  // stock, the sales ledger, receivables and reports. Refetch all of those, not just the order.
+  const invalidateAfterSaleChange = () => {
+    for (const key of [['online'], ['sales'], ['inventory'], ['contacts'], ['reports']]) {
+      void qc.invalidateQueries({ queryKey: key })
+    }
+  }
+
   const advance = useMutation({
-    mutationFn: (next: OnlineOrderStatus) =>
-      dataClient.online.updateOrderStatus(id, { status: next }),
+    mutationFn: (input: {
+      status: OnlineOrderStatus
+      serialUnitSelections?: OrderSerialSelection[]
+    }) => dataClient.online.updateOrderStatus(id, input),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['online'] })
+      setSerialTarget(null)
+      invalidateAfterSaleChange()
     },
     onError: (e) => setError(errorMessage(e, t('online.statusError'))),
   })
+
+  // Confirm/complete transitions need serials chosen first (the API assigns + reserves them).
+  const needsSerials = (target: OnlineOrderStatus | undefined) =>
+    !!target &&
+    (target === 'CONFIRMED' || ONLINE_ORDER_COMPLETION_STATUSES.includes(target)) &&
+    pendingSerialItems.length > 0
+  const go = (target: OnlineOrderStatus) => {
+    setError(null)
+    if (needsSerials(target)) setSerialTarget(target)
+    else advance.mutate({ status: target })
+  }
 
   const [payMethod, setPayMethod] = useState<OnlinePaymentMethod | ''>('')
   const pay = useMutation({
@@ -548,7 +606,7 @@ function OrderDrawer({
       }),
     onSuccess: () => {
       setPayMethod('')
-      void qc.invalidateQueries({ queryKey: ['online'] })
+      invalidateAfterSaleChange()
     },
     onError: (e) => setError(errorMessage(e, t('online.payError'))),
   })
@@ -556,7 +614,12 @@ function OrderDrawer({
   const o = order
   const paid = o?.paymentStatus === 'PAID'
   // Admin records payment once the order is real (confirmed) and not cancelled.
-  const canRecordPayment = o ? o.status !== 'PENDING' && o.status !== 'CANCELLED' && !paid : false
+  const refunded = o?.paymentStatus === 'REFUNDED' || o?.paymentStatus === 'PARTIALLY_REFUNDED'
+  // No payment recording once the order is pending, off-flow (cancelled/returned), already
+  // paid, or refunded — mirrors the API guard in updatePayment.
+  const canRecordPayment = o
+    ? o.status !== 'PENDING' && !isOffFlow(o.status) && !paid && !refunded
+    : false
   const cancelled = o ? isOffFlow(o.status) : false
   const flow = o ? flowFor(o.fulfillmentType) : []
   const stageIdx = o ? flow.indexOf(o.status) : -1
@@ -738,6 +801,67 @@ function OrderDrawer({
                   </div>
                 ) : null}
               </div>
+
+              {/* Sale ledger: paid / balance due / refunds behind the fulfilment (Phase 4). */}
+              {o.financials ? (
+                <div className="od-block" style={{ marginTop: 14 }}>
+                  <div className="bl">
+                    {t('online.saleLedger')} · {o.financials.saleNumber}
+                  </div>
+                  <div
+                    className="receipt-tot"
+                    style={{ marginTop: 6, borderRadius: 13, border: '1px solid var(--border)' }}
+                  >
+                    <div className="tr">
+                      <span>{t('online.amountPaid')}</span>
+                      <span className="num">{money.format(o.financials.amountPaid)}</span>
+                    </div>
+                    {o.financials.balanceDue > 0 ? (
+                      <div className="tr">
+                        <span>{t('online.balanceDue')}</span>
+                        <span className="num" style={{ color: 'var(--warning)' }}>
+                          {money.format(o.financials.balanceDue)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {o.financials.refundedAmount > 0 ? (
+                      <div className="tr">
+                        <span>{t('online.refunded')}</span>
+                        <span className="num" style={{ color: 'var(--danger)' }}>
+                          {money.format(o.financials.refundedAmount)}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                  {o.financials.payments.length ? (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {o.financials.payments.map((p, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: 12.5,
+                            color: 'var(--text-2)',
+                          }}
+                        >
+                          <span>
+                            {p.kind === 'REFUND' ? '↩ ' : ''}
+                            {p.method}
+                          </span>
+                          <span
+                            className="num"
+                            style={{ color: p.kind === 'REFUND' ? 'var(--danger)' : 'var(--text)' }}
+                          >
+                            {p.kind === 'REFUND' ? '−' : ''}
+                            {money.format(p.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {error ? (
                 <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
                   {error}
@@ -761,48 +885,24 @@ function OrderDrawer({
                       type="button"
                       style={{ flex: 1 }}
                       loading={advance.isPending}
-                      onClick={() => {
-                        setError(null)
-                        advance.mutate(next)
-                      }}
+                      onClick={() => go(next)}
                     >
                       {next === 'DELIVERED' || next === 'PICKED_UP' ? I.check : I.truck}
                       {advanceLabel(t, o.status)}
                     </Button>
                   ) : null}
                   {canFail ? (
-                    <Button
-                      variant="soft"
-                      type="button"
-                      onClick={() => {
-                        setError(null)
-                        advance.mutate('DELIVERY_FAILED')
-                      }}
-                    >
+                    <Button variant="soft" type="button" onClick={() => go('DELIVERY_FAILED')}>
                       {t('online.markFailed')}
                     </Button>
                   ) : null}
                   {canReturn ? (
-                    <Button
-                      variant="soft"
-                      type="button"
-                      onClick={() => {
-                        setError(null)
-                        advance.mutate('RETURNED')
-                      }}
-                    >
+                    <Button variant="soft" type="button" onClick={() => go('RETURNED')}>
                       {t('online.markReturned')}
                     </Button>
                   ) : null}
                   {canCancel ? (
-                    <Button
-                      variant="soft"
-                      type="button"
-                      onClick={() => {
-                        setError(null)
-                        advance.mutate('CANCELLED')
-                      }}
-                    >
+                    <Button variant="soft" type="button" onClick={() => go('CANCELLED')}>
                       {I.x}
                       {t('online.cancelOrder')}
                     </Button>
@@ -819,7 +919,155 @@ function OrderDrawer({
           </>
         )}
       </aside>
+      {serialTarget ? (
+        <ConfirmSerialsModal
+          items={pendingSerialItems}
+          busy={advance.isPending}
+          onClose={() => setSerialTarget(null)}
+          onConfirm={(serialUnitSelections) =>
+            advance.mutate({ status: serialTarget, serialUnitSelections })
+          }
+        />
+      ) : null}
     </>
+  )
+}
+
+// --- confirm-time serial picker (one section per serialized item) ----------
+function ConfirmSerialsModal({
+  items,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  items: OnlineCartItem[]
+  busy: boolean
+  onClose: () => void
+  onConfirm: (selections: OrderSerialSelection[]) => void
+}) {
+  const t = useT()
+  const [picks, setPicks] = useState<Record<number, string[]>>({})
+  const allDone = items.every((it, i) => (picks[i]?.length ?? 0) === it.quantity)
+
+  const submit = () => {
+    const byKey = new Map<string, OrderSerialSelection>()
+    items.forEach((it, i) => {
+      const key = `${it.productId}:${it.variantId ?? ''}`
+      const sel = byKey.get(key) ?? {
+        productId: it.productId,
+        variantId: it.variantId ?? null,
+        serialUnitIds: [],
+      }
+      sel.serialUnitIds.push(...(picks[i] ?? []))
+      byKey.set(key, sel)
+    })
+    onConfirm([...byKey.values()])
+  }
+
+  return (
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="pay-modal" style={{ width: 480 }}>
+        <div className="pm-head">
+          <h3>{t('online.selectSerials')}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {I.x}
+          </button>
+        </div>
+        <div className="pm-body" style={{ paddingTop: 12 }}>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            {t('online.serialsHint')}
+          </p>
+          {items.map((it, i) => (
+            <ItemSerialSection
+              key={i}
+              item={it}
+              selected={picks[i] ?? []}
+              onChange={(ids) => setPicks((p) => ({ ...p, [i]: ids }))}
+            />
+          ))}
+          <button
+            type="button"
+            className="pm-confirm"
+            style={{ marginTop: 6 }}
+            disabled={!allDone || busy}
+            onClick={submit}
+          >
+            {t('online.confirmWithSerials')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ItemSerialSection({
+  item,
+  selected,
+  onChange,
+}: {
+  item: OnlineCartItem
+  selected: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const t = useT()
+  const [q, setQ] = useState('')
+  const { data: serials = [], isPending } = useQuery<LocalSerialUnit[]>({
+    queryKey: ['online', 'item-serials', item.productId, item.variantId ?? '', q],
+    queryFn: () =>
+      dataClient.products.listInStockSerials(item.productId, item.variantId ?? null, q),
+  })
+  const picked = new Set(selected)
+  const toggle = (uid: string) => {
+    const n = new Set(picked)
+    if (n.has(uid)) n.delete(uid)
+    else if (n.size < item.quantity) n.add(uid)
+    onChange([...n])
+  }
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="pm-lbl">
+        {item.productName}
+        {item.variantName ? ` · ${item.variantName}` : ''} —{' '}
+        {t('online.pickN').replace('{n}', String(item.quantity))} ({selected.length}/{item.quantity}
+        )
+      </div>
+      <div className="field" style={{ margin: '8px 0' }}>
+        {I.search}
+        <input
+          className="input ic"
+          placeholder={t('sell.searchSerials')}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+      {isPending ? (
+        <div className="cat-empty">…</div>
+      ) : serials.length === 0 ? (
+        <div className="cat-empty">{t('sell.noSerials')}</div>
+      ) : null}
+      <div className="cust-list" style={{ maxHeight: 200, overflowY: 'auto' }}>
+        {serials.map((u) => (
+          <button
+            key={u.id}
+            type="button"
+            className={picked.has(u.id) ? 'sel' : ''}
+            onClick={() => toggle(u.id)}
+          >
+            <span className={`ctree-cb${picked.has(u.id) ? ' on' : ''}`} aria-hidden>
+              {picked.has(u.id) ? I.check : null}
+            </span>
+            <div className="t">
+              <div className="nm">{u.serialNumber}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 

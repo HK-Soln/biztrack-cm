@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -7,6 +8,8 @@ import {
   DebtSource,
   PaymentMethod,
   ProductType,
+  SalePaymentKind,
+  SaleSource,
   SaleStatus,
   SerialUnitStatus,
   type CashierPerformanceRow,
@@ -42,6 +45,8 @@ import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleDiscount } from '@/entities/sale-discount.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
+import { SaleReturn } from '@/entities/sale-return.entity'
+import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
@@ -65,6 +70,29 @@ export interface SalesSummary {
   refundCount: number
   refundAmount: number
   currency: string
+}
+
+/** Input for {@link SalesService.recordPayment} — a single collected payment against a sale. */
+export interface RecordSalePaymentInput {
+  /** Optional client-supplied id for idempotent replay; generated when omitted. */
+  id?: string
+  method: PaymentMethod
+  amount: number
+  mobileMoneyReference?: string | null
+  note?: string | null
+  /** YYYY-MM-DD for the receivable payment; defaults to today. */
+  paymentDate?: string
+}
+
+/** Input for {@link SalesService.refund} — a full or partial return/refund of a sale. */
+export interface RefundSaleInput {
+  /** Money to return; defaults to the goods value of returned lines, capped at amountPaid. */
+  amount?: number
+  /** Returned lines; omit for a full return of every line. */
+  items?: Array<{ saleItemId: string; quantity: number; serialUnitId?: string | null }>
+  /** Restore inventory + release serial units (default true). */
+  restock?: boolean
+  reason?: string
 }
 
 type ComputedSaleItem = {
@@ -457,6 +485,8 @@ export class SalesService {
             clientId: payload.clientId,
             cashierId,
             saleNumber,
+            source: payload.source === SaleSource.ONLINE ? SaleSource.ONLINE : SaleSource.IN_STORE,
+            onlineOrderId: payload.onlineOrderId ?? null,
             status: SaleStatus.COMPLETED,
             subtotal: computed.subtotal,
             discountAmount: computed.saleDiscountAmount,
@@ -582,7 +612,17 @@ export class SalesService {
           manager,
         )
 
-        await this.markSerialUnitsSold(manager, businessId, sale.id, customerId ?? null, saleItems)
+        // Online orders post the sale at confirm but keep serials RESERVED until handover
+        // (deferSerialSold); they flip to SOLD when the order is delivered/picked up.
+        if (!payload.deferSerialSold) {
+          await this.markSerialUnitsSold(
+            manager,
+            businessId,
+            sale.id,
+            customerId ?? null,
+            saleItems,
+          )
+        }
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
@@ -607,7 +647,10 @@ export class SalesService {
       })
 
       if (!saleId) {
-        throw new AppInternalServerException('Sale sync creation failed.', 'SALE_SYNC_CREATE_FAILED')
+        throw new AppInternalServerException(
+          'Sale sync creation failed.',
+          'SALE_SYNC_CREATE_FAILED',
+        )
       }
 
       return this.findById(saleId, businessId)
@@ -662,7 +705,7 @@ export class SalesService {
 
       if (query.search?.trim()) {
         qb.andWhere(
-          '(LOWER(sale.sale_number) LIKE :search OR LOWER(COALESCE(sale.customer_name, \'\')) LIKE :search)',
+          "(LOWER(sale.sale_number) LIKE :search OR LOWER(COALESCE(sale.customer_name, '')) LIKE :search)",
           { search: `%${query.search.trim().toLowerCase()}%` },
         )
       }
@@ -682,7 +725,8 @@ export class SalesService {
             { mixedPaymentMethod: PaymentMethod.MIXED },
           )
         } else {
-          qb.andWhere(`
+          qb.andWhere(
+            `
             (
               sale.payment_method = :paymentMethod
               OR EXISTS (
@@ -692,7 +736,20 @@ export class SalesService {
                   AND sp.method = :paymentMethod
               )
             )
-          `, { paymentMethod: query.paymentMethod })
+          `,
+            { paymentMethod: query.paymentMethod },
+          )
+        }
+      }
+
+      if (query.source) {
+        // Null source (pre-migration rows) counts as in-store.
+        if (query.source === SaleSource.ONLINE) {
+          qb.andWhere('sale.source = :saleSource', { saleSource: SaleSource.ONLINE })
+        } else {
+          qb.andWhere('(sale.source = :saleSource OR sale.source IS NULL)', {
+            saleSource: SaleSource.IN_STORE,
+          })
         }
       }
 
@@ -701,7 +758,11 @@ export class SalesService {
       const page = Math.max(query.page ?? 1, 1)
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
       const skip = (page - 1) * limit
-      const [rows, total] = await qb.orderBy(sort, sortOrder).skip(skip).take(limit).getManyAndCount()
+      const [rows, total] = await qb
+        .orderBy(sort, sortOrder)
+        .skip(skip)
+        .take(limit)
+        .getManyAndCount()
 
       return {
         data: rows,
@@ -793,7 +854,9 @@ export class SalesService {
          FROM sales s WHERE ${where} AND s.status = 'VOIDED'`,
         params,
       )) as Array<{ n: number; amt: string }>
-      const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [businessId])) as Array<{
+      const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [
+        businessId,
+      ])) as Array<{
         currency: string | null
       }>
 
@@ -857,9 +920,20 @@ export class SalesService {
          ) p ON p.sale_date = d.sale_date
          ORDER BY d.sale_date ASC`,
         params,
-      )) as Array<{ date: string | Date; txns: number; total: string; credit: string; cash: string; momo: string; card: string }>
+      )) as Array<{
+        date: string | Date
+        txns: number
+        total: string
+        credit: string
+        cash: string
+        momo: string
+        card: string
+      }>
       return rows.map((r) => ({
-        date: typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10),
+        date:
+          typeof r.date === 'string'
+            ? r.date.slice(0, 10)
+            : new Date(r.date).toISOString().slice(0, 10),
         transactions: Number(r.txns ?? 0),
         total: this.roundMoney(Number(r.total ?? 0)),
         cash: this.roundMoney(Number(r.cash ?? 0)),
@@ -906,7 +980,15 @@ export class SalesService {
          GROUP BY s.cashier_id, u.name
          ORDER BY sales DESC`,
         params,
-      )) as Array<{ cashierId: string; name: string; shifts: number; transactions: number; sales: string; refunds: string; discounts: string }>
+      )) as Array<{
+        cashierId: string
+        name: string
+        shifts: number
+        transactions: number
+        sales: string
+        refunds: string
+        discounts: string
+      }>
       return rows.map((r) => ({
         cashierId: r.cashierId,
         name: r.name || '—',
@@ -921,7 +1003,10 @@ export class SalesService {
     }
   }
 
-  private rangeWhere(query: { dateFrom?: string; dateTo?: string }): { where: string; params: unknown[] } {
+  private rangeWhere(query: { dateFrom?: string; dateTo?: string }): {
+    where: string
+    params: unknown[]
+  } {
     const params: unknown[] = []
     const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
     params.push('')
@@ -961,7 +1046,14 @@ export class SalesService {
          GROUP BY si.product_id, si.product_name, c.name
          ORDER BY revenue DESC`,
         params,
-      )) as Array<{ productId: string; name: string; category: string | null; quantity: string; revenue: string; cogs: string }>
+      )) as Array<{
+        productId: string
+        name: string
+        category: string | null
+        quantity: string
+        revenue: string
+        cogs: string
+      }>
       return rows.map((r) => ({
         productId: r.productId,
         name: r.name,
@@ -993,7 +1085,11 @@ export class SalesService {
          ORDER BY amount DESC`,
         params,
       )) as Array<{ method: string; transactions: number; amount: string }>
-      return rows.map((r) => ({ method: r.method, transactions: Number(r.transactions ?? 0), amount: this.roundMoney(Number(r.amount ?? 0)) }))
+      return rows.map((r) => ({
+        method: r.method,
+        transactions: Number(r.transactions ?? 0),
+        amount: this.roundMoney(Number(r.amount ?? 0)),
+      }))
     } catch (error) {
       return this.handleServiceError('getSalesByPaymentMethod', error, { businessId })
     }
@@ -1032,8 +1128,17 @@ export class SalesService {
         params,
       )) as Array<{ gross: string }>
       return {
-        byReason: byReason.map((r) => ({ reason: r.reason ?? null, count: Number(r.count ?? 0), amount: this.roundMoney(Number(r.amount ?? 0)) })),
-        byCashier: byCashier.map((r) => ({ cashierId: r.cashierId, name: r.name || '—', refunds: this.roundMoney(Number(r.refunds ?? 0)), sales: this.roundMoney(Number(r.sales ?? 0)) })),
+        byReason: byReason.map((r) => ({
+          reason: r.reason ?? null,
+          count: Number(r.count ?? 0),
+          amount: this.roundMoney(Number(r.amount ?? 0)),
+        })),
+        byCashier: byCashier.map((r) => ({
+          cashierId: r.cashierId,
+          name: r.name || '—',
+          refunds: this.roundMoney(Number(r.refunds ?? 0)),
+          sales: this.roundMoney(Number(r.sales ?? 0)),
+        })),
         grossSales: this.roundMoney(Number(gross?.gross ?? 0)),
       }
     } catch (error) {
@@ -1056,7 +1161,10 @@ export class SalesService {
          WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
         params,
       )) as Array<{ revenue: string; cogs: string }>
-      return { revenue: this.roundMoney(Number(row?.revenue ?? 0)), cogs: this.roundMoney(Number(row?.cogs ?? 0)) }
+      return {
+        revenue: this.roundMoney(Number(row?.revenue ?? 0)),
+        cogs: this.roundMoney(Number(row?.cogs ?? 0)),
+      }
     } catch (error) {
       return this.handleServiceError('getGrossProfit', error, { businessId })
     }
@@ -1070,7 +1178,11 @@ export class SalesService {
     context?: AuditContext,
   ) {
     try {
-      if (![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(user.role as BusinessMemberRole)) {
+      if (
+        ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
+          user.role as BusinessMemberRole,
+        )
+      ) {
         throw new AppForbiddenException(
           await this.i18n.translate('errors.sales_void_forbidden'),
           'FORBIDDEN',
@@ -1078,11 +1190,7 @@ export class SalesService {
       }
 
       await this.dataSource.transaction(async (manager) => {
-        const sale = await this.findSaleDetailBy(
-          'sale.id = :id',
-          { id, businessId },
-          manager,
-        )
+        const sale = await this.findSaleDetailBy('sale.id = :id', { id, businessId }, manager)
 
         if (!sale) {
           throw new AppNotFoundException(
@@ -1162,6 +1270,269 @@ export class SalesService {
     } catch (error) {
       return this.handleServiceError('void', error, { id, businessId, userId: user.sub })
     }
+  }
+
+  /**
+   * Append a signed PAYMENT to a sale's ledger (COD collection, deposit top-up). Recomputes
+   * amountPaid/creditAmount from the full ledger and settles any outstanding receivable.
+   * Idempotent by payment id. Phase 1 primitive — see docs/online-order-sale-flow-*.md.
+   */
+  async recordPayment(
+    id: string,
+    businessId: string,
+    user: JwtPayload,
+    input: RecordSalePaymentInput,
+  ) {
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        const sale = await this.findSaleDetailBy('sale.id = :id', { id, businessId }, manager)
+        if (!sale) {
+          throw new AppNotFoundException(
+            await this.i18n.translate('errors.sale_not_found'),
+            'SALE_NOT_FOUND',
+          )
+        }
+        if (sale.status === SaleStatus.VOIDED) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.already_voided', {
+              args: { saleNumber: sale.saleNumber },
+            }),
+            'ALREADY_VOIDED',
+          )
+        }
+
+        const amount = this.roundMoney(input.amount)
+        if (amount <= 0) {
+          throw new AppBadRequestException(
+            'Payment amount must be positive.',
+            'INVALID_PAYMENT_AMOUNT',
+          )
+        }
+
+        const paymentRepo = manager.getRepository(SalePayment)
+        const paymentId = input.id ?? randomUUID()
+        const existing = await paymentRepo.findOne({ where: { id: paymentId } })
+        if (existing) return // idempotent replay
+
+        const now = new Date()
+        await paymentRepo.save(
+          paymentRepo.create({
+            id: paymentId,
+            saleId: sale.id,
+            businessId,
+            method: input.method,
+            amount,
+            mobileMoneyReference: input.mobileMoneyReference?.trim() || null,
+            kind: SalePaymentKind.PAYMENT,
+            recordedAt: now,
+            recordedById: user.sub,
+            note: input.note?.trim() || null,
+          }),
+        )
+
+        const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
+        await manager.getRepository(Sale).update(sale.id, {
+          amountPaid: settlement.amountPaid,
+          creditAmount: settlement.creditAmount,
+        })
+
+        // Settle the sale's receivable (COD) if one is open — capped at outstanding.
+        await this.debtsService.settleSourcePayment(manager, {
+          businessId,
+          direction: DebtDirection.RECEIVABLE,
+          sourceType: DebtSource.SALE,
+          sourceId: sale.id,
+          amount,
+          method: input.method,
+          mobileMoneyReference: input.mobileMoneyReference ?? null,
+          paymentDate: input.paymentDate,
+          recordedById: user.sub,
+        })
+      })
+      return this.findById(id, businessId)
+    } catch (error) {
+      return this.handleServiceError('recordPayment', error, { id, businessId, userId: user.sub })
+    }
+  }
+
+  /**
+   * Refund/return a sale (full or partial). Appends a signed REFUND ledger row for the money
+   * returned (capped at amountPaid), writes a sale_returns record + returned lines, optionally
+   * restocks inventory + releases serial units, and cancels any outstanding receivable on a full
+   * return. Sets status REFUNDED (full) or PARTIALLY_REFUNDED (partial). Phase 1 primitive.
+   */
+  async refund(id: string, businessId: string, user: JwtPayload, input: RefundSaleInput) {
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        const sale = await this.findSaleDetailBy('sale.id = :id', { id, businessId }, manager)
+        if (!sale) {
+          throw new AppNotFoundException(
+            await this.i18n.translate('errors.sale_not_found'),
+            'SALE_NOT_FOUND',
+          )
+        }
+        if (sale.status === SaleStatus.VOIDED) {
+          throw new AppBadRequestException('A voided sale cannot be refunded.', 'SALE_VOIDED')
+        }
+
+        const saleItems = sale.items ?? []
+        // Resolve returned lines: explicit selection, else the whole sale (full return).
+        const returnedLines =
+          input.items && input.items.length > 0
+            ? input.items.map((r) => {
+                const item = saleItems.find((si) => si.id === r.saleItemId)
+                if (!item) {
+                  throw new AppBadRequestException(
+                    'Returned line does not belong to this sale.',
+                    'RETURN_ITEM_NOT_FOUND',
+                  )
+                }
+                return {
+                  item,
+                  quantity: Math.min(this.roundMoney(r.quantity), item.quantity),
+                  serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
+                }
+              })
+            : saleItems.map((item) => ({
+                item,
+                quantity: item.quantity,
+                serialUnitId: item.serialUnitId ?? null,
+              }))
+
+        const isFullReturn =
+          !input.items ||
+          input.items.length === 0 ||
+          saleItems.every((si) => {
+            const returnedQty = returnedLines
+              .filter((r) => r.item.id === si.id)
+              .reduce((sum, r) => sum + r.quantity, 0)
+            return returnedQty >= si.quantity
+          })
+
+        // Money to return: default to the goods value of returned lines, capped at amountPaid
+        // (fees are non-refundable by default). Unpaid COD returns refund 0 and write off the debt.
+        const goodsValue = this.roundMoney(
+          returnedLines.reduce((sum, r) => {
+            const perUnit =
+              r.item.quantity > 0 ? r.item.lineTotal / r.item.quantity : r.item.lineTotal
+            return sum + perUnit * r.quantity
+          }, 0),
+        )
+        const requested = input.amount != null ? this.roundMoney(input.amount) : goodsValue
+        const moneyRefund = this.roundMoney(Math.min(Math.max(0, requested), sale.amountPaid))
+        const restock = input.restock !== false
+        const now = new Date()
+
+        const returnId = randomUUID()
+        const returnRepo = manager.getRepository(SaleReturn)
+        await returnRepo.save(
+          returnRepo.create({
+            id: returnId,
+            saleId: sale.id,
+            businessId,
+            onlineOrderId: sale.onlineOrderId ?? null,
+            reason: input.reason?.trim() || null,
+            restock,
+            refundAmount: moneyRefund,
+            createdById: user.sub,
+          }),
+        )
+        const returnItemRepo = manager.getRepository(SaleReturnItem)
+        await returnItemRepo.save(
+          returnedLines.map((r) =>
+            returnItemRepo.create({
+              id: randomUUID(),
+              saleReturnId: returnId,
+              businessId,
+              saleItemId: r.item.id,
+              quantity: r.quantity,
+              serialUnitId: r.serialUnitId ?? null,
+            }),
+          ),
+        )
+
+        if (moneyRefund > 0) {
+          await manager.getRepository(SalePayment).save(
+            manager.getRepository(SalePayment).create({
+              id: randomUUID(),
+              saleId: sale.id,
+              businessId,
+              method: (sale.paymentMethod as PaymentMethod) ?? PaymentMethod.CASH,
+              amount: moneyRefund,
+              kind: SalePaymentKind.REFUND,
+              recordedAt: now,
+              recordedById: user.sub,
+              note: input.reason?.trim() || 'Refund',
+            }),
+          )
+        }
+
+        if (restock) {
+          await this.inventoryService.reverseForVoidedSale(
+            businessId,
+            sale.id,
+            sale.saleNumber,
+            user.sub,
+            await this.expandSaleItemsForInventory(
+              manager,
+              businessId,
+              returnedLines.map((r) => ({
+                productId: r.item.productId,
+                variantId: r.item.variantId ?? null,
+                productName: r.item.productName,
+                quantity: r.quantity,
+              })),
+            ),
+            manager,
+          )
+          await this.releaseSerialUnitsForVoid(
+            manager,
+            businessId,
+            returnedLines
+              .filter((r) => r.serialUnitId)
+              .map((r) => ({ serialUnitId: r.serialUnitId })),
+          )
+        }
+
+        const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
+        await manager.getRepository(Sale).update(sale.id, {
+          amountPaid: settlement.amountPaid,
+          creditAmount: settlement.creditAmount,
+          status: isFullReturn ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED,
+        })
+
+        // A full return cancels any outstanding receivable — the goods came back.
+        if (isFullReturn) {
+          await this.debtsService.writeOffSourceDebt(manager, {
+            businessId,
+            sourceType: DebtSource.SALE,
+            sourceId: sale.id,
+            reason: `Sale ${sale.saleNumber} returned: ${input.reason?.trim() ?? 'refund'}`,
+            writtenOffAt: now,
+            writtenOffById: user.sub,
+          })
+        }
+      })
+      return this.findById(id, businessId)
+    } catch (error) {
+      return this.handleServiceError('refund', error, { id, businessId, userId: user.sub })
+    }
+  }
+
+  /** Recompute a sale's paid/credit from its signed payment ledger: Σ(PAYMENT) − Σ(REFUND). */
+  private async recomputeSaleSettlement(
+    manager: EntityManager,
+    saleId: string,
+    totalAmount: number,
+  ): Promise<{ amountPaid: number; creditAmount: number }> {
+    const rows = await manager.getRepository(SalePayment).find({ where: { saleId } })
+    const net = rows.reduce(
+      (sum, p) => sum + (p.kind === SalePaymentKind.REFUND ? -Number(p.amount) : Number(p.amount)),
+      0,
+    )
+    const amountPaid = this.roundMoney(Math.max(0, net))
+    const creditAmount = this.roundMoney(Math.max(0, totalAmount - amountPaid))
+    return { amountPaid, creditAmount }
   }
 
   async getDailySummary(businessId: string, date?: string): Promise<DailySalesSummary> {
@@ -1345,7 +1716,11 @@ export class SalesService {
         recentActivity,
       }
     } catch (error) {
-      return this.handleServiceError('getCashierShiftSummary', error, { businessId, cashierId, date })
+      return this.handleServiceError('getCashierShiftSummary', error, {
+        businessId,
+        cashierId,
+        date,
+      })
     }
   }
 
@@ -1391,7 +1766,9 @@ export class SalesService {
       let phone = dto.recipient?.phone ?? sale.customerPhone ?? null
       let email = dto.recipient?.email ?? null
       if ((!email || !phone) && sale.customerId) {
-        const contact = await this.contactsRepo.findOne({ where: { id: sale.customerId, businessId } })
+        const contact = await this.contactsRepo.findOne({
+          where: { id: sale.customerId, businessId },
+        })
         email = email ?? contact?.email ?? null
         phone = phone ?? contact?.phone ?? null
       }
@@ -1487,7 +1864,10 @@ export class SalesService {
       }
 
       // Only VARIABLE_QUANTITY products may be sold in fractional amounts.
-      if (product.productType !== ProductType.VARIABLE_QUANTITY && !Number.isInteger(item.quantity)) {
+      if (
+        product.productType !== ProductType.VARIABLE_QUANTITY &&
+        !Number.isInteger(item.quantity)
+      ) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.quantity_must_be_integer', {
             args: { name: product.name },
@@ -1499,7 +1879,9 @@ export class SalesService {
 
     // Load + validate serial units (Phase 3G).
     const serialUnitIds = [
-      ...new Set(dto.items.map((item) => item.serialUnitId).filter((id): id is string => Boolean(id))),
+      ...new Set(
+        dto.items.map((item) => item.serialUnitId).filter((id): id is string => Boolean(id)),
+      ),
     ]
     const serialUnits = serialUnitIds.length
       ? await manager.getRepository(ProductSerialUnit).find({
@@ -1513,7 +1895,9 @@ export class SalesService {
       if (!product.isSerialized) continue
       if (!item.serialUnitId) {
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.serial_unit_required', { args: { name: product.name } }),
+          await this.i18n.translate('errors.serial_unit_required', {
+            args: { name: product.name },
+          }),
           'SERIAL_UNIT_REQUIRED',
         )
       }
@@ -1729,7 +2113,9 @@ export class SalesService {
       const discountAmount = this.roundMoney(input.discountAmount ?? 0)
       const lineTotal = Math.max(0, this.roundMoney(unitPrice * quantity - discountAmount))
       const costPrice =
-        input.costPrice !== undefined ? this.roundMoney(input.costPrice) : (product.costPrice ?? null)
+        input.costPrice !== undefined
+          ? this.roundMoney(input.costPrice)
+          : (product.costPrice ?? null)
 
       if (this.hasPriceDrift(unitPrice, product.sellingPrice)) {
         priceDriftWarning = true
@@ -1754,7 +2140,10 @@ export class SalesService {
 
     const saleDiscountAmount = Math.min(this.roundMoney(dto.discountAmount ?? 0), subtotal)
     const saleChargesAmount = this.roundMoney(Math.max(0, dto.chargesAmount ?? 0))
-    const totalAmount = Math.max(0, this.roundMoney(subtotal - saleDiscountAmount + saleChargesAmount))
+    const totalAmount = Math.max(
+      0,
+      this.roundMoney(subtotal - saleDiscountAmount + saleChargesAmount),
+    )
 
     return {
       items,
@@ -1800,11 +2189,7 @@ export class SalesService {
     saleId: string,
     payload: SaleSyncPayload,
   ) {
-    const sale = await this.findSaleDetailBy(
-      'sale.id = :id',
-      { id: saleId, businessId },
-      manager,
-    )
+    const sale = await this.findSaleDetailBy('sale.id = :id', { id: saleId, businessId }, manager)
 
     if (!sale || sale.status === SaleStatus.VOIDED) {
       return
@@ -1986,9 +2371,7 @@ export class SalesService {
     throw new AppBadRequestException('Sale cashier is required.', 'SALE_CASHIER_REQUIRED')
   }
 
-  private deriveStoredPaymentMethod(
-    payments: Array<{ method: PaymentMethod }>,
-  ): PaymentMethod {
+  private deriveStoredPaymentMethod(payments: Array<{ method: PaymentMethod }>): PaymentMethod {
     const methods = [...new Set(payments.map((payment) => payment.method))]
 
     if (methods.length === 0) {
@@ -2005,7 +2388,11 @@ export class SalesService {
   private firstMobileMoneyReference(
     payments: Array<{ mobileMoneyReference?: string | null }>,
   ): string | null {
-    return payments.find((payment) => payment.mobileMoneyReference?.trim())?.mobileMoneyReference?.trim() ?? null
+    return (
+      payments
+        .find((payment) => payment.mobileMoneyReference?.trim())
+        ?.mobileMoneyReference?.trim() ?? null
+    )
   }
 
   private isUniqueConstraintViolation(error: unknown, constraint: string) {
@@ -2022,9 +2409,7 @@ export class SalesService {
   private isUuid(value: string | null | undefined): value is string {
     return Boolean(
       value &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        value,
-      ),
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),
     )
   }
 

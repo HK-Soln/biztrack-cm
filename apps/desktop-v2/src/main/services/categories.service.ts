@@ -55,7 +55,8 @@ export class CategoriesService {
   /** Paginated list for the categories screen (default 20). Supports search + filters. */
   list(query: CategoryListQuery = {}): PaginatedResult<LocalCategory> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalCategory>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalCategory>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'business_id = ? AND is_deleted = 0'
     const params: unknown[] = [businessId]
@@ -149,7 +150,8 @@ export class CategoriesService {
     const withProducts = this.categoryIdsWithProducts(businessId)
     const withVariants = this.categoryIdsWithVariantOptions(businessId)
     let options = rows.filter(
-      (r) => r.depth < 3 && !blocked.has(r.id) && !withProducts.has(r.id) && !withVariants.has(r.id),
+      (r) =>
+        r.depth < 3 && !blocked.has(r.id) && !withProducts.has(r.id) && !withVariants.has(r.id),
     )
     options = filterBySearch(options, query.search)
     return sortRows(options).map(toLocalCategory)
@@ -186,7 +188,13 @@ export class CategoriesService {
     this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input, depth), now)
     this.onMutated()
     const created = this.getOne(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'product_category', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'product_category',
+      entityId: id,
+      entityLabel: created.name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -219,7 +227,13 @@ export class CategoriesService {
     this.enqueue(id, 'UPSERT', businessId, this.upsertPayload(input, depth), now)
     this.onMutated()
     const updated = this.getOne(id)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'product_category', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'product_category',
+      entityId: id,
+      entityLabel: updated.name,
+      changes: { before: null, after: updated },
+    })
     return updated
   }
 
@@ -227,13 +241,33 @@ export class CategoriesService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOne(id)
+    const inUse = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM products WHERE category_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      [id, businessId],
+    )
+    if (inUse) {
+      throw new Error('This category is still used by one or more products and cannot be deleted.')
+    }
+    const hasChildren = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM product_categories WHERE parent_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      [id, businessId],
+    )
+    if (hasChildren) {
+      throw new Error('This category has sub-categories and cannot be deleted.')
+    }
     this.db.run(
       `UPDATE product_categories SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'product_category', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'product_category',
+      entityId: id,
+      entityLabel: before?.name ?? null,
+      changes: { before, after: null },
+    })
   }
 
   // ---- internals -----------------------------------------------------------
@@ -257,10 +291,9 @@ export class CategoriesService {
 
   private brandCategoryIds(businessId: string, brandId: string): string[] {
     return this.db
-      .query<{ category_id: string }>(
-        `SELECT category_id FROM brand_categories WHERE business_id = ? AND brand_id = ? AND is_deleted = 0`,
-        [businessId, brandId],
-      )
+      .query<{
+        category_id: string
+      }>(`SELECT category_id FROM brand_categories WHERE business_id = ? AND brand_id = ? AND is_deleted = 0`, [businessId, brandId])
       .map((r) => r.category_id)
   }
 
@@ -310,7 +343,9 @@ export class CategoriesService {
     const parent = rows.find((r) => r.id === parentId)
     if (!parent) throw new Error('Selected parent category does not exist.')
     if (parent.depth >= 3) {
-      throw new Error('Maximum category depth (3 levels) reached — this category cannot be a parent.')
+      throw new Error(
+        'Maximum category depth (3 levels) reached — this category cannot be a parent.',
+      )
     }
     if (selfId) {
       if (parentId === selfId) throw new Error('A category cannot be its own parent.')
@@ -370,7 +405,14 @@ export class CategoriesService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 }
@@ -378,7 +420,9 @@ export class CategoriesService {
 function filterBySearch(rows: CategoryRow[], search?: string): CategoryRow[] {
   const q = search?.trim().toLowerCase()
   if (!q) return rows
-  return rows.filter((r) => r.name.toLowerCase().includes(q) || (r.slug ?? '').toLowerCase().includes(q))
+  return rows.filter(
+    (r) => r.name.toLowerCase().includes(q) || (r.slug ?? '').toLowerCase().includes(q),
+  )
 }
 
 function sortRows(rows: CategoryRow[]): CategoryRow[] {

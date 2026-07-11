@@ -73,6 +73,7 @@ interface ApiSale {
   changeGiven: number
   currency?: string | null
   paymentMethod?: string | null
+  source?: string | null
   notes?: string | null
   soldAt: string
   createdAt: string
@@ -97,6 +98,7 @@ function toLocalSale(s: ApiSale): LocalSale {
     changeGiven: s.changeGiven,
     currency: s.currency ?? 'XAF',
     paymentMethod: s.paymentMethod ?? null,
+    source: s.source ?? null,
     notes: s.notes ?? null,
     soldAt: s.soldAt,
     createdAt: s.createdAt,
@@ -106,7 +108,18 @@ function toLocalSale(s: ApiSale): LocalSale {
 }
 
 // The API ListSalesQueryDto (forbidNonWhitelisted) has no customerId — drop it.
-const SALE_QUERY_KEYS = ['page', 'limit', 'search', 'sortBy', 'sortOrder', 'status', 'paymentMethod', 'dateFrom', 'dateTo']
+const SALE_QUERY_KEYS = [
+  'page',
+  'limit',
+  'search',
+  'sortBy',
+  'sortOrder',
+  'status',
+  'paymentMethod',
+  'source',
+  'dateFrom',
+  'dateTo',
+]
 function saleQuery(query?: SalesListQuery): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (query) {
@@ -153,7 +166,12 @@ function toLocalSaleItem(i: ApiSaleItem): LocalSaleItem {
   }
 }
 function toLocalSalePayment(p: ApiSalePayment): LocalSalePayment {
-  return { id: p.id, method: p.method, amount: p.amount, mobileMoneyReference: p.mobileMoneyReference ?? null }
+  return {
+    id: p.id,
+    method: p.method,
+    amount: p.amount,
+    mobileMoneyReference: p.mobileMoneyReference ?? null,
+  }
 }
 
 export const cloudSales = {
@@ -173,8 +191,12 @@ export const cloudSales = {
     cget<SalesByProductRow[]>(`/sales/by-product${qs(saleQuery(query))}`),
   byPaymentMethod: (query?: SalesListQuery): Promise<SalesByPaymentRow[]> =>
     cget<SalesByPaymentRow[]>(`/sales/by-payment-method${qs(saleQuery(query))}`),
-  refunds: (query?: SalesListQuery): Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }> =>
-    cget<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>(`/sales/refunds${qs(saleQuery(query))}`),
+  refunds: (
+    query?: SalesListQuery,
+  ): Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }> =>
+    cget<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>(
+      `/sales/refunds${qs(saleQuery(query))}`,
+    ),
   grossProfit: (query?: SalesListQuery): Promise<{ revenue: number; cogs: number }> =>
     cget<{ revenue: number; cogs: number }>(`/sales/gross-profit${qs(saleQuery(query))}`),
   // The API now mirrors the desktop sale model: serialised lines (serialUnitIds[]),
@@ -182,10 +204,21 @@ export const cloudSales = {
   // backend derives the sale totals from the lines and persists the breakdown.
   create: async (input: SaleInput): Promise<LocalSaleDetail> => {
     const charges = (input.charges ?? []).map((c) =>
-      clean({ chargeTypeId: c.chargeTypeId, name: c.name, rateType: c.rateType, rateValue: c.rateValue, amount: c.amount }),
+      clean({
+        chargeTypeId: c.chargeTypeId,
+        name: c.name,
+        rateType: c.rateType,
+        rateValue: c.rateValue,
+        amount: c.amount,
+      }),
     )
     const discounts = (input.discounts ?? []).map((d) =>
-      clean({ description: d.description, discountType: d.discountType, rate: d.rate, amount: d.amount }),
+      clean({
+        description: d.description,
+        discountType: d.discountType,
+        rate: d.rate,
+        amount: d.amount,
+      }),
     )
     const body = clean({
       clientId: input.clientId,
@@ -249,18 +282,25 @@ export const cloudSales = {
     )
   },
   // Browser: render the receipt HTML and open the print dialog (→ printer or save-as-PDF).
-  printReceipt: async (saleId: string, locale: string): Promise<{ printed: boolean; pdfPath?: string }> => {
+  printReceipt: async (
+    saleId: string,
+    locale: string,
+  ): Promise<{ printed: boolean; pdfPath?: string }> => {
     const html = await fetchReceiptHtml(saleId, locale)
     if (!html) return { printed: false }
     printHtml(html)
     return { printed: true }
   },
   // Render the receipt HTML, then compile it to a real PDF on the server and download it.
-  downloadReceipt: async (saleId: string, locale: string): Promise<{ saved: boolean; path?: string }> => {
+  downloadReceipt: async (
+    saleId: string,
+    locale: string,
+  ): Promise<{ saved: boolean; path?: string }> => {
     const html = await fetchReceiptHtml(saleId, locale)
     if (!html) return { saved: false }
     await downloadPdfFromHtml(html, `receipt-${saleId}`)
     return { saved: true }
   },
-  receiptHtml: (saleId: string, locale: string): Promise<string | null> => fetchReceiptHtml(saleId, locale),
+  receiptHtml: (saleId: string, locale: string): Promise<string | null> =>
+    fetchReceiptHtml(saleId, locale),
 }

@@ -1,19 +1,29 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { IsNull, Repository } from 'typeorm'
+import { ConfigService } from '@nestjs/config'
+import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
+import type { AppConfig } from '@/config/configuration'
 import {
+  ContactType,
   PaymentMethod,
   ONLINE_ORDER_COMPLETION_STATUSES,
+  SaleSource,
+  SerialUnitStatus,
   canTransitionOnlineOrder,
   type AddCartItemRequest,
   type CheckoutRequest,
+  type JwtPayload,
   type OnlineCart as OnlineCartShape,
   type OnlineCartItem,
   type OnlineOrderStatus,
   type OnlinePaymentStatus,
+  type OnlineOrderFinancials,
+  type OnlineOrderPaymentEntry,
   type OnlineStorePublishedConfig,
+  type OrderSerialSelection,
   type PublicOrderTracking,
+  type SaleSyncChargeLinePayload,
   type SaleSyncPayload,
   type UpdateOrderPaymentRequest,
   type UpdateOrderStatusRequest,
@@ -29,12 +39,15 @@ import { OnlineCart } from '@/entities/online-cart.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { OnlineStore } from '@/entities/online-store.entity'
+import { Contact } from '@/entities/contact.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { OnlineStoreService } from './online-store.service'
+import { OrderEmailService } from './order-email.service'
 
 const cartItemKey = (item: {
   productId: string
@@ -65,6 +78,7 @@ const PAYMENT_EVENT: Record<
 > = {
   PENDING: { type: 'PAYMENT_INITIATED', message: 'Awaiting payment.' },
   AUTHORIZED: { type: 'PAYMENT_AUTHORIZED', message: 'Payment authorised.' },
+  PARTIALLY_PAID: { type: 'PAYMENT_RECEIVED', message: 'Partial payment received.' },
   PAID: { type: 'PAYMENT_RECEIVED', message: 'Payment received.' },
   FAILED: { type: 'PAYMENT_FAILED', message: 'Payment failed.' },
   REFUNDED: { type: 'PAYMENT_REFUNDED', message: 'Your order has been refunded.' },
@@ -73,6 +87,9 @@ const PAYMENT_EVENT: Record<
     message: 'Your order has been partially refunded.',
   },
 }
+
+/** Who performed an order action — carries the role so posted-sale reversals (void) authorise. */
+type OrderActor = { id: string | null; name: string | null; role?: string | null }
 
 @Injectable()
 export class OnlineOrdersService {
@@ -89,10 +106,16 @@ export class OnlineOrdersService {
     private readonly productsRepo: Repository<Product>,
     @InjectRepository(ProductVariant)
     private readonly variantsRepo: Repository<ProductVariant>,
+    @InjectRepository(ProductSerialUnit)
+    private readonly serialUnitsRepo: Repository<ProductSerialUnit>,
+    @InjectRepository(Contact)
+    private readonly contactsRepo: Repository<Contact>,
     private readonly salesService: SalesService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
     private readonly storeService: OnlineStoreService,
+    private readonly config: ConfigService<AppConfig>,
+    private readonly orderEmail: OrderEmailService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -207,15 +230,24 @@ export class OnlineOrdersService {
         )
       }
 
-      const totalAmount = Math.round(
+      // Min-order gates the GOODS value (subtotal), not delivery.
+      const subtotal = Math.round(
         items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
       )
-      if (config.minOrderAmount && totalAmount < config.minOrderAmount) {
+      if (config.minOrderAmount && subtotal < config.minOrderAmount) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.online_min_order_not_met'),
           'ONLINE_MIN_ORDER_NOT_MET',
         )
       }
+
+      // Delivery orders carry the store's flat delivery fee; pickup is free.
+      const fulfillmentType = dto.fulfillmentType ?? 'DELIVERY'
+      const deliveryFee =
+        fulfillmentType === 'DELIVERY' && config.fulfilment.offerDelivery
+          ? Math.max(0, Math.round(config.fulfilment.deliveryFee ?? 0))
+          : 0
+      const totalAmount = subtotal + deliveryFee
 
       const order = await this.ordersRepo.save(
         this.ordersRepo.create({
@@ -229,7 +261,7 @@ export class OnlineOrdersService {
           customerName: dto.customerName.trim(),
           customerEmail: dto.customerEmail?.trim() ?? null,
           customerPhone: dto.customerPhone.trim(),
-          fulfillmentType: dto.fulfillmentType ?? 'DELIVERY',
+          fulfillmentType,
           deliveryAddress: dto.deliveryAddress?.trim() ?? null,
           deliveryCity: dto.deliveryCity?.trim() ?? null,
           deliveryNotes: dto.deliveryNotes?.trim() ?? null,
@@ -254,6 +286,9 @@ export class OnlineOrdersService {
 
       // Cart consumed.
       await this.cartsRepo.delete({ id: cart.id })
+
+      // Send the "order received" email (best-effort).
+      await this.orderEmail.sendStatusEmail(order, 'PENDING')
 
       return {
         orderNumber: order.orderNumber,
@@ -329,14 +364,47 @@ export class OnlineOrdersService {
       where: { onlineOrderId: id },
       order: { createdAt: 'ASC' },
     })
-    return { ...order, events }
+    const financials = await this.buildOrderFinancials(order)
+    return { ...order, events, financials }
+  }
+
+  /** Summarise the posted sale's money ledger (paid, balance due, refunds, payment timeline). */
+  private async buildOrderFinancials(order: OnlineOrder): Promise<OnlineOrderFinancials | null> {
+    if (!order.saleId) return null
+    let sale: Awaited<ReturnType<SalesService['findById']>>
+    try {
+      sale = await this.salesService.findById(order.saleId, order.businessId)
+    } catch {
+      return null
+    }
+    if (!sale) return null
+    const payments: OnlineOrderPaymentEntry[] = (sale.payments ?? []).map((p) => ({
+      method: p.method,
+      amount: Number(p.amount),
+      kind: (p.kind as 'PAYMENT' | 'REFUND') ?? 'PAYMENT',
+      at: p.createdAt instanceof Date ? p.createdAt.toISOString() : String(p.createdAt),
+    }))
+    const refundedAmount = payments
+      .filter((p) => p.kind === 'REFUND')
+      .reduce((sum, p) => sum + p.amount, 0)
+    return {
+      saleId: sale.id,
+      saleNumber: sale.saleNumber,
+      status: sale.status,
+      totalAmount: Number(sale.totalAmount),
+      amountPaid: Number(sale.amountPaid),
+      balanceDue: Number(sale.creditAmount),
+      refundedAmount,
+      chargesAmount: Number(sale.chargesAmount),
+      payments,
+    }
   }
 
   async updateStatus(
     businessId: string,
     id: string,
     dto: UpdateOrderStatusRequest,
-    actor: { id: string | null; name: string | null },
+    actor: OrderActor,
   ) {
     try {
       const order = await this.ordersRepo.findOne({ where: { id, businessId } })
@@ -367,27 +435,93 @@ export class OnlineOrdersService {
       if (toStatus === 'PICKED_UP') patch.pickedUpAt = now
       if (toStatus === 'RETURNED') patch.returnedAt = now
 
-      // Deferred-sale policy: the financial sale is created once the order is COMPLETED
-      // (DELIVERED for delivery, PICKED_UP for pickup) — inventory deducts then, idempotent
-      // by order id. For COD (not yet paid), completion also collects payment → PAID.
-      if (ONLINE_ORDER_COMPLETION_STATUSES.includes(toStatus) && !order.saleId) {
-        const sale = await this.createSaleForOrder(order, actor.id)
+      const saleAtConfirm = this.saleAtConfirmEnabled()
+
+      // Serial-unit assignment: the admin chooses serials for serialized items. Reserve them at
+      // CONFIRMED (and at completion for the legacy deferred-sale path when no sale exists yet).
+      if (
+        toStatus === 'CONFIRMED' ||
+        (ONLINE_ORDER_COMPLETION_STATUSES.includes(toStatus) && !order.saleId)
+      ) {
+        const reservedItems = await this.assignSerialUnits(
+          order,
+          dto.serialUnitSelections,
+          actor.id,
+        )
+        if (reservedItems) {
+          order.items = reservedItems
+          patch.items = reservedItems
+        }
+      }
+
+      // Post-at-confirm (flagged): confirming posts a real sale — COD becomes a receivable, fees
+      // become charge lines, serials stay RESERVED until handover. Idempotent by order id.
+      if (saleAtConfirm && toStatus === 'CONFIRMED' && !order.saleId) {
+        const sale = await this.postSaleForOrder(order, actor)
         patch.saleId = sale.id
-        if (order.paymentStatus !== 'PAID') {
+        patch.paymentStatus = this.derivePaymentStatus(sale.amountPaid, sale.totalAmount)
+      }
+
+      if (toStatus === 'CANCELLED') {
+        // Whenever a sale exists (posted at confirm), cancelling reverses it: restore stock,
+        // release serials, write off the receivable. Then free any still-reserved serials.
+        // Independent of the post-at-confirm flag — reversing a real sale is never legacy-gated.
+        if (order.saleId) {
+          await this.reversePostedSale(order, actor)
+        }
+        await this.releaseReservedSerials(order)
+      }
+
+      // A return refunds the sale (money back + restock + serials → IN_STOCK) and cancels any
+      // receivable — for ANY order that has a sale, whether it was posted at confirm or at
+      // completion (legacy). Only orders with no sale keep the status-only behaviour.
+      if (toStatus === 'RETURNED' && order.saleId) {
+        await this.salesService.refund(order.saleId, businessId, this.actorUser(order, actor), {
+          restock: true,
+          reason: dto.internalNote?.trim() || `Online order ${order.orderNumber} returned`,
+        })
+        patch.paymentStatus = 'REFUNDED'
+        await this.eventsRepo.save(
+          this.eventsRepo.create({
+            onlineOrderId: id,
+            businessId,
+            eventType: 'PAYMENT_REFUNDED',
+            triggeredBy: 'MERCHANT',
+            actorId: actor.id,
+            actorName: actor.name,
+            isCustomerVisible: true,
+            customerMessage: 'Your order has been refunded.',
+            trackingToken: order.trackingToken,
+          }),
+        )
+      }
+
+      if (ONLINE_ORDER_COMPLETION_STATUSES.includes(toStatus)) {
+        if (saleAtConfirm && order.saleId) {
+          // Sale already posted at confirm: collect any COD balance + flip serials to SOLD.
+          await this.collectOnCompletion(order, actor, toStatus)
+          await this.markOrderSerialsSold(order)
           patch.paymentStatus = 'PAID'
-          await this.eventsRepo.save(
-            this.eventsRepo.create({
-              onlineOrderId: id,
-              businessId,
-              eventType: 'PAYMENT_RECEIVED',
-              triggeredBy: 'MERCHANT',
-              actorId: actor.id,
-              actorName: actor.name,
-              isCustomerVisible: false,
-              internalNote: `Sale ${sale.saleNumber} recorded on ${toStatus.toLowerCase()}.`,
-              trackingToken: order.trackingToken,
-            }),
-          )
+        } else if (!order.saleId) {
+          // Legacy deferred-sale path (flag off): the sale is created here, paid in full.
+          const sale = await this.createSaleForOrder(order, actor.id)
+          patch.saleId = sale.id
+          if (order.paymentStatus !== 'PAID') {
+            patch.paymentStatus = 'PAID'
+            await this.eventsRepo.save(
+              this.eventsRepo.create({
+                onlineOrderId: id,
+                businessId,
+                eventType: 'PAYMENT_RECEIVED',
+                triggeredBy: 'MERCHANT',
+                actorId: actor.id,
+                actorName: actor.name,
+                isCustomerVisible: false,
+                internalNote: `Sale ${sale.saleNumber} recorded on ${toStatus.toLowerCase()}.`,
+                trackingToken: order.trackingToken,
+              }),
+            )
+          }
         }
       }
       await this.ordersRepo.update(id, patch)
@@ -410,6 +544,9 @@ export class OnlineOrdersService {
         }),
       )
 
+      // Notify the customer of the new step (best-effort; skips CONFIRMED — placement covered it).
+      await this.orderEmail.sendStatusEmail(order, toStatus)
+
       return this.getOrder(businessId, id)
     } catch (error) {
       return this.handleServiceError('updateStatus', error, { businessId, id })
@@ -426,7 +563,7 @@ export class OnlineOrdersService {
     businessId: string,
     id: string,
     dto: UpdateOrderPaymentRequest,
-    actor: { id: string | null; name: string | null },
+    actor: OrderActor,
   ) {
     try {
       const order = await this.ordersRepo.findOne({ where: { id, businessId } })
@@ -436,16 +573,41 @@ export class OnlineOrdersService {
           'ONLINE_ORDER_NOT_FOUND',
         )
       }
-      // Payment can only be recorded once the order is real (confirmed) and not cancelled.
-      if (order.status === 'PENDING' || order.status === 'CANCELLED') {
+      // Payment can only be recorded once the order is real (confirmed) and not terminated:
+      // not while PENDING, and never once cancelled, returned, or (partially) refunded.
+      const isRefunded =
+        order.paymentStatus === 'REFUNDED' || order.paymentStatus === 'PARTIALLY_REFUNDED'
+      const isBlockedStatus =
+        order.status === 'PENDING' || order.status === 'CANCELLED' || order.status === 'RETURNED'
+      if (isBlockedStatus || isRefunded) {
+        const reason = isRefunded ? 'refunded' : order.status.toLowerCase()
         throw new AppBadRequestException(
-          `Cannot record payment for a ${order.status.toLowerCase()} order.`,
+          `Cannot record payment for a ${reason} order.`,
           'ONLINE_ORDER_PAYMENT_NOT_ALLOWED',
         )
       }
 
       const patch: Partial<OnlineOrder> = { paymentStatus: dto.paymentStatus }
       if (dto.paymentMethod !== undefined) patch.paymentMethod = dto.paymentMethod ?? null
+
+      // Post-at-confirm (flagged): "Mark Paid" books real money against the posted sale —
+      // record a payment for the outstanding balance and derive the order's status from the sale.
+      if (this.saleAtConfirmEnabled() && order.saleId && dto.paymentStatus === 'PAID') {
+        const sale = await this.salesService.findById(order.saleId, businessId)
+        if (sale.creditAmount > 0) {
+          await this.salesService.recordPayment(
+            order.saleId,
+            businessId,
+            this.actorUser(order, actor),
+            {
+              method: this.mapPaymentMethod(dto.paymentMethod ?? order.paymentMethod),
+              amount: sale.creditAmount,
+              note: `Online order ${order.orderNumber} marked paid`,
+            },
+          )
+        }
+      }
+
       await this.ordersRepo.update(id, patch)
 
       const mapping = PAYMENT_EVENT[dto.paymentStatus]
@@ -475,6 +637,115 @@ export class OnlineOrdersService {
    * policy). The delivering merchant is the cashier; payment is the full total.
    * createFromSync is idempotent by clientId (= order id), so retries are safe.
    */
+  /**
+   * Assign + reserve the serial units an admin chose for serialized items. Splits a
+   * serialized item of quantity N into N lines (one serial each) so the deferred sale can
+   * consume them. Returns the rewritten item list, or null when nothing serialized needs it.
+   * Throws if serials are missing/insufficient/unavailable.
+   */
+  private async assignSerialUnits(
+    order: OnlineOrder,
+    selections: OrderSerialSelection[] | undefined,
+    actorId: string | null,
+  ): Promise<OnlineCartItem[] | null> {
+    const items = order.items ?? []
+    const productIds = [...new Set(items.map((i) => i.productId))]
+    if (productIds.length === 0) return null
+    const products = await this.productsRepo.find({
+      where: { id: In(productIds), businessId: order.businessId },
+    })
+    const serializedIds = new Set(products.filter((p) => p.isSerialized).map((p) => p.id))
+
+    // Only items that are serialized AND not already assigned need a choice.
+    const pending = items.filter((i) => serializedIds.has(i.productId) && !i.serialUnitId)
+    if (pending.length === 0) return null
+
+    const selByKey = new Map<string, OrderSerialSelection>()
+    for (const sel of selections ?? []) {
+      selByKey.set(`${sel.productId}:${sel.variantId ?? ''}`, sel)
+    }
+
+    // Resolve the chosen ids per pending item and validate counts.
+    const chosen: Array<{ item: OnlineCartItem; ids: string[] }> = []
+    for (const item of pending) {
+      const sel = selByKey.get(`${item.productId}:${item.variantId ?? ''}`)
+      const ids = sel?.serialUnitIds ?? []
+      if (ids.length !== item.quantity) {
+        throw new AppBadRequestException(
+          `Select ${item.quantity} unit(s) for "${item.productName}".`,
+          'SERIAL_UNIT_REQUIRED',
+        )
+      }
+      chosen.push({ item, ids })
+    }
+
+    const allIds = chosen.flatMap((c) => c.ids)
+    if (new Set(allIds).size !== allIds.length) {
+      throw new AppBadRequestException(
+        'A serial unit was selected more than once.',
+        'SERIAL_UNIT_DUPLICATE',
+      )
+    }
+
+    const units = await this.serialUnitsRepo.find({
+      where: { id: In(allIds), businessId: order.businessId, deletedAt: IsNull() },
+    })
+    const unitById = new Map(units.map((u) => [u.id, u]))
+    for (const { item, ids } of chosen) {
+      for (const id of ids) {
+        const unit = unitById.get(id)
+        if (!unit || unit.status !== SerialUnitStatus.IN_STOCK) {
+          throw new AppBadRequestException(
+            `A selected unit for "${item.productName}" is no longer available.`,
+            'SERIAL_UNIT_UNAVAILABLE',
+          )
+        }
+        if (
+          unit.productId !== item.productId ||
+          (unit.variantId ?? null) !== (item.variantId ?? null)
+        ) {
+          throw new AppBadRequestException(
+            `A selected unit does not match "${item.productName}".`,
+            'SERIAL_UNIT_MISMATCH',
+          )
+        }
+      }
+    }
+
+    // Reserve the units (freed again on cancel; the sale flips them to SOLD on completion).
+    await this.serialUnitsRepo.update(
+      { id: In(allIds) },
+      { status: SerialUnitStatus.RESERVED, reservedAt: new Date(), reservedBy: actorId },
+    )
+
+    // Rewrite items: expand each serialized item into one line per chosen serial.
+    const pendingSet = new Set(pending)
+    const chosenByItem = new Map(chosen.map((c) => [c.item, c.ids]))
+    const rewritten: OnlineCartItem[] = []
+    for (const item of items) {
+      if (pendingSet.has(item)) {
+        for (const serialUnitId of chosenByItem.get(item) ?? []) {
+          rewritten.push({ ...item, quantity: 1, serialUnitId })
+        }
+      } else {
+        rewritten.push(item)
+      }
+    }
+    return rewritten
+  }
+
+  /** Release serials reserved for an order (on cancellation) back to IN_STOCK. */
+  private async releaseReservedSerials(order: OnlineOrder): Promise<void> {
+    const ids = (order.items ?? [])
+      .map((i) => i.serialUnitId)
+      .filter((id): id is string => Boolean(id))
+    if (ids.length === 0) return
+    await this.serialUnitsRepo.update(
+      { id: In(ids), businessId: order.businessId, status: SerialUnitStatus.RESERVED },
+      { status: SerialUnitStatus.IN_STOCK, reservedAt: null, reservedBy: null },
+    )
+  }
+
   private async createSaleForOrder(order: OnlineOrder, actorId: string | null) {
     const payload: SaleSyncPayload = {
       saleId: crypto.randomUUID(),
@@ -485,6 +756,8 @@ export class OnlineOrdersService {
       customerName: order.customerName,
       customerPhone: order.customerPhone ?? undefined,
       notes: `Online order ${order.orderNumber}`,
+      source: SaleSource.ONLINE,
+      onlineOrderId: order.id,
       payments: [
         {
           id: crypto.randomUUID(),
@@ -518,6 +791,185 @@ export class OnlineOrdersService {
       default:
         return PaymentMethod.CASH
     }
+  }
+
+  // ---- Post-at-confirm sale flow (flagged) --------------------------------
+
+  /** Feature flag: post the sale when an order is confirmed (vs the legacy deferred sale).
+   *  Defaults on (see config schema); set ONLINE_SALE_AT_CONFIRM=false to disable. */
+  private saleAtConfirmEnabled(): boolean {
+    return this.config.get('ONLINE_SALE_AT_CONFIRM', { infer: true }) !== 'false'
+  }
+
+  /** Minimal JwtPayload for sales-service calls made on the merchant's behalf. */
+  private actorUser(order: OnlineOrder, actor: OrderActor): JwtPayload {
+    return {
+      sub: actor.id ?? '',
+      businessId: order.businessId,
+      role: actor.role ?? undefined,
+    } as JwtPayload
+  }
+
+  private derivePaymentStatus(amountPaid: number, totalAmount: number): OnlinePaymentStatus {
+    if (amountPaid <= 0) return 'PENDING'
+    if (amountPaid >= totalAmount) return 'PAID'
+    return 'PARTIALLY_PAID'
+  }
+
+  /**
+   * Post the financial sale when an order is confirmed. COD posts a credit sale (receivable
+   * opened against a resolved/created guest contact); fees become charge lines; serials stay
+   * RESERVED until handover. Idempotent by order id (createFromSync keys on clientId).
+   */
+  private async postSaleForOrder(order: OnlineOrder, actor: OrderActor) {
+    const customerId = await this.resolveGuestContact(order)
+    const goods = (order.items ?? []).reduce((sum, i) => sum + i.unitPrice * i.quantity, 0)
+    const charges = this.buildOrderCharges(order, goods)
+    const chargesAmount = charges.reduce((sum, c) => sum + c.amount, 0)
+    const prepaid = order.paymentStatus === 'PAID' ? order.totalAmount : 0
+
+    const payload: SaleSyncPayload = {
+      saleId: crypto.randomUUID(),
+      clientId: order.id,
+      saleNumber: order.orderNumber,
+      soldAt: new Date().toISOString(),
+      cashierId: actor.id,
+      customerId,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone ?? undefined,
+      notes: `Online order ${order.orderNumber}`,
+      source: SaleSource.ONLINE,
+      onlineOrderId: order.id,
+      deferSerialSold: true,
+      chargesAmount,
+      charges,
+      payments:
+        prepaid > 0
+          ? [
+              {
+                id: crypto.randomUUID(),
+                method: this.mapPaymentMethod(order.paymentMethod),
+                amount: prepaid,
+              },
+            ]
+          : [],
+      items: (order.items ?? []).map((item) => ({
+        id: crypto.randomUUID(),
+        productId: item.productId,
+        variantId: item.variantId ?? undefined,
+        variantName: item.variantName ?? undefined,
+        serialUnitId: item.serialUnitId ?? undefined,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    }
+    return this.salesService.createFromSync(order.businessId, payload)
+  }
+
+  /** Fee charge lines from the order breakdown, reconciled so goods + charges = order total. */
+  private buildOrderCharges(order: OnlineOrder, goods: number): SaleSyncChargeLinePayload[] {
+    const line = (name: string, amount: number): SaleSyncChargeLinePayload => ({
+      id: crypto.randomUUID(),
+      name,
+      rateType: 'FIXED',
+      rateValue: amount,
+      amount,
+    })
+    const delivery = order.deliveryFee ?? 0
+    const cod = order.codFee ?? 0
+    const charges: SaleSyncChargeLinePayload[] = []
+    if (delivery > 0) charges.push(line('Delivery fee', delivery))
+    if (cod > 0) charges.push(line('COD fee', cod))
+    // Any remaining fee gap (breakdown missing/partial) folds into a single line so the sale
+    // total matches the order total exactly.
+    const remainder = Math.max(0, order.totalAmount - goods - delivery - cod)
+    if (remainder > 0) charges.push(line('Other charges', remainder))
+    return charges
+  }
+
+  /**
+   * Resolve the customer for the sale's receivable: reuse an existing contact matched by email
+   * or phone (returning customer), else create a lightweight guest customer.
+   */
+  private async resolveGuestContact(order: OnlineOrder): Promise<string | undefined> {
+    const phone = order.customerPhone?.trim() || null
+    const email = order.customerEmail?.trim()?.toLowerCase() || null
+    if (!phone && !email) return undefined
+
+    const where: Array<Record<string, unknown>> = []
+    if (phone) where.push({ businessId: order.businessId, phone })
+    if (email) where.push({ businessId: order.businessId, email })
+    const matches = await this.contactsRepo.find({ where })
+    const existing = matches[0]
+    if (existing) {
+      // A supplier-only contact can't hold a receivable — promote it to BOTH.
+      if (existing.type === ContactType.SUPPLIER) {
+        await this.contactsRepo.update(existing.id, { type: ContactType.BOTH })
+      }
+      return existing.id
+    }
+    const created = await this.contactsRepo.save(
+      this.contactsRepo.create({
+        businessId: order.businessId,
+        type: ContactType.CUSTOMER,
+        name: order.customerName,
+        phone,
+        email,
+        isActive: true,
+      }),
+    )
+    return created.id
+  }
+
+  /** Collect any outstanding COD balance on completion via a real payment against the sale. */
+  private async collectOnCompletion(
+    order: OnlineOrder,
+    actor: OrderActor,
+    toStatus: OnlineOrderStatus,
+  ): Promise<void> {
+    if (!order.saleId) return
+    const sale = await this.salesService.findById(order.saleId, order.businessId)
+    if (sale.creditAmount > 0) {
+      await this.salesService.recordPayment(
+        order.saleId,
+        order.businessId,
+        this.actorUser(order, actor),
+        {
+          method: this.mapPaymentMethod(order.paymentMethod),
+          amount: sale.creditAmount,
+          note: `Online order ${order.orderNumber} collected on ${toStatus.toLowerCase()}`,
+        },
+      )
+    }
+  }
+
+  /** Flip an order's RESERVED serials to SOLD at handover and link them to the posted sale. */
+  private async markOrderSerialsSold(order: OnlineOrder): Promise<void> {
+    const ids = (order.items ?? [])
+      .map((i) => i.serialUnitId)
+      .filter((id): id is string => Boolean(id))
+    if (ids.length === 0 || !order.saleId) return
+    await this.serialUnitsRepo.update(
+      { id: In(ids), businessId: order.businessId, status: SerialUnitStatus.RESERVED },
+      {
+        status: SerialUnitStatus.SOLD,
+        saleId: order.saleId,
+        soldAt: new Date(),
+        reservedAt: null,
+        reservedBy: null,
+      },
+    )
+  }
+
+  /**
+   * Reverse a posted sale when its order is cancelled (void: restore stock, release SOLD serials,
+   * write off the receivable). Reserved serials are released separately by the caller.
+   */
+  private async reversePostedSale(order: OnlineOrder, actor: OrderActor): Promise<void> {
+    if (!order.saleId) return
+    await this.salesService.void(order.saleId, order.businessId, this.actorUser(order, actor), {
+      reason: `Online order ${order.orderNumber} cancelled`,
+    })
   }
 
   // ---- internals ----------------------------------------------------------

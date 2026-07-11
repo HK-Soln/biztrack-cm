@@ -1067,6 +1067,8 @@ export interface SalesListQuery extends ListQueryT {
   customerId?: string
   status?: string
   paymentMethod?: string
+  /** Channel filter: 'ONLINE' | 'IN_STORE' (omit for all). */
+  source?: string
   dateFrom?: string
   dateTo?: string
 }
@@ -1196,6 +1198,8 @@ export interface LocalSale {
   changeGiven: number
   currency: string
   paymentMethod: string | null
+  /** Sale channel: 'ONLINE' | 'IN_STORE' (null on pre-migration rows = in-store). */
+  source: string | null
   notes: string | null
   soldAt: string
   createdAt: string
@@ -1262,6 +1266,7 @@ export type {
   OnlineFulfillmentType,
   OnlinePaymentStatus,
   UpdateOrderStatusRequest,
+  OrderSerialSelection,
   OnlineCartItem,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,

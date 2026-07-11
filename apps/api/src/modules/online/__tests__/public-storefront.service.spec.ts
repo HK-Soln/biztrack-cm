@@ -37,6 +37,8 @@ const makeService = (opts: {
       .fn()
       .mockResolvedValue(opts.store ? { store: opts.store, config: toConfig(opts.store) } : null),
   }
+  const businessRepo = { findOne: jest.fn().mockResolvedValue(null) }
+  const notifications = { createAndEnqueue: jest.fn() }
 
   const service = new PublicStorefrontService(
     storesRepo as any,
@@ -48,6 +50,8 @@ const makeService = (opts: {
     variantsService as any,
     i18n as any,
     storeService as any,
+    businessRepo as any,
+    notifications as any,
   )
   return { service, storesRepo, productsRepo, storeService }
 }
@@ -136,6 +140,7 @@ describe('PublicStorefrontService', () => {
           sellingPrice: 1000,
           isSerialized: false,
           hasVariants: false,
+          trackInventory: true,
           onlineStockReserve: 2,
         },
         {
@@ -145,6 +150,7 @@ describe('PublicStorefrontService', () => {
           sellingPrice: 500,
           isSerialized: false,
           hasVariants: false,
+          trackInventory: true,
           onlineStockReserve: 0,
         },
       ],

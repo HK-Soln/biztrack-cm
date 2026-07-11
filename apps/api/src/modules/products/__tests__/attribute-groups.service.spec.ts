@@ -2,6 +2,17 @@
 import { AttributeDisplayType } from '@biztrack/types'
 import { AttributeGroupsService } from '../services/attribute-groups.service'
 
+// Chainable query-builder mock whose getExists() resolves to `exists`. Uniqueness checks now
+// use createQueryBuilder(...).getExists() (case-insensitive, partial), not findOne().
+const makeQb = (exists = false) => {
+  const qb: any = {
+    where: jest.fn(() => qb),
+    andWhere: jest.fn(() => qb),
+    getExists: jest.fn(async () => exists),
+  }
+  return qb
+}
+
 const makeService = () => {
   const groupsRepo = {
     find: jest.fn().mockResolvedValue([]),
@@ -10,6 +21,7 @@ const makeService = () => {
     save: jest.fn(async (input) => ({ id: 'group-1', ...input })),
     update: jest.fn(),
     count: jest.fn().mockResolvedValue(0),
+    createQueryBuilder: jest.fn(() => makeQb(false)),
   }
   const optionsRepo = {
     find: jest.fn().mockResolvedValue([]),
@@ -17,6 +29,7 @@ const makeService = () => {
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => input),
     update: jest.fn(),
+    createQueryBuilder: jest.fn(() => makeQb(false)),
   }
   const linksRepo = {
     find: jest.fn().mockResolvedValue([]),
@@ -45,7 +58,10 @@ describe('AttributeGroupsService', () => {
   describe('createGroup', () => {
     it('creates a group when the name is free', async () => {
       const { service, groupsRepo } = makeService()
-      await service.createGroup('biz-1', { name: 'Color', displayType: AttributeDisplayType.SWATCHES })
+      await service.createGroup('biz-1', {
+        name: 'Color',
+        displayType: AttributeDisplayType.SWATCHES,
+      })
       expect(groupsRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ businessId: 'biz-1', name: 'Color', displayType: 'SWATCHES' }),
       )
@@ -53,7 +69,7 @@ describe('AttributeGroupsService', () => {
 
     it('rejects a duplicate group name', async () => {
       const { service, groupsRepo } = makeService()
-      groupsRepo.findOne.mockResolvedValue({ id: 'existing', name: 'Color' })
+      groupsRepo.createQueryBuilder.mockReturnValue(makeQb(true))
       await expect(
         service.createGroup('biz-1', { name: 'Color', displayType: AttributeDisplayType.CHIPS }),
       ).rejects.toMatchObject({ code: 'ATTRIBUTE_GROUP_NAME_EXISTS' })
@@ -64,10 +80,10 @@ describe('AttributeGroupsService', () => {
     it('rejects a duplicate option value within a group', async () => {
       const { service, groupsRepo, optionsRepo } = makeService()
       groupsRepo.findOne.mockResolvedValue({ id: 'g1', businessId: 'biz-1' })
-      optionsRepo.findOne.mockResolvedValue({ id: 'o1', value: '128GB' })
-      await expect(
-        service.addOption('g1', 'biz-1', { value: '128GB' }),
-      ).rejects.toMatchObject({ code: 'ATTRIBUTE_OPTION_EXISTS' })
+      optionsRepo.createQueryBuilder.mockReturnValue(makeQb(true))
+      await expect(service.addOption('g1', 'biz-1', { value: '128GB' })).rejects.toMatchObject({
+        code: 'ATTRIBUTE_OPTION_EXISTS',
+      })
     })
   })
 

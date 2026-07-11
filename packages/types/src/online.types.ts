@@ -270,7 +270,13 @@ export interface PublicStore {
   logoUrl?: string | null
   bannerUrl?: string | null
   primaryColor: string
+  /** Theme preset (a–d) + light/dark, driving the storefront's CSS tokens. */
+  themeId: string
+  appearance: OnlineStoreAppearance
+  layoutTemplate: OnlineStoreLayout
   phone?: string | null
+  email?: string | null
+  address?: string | null
   whatsappNumber?: string | null
   city?: string | null
   currency: string
@@ -282,6 +288,25 @@ export interface PublicStore {
     mtnMomo: boolean
     orangeMoney: boolean
     card: boolean
+  }
+  fulfilment: {
+    offerDelivery: boolean
+    offerPickup: boolean
+    deliveryFee: number
+    pickupAddress?: string | null
+    deliveryCities: string[]
+  }
+  socials: {
+    instagram?: string | null
+    facebook?: string | null
+    tiktok?: string | null
+    x?: string | null
+    linkedin?: string | null
+  }
+  seo: {
+    title?: string | null
+    description?: string | null
+    ogImageUrl?: string | null
   }
 }
 
@@ -296,8 +321,54 @@ export interface PublicProductVariant {
 export interface PublicProductsQuery {
   page?: number
   limit?: number
-  categoryId?: string
+  categoryIds?: string[]
+  brandIds?: string[]
+  modelIds?: string[]
+  attributeOptionIds?: string[]
   search?: string
+}
+
+/** A selectable facet value (brand, model, or attribute option) available in a store. */
+export interface PublicFacetOption {
+  id: string
+  value: string
+  colorHex?: string | null
+}
+
+export interface PublicAttributeGroupFacet {
+  id: string
+  name: string
+  displayType: string
+  options: PublicFacetOption[]
+}
+
+export interface PublicBrandFacet {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface PublicModelFacet {
+  id: string
+  name: string
+  slug: string
+  brandId: string
+}
+
+/** Filterable facets present on a store's published products (empty values omitted). */
+export interface PublicFacets {
+  brands: PublicBrandFacet[]
+  models: PublicModelFacet[]
+  attributeGroups: PublicAttributeGroupFacet[]
+}
+
+/** A message sent from a storefront's contact form to the business (delivered by email). */
+export interface ContactMessageRequest {
+  name: string
+  phone?: string
+  email?: string
+  subject: string
+  message: string
 }
 
 export interface PublicProductListItem {
@@ -310,6 +381,8 @@ export interface PublicProductListItem {
   categoryName?: string | null
   inStock: number
   hasVariants: boolean
+  /** When false, the product isn't stock-tracked → always available (ignore inStock). */
+  trackInventory: boolean
 }
 
 export interface PublicProductDetail extends PublicProductListItem {
@@ -450,6 +523,8 @@ export function isTerminalOnlineOrderStatus(
 export type OnlinePaymentStatus =
   | 'PENDING'
   | 'AUTHORIZED'
+  // Some money collected, balance still outstanding (deposit, or COD partly paid).
+  | 'PARTIALLY_PAID'
   | 'PAID'
   | 'FAILED'
   | 'REFUNDED'
@@ -531,6 +606,13 @@ export interface OnlineOrder {
   paymentMethod?: string | null
   paymentStatus: OnlinePaymentStatus
   items?: OnlineCartItem[]
+  // Money breakdown. `totalAmount = subtotal + deliveryFee + codFee + otherCharges`.
+  // Persisted so the sale posted at confirm can map fees to typed charge lines instead of
+  // losing them as overpayment (see docs/online-order-sale-flow-redesign.md §7).
+  subtotal?: number
+  deliveryFee?: number
+  codFee?: number
+  otherCharges?: number
   totalAmount: number
   createdAt?: IsoDateString
   confirmedAt?: IsoDateString | null
@@ -545,15 +627,48 @@ export interface OnlineOrder {
   courierTrackingUrl?: string | null
 }
 
+/** Admin's serial-unit choices for a serialized order item (one id per unit ordered). */
+export interface OrderSerialSelection {
+  productId: string
+  variantId?: string | null
+  serialUnitIds: string[]
+}
+
 export interface UpdateOrderStatusRequest {
   status: OnlineOrderStatus
   internalNote?: string
   customerMessage?: string
+  /** Serial units chosen for serialized items — required when confirming such an order. */
+  serialUnitSelections?: OrderSerialSelection[]
 }
 
-/** Owner order detail: the order with its full event timeline. */
+/** A single money movement on the order's sale ledger (collection or refund). */
+export interface OnlineOrderPaymentEntry {
+  method: string
+  amount: number
+  kind: 'PAYMENT' | 'REFUND'
+  at: IsoDateString
+}
+
+/** Financial summary of the order's posted sale — the money ledger behind the fulfilment. */
+export interface OnlineOrderFinancials {
+  saleId: string
+  saleNumber: string
+  /** Sale status (COMPLETED | VOIDED | REFUNDED | PARTIALLY_REFUNDED). */
+  status: string
+  totalAmount: number
+  amountPaid: number
+  /** Outstanding balance (COD not yet collected). */
+  balanceDue: number
+  refundedAmount: number
+  chargesAmount: number
+  payments: OnlineOrderPaymentEntry[]
+}
+
+/** Owner order detail: the order with its full event timeline + sale financials (if posted). */
 export interface OnlineOrderDetail extends OnlineOrder {
   events: OnlineOrderEvent[]
+  financials?: OnlineOrderFinancials | null
 }
 
 /** Paginated owner order list. */

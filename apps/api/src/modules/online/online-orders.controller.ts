@@ -47,6 +47,7 @@ export class OnlineOrdersController {
     return this.orders.updateStatus(user.businessId as string, id, dto, {
       id: user.sub,
       name: (user as { name?: string }).name ?? null,
+      role: user.role ?? null,
     })
   }
 
@@ -60,6 +61,7 @@ export class OnlineOrdersController {
     return this.orders.updatePayment(user.businessId as string, id, dto, {
       id: user.sub,
       name: (user as { name?: string }).name ?? null,
+      role: user.role ?? null,
     })
   }
 }

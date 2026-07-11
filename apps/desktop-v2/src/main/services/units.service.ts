@@ -1,6 +1,12 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import type { LocalUnit, PaginatedResult, UnitInput, UnitListQuery, UnitType } from '../../shared/ipc'
+import type {
+  LocalUnit,
+  PaginatedResult,
+  UnitInput,
+  UnitListQuery,
+  UnitType,
+} from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import type { AuditLogger } from './audit.service'
 
@@ -69,12 +75,27 @@ export class UnitsService {
       `INSERT INTO unit_of_measures
         (id, name, abbreviation, business_id, type, is_active, is_deleted, is_default, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-      [id, input.name.trim().toUpperCase(), input.abbreviation.trim(), businessId, type, input.isActive === false ? 0 : 1, now, now],
+      [
+        id,
+        input.name.trim().toUpperCase(),
+        input.abbreviation.trim(),
+        businessId,
+        type,
+        input.isActive === false ? 0 : 1,
+        now,
+        now,
+      ],
     )
     this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
     this.onMutated()
     const created = this.getOne(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'unit_of_measure', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'unit_of_measure',
+      entityId: id,
+      entityLabel: created.name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -87,12 +108,32 @@ export class UnitsService {
       `UPDATE unit_of_measures
        SET name = ?, abbreviation = ?, type = ?, is_active = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
-      [input.name.trim().toUpperCase(), input.abbreviation.trim(), type, input.isActive === false ? 0 : 1, now, id, businessId],
+      [
+        input.name.trim().toUpperCase(),
+        input.abbreviation.trim(),
+        type,
+        input.isActive === false ? 0 : 1,
+        now,
+        id,
+        businessId,
+      ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type, existing.is_default === 1), now)
+    this.enqueue(
+      id,
+      'UPSERT',
+      businessId,
+      this.payload(input, type, existing.is_default === 1),
+      now,
+    )
     this.onMutated()
     const updated = this.getOne(id)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'unit_of_measure', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'unit_of_measure',
+      entityId: id,
+      entityLabel: updated.name,
+      changes: { before: null, after: updated },
+    })
     return updated
   }
 
@@ -101,13 +142,26 @@ export class UnitsService {
     this.requireOwnedUnit(id, businessId)
     const now = new Date().toISOString()
     const before = this.getOne(id)
+    const inUse = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM products WHERE unit_of_measure_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      [id, businessId],
+    )
+    if (inUse) {
+      throw new Error('This unit is still used by one or more products and cannot be deleted.')
+    }
     this.db.run(
       `UPDATE unit_of_measures SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue(id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'unit_of_measure', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'unit_of_measure',
+      entityId: id,
+      entityLabel: before?.name ?? null,
+      changes: { before, after: null },
+    })
   }
 
   // ---- internals -----------------------------------------------------------
@@ -161,7 +215,14 @@ export class UnitsService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 }

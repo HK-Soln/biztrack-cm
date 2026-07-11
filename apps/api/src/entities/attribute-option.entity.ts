@@ -1,9 +1,10 @@
-import { Entity, Column, ManyToOne, JoinColumn, Index, Unique } from 'typeorm'
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { AttributeGroup } from './attribute-group.entity'
 
+// Value is unique per group, case-insensitively, among non-deleted options — enforced by the
+// partial index `uq_attribute_option_value_ci` (see migration; not expressible as @Unique).
 @Entity('attribute_options')
-@Unique('uq_attribute_option_value', ['groupId', 'value'])
 @Index('idx_attribute_options_group', ['groupId'])
 export class AttributeOption extends BaseEntity {
   @Column({ name: 'group_id' })
