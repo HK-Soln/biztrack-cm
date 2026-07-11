@@ -152,7 +152,9 @@ export class DebtsService {
       const monthStart = new Date()
       monthStart.setUTCDate(1)
       monthStart.setUTCHours(0, 0, 0, 0)
-      const monthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1))
+      const monthEnd = new Date(
+        Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1),
+      )
 
       let totalOutstanding = 0
       let outstandingDebtCount = 0
@@ -165,7 +167,10 @@ export class DebtsService {
         const paidAmount = paidAmounts.get(debt.id) ?? 0
         const rawOutstanding = this.computeRawOutstanding(debt.originalAmount, paidAmount)
 
-        if ([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status) && rawOutstanding > 0) {
+        if (
+          [DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status) &&
+          rawOutstanding > 0
+        ) {
           totalOutstanding = this.roundMoney(totalOutstanding + rawOutstanding)
           outstandingDebtCount += 1
         }
@@ -200,11 +205,7 @@ export class DebtsService {
     }
   }
 
-  async findById(
-    debtId: string,
-    businessId: string,
-    direction?: DebtDirection,
-  ): Promise<Debt> {
+  async findById(debtId: string, businessId: string, direction?: DebtDirection): Promise<Debt> {
     try {
       const debt = await this.findDebtWithRelations(debtId, businessId, direction)
       return this.toDebtModel(debt)
@@ -244,7 +245,11 @@ export class DebtsService {
           )
         }
 
-        const outstandingAmount = await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount)
+        const outstandingAmount = await this.computeOutstandingAmount(
+          debt.id,
+          manager,
+          debt.originalAmount,
+        )
         const amount = this.roundMoney(dto.amount)
 
         if (amount <= 0 || amount > outstandingAmount) {
@@ -302,20 +307,35 @@ export class DebtsService {
     user: JwtPayload,
   ): Promise<{ offsetAmount: number; affected: number }> {
     try {
-      await this.assertOwnerOrManager(user, 'errors.debt_payment_forbidden', 'DEBT_PAYMENT_FORBIDDEN')
+      await this.assertOwnerOrManager(
+        user,
+        'errors.debt_payment_forbidden',
+        'DEBT_PAYMENT_FORBIDDEN',
+      )
 
       return await this.dataSource.transaction(async (manager) => {
         const debtRepo = manager.getRepository(DebtEntity)
         const paymentRepo = manager.getRepository(DebtPayment)
 
-        const openFor = async (direction: DebtDirection): Promise<{ debt: DebtEntity; outstanding: number }[]> => {
+        const openFor = async (
+          direction: DebtDirection,
+        ): Promise<{ debt: DebtEntity; outstanding: number }[]> => {
           const debts = await debtRepo.find({
-            where: { businessId, contactId, direction, status: In([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID]) },
+            where: {
+              businessId,
+              contactId,
+              direction,
+              status: In([DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID]),
+            },
             order: { createdAt: 'ASC' },
           })
           const rows: { debt: DebtEntity; outstanding: number }[] = []
           for (const debt of debts) {
-            const outstanding = await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount)
+            const outstanding = await this.computeOutstandingAmount(
+              debt.id,
+              manager,
+              debt.originalAmount,
+            )
             if (outstanding > 0) rows.push({ debt, outstanding })
           }
           return rows
@@ -323,7 +343,8 @@ export class DebtsService {
 
         const recv = await openFor(DebtDirection.RECEIVABLE)
         const pay = await openFor(DebtDirection.PAYABLE)
-        const sum = (rows: { outstanding: number }[]) => this.roundMoney(rows.reduce((s, r) => s + r.outstanding, 0))
+        const sum = (rows: { outstanding: number }[]) =>
+          this.roundMoney(rows.reduce((s, r) => s + r.outstanding, 0))
         const offsetAmount = this.roundMoney(Math.min(sum(recv), sum(pay)))
         if (offsetAmount <= 0) {
           throw new AppBadRequestException(
@@ -364,7 +385,11 @@ export class DebtsService {
         return { offsetAmount, affected }
       })
     } catch (error) {
-      return this.handleServiceError('offsetBalances', error, { businessId, contactId, userId: user.sub })
+      return this.handleServiceError('offsetBalances', error, {
+        businessId,
+        contactId,
+        userId: user.sub,
+      })
     }
   }
 
@@ -376,7 +401,11 @@ export class DebtsService {
     paymentId: string,
   ): Promise<void> {
     try {
-      await this.assertOwnerOrManager(user, 'errors.debt_payment_forbidden', 'DEBT_PAYMENT_FORBIDDEN')
+      await this.assertOwnerOrManager(
+        user,
+        'errors.debt_payment_forbidden',
+        'DEBT_PAYMENT_FORBIDDEN',
+      )
 
       await this.dataSource.transaction(async (manager) => {
         const debtRepo = manager.getRepository(DebtEntity)
@@ -432,7 +461,11 @@ export class DebtsService {
     dto: WriteOffDebtDto,
   ): Promise<Debt> {
     try {
-      await this.assertOwnerOrManager(user, 'errors.debt_write_off_forbidden', 'DEBT_WRITE_OFF_FORBIDDEN')
+      await this.assertOwnerOrManager(
+        user,
+        'errors.debt_write_off_forbidden',
+        'DEBT_WRITE_OFF_FORBIDDEN',
+      )
 
       await this.dataSource.transaction(async (manager) => {
         const debtRepo = manager.getRepository(DebtEntity)
@@ -779,6 +812,63 @@ export class DebtsService {
     }
   }
 
+  /**
+   * Apply a payment to the OPEN source debt for a (sourceType, sourceId) inside an existing
+   * transaction — used when a sale's COD balance is collected. Finds the receivable, appends a
+   * capped DebtPayment, and recomputes status. No-op if there's no open debt. Manager-composable
+   * (unlike {@link recordPayment}, which self-transactions and needs a debtId).
+   */
+  async settleSourcePayment(
+    manager: EntityManager,
+    params: {
+      businessId: string
+      direction: DebtDirection
+      sourceType: DebtSource
+      sourceId: string
+      amount: number
+      method: PaymentMethod
+      mobileMoneyReference?: string | null
+      paymentDate?: string
+      recordedById?: string | null
+      notes?: string | null
+    },
+  ): Promise<void> {
+    const amount = this.roundMoney(params.amount)
+    if (amount <= 0) return
+
+    const debtRepo = manager.getRepository(DebtEntity)
+    const debt = await debtRepo.findOne({
+      where: {
+        businessId: params.businessId,
+        direction: params.direction,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+      },
+    })
+    if (!debt || [DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) return
+
+    const outstanding = await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount)
+    const applied = Math.min(amount, outstanding)
+    if (applied <= 0) return
+
+    const paymentRepo = manager.getRepository(DebtPayment)
+    await paymentRepo.save(
+      paymentRepo.create({
+        businessId: params.businessId,
+        debtId: debt.id,
+        amount: applied,
+        method: params.method,
+        mobileMoneyReference: this.normalizeOptionalString(
+          params.mobileMoneyReference ?? undefined,
+        ),
+        paymentDate: params.paymentDate ?? this.toDateOnly(new Date()),
+        notes: this.normalizeOptionalString(params.notes ?? undefined),
+        recordedById: params.recordedById ?? undefined,
+      }),
+    )
+    await this.recalculateStatus(debt.id, manager)
+  }
+
   private buildListQuery(
     businessId: string,
     query: DebtsQuery,
@@ -820,7 +910,7 @@ export class DebtsService {
           builder
             .where('LOWER(debt.source_reference) LIKE :search', { search })
             .orWhere('LOWER(contact.name) LIKE :search', { search })
-            .orWhere('LOWER(COALESCE(contact.phone, \'\')) LIKE :search', { search })
+            .orWhere("LOWER(COALESCE(contact.phone, '')) LIKE :search", { search })
         }),
       )
     }
@@ -893,9 +983,7 @@ export class DebtsService {
       .groupBy('payment.debt_id')
       .getRawMany<{ debtId: string; paidAmount: string | number }>()
 
-    return new Map(
-      rows.map((row) => [row.debtId, this.roundMoney(Number(row.paidAmount ?? 0))]),
-    )
+    return new Map(rows.map((row) => [row.debtId, this.roundMoney(Number(row.paidAmount ?? 0))]))
   }
 
   private toDebtModel(entity: DebtDetailEntity | DebtEntity, paidAmountOverride?: number): Debt {
@@ -979,7 +1067,11 @@ export class DebtsService {
 
     if (!debt || debt.status === DebtStatus.WRITTEN_OFF) return
 
-    const outstandingAmount = await this.computeOutstandingAmount(debtId, manager, debt.originalAmount)
+    const outstandingAmount = await this.computeOutstandingAmount(
+      debtId,
+      manager,
+      debt.originalAmount,
+    )
     const totalPaid = this.roundMoney(debt.originalAmount - outstandingAmount)
     let status = DebtStatus.OUTSTANDING
 
@@ -1044,10 +1136,7 @@ export class DebtsService {
 
   private assertDateOnly(value: string) {
     if (!DATE_ONLY_REGEX.test(value)) {
-      throw new AppBadRequestException(
-        'Invalid date.',
-        'INVALID_DATE',
-      )
+      throw new AppBadRequestException('Invalid date.', 'INVALID_DATE')
     }
   }
 
@@ -1061,16 +1150,13 @@ export class DebtsService {
     }
   }
 
-  private async assertOwnerOrManager(
-    user: JwtPayload,
-    translationKey: string,
-    code: string,
-  ) {
-    if (![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(user.role as BusinessMemberRole)) {
-      throw new AppForbiddenException(
-        await this.i18n.translate(translationKey as never),
-        code,
+  private async assertOwnerOrManager(user: JwtPayload, translationKey: string, code: string) {
+    if (
+      ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
+        user.role as BusinessMemberRole,
       )
+    ) {
+      throw new AppForbiddenException(await this.i18n.translate(translationKey as never), code)
     }
   }
 

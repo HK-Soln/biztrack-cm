@@ -19,8 +19,11 @@ import { Product } from '@/entities/product.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
+import { SaleReturn } from '@/entities/sale-return.entity'
+import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncDeviceSession } from '@/entities/sync-device-session.entity'
@@ -121,6 +124,9 @@ import { SyncService } from './sync.service'
       Sale,
       SaleItem,
       SalePayment,
+      SaleCharge,
+      SaleReturn,
+      SaleReturnItem,
       SyncBatch,
       SyncDeviceSession,
       SyncLog,

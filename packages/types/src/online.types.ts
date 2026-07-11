@@ -33,6 +33,14 @@ export interface OnlineStore {
   paymentMtnMomo: boolean
   paymentOrangeMoney: boolean
   paymentCard: boolean
+  // Fulfilment: which options the store offers + delivery economics/reach.
+  offerDelivery: boolean
+  offerPickup: boolean
+  /** Flat delivery fee in the store currency (minor unit not used — whole XAF). */
+  deliveryFee: number
+  pickupAddress?: string | null
+  /** Cities/zones the store delivers to (empty = anywhere the customer enters). */
+  deliveryCities: string[]
   // Storefront appearance + catalog + SEO + lifecycle (design-store-config / issue #91)
   layoutTemplate: OnlineStoreLayout
   themeId: string
@@ -88,6 +96,11 @@ export interface UpdateOnlineStoreRequest {
   paymentMtnMomo?: boolean
   paymentOrangeMoney?: boolean
   paymentCard?: boolean
+  offerDelivery?: boolean
+  offerPickup?: boolean
+  deliveryFee?: number
+  pickupAddress?: string | null
+  deliveryCities?: string[]
   storeSlug?: string
   layoutTemplate?: OnlineStoreLayout
   themeId?: string
@@ -105,6 +118,79 @@ export interface UpdateOnlineStoreRequest {
   socialLinkedin?: string | null
 }
 
+// ---- Publish snapshots (draft → published) ---------------------------------
+
+/**
+ * The immutable, published-facing store configuration captured at publish time. The public
+ * storefront renders from THIS snapshot, never the editable draft (the `online_stores` row) —
+ * so admins can stage config changes and only go live on publish. Product catalogue/stock stays
+ * live for now (Tier 1); a future tier snapshots the catalogue too via `appearance.catalogBinding`.
+ */
+export interface OnlineStorePublishedConfig {
+  storeName: string
+  storeSlug: string
+  tagline: string | null
+  logoUrl: string | null
+  bannerUrl: string | null
+  primaryColor: string
+  phone: string | null
+  email: string | null
+  address: string | null
+  city: string | null
+  whatsappNumber: string | null
+  currency: string
+  showOutOfStock: boolean
+  allowOrderNotes: boolean
+  minOrderAmount: number | null
+  payment: { cashOnDelivery: boolean; mtnMomo: boolean; orangeMoney: boolean; card: boolean }
+  fulfilment: {
+    offerDelivery: boolean
+    offerPickup: boolean
+    deliveryFee: number
+    pickupAddress: string | null
+    deliveryCities: string[]
+  }
+  appearance: {
+    layoutTemplate: OnlineStoreLayout
+    themeId: string
+    appearance: OnlineStoreAppearance
+    catalogBinding: OnlineCatalogBinding
+    showLowStockBadges: boolean
+  }
+  seo: {
+    seoTitle: string | null
+    seoDescription: string | null
+    ogImageUrl: string | null
+    robotsIndex: boolean
+  }
+  socials: {
+    instagram: string | null
+    facebook: string | null
+    tiktok: string | null
+    x: string | null
+    linkedin: string | null
+  }
+}
+
+/** One immutable publish of a store — the audit/rollback trail. */
+export interface OnlineStorePublication {
+  id: string
+  version: number
+  publishedAt: IsoDateString
+  publishedById?: string | null
+  publishedByName?: string | null
+  /** Set when this publish restored an earlier version (rollback provenance). */
+  sourceVersion?: number | null
+  config: OnlineStorePublishedConfig
+}
+
+/** Publication row without the (large) config — for the audit/history list. */
+export type OnlineStorePublicationSummary = Omit<OnlineStorePublication, 'config'>
+
+export interface RestorePublicationRequest {
+  version: number
+}
+
 /** Product online-store fields (Phase 3I), set on create/update. */
 export interface ProductOnlineFields {
   isPublishedOnline?: boolean
@@ -113,6 +199,66 @@ export interface ProductOnlineFields {
   metaDescription?: string | null
   onlineSortOrder?: number
   onlineStockReserve?: number
+}
+
+/**
+ * Why a product would not show correctly on the storefront:
+ * - `inactive`  — the product is disabled (the public storefront filters `is_active = true`).
+ * - `no_price`  — no positive selling price to display/charge.
+ * - `no_image`  — no image, so it renders as a blank card.
+ * These are advisory: publishing is never hard-blocked (the storefront already only surfaces
+ * active + published products), but the admin should be nudged to fix them.
+ */
+export type ProductPublishBlocker = 'inactive' | 'no_price' | 'no_image'
+
+/** The minimal product shape needed to judge storefront-readiness. */
+export interface ProductPublishInput {
+  isActive: boolean
+  sellingPrice: number
+  imageUrl?: string | null
+}
+
+export interface ProductPublishability {
+  /** True when the product would display correctly once published. */
+  ready: boolean
+  blockers: ProductPublishBlocker[]
+}
+
+/** Shared storefront-readiness check, used by the desktop admin and the API alike. */
+export function checkProductPublishable(p: ProductPublishInput): ProductPublishability {
+  const blockers: ProductPublishBlocker[] = []
+  if (!p.isActive) blockers.push('inactive')
+  if (!(p.sellingPrice > 0)) blockers.push('no_price')
+  if (!p.imageUrl) blockers.push('no_image')
+  return { ready: blockers.length === 0, blockers }
+}
+
+// ---- Admin (store owner) product management --------------------------------
+
+/**
+ * A product row in the "Online products" manager (desktop + cloud). Served by the online-store
+ * module and mutated through it directly (never the offline sync set) — publish state must
+ * reflect the live storefront immediately.
+ */
+export interface OnlineAdminProduct {
+  id: string
+  name: string
+  sku?: string | null
+  imageUrl?: string | null
+  sellingPrice: number
+  categoryName?: string | null
+  inStock: number
+  trackInventory: boolean
+  isActive: boolean
+  isPublishedOnline: boolean
+}
+
+export interface OnlineAdminProductsQuery {
+  page?: number
+  limit?: number
+  search?: string
+  /** true = published only, false = drafts only, omitted = all. */
+  published?: boolean
 }
 
 // ---- Public (storefront) read shapes ---------------------------------------
@@ -124,7 +270,13 @@ export interface PublicStore {
   logoUrl?: string | null
   bannerUrl?: string | null
   primaryColor: string
+  /** Theme preset (a–d) + light/dark, driving the storefront's CSS tokens. */
+  themeId: string
+  appearance: OnlineStoreAppearance
+  layoutTemplate: OnlineStoreLayout
   phone?: string | null
+  email?: string | null
+  address?: string | null
   whatsappNumber?: string | null
   city?: string | null
   currency: string
@@ -136,6 +288,25 @@ export interface PublicStore {
     mtnMomo: boolean
     orangeMoney: boolean
     card: boolean
+  }
+  fulfilment: {
+    offerDelivery: boolean
+    offerPickup: boolean
+    deliveryFee: number
+    pickupAddress?: string | null
+    deliveryCities: string[]
+  }
+  socials: {
+    instagram?: string | null
+    facebook?: string | null
+    tiktok?: string | null
+    x?: string | null
+    linkedin?: string | null
+  }
+  seo: {
+    title?: string | null
+    description?: string | null
+    ogImageUrl?: string | null
   }
 }
 
@@ -150,8 +321,54 @@ export interface PublicProductVariant {
 export interface PublicProductsQuery {
   page?: number
   limit?: number
-  categoryId?: string
+  categoryIds?: string[]
+  brandIds?: string[]
+  modelIds?: string[]
+  attributeOptionIds?: string[]
   search?: string
+}
+
+/** A selectable facet value (brand, model, or attribute option) available in a store. */
+export interface PublicFacetOption {
+  id: string
+  value: string
+  colorHex?: string | null
+}
+
+export interface PublicAttributeGroupFacet {
+  id: string
+  name: string
+  displayType: string
+  options: PublicFacetOption[]
+}
+
+export interface PublicBrandFacet {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface PublicModelFacet {
+  id: string
+  name: string
+  slug: string
+  brandId: string
+}
+
+/** Filterable facets present on a store's published products (empty values omitted). */
+export interface PublicFacets {
+  brands: PublicBrandFacet[]
+  models: PublicModelFacet[]
+  attributeGroups: PublicAttributeGroupFacet[]
+}
+
+/** A message sent from a storefront's contact form to the business (delivered by email). */
+export interface ContactMessageRequest {
+  name: string
+  phone?: string
+  email?: string
+  subject: string
+  message: string
 }
 
 export interface PublicProductListItem {
@@ -164,6 +381,8 @@ export interface PublicProductListItem {
   categoryName?: string | null
   inStock: number
   hasVariants: boolean
+  /** When false, the product isn't stock-tracked → always available (ignore inStock). */
+  trackInventory: boolean
 }
 
 export interface PublicProductDetail extends PublicProductListItem {
@@ -210,30 +429,143 @@ export interface UpdateCartItemRequest {
 
 export type OnlineFulfillmentType = 'DELIVERY' | 'PICKUP'
 
+/**
+ * Fulfilment status — the PHYSICAL order lifecycle (separate from the payment axis).
+ * The flow branches by fulfilment type (see ONLINE_ORDER_TRANSITIONS):
+ *   shared:    PENDING → CONFIRMED → PREPARING → …
+ *   PICKUP:    … → READY_FOR_PICKUP → PICKED_UP
+ *   DELIVERY:  … → READY_FOR_DISPATCH → OUT_FOR_DELIVERY → DELIVERED
+ *              (OUT_FOR_DELIVERY → DELIVERY_FAILED → retry | cancel)
+ *   off-flow:  CANCELLED (pre-completion), RETURNED (post-completion)
+ * Refunds live on the PAYMENT axis (OnlinePaymentStatus), not here.
+ */
 export type OnlineOrderStatus =
   | 'PENDING'
   | 'CONFIRMED'
   | 'PREPARING'
-  | 'DISPATCHED'
-  | 'DELIVERED'
-  | 'CANCELLED'
-  | 'REFUNDED'
+  | 'READY_FOR_PICKUP' // pickup
+  | 'PICKED_UP' // pickup (terminal)
+  | 'READY_FOR_DISPATCH' // delivery
+  | 'OUT_FOR_DELIVERY' // delivery
+  | 'DELIVERED' // delivery (terminal)
+  | 'DELIVERY_FAILED' // delivery (retry or cancel)
+  | 'RETURNED' // post-completion
+  | 'CANCELLED' // terminal
 
-export type OnlinePaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
+const DELIVERY_TRANSITIONS: Record<OnlineOrderStatus, readonly OnlineOrderStatus[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY_FOR_DISPATCH', 'CANCELLED'],
+  READY_FOR_DISPATCH: ['OUT_FOR_DELIVERY', 'CANCELLED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED'],
+  DELIVERY_FAILED: ['OUT_FOR_DELIVERY', 'CANCELLED'],
+  DELIVERED: ['RETURNED'],
+  RETURNED: [],
+  CANCELLED: [],
+  READY_FOR_PICKUP: [], // not reachable in a delivery order
+  PICKED_UP: [],
+}
+
+const PICKUP_TRANSITIONS: Record<OnlineOrderStatus, readonly OnlineOrderStatus[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY_FOR_PICKUP', 'CANCELLED'],
+  READY_FOR_PICKUP: ['PICKED_UP', 'CANCELLED'],
+  PICKED_UP: ['RETURNED'],
+  RETURNED: [],
+  CANCELLED: [],
+  READY_FOR_DISPATCH: [], // not reachable in a pickup order
+  OUT_FOR_DELIVERY: [],
+  DELIVERED: [],
+  DELIVERY_FAILED: [],
+}
+
+/**
+ * The fulfilment state machine, branched by fulfilment type. The API enforces these
+ * transitions in updateStatus; the admin UI derives its available actions from the map.
+ */
+export const ONLINE_ORDER_TRANSITIONS: Record<
+  OnlineFulfillmentType,
+  Record<OnlineOrderStatus, readonly OnlineOrderStatus[]>
+> = {
+  DELIVERY: DELIVERY_TRANSITIONS,
+  PICKUP: PICKUP_TRANSITIONS,
+}
+
+/** Statuses that mark a successfully completed order (money is due/collected). */
+export const ONLINE_ORDER_COMPLETION_STATUSES: readonly OnlineOrderStatus[] = [
+  'DELIVERED',
+  'PICKED_UP',
+]
+
+/** True if `to` is a valid next status from `from` for the given fulfilment type. */
+export function canTransitionOnlineOrder(
+  fulfillment: OnlineFulfillmentType,
+  from: OnlineOrderStatus,
+  to: OnlineOrderStatus,
+): boolean {
+  return ONLINE_ORDER_TRANSITIONS[fulfillment]?.[from]?.includes(to) ?? false
+}
+
+/** True if the status has no onward transitions for the given fulfilment type. */
+export function isTerminalOnlineOrderStatus(
+  fulfillment: OnlineFulfillmentType,
+  status: OnlineOrderStatus,
+): boolean {
+  return (ONLINE_ORDER_TRANSITIONS[fulfillment]?.[status]?.length ?? 0) === 0
+}
+
+/**
+ * Payment status — the MONEY axis (independent of fulfilment). COD drives
+ * PENDING → PAID on completion; a gateway (paytrack) drives PENDING → AUTHORIZED →
+ * PAID / FAILED, and PAID → REFUNDED / PARTIALLY_REFUNDED.
+ */
+export type OnlinePaymentStatus =
+  | 'PENDING'
+  | 'AUTHORIZED'
+  // Some money collected, balance still outstanding (deposit, or COD partly paid).
+  | 'PARTIALLY_PAID'
+  | 'PAID'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'PARTIALLY_REFUNDED'
+
+/**
+ * Static payment methods an admin can record against an online order. COD-era set —
+ * dynamic, per-business methods arrive with PayTrack. Mirrors the sale PaymentMethod enum
+ * (minus SAVINGS/MIXED, which aren't online-order concepts).
+ */
+export const ONLINE_PAYMENT_METHODS = ['CASH', 'MTN_MOMO', 'ORANGE_MONEY', 'CARD'] as const
+export type OnlinePaymentMethod = (typeof ONLINE_PAYMENT_METHODS)[number]
+
+/** Admin records how/whether an online order was paid (separate from the fulfilment axis). */
+export interface UpdateOrderPaymentRequest {
+  paymentStatus: OnlinePaymentStatus
+  paymentMethod?: OnlinePaymentMethod | null
+}
 
 export type OnlineOrderEventType =
   | 'ORDER_PLACED'
-  | 'PAYMENT_INITIATED'
-  | 'PAYMENT_RECEIVED'
-  | 'PAYMENT_FAILED'
   | 'ORDER_CONFIRMED'
   | 'PREPARATION_STARTED'
-  | 'ORDER_DISPATCHED'
-  | 'ORDER_DELIVERED'
-  | 'ORDER_CANCELLED'
-  | 'ORDER_REFUNDED'
-  | 'NOTE_ADDED'
+  | 'ORDER_PACKED' // ready for dispatch/pickup
+  | 'ORDER_READY_FOR_PICKUP'
+  | 'ORDER_PICKED_UP'
+  | 'COURIER_ASSIGNED'
+  | 'ORDER_OUT_FOR_DELIVERY'
   | 'DELIVERY_ATTEMPTED'
+  | 'DELIVERY_FAILED'
+  | 'ORDER_DELIVERED'
+  | 'ORDER_RETURNED'
+  | 'ORDER_CANCELLED'
+  | 'NOTE_ADDED'
+  // Payment axis
+  | 'PAYMENT_INITIATED'
+  | 'PAYMENT_AUTHORIZED'
+  | 'PAYMENT_RECEIVED'
+  | 'PAYMENT_FAILED'
+  | 'PAYMENT_REFUNDED'
+  | 'PAYMENT_PARTIALLY_REFUNDED'
 
 export interface CheckoutRequest {
   customerName: string
@@ -274,22 +606,69 @@ export interface OnlineOrder {
   paymentMethod?: string | null
   paymentStatus: OnlinePaymentStatus
   items?: OnlineCartItem[]
+  // Money breakdown. `totalAmount = subtotal + deliveryFee + codFee + otherCharges`.
+  // Persisted so the sale posted at confirm can map fees to typed charge lines instead of
+  // losing them as overpayment (see docs/online-order-sale-flow-redesign.md §7).
+  subtotal?: number
+  deliveryFee?: number
+  codFee?: number
+  otherCharges?: number
   totalAmount: number
   createdAt?: IsoDateString
   confirmedAt?: IsoDateString | null
-  dispatchedAt?: IsoDateString | null
+  readyAt?: IsoDateString | null
+  outForDeliveryAt?: IsoDateString | null
   deliveredAt?: IsoDateString | null
+  pickedUpAt?: IsoDateString | null
+  returnedAt?: IsoDateString | null
+  // Delivery-service (courier) integration seam.
+  courierName?: string | null
+  courierTrackingNumber?: string | null
+  courierTrackingUrl?: string | null
+}
+
+/** Admin's serial-unit choices for a serialized order item (one id per unit ordered). */
+export interface OrderSerialSelection {
+  productId: string
+  variantId?: string | null
+  serialUnitIds: string[]
 }
 
 export interface UpdateOrderStatusRequest {
   status: OnlineOrderStatus
   internalNote?: string
   customerMessage?: string
+  /** Serial units chosen for serialized items — required when confirming such an order. */
+  serialUnitSelections?: OrderSerialSelection[]
 }
 
-/** Owner order detail: the order with its full event timeline. */
+/** A single money movement on the order's sale ledger (collection or refund). */
+export interface OnlineOrderPaymentEntry {
+  method: string
+  amount: number
+  kind: 'PAYMENT' | 'REFUND'
+  at: IsoDateString
+}
+
+/** Financial summary of the order's posted sale — the money ledger behind the fulfilment. */
+export interface OnlineOrderFinancials {
+  saleId: string
+  saleNumber: string
+  /** Sale status (COMPLETED | VOIDED | REFUNDED | PARTIALLY_REFUNDED). */
+  status: string
+  totalAmount: number
+  amountPaid: number
+  /** Outstanding balance (COD not yet collected). */
+  balanceDue: number
+  refundedAmount: number
+  chargesAmount: number
+  payments: OnlineOrderPaymentEntry[]
+}
+
+/** Owner order detail: the order with its full event timeline + sale financials (if posted). */
 export interface OnlineOrderDetail extends OnlineOrder {
   events: OnlineOrderEvent[]
+  financials?: OnlineOrderFinancials | null
 }
 
 /** Paginated owner order list. */

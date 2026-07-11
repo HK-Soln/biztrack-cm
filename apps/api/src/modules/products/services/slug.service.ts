@@ -14,7 +14,11 @@ export class SlugService {
     return this.ensureUnique(this.toSlug(name), businessId, 'product', excludeId)
   }
 
-  async generateCategorySlug(name: string, businessId: string, excludeId?: string): Promise<string> {
+  async generateCategorySlug(
+    name: string,
+    businessId: string,
+    excludeId?: string,
+  ): Promise<string> {
     return this.ensureUnique(this.toSlug(name), businessId, 'category', excludeId)
   }
 
@@ -34,10 +38,13 @@ export class SlugService {
         slug,
         ...(excludeId ? { id: Not(excludeId) } : {}),
       }
+      // withDeleted: the unique index on (business_id, slug) covers soft-deleted rows, so a
+      // slug still "owned" by a soft-deleted product must count as taken — otherwise we'd hand
+      // back a colliding slug and the INSERT/UPDATE would fail with a duplicate-key violation.
       const existing =
         type === 'product'
-          ? await this.productsRepo.findOne({ where })
-          : await this.categoriesRepo.findOne({ where })
+          ? await this.productsRepo.findOne({ where, withDeleted: true })
+          : await this.categoriesRepo.findOne({ where, withDeleted: true })
 
       if (!existing) return slug
       slug = `${base}-${suffix++}`

@@ -1,12 +1,5 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-} from 'typeorm'
-import { SaleStatus } from '@biztrack/types'
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm'
+import { SaleSource, SaleStatus } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -21,9 +14,18 @@ import { User } from './user.entity'
 @Index('idx_sales_business_id_sale_date', ['businessId', 'saleDate'])
 @Index('idx_sales_business_id_status', ['businessId', 'status'])
 @Index('idx_sales_business_id_created_at', ['businessId', 'createdAt'])
+@Index('idx_sales_online_order_id', ['onlineOrderId'])
 export class Sale extends BaseEntity {
   @Column({ name: 'business_id' })
   businessId!: string
+
+  // Channel this sale came from. Online sales are posted server-side from an order.
+  @Column({ type: 'varchar', default: SaleSource.IN_STORE })
+  source!: SaleSource
+
+  // Bidirectional link to the online order that posted this sale (null for in-store).
+  @Column({ name: 'online_order_id', type: 'uuid', nullable: true })
+  onlineOrderId?: string | null
 
   @ManyToOne(() => Business, (business) => business.sales, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'business_id', foreignKeyConstraintName: 'fk_sales_business_id' })

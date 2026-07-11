@@ -19,6 +19,18 @@ export enum SaleStatus {
   CANCELLED = 'CANCELLED',
 }
 
+/** Channel a sale originated from. Online sales are posted server-side from an order. */
+export enum SaleSource {
+  IN_STORE = 'IN_STORE',
+  ONLINE = 'ONLINE',
+}
+
+/** Whether a sale-payment ledger row is money collected or refunded back out. */
+export enum SalePaymentKind {
+  PAYMENT = 'PAYMENT',
+  REFUND = 'REFUND',
+}
+
 export type SaleCashierSummary = ProductUserSummary
 
 export interface SalePayment {
@@ -96,8 +108,7 @@ export interface Sale {
   momoReference?: string | null
 }
 
-export interface SaleListItem
-  extends Omit<Sale, 'items' | 'payments' | 'cashier'> {
+export interface SaleListItem extends Omit<Sale, 'items' | 'payments' | 'cashier'> {
   cashier?: SaleCashierSummary | null
   itemCount: number
 }
@@ -175,6 +186,8 @@ export interface SalesQuery extends ListQuery {
   status?: SaleStatus
   cashierId?: string
   paymentMethod?: PaymentMethod
+  /** Channel filter (online vs in-store). */
+  source?: SaleSource
 }
 
 export interface DailySalesSummary {

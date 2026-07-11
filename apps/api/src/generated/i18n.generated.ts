@@ -70,6 +70,7 @@ export type I18nTranslations = {
         "invalid_sku_format": string;
         "sku_in_use": string;
         "product_not_found": string;
+        "product_not_publishable": string;
         "product_inactive": string;
         "product_sku_generation_failed": string;
         "product_sku_immutable": string;
@@ -118,6 +119,7 @@ export type I18nTranslations = {
         "serial_invalid_format": string;
         "online_store_exists": string;
         "online_store_not_found": string;
+        "online_store_publication_not_found": string;
         "online_cart_not_found": string;
         "online_cart_empty": string;
         "online_order_not_found": string;

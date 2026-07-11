@@ -70,7 +70,9 @@ describe('SalesService.loadProductsForSale (validation)', () => {
     const service = makeService()
     const mgr = makeManager({ products: [product({ id: 'p1', hasVariants: true })] })
     await expect(
-      service.loadProductsForSale(mgr, 'biz-1', { items: [{ productId: 'p1', quantity: 1, unitPrice: 1000 }] }),
+      service.loadProductsForSale(mgr, 'biz-1', {
+        items: [{ productId: 'p1', quantity: 1, unitPrice: 1000 }],
+      }),
     ).rejects.toMatchObject({ code: 'VARIANT_REQUIRED' })
   })
 
@@ -123,7 +125,9 @@ describe('SalesService.loadProductsForSale (validation)', () => {
     const service = makeService()
     const mgr = makeManager({
       products: [product({ id: 'p1', isSerialized: true })],
-      serialUnits: [{ id: 's1', productId: 'p1', businessId: 'biz-1', status: SerialUnitStatus.SOLD } as any],
+      serialUnits: [
+        { id: 's1', productId: 'p1', businessId: 'biz-1', status: SerialUnitStatus.SOLD } as any,
+      ],
     })
     await expect(
       service.loadProductsForSale(mgr, 'biz-1', {
@@ -138,12 +142,20 @@ describe('SalesService.loadProductsForSale (validation)', () => {
       products: [product({ id: 'p1', isSerialized: true, hasVariants: true })],
       variants: [{ id: 'v1', productId: 'p1', businessId: 'biz-1', isActive: true } as any],
       serialUnits: [
-        { id: 's1', productId: 'p1', businessId: 'biz-1', status: SerialUnitStatus.IN_STOCK, variantId: 'v2' } as any,
+        {
+          id: 's1',
+          productId: 'p1',
+          businessId: 'biz-1',
+          status: SerialUnitStatus.IN_STOCK,
+          variantId: 'v2',
+        } as any,
       ],
     })
     await expect(
       service.loadProductsForSale(mgr, 'biz-1', {
-        items: [{ productId: 'p1', variantId: 'v1', serialUnitId: 's1', quantity: 1, unitPrice: 1000 }],
+        items: [
+          { productId: 'p1', variantId: 'v1', serialUnitId: 's1', quantity: 1, unitPrice: 1000 },
+        ],
       }),
     ).rejects.toMatchObject({ code: 'SERIAL_UNIT_VARIANT_MISMATCH' })
   })
@@ -154,12 +166,20 @@ describe('SalesService.loadProductsForSale (validation)', () => {
       products: [product({ id: 'p1', isSerialized: true, hasVariants: true })],
       variants: [{ id: 'v1', productId: 'p1', businessId: 'biz-1', isActive: true } as any],
       serialUnits: [
-        { id: 's1', productId: 'p1', businessId: 'biz-1', status: SerialUnitStatus.IN_STOCK, variantId: 'v1' } as any,
+        {
+          id: 's1',
+          productId: 'p1',
+          businessId: 'biz-1',
+          status: SerialUnitStatus.IN_STOCK,
+          variantId: 'v1',
+        } as any,
       ],
     })
     await expect(
       service.loadProductsForSale(mgr, 'biz-1', {
-        items: [{ productId: 'p1', variantId: 'v1', serialUnitId: 's1', quantity: 1, unitPrice: 1000 }],
+        items: [
+          { productId: 'p1', variantId: 'v1', serialUnitId: 's1', quantity: 1, unitPrice: 1000 },
+        ],
       }),
     ).resolves.toBeDefined()
   })
@@ -183,8 +203,18 @@ describe('SalesService.expandSaleItemsForInventory (bundle/serial expansion)', (
     const mgr = makeManager({
       products: [product({ id: 'b1', productType: ProductType.COMPOSITE })],
       components: [
-        { bundleProductId: 'b1', componentProductId: 'c1', businessId: 'biz-1', quantity: 2 } as any,
-        { bundleProductId: 'b1', componentProductId: 'c2', businessId: 'biz-1', quantity: 1 } as any,
+        {
+          bundleProductId: 'b1',
+          componentProductId: 'c1',
+          businessId: 'biz-1',
+          quantity: 2,
+        } as any,
+        {
+          bundleProductId: 'b1',
+          componentProductId: 'c2',
+          businessId: 'biz-1',
+          quantity: 1,
+        } as any,
       ],
     })
     const expanded = await service.expandSaleItemsForInventory(mgr, 'biz-1', [
@@ -204,7 +234,12 @@ describe('SalesService.expandSaleItemsForInventory (bundle/serial expansion)', (
     const mgr = makeManager({
       products: [product({ id: 'b1', productType: ProductType.COMPOSITE })],
       components: [
-        { bundleProductId: 'b1', componentProductId: 'c1', businessId: 'biz-1', quantity: 3 } as any,
+        {
+          bundleProductId: 'b1',
+          componentProductId: 'c1',
+          businessId: 'biz-1',
+          quantity: 3,
+        } as any,
       ],
     })
     const expanded = await service.expandSaleItemsForInventory(mgr, 'biz-1', [
@@ -217,7 +252,9 @@ describe('SalesService.expandSaleItemsForInventory (bundle/serial expansion)', (
   it('skips serialised products (stock tracked by unit, not levels)', async () => {
     const service = makeService()
     const mgr = makeManager({ products: [product({ id: 'p1', isSerialized: true })] })
-    const expanded = await service.expandSaleItemsForInventory(mgr, 'biz-1', [line({ productId: 'p1' })])
+    const expanded = await service.expandSaleItemsForInventory(mgr, 'biz-1', [
+      line({ productId: 'p1' }),
+    ])
     expect(expanded).toHaveLength(0)
   })
 
@@ -235,11 +272,18 @@ describe('SalesService.expandSaleItemsForInventory (bundle/serial expansion)', (
 describe('SalesService.computeSale (totals + variant/serial fields)', () => {
   it('sets variant id/name and serial number on the computed line', () => {
     const service = makeService()
-    const p = product({ id: 'p1', hasVariants: true, isSerialized: true, sellingPrice: 1000 }) as Product
+    const p = product({
+      id: 'p1',
+      hasVariants: true,
+      isSerialized: true,
+      sellingPrice: 1000,
+    }) as Product
     const variants = new Map([['v1', { id: 'v1', name: 'Black 128GB', productId: 'p1' } as any]])
     const serials = new Map([['s1', { id: 's1', serialNumber: '359874100001234' } as any]])
     const result = service.computeSale([p], variants, serials, {
-      items: [{ productId: 'p1', variantId: 'v1', serialUnitId: 's1', quantity: 1, unitPrice: 1000 }],
+      items: [
+        { productId: 'p1', variantId: 'v1', serialUnitId: 's1', quantity: 1, unitPrice: 1000 },
+      ],
     })
     expect(result.items[0]).toMatchObject({
       variantId: 'v1',
@@ -254,7 +298,11 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
 
   it('preserves a fractional quantity and computes the line total', () => {
     const service = makeService()
-    const p = product({ id: 'p1', productType: ProductType.VARIABLE_QUANTITY, sellingPrice: 800 }) as Product
+    const p = product({
+      id: 'p1',
+      productType: ProductType.VARIABLE_QUANTITY,
+      sellingPrice: 800,
+    }) as Product
     const result = service.computeSale([p], new Map(), new Map(), {
       items: [{ productId: 'p1', quantity: 1.5, unitPrice: 800 }],
     })
@@ -275,5 +323,76 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(result.saleDiscountAmount).toBe(200)
     expect(result.saleChargesAmount).toBe(50)
     expect(result.totalAmount).toBe(1850)
+  })
+})
+
+describe('SalesService.recomputeSaleSettlement (signed ledger)', () => {
+  // amountPaid = Σ(PAYMENT) − Σ(REFUND), clamped ≥ 0; creditAmount = max(0, total − amountPaid).
+  const mgrWith = (rows: Array<{ kind?: string; amount: number }>) =>
+    ({ getRepository: () => ({ find: jest.fn(async () => rows) }) }) as any
+
+  it('sums PAYMENT rows into amountPaid, leaving the balance as credit', async () => {
+    const service = makeService()
+    const r = await service.recomputeSaleSettlement(
+      mgrWith([{ kind: 'PAYMENT', amount: 600 }]),
+      's1',
+      1000,
+    )
+    expect(r).toEqual({ amountPaid: 600, creditAmount: 400 })
+  })
+
+  it('treats a fully-paid sale as zero credit', async () => {
+    const service = makeService()
+    const r = await service.recomputeSaleSettlement(
+      mgrWith([
+        { kind: 'PAYMENT', amount: 400 },
+        { kind: 'PAYMENT', amount: 600 },
+      ]),
+      's1',
+      1000,
+    )
+    expect(r).toEqual({ amountPaid: 1000, creditAmount: 0 })
+  })
+
+  it('subtracts REFUND rows from amountPaid and reopens credit', async () => {
+    const service = makeService()
+    const r = await service.recomputeSaleSettlement(
+      mgrWith([
+        { kind: 'PAYMENT', amount: 1000 },
+        { kind: 'REFUND', amount: 300 },
+      ]),
+      's1',
+      1000,
+    )
+    expect(r).toEqual({ amountPaid: 700, creditAmount: 300 })
+  })
+
+  it('clamps amountPaid at 0 when refunds exceed payments', async () => {
+    const service = makeService()
+    const r = await service.recomputeSaleSettlement(
+      mgrWith([
+        { kind: 'PAYMENT', amount: 500 },
+        { kind: 'REFUND', amount: 800 },
+      ]),
+      's1',
+      1000,
+    )
+    expect(r).toEqual({ amountPaid: 0, creditAmount: 1000 })
+  })
+
+  it('clamps credit at 0 on overpayment', async () => {
+    const service = makeService()
+    const r = await service.recomputeSaleSettlement(
+      mgrWith([{ kind: 'PAYMENT', amount: 1200 }]),
+      's1',
+      1000,
+    )
+    expect(r).toEqual({ amountPaid: 1200, creditAmount: 0 })
+  })
+
+  it('defaults a row with no kind to PAYMENT', async () => {
+    const service = makeService()
+    const r = await service.recomputeSaleSettlement(mgrWith([{ amount: 250 }]), 's1', 1000)
+    expect(r).toEqual({ amountPaid: 250, creditAmount: 750 })
   })
 })

@@ -22,8 +22,11 @@ import type {
   OpeningBalanceSyncPayload,
   OpeningBalanceSyncRecord,
   RoleSyncRecord,
+  SaleChargeSyncRecord,
   SaleItemSyncRecord,
   SalePaymentSyncRecord,
+  SaleReturnSyncRecord,
+  SaleReturnItemSyncRecord,
   SaleSyncPayload,
   SaleSyncRecord,
   RestockItemSyncRecord,
@@ -87,8 +90,11 @@ import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
+import { SaleReturn } from '@/entities/sale-return.entity'
+import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
@@ -474,6 +480,12 @@ export class SyncService {
     private readonly saleItemsRepo: Repository<SaleItem>,
     @InjectRepository(SalePayment)
     private readonly salePaymentsRepo: Repository<SalePayment>,
+    @InjectRepository(SaleCharge)
+    private readonly saleChargesRepo: Repository<SaleCharge>,
+    @InjectRepository(SaleReturn)
+    private readonly saleReturnsRepo: Repository<SaleReturn>,
+    @InjectRepository(SaleReturnItem)
+    private readonly saleReturnItemsRepo: Repository<SaleReturnItem>,
     @InjectRepository(SyncBatch)
     private readonly syncBatchesRepo: Repository<SyncBatch>,
     @InjectRepository(SyncOperation)
@@ -579,7 +591,11 @@ export class SyncService {
               action: operation.action,
               recordId: operation.recordId,
               recordUpdatedAt: new Date(operation.updatedAt),
-              payload: this.prepareOperationPayload(operation.entity, operation.payload ?? null, user),
+              payload: this.prepareOperationPayload(
+                operation.entity,
+                operation.payload ?? null,
+                user,
+              ),
               status: 'pending',
               resolution: null,
               errorMessage: null,
@@ -682,6 +698,9 @@ export class SyncService {
         rfqSuppliers,
         purchaseOrders,
         purchaseOrderItems,
+        saleCharges,
+        saleReturns,
+        saleReturnItems,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -716,7 +735,9 @@ export class SyncService {
         this.expenseCategoriesRepo
           .createQueryBuilder('category')
           .withDeleted()
-          .where('(category.business_id IS NULL OR category.business_id = :businessId)', { businessId })
+          .where('(category.business_id IS NULL OR category.business_id = :businessId)', {
+            businessId,
+          })
           .andWhere('category.updated_at > :since', { since })
           .andWhere('category.updated_at <= :pulledAt', { pulledAt })
           .orderBy('category.updated_at', 'ASC')
@@ -950,6 +971,29 @@ export class SyncService {
           .andWhere('poi.updated_at <= :pulledAt', { pulledAt })
           .orderBy('poi.updated_at', 'ASC')
           .getMany(),
+        // Sale aggregate children (charges + returns). Created server-side for online
+        // orders; append-only, so filter by created_at (no updated_at column).
+        this.saleChargesRepo
+          .createQueryBuilder('charge')
+          .where('charge.business_id = :businessId', { businessId })
+          .andWhere('charge.created_at > :since', { since })
+          .andWhere('charge.created_at <= :pulledAt', { pulledAt })
+          .orderBy('charge.created_at', 'ASC')
+          .getMany(),
+        this.saleReturnsRepo
+          .createQueryBuilder('ret')
+          .where('ret.business_id = :businessId', { businessId })
+          .andWhere('ret.created_at > :since', { since })
+          .andWhere('ret.created_at <= :pulledAt', { pulledAt })
+          .orderBy('ret.created_at', 'ASC')
+          .getMany(),
+        this.saleReturnItemsRepo
+          .createQueryBuilder('reti')
+          .where('reti.business_id = :businessId', { businessId })
+          .andWhere('reti.created_at > :since', { since })
+          .andWhere('reti.created_at <= :pulledAt', { pulledAt })
+          .orderBy('reti.created_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -957,7 +1001,10 @@ export class SyncService {
       const restockQuantityMap = new Map(
         inventoryMovements
           .filter((record) => record.referenceType === 'restock' && record.referenceId)
-          .map((record) => [`${record.referenceId}:${record.productId}`, record.quantityAfter] as const),
+          .map(
+            (record) =>
+              [`${record.referenceId}:${record.productId}`, record.quantityAfter] as const,
+          ),
       )
 
       // Per-variant stock for the variant records being emitted (so the desktop's
@@ -968,7 +1015,11 @@ export class SyncService {
           where: { businessId, variantId: In(productVariants.map((v) => v.id)) },
         })
         for (const l of levels) {
-          if (l.variantId) variantStock.set(l.variantId, { quantity: l.quantity, lowStockThreshold: l.lowStockThreshold ?? null })
+          if (l.variantId)
+            variantStock.set(l.variantId, {
+              quantity: l.quantity,
+              lowStockThreshold: l.lowStockThreshold ?? null,
+            })
         }
       }
 
@@ -1000,7 +1051,9 @@ export class SyncService {
         openingBalances: openingBalances.map((record) => this.toOpeningBalanceSyncRecord(record)),
         products: products.map((record) => this.toProductSyncRecord(record, productStock)),
         productCategories: productCategories.map((record) => this.toCategorySyncRecord(record)),
-        expenseCategories: expenseCategories.map((record) => this.toExpenseCategorySyncRecord(record)),
+        expenseCategories: expenseCategories.map((record) =>
+          this.toExpenseCategorySyncRecord(record),
+        ),
         unitOfMeasures: unitOfMeasures.map((record) => this.toUnitSyncRecord(record)),
         inventoryLevels: inventoryLevels.map((record) => this.toInventoryLevelSyncRecord(record)),
         inventoryMovements: inventoryMovements.map((record) =>
@@ -1016,12 +1069,19 @@ export class SyncService {
         sales: sales.map((record) => this.toSaleSyncRecord(record)),
         saleItems: saleItems.map((record) => this.toSaleItemSyncRecord(record)),
         salePayments: salePayments.map((record) => this.toSalePaymentSyncRecord(record)),
+        saleCharges: saleCharges.map((record) => this.toSaleChargeSyncRecord(record)),
+        saleReturns: saleReturns.map((record) => this.toSaleReturnSyncRecord(record)),
+        saleReturnItems: saleReturnItems.map((record) => this.toSaleReturnItemSyncRecord(record)),
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
         teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
         roles: roles.map((record) => this.toRoleSyncRecord(record)),
-        savingsAccounts: savingsData.accounts.map((record) => this.toSavingsAccountSyncRecord(record)),
-        savingsTransactions: savingsData.transactions.map((record) => this.toSavingsTransactionSyncRecord(record)),
+        savingsAccounts: savingsData.accounts.map((record) =>
+          this.toSavingsAccountSyncRecord(record),
+        ),
+        savingsTransactions: savingsData.transactions.map((record) =>
+          this.toSavingsTransactionSyncRecord(record),
+        ),
         attributeGroups: attributeGroups.map((record) => ({
           id: record.id,
           businessId: record.businessId,
@@ -1239,7 +1299,11 @@ export class SyncService {
   async processBatch(batchId: string): Promise<void> {
     const batch = await this.findBatchWithOperations(batchId)
     if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status as SyncBatchStatus)) {
-      this.logger.warn('Batch not found or already in terminal status, skipping processing', 'SyncService', { batchId })
+      this.logger.warn(
+        'Batch not found or already in terminal status, skipping processing',
+        'SyncService',
+        { batchId },
+      )
       return
     }
 
@@ -1376,8 +1440,12 @@ export class SyncService {
 
       await this.emitBatchStatus(batch.id)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unexpected sync batch processing failure.'
-      this.logger.error('Sync batch processing failed', 'SyncService', { batchId: batch.id, message })
+      const message =
+        error instanceof Error ? error.message : 'Unexpected sync batch processing failure.'
+      this.logger.error('Sync batch processing failed', 'SyncService', {
+        batchId: batch.id,
+        message,
+      })
 
       await flushOperationResults()
       await this.markPendingOperationsFailed(batch.id, message)
@@ -1451,7 +1519,10 @@ export class SyncService {
     }
   }
 
-  private async processOperation(businessId: string, operation: SyncOperation): Promise<BatchProcessingResult> {
+  private async processOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
     // Idempotency: if this exact client operation was already applied in a prior batch
     // (e.g. the client resent it after missing the ack), skip — avoids double side
     // effects for non-idempotent ops like sales/inventory movements.
@@ -1547,7 +1618,10 @@ export class SyncService {
     }
   }
 
-  private async applyCategoryOperation(businessId: string, operation: SyncOperation): Promise<BatchProcessingResult> {
+  private async applyCategoryOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
     const existing = await this.categoriesRepo.findOne({
       where: { id: operation.recordId, businessId },
       withDeleted: true,
@@ -1584,7 +1658,11 @@ export class SyncService {
     })
     await this.ensureValidDto(dto)
 
-    const slug = await this.slugService.generateCategorySlug(payload.name!, businessId, existing?.id)
+    const slug = await this.slugService.generateCategorySlug(
+      payload.name!,
+      businessId,
+      existing?.id,
+    )
 
     // Resolve hierarchy: prefer the authoritative depth from the parent when it's
     // present; otherwise trust the client's computed depth (the parent FK will defer
@@ -1736,7 +1814,10 @@ export class SyncService {
     // dependency — a missing group surfaces as a deferrable FK error).
     const groupId = payload.groupId ?? existing?.groupId
     if (!groupId) {
-      throw new AppBadRequestException('Attribute option requires a groupId.', 'SYNC_OPTION_GROUP_REQUIRED')
+      throw new AppBadRequestException(
+        'Attribute option requires a groupId.',
+        'SYNC_OPTION_GROUP_REQUIRED',
+      )
     }
 
     if (existing) {
@@ -2028,7 +2109,10 @@ export class SyncService {
     const payload = this.readProductImagePayload(operation.payload)
     const productId = payload.productId ?? existing?.productId
     if (!productId) {
-      throw new AppBadRequestException('Product image requires a productId.', 'SYNC_PRODUCT_IMAGE_PRODUCT_REQUIRED')
+      throw new AppBadRequestException(
+        'Product image requires a productId.',
+        'SYNC_PRODUCT_IMAGE_PRODUCT_REQUIRED',
+      )
     }
 
     if (existing) {
@@ -2100,7 +2184,10 @@ export class SyncService {
     const payload = this.readProductVariantPayload(operation.payload)
     const productId = payload.productId ?? existing?.productId
     if (!productId) {
-      throw new AppBadRequestException('Product variant requires a productId.', 'SYNC_VARIANT_PRODUCT_REQUIRED')
+      throw new AppBadRequestException(
+        'Product variant requires a productId.',
+        'SYNC_VARIANT_PRODUCT_REQUIRED',
+      )
     }
     const fields = {
       productId,
@@ -2136,7 +2223,9 @@ export class SyncService {
     // Seed the variant's inventory level from opening stock (non-serialised products).
     const parentProduct = await this.productsRepo.findOne({ where: { id: productId, businessId } })
     if (parentProduct && !parentProduct.isSerialized && parentProduct.trackInventory) {
-      const level = await this.inventoryLevelsRepo.findOne({ where: { businessId, productId, variantId: operation.recordId } })
+      const level = await this.inventoryLevelsRepo.findOne({
+        where: { businessId, productId, variantId: operation.recordId },
+      })
       if (!level) {
         await this.inventoryLevelsRepo.save(
           this.inventoryLevelsRepo.create({
@@ -2148,7 +2237,9 @@ export class SyncService {
           }),
         )
       } else if (payload.lowStockThreshold !== undefined) {
-        await this.inventoryLevelsRepo.update(level.id, { lowStockThreshold: payload.lowStockThreshold })
+        await this.inventoryLevelsRepo.update(level.id, {
+          lowStockThreshold: payload.lowStockThreshold,
+        })
       }
     }
     await this.refreshHasVariants(businessId, productId)
@@ -2249,8 +2340,10 @@ export class SyncService {
     }
 
     const variantId =
-      payload.variantId === undefined ? existing?.variantId ?? null : payload.variantId
-    const status = (payload.status ?? existing?.status ?? SerialUnitStatus.IN_STOCK) as SerialUnitStatus
+      payload.variantId === undefined ? (existing?.variantId ?? null) : payload.variantId
+    const status = (payload.status ??
+      existing?.status ??
+      SerialUnitStatus.IN_STOCK) as SerialUnitStatus
 
     if (existing) {
       await this.productSerialUnitsRepo.update(operation.recordId, {
@@ -2400,8 +2493,22 @@ export class SyncService {
       currency?: string
       createdById?: string | null
       createdAt?: string
-      items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number }>
-      suppliers?: Array<{ id: string; supplierId: string; status: string; quotedTotal?: number | null; quoteNotes?: string | null; quoteFileUrl?: string | null; respondedAt?: string | null }>
+      items?: Array<{
+        id: string
+        productId: string
+        variantId?: string | null
+        description: string
+        quantity: number
+      }>
+      suppliers?: Array<{
+        id: string
+        supplierId: string
+        status: string
+        quotedTotal?: number | null
+        quoteNotes?: string | null
+        quoteFileUrl?: string | null
+        respondedAt?: string | null
+      }>
     }
 
     if (existing) {
@@ -2467,7 +2574,9 @@ export class SyncService {
     businessId: string,
     operation: SyncOperation,
   ): Promise<BatchProcessingResult> {
-    const existing = await this.purchaseOrdersRepo.findOne({ where: { id: operation.recordId, businessId } })
+    const existing = await this.purchaseOrdersRepo.findOne({
+      where: { id: operation.recordId, businessId },
+    })
     if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
       return { status: 'conflict', resolution: 'server_wins' }
     }
@@ -2491,7 +2600,15 @@ export class SyncService {
       sentAt?: string | null
       createdById?: string | null
       createdAt?: string
-      items?: Array<{ id: string; productId: string; variantId?: string | null; description: string; quantity: number; unitPrice: number; receivedQuantity?: number }>
+      items?: Array<{
+        id: string
+        productId: string
+        variantId?: string | null
+        description: string
+        quantity: number
+        unitPrice: number
+        receivedQuantity?: number
+      }>
     }
 
     if (existing) {
@@ -2559,7 +2676,11 @@ export class SyncService {
     const payload = this.readOpeningBalancePayload(operation.payload)
 
     const existing = await this.openingBalancesRepo.findOne({
-      where: { businessId, contactId: payload.contactId, direction: payload.direction as DebtDirection },
+      where: {
+        businessId,
+        contactId: payload.contactId,
+        direction: payload.direction as DebtDirection,
+      },
     })
 
     if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
@@ -2743,7 +2864,10 @@ export class SyncService {
     return { status: 'applied' }
   }
 
-  private async applyProductOperation(businessId: string, operation: SyncOperation): Promise<BatchProcessingResult> {
+  private async applyProductOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
     const existing = await this.productsRepo.findOne({
       where: { id: operation.recordId, businessId },
       withDeleted: true,
@@ -2769,7 +2893,10 @@ export class SyncService {
     }
 
     const payload = this.readProductPayload(operation.payload)
-    const unitOfMeasure = await this.resolveProductUnitOfMeasure(payload.unitOfMeasureId, businessId)
+    const unitOfMeasure = await this.resolveProductUnitOfMeasure(
+      payload.unitOfMeasureId,
+      businessId,
+    )
     const dto = plainToInstance(CreateProductDto, {
       name: payload.name,
       description: payload.description ?? undefined,
@@ -2792,11 +2919,19 @@ export class SyncService {
 
     const [business, category] = await Promise.all([
       this.findBusiness(businessId),
-      payload.categoryId ? this.findCategory(payload.categoryId, businessId) : Promise.resolve(null),
+      payload.categoryId
+        ? this.findCategory(payload.categoryId, businessId)
+        : Promise.resolve(null),
     ])
 
     const slug = await this.slugService.generateProductSlug(payload.name!, businessId, existing?.id)
-    const sku = await this.resolveProductSku(businessId, category?.slug ?? null, payload, existing?.id, existing?.sku ?? null)
+    const sku = await this.resolveProductSku(
+      businessId,
+      category?.slug ?? null,
+      payload,
+      existing?.id,
+      existing?.sku ?? null,
+    )
     const barcode = await this.resolveProductBarcode(businessId, payload, existing, sku)
     // productType is authoritative; isService/trackInventory are derived from it.
     // Fall back to the payload's/existing productType, then to a classification
@@ -2843,7 +2978,9 @@ export class SyncService {
           isService,
           trackInventory,
           isFeatured: payload.isFeatured ?? existing.isFeatured,
-          isPublishedOnline: payload.isPublishedOnline ?? existing.isPublishedOnline,
+          // Online publish state is server-authoritative — only the online-store endpoint
+          // (with its publishability gate) changes it. A product edit never (un)publishes.
+          isPublishedOnline: existing.isPublishedOnline,
           onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
           onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
@@ -2918,7 +3055,9 @@ export class SyncService {
           isService,
           trackInventory,
           isFeatured: payload.isFeatured ?? false,
-          isPublishedOnline: payload.isPublishedOnline ?? false,
+          // New products start as online-store drafts; publishing is done from the
+          // online-store admin (server-authoritative), never at product create.
+          isPublishedOnline: false,
           onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
           onlineStockReserve: payload.onlineStockReserve ?? 0,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
@@ -3066,7 +3205,8 @@ export class SyncService {
         return {
           status: 'conflict',
           resolution: 'server_wins',
-          errorMessage: 'Inventory quantity changed on another device. Unable to apply this adjustment.',
+          errorMessage:
+            'Inventory quantity changed on another device. Unable to apply this adjustment.',
         }
       }
 
@@ -3177,10 +3317,14 @@ export class SyncService {
       }
 
       const totalPaid = this.normalizeMoney(
-        (payload.payments ?? []).reduce((sum, payment) => sum + this.normalizeMoney(payment.amount), 0),
+        (payload.payments ?? []).reduce(
+          (sum, payment) => sum + this.normalizeMoney(payment.amount),
+          0,
+        ),
       )
       const normalizedOriginalAmount = this.normalizeMoney(payload.originalAmount)
-      const isWrittenOff = payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
+      const isWrittenOff =
+        payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
       const status = isWrittenOff
         ? DebtStatus.WRITTEN_OFF
         : totalPaid >= normalizedOriginalAmount
@@ -3190,15 +3334,15 @@ export class SyncService {
             : DebtStatus.OUTSTANDING
       const settledAt =
         status === DebtStatus.SETTLED
-          ? this.parseOptionalDate(payload.settledAt) ?? operation.recordUpdatedAt
+          ? (this.parseOptionalDate(payload.settledAt) ?? operation.recordUpdatedAt)
           : null
       const writtenOffAt =
         status === DebtStatus.WRITTEN_OFF
-          ? this.parseOptionalDate(payload.writtenOffAt) ?? operation.recordUpdatedAt
+          ? (this.parseOptionalDate(payload.writtenOffAt) ?? operation.recordUpdatedAt)
           : null
       const writtenOffById =
         status === DebtStatus.WRITTEN_OFF
-          ? this.normalizeOptionalString(payload.writtenOffById) ?? fallbackUserId
+          ? (this.normalizeOptionalString(payload.writtenOffById) ?? fallbackUserId)
           : null
       const writtenOffReason =
         status === DebtStatus.WRITTEN_OFF
@@ -3213,7 +3357,8 @@ export class SyncService {
           direction: payload.direction,
           sourceType: payload.sourceType,
           sourceId: payload.sourceId,
-          sourceReference: this.normalizeOptionalString(payload.sourceReference) ?? payload.sourceId,
+          sourceReference:
+            this.normalizeOptionalString(payload.sourceReference) ?? payload.sourceId,
           originalAmount: normalizedOriginalAmount,
           status,
           dueDate: payload.dueDate ?? null,
@@ -3329,7 +3474,9 @@ export class SyncService {
     return { status: 'applied' }
   }
 
-  private readSavingsAccountPayload(payload: Record<string, unknown> | null): SavingsAccountSyncPayload {
+  private readSavingsAccountPayload(
+    payload: Record<string, unknown> | null,
+  ): SavingsAccountSyncPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Savings account sync payload is required.',
@@ -3340,7 +3487,9 @@ export class SyncService {
     return payload as unknown as SavingsAccountSyncPayload
   }
 
-  private readSavingsTransactionPayload(payload: Record<string, unknown> | null): SavingsTransactionSyncPayload {
+  private readSavingsTransactionPayload(
+    payload: Record<string, unknown> | null,
+  ): SavingsTransactionSyncPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Savings transaction sync payload is required.',
@@ -3444,14 +3593,14 @@ export class SyncService {
     return unit
   }
 
-  private async resolveProductUnitOfMeasure(unitOfMeasureId: string | null | undefined, businessId: string) {
+  private async resolveProductUnitOfMeasure(
+    unitOfMeasureId: string | null | undefined,
+    businessId: string,
+  ) {
     const normalizedId = this.normalizeOptionalString(unitOfMeasureId)
 
     if (!normalizedId) {
-      throw new AppBadRequestException(
-        'unitOfMeasureId is required',
-        'SYNC_PAYLOAD_INVALID',
-      )
+      throw new AppBadRequestException('unitOfMeasureId is required', 'SYNC_PAYLOAD_INVALID')
     }
 
     if (UUID_REGEX.test(normalizedId)) {
@@ -3546,11 +3695,7 @@ export class SyncService {
 
     try {
       const jobId = this.buildQueueJobId(batch.id)
-      const job = await this.queue.add(
-        SYNC_PROCESS_BATCH_JOB,
-        { batchId: batch.id },
-        { jobId },
-      )
+      const job = await this.queue.add(SYNC_PROCESS_BATCH_JOB, { batchId: batch.id }, { jobId })
 
       await this.syncBatchesRepo.update(batch.id, {
         status: 'queued',
@@ -3646,7 +3791,10 @@ export class SyncService {
       const pendingMessage = 'Sync batch finished without marking every operation.'
       await this.markPendingOperationsFailed(batch.id, pendingMessage)
       const finalizedBatch = await this.finalizeBatchFromPersistedOperations(batch.id)
-      if (finalizedBatch && !TERMINAL_BATCH_STATUSES.has(finalizedBatch.status as SyncBatchStatus)) {
+      if (
+        finalizedBatch &&
+        !TERMINAL_BATCH_STATUSES.has(finalizedBatch.status as SyncBatchStatus)
+      ) {
         await this.syncBatchesRepo.update(batch.id, {
           status: 'failed',
           completedAt: new Date(),
@@ -3756,14 +3904,20 @@ export class SyncService {
   }
 
   private resolveFirstBatchError(operations: SyncOperation[]) {
-    return operations.find((operation) => operation.status === 'failed' && operation.errorMessage)
-      ?.errorMessage ?? null
+    return (
+      operations.find((operation) => operation.status === 'failed' && operation.errorMessage)
+        ?.errorMessage ?? null
+    )
   }
 
   private async emitBatchStatus(batchId: string) {
     const batch = await this.findBatchWithOperations(batchId)
     if (!batch) {
-      this.logger.warn('Batch not found or already in terminal status, skipping processing', 'SyncService', { batchId })
+      this.logger.warn(
+        'Batch not found or already in terminal status, skipping processing',
+        'SyncService',
+        { batchId },
+      )
       return
     }
 
@@ -3804,13 +3958,17 @@ export class SyncService {
           ? operation.resolution
           : null,
       errorMessage: operation.errorMessage ?? null,
-      errorDetails: (operation.errorDetails as SyncOperationFailureDetails | null | undefined) ?? null,
+      errorDetails:
+        (operation.errorDetails as SyncOperationFailureDetails | null | undefined) ?? null,
     }
   }
 
   private toProductSyncRecord(
     record: Product,
-    productStock?: Map<string, { quantity: number; lowStockThreshold: number | null; reorderPoint: number | null }>,
+    productStock?: Map<
+      string,
+      { quantity: number; lowStockThreshold: number | null; reorderPoint: number | null }
+    >,
   ): SyncRecord {
     const level = productStock?.get(record.id)
     return {
@@ -3903,7 +4061,9 @@ export class SyncService {
     }
   }
 
-  private readOpeningBalancePayload(payload: Record<string, unknown> | null): OpeningBalanceSyncPayload {
+  private readOpeningBalancePayload(
+    payload: Record<string, unknown> | null,
+  ): OpeningBalanceSyncPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Opening balance sync payload is missing or invalid.',
@@ -4080,6 +4240,8 @@ export class SyncService {
       voidReason: record.voidReason ?? null,
       currency: 'XAF',
       paymentMethod,
+      source: record.source ?? null,
+      onlineOrderId: record.onlineOrderId ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -4120,6 +4282,59 @@ export class SyncService {
       method: record.method,
       amount: record.amount,
       mobileMoneyReference: record.mobileMoneyReference ?? null,
+      kind: record.kind ?? null,
+      recordedAt: record.recordedAt?.toISOString() ?? null,
+      recordedById: record.recordedById ?? null,
+      note: record.note ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSaleChargeSyncRecord(record: SaleCharge): SaleChargeSyncRecord {
+    return {
+      id: record.id,
+      saleId: record.saleId,
+      businessId: record.businessId,
+      chargeTypeId: record.chargeTypeId ?? null,
+      name: record.name,
+      rateType: record.rateType,
+      rateValue: record.rateValue,
+      amount: record.amount,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSaleReturnSyncRecord(record: SaleReturn): SaleReturnSyncRecord {
+    return {
+      id: record.id,
+      saleId: record.saleId,
+      businessId: record.businessId,
+      onlineOrderId: record.onlineOrderId ?? null,
+      reason: record.reason ?? null,
+      restock: record.restock,
+      refundAmount: record.refundAmount,
+      createdById: record.createdById ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSaleReturnItemSyncRecord(record: SaleReturnItem): SaleReturnItemSyncRecord {
+    return {
+      id: record.id,
+      saleReturnId: record.saleReturnId,
+      businessId: record.businessId,
+      saleItemId: record.saleItemId,
+      quantity: record.quantity,
+      serialUnitId: record.serialUnitId ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
@@ -4300,13 +4515,18 @@ export class SyncService {
 
   private readCategoryPayload(payload: Record<string, unknown> | null): CategorySyncPayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Category sync payload is required.', 'SYNC_CATEGORY_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Category sync payload is required.',
+        'SYNC_CATEGORY_PAYLOAD_REQUIRED',
+      )
     }
 
     return payload as CategorySyncPayload
   }
 
-  private readAttributeGroupPayload(payload: Record<string, unknown> | null): AttributeGroupPayload {
+  private readAttributeGroupPayload(
+    payload: Record<string, unknown> | null,
+  ): AttributeGroupPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Attribute group sync payload is required.',
@@ -4315,12 +4535,17 @@ export class SyncService {
     }
     const typed = payload as AttributeGroupPayload
     if (!typed.name?.trim()) {
-      throw new AppBadRequestException('Attribute group name is required.', 'SYNC_ATTRIBUTE_GROUP_NAME_REQUIRED')
+      throw new AppBadRequestException(
+        'Attribute group name is required.',
+        'SYNC_ATTRIBUTE_GROUP_NAME_REQUIRED',
+      )
     }
     return typed
   }
 
-  private readAttributeOptionPayload(payload: Record<string, unknown> | null): AttributeOptionPayload {
+  private readAttributeOptionPayload(
+    payload: Record<string, unknown> | null,
+  ): AttributeOptionPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Attribute option sync payload is required.',
@@ -4329,7 +4554,10 @@ export class SyncService {
     }
     const typed = payload as AttributeOptionPayload
     if (!typed.value?.trim()) {
-      throw new AppBadRequestException('Attribute option value is required.', 'SYNC_ATTRIBUTE_OPTION_VALUE_REQUIRED')
+      throw new AppBadRequestException(
+        'Attribute option value is required.',
+        'SYNC_ATTRIBUTE_OPTION_VALUE_REQUIRED',
+      )
     }
     return typed
   }
@@ -4348,7 +4576,10 @@ export class SyncService {
 
   private readBrandPayload(payload: Record<string, unknown> | null): BrandPayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Brand sync payload is required.', 'SYNC_BRAND_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Brand sync payload is required.',
+        'SYNC_BRAND_PAYLOAD_REQUIRED',
+      )
     }
     const typed = payload as BrandPayload
     if (!typed.name?.trim()) {
@@ -4359,7 +4590,10 @@ export class SyncService {
 
   private readModelPayload(payload: Record<string, unknown> | null): ModelPayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Model sync payload is required.', 'SYNC_MODEL_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Model sync payload is required.',
+        'SYNC_MODEL_PAYLOAD_REQUIRED',
+      )
     }
     const typed = payload as ModelPayload
     if (!typed.name?.trim()) {
@@ -4380,27 +4614,43 @@ export class SyncService {
 
   private readProductImagePayload(payload: Record<string, unknown> | null): ProductImagePayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Product image sync payload is required.', 'SYNC_PRODUCT_IMAGE_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Product image sync payload is required.',
+        'SYNC_PRODUCT_IMAGE_PAYLOAD_REQUIRED',
+      )
     }
     const typed = payload as ProductImagePayload
     if (!typed.url?.trim()) {
-      throw new AppBadRequestException('Product image url is required.', 'SYNC_PRODUCT_IMAGE_URL_REQUIRED')
+      throw new AppBadRequestException(
+        'Product image url is required.',
+        'SYNC_PRODUCT_IMAGE_URL_REQUIRED',
+      )
     }
     return typed
   }
 
-  private readProductVariantPayload(payload: Record<string, unknown> | null): ProductVariantPayload {
+  private readProductVariantPayload(
+    payload: Record<string, unknown> | null,
+  ): ProductVariantPayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Product variant sync payload is required.', 'SYNC_VARIANT_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Product variant sync payload is required.',
+        'SYNC_VARIANT_PAYLOAD_REQUIRED',
+      )
     }
     const typed = payload as ProductVariantPayload
     if (!typed.name?.trim()) {
-      throw new AppBadRequestException('Product variant name is required.', 'SYNC_VARIANT_NAME_REQUIRED')
+      throw new AppBadRequestException(
+        'Product variant name is required.',
+        'SYNC_VARIANT_NAME_REQUIRED',
+      )
     }
     return typed
   }
 
-  private readProductVariantOptionPayload(payload: Record<string, unknown> | null): ProductVariantOptionPayload {
+  private readProductVariantOptionPayload(
+    payload: Record<string, unknown> | null,
+  ): ProductVariantOptionPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Variant option sync payload is required.',
@@ -4410,7 +4660,9 @@ export class SyncService {
     return payload as ProductVariantOptionPayload
   }
 
-  private readProductSerialUnitPayload(payload: Record<string, unknown> | null): ProductSerialUnitPayload {
+  private readProductSerialUnitPayload(
+    payload: Record<string, unknown> | null,
+  ): ProductSerialUnitPayload {
     if (!payload || typeof payload !== 'object') {
       throw new AppBadRequestException(
         'Serial unit sync payload is required.',
@@ -4447,7 +4699,10 @@ export class SyncService {
 
   private readContactPayload(payload: Record<string, unknown> | null): ContactPayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Contact sync payload is required.', 'SYNC_CONTACT_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Contact sync payload is required.',
+        'SYNC_CONTACT_PAYLOAD_REQUIRED',
+      )
     }
 
     return payload as ContactPayload
@@ -4466,7 +4721,10 @@ export class SyncService {
 
   private readProductPayload(payload: Record<string, unknown> | null): ProductSyncPayload {
     if (!payload || typeof payload !== 'object') {
-      throw new AppBadRequestException('Product sync payload is required.', 'SYNC_PRODUCT_PAYLOAD_REQUIRED')
+      throw new AppBadRequestException(
+        'Product sync payload is required.',
+        'SYNC_PRODUCT_PAYLOAD_REQUIRED',
+      )
     }
 
     return payload as ProductSyncPayload
@@ -4607,7 +4865,8 @@ export class SyncService {
             return {
               ...candidate,
               recordedById:
-                typeof candidate.recordedById === 'string' && UUID_REGEX.test(candidate.recordedById)
+                typeof candidate.recordedById === 'string' &&
+                UUID_REGEX.test(candidate.recordedById)
                   ? candidate.recordedById
                   : user.sub,
             }
@@ -4713,10 +4972,7 @@ export class SyncService {
       return
     }
 
-    throw new AppBadRequestException(
-      this.flattenValidationErrors(errors),
-      'SYNC_PAYLOAD_INVALID',
-    )
+    throw new AppBadRequestException(this.flattenValidationErrors(errors), 'SYNC_PAYLOAD_INVALID')
   }
 
   private flattenValidationErrors(errors: ValidationError[]): string {

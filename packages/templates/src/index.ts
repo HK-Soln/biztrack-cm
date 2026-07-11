@@ -28,5 +28,11 @@ export {
   buildSupplierPriceReport,
 } from './report-builders'
 export { purchaseOrderMessageText, rfqMessageText } from './message'
+export { renderOrderStatusEmail } from './order-status-email.template'
+export type {
+  OrderStatusEmailOptions,
+  OrderStatusEmailResult,
+  OrderEmailBusiness,
+} from './order-status-email.template'
 export { DOCUMENT_CSS } from './styles'
 export { formatMoney, formatNumber, escapeHtml, escapeMultiline } from './format'

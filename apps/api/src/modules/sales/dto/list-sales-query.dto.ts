@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { IsEnum, IsOptional, IsUUID, Matches } from 'class-validator'
-import { PaymentMethod, SaleStatus, type SalesQuery } from '@biztrack/types'
+import { PaymentMethod, SaleSource, SaleStatus, type SalesQuery } from '@biztrack/types'
 import { ListQueryDto } from '@/common/dto/list-query.dto'
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
@@ -30,4 +30,9 @@ export class ListSalesQueryDto extends ListQueryDto implements SalesQuery {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod
+
+  @ApiPropertyOptional({ enum: SaleSource })
+  @IsOptional()
+  @IsEnum(SaleSource)
+  source?: SaleSource
 }

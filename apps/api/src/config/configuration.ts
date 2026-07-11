@@ -10,8 +10,7 @@ const normalizeEnvString = (value: unknown) => {
   if (value === undefined || value === null) return value
   const text = String(value).trim()
   const hasMatchingQuotes =
-    (text.startsWith('"') && text.endsWith('"')) ||
-    (text.startsWith("'") && text.endsWith("'"))
+    (text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))
 
   return hasMatchingQuotes ? text.slice(1, -1) : text
 }
@@ -68,8 +67,23 @@ const envSchema = z.object({
   RESEND_SENDER_DOMAINS: z.preprocess(normalizeEnvArray, z.array(z.string().min(1)).min(1)),
   // For receiving notifications about important account events (e.g. approaching usage limits)
   FOUNDER_EMAIL: z.preprocess(normalizeEnvString, z.string().email()).optional(),
+  // BizTrack marketing site — used in the "Powered by BizTrack" footer of order emails.
+  BIZTRACK_WEB_URL: z
+    .preprocess(normalizeEnvString, z.string().url())
+    .default('https://biztrack.cm'),
   // Waiting list feature flags
   INTERNAL_API_SECRET: z.preprocess(normalizeEnvString, z.string()).optional(),
+  // Online orders: post the financial sale when an order is CONFIRMED (COD → receivable),
+  // vs the legacy deferred sale created at completion. Defaults on; set 'false' to disable.
+  ONLINE_SALE_AT_CONFIRM: z.preprocess(
+    (value) => {
+      const normalized = normalizeEnvString(value)
+      return normalized === undefined || normalized === null || normalized === ''
+        ? 'true'
+        : String(normalized).toLowerCase()
+    },
+    z.enum(['true', 'false']).default('true'),
+  ),
   // WAHA (WhatsApp HTTP API) — self-hosted WhatsApp gateway
   WHATSAPP_BASE_URL: z.preprocess(normalizeEnvString, z.string().url()).optional(),
   WHATSAPP_API_KEY: z.preprocess(normalizeEnvString, z.string()).optional(),
@@ -93,7 +107,9 @@ export type AppConfig = z.infer<typeof envSchema>
 export const validateEnv = (config: Record<string, unknown>): AppConfig => {
   const parsed = envSchema.safeParse(config)
   if (!parsed.success) {
-    const message = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
+    const message = parsed.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ')
     throw new Error(`Invalid environment configuration: ${message}`)
   }
   return parsed.data

@@ -93,7 +93,11 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
 }
 
 const TERMINAL_BATCH_STATUSES: SyncBatchStatus[] = [
-  'completed', 'partial', 'failed', 'enqueue_failed', 'skipped',
+  'completed',
+  'partial',
+  'failed',
+  'enqueue_failed',
+  'skipped',
 ]
 
 const PUSH_LIMIT = 100
@@ -132,84 +136,262 @@ const asNum = (v: unknown): number | null => (v === null || v === undefined ? nu
  * an `is_deleted` column automatically when the table has one.
  */
 const SALE_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', client_id: 'clientId', cashier_id: 'cashierId',
-  cashier_name: 'cashierName', sale_number: 'saleNumber', receipt_number: 'saleNumber', status: 'status',
-  subtotal: 'subtotal', total_amount: 'totalAmount', net_amount: 'totalAmount', discount_amount: 'discountAmount',
-  charges_amount: 'chargesAmount', tax_amount: 'taxAmount', amount_paid: 'amountPaid', credit_amount: 'creditAmount',
-  change_given: 'changeGiven', customer_id: 'customerId', customer_name: 'customerName', customer_phone: 'customerPhone',
-  notes: 'notes', price_drift_warning: 'priceDriftWarning', currency: 'currency', sale_date: 'saleDate',
-  sold_at: 'soldAt', synced_at: 'syncedAt', voided_at: 'voidedAt', voided_by: 'voidedById', void_reason: 'voidReason',
-  created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  client_id: 'clientId',
+  cashier_id: 'cashierId',
+  cashier_name: 'cashierName',
+  sale_number: 'saleNumber',
+  receipt_number: 'saleNumber',
+  status: 'status',
+  subtotal: 'subtotal',
+  total_amount: 'totalAmount',
+  net_amount: 'totalAmount',
+  discount_amount: 'discountAmount',
+  charges_amount: 'chargesAmount',
+  tax_amount: 'taxAmount',
+  amount_paid: 'amountPaid',
+  credit_amount: 'creditAmount',
+  change_given: 'changeGiven',
+  customer_id: 'customerId',
+  customer_name: 'customerName',
+  customer_phone: 'customerPhone',
+  notes: 'notes',
+  price_drift_warning: 'priceDriftWarning',
+  currency: 'currency',
+  sale_date: 'saleDate',
+  sold_at: 'soldAt',
+  synced_at: 'syncedAt',
+  voided_at: 'voidedAt',
+  voided_by: 'voidedById',
+  void_reason: 'voidReason',
+  source: 'source',
+  online_order_id: 'onlineOrderId',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const SALE_ITEM_MAP: Record<string, string> = {
-  id: 'id', sale_id: 'saleId', business_id: 'businessId', product_id: 'productId', product_name: 'productName',
-  product_sku: 'productSku', unit_of_measure: 'unitOfMeasure', quantity: 'quantity', unit_price: 'unitPrice',
-  discount_amount: 'discountAmount', line_total: 'lineTotal', total_price: 'lineTotal', cost_price: 'costPrice',
-  created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  sale_id: 'saleId',
+  business_id: 'businessId',
+  product_id: 'productId',
+  product_name: 'productName',
+  product_sku: 'productSku',
+  unit_of_measure: 'unitOfMeasure',
+  quantity: 'quantity',
+  unit_price: 'unitPrice',
+  discount_amount: 'discountAmount',
+  line_total: 'lineTotal',
+  total_price: 'lineTotal',
+  cost_price: 'costPrice',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const SALE_PAYMENT_MAP: Record<string, string> = {
-  id: 'id', sale_id: 'saleId', business_id: 'businessId', method: 'method', amount: 'amount',
-  mobile_money_reference: 'mobileMoneyReference', created_at: 'createdAt',
+  id: 'id',
+  sale_id: 'saleId',
+  business_id: 'businessId',
+  method: 'method',
+  amount: 'amount',
+  mobile_money_reference: 'mobileMoneyReference',
+  kind: 'kind',
+  recorded_at: 'recordedAt',
+  recorded_by_id: 'recordedById',
+  note: 'note',
+  created_at: 'createdAt',
+}
+const SALE_CHARGE_MAP: Record<string, string> = {
+  id: 'id',
+  sale_id: 'saleId',
+  business_id: 'businessId',
+  charge_type_id: 'chargeTypeId',
+  name: 'name',
+  rate_type: 'rateType',
+  rate_value: 'rateValue',
+  amount: 'amount',
+  created_at: 'createdAt',
+}
+const SALE_RETURN_MAP: Record<string, string> = {
+  id: 'id',
+  sale_id: 'saleId',
+  business_id: 'businessId',
+  online_order_id: 'onlineOrderId',
+  reason: 'reason',
+  restock: 'restock',
+  refund_amount: 'refundAmount',
+  created_by_id: 'createdById',
+  created_at: 'createdAt',
+}
+const SALE_RETURN_ITEM_MAP: Record<string, string> = {
+  id: 'id',
+  sale_return_id: 'saleReturnId',
+  business_id: 'businessId',
+  sale_item_id: 'saleItemId',
+  quantity: 'quantity',
+  serial_unit_id: 'serialUnitId',
+  created_at: 'createdAt',
 }
 const DEBT_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', contact_id: 'contactId', direction: 'direction', source_type: 'sourceType',
-  source_id: 'sourceId', source_reference: 'sourceReference', original_amount: 'originalAmount', status: 'status',
-  due_date: 'dueDate', notes: 'notes', created_at: 'createdAt', updated_at: 'updatedAt', settled_at: 'settledAt',
-  written_off_at: 'writtenOffAt', written_off_by: 'writtenOffById', written_off_reason: 'writtenOffReason',
+  id: 'id',
+  business_id: 'businessId',
+  contact_id: 'contactId',
+  direction: 'direction',
+  source_type: 'sourceType',
+  source_id: 'sourceId',
+  source_reference: 'sourceReference',
+  original_amount: 'originalAmount',
+  status: 'status',
+  due_date: 'dueDate',
+  notes: 'notes',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+  settled_at: 'settledAt',
+  written_off_at: 'writtenOffAt',
+  written_off_by: 'writtenOffById',
+  written_off_reason: 'writtenOffReason',
 }
 const INVENTORY_LEVEL_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', product_id: 'productId', variant_id: 'variantId', quantity: 'quantity',
-  low_stock_threshold: 'lowStockThreshold', reorder_point: 'reorderPoint', last_restock_at: 'lastRestockAt',
-  created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  product_id: 'productId',
+  variant_id: 'variantId',
+  quantity: 'quantity',
+  low_stock_threshold: 'lowStockThreshold',
+  reorder_point: 'reorderPoint',
+  last_restock_at: 'lastRestockAt',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const INVENTORY_MOVEMENT_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', product_id: 'productId', type: 'type', quantity_change: 'quantityChange',
-  quantity_before: 'quantityBefore', quantity_after: 'quantityAfter', reference_type: 'referenceType',
-  reference_id: 'referenceId', notes: 'notes', performed_by_id: 'performedById', performed_by_name: 'performedByName',
+  id: 'id',
+  business_id: 'businessId',
+  product_id: 'productId',
+  type: 'type',
+  quantity_change: 'quantityChange',
+  quantity_before: 'quantityBefore',
+  quantity_after: 'quantityAfter',
+  reference_type: 'referenceType',
+  reference_id: 'referenceId',
+  notes: 'notes',
+  performed_by_id: 'performedById',
+  performed_by_name: 'performedByName',
   created_at: 'createdAt',
 }
 const RESTOCK_RECORD_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', reference_number: 'referenceNumber', supplier_id: 'supplierId',
-  supplier_name: 'supplierName', total_amount: 'totalAmount', total_cost: 'totalCost', amount_paid: 'amountPaid',
-  credit_amount: 'creditAmount', notes: 'notes', performed_by_id: 'performedById', created_at: 'createdAt',
+  id: 'id',
+  business_id: 'businessId',
+  reference_number: 'referenceNumber',
+  supplier_id: 'supplierId',
+  supplier_name: 'supplierName',
+  total_amount: 'totalAmount',
+  total_cost: 'totalCost',
+  amount_paid: 'amountPaid',
+  credit_amount: 'creditAmount',
+  notes: 'notes',
+  performed_by_id: 'performedById',
+  created_at: 'createdAt',
 }
 const RESTOCK_ITEM_MAP: Record<string, string> = {
-  id: 'id', restock_record_id: 'restockRecordId', product_id: 'productId', quantity: 'quantity',
-  unit_cost: 'unitCost', new_quantity: 'newQuantity', created_at: 'createdAt',
+  id: 'id',
+  restock_record_id: 'restockRecordId',
+  product_id: 'productId',
+  quantity: 'quantity',
+  unit_cost: 'unitCost',
+  new_quantity: 'newQuantity',
+  created_at: 'createdAt',
 }
 const BUNDLE_COMPONENT_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', bundle_product_id: 'bundleProductId', component_product_id: 'componentProductId',
-  quantity: 'quantity', sort_order: 'sortOrder', created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  bundle_product_id: 'bundleProductId',
+  component_product_id: 'componentProductId',
+  quantity: 'quantity',
+  sort_order: 'sortOrder',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const ROLE_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', name: 'name', description: 'description', is_system: 'isSystem',
-  is_owner_role: 'isOwnerRole', colour: 'colour', created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  name: 'name',
+  description: 'description',
+  is_system: 'isSystem',
+  is_owner_role: 'isOwnerRole',
+  colour: 'colour',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const TEAM_MEMBER_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', user_id: 'userId', role: 'role', status: 'status', name: 'name',
-  email: 'email', phone: 'phone', created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  user_id: 'userId',
+  role: 'role',
+  status: 'status',
+  name: 'name',
+  email: 'email',
+  phone: 'phone',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const RFQ_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', number: 'number', title: 'title', message_body: 'messageBody',
-  status: 'status', currency: 'currency', created_by_id: 'createdById', created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  number: 'number',
+  title: 'title',
+  message_body: 'messageBody',
+  status: 'status',
+  currency: 'currency',
+  created_by_id: 'createdById',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const RFQ_ITEM_MAP: Record<string, string> = {
-  id: 'id', rfq_id: 'rfqId', product_id: 'productId', variant_id: 'variantId', description: 'description',
-  quantity: 'quantity', created_at: 'createdAt',
+  id: 'id',
+  rfq_id: 'rfqId',
+  product_id: 'productId',
+  variant_id: 'variantId',
+  description: 'description',
+  quantity: 'quantity',
+  created_at: 'createdAt',
 }
 const RFQ_SUPPLIER_MAP: Record<string, string> = {
-  id: 'id', rfq_id: 'rfqId', supplier_id: 'supplierId', supplier_name: 'supplierName', status: 'status',
-  quoted_total: 'quotedTotal', quote_notes: 'quoteNotes', responded_at: 'respondedAt', created_at: 'createdAt',
+  id: 'id',
+  rfq_id: 'rfqId',
+  supplier_id: 'supplierId',
+  supplier_name: 'supplierName',
+  status: 'status',
+  quoted_total: 'quotedTotal',
+  quote_notes: 'quoteNotes',
+  responded_at: 'respondedAt',
+  created_at: 'createdAt',
 }
 const PURCHASE_ORDER_MAP: Record<string, string> = {
-  id: 'id', business_id: 'businessId', number: 'number', rfq_id: 'rfqId', supplier_id: 'supplierId',
-  supplier_name: 'supplierName', title: 'title', message_body: 'messageBody', status: 'status', currency: 'currency',
-  expected_date: 'expectedDate', total_amount: 'totalAmount', sent_at: 'sentAt', created_by_id: 'createdById',
-  created_at: 'createdAt', updated_at: 'updatedAt',
+  id: 'id',
+  business_id: 'businessId',
+  number: 'number',
+  rfq_id: 'rfqId',
+  supplier_id: 'supplierId',
+  supplier_name: 'supplierName',
+  title: 'title',
+  message_body: 'messageBody',
+  status: 'status',
+  currency: 'currency',
+  expected_date: 'expectedDate',
+  total_amount: 'totalAmount',
+  sent_at: 'sentAt',
+  created_by_id: 'createdById',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
 }
 const PURCHASE_ORDER_ITEM_MAP: Record<string, string> = {
-  id: 'id', purchase_order_id: 'purchaseOrderId', product_id: 'productId', variant_id: 'variantId',
-  description: 'description', quantity: 'quantity', unit_price: 'unitPrice', received_quantity: 'receivedQuantity',
+  id: 'id',
+  purchase_order_id: 'purchaseOrderId',
+  product_id: 'productId',
+  variant_id: 'variantId',
+  description: 'description',
+  quantity: 'quantity',
+  unit_price: 'unitPrice',
+  received_quantity: 'receivedQuantity',
   created_at: 'createdAt',
 }
 
@@ -233,7 +415,7 @@ export class SyncService {
     lastError: null,
   }
 
-  constructor(private readonly opts: SyncEngineOptions) { }
+  constructor(private readonly opts: SyncEngineOptions) {}
 
   start(intervalMs: number = DEFAULT_INTERVAL_MS): void {
     if (this.timer) return
@@ -359,7 +541,7 @@ export class SyncService {
 
   private async pollBatch(batchId: string): Promise<SyncBatchStatusResponse> {
     const deadline = Date.now() + BATCH_POLL_TIMEOUT_MS
-     
+
     while (true) {
       const status = await this.request<SyncBatchStatusResponse>('GET', `/sync/batches/${batchId}`)
       if (TERMINAL_BATCH_STATUSES.includes(status.status)) return status
@@ -372,6 +554,8 @@ export class SyncService {
     const now = new Date().toISOString()
     for (const result of batch.results ?? []) {
       if (result.status === 'applied' || result.status === 'conflict') {
+        // conflict = server_wins (last-write-wins): the server copy is newer, so drop the
+        // superseded local push. The local row converges to the server on the next pull.
         this.opts.db.run('DELETE FROM sync_outbox WHERE id = ?', [result.operationId])
       } else if (result.status === 'deferred') {
         // Waiting on a dependency to sync first — keep it, retry on a short delay,
@@ -400,7 +584,13 @@ export class SyncService {
         } else {
           this.opts.db.run(
             `UPDATE sync_outbox SET status = 'failed', attempt_count = ?, last_error = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?`,
-            [attempts, result.errorMessage ?? 'Sync failed', backoffAt(attempts), now, result.operationId],
+            [
+              attempts,
+              result.errorMessage ?? 'Sync failed',
+              backoffAt(attempts),
+              now,
+              result.operationId,
+            ],
           )
         }
       }
@@ -417,11 +607,28 @@ export class SyncService {
     if (res.cursor) this.opts.setCursor(res.cursor)
   }
 
+  /** Record ids with an unsynced local write (any non-terminal outbox state). A pull must
+   *  never overwrite these — the local edit hasn't been accepted by the server yet, so
+   *  clobbering it would lose the user's change (client wins its own edit). Record ids are
+   *  UUIDs, unique across tables, so one set is unambiguous. */
+  private pendingLocalIds(): Set<string> {
+    const set = new Set<string>()
+    const rows = this.opts.db.query<{ record_id: string }>(
+      `SELECT DISTINCT record_id FROM sync_outbox WHERE status IN ('pending','deferred','failed','dead')`,
+    )
+    for (const r of rows) set.add(r.record_id)
+    return set
+  }
+
   private applyChanges(changes: ChangeSet): void {
     const ops: Array<{ sql: string; params: unknown[] }> = []
+    // Never let an incoming server row overwrite a local record that still has a pending
+    // outbox write — that edit must win (and re-push) first.
+    const pending = this.pendingLocalIds()
     // Contacts are tier-0 roots (suppliers/customers) — apply before anything that
     // references them.
     for (const record of changes.contacts ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.contactUpsert(record))
     }
     // Opening balances depend on the contact — applied right after.
@@ -429,6 +636,7 @@ export class SyncService {
       ops.push(this.openingBalanceUpsert(record))
     }
     for (const record of changes.productCategories ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.categoryUpsert(record))
     }
     // Apply parents before children so a fresh device satisfies local FKs in one pass.
@@ -442,13 +650,16 @@ export class SyncService {
       ops.push(this.categoryAttributeGroupUpsert(record))
     }
     for (const record of changes.unitOfMeasures ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.unitOfMeasureUpsert(record))
     }
     // Parents before children: brands → models + brand-category links.
     for (const record of changes.brands ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.brandUpsert(record))
     }
     for (const record of changes.models ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.modelUpsert(record))
     }
     for (const record of changes.brandCategories ?? []) {
@@ -456,38 +667,52 @@ export class SyncService {
     }
     // Products depend on category/unit/brand/model — applied after them.
     for (const record of changes.products ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.productUpsert(record))
     }
     for (const record of changes.productImages ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.productImageUpsert(record))
     }
     for (const record of changes.productVariants ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.productVariantUpsert(record))
     }
     for (const record of changes.productVariantOptions ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.productVariantOptionUpsert(record))
     }
     for (const record of changes.productSerialUnits ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.productSerialUnitUpsert(record))
     }
     // Expense categories (tier 0) before expenses (tier 2) that reference them.
     for (const record of changes.expenseCategories ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.expenseCategoryUpsert(record))
     }
     for (const record of changes.expenses ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.expenseUpsert(record))
     }
     // Deposit sessions (depend on contact) + their transactions.
     for (const record of changes.savingsAccounts ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.savingsAccountUpsert(record))
     }
     for (const record of changes.savingsTransactions ?? []) {
+      if (pending.has(record.id)) continue
       ops.push(this.savingsTransactionUpsert(record))
     }
     // Transactional modules (schema-driven appliers). Pushed after their roots above:
     // inventory/sales after products, sale items/payments after sales, debts after both.
-    const pushAll = (records: SyncRecord[] | undefined, table: string, map: Record<string, string>) => {
+    const pushAll = (
+      records: SyncRecord[] | undefined,
+      table: string,
+      map: Record<string, string>,
+    ) => {
       for (const record of records ?? []) {
+        if (pending.has(record.id)) continue
         const op = this.applyGeneric(table, record, map)
         if (op) ops.push(op)
       }
@@ -502,6 +727,9 @@ export class SyncService {
     pushAll(changes.sales, 'sales', SALE_MAP)
     pushAll(changes.saleItems, 'sale_items', SALE_ITEM_MAP)
     pushAll(changes.salePayments, 'sale_payments', SALE_PAYMENT_MAP)
+    pushAll(changes.saleCharges, 'sale_charges', SALE_CHARGE_MAP)
+    pushAll(changes.saleReturns, 'sale_returns', SALE_RETURN_MAP)
+    pushAll(changes.saleReturnItems, 'sale_return_items', SALE_RETURN_ITEM_MAP)
     pushAll(changes.debts, 'debts', DEBT_MAP)
     // Procurement chain: headers before their children.
     pushAll(changes.rfqs, 'rfqs', RFQ_MAP)
@@ -521,7 +749,9 @@ export class SyncService {
         try {
           this.opts.db.run(op.sql, op.params)
         } catch (e) {
-          console.error(`[sync] skipped a record: ${(e as Error).message} :: ${op.sql.slice(0, 48)}`)
+          console.error(
+            `[sync] skipped a record: ${(e as Error).message} :: ${op.sql.slice(0, 48)}`,
+          )
         }
       }
     }
@@ -533,9 +763,12 @@ export class SyncService {
   private tableColumns(table: string): TableColumn[] {
     let cols = this.columnCache.get(table)
     if (!cols) {
-      const rows = this.opts.db.query<{ name: string; type: string; notnull: number; dflt_value: unknown }>(
-        `PRAGMA table_info(${table})`,
-      )
+      const rows = this.opts.db.query<{
+        name: string
+        type: string
+        notnull: number
+        dflt_value: unknown
+      }>(`PRAGMA table_info(${table})`)
       cols = rows.map((r) => ({
         name: r.name,
         type: (r.type ?? '').toUpperCase(),
@@ -575,7 +808,8 @@ export class SyncService {
       }
       set.set(col, v)
     }
-    if (colByName.has('is_deleted') && !set.has('is_deleted')) set.set('is_deleted', r.isDeleted ? 1 : 0)
+    if (colByName.has('is_deleted') && !set.has('is_deleted'))
+      set.set('is_deleted', r.isDeleted ? 1 : 0)
     if (!set.has('id')) return null
     // Satisfy any required column we didn't map (no source field, no DB default).
     for (const c of cols) {
@@ -586,7 +820,9 @@ export class SyncService {
     const updates = names.filter((n) => n !== 'id').map((n) => `${n} = excluded.${n}`)
     const sql =
       `INSERT INTO ${table} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})` +
-      (updates.length ? ` ON CONFLICT(id) DO UPDATE SET ${updates.join(', ')}` : ` ON CONFLICT(id) DO NOTHING`)
+      (updates.length
+        ? ` ON CONFLICT(id) DO UPDATE SET ${updates.join(', ')}`
+        : ` ON CONFLICT(id) DO NOTHING`)
     return { sql, params: names.map((n) => set.get(n) ?? null) }
   }
 
@@ -1196,7 +1432,10 @@ export class SyncService {
     return (json && typeof json === 'object' && 'data' in json ? json.data : json) as T
   }
 
-  private countOutbox(): Pick<SyncStatus, 'pendingCount' | 'deferredCount' | 'failedCount' | 'deadCount'> {
+  private countOutbox(): Pick<
+    SyncStatus,
+    'pendingCount' | 'deferredCount' | 'failedCount' | 'deadCount'
+  > {
     const counts = { pendingCount: 0, deferredCount: 0, failedCount: 0, deadCount: 0 }
     try {
       const rows = this.opts.db.query<{ status: string; n: number }>(

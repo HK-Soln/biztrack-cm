@@ -1,11 +1,5 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-} from 'typeorm'
-import { PaymentMethod } from '@biztrack/types'
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm'
+import { PaymentMethod, SalePaymentKind } from '@biztrack/types'
 import { ImmutableBaseEntity } from '@/common/entities/immutable-base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -45,4 +39,19 @@ export class SalePayment extends ImmutableBaseEntity {
 
   @Column({ name: 'savings_account_id', nullable: true, type: 'uuid' })
   savingsAccountId?: string | null
+
+  // Ledger direction — PAYMENT (collected) or REFUND (paid back out). Append-only signed
+  // ledger: amountPaid = Σ(PAYMENT) − Σ(REFUND).
+  @Column({ type: 'varchar', default: SalePaymentKind.PAYMENT })
+  kind!: SalePaymentKind
+
+  // Set for payments appended after the sale was posted (COD collection, refund).
+  @Column({ name: 'recorded_at', type: 'timestamptz', nullable: true })
+  recordedAt?: Date | null
+
+  @Column({ name: 'recorded_by_id', type: 'uuid', nullable: true })
+  recordedById?: string | null
+
+  @Column({ type: 'text', nullable: true })
+  note?: string | null
 }

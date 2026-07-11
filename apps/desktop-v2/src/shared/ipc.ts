@@ -133,6 +133,11 @@ export const IPC = {
   onlineOrderGet: 'online:order-get',
   onlineOrderUpdateStatus: 'online:order-update-status',
   onlineSlugCheck: 'online:slug-check',
+  onlineProductsList: 'online:products-list',
+  onlineProductSetPublished: 'online:product-set-published',
+  onlineOrderUpdatePayment: 'online:order-update-payment',
+  onlinePublicationsList: 'online:publications-list',
+  onlinePublicationRestore: 'online:publication-restore',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   plansList: 'plans:list',
@@ -1062,6 +1067,8 @@ export interface SalesListQuery extends ListQueryT {
   customerId?: string
   status?: string
   paymentMethod?: string
+  /** Channel filter: 'ONLINE' | 'IN_STORE' (omit for all). */
+  source?: string
   dateFrom?: string
   dateTo?: string
 }
@@ -1191,6 +1198,8 @@ export interface LocalSale {
   changeGiven: number
   currency: string
   paymentMethod: string | null
+  /** Sale channel: 'ONLINE' | 'IN_STORE' (null on pre-migration rows = in-store). */
+  source: string | null
   notes: string | null
   soldAt: string
   createdAt: string
@@ -1257,7 +1266,25 @@ export type {
   OnlineFulfillmentType,
   OnlinePaymentStatus,
   UpdateOrderStatusRequest,
+  OrderSerialSelection,
   OnlineCartItem,
+  OnlineAdminProduct,
+  OnlineAdminProductsQuery,
+  OnlinePaymentMethod,
+  UpdateOrderPaymentRequest,
+  OnlineStorePublicationSummary,
+  ProductPublishBlocker,
+  ProductPublishability,
+} from '@biztrack/types'
+// Value export — storefront-readiness check (runtime, shared with the API).
+export { checkProductPublishable } from '@biztrack/types'
+// Value exports (order state-machine helpers + payment methods) — runtime, not just types.
+export {
+  ONLINE_ORDER_TRANSITIONS,
+  ONLINE_ORDER_COMPLETION_STATUSES,
+  canTransitionOnlineOrder,
+  isTerminalOnlineOrderStatus,
+  ONLINE_PAYMENT_METHODS,
 } from '@biztrack/types'
 import type {
   OnlineStore as OnlineStoreT,
@@ -1268,6 +1295,10 @@ import type {
   OnlineOrderListResult as OnlineOrderListResultT,
   OnlineOrderStatus as OnlineOrderStatusT,
   UpdateOrderStatusRequest as UpdateOrderStatusT,
+  UpdateOrderPaymentRequest as UpdateOrderPaymentT,
+  OnlineAdminProduct as OnlineAdminProductT,
+  OnlineAdminProductsQuery as OnlineAdminProductsQueryT,
+  OnlineStorePublicationSummary as OnlineStorePublicationSummaryT,
 } from '@biztrack/types'
 
 // --- Business profile (Settings → General) — reuse the shared business shapes ---
@@ -1884,10 +1915,15 @@ export interface BridgeApi {
     createStore: (input: CreateOnlineStoreT) => Promise<OnlineStoreT>
     updateStore: (input: UpdateOnlineStoreT) => Promise<OnlineStoreT>
     publishStore: () => Promise<OnlineStoreT>
+    listPublications: () => Promise<OnlineStorePublicationSummaryT[]>
+    restorePublication: (version: number) => Promise<OnlineStoreT>
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResultT>
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
+    updateOrderPayment: (id: string, input: UpdateOrderPaymentT) => Promise<OnlineOrderDetailT>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
+    listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
+    setProductPublished: (id: string, published: boolean) => Promise<void>
   }
   /** Business profile (Settings → General) — server-owned, proxied through main. */
   business: {

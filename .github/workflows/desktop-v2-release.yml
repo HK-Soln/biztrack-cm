@@ -1,16 +1,32 @@
 name: Release desktop-v2 (Windows)
 
-# Builds the Electron desktop app (apps/desktop-v2, Vite + React) for Windows and
-# publishes the NSIS installer to a GitHub Release. Windows-only for now — macOS/Linux
-# can be added later as a build matrix (each native OS builds on its own runner because
-# better-sqlite3 is a native module and can't be cross-compiled).
+# Builds the Electron desktop app (apps/desktop-v2, Vite + React) for Windows and publishes
+# the NSIS installer to a GitHub Release. Windows-only for now — macOS/Linux can be added as a
+# build matrix later (better-sqlite3 is native and can't be cross-compiled).
 #
-# Trigger: push a tag like `desktop-v2.0.0` (bump apps/desktop-v2/package.json first).
+# Two ways to release, both produce a TAGGED release with the .exe attached:
+#   1. Manual (recommended): Actions → this workflow → Run, pick environment (staging|production)
+#      and optionally a version. The workflow tags the release itself.
+#   2. Push a tag: `desktop-v<version>` = production, `desktop-v<version>-staging` = staging.
+#
+# Environment (staging|production) drives BOTH the release tag/pre-release flag AND the baked-in
+# API URL: set `VITE_API_URL` as a variable in the matching GitHub Environment (Settings →
+# Environments) so staging and production installers point at different APIs.
 
 on:
   push:
     tags: ['desktop-v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      version:
+        description: Version, e.g. 0.1.0 (defaults to apps/desktop-v2/package.json).
+        type: string
+        required: false
 
 concurrency:
   group: desktop-v2-release-${{ github.ref }}
@@ -20,14 +36,50 @@ jobs:
   release:
     name: Package & publish (Windows)
     runs-on: windows-latest
+    # Resolve env from the dispatch input, else from the tag suffix (…-staging → staging).
+    environment: ${{ github.event.inputs.environment || (endsWith(github.ref_name, '-staging') && 'staging' || 'production') }}
     permissions:
       contents: write
     env:
-      # electron-builder output dir (matches directories.output in package.json).
       RELEASE_DIR: apps/desktop-v2/release
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Compute environment / version / tag / prerelease for both trigger types.
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+            VERSION="${{ github.event.inputs.version }}"
+            [ -z "$VERSION" ] && VERSION="$(node -p "require('./apps/desktop-v2/package.json').version")"
+            SUFFIX=""; [ "$ENVIRONMENT" = "staging" ] && SUFFIX="-staging"
+            TAG="desktop-v${VERSION}${SUFFIX}"
+          else
+            TAG="${{ github.ref_name }}"
+            case "$TAG" in *-staging) ENVIRONMENT="staging";; *) ENVIRONMENT="production";; esac
+            VERSION="${TAG#desktop-v}"; VERSION="${VERSION%-staging}"
+          fi
+          PRERELEASE="false"; [ "$ENVIRONMENT" = "staging" ] && PRERELEASE="true"
+          {
+            echo "environment=$ENVIRONMENT"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG ($ENVIRONMENT, prerelease=$PRERELEASE)"
+
+      # Fail fast if the environment has no API URL — otherwise the installer silently bakes in
+      # localhost. Set VITE_API_URL in the matching GitHub Environment.
+      - name: Verify API URL is configured
+        shell: bash
+        run: |
+          if [ -z "${{ vars.VITE_API_URL }}" ]; then
+            echo "::error::VITE_API_URL is not set for environment '${{ steps.meta.outputs.environment }}'. Add it under Settings → Environments → ${{ steps.meta.outputs.environment }} → Variables."
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -42,34 +94,38 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Compiles renderer + main/preload (electron-vite). Does NOT run electron-builder.
-      # VITE_API_URL is baked into the packaged app at build time (main-process API base
-      # URL + renderer CSP). Set the repo variable to your production API, e.g.
-      # https://<api-host>/api/v1 (must include the /api/v1 prefix).
+      # Compiles renderer + main/preload (electron-vite). VITE_API_URL is baked in at build time.
       - name: Build app
         working-directory: apps/desktop-v2
         run: pnpm run build
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
-          # Optional per-build override (takes precedence over VITE_API_URL):
-          # DESKTOP_API_URL: ${{ vars.DESKTOP_API_URL }}
 
       - name: Package installer (NSIS)
         working-directory: apps/desktop-v2
         run: pnpm exec electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional signing (unsigned installs work but show a SmartScreen warning).
-          # Add as secrets when you have a cert:
+          # Optional signing (unsigned installs work but show a SmartScreen warning):
           # CSC_LINK: ${{ secrets.CSC_LINK }}
           # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
 
+      # Surface what electron-builder produced so a mismatch is obvious in the logs.
+      - name: List build output
+        shell: bash
+        run: ls -la "${{ env.RELEASE_DIR }}" || echo "release dir missing"
+
+      # Publish (and CREATE the tag when triggered manually — softprops tags target_commitish).
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: BizTrack CM Desktop ${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.environment }})
+          prerelease: ${{ steps.meta.outputs.prerelease }}
           files: |
             ${{ env.RELEASE_DIR }}/*.exe
             ${{ env.RELEASE_DIR }}/*.blockmap
             ${{ env.RELEASE_DIR }}/latest.yml
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
