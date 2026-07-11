@@ -210,7 +210,9 @@ export function topoSortSyncEntities(): SyncEntity[] {
     progressed = false
     for (const entity of all) {
       if (placedSet.has(entity)) continue
-      const ready = SYNC_ENTITY_DEPENDENCIES[entity].every((dep) => dep === entity || placedSet.has(dep))
+      const ready = SYNC_ENTITY_DEPENDENCIES[entity].every(
+        (dep) => dep === entity || placedSet.has(dep),
+      )
       if (ready) {
         placed.push(entity)
         placedSet.add(entity)
@@ -388,6 +390,9 @@ export interface SaleSyncRecord extends SyncRecord {
   voidReason?: string | null
   currency?: string | null
   paymentMethod?: PaymentMethod | null
+  // Channel + bidirectional link to the online order that posted this sale (null for in-store).
+  source?: string | null
+  onlineOrderId?: string | null
   createdAt: string
 }
 
@@ -416,6 +421,45 @@ export interface SalePaymentSyncRecord extends SyncRecord {
   method: PaymentMethod
   amount: number
   mobileMoneyReference?: string | null
+  // Ledger direction (PAYMENT | REFUND) + append metadata for post-sale collections/refunds.
+  kind?: string | null
+  recordedAt?: string | null
+  recordedById?: string | null
+  note?: string | null
+  createdAt: string
+}
+
+/** A charge line (delivery/COD/service fee, etc.) attached to a sale — pull-only child. */
+export interface SaleChargeSyncRecord extends SyncRecord {
+  saleId: string
+  businessId: string
+  chargeTypeId?: string | null
+  name: string
+  rateType: string
+  rateValue: number
+  amount: number
+  createdAt: string
+}
+
+/** A return/refund event against a sale — pull-only child of the sale aggregate. */
+export interface SaleReturnSyncRecord extends SyncRecord {
+  saleId: string
+  businessId: string
+  onlineOrderId?: string | null
+  reason?: string | null
+  restock: boolean
+  refundAmount: number
+  createdById?: string | null
+  createdAt: string
+}
+
+/** A single returned line within a SaleReturn. */
+export interface SaleReturnItemSyncRecord extends SyncRecord {
+  saleReturnId: string
+  businessId: string
+  saleItemId: string
+  quantity: number
+  serialUnitId?: string | null
   createdAt: string
 }
 
@@ -640,6 +684,9 @@ export interface ChangeSet {
   sales?: SaleSyncRecord[]
   saleItems?: SaleItemSyncRecord[]
   salePayments?: SalePaymentSyncRecord[]
+  saleCharges?: SaleChargeSyncRecord[]
+  saleReturns?: SaleReturnSyncRecord[]
+  saleReturnItems?: SaleReturnItemSyncRecord[]
   debts?: DebtSyncRecord[]
   rfqs?: RfqSyncRecord[]
   rfqItems?: SyncRecord[]
@@ -791,6 +838,12 @@ export interface SaleSyncPayload {
   chargesAmount?: number
   creditAmount?: number | null
   status?: SaleStatus
+  // Channel + link to the originating online order (omitted/IN_STORE for in-store sales).
+  source?: string
+  onlineOrderId?: string | null
+  // Post the sale but leave serialised units RESERVED (not SOLD) — used when an online order
+  // posts its sale at confirm; the units flip to SOLD at handover. See online-sale-flow docs.
+  deferSerialSold?: boolean
   voidedAt?: string | null
   voidedById?: string | null
   voidReason?: string
@@ -1141,13 +1194,7 @@ export interface NetworkSnapshot {
   lastCheckedAt: string | null
 }
 
-export type SyncRunStatus =
-  | 'idle'
-  | 'syncing'
-  | 'synced'
-  | 'error'
-  | 'paused'
-  | 'disabled'
+export type SyncRunStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'paused' | 'disabled'
 
 export type SyncRealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
 

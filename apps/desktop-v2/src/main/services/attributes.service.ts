@@ -136,6 +136,7 @@ export class AttributesService {
 
   createGroup(input: AttributeGroupInput): LocalAttributeGroup {
     const businessId = this.requireBusinessId()
+    this.assertGroupNameAvailable(businessId, input.name)
     const id = randomUUID()
     const now = new Date().toISOString()
     const sortOrder = input.sortOrder ?? this.nextGroupOrder(businessId)
@@ -183,6 +184,9 @@ export class AttributesService {
       [id, businessId],
     )
     if (!existing) throw new Error('Attribute group not found.')
+    if (input.name && input.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
+      this.assertGroupNameAvailable(businessId, input.name, id)
+    }
     const displayType = normalizeDisplayType(input.displayType ?? existing.display_type)
     const sortOrder = input.sortOrder ?? existing.sort_order
     this.db.run(
@@ -261,6 +265,7 @@ export class AttributesService {
 
   addOption(groupId: string, input: AttributeOptionInput): LocalAttributeOption {
     const businessId = this.requireBusinessId()
+    this.assertOptionValueAvailable(groupId, businessId, input.value)
     const id = randomUUID()
     const now = new Date().toISOString()
     const sortOrder = input.sortOrder ?? this.nextOptionOrder(businessId, groupId)
@@ -308,6 +313,9 @@ export class AttributesService {
       [optionId, businessId],
     )
     if (!existing) throw new Error('Attribute option not found.')
+    if (input.value && input.value.trim().toLowerCase() !== existing.value.toLowerCase()) {
+      this.assertOptionValueAvailable(existing.group_id, businessId, input.value, optionId)
+    }
     const sortOrder = input.sortOrder ?? existing.sort_order
     this.db.run(
       `UPDATE attribute_options
@@ -489,6 +497,39 @@ export class AttributesService {
       [id],
     )
     return row ? toOption(row) : null
+  }
+
+  /** Group names are unique per business, case-insensitively, among non-deleted groups. */
+  private assertGroupNameAvailable(businessId: string, name: string, excludeId?: string): void {
+    const params: unknown[] = [businessId, name.trim()]
+    let sql = `SELECT 1 AS n FROM attribute_groups
+               WHERE business_id = ? AND is_deleted = 0 AND LOWER(name) = LOWER(?)`
+    if (excludeId) {
+      sql += ' AND id != ?'
+      params.push(excludeId)
+    }
+    if (this.db.get(sql + ' LIMIT 1', params)) {
+      throw new Error('An attribute with this name already exists.')
+    }
+  }
+
+  /** Option values are unique per group, case-insensitively, among non-deleted options. */
+  private assertOptionValueAvailable(
+    groupId: string,
+    businessId: string,
+    value: string,
+    excludeId?: string,
+  ): void {
+    const params: unknown[] = [groupId, businessId, value.trim()]
+    let sql = `SELECT 1 AS n FROM attribute_options
+               WHERE group_id = ? AND business_id = ? AND is_deleted = 0 AND LOWER(value) = LOWER(?)`
+    if (excludeId) {
+      sql += ' AND id != ?'
+      params.push(excludeId)
+    }
+    if (this.db.get(sql + ' LIMIT 1', params)) {
+      throw new Error('An option with this value already exists in this attribute.')
+    }
   }
 
   private nextGroupOrder(businessId: string): number {

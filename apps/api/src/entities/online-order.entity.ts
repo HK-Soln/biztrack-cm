@@ -40,6 +40,20 @@ export class OnlineOrder {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   items!: OnlineCartItem[]
 
+  // Money breakdown. total_amount = subtotal + delivery_fee + cod_fee + other_charges.
+  // Persisted so the confirm-time sale maps fees to typed charge lines (not lost as overpayment).
+  @Column({ type: 'int', default: 0 })
+  subtotal!: number
+
+  @Column({ name: 'delivery_fee', type: 'int', default: 0 })
+  deliveryFee!: number
+
+  @Column({ name: 'cod_fee', type: 'int', default: 0 })
+  codFee!: number
+
+  @Column({ name: 'other_charges', type: 'int', default: 0 })
+  otherCharges!: number
+
   @Column({ name: 'total_amount', type: 'int', default: 0 })
   totalAmount!: number
 

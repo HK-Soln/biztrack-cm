@@ -1,11 +1,12 @@
-import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index, Unique } from 'typeorm'
+import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm'
 import { AttributeDisplayType } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { Business } from './business.entity'
 import { AttributeOption } from './attribute-option.entity'
 
+// Name is unique per business, case-insensitively, among non-deleted groups — enforced by the
+// partial index `uq_attribute_group_name_ci` (see migration; not expressible as @Unique).
 @Entity('attribute_groups')
-@Unique('uq_attribute_group_name', ['businessId', 'name'])
 @Index('idx_attribute_groups_business', ['businessId'])
 export class AttributeGroup extends BaseEntity {
   @Column({ name: 'business_id' })
@@ -19,7 +20,12 @@ export class AttributeGroup extends BaseEntity {
   name!: string
 
   // CHIPS | SWATCHES | DROPDOWN (varchar + DB CHECK, see migration)
-  @Column({ name: 'display_type', type: 'varchar', length: 20, default: AttributeDisplayType.CHIPS })
+  @Column({
+    name: 'display_type',
+    type: 'varchar',
+    length: 20,
+    default: AttributeDisplayType.CHIPS,
+  })
   displayType!: AttributeDisplayType
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })

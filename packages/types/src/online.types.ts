@@ -523,6 +523,8 @@ export function isTerminalOnlineOrderStatus(
 export type OnlinePaymentStatus =
   | 'PENDING'
   | 'AUTHORIZED'
+  // Some money collected, balance still outstanding (deposit, or COD partly paid).
+  | 'PARTIALLY_PAID'
   | 'PAID'
   | 'FAILED'
   | 'REFUNDED'
@@ -604,6 +606,13 @@ export interface OnlineOrder {
   paymentMethod?: string | null
   paymentStatus: OnlinePaymentStatus
   items?: OnlineCartItem[]
+  // Money breakdown. `totalAmount = subtotal + deliveryFee + codFee + otherCharges`.
+  // Persisted so the sale posted at confirm can map fees to typed charge lines instead of
+  // losing them as overpayment (see docs/online-order-sale-flow-redesign.md §7).
+  subtotal?: number
+  deliveryFee?: number
+  codFee?: number
+  otherCharges?: number
   totalAmount: number
   createdAt?: IsoDateString
   confirmedAt?: IsoDateString | null
@@ -633,9 +642,33 @@ export interface UpdateOrderStatusRequest {
   serialUnitSelections?: OrderSerialSelection[]
 }
 
-/** Owner order detail: the order with its full event timeline. */
+/** A single money movement on the order's sale ledger (collection or refund). */
+export interface OnlineOrderPaymentEntry {
+  method: string
+  amount: number
+  kind: 'PAYMENT' | 'REFUND'
+  at: IsoDateString
+}
+
+/** Financial summary of the order's posted sale — the money ledger behind the fulfilment. */
+export interface OnlineOrderFinancials {
+  saleId: string
+  saleNumber: string
+  /** Sale status (COMPLETED | VOIDED | REFUNDED | PARTIALLY_REFUNDED). */
+  status: string
+  totalAmount: number
+  amountPaid: number
+  /** Outstanding balance (COD not yet collected). */
+  balanceDue: number
+  refundedAmount: number
+  chargesAmount: number
+  payments: OnlineOrderPaymentEntry[]
+}
+
+/** Owner order detail: the order with its full event timeline + sale financials (if posted). */
 export interface OnlineOrderDetail extends OnlineOrder {
   events: OnlineOrderEvent[]
+  financials?: OnlineOrderFinancials | null
 }
 
 /** Paginated owner order list. */

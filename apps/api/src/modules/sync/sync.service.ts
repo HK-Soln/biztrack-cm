@@ -22,8 +22,11 @@ import type {
   OpeningBalanceSyncPayload,
   OpeningBalanceSyncRecord,
   RoleSyncRecord,
+  SaleChargeSyncRecord,
   SaleItemSyncRecord,
   SalePaymentSyncRecord,
+  SaleReturnSyncRecord,
+  SaleReturnItemSyncRecord,
   SaleSyncPayload,
   SaleSyncRecord,
   RestockItemSyncRecord,
@@ -87,8 +90,11 @@ import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
+import { SaleReturn } from '@/entities/sale-return.entity'
+import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
@@ -474,6 +480,12 @@ export class SyncService {
     private readonly saleItemsRepo: Repository<SaleItem>,
     @InjectRepository(SalePayment)
     private readonly salePaymentsRepo: Repository<SalePayment>,
+    @InjectRepository(SaleCharge)
+    private readonly saleChargesRepo: Repository<SaleCharge>,
+    @InjectRepository(SaleReturn)
+    private readonly saleReturnsRepo: Repository<SaleReturn>,
+    @InjectRepository(SaleReturnItem)
+    private readonly saleReturnItemsRepo: Repository<SaleReturnItem>,
     @InjectRepository(SyncBatch)
     private readonly syncBatchesRepo: Repository<SyncBatch>,
     @InjectRepository(SyncOperation)
@@ -686,6 +698,9 @@ export class SyncService {
         rfqSuppliers,
         purchaseOrders,
         purchaseOrderItems,
+        saleCharges,
+        saleReturns,
+        saleReturnItems,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -956,6 +971,29 @@ export class SyncService {
           .andWhere('poi.updated_at <= :pulledAt', { pulledAt })
           .orderBy('poi.updated_at', 'ASC')
           .getMany(),
+        // Sale aggregate children (charges + returns). Created server-side for online
+        // orders; append-only, so filter by created_at (no updated_at column).
+        this.saleChargesRepo
+          .createQueryBuilder('charge')
+          .where('charge.business_id = :businessId', { businessId })
+          .andWhere('charge.created_at > :since', { since })
+          .andWhere('charge.created_at <= :pulledAt', { pulledAt })
+          .orderBy('charge.created_at', 'ASC')
+          .getMany(),
+        this.saleReturnsRepo
+          .createQueryBuilder('ret')
+          .where('ret.business_id = :businessId', { businessId })
+          .andWhere('ret.created_at > :since', { since })
+          .andWhere('ret.created_at <= :pulledAt', { pulledAt })
+          .orderBy('ret.created_at', 'ASC')
+          .getMany(),
+        this.saleReturnItemsRepo
+          .createQueryBuilder('reti')
+          .where('reti.business_id = :businessId', { businessId })
+          .andWhere('reti.created_at > :since', { since })
+          .andWhere('reti.created_at <= :pulledAt', { pulledAt })
+          .orderBy('reti.created_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -1031,6 +1069,9 @@ export class SyncService {
         sales: sales.map((record) => this.toSaleSyncRecord(record)),
         saleItems: saleItems.map((record) => this.toSaleItemSyncRecord(record)),
         salePayments: salePayments.map((record) => this.toSalePaymentSyncRecord(record)),
+        saleCharges: saleCharges.map((record) => this.toSaleChargeSyncRecord(record)),
+        saleReturns: saleReturns.map((record) => this.toSaleReturnSyncRecord(record)),
+        saleReturnItems: saleReturnItems.map((record) => this.toSaleReturnItemSyncRecord(record)),
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
         teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
@@ -4199,6 +4240,8 @@ export class SyncService {
       voidReason: record.voidReason ?? null,
       currency: 'XAF',
       paymentMethod,
+      source: record.source ?? null,
+      onlineOrderId: record.onlineOrderId ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -4239,6 +4282,59 @@ export class SyncService {
       method: record.method,
       amount: record.amount,
       mobileMoneyReference: record.mobileMoneyReference ?? null,
+      kind: record.kind ?? null,
+      recordedAt: record.recordedAt?.toISOString() ?? null,
+      recordedById: record.recordedById ?? null,
+      note: record.note ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSaleChargeSyncRecord(record: SaleCharge): SaleChargeSyncRecord {
+    return {
+      id: record.id,
+      saleId: record.saleId,
+      businessId: record.businessId,
+      chargeTypeId: record.chargeTypeId ?? null,
+      name: record.name,
+      rateType: record.rateType,
+      rateValue: record.rateValue,
+      amount: record.amount,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSaleReturnSyncRecord(record: SaleReturn): SaleReturnSyncRecord {
+    return {
+      id: record.id,
+      saleId: record.saleId,
+      businessId: record.businessId,
+      onlineOrderId: record.onlineOrderId ?? null,
+      reason: record.reason ?? null,
+      restock: record.restock,
+      refundAmount: record.refundAmount,
+      createdById: record.createdById ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.createdAt.toISOString(),
+      deletedAt: null,
+      isDeleted: false,
+    }
+  }
+
+  private toSaleReturnItemSyncRecord(record: SaleReturnItem): SaleReturnItemSyncRecord {
+    return {
+      id: record.id,
+      saleReturnId: record.saleReturnId,
+      businessId: record.businessId,
+      saleItemId: record.saleItemId,
+      quantity: record.quantity,
+      serialUnitId: record.serialUnitId ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,

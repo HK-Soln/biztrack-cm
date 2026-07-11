@@ -6,7 +6,15 @@ import { BrandsService } from '../services/brands.service'
 
 const ctxArg = { businessId: 'biz-1', actorId: 'u1' } as any
 
-function makeService(opts: { brand?: any; model?: any; existingLinks?: any[] } = {}) {
+function makeService(
+  opts: {
+    brand?: any
+    model?: any
+    existingLinks?: any[]
+    brandInUse?: boolean
+    modelInUse?: boolean
+  } = {},
+) {
   const brand = opts.brand ?? {
     id: 'b1',
     businessId: 'biz-1',

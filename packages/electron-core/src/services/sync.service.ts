@@ -165,6 +165,8 @@ const SALE_MAP: Record<string, string> = {
   voided_at: 'voidedAt',
   voided_by: 'voidedById',
   void_reason: 'voidReason',
+  source: 'source',
+  online_order_id: 'onlineOrderId',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -192,6 +194,41 @@ const SALE_PAYMENT_MAP: Record<string, string> = {
   method: 'method',
   amount: 'amount',
   mobile_money_reference: 'mobileMoneyReference',
+  kind: 'kind',
+  recorded_at: 'recordedAt',
+  recorded_by_id: 'recordedById',
+  note: 'note',
+  created_at: 'createdAt',
+}
+const SALE_CHARGE_MAP: Record<string, string> = {
+  id: 'id',
+  sale_id: 'saleId',
+  business_id: 'businessId',
+  charge_type_id: 'chargeTypeId',
+  name: 'name',
+  rate_type: 'rateType',
+  rate_value: 'rateValue',
+  amount: 'amount',
+  created_at: 'createdAt',
+}
+const SALE_RETURN_MAP: Record<string, string> = {
+  id: 'id',
+  sale_id: 'saleId',
+  business_id: 'businessId',
+  online_order_id: 'onlineOrderId',
+  reason: 'reason',
+  restock: 'restock',
+  refund_amount: 'refundAmount',
+  created_by_id: 'createdById',
+  created_at: 'createdAt',
+}
+const SALE_RETURN_ITEM_MAP: Record<string, string> = {
+  id: 'id',
+  sale_return_id: 'saleReturnId',
+  business_id: 'businessId',
+  sale_item_id: 'saleItemId',
+  quantity: 'quantity',
+  serial_unit_id: 'serialUnitId',
   created_at: 'createdAt',
 }
 const DEBT_MAP: Record<string, string> = {
@@ -690,6 +727,9 @@ export class SyncService {
     pushAll(changes.sales, 'sales', SALE_MAP)
     pushAll(changes.saleItems, 'sale_items', SALE_ITEM_MAP)
     pushAll(changes.salePayments, 'sale_payments', SALE_PAYMENT_MAP)
+    pushAll(changes.saleCharges, 'sale_charges', SALE_CHARGE_MAP)
+    pushAll(changes.saleReturns, 'sale_returns', SALE_RETURN_MAP)
+    pushAll(changes.saleReturnItems, 'sale_return_items', SALE_RETURN_ITEM_MAP)
     pushAll(changes.debts, 'debts', DEBT_MAP)
     // Procurement chain: headers before their children.
     pushAll(changes.rfqs, 'rfqs', RFQ_MAP)

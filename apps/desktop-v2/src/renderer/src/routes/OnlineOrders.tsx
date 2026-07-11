@@ -566,6 +566,14 @@ function OrderDrawer({
     [order, serializedSet],
   )
 
+  // A status/payment change posts, collects on, or refunds the order's sale — which moves
+  // stock, the sales ledger, receivables and reports. Refetch all of those, not just the order.
+  const invalidateAfterSaleChange = () => {
+    for (const key of [['online'], ['sales'], ['inventory'], ['contacts'], ['reports']]) {
+      void qc.invalidateQueries({ queryKey: key })
+    }
+  }
+
   const advance = useMutation({
     mutationFn: (input: {
       status: OnlineOrderStatus
@@ -573,7 +581,7 @@ function OrderDrawer({
     }) => dataClient.online.updateOrderStatus(id, input),
     onSuccess: () => {
       setSerialTarget(null)
-      void qc.invalidateQueries({ queryKey: ['online'] })
+      invalidateAfterSaleChange()
     },
     onError: (e) => setError(errorMessage(e, t('online.statusError'))),
   })
@@ -598,7 +606,7 @@ function OrderDrawer({
       }),
     onSuccess: () => {
       setPayMethod('')
-      void qc.invalidateQueries({ queryKey: ['online'] })
+      invalidateAfterSaleChange()
     },
     onError: (e) => setError(errorMessage(e, t('online.payError'))),
   })
@@ -606,7 +614,12 @@ function OrderDrawer({
   const o = order
   const paid = o?.paymentStatus === 'PAID'
   // Admin records payment once the order is real (confirmed) and not cancelled.
-  const canRecordPayment = o ? o.status !== 'PENDING' && o.status !== 'CANCELLED' && !paid : false
+  const refunded = o?.paymentStatus === 'REFUNDED' || o?.paymentStatus === 'PARTIALLY_REFUNDED'
+  // No payment recording once the order is pending, off-flow (cancelled/returned), already
+  // paid, or refunded — mirrors the API guard in updatePayment.
+  const canRecordPayment = o
+    ? o.status !== 'PENDING' && !isOffFlow(o.status) && !paid && !refunded
+    : false
   const cancelled = o ? isOffFlow(o.status) : false
   const flow = o ? flowFor(o.fulfillmentType) : []
   const stageIdx = o ? flow.indexOf(o.status) : -1
@@ -788,6 +801,67 @@ function OrderDrawer({
                   </div>
                 ) : null}
               </div>
+
+              {/* Sale ledger: paid / balance due / refunds behind the fulfilment (Phase 4). */}
+              {o.financials ? (
+                <div className="od-block" style={{ marginTop: 14 }}>
+                  <div className="bl">
+                    {t('online.saleLedger')} · {o.financials.saleNumber}
+                  </div>
+                  <div
+                    className="receipt-tot"
+                    style={{ marginTop: 6, borderRadius: 13, border: '1px solid var(--border)' }}
+                  >
+                    <div className="tr">
+                      <span>{t('online.amountPaid')}</span>
+                      <span className="num">{money.format(o.financials.amountPaid)}</span>
+                    </div>
+                    {o.financials.balanceDue > 0 ? (
+                      <div className="tr">
+                        <span>{t('online.balanceDue')}</span>
+                        <span className="num" style={{ color: 'var(--warning)' }}>
+                          {money.format(o.financials.balanceDue)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {o.financials.refundedAmount > 0 ? (
+                      <div className="tr">
+                        <span>{t('online.refunded')}</span>
+                        <span className="num" style={{ color: 'var(--danger)' }}>
+                          {money.format(o.financials.refundedAmount)}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                  {o.financials.payments.length ? (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {o.financials.payments.map((p, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: 12.5,
+                            color: 'var(--text-2)',
+                          }}
+                        >
+                          <span>
+                            {p.kind === 'REFUND' ? '↩ ' : ''}
+                            {p.method}
+                          </span>
+                          <span
+                            className="num"
+                            style={{ color: p.kind === 'REFUND' ? 'var(--danger)' : 'var(--text)' }}
+                          >
+                            {p.kind === 'REFUND' ? '−' : ''}
+                            {money.format(p.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {error ? (
                 <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
                   {error}
