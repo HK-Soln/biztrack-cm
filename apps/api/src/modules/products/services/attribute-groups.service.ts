@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { In, IsNull, Not, Repository } from 'typeorm'
+import { In, IsNull, Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   AttributeDisplayType,
@@ -171,6 +171,21 @@ export class AttributeGroupsService {
           { linkCount },
         )
       }
+      const [variantUse] = await this.groupsRepo.manager.query(
+        `SELECT 1 FROM product_variant_options pvo
+           JOIN product_variants pv ON pv.id = pvo.variant_id
+           JOIN products p ON p.id = pv.product_id
+         WHERE pvo.attribute_group_id = $1 AND pvo.business_id = $2
+           AND pvo.deleted_at IS NULL AND pv.deleted_at IS NULL AND p.deleted_at IS NULL
+         LIMIT 1`,
+        [id, businessId],
+      )
+      if (variantUse) {
+        throw new AppConflictException(
+          'This attribute is still used by one or more product variants and cannot be deleted.',
+          'ATTRIBUTE_GROUP_IN_USE',
+        )
+      }
       // Soft-delete the group and its options.
       const now = new Date()
       await this.groupsRepo.update(id, { isActive: false, deletedAt: now })
@@ -206,15 +221,7 @@ export class AttributeGroupsService {
     try {
       await this.requireGroup(groupId, businessId)
       const value = dto.value.trim()
-      const existing = await this.optionsRepo.findOne({
-        where: { groupId, businessId, value, deletedAt: IsNull() },
-      })
-      if (existing) {
-        throw new AppConflictException(
-          await this.i18n.translate('errors.attribute_option_exists'),
-          'ATTRIBUTE_OPTION_EXISTS',
-        )
-      }
+      await this.assertOptionValueAvailable(groupId, businessId, value)
       const option = this.optionsRepo.create({
         groupId,
         businessId,
@@ -237,6 +244,9 @@ export class AttributeGroupsService {
   ): Promise<AttributeOption> {
     try {
       const option = await this.requireOption(groupId, optionId, businessId)
+      if (dto.value && dto.value.trim().toLowerCase() !== option.value.toLowerCase()) {
+        await this.assertOptionValueAvailable(groupId, businessId, dto.value, optionId)
+      }
       await this.optionsRepo.update(optionId, {
         value: dto.value?.trim() ?? option.value,
         colorHex: dto.colorHex === undefined ? option.colorHex : (dto.colorHex ?? null),
@@ -253,6 +263,21 @@ export class AttributeGroupsService {
   async removeOption(groupId: string, optionId: string, businessId: string): Promise<void> {
     try {
       await this.requireOption(groupId, optionId, businessId)
+      const [inUse] = await this.optionsRepo.manager.query(
+        `SELECT 1 FROM product_variant_options pvo
+           JOIN product_variants pv ON pv.id = pvo.variant_id
+           JOIN products p ON p.id = pv.product_id
+         WHERE pvo.attribute_option_id = $1 AND pvo.business_id = $2
+           AND pvo.deleted_at IS NULL AND pv.deleted_at IS NULL AND p.deleted_at IS NULL
+         LIMIT 1`,
+        [optionId, businessId],
+      )
+      if (inUse) {
+        throw new AppConflictException(
+          'This option is still used by one or more product variants and cannot be deleted.',
+          'ATTRIBUTE_OPTION_IN_USE',
+        )
+      }
       await this.optionsRepo.update(optionId, { isActive: false, deletedAt: new Date() })
     } catch (error) {
       return this.handleServiceError('removeOption', error, { groupId, optionId, businessId })
@@ -462,19 +487,44 @@ export class AttributeGroupsService {
 
   // ---- Internal helpers ---------------------------------------------------
 
+  /** Group names are unique per business, case-insensitively, among non-deleted groups. */
   private async assertGroupNameAvailable(
     businessId: string,
     name: string,
     excludeId?: string,
   ): Promise<void> {
-    const where = excludeId
-      ? { businessId, name: name.trim(), deletedAt: IsNull(), id: Not(excludeId) }
-      : { businessId, name: name.trim(), deletedAt: IsNull() }
-    const existing = await this.groupsRepo.findOne({ where })
-    if (existing) {
+    const qb = this.groupsRepo
+      .createQueryBuilder('g')
+      .where('g.business_id = :businessId', { businessId })
+      .andWhere('g.deleted_at IS NULL')
+      .andWhere('LOWER(g.name) = LOWER(:name)', { name: name.trim() })
+    if (excludeId) qb.andWhere('g.id != :excludeId', { excludeId })
+    if (await qb.getExists()) {
       throw new AppConflictException(
         await this.i18n.translate('errors.attribute_group_name_exists'),
         'ATTRIBUTE_GROUP_NAME_EXISTS',
+      )
+    }
+  }
+
+  /** Option values are unique per group, case-insensitively, among non-deleted options. */
+  private async assertOptionValueAvailable(
+    groupId: string,
+    businessId: string,
+    value: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const qb = this.optionsRepo
+      .createQueryBuilder('o')
+      .where('o.group_id = :groupId', { groupId })
+      .andWhere('o.business_id = :businessId', { businessId })
+      .andWhere('o.deleted_at IS NULL')
+      .andWhere('LOWER(o.value) = LOWER(:value)', { value: value.trim() })
+    if (excludeId) qb.andWhere('o.id != :excludeId', { excludeId })
+    if (await qb.getExists()) {
+      throw new AppConflictException(
+        await this.i18n.translate('errors.attribute_option_exists'),
+        'ATTRIBUTE_OPTION_EXISTS',
       )
     }
   }

@@ -17,11 +17,15 @@ const api: BridgeApi = {
   auth: {
     getSession: () => ipcRenderer.invoke(IPC.authGetSession),
     login: (identifier, password) => ipcRenderer.invoke(IPC.authLogin, identifier, password),
-    requestLogin: (identifier, channel) => ipcRenderer.invoke(IPC.authRequestLogin, identifier, channel),
+    requestLogin: (identifier, channel) =>
+      ipcRenderer.invoke(IPC.authRequestLogin, identifier, channel),
     loginOtp: (identifier, code) => ipcRenderer.invoke(IPC.authLoginOtp, identifier, code),
-    verifyPhone: (phone, code, inviteToken) => ipcRenderer.invoke(IPC.authVerifyPhone, phone, code, inviteToken),
-    verifyEmail: (email, code, inviteToken) => ipcRenderer.invoke(IPC.authVerifyEmail, email, code, inviteToken),
-    resendOtp: (identifier, type, channel) => ipcRenderer.invoke(IPC.authResendOtp, identifier, type, channel),
+    verifyPhone: (phone, code, inviteToken) =>
+      ipcRenderer.invoke(IPC.authVerifyPhone, phone, code, inviteToken),
+    verifyEmail: (email, code, inviteToken) =>
+      ipcRenderer.invoke(IPC.authVerifyEmail, email, code, inviteToken),
+    resendOtp: (identifier, type, channel) =>
+      ipcRenderer.invoke(IPC.authResendOtp, identifier, type, channel),
     register: (payload) => ipcRenderer.invoke(IPC.authRegister, payload),
     getInvitePreview: (token) => ipcRenderer.invoke(IPC.authInvitePreview, token),
     acceptInvite: (token) => ipcRenderer.invoke(IPC.authAcceptInvite, token),
@@ -61,10 +65,13 @@ const api: BridgeApi = {
     updateGroup: (id, input) => ipcRenderer.invoke(IPC.attributesUpdateGroup, id, input),
     deleteGroup: (id) => ipcRenderer.invoke(IPC.attributesDeleteGroup, id),
     addOption: (groupId, input) => ipcRenderer.invoke(IPC.attributesAddOption, groupId, input),
-    updateOption: (optionId, input) => ipcRenderer.invoke(IPC.attributesUpdateOption, optionId, input),
+    updateOption: (optionId, input) =>
+      ipcRenderer.invoke(IPC.attributesUpdateOption, optionId, input),
     deleteOption: (optionId) => ipcRenderer.invoke(IPC.attributesDeleteOption, optionId),
-    listCategoryLinks: (categoryId) => ipcRenderer.invoke(IPC.attributesListCategoryLinks, categoryId),
-    setCategoryLinks: (categoryId, links) => ipcRenderer.invoke(IPC.attributesSetCategoryLinks, categoryId, links),
+    listCategoryLinks: (categoryId) =>
+      ipcRenderer.invoke(IPC.attributesListCategoryLinks, categoryId),
+    setCategoryLinks: (categoryId, links) =>
+      ipcRenderer.invoke(IPC.attributesSetCategoryLinks, categoryId, links),
   },
   units: {
     list: (query) => ipcRenderer.invoke(IPC.unitsList, query),
@@ -92,16 +99,23 @@ const api: BridgeApi = {
     listImages: (productId) => ipcRenderer.invoke(IPC.productsListImages, productId),
     setImages: (productId, images) => ipcRenderer.invoke(IPC.productsSetImages, productId, images),
     listVariants: (productId) => ipcRenderer.invoke(IPC.productsListVariants, productId),
-    setVariants: (productId, variants) => ipcRenderer.invoke(IPC.productsSetVariants, productId, variants),
+    setVariants: (productId, variants) =>
+      ipcRenderer.invoke(IPC.productsSetVariants, productId, variants),
     addVariant: (productId, input) => ipcRenderer.invoke(IPC.productsAddVariant, productId, input),
-    updateVariant: (productId, variantId, input) => ipcRenderer.invoke(IPC.productsUpdateVariant, productId, variantId, input),
-    removeVariant: (productId, variantId, reason) => ipcRenderer.invoke(IPC.productsRemoveVariant, productId, variantId, reason),
+    updateVariant: (productId, variantId, input) =>
+      ipcRenderer.invoke(IPC.productsUpdateVariant, productId, variantId, input),
+    removeVariant: (productId, variantId, reason) =>
+      ipcRenderer.invoke(IPC.productsRemoveVariant, productId, variantId, reason),
     listSerialUnits: (productId) => ipcRenderer.invoke(IPC.productsListSerialUnits, productId),
-    listInStockSerials: (productId, variantId, search) => ipcRenderer.invoke(IPC.productsListInStockSerials, productId, variantId, search),
+    listInStockSerials: (productId, variantId, search) =>
+      ipcRenderer.invoke(IPC.productsListInStockSerials, productId, variantId, search),
     resolveScan: (code) => ipcRenderer.invoke(IPC.productsResolveScan, code),
-    setSerialUnits: (productId, units) => ipcRenderer.invoke(IPC.productsSetSerialUnits, productId, units),
-    addSerialUnits: (productId, units, notes) => ipcRenderer.invoke(IPC.productsAddSerialUnits, productId, units, notes),
-    retireSerialUnit: (productId, unitId, reason) => ipcRenderer.invoke(IPC.productsRetireSerialUnit, productId, unitId, reason),
+    setSerialUnits: (productId, units) =>
+      ipcRenderer.invoke(IPC.productsSetSerialUnits, productId, units),
+    addSerialUnits: (productId, units, notes) =>
+      ipcRenderer.invoke(IPC.productsAddSerialUnits, productId, units, notes),
+    retireSerialUnit: (productId, unitId, reason) =>
+      ipcRenderer.invoke(IPC.productsRetireSerialUnit, productId, unitId, reason),
     updateSerialNumber: (productId, unitId, serialNumber) =>
       ipcRenderer.invoke(IPC.productsUpdateSerialNumber, productId, unitId, serialNumber),
     listMovements: (productId) => ipcRenderer.invoke(IPC.productsListMovements, productId),
@@ -112,8 +126,10 @@ const api: BridgeApi = {
     reorderSuggestions: () => ipcRenderer.invoke(IPC.inventoryReorderSuggestions),
     restock: (input) => ipcRenderer.invoke(IPC.inventoryRestock, input),
     adjust: (productId, input) => ipcRenderer.invoke(IPC.inventoryAdjust, productId, input),
-    setThreshold: (productId, input) => ipcRenderer.invoke(IPC.inventorySetThreshold, productId, input),
-    listMovements: (productId, query) => ipcRenderer.invoke(IPC.inventoryListMovements, productId, query),
+    setThreshold: (productId, input) =>
+      ipcRenderer.invoke(IPC.inventorySetThreshold, productId, input),
+    listMovements: (productId, query) =>
+      ipcRenderer.invoke(IPC.inventoryListMovements, productId, query),
     listAllMovements: (query) => ipcRenderer.invoke(IPC.inventoryListAllMovements, query),
     turnover: (query) => ipcRenderer.invoke(IPC.inventoryTurnover, query),
     deadStock: () => ipcRenderer.invoke(IPC.inventoryDeadStock),
@@ -130,8 +146,10 @@ const api: BridgeApi = {
     remove: (id) => ipcRenderer.invoke(IPC.contactsDelete, id),
   },
   debts: {
-    listByContact: (contactId, query) => ipcRenderer.invoke(IPC.debtsListByContact, contactId, query),
-    statement: (contactId, direction) => ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
+    listByContact: (contactId, query) =>
+      ipcRenderer.invoke(IPC.debtsListByContact, contactId, query),
+    statement: (contactId, direction) =>
+      ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
     offset: (contactId) => ipcRenderer.invoke(IPC.debtsOffset, contactId),
     ageing: (direction) => ipcRenderer.invoke(IPC.debtsAgeing, direction),
@@ -143,7 +161,8 @@ const api: BridgeApi = {
     trend: () => ipcRenderer.invoke(IPC.expensesTrend),
     create: (input) => ipcRenderer.invoke(IPC.expensesCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.expensesUpdate, id, input),
-    setStatus: (id, status, paymentMethod) => ipcRenderer.invoke(IPC.expensesSetStatus, id, status, paymentMethod),
+    setStatus: (id, status, paymentMethod) =>
+      ipcRenderer.invoke(IPC.expensesSetStatus, id, status, paymentMethod),
     remove: (id) => ipcRenderer.invoke(IPC.expensesRemove, id),
   },
   expenseCategories: {
@@ -159,8 +178,10 @@ const api: BridgeApi = {
     get: (id) => ipcRenderer.invoke(IPC.rfqGet, id),
     create: (input) => ipcRenderer.invoke(IPC.rfqCreate, input),
     recordQuote: (rfqId, input) => ipcRenderer.invoke(IPC.rfqRecordQuote, rfqId, input),
-    buildDocument: (rfqId, supplierId) => ipcRenderer.invoke(IPC.rfqBuildDocument, rfqId, supplierId),
-    send: (rfqId, supplierId, channel) => ipcRenderer.invoke(IPC.rfqSend, rfqId, supplierId, channel),
+    buildDocument: (rfqId, supplierId) =>
+      ipcRenderer.invoke(IPC.rfqBuildDocument, rfqId, supplierId),
+    send: (rfqId, supplierId, channel) =>
+      ipcRenderer.invoke(IPC.rfqSend, rfqId, supplierId, channel),
   },
   purchaseOrders: {
     list: (query) => ipcRenderer.invoke(IPC.poList, query),
@@ -174,7 +195,8 @@ const api: BridgeApi = {
   documents: {
     send: (input) => ipcRenderer.invoke(IPC.documentsSend, input),
     downloadPdf: (input) => ipcRenderer.invoke(IPC.documentsDownload, input),
-    downloadHtmlPdf: (html, filename) => ipcRenderer.invoke(IPC.documentsDownloadHtml, html, filename),
+    downloadHtmlPdf: (html, filename) =>
+      ipcRenderer.invoke(IPC.documentsDownloadHtml, html, filename),
     shareHtmlPdf: (input) => ipcRenderer.invoke(IPC.documentsShareHtml, input),
   },
   audit: {
@@ -198,9 +220,11 @@ const api: BridgeApi = {
     refunds: (query) => ipcRenderer.invoke(IPC.salesRefunds, query),
     grossProfit: (query) => ipcRenderer.invoke(IPC.salesGrossProfit, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
-    sendReceipt: (saleId, channel, locale, opts) => ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
+    sendReceipt: (saleId, channel, locale, opts) =>
+      ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
     printReceipt: (saleId, locale) => ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale),
-    downloadReceipt: (saleId, locale) => ipcRenderer.invoke(IPC.salesDownloadReceipt, saleId, locale),
+    downloadReceipt: (saleId, locale) =>
+      ipcRenderer.invoke(IPC.salesDownloadReceipt, saleId, locale),
     receiptHtml: (saleId, locale) => ipcRenderer.invoke(IPC.salesReceiptHtml, saleId, locale),
   },
   savings: {
@@ -214,7 +238,8 @@ const api: BridgeApi = {
     create: (input) => ipcRenderer.invoke(IPC.depositsCreate, input),
     addPayment: (id, input) => ipcRenderer.invoke(IPC.depositsAddPayment, id, input),
     close: (id, input) => ipcRenderer.invoke(IPC.depositsClose, id, input),
-    receiptHtml: (transactionId, locale) => ipcRenderer.invoke(IPC.depositsReceiptHtml, transactionId, locale),
+    receiptHtml: (transactionId, locale) =>
+      ipcRenderer.invoke(IPC.depositsReceiptHtml, transactionId, locale),
     reportHtml: (id, locale) => ipcRenderer.invoke(IPC.depositsReportHtml, id, locale),
   },
   online: {
@@ -222,10 +247,16 @@ const api: BridgeApi = {
     createStore: (input) => ipcRenderer.invoke(IPC.onlineStoreCreate, input),
     updateStore: (input) => ipcRenderer.invoke(IPC.onlineStoreUpdate, input),
     publishStore: () => ipcRenderer.invoke(IPC.onlineStorePublish),
+    listPublications: () => ipcRenderer.invoke(IPC.onlinePublicationsList),
+    restorePublication: (version) => ipcRenderer.invoke(IPC.onlinePublicationRestore, version),
     listOrders: (query) => ipcRenderer.invoke(IPC.onlineOrdersList, query),
     getOrder: (id) => ipcRenderer.invoke(IPC.onlineOrderGet, id),
     updateOrderStatus: (id, input) => ipcRenderer.invoke(IPC.onlineOrderUpdateStatus, id, input),
+    updateOrderPayment: (id, input) => ipcRenderer.invoke(IPC.onlineOrderUpdatePayment, id, input),
     checkSlug: (slug) => ipcRenderer.invoke(IPC.onlineSlugCheck, slug),
+    listProducts: (query) => ipcRenderer.invoke(IPC.onlineProductsList, query),
+    setProductPublished: (id, published) =>
+      ipcRenderer.invoke(IPC.onlineProductSetPublished, id, published),
   },
   business: {
     getProfile: () => ipcRenderer.invoke(IPC.businessGetProfile),
@@ -245,13 +276,16 @@ const api: BridgeApi = {
     create: (input) => ipcRenderer.invoke(IPC.rolesCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.rolesUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.rolesRemove, id),
-    setPermissions: (id, permissions) => ipcRenderer.invoke(IPC.rolesSetPermissions, id, permissions),
+    setPermissions: (id, permissions) =>
+      ipcRenderer.invoke(IPC.rolesSetPermissions, id, permissions),
   },
   team: {
     listMembers: () => ipcRenderer.invoke(IPC.teamListMembers),
-    updateMemberRole: (userId, roleId) => ipcRenderer.invoke(IPC.teamUpdateMemberRole, userId, roleId),
+    updateMemberRole: (userId, roleId) =>
+      ipcRenderer.invoke(IPC.teamUpdateMemberRole, userId, roleId),
     removeMember: (userId) => ipcRenderer.invoke(IPC.teamRemoveMember, userId),
-    setMemberActive: (userId, active) => ipcRenderer.invoke(IPC.teamSetMemberStatus, userId, active),
+    setMemberActive: (userId, active) =>
+      ipcRenderer.invoke(IPC.teamSetMemberStatus, userId, active),
     listInvites: () => ipcRenderer.invoke(IPC.teamListInvites),
     sendInvite: (input) => ipcRenderer.invoke(IPC.teamSendInvite, input),
     resendInvite: (id) => ipcRenderer.invoke(IPC.teamResendInvite, id),

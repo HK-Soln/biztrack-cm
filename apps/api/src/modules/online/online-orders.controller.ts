@@ -6,7 +6,7 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { OnlineOrdersService } from './online-orders.service'
-import { UpdateOrderStatusDto } from './dto/online-orders.dto'
+import { UpdateOrderPaymentDto, UpdateOrderStatusDto } from './dto/online-orders.dto'
 
 @ApiTags('Online orders')
 @ApiBearerAuth()
@@ -47,6 +47,21 @@ export class OnlineOrdersController {
     return this.orders.updateStatus(user.businessId as string, id, dto, {
       id: user.sub,
       name: (user as { name?: string }).name ?? null,
+      role: user.role ?? null,
+    })
+  }
+
+  @Patch(':id/payment')
+  @ApiOperation({ summary: 'Record an online order payment (status + method)' })
+  updatePayment(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderPaymentDto,
+  ) {
+    return this.orders.updatePayment(user.businessId as string, id, dto, {
+      id: user.sub,
+      name: (user as { name?: string }).name ?? null,
+      role: user.role ?? null,
     })
   }
 }

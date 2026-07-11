@@ -40,6 +40,20 @@ export class OnlineOrder {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   items!: OnlineCartItem[]
 
+  // Money breakdown. total_amount = subtotal + delivery_fee + cod_fee + other_charges.
+  // Persisted so the confirm-time sale maps fees to typed charge lines (not lost as overpayment).
+  @Column({ type: 'int', default: 0 })
+  subtotal!: number
+
+  @Column({ name: 'delivery_fee', type: 'int', default: 0 })
+  deliveryFee!: number
+
+  @Column({ name: 'cod_fee', type: 'int', default: 0 })
+  codFee!: number
+
+  @Column({ name: 'other_charges', type: 'int', default: 0 })
+  otherCharges!: number
+
   @Column({ name: 'total_amount', type: 'int', default: 0 })
   totalAmount!: number
 
@@ -79,11 +93,32 @@ export class OnlineOrder {
   @Column({ name: 'confirmed_at', type: 'timestamp', nullable: true })
   confirmedAt?: Date | null
 
-  @Column({ name: 'dispatched_at', type: 'timestamp', nullable: true })
-  dispatchedAt?: Date | null
+  // Packed and ready (for pickup or dispatch).
+  @Column({ name: 'ready_at', type: 'timestamp', nullable: true })
+  readyAt?: Date | null
+
+  @Column({ name: 'out_for_delivery_at', type: 'timestamp', nullable: true })
+  outForDeliveryAt?: Date | null
 
   @Column({ name: 'delivered_at', type: 'timestamp', nullable: true })
   deliveredAt?: Date | null
+
+  @Column({ name: 'picked_up_at', type: 'timestamp', nullable: true })
+  pickedUpAt?: Date | null
+
+  @Column({ name: 'returned_at', type: 'timestamp', nullable: true })
+  returnedAt?: Date | null
+
+  // Delivery-service integration seam — a courier integration fills these and moves the
+  // status; no schema restructure needed when it lands.
+  @Column({ name: 'courier_name', length: 120, nullable: true, type: 'varchar' })
+  courierName?: string | null
+
+  @Column({ name: 'courier_tracking_number', length: 120, nullable: true, type: 'varchar' })
+  courierTrackingNumber?: string | null
+
+  @Column({ name: 'courier_tracking_url', type: 'text', nullable: true })
+  courierTrackingUrl?: string | null
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date

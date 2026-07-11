@@ -38,6 +38,7 @@ import { Sales } from '@/routes/Sales'
 import { Expenses } from '@/routes/Expenses'
 import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
+import { OnlineProducts } from '@/routes/OnlineProducts'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
 import { UserSettings } from '@/routes/UserSettings'
@@ -55,72 +56,94 @@ export const router = createHashRouter([
     // descendant route, replacing React Router's dev-only default screen.
     errorElement: <RouteError />,
     children: [
-  {
-    element: (
-      <RequireGuest>
-        <AuthShell />
-      </RequireGuest>
-    ),
-    children: [
-      { path: '/signin', element: <SignIn /> },
-      { path: '/signup', element: <SignUp /> },
-      { path: '/invite', element: <Invite /> },
-      { path: '/sso', element: <Sso /> },
-      { path: '/select-business', element: <SelectBusiness /> },
-      { path: '/setup-business', element: <SetupBusiness /> },
-      { path: '/select-plan', element: <SelectPlan /> },
-    ],
-  },
-  {
-    element: (
-      <RequireAuth>
-        <AppShell />
-      </RequireAuth>
-    ),
-    children: [
-      { path: '/', element: <Dashboard /> },
-      { path: '/invitations', element: <Invitations /> },
-      { path: '/sell', element: <Sell /> },
-      { path: '/products', element: <Products /> },
-      { path: '/products/new', element: <ProductForm /> },
-      { path: '/products/categories', element: <Categories /> },
-      { path: '/products/categories/new', element: <CategoryForm /> },
-      { path: '/products/categories/:id', element: <CategoryForm /> },
-      { path: '/products/brands', element: <Brands /> },
-      { path: '/products/attributes', element: <Attributes /> },
-      { path: '/products/units', element: <Units /> },
-      { path: '/products/:id', element: <ProductDetail /> },
-      { path: '/products/:id/edit', element: <ProductForm /> },
-      { path: '/inventory', element: <Inventory /> },
-      { path: '/inventory/restock', element: <ReceiveStock /> },
-      { path: '/sales', element: <Sales /> },
-      { path: '/online/orders', element: <OnlineOrders /> },
-      { path: '/online/store', element: <OnlineStore /> },
-      { path: '/contacts', element: <Contacts /> },
-      { path: '/contacts/new', element: <ContactForm /> },
-      { path: '/contacts/:id', element: <ContactDetail /> },
-      { path: '/contacts/:id/edit', element: <ContactForm /> },
-      { path: '/purchasing/rfqs', element: <Rfqs /> },
-      { path: '/purchasing/rfqs/new', element: <RfqForm /> },
-      { path: '/purchasing/rfqs/:id', element: <RfqDetail /> },
-      { path: '/purchasing/rfqs/:id/convert/:supplierId', element: <ConvertRfq /> },
-      { path: '/purchasing/orders', element: <PurchaseOrders /> },
-      { path: '/purchasing/orders/new', element: <PoForm /> },
-      { path: '/purchasing/orders/:id', element: <PoDetail /> },
-      { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
-      { path: '/expenses', element: <Expenses /> },
-      { path: '/deposits', element: <Deposits /> },
-      { path: '/reports', element: <ReportViewer /> },
-      { path: '/reports/:reportId', element: <ReportViewer /> },
-      { path: '/team', element: <Team /> },
-      { path: '/roles', element: <RequireOwner><Roles /></RequireOwner> },
-      { path: '/roles/new', element: <RequireOwner><RoleForm /></RequireOwner> },
-      { path: '/roles/:id/edit', element: <RequireOwner><RoleForm /></RequireOwner> },
-      { path: '/settings', element: <Settings /> },
-      { path: '/profile', element: <UserSettings /> },
-      { path: '/more', element: <More /> },
-    ],
-  },
+      {
+        element: (
+          <RequireGuest>
+            <AuthShell />
+          </RequireGuest>
+        ),
+        children: [
+          { path: '/signin', element: <SignIn /> },
+          { path: '/signup', element: <SignUp /> },
+          { path: '/invite', element: <Invite /> },
+          { path: '/sso', element: <Sso /> },
+          { path: '/select-business', element: <SelectBusiness /> },
+          { path: '/setup-business', element: <SetupBusiness /> },
+          { path: '/select-plan', element: <SelectPlan /> },
+        ],
+      },
+      {
+        element: (
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        ),
+        children: [
+          { path: '/', element: <Dashboard /> },
+          { path: '/invitations', element: <Invitations /> },
+          { path: '/sell', element: <Sell /> },
+          { path: '/products', element: <Products /> },
+          { path: '/products/new', element: <ProductForm /> },
+          { path: '/products/categories', element: <Categories /> },
+          { path: '/products/categories/new', element: <CategoryForm /> },
+          { path: '/products/categories/:id', element: <CategoryForm /> },
+          { path: '/products/brands', element: <Brands /> },
+          { path: '/products/attributes', element: <Attributes /> },
+          { path: '/products/units', element: <Units /> },
+          { path: '/products/:id', element: <ProductDetail /> },
+          { path: '/products/:id/edit', element: <ProductForm /> },
+          { path: '/inventory', element: <Inventory /> },
+          { path: '/inventory/restock', element: <ReceiveStock /> },
+          { path: '/sales', element: <Sales /> },
+          { path: '/online/orders', element: <OnlineOrders /> },
+          { path: '/online/products', element: <OnlineProducts /> },
+          { path: '/online/store', element: <OnlineStore /> },
+          { path: '/contacts', element: <Contacts /> },
+          { path: '/contacts/new', element: <ContactForm /> },
+          { path: '/contacts/:id', element: <ContactDetail /> },
+          { path: '/contacts/:id/edit', element: <ContactForm /> },
+          { path: '/purchasing/rfqs', element: <Rfqs /> },
+          { path: '/purchasing/rfqs/new', element: <RfqForm /> },
+          { path: '/purchasing/rfqs/:id', element: <RfqDetail /> },
+          { path: '/purchasing/rfqs/:id/convert/:supplierId', element: <ConvertRfq /> },
+          { path: '/purchasing/orders', element: <PurchaseOrders /> },
+          { path: '/purchasing/orders/new', element: <PoForm /> },
+          { path: '/purchasing/orders/:id', element: <PoDetail /> },
+          { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
+          { path: '/expenses', element: <Expenses /> },
+          { path: '/deposits', element: <Deposits /> },
+          { path: '/reports', element: <ReportViewer /> },
+          { path: '/reports/:reportId', element: <ReportViewer /> },
+          { path: '/team', element: <Team /> },
+          {
+            path: '/roles',
+            element: (
+              <RequireOwner>
+                <Roles />
+              </RequireOwner>
+            ),
+          },
+          {
+            path: '/roles/new',
+            element: (
+              <RequireOwner>
+                <RoleForm />
+              </RequireOwner>
+            ),
+          },
+          {
+            path: '/roles/:id/edit',
+            element: (
+              <RequireOwner>
+                <RoleForm />
+              </RequireOwner>
+            ),
+          },
+          { path: '/settings', element: <Settings /> },
+          { path: '/profile', element: <UserSettings /> },
+          { path: '/more', element: <More /> },
+        ],
+      },
     ],
   },
 ])

@@ -123,6 +123,10 @@ import type {
   RejectInvitationResponse,
   OnlineOrdersQuery,
   OnlineSlugCheck,
+  OnlineAdminProduct,
+  OnlineAdminProductsQuery,
+  OnlineStorePublicationSummary,
+  UpdateOrderPaymentRequest,
   LocalSerialUnit,
   LocalStockMovement,
   LocalUnit,
@@ -221,15 +225,31 @@ export interface DataClient {
     listVariants: (productId: string) => Promise<LocalVariant[]>
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
     addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
-    updateVariant: (productId: string, variantId: string, input: VariantInput) => Promise<LocalVariant>
+    updateVariant: (
+      productId: string,
+      variantId: string,
+      input: VariantInput,
+    ) => Promise<LocalVariant>
     removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
-    listInStockSerials: (productId: string, variantId?: string | null, search?: string) => Promise<LocalSerialUnit[]>
+    listInStockSerials: (
+      productId: string,
+      variantId?: string | null,
+      search?: string,
+    ) => Promise<LocalSerialUnit[]>
     resolveScan: (code: string) => Promise<ScanHit | null>
     setSerialUnits: (productId: string, units: SerialUnitInput[]) => Promise<void>
-    addSerialUnits: (productId: string, units: SerialUnitInput[], notes?: string | null) => Promise<LocalSerialUnit[]>
+    addSerialUnits: (
+      productId: string,
+      units: SerialUnitInput[],
+      notes?: string | null,
+    ) => Promise<LocalSerialUnit[]>
     retireSerialUnit: (productId: string, unitId: string, reason: string) => Promise<void>
-    updateSerialNumber: (productId: string, unitId: string, serialNumber: string) => Promise<LocalSerialUnit>
+    updateSerialNumber: (
+      productId: string,
+      unitId: string,
+      serialNumber: string,
+    ) => Promise<LocalSerialUnit>
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
   inventory: {
@@ -239,7 +259,10 @@ export interface DataClient {
     restock: (input: RestockInput) => Promise<void>
     adjust: (productId: string, input: AdjustStockInput) => Promise<void>
     setThreshold: (productId: string, input: ThresholdInput) => Promise<void>
-    listMovements: (productId: string, query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
+    listMovements: (
+      productId: string,
+      query?: MovementsQuery,
+    ) => Promise<PaginatedResult<LocalStockMovement>>
     listAllMovements: (query?: MovementsQuery) => Promise<PaginatedResult<LocalStockMovement>>
     turnover: (query?: MovementsQuery) => Promise<InventoryTurnoverRow[]>
     deadStock: () => Promise<{ rows: DeadStockRow[]; stockCostTotal: number }>
@@ -267,7 +290,9 @@ export interface DataClient {
     listForContact: (contactId: string) => Promise<LocalOpeningBalance[]>
   }
   expenses: {
-    list: (query?: ExpensesListQuery) => Promise<PaginatedResult<LocalExpense> & { totalAmount: number }>
+    list: (
+      query?: ExpensesListQuery,
+    ) => Promise<PaginatedResult<LocalExpense> & { totalAmount: number }>
     get: (id: string) => Promise<LocalExpense | null>
     summary: (query?: ExpensesListQuery) => Promise<LocalExpenseSummary>
     trend: () => Promise<ExpenseTrendItem[]>
@@ -292,7 +317,10 @@ export interface DataClient {
     list: (query?: PurchaseOrdersQuery) => Promise<PaginatedResult<LocalPurchaseOrderListItem>>
     get: (id: string) => Promise<LocalPurchaseOrderDetail | null>
     create: (input: CreatePurchaseOrderRequest) => Promise<LocalPurchaseOrderDetail>
-    createFromRfq: (rfqId: string, input: ConvertRfqToPoRequest) => Promise<LocalPurchaseOrderDetail>
+    createFromRfq: (
+      rfqId: string,
+      input: ConvertRfqToPoRequest,
+    ) => Promise<LocalPurchaseOrderDetail>
     buildDocument: (poId: string) => Promise<PurchaseOrderDocument>
     send: (poId: string, channel: PurchaseOrderSendChannel) => Promise<LocalPurchaseOrderDetail>
     cancel: (poId: string) => Promise<LocalPurchaseOrderDetail>
@@ -321,7 +349,9 @@ export interface DataClient {
     cashierRoster: (query?: SalesListQuery) => Promise<CashierPerformanceRow[]>
     byProduct: (query?: SalesListQuery) => Promise<SalesByProductRow[]>
     byPaymentMethod: (query?: SalesListQuery) => Promise<SalesByPaymentRow[]>
-    refunds: (query?: SalesListQuery) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
+    refunds: (
+      query?: SalesListQuery,
+    ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
     sendReceipt: (
@@ -330,7 +360,10 @@ export interface DataClient {
       locale: string,
       opts?: { recipient?: DocumentRecipient; online?: boolean },
     ) => Promise<void>
-    printReceipt: (saleId: string, locale: string) => Promise<{ printed: boolean; pdfPath?: string }>
+    printReceipt: (
+      saleId: string,
+      locale: string,
+    ) => Promise<{ printed: boolean; pdfPath?: string }>
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
     receiptHtml: (saleId: string, locale: string) => Promise<string | null>
   }
@@ -353,10 +386,15 @@ export interface DataClient {
     createStore: (input: CreateOnlineStoreRequest) => Promise<OnlineStore>
     updateStore: (input: UpdateOnlineStoreRequest) => Promise<OnlineStore>
     publishStore: () => Promise<OnlineStore>
+    listPublications: () => Promise<OnlineStorePublicationSummary[]>
+    restorePublication: (version: number) => Promise<OnlineStore>
     listOrders: (query?: OnlineOrdersQuery) => Promise<OnlineOrderListResult>
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
+    updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) => Promise<OnlineOrderDetail>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
+    listProducts: (query?: OnlineAdminProductsQuery) => Promise<PaginatedResult<OnlineAdminProduct>>
+    setProductPublished: (id: string, published: boolean) => Promise<void>
   }
   business: {
     getProfile: () => Promise<BusinessProfile | null>
@@ -448,7 +486,13 @@ import {
   cloudUploads,
 } from './cloud-data'
 import { cloudRealtimeConnect, cloudRealtimeOnEvent } from './cloud-realtime'
-import { cloudCategories, cloudBrands, cloudUnits, cloudExpenseCategories, cloudAttributes } from './cloud-catalog'
+import {
+  cloudCategories,
+  cloudBrands,
+  cloudUnits,
+  cloudExpenseCategories,
+  cloudAttributes,
+} from './cloud-catalog'
 import { cloudContacts } from './cloud-contacts'
 import { cloudProducts } from './cloud-products'
 import { cloudSales } from './cloud-sales'
@@ -487,7 +531,8 @@ function electronAdapter(): DataClient {
       updateOption: (optionId, input) => window.api.attributes.updateOption(optionId, input),
       deleteOption: (optionId) => window.api.attributes.deleteOption(optionId),
       listCategoryLinks: (categoryId) => window.api.attributes.listCategoryLinks(categoryId),
-      setCategoryLinks: (categoryId, links) => window.api.attributes.setCategoryLinks(categoryId, links),
+      setCategoryLinks: (categoryId, links) =>
+        window.api.attributes.setCategoryLinks(categoryId, links),
     },
     units: {
       list: (query) => window.api.units.list(query),
@@ -517,14 +562,19 @@ function electronAdapter(): DataClient {
       listVariants: (productId) => window.api.products.listVariants(productId),
       setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
       addVariant: (productId, input) => window.api.products.addVariant(productId, input),
-      updateVariant: (productId, variantId, input) => window.api.products.updateVariant(productId, variantId, input),
-      removeVariant: (productId, variantId, reason) => window.api.products.removeVariant(productId, variantId, reason),
+      updateVariant: (productId, variantId, input) =>
+        window.api.products.updateVariant(productId, variantId, input),
+      removeVariant: (productId, variantId, reason) =>
+        window.api.products.removeVariant(productId, variantId, reason),
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
-      listInStockSerials: (productId, variantId, search) => window.api.products.listInStockSerials(productId, variantId, search),
+      listInStockSerials: (productId, variantId, search) =>
+        window.api.products.listInStockSerials(productId, variantId, search),
       resolveScan: (code) => window.api.products.resolveScan(code),
       setSerialUnits: (productId, units) => window.api.products.setSerialUnits(productId, units),
-      addSerialUnits: (productId, units, notes) => window.api.products.addSerialUnits(productId, units, notes),
-      retireSerialUnit: (productId, unitId, reason) => window.api.products.retireSerialUnit(productId, unitId, reason),
+      addSerialUnits: (productId, units, notes) =>
+        window.api.products.addSerialUnits(productId, units, notes),
+      retireSerialUnit: (productId, unitId, reason) =>
+        window.api.products.retireSerialUnit(productId, unitId, reason),
       updateSerialNumber: (productId, unitId, serialNumber) =>
         window.api.products.updateSerialNumber(productId, unitId, serialNumber),
       listMovements: (productId) => window.api.products.listMovements(productId),
@@ -570,7 +620,8 @@ function electronAdapter(): DataClient {
       trend: () => window.api.expenses.trend(),
       create: (input) => window.api.expenses.create(input),
       update: (id, input) => window.api.expenses.update(id, input),
-      setStatus: (id, status, paymentMethod) => window.api.expenses.setStatus(id, status, paymentMethod),
+      setStatus: (id, status, paymentMethod) =>
+        window.api.expenses.setStatus(id, status, paymentMethod),
       remove: (id) => window.api.expenses.remove(id),
     },
     expenseCategories: {
@@ -621,7 +672,8 @@ function electronAdapter(): DataClient {
       refunds: (query) => window.api.sales.refunds(query),
       grossProfit: (query) => window.api.sales.grossProfit(query),
       get: (id) => window.api.sales.get(id),
-      sendReceipt: (saleId, channel, locale, opts) => window.api.sales.sendReceipt(saleId, channel, locale, opts),
+      sendReceipt: (saleId, channel, locale, opts) =>
+        window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
       downloadReceipt: (saleId, locale) => window.api.sales.downloadReceipt(saleId, locale),
       receiptHtml: (saleId, locale) => window.api.sales.receiptHtml(saleId, locale),
@@ -637,7 +689,8 @@ function electronAdapter(): DataClient {
       create: (input) => window.api.deposits.create(input),
       addPayment: (id, input) => window.api.deposits.addPayment(id, input),
       close: (id, input) => window.api.deposits.close(id, input),
-      receiptHtml: (transactionId, locale) => window.api.deposits.receiptHtml(transactionId, locale),
+      receiptHtml: (transactionId, locale) =>
+        window.api.deposits.receiptHtml(transactionId, locale),
       reportHtml: (id, locale) => window.api.deposits.reportHtml(id, locale),
     },
     online: {
@@ -645,10 +698,15 @@ function electronAdapter(): DataClient {
       createStore: (input) => window.api.online.createStore(input),
       updateStore: (input) => window.api.online.updateStore(input),
       publishStore: () => window.api.online.publishStore(),
+      listPublications: () => window.api.online.listPublications(),
+      restorePublication: (version) => window.api.online.restorePublication(version),
       listOrders: (query) => window.api.online.listOrders(query),
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
+      updateOrderPayment: (id, input) => window.api.online.updateOrderPayment(id, input),
       checkSlug: (slug) => window.api.online.checkSlug(slug),
+      listProducts: (query) => window.api.online.listProducts(query),
+      setProductPublished: (id, published) => window.api.online.setProductPublished(id, published),
     },
     business: {
       getProfile: () => window.api.business.getProfile(),
@@ -698,9 +756,12 @@ function electronAdapter(): DataClient {
       login: (identifier, password) => window.api.auth.login(identifier, password),
       requestLogin: (identifier, channel) => window.api.auth.requestLogin(identifier, channel),
       loginOtp: (identifier, code) => window.api.auth.loginOtp(identifier, code),
-      verifyPhone: (phone, code, inviteToken) => window.api.auth.verifyPhone(phone, code, inviteToken),
-      verifyEmail: (email, code, inviteToken) => window.api.auth.verifyEmail(email, code, inviteToken),
-      resendOtp: (identifier, type, channel) => window.api.auth.resendOtp(identifier, type, channel),
+      verifyPhone: (phone, code, inviteToken) =>
+        window.api.auth.verifyPhone(phone, code, inviteToken),
+      verifyEmail: (email, code, inviteToken) =>
+        window.api.auth.verifyEmail(email, code, inviteToken),
+      resendOtp: (identifier, type, channel) =>
+        window.api.auth.resendOtp(identifier, type, channel),
       register: (payload) => window.api.auth.register(payload),
       getInvitePreview: (token) => window.api.auth.getInvitePreview(token),
       acceptInvite: (token) => window.api.auth.acceptInvite(token),
@@ -766,15 +827,19 @@ function cloudAdapter(): DataClient {
     plans: cloudPlans,
     roles: cloudRoles,
     team: cloudTeam,
-    notifications: { ...cloudNotificationsRest, connect: cloudRealtimeConnect, onEvent: cloudRealtimeOnEvent },
+    notifications: {
+      ...cloudNotificationsRest,
+      connect: cloudRealtimeConnect,
+      onEvent: cloudRealtimeOnEvent,
+    },
     invitations: cloudInvitations,
     auth: cloudAuth,
     // Cloud is online-only: there is no local sync engine, so report a stable
     // "synced" status and treat trigger/retry as no-ops.
     sync: {
-      trigger: async () => { },
-      fullSync: async () => { },
-      retry: async () => { },
+      trigger: async () => {},
+      fullSync: async () => {},
+      retry: async () => {},
       getStatus: async () => ({
         state: 'idle',
         lastSyncedAt: new Date().toISOString(),
@@ -784,10 +849,10 @@ function cloudAdapter(): DataClient {
         deadCount: 0,
         lastError: null,
       }),
-      onStatus: () => () => { },
+      onStatus: () => () => {},
     },
-    theme: { set: () => { } }, // theme.store already persists to localStorage
-    window: { setTitleBarOverlay: () => { } }, // no native window controls in the browser
+    theme: { set: () => {} }, // theme.store already persists to localStorage
+    window: { setTitleBarOverlay: () => {} }, // no native window controls in the browser
   }
 }
 

@@ -33,6 +33,6 @@ import { RedisModule } from '@/common/redis/redis.module'
     ResendWebhookGuard,
     WahaWebhookGuard,
   ],
-  exports: [NotificationsService, WhatsAppProvider],
+  exports: [NotificationsService, WhatsAppProvider, EmailProvider],
 })
 export class NotificationsModule {}

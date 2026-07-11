@@ -1,9 +1,12 @@
 import { createHttpClient, HttpError } from '@biztrack/http-client/browser'
 import type {
   AddCartItemRequest,
+  CategoryTreeResponse,
   CheckoutRequest,
+  ContactMessageRequest,
   OnlineCart,
   PaginatedResult,
+  PublicFacets,
   PublicOrderTracking,
   PublicProductDetail,
   PublicProductListItem,
@@ -41,7 +44,11 @@ async function readJson<T>(
 }
 
 /** Mutation helper — throws a readable message on failure (surfaced by TanStack). */
-async function send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, data?: unknown): Promise<T> {
+async function send<T>(
+  method: 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  data?: unknown,
+): Promise<T> {
   try {
     const res =
       method === 'POST'
@@ -67,17 +74,47 @@ export function getStore(slug: string) {
   return readJson<PublicStore>(storePath(slug))
 }
 
+const joinIds = (ids?: string[]) => (ids && ids.length ? ids.join(',') : undefined)
+
 export function listProducts(slug: string, query: PublicProductsQuery = {}) {
   return readJson<PaginatedResult<PublicProductListItem>>(`${storePath(slug)}/products`, {
     page: query.page,
     limit: query.limit,
-    categoryId: query.categoryId,
+    categoryIds: joinIds(query.categoryIds),
+    brandIds: joinIds(query.brandIds),
+    modelIds: joinIds(query.modelIds),
+    attributeOptionIds: joinIds(query.attributeOptionIds),
     search: query.search,
   })
 }
 
+export function getFacets(slug: string, categoryIds?: string[]) {
+  return readJson<PublicFacets>(`${storePath(slug)}/facets`, {
+    categoryIds: joinIds(categoryIds),
+  })
+}
+
+export function getCategories(slug: string) {
+  return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`)
+}
+
+/** All published product slugs for a store (paginated, capped) — used by the sitemap. */
+export async function listAllProductSlugs(slug: string, cap = 1000): Promise<string[]> {
+  const slugs: string[] = []
+  const limit = 100
+  for (let page = 1; slugs.length < cap; page++) {
+    const res = await listProducts(slug, { page, limit })
+    if (!res || res.data.length === 0) break
+    slugs.push(...res.data.map((p) => p.slug))
+    if (page >= (res.totalPages ?? 1)) break
+  }
+  return slugs.slice(0, cap)
+}
+
 export function getProduct(slug: string, productSlug: string) {
-  return readJson<PublicProductDetail>(`${storePath(slug)}/products/${encodeURIComponent(productSlug)}`)
+  return readJson<PublicProductDetail>(
+    `${storePath(slug)}/products/${encodeURIComponent(productSlug)}`,
+  )
 }
 
 export function getCart(slug: string, sessionToken: string) {
@@ -96,7 +133,12 @@ export function addCartItem(slug: string, payload: AddCartItemRequest) {
   return send<OnlineCart>('POST', `${storePath(slug)}/cart/items`, payload)
 }
 
-export function updateCartItem(slug: string, sessionToken: string, itemKey: string, quantity: number) {
+export function updateCartItem(
+  slug: string,
+  sessionToken: string,
+  itemKey: string,
+  quantity: number,
+) {
   return send<OnlineCart>(
     'PATCH',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
@@ -109,6 +151,10 @@ export function removeCartItem(slug: string, sessionToken: string, itemKey: stri
     'DELETE',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
   )
+}
+
+export function sendContactMessage(slug: string, payload: ContactMessageRequest) {
+  return send<{ ok: true }>('POST', `${storePath(slug)}/contact`, payload)
 }
 
 export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {

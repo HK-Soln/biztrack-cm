@@ -5,13 +5,18 @@ name: Deploy desktop-v2 (Cloud → Vercel)
 # apps/desktop-v2/dist. The Electron desktop installer is built separately in
 # desktop-v2-release.yml.
 #
+# ONE Vercel project (free/Hobby friendly): main -> Production, staging -> Preview.
 # Vercel project setup (one-time):
-#   - Root Directory = apps/desktop-v2   (vercel.json there sets buildCommand/output)
-#   - Env var VITE_API_URL = https://<your-api-host>/api/v1  (drives the app + its CSP)
+#   - Root Directory  = apps/desktop-v2   (vercel.json sets buildCommand/output)
+#   - Production Branch = main
+#   - Env var VITE_API_URL — set it for BOTH Vercel environments (Settings ->
+#     Environment Variables, pick the scope):
+#       Production = https://<prod-api-host>/api/v1
+#       Preview    = https://<staging-api-host>/api/v1     (must include /api/v1)
 
 on:
   push:
-    branches: [main, staging] # main -> production, staging -> staging
+    branches: [main, staging] # main -> Vercel Production, staging -> Vercel Preview
     paths:
       - 'apps/desktop-v2/**'
       - 'packages/**'
@@ -27,9 +32,8 @@ jobs:
   deploy:
     name: Deploy (${{ github.ref_name == 'main' && 'production' || 'staging' }})
     runs-on: ubuntu-latest
-    # `production` carries the manual-approval gate; the VERCEL_* secrets are
-    # ENVIRONMENT-scoped so each env deploys to its own Vercel project (with its own
-    # VITE_API_URL). Configure both in Settings -> Environments.
+    # `production` (main) carries the manual-approval gate. One Vercel project serves both
+    # environments, so VERCEL_* are repo-level secrets (not per-environment).
     environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -38,16 +42,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # `vercel build` runs the project's install + build in THIS runner, so pnpm + Node
+      # must be on PATH — otherwise it fails with "spawn pnpm ENOENT".
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
-      - name: Pull Vercel project settings + env
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      # main -> Production (--prod); staging -> Preview (no flag). Both pull their own
+      # VITE_API_URL from the matching Vercel Environment (Production / Preview).
+      - name: Resolve target
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "VERCEL_TARGET=production" >> "$GITHUB_ENV"
+            echo "PROD_FLAG=--prod" >> "$GITHUB_ENV"
+          else
+            echo "VERCEL_TARGET=preview" >> "$GITHUB_ENV"
+            echo "PROD_FLAG=" >> "$GITHUB_ENV"
+          fi
 
-      # Uses vercel.json: buildCommand `pnpm run build:web`, outputDirectory `dist`.
-      # VITE_API_URL comes from the Vercel project env pulled above.
+      - name: Pull Vercel settings + env
+        run: vercel pull --yes --environment=$VERCEL_TARGET --token=${{ secrets.VERCEL_TOKEN }}
+
       - name: Build
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build $PROD_FLAG --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy prebuilt output
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt $PROD_FLAG --token=${{ secrets.VERCEL_TOKEN }}

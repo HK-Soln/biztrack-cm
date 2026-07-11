@@ -5,6 +5,7 @@ import { OnlineOrdersService } from './online-orders.service'
 import {
   AddCartItemDto,
   CheckoutDto,
+  ContactMessageDto,
   PublicProductsQueryDto,
   UpdateCartItemDto,
 } from './dto/online-orders.dto'
@@ -39,10 +40,28 @@ export class PublicStorefrontController {
     return this.storefront.getCategories(slug)
   }
 
+  @Get(':slug/facets')
+  @ApiOperation({ summary: 'Available filter facets (brands, models, attribute options)' })
+  getFacets(@Param('slug') slug: string, @Query('categoryIds') categoryIds?: string) {
+    const ids = categoryIds
+      ? categoryIds
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean)
+      : undefined
+    return this.storefront.getFacets(slug, ids)
+  }
+
   @Get(':slug/products/:productSlug')
   @ApiOperation({ summary: 'Product detail with variants' })
   getProduct(@Param('slug') slug: string, @Param('productSlug') productSlug: string) {
     return this.storefront.getProduct(slug, productSlug)
+  }
+
+  @Post(':slug/contact')
+  @ApiOperation({ summary: 'Send a contact-form message to the business (email)' })
+  sendContactMessage(@Param('slug') slug: string, @Body() dto: ContactMessageDto) {
+    return this.storefront.sendContactMessage(slug, dto)
   }
 
   // ---- Cart ----------------------------------------------------------------

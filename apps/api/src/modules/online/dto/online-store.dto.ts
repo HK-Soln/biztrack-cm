@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEmail,
   IsHexColor,
@@ -13,12 +15,20 @@ import {
 } from 'class-validator'
 import type {
   CreateOnlineStoreRequest,
+  OnlineAdminProductsQuery,
   OnlineCatalogBinding,
   OnlineStoreAppearance,
   OnlineStoreLayout,
   ProductOnlineFields,
   UpdateOnlineStoreRequest,
 } from '@biztrack/types'
+
+function toBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (value === true || value === 'true') return true
+  if (value === false || value === 'false') return false
+  return value as boolean
+}
 
 export class CreateOnlineStoreDto implements CreateOnlineStoreRequest {
   @ApiProperty({ example: 'Akwa Boutique' })
@@ -134,6 +144,11 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsEmail()
+  email?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean
 
@@ -173,6 +188,36 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @IsOptional()
   @IsBoolean()
   paymentCard?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  offerDelivery?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  offerPickup?: boolean
+
+  @ApiPropertyOptional({ description: 'Flat delivery fee in whole store-currency units.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  deliveryFee?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  pickupAddress?: string | null
+
+  @ApiPropertyOptional({ type: [String], description: 'Cities/zones the store delivers to.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  deliveryCities?: string[]
 
   @ApiPropertyOptional({ description: 'URL slug (subdomain).' })
   @IsOptional()
@@ -257,6 +302,34 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @IsString()
   @MaxLength(200)
   socialLinkedin?: string | null
+}
+
+export class ListOnlineProductsDto implements OnlineAdminProductsQuery {
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number
+
+  @ApiPropertyOptional({ default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string
+
+  @ApiPropertyOptional({ description: 'true = published only, false = drafts only, omitted = all' })
+  @IsOptional()
+  @Transform(({ value }) => toBoolean(value))
+  @IsBoolean()
+  published?: boolean
 }
 
 export class UpdateProductOnlineDto implements ProductOnlineFields {

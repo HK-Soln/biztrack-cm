@@ -64,12 +64,14 @@ export class BrandsService {
    * hydrated with its models + linked category ids. */
   list(query: BrandListQuery = {}): PaginatedResult<LocalBrand> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalBrand>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalBrand>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'business_id = ? AND is_deleted = 0'
     const params: unknown[] = [businessId]
     if (query.categoryId) {
-      where += ' AND id IN (SELECT brand_id FROM brand_categories WHERE category_id = ? AND is_deleted = 0)'
+      where +=
+        ' AND id IN (SELECT brand_id FROM brand_categories WHERE category_id = ? AND is_deleted = 0)'
       params.push(query.categoryId)
     }
 
@@ -140,13 +142,30 @@ export class BrandsService {
       `INSERT INTO brands
         (id, business_id, name, slug, logo_url, description, is_active, sort_order, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      [id, businessId, input.name.trim(), slug, input.logoUrl ?? null, input.description?.trim() || null, input.isActive === false ? 0 : 1, input.sortOrder ?? 0, now, now],
+      [
+        id,
+        businessId,
+        input.name.trim(),
+        slug,
+        input.logoUrl ?? null,
+        input.description?.trim() || null,
+        input.isActive === false ? 0 : 1,
+        input.sortOrder ?? 0,
+        now,
+        now,
+      ],
     )
     this.enqueue('brands', id, 'UPSERT', businessId, this.brandPayload(input, slug), now)
     this.syncCategoryLinks(id, businessId, categoryIds, now)
     this.onMutated()
     const created = this.getOne(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'brand', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'brand',
+      entityId: id,
+      entityLabel: created.name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -159,13 +178,29 @@ export class BrandsService {
       `UPDATE brands
        SET name = ?, slug = ?, logo_url = ?, description = ?, is_active = ?, sort_order = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
-      [input.name.trim(), slug, input.logoUrl ?? null, input.description?.trim() || null, input.isActive === false ? 0 : 1, input.sortOrder ?? 0, now, id, businessId],
+      [
+        input.name.trim(),
+        slug,
+        input.logoUrl ?? null,
+        input.description?.trim() || null,
+        input.isActive === false ? 0 : 1,
+        input.sortOrder ?? 0,
+        now,
+        id,
+        businessId,
+      ],
     )
     this.enqueue('brands', id, 'UPSERT', businessId, this.brandPayload(input, slug), now)
     this.syncCategoryLinks(id, businessId, categoryIds, now)
     this.onMutated()
     const updated = this.getOne(id)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'brand', entityId: id, entityLabel: updated.name, changes: { before: null, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'brand',
+      entityId: id,
+      entityLabel: updated.name,
+      changes: { before: null, after: updated },
+    })
     return updated
   }
 
@@ -173,13 +208,26 @@ export class BrandsService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getOne(id)
+    const inUse = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM products WHERE brand_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      [id, businessId],
+    )
+    if (inUse) {
+      throw new Error('This brand is still used by one or more products and cannot be deleted.')
+    }
     this.db.run(
       `UPDATE brands SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
     this.enqueue('brands', id, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'brand', entityId: id, entityLabel: before?.name ?? null, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'brand',
+      entityId: id,
+      entityLabel: before?.name ?? null,
+      changes: { before, after: null },
+    })
   }
 
   // ---- models --------------------------------------------------------------
@@ -192,12 +240,34 @@ export class BrandsService {
     this.db.run(
       `INSERT INTO models (id, business_id, brand_id, name, slug, is_active, sort_order, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, NULL, ?, ?, 0, ?, ?)`,
-      [id, businessId, brandId, input.name.trim(), input.isActive === false ? 0 : 1, sortOrder, now, now],
+      [
+        id,
+        businessId,
+        brandId,
+        input.name.trim(),
+        input.isActive === false ? 0 : 1,
+        sortOrder,
+        now,
+        now,
+      ],
     )
-    this.enqueue('models', id, 'UPSERT', businessId, { brandId, name: input.name.trim(), sortOrder, isActive: input.isActive !== false }, now)
+    this.enqueue(
+      'models',
+      id,
+      'UPSERT',
+      businessId,
+      { brandId, name: input.name.trim(), sortOrder, isActive: input.isActive !== false },
+      now,
+    )
     this.onMutated()
     const created = this.getModel(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'model', entityId: id, entityLabel: created.name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'model',
+      entityId: id,
+      entityLabel: created.name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -218,12 +288,23 @@ export class BrandsService {
       modelId,
       'UPSERT',
       businessId,
-      { brandId: existing.brand_id, name: input.name.trim(), sortOrder: existing.sort_order, isActive: input.isActive !== false },
+      {
+        brandId: existing.brand_id,
+        name: input.name.trim(),
+        sortOrder: existing.sort_order,
+        isActive: input.isActive !== false,
+      },
       now,
     )
     this.onMutated()
     const updated = this.getModel(modelId)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'model', entityId: modelId, entityLabel: updated.name, changes: { before: null, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'model',
+      entityId: modelId,
+      entityLabel: updated.name,
+      changes: { before: null, after: updated },
+    })
     return updated
   }
 
@@ -231,19 +312,37 @@ export class BrandsService {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
     const before = this.getModel(modelId)
+    const inUse = this.db.get<{ n: number }>(
+      `SELECT 1 AS n FROM products WHERE model_id = ? AND business_id = ? AND is_deleted = 0 LIMIT 1`,
+      [modelId, businessId],
+    )
+    if (inUse) {
+      throw new Error('This model is still used by one or more products and cannot be deleted.')
+    }
     this.db.run(
       `UPDATE models SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, modelId, businessId],
     )
     this.enqueue('models', modelId, 'DELETE', businessId, { isDeleted: true }, now)
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'model', entityId: modelId, entityLabel: before?.name ?? null, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'model',
+      entityId: modelId,
+      entityLabel: before?.name ?? null,
+      changes: { before, after: null },
+    })
   }
 
   // ---- internals -----------------------------------------------------------
 
   /** Diff the brand's category links against `categoryIds`: add new, soft-delete removed. */
-  private syncCategoryLinks(brandId: string, businessId: string, categoryIds: string[], now: string): void {
+  private syncCategoryLinks(
+    brandId: string,
+    businessId: string,
+    categoryIds: string[],
+    now: string,
+  ): void {
     const existing = this.db.query<LinkRow>(
       `SELECT id, brand_id, category_id FROM brand_categories WHERE business_id = ? AND brand_id = ? AND is_deleted = 0`,
       [businessId, brandId],
@@ -263,7 +362,10 @@ export class BrandsService {
     }
     for (const link of existing) {
       if (desired.has(link.category_id)) continue
-      this.db.run(`UPDATE brand_categories SET is_deleted = 1, updated_at = ? WHERE id = ?`, [now, link.id])
+      this.db.run(`UPDATE brand_categories SET is_deleted = 1, updated_at = ? WHERE id = ?`, [
+        now,
+        link.id,
+      ])
       this.enqueue('brandCategories', link.id, 'DELETE', businessId, { isDeleted: true }, now)
     }
   }
@@ -348,7 +450,15 @@ export class BrandsService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), entity, recordId, operation, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        entity,
+        recordId,
+        operation,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 }

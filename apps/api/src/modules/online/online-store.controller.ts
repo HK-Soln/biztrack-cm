@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { JwtPayload } from '@biztrack/types'
 import { Resource } from '@biztrack/types'
@@ -8,6 +18,7 @@ import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/res
 import { OnlineStoreService } from './online-store.service'
 import {
   CreateOnlineStoreDto,
+  ListOnlineProductsDto,
   UpdateOnlineStoreDto,
   UpdateProductOnlineDto,
 } from './dto/online-store.dto'
@@ -27,7 +38,9 @@ export class OnlineStoreController {
   }
 
   @Get('slug-check')
-  @ApiOperation({ summary: 'Check whether a subdomain slug is available (format + reserved + uniqueness)' })
+  @ApiOperation({
+    summary: 'Check whether a subdomain slug is available (format + reserved + uniqueness)',
+  })
   checkSlug(@CurrentUser() user: JwtPayload, @Query('slug') slug: string) {
     return this.onlineStoreService.checkSlug(user.businessId as string, slug ?? '')
   }
@@ -45,9 +58,38 @@ export class OnlineStoreController {
   }
 
   @Post('publish')
-  @ApiOperation({ summary: 'Publish the current draft (go live, clear unpublished changes)' })
+  @ApiOperation({ summary: 'Publish the current draft (snapshot the config; go live)' })
   publish(@CurrentUser() user: JwtPayload) {
-    return this.onlineStoreService.publishStore(user.businessId as string)
+    return this.onlineStoreService.publishStore(user.businessId as string, this.actor(user))
+  }
+
+  @Get('publications')
+  @ApiOperation({ summary: 'Publish history (audit trail), newest first' })
+  listPublications(@CurrentUser() user: JwtPayload) {
+    return this.onlineStoreService.listPublications(user.businessId as string)
+  }
+
+  @Post('publications/:version/restore')
+  @ApiOperation({ summary: 'Roll back: restore + republish an earlier published version' })
+  restorePublication(
+    @CurrentUser() user: JwtPayload,
+    @Param('version', ParseIntPipe) version: number,
+  ) {
+    return this.onlineStoreService.restorePublication(
+      user.businessId as string,
+      version,
+      this.actor(user),
+    )
+  }
+
+  private actor(user: JwtPayload): { id: string | null; name: string | null } {
+    return { id: user.sub, name: (user as { name?: string }).name ?? null }
+  }
+
+  @Get('products')
+  @ApiOperation({ summary: 'List products with their online-store publish state (admin)' })
+  listProducts(@CurrentUser() user: JwtPayload, @Query() query: ListOnlineProductsDto) {
+    return this.onlineStoreService.listProducts(user.businessId as string, query)
   }
 
   @Patch('products/:id')

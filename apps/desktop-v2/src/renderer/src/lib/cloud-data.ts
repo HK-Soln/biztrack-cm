@@ -42,7 +42,13 @@ import type {
   OnlineOrderListResult,
   OnlineOrderDetail,
   OnlineOrder,
+  OnlineSlugCheck,
+  OnlineAdminProduct,
+  OnlineAdminProductsQuery,
+  OnlineStorePublicationSummary,
+  PaginatedResult,
   UpdateOrderStatusRequest,
+  UpdateOrderPaymentRequest,
   // uploads
   UploadFileInput,
   UploadedFile,
@@ -74,7 +80,8 @@ export const cloudRoles = {
   permissions: () => cget<ListPermissionsResponse>('/roles/permissions'),
   get: (id: string) => cget<RoleWithPermissions>(`/roles/${id}`),
   create: (input: CreateRoleRequest) => cpost<RoleWithPermissions>('/roles', input),
-  update: (id: string, input: UpdateRoleRequest) => cpatch<RoleWithPermissions>(`/roles/${id}`, input),
+  update: (id: string, input: UpdateRoleRequest) =>
+    cpatch<RoleWithPermissions>(`/roles/${id}`, input),
   remove: (id: string) => cdelete<{ deleted: boolean }>(`/roles/${id}`),
   setPermissions: (id: string, permissions: string[]) =>
     cput<RoleWithPermissions>(`/roles/${id}/permissions`, { permissions }),
@@ -84,7 +91,8 @@ export const cloudTeam = {
   listMembers: () => cget<ListTeamMembersResponse>('/businesses/members'),
   updateMemberRole: (userId: string, roleId: string) =>
     cpatch<UpdateMemberRoleResponse>(`/businesses/members/${userId}/role`, { roleId }),
-  removeMember: (userId: string) => cdelete<RemoveTeamMemberResponse>(`/businesses/members/${userId}`),
+  removeMember: (userId: string) =>
+    cdelete<RemoveTeamMemberResponse>(`/businesses/members/${userId}`),
   setMemberActive: (userId: string, active: boolean) =>
     cpatch<UpdateMemberStatusResponse>(`/businesses/members/${userId}/status`, { active }),
   listInvites: () => cget<ListPendingInvitesResponse>('/invites'),
@@ -108,8 +116,10 @@ export const cloudNotificationsRest = {
 
 export const cloudInvitations = {
   list: () => cget<ListMyInvitationsResponse>('/businesses/invitations'),
-  accept: (businessId: string) => cpost<AcceptInvitationResponse>(`/businesses/invitations/${businessId}/accept`, {}),
-  reject: (businessId: string) => cpost<RejectInvitationResponse>(`/businesses/invitations/${businessId}/reject`, {}),
+  accept: (businessId: string) =>
+    cpost<AcceptInvitationResponse>(`/businesses/invitations/${businessId}/accept`, {}),
+  reject: (businessId: string) =>
+    cpost<RejectInvitationResponse>(`/businesses/invitations/${businessId}/reject`, {}),
 }
 
 // Structural shape covering both /businesses/mine business-summaries and the
@@ -144,7 +154,10 @@ export const cloudBusiness = {
     return toProfile(b, membership?.role ?? null)
   },
   update: async (payload: UpdateBusinessRequest): Promise<BusinessProfile> => {
-    const b = await cpost<BusinessFields & { role?: BusinessProfile['role'] }>('/businesses/setup', payload)
+    const b = await cpost<BusinessFields & { role?: BusinessProfile['role'] }>(
+      '/businesses/setup',
+      payload,
+    )
     return toProfile(b, b.role ?? null)
   },
 }
@@ -164,6 +177,9 @@ export const cloudOnline = {
   createStore: (input: CreateOnlineStoreRequest) => cpost<OnlineStore>('/online-store', input),
   updateStore: (input: UpdateOnlineStoreRequest) => cpatch<OnlineStore>('/online-store', input),
   publishStore: () => cpost<OnlineStore>('/online-store/publish', {}),
+  listPublications: () => cget<OnlineStorePublicationSummary[]>('/online-store/publications'),
+  restorePublication: (version: number) =>
+    cpost<OnlineStore>(`/online-store/publications/${version}/restore`, {}),
   listOrders: (query: OnlineOrdersQuery = {}) => {
     const params = new URLSearchParams()
     Object.entries(query).forEach(([k, v]) => {
@@ -175,6 +191,21 @@ export const cloudOnline = {
   getOrder: (id: string) => cget<OnlineOrderDetail>(`/online-store/orders/${id}`),
   updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) =>
     cpatch<OnlineOrder>(`/online-store/orders/${id}/status`, input),
+  updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) =>
+    cpatch<OnlineOrderDetail>(`/online-store/orders/${id}/payment`, input),
+  checkSlug: (slug: string) =>
+    cget<OnlineSlugCheck>(`/online-store/slug-check?slug=${encodeURIComponent(slug)}`),
+  listProducts: (query: OnlineAdminProductsQuery = {}) => {
+    const params = new URLSearchParams()
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+    })
+    const qs = params.toString()
+    return cget<PaginatedResult<OnlineAdminProduct>>(`/online-store/products${qs ? `?${qs}` : ''}`)
+  },
+  setProductPublished: async (id: string, published: boolean) => {
+    await cpatch(`/online-store/products/${id}`, { isPublishedOnline: published })
+  },
 }
 
 export const cloudUploads = {
