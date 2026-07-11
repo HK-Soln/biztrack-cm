@@ -1,5 +1,5 @@
 import { createHttpClient, type HttpClient, type RequestConfig } from '@biztrack/http-client'
-import { API_BASE_URL } from '../config'
+import { config as appConfig } from '../config'
 import type { TokenStore } from './token-store'
 
 type ApiEnvelope<T> = { success?: boolean; data: T }
@@ -14,7 +14,7 @@ function headerVal(config: Pick<RequestConfig, 'headers'> | undefined, name: str
  * Tokens come from / go to the encrypted TokenStore — never the renderer.
  */
 export function createAuthHttp(tokens: TokenStore, onCleared: () => void): HttpClient {
-  const http = createHttpClient({ baseURL: API_BASE_URL, timeout: 20_000 })
+  const http = createHttpClient({ baseURL: appConfig.apiBaseUrl, timeout: 20_000 })
 
   http.interceptors.request.use((config) => {
     const headers = (config.headers ?? {}) as Record<string, string>
@@ -59,11 +59,11 @@ export function createAuthHttp(tokens: TokenStore, onCleared: () => void): HttpC
       refreshing = true
       try {
         const refreshToken = tokens.getTokens()?.refreshToken
-        const { data } = await http.post<ApiEnvelope<{ tokens?: { accessToken: string; refreshToken: string } }>>(
-          '/auth/refresh',
-          refreshToken ? { refreshToken } : {},
-          { headers: { 'x-skip-auth-refresh': '1', 'x-skip-auth': '1' } },
-        )
+        const { data } = await http.post<
+          ApiEnvelope<{ tokens?: { accessToken: string; refreshToken: string } }>
+        >('/auth/refresh', refreshToken ? { refreshToken } : {}, {
+          headers: { 'x-skip-auth-refresh': '1', 'x-skip-auth': '1' },
+        })
         const next = data?.data?.tokens
         if (next) {
           tokens.setTokens(next)
