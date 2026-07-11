@@ -100,6 +100,9 @@ jobs:
         run: pnpm run build
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          # Storefront root domain baked into the renderer — differs per environment.
+          # Optional: falls back to the default in src/shared/config.ts when unset.
+          VITE_STOREFRONT_DOMAIN: ${{ vars.VITE_STOREFRONT_DOMAIN }}
 
       - name: Package installer (NSIS)
         working-directory: apps/desktop-v2

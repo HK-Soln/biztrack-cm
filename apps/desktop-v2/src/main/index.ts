@@ -1,8 +1,13 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron'
 import { join } from 'path'
-import { DatabaseService, RealtimeClient, SecureStoreService, SyncService } from '@biztrack/electron-core'
+import {
+  DatabaseService,
+  RealtimeClient,
+  SecureStoreService,
+  SyncService,
+} from '@biztrack/electron-core'
 import { IPC, type SyncStatus, type TitleBarOverlayColors } from '../shared/ipc'
-import { API_BASE_URL } from './config'
+import { config } from './config'
 import { SkeletonService } from './services/skeleton.service'
 import { registerIpc } from './ipc'
 import { TokenStore } from './services/token-store'
@@ -86,7 +91,7 @@ function applyOverlayToAllWindows() {
 }
 
 function resolveDbPath(): string {
-  if (process.env.DESKTOP_DB_PATH) return process.env.DESKTOP_DB_PATH
+  if (config.dbPathOverride) return config.dbPathOverride
   return app.isPackaged
     ? join(app.getPath('userData'), 'biztrack.db')
     : join(app.getAppPath(), 'biztrack-v2-dev.db')
@@ -125,7 +130,7 @@ function createWindow(): void {
   })
 
   // electron-vite sets ELECTRON_RENDERER_URL in dev; prod loads the built file.
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL
+  const rendererUrl = config.rendererDevUrl
   if (rendererUrl) {
     win.loadURL(rendererUrl)
     win.webContents.openDevTools()
@@ -164,7 +169,7 @@ app.whenReady().then(() => {
   // persisted in the encrypted store. Renderer only ever sees SyncStatus.
   const sync = new SyncService({
     db,
-    apiBaseUrl: API_BASE_URL,
+    apiBaseUrl: config.apiBaseUrl,
     getSyncToken: () => tokenStore.getSyncCredential(),
     getDeviceId: () => tokenStore.ensureDeviceId(),
     getCursor: () => secureStore.get(SYNC_CURSOR_KEY),
@@ -181,10 +186,11 @@ app.whenReady().then(() => {
   // gateway, authenticated with the ACCESS token → the gateway auto-joins the user room.
   // Pushes arrive on the `notification` event and are forwarded to the renderer.
   const realtime = new RealtimeClient({
-    apiBaseUrl: API_BASE_URL,
+    apiBaseUrl: config.apiBaseUrl,
     getAccessToken: () => tokenStore.getTokens()?.accessToken ?? null,
     onNotification: (payload) => {
-      for (const w of BrowserWindow.getAllWindows()) w.webContents.send(IPC.notificationEvent, payload)
+      for (const w of BrowserWindow.getAllWindows())
+        w.webContents.send(IPC.notificationEvent, payload)
     },
   })
   realtime.start()

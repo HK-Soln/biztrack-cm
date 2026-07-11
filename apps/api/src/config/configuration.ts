@@ -71,6 +71,14 @@ const envSchema = z.object({
   BIZTRACK_WEB_URL: z
     .preprocess(normalizeEnvString, z.string().url())
     .default('https://biztrack.cm'),
+  // "Download latest desktop app" redirect target (GET /download/desktop). Defaults to GitHub's
+  // latest-release asset (stable filename via electron-builder artifactName). Swap to an R2/CDN
+  // URL or store links later without touching the landing page.
+  DESKTOP_DOWNLOAD_URL: z
+    .preprocess(normalizeEnvString, z.string().url())
+    .default(
+      'https://github.com/HK-Soln/biztrack-cm/releases/latest/download/BizTrack-CM-Setup.exe',
+    ),
   // Waiting list feature flags
   INTERNAL_API_SECRET: z.preprocess(normalizeEnvString, z.string()).optional(),
   // Online orders: post the financial sale when an order is CONFIRMED (COD → receivable),

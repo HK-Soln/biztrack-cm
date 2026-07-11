@@ -5,6 +5,7 @@ import {
   type RequestConfig,
   type RequestOptions,
 } from '@biztrack/http-client/browser'
+import { CLOUD_API_BASE_URL } from './config'
 
 /**
  * Browser HTTP client for the cloud/online build. The renderer talks to apps/api
@@ -16,8 +17,9 @@ import {
  * Only used by the cloud DataClient adapter — the Electron build never imports it.
  */
 
-export const CLOUD_API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined)?.trim() || 'http://localhost:3001/api/v1'
+// Re-exported from the single renderer config (src/renderer/src/lib/config.ts) so existing
+// importers (cloud-misc, cloud-realtime) keep working.
+export { CLOUD_API_BASE_URL }
 
 export type ApiEnvelope<T> = { success?: boolean; data: T }
 
@@ -145,7 +147,9 @@ export async function cgetAll<T>(path: string, pageSize = 100): Promise<T[]> {
   const all: T[] = []
   const sep = path.includes('?') ? '&' : '?'
   for (let page = 1; page <= 200; page++) {
-    const res = await cget<{ data: T[]; totalPages?: number }>(`${path}${sep}page=${page}&limit=${pageSize}`)
+    const res = await cget<{ data: T[]; totalPages?: number }>(
+      `${path}${sep}page=${page}&limit=${pageSize}`,
+    )
     const rows = res.data ?? []
     all.push(...rows)
     if (rows.length < pageSize || (res.totalPages !== undefined && page >= res.totalPages)) break
