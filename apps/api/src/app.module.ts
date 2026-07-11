@@ -43,6 +43,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module'
 import { UserLocaleResolver } from './common/resolvers/user-locale.resolver'
 import { User } from './entities/user.entity'
 import { HealthController } from './health.controller'
+import { DownloadsController } from './downloads.controller'
 
 const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/')
 const migrationsPath = join(__dirname, 'database', 'migrations', '*{.ts,.js}').replace(/\\/g, '/')
@@ -61,7 +62,7 @@ function resolveI18nPath() {
 }
 
 @Module({
-  controllers: [HealthController],
+  controllers: [HealthController, DownloadsController],
   imports: [
     LoggerModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
@@ -93,7 +94,7 @@ function resolveI18nPath() {
         entities: [entitiesPath],
         migrations: [migrationsPath],
         synchronize: false,
-        logging: false //config.get('NODE_ENV', { infer: true }) === NodeEnv.DEVELOPMENT,
+        logging: false, //config.get('NODE_ENV', { infer: true }) === NodeEnv.DEVELOPMENT,
       }),
     }),
     AuthModule,

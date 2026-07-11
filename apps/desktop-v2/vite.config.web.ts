@@ -2,6 +2,7 @@ import { resolve } from 'path'
 import { createHash } from 'crypto'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { DEFAULT_API_BASE_URL } from './src/shared/config'
 
 // Standalone WEB build of the desktop-v2 renderer (the cloud app deployed to Vercel).
 // The Electron build (electron.vite.config.ts) ships the same renderer inside Electron;
@@ -11,7 +12,7 @@ import react from '@vitejs/plugin-react'
 // The browser talks to the API directly (unlike Electron, where the main process does),
 // so derive the API origin from VITE_API_URL to open up the production CSP.
 function apiOrigins() {
-  const raw = process.env.VITE_API_URL?.trim() || 'http://localhost:3001/api/v1'
+  const raw = process.env.VITE_API_URL?.trim() || DEFAULT_API_BASE_URL
   try {
     const u = new URL(raw)
     return { http: u.origin, ws: `${u.protocol === 'https:' ? 'wss' : 'ws'}://${u.host}` }
