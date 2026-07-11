@@ -454,24 +454,6 @@ importers:
 
   apps/desktop-v2:
     dependencies:
-      '@biztrack/electron-core':
-        specifier: workspace:*
-        version: link:../../packages/electron-core
-      '@biztrack/http-client':
-        specifier: workspace:*
-        version: link:../../packages/http-client
-      '@biztrack/templates':
-        specifier: workspace:*
-        version: link:../../packages/templates
-      '@biztrack/types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      '@biztrack/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      '@biztrack/utils':
-        specifier: workspace:*
-        version: link:../../packages/utils
       '@tanstack/react-query':
         specifier: ^5.62.7
         version: 5.101.0(react@19.2.4)
@@ -503,12 +485,30 @@ importers:
         specifier: ^5.0.2
         version: 5.0.11(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
+      '@biztrack/electron-core':
+        specifier: workspace:*
+        version: link:../../packages/electron-core
       '@biztrack/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
+      '@biztrack/http-client':
+        specifier: workspace:*
+        version: link:../../packages/http-client
+      '@biztrack/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
+      '@biztrack/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@biztrack/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
+      '@biztrack/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@biztrack/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@electron/rebuild':
         specifier: 3.6.1
         version: 3.6.1

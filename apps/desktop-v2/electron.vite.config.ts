@@ -2,6 +2,34 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+// Bundle the workspace @biztrack/* packages INTO the main/preload output instead of
+// externalizing them. In a pnpm monorepo they're symlinked (node_modules/@biztrack/* →
+// packages/*), and electron-builder crashes trying to pack files from those symlink
+// targets ("… must be under apps/desktop-v2"). Bundling removes them from the packaged
+// node_modules entirely. Native/third-party deps (better-sqlite3, etc.) stay external.
+const BUNDLED_WORKSPACE_PKGS = [
+  '@biztrack/electron-core',
+  '@biztrack/http-client',
+  '@biztrack/templates',
+  '@biztrack/types',
+  '@biztrack/utils',
+  '@biztrack/logger',
+]
+
+// Resolve those workspace packages to their TS SOURCE (not the CJS dist, whose named exports
+// Rollup can't statically bind — same reason the renderer aliases them). Bundling from source
+// keeps the packaged app free of the symlinked node_modules that break electron-builder.
+const workspaceSrc = (pkg: string, entry = 'src/index.ts') =>
+  resolve(__dirname, `../../packages/${pkg}/${entry}`)
+const MAIN_ALIASES = {
+  '@biztrack/electron-core': workspaceSrc('electron-core'),
+  '@biztrack/http-client': workspaceSrc('http-client'),
+  '@biztrack/templates': workspaceSrc('templates'),
+  '@biztrack/types': workspaceSrc('types'),
+  '@biztrack/utils': workspaceSrc('utils'),
+  '@biztrack/logger': workspaceSrc('logger'),
+}
+
 // Dev-only CSP loosening (serve mode). The packaged Electron build keeps the strict
 // policy because the MAIN process makes API calls + opens the realtime socket — the
 // renderer never talks to the network directly there. But in the browser / cloud build
@@ -33,7 +61,8 @@ const devCspPlugin = {
 // rather than bundled — essential for the native SQLite binary.
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_PKGS })],
+    resolve: { alias: MAIN_ALIASES },
     // Bake the API base URL into the packaged main-process bundle at BUILD time.
     // electron-vite does NOT inline process.env for the main process, so without this
     // the installed app reads process.env on the user's machine (unset) and falls back
@@ -49,7 +78,8 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_PKGS })],
+    resolve: { alias: MAIN_ALIASES },
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/preload/index.ts') },

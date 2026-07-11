@@ -2,6 +2,8 @@
   "name": "@biztrack/desktop-v2",
   "version": "0.0.1",
   "private": true,
+  "description": "BizTrack CM — offline-first point-of-sale desktop app for Cameroonian SMBs.",
+  "author": "BizTrack CM",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "tsc -p ../../packages/electron-core/tsconfig.json && electron-vite dev",
@@ -63,12 +65,6 @@
     ]
   },
   "dependencies": {
-    "@biztrack/electron-core": "workspace:*",
-    "@biztrack/http-client": "workspace:*",
-    "@biztrack/templates": "workspace:*",
-    "@biztrack/types": "workspace:*",
-    "@biztrack/ui": "workspace:*",
-    "@biztrack/utils": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.7.0",
@@ -81,8 +77,14 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@biztrack/electron-core": "workspace:*",
     "@biztrack/eslint-config": "workspace:*",
+    "@biztrack/http-client": "workspace:*",
+    "@biztrack/templates": "workspace:*",
+    "@biztrack/types": "workspace:*",
     "@biztrack/typescript-config": "workspace:*",
+    "@biztrack/ui": "workspace:*",
+    "@biztrack/utils": "workspace:*",
     "@electron/rebuild": "3.6.1",
     "eslint": "^9.32.0",
     "@types/bcryptjs": "^2.4.6",
