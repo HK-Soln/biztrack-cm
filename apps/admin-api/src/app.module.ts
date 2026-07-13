@@ -22,6 +22,9 @@ import { HealthModule } from './modules/health/health.module'
 import { AdminAuthModule } from './modules/admin-auth/admin-auth.module'
 import { AdminRolesModule } from './modules/admin-roles/admin-roles.module'
 import { AdminUsersModule } from './modules/admin-users/admin-users.module'
+import { BusinessesModule } from './modules/businesses/businesses.module'
+import { ClientUsersModule } from './modules/client-users/client-users.module'
+import { SupportModule } from './modules/support/support.module'
 
 const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/')
 
@@ -54,6 +57,9 @@ const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/
     AdminAuthModule,
     AdminRolesModule,
     AdminUsersModule,
+    BusinessesModule,
+    ClientUsersModule,
+    SupportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

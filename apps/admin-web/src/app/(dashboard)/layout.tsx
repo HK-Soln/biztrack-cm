@@ -14,6 +14,9 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/overview', label: 'Overview' },
+  { href: '/businesses', label: 'Businesses', permission: 'businesses:view' },
+  { href: '/users', label: 'Users', permission: 'users:view' },
+  { href: '/support', label: 'Support', permission: 'support:view' },
   { href: '/roles', label: 'Roles', permission: 'admin_roles:view' },
   { href: '/team', label: 'Team', permission: 'admin_users:view' },
 ]
