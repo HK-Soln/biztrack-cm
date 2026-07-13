@@ -294,6 +294,7 @@ app.whenReady().then(() => {
     () => void sync.sync(),
     () => authService.getSession().user?.id ?? null,
     audit,
+    debts,
   )
   registerOpeningBalancesIpc(openingBalances)
 

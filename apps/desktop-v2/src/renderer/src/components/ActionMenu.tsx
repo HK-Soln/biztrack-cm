@@ -14,7 +14,13 @@ const MENU_WIDTH = 200
  * rendered in a portal with fixed positioning computed from the trigger, so it is never
  * clipped by a table/panel's overflow; it flips above the button and clamps horizontally
  * when there isn't room. Closes on outside-click / Esc / scroll. */
-export function ActionMenu({ items, label = 'Actions' }: { items: ActionMenuItem[]; label?: string }) {
+export function ActionMenu({
+  items,
+  label = 'Actions',
+}: {
+  items: ActionMenuItem[]
+  label?: string
+}) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -59,9 +65,19 @@ export function ActionMenu({ items, label = 'Actions' }: { items: ActionMenuItem
 
   return (
     <div className="actionmenu">
-      <button type="button" ref={btnRef} className="icon-btn" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+      <button
+        type="button"
+        ref={btnRef}
+        className="icon-btn"
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={toggle}
+      >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-          <circle cx="12" cy="5" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="12" cy="19" r="1.4" />
+          <circle cx="12" cy="5" r="1.4" />
+          <circle cx="12" cy="12" r="1.4" />
+          <circle cx="12" cy="19" r="1.4" />
         </svg>
       </button>
       {open && pos
@@ -70,7 +86,13 @@ export function ActionMenu({ items, label = 'Actions' }: { items: ActionMenuItem
               ref={menuRef}
               className="actionmenu-pop"
               role="menu"
-              style={{ position: 'fixed', top: pos.top, left: pos.left, width: MENU_WIDTH, zIndex: 200 }}
+              style={{
+                position: 'fixed',
+                top: pos.top,
+                left: pos.left,
+                width: MENU_WIDTH,
+                zIndex: 400,
+              }}
             >
               {items.map((it, i) => (
                 <button

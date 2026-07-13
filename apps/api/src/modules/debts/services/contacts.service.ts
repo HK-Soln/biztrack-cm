@@ -76,8 +76,8 @@ export class ContactsService {
           new Brackets((builder) => {
             builder
               .where('LOWER(contact.name) LIKE :search', { search })
-              .orWhere('LOWER(COALESCE(contact.phone, \'\')) LIKE :search', { search })
-              .orWhere('LOWER(COALESCE(contact.phone_alt, \'\')) LIKE :search', { search })
+              .orWhere("LOWER(COALESCE(contact.phone, '')) LIKE :search", { search })
+              .orWhere("LOWER(COALESCE(contact.phone_alt, '')) LIKE :search", { search })
           }),
         )
       }
@@ -88,8 +88,15 @@ export class ContactsService {
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
       const skip = (page - 1) * limit
 
-      const [rows, total] = await qb.orderBy(sort, sortOrder).skip(skip).take(limit).getManyAndCount()
-      const summaryMap = await this.buildSummaryMap(businessId, rows.map((row) => row.id))
+      const [rows, total] = await qb
+        .orderBy(sort, sortOrder)
+        .skip(skip)
+        .take(limit)
+        .getManyAndCount()
+      const summaryMap = await this.buildSummaryMap(
+        businessId,
+        rows.map((row) => row.id),
+      )
 
       return {
         data: rows.map((row) => this.toContactModel(row, summaryMap.get(row.id))),
@@ -106,8 +113,14 @@ export class ContactsService {
   /** Aggregate balances + per-tab counts for the contacts list header. */
   async summary(businessId: string): Promise<ContactsSummary> {
     try {
-      const contacts = await this.contactsRepo.find({ where: { businessId, isActive: true }, select: { id: true, type: true } })
-      const map = await this.buildSummaryMap(businessId, contacts.map((c) => c.id))
+      const contacts = await this.contactsRepo.find({
+        where: { businessId, isActive: true },
+        select: { id: true, type: true },
+      })
+      const map = await this.buildSummaryMap(
+        businessId,
+        contacts.map((c) => c.id),
+      )
       let totalReceivable = 0
       let totalPayable = 0
       let debtorCount = 0
@@ -287,37 +300,46 @@ export class ContactsService {
         name: dto.name?.trim() ?? contact.name,
         phone:
           dto.phone === undefined
-            ? contact.phone ?? null
+            ? (contact.phone ?? null)
             : await this.normalizeOptionalPhone(dto.phone),
         phoneAlt:
           dto.phoneAlt === undefined
-            ? contact.phoneAlt ?? null
+            ? (contact.phoneAlt ?? null)
             : await this.normalizeOptionalPhone(dto.phoneAlt),
-        email: dto.email === undefined ? contact.email ?? null : this.normalizeOptionalString(dto.email),
-        address: dto.address === undefined ? contact.address ?? null : this.normalizeOptionalString(dto.address),
-        notes: dto.notes === undefined ? contact.notes ?? null : this.normalizeOptionalString(dto.notes),
-        idType: dto.idType === undefined ? contact.idType ?? null : dto.idType ?? null,
+        email:
+          dto.email === undefined
+            ? (contact.email ?? null)
+            : this.normalizeOptionalString(dto.email),
+        address:
+          dto.address === undefined
+            ? (contact.address ?? null)
+            : this.normalizeOptionalString(dto.address),
+        notes:
+          dto.notes === undefined
+            ? (contact.notes ?? null)
+            : this.normalizeOptionalString(dto.notes),
+        idType: dto.idType === undefined ? (contact.idType ?? null) : (dto.idType ?? null),
         idNumber:
           dto.idNumber === undefined
-            ? contact.idNumber ?? null
+            ? (contact.idNumber ?? null)
             : this.normalizeOptionalString(dto.idNumber),
         idIssueDate:
           dto.idIssueDate === undefined
-            ? contact.idIssueDate ?? null
+            ? (contact.idIssueDate ?? null)
             : this.normalizeOptionalString(dto.idIssueDate),
         idExpiryDate:
           dto.idExpiryDate === undefined
-            ? contact.idExpiryDate ?? null
+            ? (contact.idExpiryDate ?? null)
             : this.normalizeOptionalString(dto.idExpiryDate),
         idDocuments:
           dto.idDocuments === undefined
-            ? contact.idDocuments ?? null
+            ? (contact.idDocuments ?? null)
             : dto.idDocuments?.length
               ? dto.idDocuments
               : null,
         selfieUrl:
           dto.selfieUrl === undefined
-            ? contact.selfieUrl ?? null
+            ? (contact.selfieUrl ?? null)
             : this.normalizeOptionalString(dto.selfieUrl),
         updatedAt: new Date(),
       })
@@ -388,24 +410,28 @@ export class ContactsService {
   private async buildSummaryMap(businessId: string, contactIds: string[]) {
     const result = new Map<
       string,
-      { totalReceivable: number; totalPayable: number; openDebts: number; lastTransactionDate: string | null; oldestUnpaidAt: string | null }
+      {
+        totalReceivable: number
+        totalPayable: number
+        openDebts: number
+        lastTransactionDate: string | null
+        oldestUnpaidAt: string | null
+      }
     >()
 
     if (contactIds.length === 0) return result
 
-    const [debts, obMap] = await Promise.all([
-      this.debtsRepo.find({
-        where: { businessId, contactId: In(contactIds) },
-        relations: ['payments'],
-      }),
-      this.openingBalancesService.findMapForContacts(businessId, contactIds),
-    ])
+    // Opening balances are now OPENING_BALANCE debts, so they're included in this debt scan —
+    // no separate opening-balance seeding (that would double-count).
+    const debts = await this.debtsRepo.find({
+      where: { businessId, contactId: In(contactIds) },
+      relations: ['payments'],
+    })
 
     for (const contactId of contactIds) {
-      const ob = obMap.get(contactId)
       result.set(contactId, {
-        totalReceivable: ob?.receivable ?? 0,
-        totalPayable: ob?.payable ?? 0,
+        totalReceivable: 0,
+        totalPayable: 0,
         openDebts: 0,
         lastTransactionDate: null,
         oldestUnpaidAt: null,
@@ -437,7 +463,10 @@ export class ContactsService {
         }
       }
 
-      summary.lastTransactionDate = this.maxDate(summary.lastTransactionDate, this.toDateOnly(debt.createdAt))
+      summary.lastTransactionDate = this.maxDate(
+        summary.lastTransactionDate,
+        this.toDateOnly(debt.createdAt),
+      )
       summary.lastTransactionDate = this.maxDate(
         summary.lastTransactionDate,
         debt.settledAt ? this.toDateOnly(debt.settledAt) : null,
@@ -457,7 +486,13 @@ export class ContactsService {
 
   private toContactModel(
     contact: Contact & { createdBy?: { id: string; name: string } | null },
-    summary?: { totalReceivable: number; totalPayable: number; openDebts: number; lastTransactionDate: string | null; oldestUnpaidAt: string | null },
+    summary?: {
+      totalReceivable: number
+      totalPayable: number
+      openDebts: number
+      lastTransactionDate: string | null
+      oldestUnpaidAt: string | null
+    },
   ): ContactListItem {
     return {
       id: contact.id,
