@@ -29,3 +29,7 @@ export { PhoneInput, isValidPhone } from './PhoneInput'
 export type { PhoneInputProps } from './PhoneInput'
 export { OtpInput } from './OtpInput'
 export type { OtpInputProps } from './OtpInput'
+// Toast host + imperative API (sonner). Mount <Toaster /> once at the app root, then call
+// `toast.error(...)` / `toast.success(...)` from anywhere.
+export { Toaster } from '../components/Toaster'
+export { toast } from 'sonner'

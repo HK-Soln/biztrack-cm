@@ -4,6 +4,7 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   ContactType,
   DebtDirection,
+  DebtSource,
   DebtStatus,
   type AgeingEntry,
   type AgeingReport,
@@ -28,6 +29,17 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Every opening balance is mirrored as a `debt` row (sourceType=OPENING_BALANCE) so it can be
+ * paid through the normal debt-payment machinery. The natural key is
+ * (business, OPENING_BALANCE, contactId, direction) — `sourceId = contactId` is deterministic
+ * and identical on desktop + cloud, so a locally-created and an API-created opening-balance debt
+ * converge to one row on sync instead of duplicating. Aggregations (net position, ageing,
+ * statement, contact summary) read the opening balance from this debt, never double-counting the
+ * `contact_opening_balances` amount on top of it.
+ */
+const OPENING_BALANCE_DEBT_REFERENCE = 'Opening balance'
 
 @Injectable()
 export class OpeningBalancesService {
@@ -75,6 +87,7 @@ export class OpeningBalancesService {
           recordedById: user.sub,
           updatedAt: new Date(),
         })
+        await this.materializeDebt(businessId, contactId, dto.direction, amount, dto.asOfDate)
         const updated = await this.openingBalancesRepo.findOneOrFail({ where: { id: existing.id } })
         return this.toModel(updated)
       }
@@ -90,6 +103,7 @@ export class OpeningBalancesService {
           recordedById: user.sub,
         }),
       )
+      await this.materializeDebt(businessId, contactId, dto.direction, amount, dto.asOfDate)
       return this.toModel(created)
     } catch (error) {
       return this.handleServiceError('upsert', error, { contactId, businessId })
@@ -124,27 +138,83 @@ export class OpeningBalancesService {
       }
 
       await this.openingBalancesRepo.delete(existing.id)
+      // Drop the mirrored debt (its payments cascade via the debt_payments FK).
+      await this.debtsRepo.delete({
+        businessId,
+        sourceType: DebtSource.OPENING_BALANCE,
+        sourceId: contactId,
+        direction,
+      })
     } catch (error) {
       return this.handleServiceError('delete', error, { contactId, businessId, direction })
     }
   }
 
+  /**
+   * Create or update the debt that mirrors a contact's opening balance. Idempotent on the
+   * natural key (business, OPENING_BALANCE, contactId, direction); `createdAt` is pinned to the
+   * opening-balance date so the debt sorts to the top of the account statement. On amount change
+   * the debt status is recomputed from any payments already recorded against it.
+   */
+  private async materializeDebt(
+    businessId: string,
+    contactId: string,
+    direction: DebtDirection,
+    amount: number,
+    asOfDate: string,
+  ): Promise<void> {
+    const existing = await this.debtsRepo.findOne({
+      where: { businessId, sourceType: DebtSource.OPENING_BALANCE, sourceId: contactId, direction },
+      relations: ['payments'],
+    })
+
+    if (existing) {
+      const paid = this.roundMoney((existing.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
+      const settled = paid >= amount - 1e-6
+      existing.originalAmount = amount
+      existing.sourceReference = OPENING_BALANCE_DEBT_REFERENCE
+      existing.status =
+        existing.status === DebtStatus.WRITTEN_OFF
+          ? DebtStatus.WRITTEN_OFF
+          : settled
+            ? DebtStatus.SETTLED
+            : paid > 0
+              ? DebtStatus.PARTIALLY_PAID
+              : DebtStatus.OUTSTANDING
+      existing.settledAt = settled ? (existing.settledAt ?? new Date()) : null
+      await this.debtsRepo.save(existing)
+      return
+    }
+
+    await this.debtsRepo.save(
+      this.debtsRepo.create({
+        businessId,
+        contactId,
+        direction,
+        sourceType: DebtSource.OPENING_BALANCE,
+        sourceId: contactId,
+        sourceReference: OPENING_BALANCE_DEBT_REFERENCE,
+        originalAmount: amount,
+        status: DebtStatus.OUTSTANDING,
+        // Pin to the opening-balance date so it precedes later transactions in the statement.
+        createdAt: new Date(`${asOfDate}T00:00:00.000Z`),
+      }),
+    )
+  }
+
   async getNetPosition(contactId: string, businessId: string): Promise<ContactNetPosition> {
     try {
       const contact = await this.requireContact(contactId, businessId)
-      const openingBalances = await this.openingBalancesRepo.find({
-        where: { businessId, contactId },
-      })
 
-      const obMap = new Map(openingBalances.map((ob) => [ob.direction, ob.amount]))
-      const receivableOb = obMap.get(DebtDirection.RECEIVABLE) ?? 0
-      const payableOb = obMap.get(DebtDirection.PAYABLE) ?? 0
-
+      // The opening balance is now a debt (sourceType=OPENING_BALANCE), so everything derives
+      // from debts — the opening balance is separated out only for reporting, never added on top.
       const debts = await this.debtsRepo.find({
         where: { businessId, contactId },
         relations: ['payments'],
       })
 
+      let receivableOb = 0
+      let payableOb = 0
       let receivableDebts = 0
       let receivablePaid = 0
       let payableDebts = 0
@@ -152,16 +222,17 @@ export class OpeningBalancesService {
 
       for (const debt of debts) {
         if (debt.status === DebtStatus.WRITTEN_OFF) continue
-        const paid = this.roundMoney(
-          (debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
-        )
+        const paid = this.roundMoney((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
         const outstanding = this.roundMoney(Math.max(0, debt.originalAmount - paid))
+        const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
 
         if (debt.direction === DebtDirection.RECEIVABLE) {
-          receivableDebts = this.roundMoney(receivableDebts + outstanding)
+          if (isOpening) receivableOb = this.roundMoney(receivableOb + outstanding)
+          else receivableDebts = this.roundMoney(receivableDebts + outstanding)
           receivablePaid = this.roundMoney(receivablePaid + paid)
         } else {
-          payableDebts = this.roundMoney(payableDebts + outstanding)
+          if (isOpening) payableOb = this.roundMoney(payableOb + outstanding)
+          else payableDebts = this.roundMoney(payableDebts + outstanding)
           payablePaid = this.roundMoney(payablePaid + paid)
         }
       }
@@ -208,20 +279,11 @@ export class OpeningBalancesService {
         relations: ['contact', 'payments'],
       })
 
-      const contactIds = [...new Set(debts.map((d) => d.contactId))]
-      const openingBalances =
-        contactIds.length > 0
-          ? await this.openingBalancesRepo.find({
-              where: { businessId, contactId: In(contactIds), direction },
-            })
-          : []
-
-      const obByContact = new Map(openingBalances.map((ob) => [ob.contactId, ob.amount]))
-
       const contactMap = new Map<
         string,
         {
           contact: Contact
+          openingBalance: number
           current: number
           moderate: number
           aged: number
@@ -232,15 +294,13 @@ export class OpeningBalancesService {
 
       for (const debt of debts) {
         if (!debt.contact) continue
-        const paid = this.roundMoney(
-          (debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
-        )
+        const paid = this.roundMoney((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
         const outstanding = this.roundMoney(Math.max(0, debt.originalAmount - paid))
         if (outstanding <= 0) continue
 
-        const ageDays = this.daysBetween(debt.createdAt, now)
         const entry = contactMap.get(debt.contactId) ?? {
           contact: debt.contact,
+          openingBalance: 0,
           current: 0,
           moderate: 0,
           aged: 0,
@@ -248,46 +308,35 @@ export class OpeningBalancesService {
           total: 0,
         }
 
-        if (ageDays <= 7) {
-          entry.current = this.roundMoney(entry.current + outstanding)
-        } else if (ageDays <= 15) {
-          entry.moderate = this.roundMoney(entry.moderate + outstanding)
-        } else if (ageDays <= 30) {
-          entry.aged = this.roundMoney(entry.aged + outstanding)
+        // The opening balance keeps its own column (not aged); every other debt is bucketed by age.
+        if (debt.sourceType === DebtSource.OPENING_BALANCE) {
+          entry.openingBalance = this.roundMoney(entry.openingBalance + outstanding)
         } else {
-          entry.overdue = this.roundMoney(entry.overdue + outstanding)
+          const ageDays = this.daysBetween(debt.createdAt, now)
+          if (ageDays <= 7) {
+            entry.current = this.roundMoney(entry.current + outstanding)
+          } else if (ageDays <= 15) {
+            entry.moderate = this.roundMoney(entry.moderate + outstanding)
+          } else if (ageDays <= 30) {
+            entry.aged = this.roundMoney(entry.aged + outstanding)
+          } else {
+            entry.overdue = this.roundMoney(entry.overdue + outstanding)
+          }
+          entry.total = this.roundMoney(entry.total + outstanding)
         }
-        entry.total = this.roundMoney(entry.total + outstanding)
         contactMap.set(debt.contactId, entry)
-      }
-
-      // Also include contacts that only have opening balances
-      for (const ob of openingBalances) {
-        if (contactMap.has(ob.contactId)) continue
-        const contact = await this.contactsRepo.findOne({ where: { id: ob.contactId, businessId } })
-        if (!contact) continue
-        contactMap.set(ob.contactId, {
-          contact,
-          current: 0,
-          moderate: 0,
-          aged: 0,
-          overdue: 0,
-          total: 0,
-        })
       }
 
       const entries: AgeingEntry[] = [...contactMap.values()].map((e) => ({
         contactId: e.contact.id,
         contactName: e.contact.name,
         contactPhone: e.contact.phone ?? null,
-        openingBalance: obByContact.get(e.contact.id) ?? 0,
+        openingBalance: e.openingBalance,
         current: e.current,
         moderate: e.moderate,
         aged: e.aged,
         overdue: e.overdue,
-        totalOutstanding: this.roundMoney(
-          (obByContact.get(e.contact.id) ?? 0) + e.total,
-        ),
+        totalOutstanding: this.roundMoney(e.openingBalance + e.total),
       }))
 
       entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
