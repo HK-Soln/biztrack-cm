@@ -731,7 +731,24 @@ export class SyncService {
     pushAll(changes.saleCharges, 'sale_charges', SALE_CHARGE_MAP)
     pushAll(changes.saleReturns, 'sale_returns', SALE_RETURN_MAP)
     pushAll(changes.saleReturnItems, 'sale_return_items', SALE_RETURN_ITEM_MAP)
-    pushAll(changes.debts, 'debts', DEBT_MAP)
+    // Debts arrive with a synthetic id (debt:<sourceType>:<sourceId>) that never matches the local
+    // UUID, so upsert on the natural key instead of the id — otherwise the insert hits the
+    // (business, source_type, source_id, direction) unique index and the whole batch fails. Resolve
+    // the local row for the pending check (the synthetic id would never be in the pending set).
+    for (const record of changes.debts ?? []) {
+      const localDebt = this.opts.db.get<{ id: string }>(
+        `SELECT id FROM debts WHERE business_id = ? AND source_type = ? AND source_id = ? AND direction = ?`,
+        [record.businessId, record.sourceType, record.sourceId, record.direction],
+      )
+      if (localDebt && pending.has(localDebt.id)) continue
+      const op = this.applyGeneric('debts', record, DEBT_MAP, [
+        'business_id',
+        'source_type',
+        'source_id',
+        'direction',
+      ])
+      if (op) ops.push(op)
+    }
     // Procurement chain: headers before their children.
     pushAll(changes.rfqs, 'rfqs', RFQ_MAP)
     pushAll(changes.rfqItems, 'rfq_items', RFQ_ITEM_MAP)
@@ -867,6 +884,7 @@ export class SyncService {
     table: string,
     record: SyncRecord,
     map: Record<string, string>,
+    conflictCols: string[] = ['id'],
   ): { sql: string; params: unknown[] } | null {
     const cols = this.tableColumns(table)
     if (cols.length === 0) return null
@@ -895,12 +913,17 @@ export class SyncService {
       set.set(c.name, /INT|REAL|NUM|DEC|FLOA|DOUB/.test(c.type) ? 0 : '')
     }
     const names = [...set.keys()]
-    const updates = names.filter((n) => n !== 'id').map((n) => `${n} = excluded.${n}`)
+    // Never overwrite the local id or the natural-key columns on conflict — when the pulled id
+    // differs from the local row's id (e.g. debts arrive with a synthetic debt:<type>:<id> id),
+    // upserting on the natural key updates the existing row and keeps its local id.
+    const noUpdate = new Set(['id', ...conflictCols])
+    const updates = names.filter((n) => !noUpdate.has(n)).map((n) => `${n} = excluded.${n}`)
+    const target = conflictCols.join(', ')
     const sql =
       `INSERT INTO ${table} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})` +
       (updates.length
-        ? ` ON CONFLICT(id) DO UPDATE SET ${updates.join(', ')}`
-        : ` ON CONFLICT(id) DO NOTHING`)
+        ? ` ON CONFLICT(${target}) DO UPDATE SET ${updates.join(', ')}`
+        : ` ON CONFLICT(${target}) DO NOTHING`)
     return { sql, params: names.map((n) => set.get(n) ?? null) }
   }
 
