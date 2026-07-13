@@ -22,6 +22,16 @@ const COLS = `id, contact_id, direction, amount, as_of_date, notes, created_at, 
  * `openingBalances` → server `opening_balance`). Mirrors the API OpeningBalancesService
  * / ContactOpeningBalance entity so the cloud applies it idempotently by (contact, direction).
  */
+/** The slice of DebtsService the opening-balance service needs to mirror an OB as a payable debt. */
+interface OpeningBalanceDebtWriter {
+  upsertOpeningBalanceDebt(input: {
+    contactId: string
+    direction: LocalOpeningBalance['direction']
+    amount: number
+    asOfDate: string
+  }): string
+}
+
 export class OpeningBalancesService {
   constructor(
     private readonly db: DatabaseService,
@@ -29,6 +39,7 @@ export class OpeningBalancesService {
     private readonly onMutated: () => void,
     private readonly getActorId: () => string | null,
     private readonly audit?: AuditLogger,
+    private readonly debts?: OpeningBalanceDebtWriter,
   ) {}
 
   /** Create or update a contact's opening balance for a direction. */
@@ -36,7 +47,8 @@ export class OpeningBalancesService {
     const businessId = this.requireBusinessId()
     if (!input.contactId?.trim()) throw new Error('Contact is required.')
     const amount = Number(input.amount)
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Opening balance must be greater than 0.')
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new Error('Opening balance must be greater than 0.')
 
     const now = new Date().toISOString()
     const asOfDate = input.asOfDate?.trim() || now.slice(0, 10)
@@ -57,18 +69,52 @@ export class OpeningBalancesService {
       this.db.run(
         `INSERT INTO contact_opening_balances (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, businessId, input.contactId, input.direction, amount, asOfDate, input.notes ?? null, recordedById, createdAt, now],
+        [
+          id,
+          businessId,
+          input.contactId,
+          input.direction,
+          amount,
+          asOfDate,
+          input.notes ?? null,
+          recordedById,
+          createdAt,
+          now,
+        ],
       )
     }
 
-    this.enqueue(id, businessId, { contactId: input.contactId, direction: input.direction, amount, asOfDate, notes: input.notes ?? null, recordedById, createdAt }, now)
+    this.enqueue(
+      id,
+      businessId,
+      {
+        contactId: input.contactId,
+        direction: input.direction,
+        amount,
+        asOfDate,
+        notes: input.notes ?? null,
+        recordedById,
+        createdAt,
+      },
+      now,
+    )
+    // Mirror the opening balance as an OPENING_BALANCE debt so it can be paid like any other debt.
+    this.debts?.upsertOpeningBalanceDebt({
+      contactId: input.contactId,
+      direction: input.direction,
+      amount,
+      asOfDate,
+    })
     this.onMutated()
     this.audit?.log({
       action: existing ? 'UPDATE' : 'CREATE',
       entityType: 'opening_balance',
       entityId: id,
       entityLabel: `${input.direction} · ${amount}`,
-      changes: { before: null, after: { contactId: input.contactId, direction: input.direction, amount } },
+      changes: {
+        before: null,
+        after: { contactId: input.contactId, direction: input.direction, amount },
+      },
     })
     return this.get(id)!
   }
@@ -88,11 +134,19 @@ export class OpeningBalancesService {
   private get(id: string): LocalOpeningBalance | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const row = this.db.get<OpeningBalanceRow>(`SELECT ${COLS} FROM contact_opening_balances WHERE id = ? AND business_id = ?`, [id, businessId])
+    const row = this.db.get<OpeningBalanceRow>(
+      `SELECT ${COLS} FROM contact_opening_balances WHERE id = ? AND business_id = ?`,
+      [id, businessId],
+    )
     return row ? toLocal(row) : null
   }
 
-  private enqueue(recordId: string, businessId: string, payload: Record<string, unknown>, now: string): void {
+  private enqueue(
+    recordId: string,
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
        VALUES (?, 'openingBalances', ?, 'UPSERT', ?, 'pending', 0, ?, ?)

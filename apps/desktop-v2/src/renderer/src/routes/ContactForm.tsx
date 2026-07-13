@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
+import { BackButton, Button, Input, PhoneInput, Select, toast } from '@biztrack/ui/biztrack'
 import { ContactType, DebtDirection, IdDocumentType } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -53,7 +53,6 @@ export function ContactForm() {
   const [obDirection, setObDirection] = useState<DebtDirection>(DebtDirection.RECEIVABLE)
   const [obAsOfDate, setObAsOfDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
 
   // Seed the form from the existing contact (edit) once it loads.
@@ -123,7 +122,7 @@ export function ContactForm() {
       void qc.invalidateQueries({ queryKey: queryKeys.contacts })
       navigate(editing ? `/contacts/${id}` : `/contacts/${c.id}`)
     },
-    onError: (e) => setError(errorMessage(e, t('ct.saveError'))),
+    onError: (e) => toast.error(errorMessage(e, t('ct.saveError'))),
   })
 
   const submit = () => {
@@ -139,7 +138,6 @@ export function ContactForm() {
       return
     }
     setErrors({})
-    setError(null)
     save.mutate()
   }
 
@@ -414,12 +412,6 @@ export function ContactForm() {
               />
             </div>
           </div>
-        ) : null}
-
-        {error ? (
-          <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 12 }} role="alert">
-            {error}
-          </p>
         ) : null}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>

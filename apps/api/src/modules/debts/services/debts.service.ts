@@ -543,18 +543,19 @@ export class DebtsService {
         }
       }
 
-      const [debts, openingBalance] = await Promise.all([
-        this.debtsRepo
-          .createQueryBuilder('debt')
-          .leftJoinAndSelect('debt.payments', 'payment')
-          .where('debt.business_id = :businessId', { businessId })
-          .andWhere('debt.contact_id = :contactId', { contactId })
-          .andWhere('debt.direction = :direction', { direction })
-          .orderBy('debt.created_at', 'ASC')
-          .addOrderBy('payment.payment_date', 'ASC')
-          .getMany(),
-        this.openingBalancesService.findForContactAndDirection(contactId, businessId, direction),
-      ])
+      const debts = await this.debtsRepo
+        .createQueryBuilder('debt')
+        .leftJoinAndSelect('debt.payments', 'payment')
+        .where('debt.business_id = :businessId', { businessId })
+        .andWhere('debt.contact_id = :contactId', { contactId })
+        .andWhere('debt.direction = :direction', { direction })
+        .orderBy('debt.created_at', 'ASC')
+        .addOrderBy('payment.payment_date', 'ASC')
+        .getMany()
+
+      // The opening balance is now an OPENING_BALANCE debt (pinned to the opening date so it
+      // sorts first); it renders as the opening entry and its payments flow like any other debt.
+      const openingBalance = debts.find((debt) => debt.sourceType === DebtSource.OPENING_BALANCE)
 
       const events: Array<{
         sortAt: number
@@ -566,25 +567,20 @@ export class DebtsService {
         credit: number
       }> = []
 
-      if (openingBalance) {
-        events.push({
-          sortAt: Date.parse(`${openingBalance.asOfDate}T00:00:00.000Z`) - 1,
-          date: openingBalance.asOfDate,
-          type: ContactStatementEntryType.OPENING_BALANCE,
-          reference: null,
-          description: 'Opening balance',
-          debit: openingBalance.amount,
-          credit: 0,
-        })
-      }
-
       for (const debt of debts) {
+        const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
         events.push({
           sortAt: debt.createdAt.getTime(),
           date: this.toDateOnly(debt.createdAt),
-          type: ContactStatementEntryType.DEBT_CREATED,
-          reference: debt.sourceReference ?? null,
-          description: debt.sourceType === DebtSource.SALE ? 'Sale on credit' : 'Restock on credit',
+          type: isOpening
+            ? ContactStatementEntryType.OPENING_BALANCE
+            : ContactStatementEntryType.DEBT_CREATED,
+          reference: isOpening ? null : (debt.sourceReference ?? null),
+          description: isOpening
+            ? 'Opening balance'
+            : debt.sourceType === DebtSource.SALE
+              ? 'Sale on credit'
+              : 'Restock on credit',
           debit: debt.originalAmount,
           credit: 0,
         })
@@ -650,7 +646,7 @@ export class DebtsService {
           phone: contact.phone ?? null,
         },
         direction,
-        openingBalance: openingBalance?.amount ?? 0,
+        openingBalance: openingBalance?.originalAmount ?? 0,
         entries,
         closingBalance: balance,
       }
