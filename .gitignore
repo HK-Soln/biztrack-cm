@@ -83,3 +83,6 @@ PRODUCT_REVAMP_SPEC.md
 PRODUCT_VARIANTS_SERIALIZATION_SPEC.md
 .vercel
 .env*
+# …but DO track committed example/templates that document required vars (no secrets).
+!.env.example
+!**/.env.example

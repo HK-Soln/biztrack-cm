@@ -71,13 +71,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Releasing $TAG ($ENVIRONMENT, prerelease=$PRERELEASE)"
 
-      # Fail fast if the environment has no API URL — otherwise the installer silently bakes in
-      # localhost. Set VITE_API_URL in the matching GitHub Environment.
-      - name: Verify API URL is configured
+      # Fail fast if the environment is missing a required var — the build now hard-fails on these
+      # (no localhost fallback), so surface it here with a clear message. Set them in the matching
+      # GitHub Environment.
+      - name: Verify required build vars are configured
         shell: bash
         run: |
-          if [ -z "${{ vars.VITE_API_URL }}" ]; then
-            echo "::error::VITE_API_URL is not set for environment '${{ steps.meta.outputs.environment }}'. Add it under Settings → Environments → ${{ steps.meta.outputs.environment }} → Variables."
+          missing=""
+          [ -z "${{ vars.VITE_API_URL }}" ] && missing="$missing VITE_API_URL"
+          [ -z "${{ vars.VITE_STOREFRONT_DOMAIN }}" ] && missing="$missing VITE_STOREFRONT_DOMAIN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required var(s) for environment '${{ steps.meta.outputs.environment }}':$missing. Add under Settings → Environments → ${{ steps.meta.outputs.environment }} → Variables."
             exit 1
           fi
 
@@ -100,8 +104,8 @@ jobs:
         run: pnpm run build
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
-          # Storefront root domain baked into the renderer — differs per environment.
-          # Optional: falls back to the default in src/shared/config.ts when unset.
+          # Storefront root domain baked into the renderer — differs per environment. Required
+          # (no fallback); the verify step above fails the run if it's unset.
           VITE_STOREFRONT_DOMAIN: ${{ vars.VITE_STOREFRONT_DOMAIN }}
 
       - name: Package installer (NSIS)
