@@ -596,8 +596,11 @@ export class DebtsService {
             sortAt: Date.parse(`${payment.paymentDate}T12:00:00.000Z`),
             date: payment.paymentDate,
             type: ContactStatementEntryType.PAYMENT,
-            reference: null,
-            description: `${this.getPaymentMethodLabel(payment.method)} payment`,
+            // The method enum goes in `reference` (the renderer localizes it via debt.method_*);
+            // the momo reference goes in `description`. Mirrors the desktop statement so both
+            // platforms produce an identical, localizable ledger.
+            reference: payment.method,
+            description: payment.mobileMoneyReference ?? '',
             debit: 0,
             credit: payment.amount,
           })
@@ -1082,19 +1085,6 @@ export class DebtsService {
       settledAt: status === DebtStatus.SETTLED ? new Date() : null,
       updatedAt: new Date(),
     })
-  }
-
-  private getPaymentMethodLabel(method: PaymentMethod) {
-    switch (method) {
-      case PaymentMethod.MTN_MOMO:
-        return 'MTN MoMo'
-      case PaymentMethod.ORANGE_MONEY:
-        return 'Orange Money'
-      case PaymentMethod.CARD:
-        return 'Card'
-      default:
-        return 'Cash'
-    }
   }
 
   private computeRawOutstanding(originalAmount: number, paidAmount: number) {
