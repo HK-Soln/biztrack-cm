@@ -71,9 +71,15 @@ export class AuthController {
       this.config.get('REFRESH_COOKIE_SAMESITE', { infer: true }) ??
       (nodeEnv === NodeEnv.PRODUCTION ? 'none' : 'lax')
 
+    // A cross-site cookie (browser app on a different origin than the API) MUST be
+    // `SameSite=None; Secure`. Browsers silently reject a `SameSite=None` cookie that
+    // isn't also `Secure`, which manifests as "no refresh cookie set" and a subsequent
+    // INVALID_REFRESH_TOKEN. So always pair Secure with SameSite=None, regardless of NODE_ENV.
+    const secure = sameSite === 'none' ? true : nodeEnv === NodeEnv.PRODUCTION
+
     res.cookie(cookieName, refreshToken, {
       httpOnly: true,
-      secure: nodeEnv === NodeEnv.PRODUCTION,
+      secure,
       sameSite,
       path: '/api',
       domain: domain || undefined,
@@ -117,9 +123,13 @@ export class AuthController {
   @Post('request-login-otp')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
-  @ApiOperation({ summary: 'Passwordless login — always send a one-time code (email/SMS/WhatsApp)' })
+  @ApiOperation({
+    summary: 'Passwordless login — always send a one-time code (email/SMS/WhatsApp)',
+  })
   async requestLoginOtp(@Body() dto: RequestLoginOtpDto): Promise<AuthNextStepResponse> {
-    return serializeDto(AuthNextStepResponseDto.fromResult(await this.authService.requestLoginOtp(dto)))
+    return serializeDto(
+      AuthNextStepResponseDto.fromResult(await this.authService.requestLoginOtp(dto)),
+    )
   }
 
   @Post('login-otp')
