@@ -2636,6 +2636,8 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
+  color: var(--text);
+  font: inherit;
   cursor: pointer;
   transition:
     border-color 0.12s,
@@ -10401,7 +10403,9 @@ textarea.input {
 }
 .drawer-b {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 18px;
 }
 .drawer-f {
