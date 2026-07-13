@@ -62,8 +62,11 @@ const devCspPlugin = {
 // rather than bundled — essential for the native SQLite binary.
 export default defineConfig(({ mode }) => {
   // Load .env / .env.local from the app root AND process.env (process.env wins) so both local dev
-  // (.env.local) and CI/release (env) supply the required vars. No localhost fallback — a missing
-  // var fails the whole build (main + renderer) here rather than shipping a broken app.
+  // (.env.local) and CI/release (env) supply the required vars. There is NO localhost fallback —
+  // the values are baked verbatim; if a required var is missing the packaged app fails to start
+  // (resolveDesktopConfig throws at runtime). We only WARN here, not throw, so the plain
+  // compile-verification build in CI (which doesn't set these) still passes — a real release is
+  // guarded separately by the "Verify required build vars" step in desktop-v2-release.yml.
   const env = loadEnv(mode, __dirname, 'VITE_')
   const apiUrl = env.VITE_API_URL?.trim()
   const storeDomain = env.VITE_STOREFRONT_DOMAIN?.trim()
@@ -71,9 +74,10 @@ export default defineConfig(({ mode }) => {
     Boolean,
   )
   if (missing.length) {
-    throw new Error(
-      `[electron build] Missing required env: ${missing.join(', ')}. Set them in ` +
-        'apps/desktop-v2/.env.local (local dev) or the release environment (CI). No localhost fallback.',
+    console.warn(
+      `[electron build] WARNING: missing ${missing.join(', ')} — the packaged app will not start. ` +
+        'Set them in apps/desktop-v2/.env.local (local) or the release environment (CI). ' +
+        'Fine to ignore for a compile-only CI build.',
     )
   }
   return {
@@ -85,8 +89,10 @@ export default defineConfig(({ mode }) => {
       // installed app reads process.env on the user's machine (unset) and can't start.
       // src/main/config.ts reads exactly these keys.
       define: {
-        'process.env.VITE_API_URL': JSON.stringify(apiUrl),
-        'process.env.VITE_STOREFRONT_DOMAIN': JSON.stringify(storeDomain),
+        // Empty string (not undefined) when missing, so resolveDesktopConfig throws cleanly at
+        // runtime instead of baking the literal `undefined`.
+        'process.env.VITE_API_URL': JSON.stringify(apiUrl ?? ''),
+        'process.env.VITE_STOREFRONT_DOMAIN': JSON.stringify(storeDomain ?? ''),
       },
       build: {
         rollupOptions: {
