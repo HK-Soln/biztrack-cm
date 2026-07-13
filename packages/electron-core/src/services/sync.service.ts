@@ -1,6 +1,7 @@
 import {
   compareSyncEntityByDependency,
   type ChangeSet,
+  type DebtSyncRecord,
   type SyncBatchStatus,
   type SyncBatchStatusResponse,
   type SyncEntity,
@@ -738,23 +739,100 @@ export class SyncService {
     pushAll(changes.purchaseOrders, 'purchase_orders', PURCHASE_ORDER_MAP)
     pushAll(changes.purchaseOrderItems, 'purchase_order_items', PURCHASE_ORDER_ITEM_MAP)
 
-    if (ops.length === 0) return
-    try {
-      this.opts.db.batch(ops)
-    } catch (err) {
-      // One bad row must not abort the whole pull. Re-apply individually so the rest of
-      // the catalog still lands, and log exactly which record failed.
-      console.error(`[sync] apply batch failed (${(err as Error).message}); retrying row-by-row`)
-      for (const op of ops) {
-        try {
-          this.opts.db.run(op.sql, op.params)
-        } catch (e) {
-          console.error(
-            `[sync] skipped a record: ${(e as Error).message} :: ${op.sql.slice(0, 48)}`,
-          )
+    if (ops.length > 0) {
+      try {
+        this.opts.db.batch(ops)
+      } catch (err) {
+        // One bad row must not abort the whole pull. Re-apply individually so the rest of
+        // the catalog still lands, and log exactly which record failed.
+        console.error(`[sync] apply batch failed (${(err as Error).message}); retrying row-by-row`)
+        for (const op of ops) {
+          try {
+            this.opts.db.run(op.sql, op.params)
+          } catch (e) {
+            console.error(
+              `[sync] skipped a record: ${(e as Error).message} :: ${op.sql.slice(0, 48)}`,
+            )
+          }
         }
       }
     }
+
+    // Debt payments ride nested inside debt records — applyGeneric only wrote the flat debt row,
+    // so without this a payment recorded on another device (e.g. the cloud) would never land
+    // locally. Runs AFTER the batch so the parent debt row already exists.
+    this.applyDebtPayments(changes.debts, pending)
+  }
+
+  /**
+   * Apply the payments nested inside pulled debt records. The pulled debt id is synthetic
+   * (`debt:<sourceType>:<sourceId>`), so we resolve the LOCAL debt by its natural key
+   * (business, sourceType, sourceId, direction), upsert each payment by id, remove local synced
+   * payments the server no longer has (reversals), and recompute the debt's status. Debts with a
+   * pending local write are skipped — that edit must win and re-push first.
+   */
+  private applyDebtPayments(debts: DebtSyncRecord[] | undefined, pending: Set<string>): void {
+    for (const record of debts ?? []) {
+      const payments = record.payments
+      if (!Array.isArray(payments)) continue
+      const local = this.opts.db.get<{ id: string; business_id: string }>(
+        `SELECT id, business_id FROM debts WHERE business_id = ? AND source_type = ? AND source_id = ? AND direction = ?`,
+        [record.businessId, record.sourceType, record.sourceId, record.direction],
+      )
+      if (!local || pending.has(local.id)) continue
+
+      const keepIds: string[] = []
+      for (const p of payments) {
+        keepIds.push(p.id)
+        this.opts.db.run(
+          `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             amount = excluded.amount, method = excluded.method,
+             mobile_money_reference = excluded.mobile_money_reference,
+             payment_date = excluded.payment_date, notes = excluded.notes,
+             recorded_by = excluded.recorded_by`,
+          [
+            p.id,
+            local.business_id,
+            local.id,
+            p.amount,
+            p.method,
+            p.mobileMoneyReference ?? null,
+            p.paymentDate,
+            p.notes ?? null,
+            p.recordedById ?? 'unknown',
+            p.createdAt,
+          ],
+        )
+      }
+      // The server always sends a debt with its full payment set, so any local synced payment not
+      // in that set was reversed on the server — delete it. (A locally-pending payment can't reach
+      // here: its debt is in `pending` and was skipped above.)
+      const ph = keepIds.map(() => '?').join(',')
+      this.opts.db.run(
+        `DELETE FROM debt_payments WHERE debt_id = ?${keepIds.length ? ` AND id NOT IN (${ph})` : ''}`,
+        [local.id, ...keepIds],
+      )
+      this.recomputeDebtStatus(local.id, local.business_id)
+    }
+  }
+
+  /** Recompute a debt's status + settled_at from its current payment sum (mirrors recordPayment). */
+  private recomputeDebtStatus(debtId: string, businessId: string): void {
+    const row = this.opts.db.get<{ original_amount: number; paid: number; status: string }>(
+      `SELECT d.original_amount, d.status,
+         COALESCE((SELECT SUM(amount) FROM debt_payments WHERE debt_id = d.id), 0) AS paid
+       FROM debts d WHERE d.id = ? AND d.business_id = ?`,
+      [debtId, businessId],
+    )
+    if (!row || row.status === 'WRITTEN_OFF') return
+    const settled = row.paid >= row.original_amount - 1e-6
+    const status = settled ? 'SETTLED' : row.paid > 0 ? 'PARTIALLY_PAID' : 'OUTSTANDING'
+    this.opts.db.run(
+      `UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
+      [status, settled ? new Date().toISOString() : null, debtId, businessId],
+    )
   }
 
   // ---- schema-driven generic applier --------------------------------------
