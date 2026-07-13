@@ -1,41 +1,19 @@
 'use client'
 
-import { signOut, useSession } from 'next-auth/react'
+import { useAdmin } from '@/lib/use-admin'
 
 export default function OverviewPage() {
-  const { data: session, status } = useSession()
+  const { admin, status } = useAdmin()
 
   if (status === 'loading') {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-8">
-        <p className="text-sm text-neutral-500">Loading…</p>
-      </main>
-    )
+    return <p className="text-sm text-neutral-500">Loading…</p>
   }
 
-  const admin = session?.admin
-
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-8 py-12">
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
-          <p className="text-sm uppercase tracking-[0.24em] text-neutral-500">Overview</p>
-          <h1 className="text-3xl font-semibold text-neutral-900">Admin dashboard</h1>
-          {admin && (
-            <p className="text-sm text-neutral-600">
-              Signed in as <span className="font-medium text-neutral-900">{admin.name}</span> ·{' '}
-              <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-700">
-                {admin.role?.name ?? (admin.isSuperAdmin ? 'SUPER_ADMIN' : 'NO ROLE')}
-              </span>
-            </p>
-          )}
-        </div>
-        <button
-          className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:border-neutral-900"
-          onClick={() => signOut({ callbackUrl: '/login' })}
-        >
-          Sign out
-        </button>
+    <div className="space-y-6">
+      <header>
+        <p className="text-sm uppercase tracking-[0.24em] text-neutral-500">Overview</p>
+        <h1 className="text-3xl font-semibold text-neutral-900">Admin dashboard</h1>
       </header>
 
       {admin?.mustChangePassword && (
@@ -56,20 +34,22 @@ export default function OverviewPage() {
       {admin && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-medium text-neutral-700">
-            Effective permissions ({admin.permissions.length})
+            Your effective permissions ({admin.permissions.length})
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
+            {admin.permissions.length === 0 && (
+              <span className="text-sm text-neutral-500">
+                {admin.isSuperAdmin ? 'SUPER_ADMIN — full access' : 'No permissions assigned.'}
+              </span>
+            )}
             {admin.permissions.map((p) => (
-              <span
-                key={p}
-                className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-mono text-neutral-700"
-              >
+              <span key={p} className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-mono text-neutral-700">
                 {p}
               </span>
             ))}
           </div>
         </section>
       )}
-    </main>
+    </div>
   )
 }
