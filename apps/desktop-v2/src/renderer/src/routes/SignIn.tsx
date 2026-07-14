@@ -81,7 +81,12 @@ export function SignIn() {
             <button
               type="button"
               className="opt"
-              style={{ color: 'var(--brand-int)', background: 'none', border: 0, cursor: 'pointer' }}
+              style={{
+                color: 'var(--brand-int)',
+                background: 'none',
+                border: 0,
+                cursor: 'pointer',
+              }}
               onClick={() => {
                 setMode((m) => (m === 'email' ? 'phone' : 'email'))
                 setErrors((e) => ({ ...e, identifier: undefined }))
@@ -93,7 +98,13 @@ export function SignIn() {
 
           {mode === 'email' ? (
             <div className="inwrap has-lead">
-              <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="lead"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <rect x="3" y="5" width="18" height="14" rx="2" />
                 <path d="m3 7 9 6 9-6" />
               </svg>
@@ -130,12 +141,22 @@ export function SignIn() {
         <div className={`ff${errors.password ? ' invalid' : ''}`}>
           <label className="lbl2" htmlFor="i-pw">
             {t('auth.password')}
-            <a className="opt" href="#" style={{ color: 'var(--brand-int)', textDecoration: 'none' }}>
+            <a
+              className="opt"
+              onClick={() => navigate('/forgot-password')}
+              style={{ color: 'var(--brand-int)', textDecoration: 'none', cursor: 'pointer' }}
+            >
               {t('auth.forgot')}
             </a>
           </label>
           <div className="inwrap has-lead">
-            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="lead"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <rect x="4" y="11" width="16" height="9" rx="2" />
               <path d="M8 11V8a4 4 0 0 1 8 0v3" />
             </svg>
@@ -148,7 +169,12 @@ export function SignIn() {
               onChange={(e) => setPassword(e.target.value)}
             />
             <span className="trail">
-              <button type="button" className="eye" aria-label="Show password" onClick={() => setShowPw((v) => !v)}>
+              <button
+                type="button"
+                className="eye"
+                aria-label="Show password"
+                onClick={() => setShowPw((v) => !v)}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
                   <circle cx="12" cy="12" r="3" />
@@ -193,7 +219,14 @@ export function SignIn() {
         {/* Passwordless ("SSO"): channel picker (Email / SMS / WhatsApp) → OTP. */}
         <button type="button" onClick={() => navigate('/sso')}>
           <span className="g" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <rect x="3" y="5" width="18" height="14" rx="2" />
               <path d="m3 8 9 5 9-5" />
             </svg>
