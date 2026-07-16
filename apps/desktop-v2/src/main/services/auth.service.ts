@@ -549,11 +549,24 @@ export class AuthService {
   }
 
   private errorText(e: unknown): string {
-    if (e instanceof HttpError) {
-      return (e.response?.data as { message?: string } | undefined)?.message ?? e.message
+    const generic = 'Something went wrong. Please try again.'
+    const apiMessage =
+      e instanceof HttpError
+        ? (e.response?.data as { message?: string } | undefined)?.message
+        : undefined
+    if (apiMessage) return apiMessage
+    const raw = e instanceof Error ? e.message : ''
+    // A raw transport failure (undici "fetch failed", ECONN*, socket hang up, aborted) isn't an
+    // API message — surface a friendly generic instead of the low-level string.
+    if (
+      !raw ||
+      /failed to fetch|fetch failed|networkerror|network request failed|econnrefused|econnreset|enotfound|etimedout|socket hang up|terminated|aborted/i.test(
+        raw,
+      )
+    ) {
+      return generic
     }
-    if (e instanceof Error) return e.message
-    return 'Something went wrong. Please try again.'
+    return raw
   }
 
   private fail(e: unknown): AuthFlowResult {

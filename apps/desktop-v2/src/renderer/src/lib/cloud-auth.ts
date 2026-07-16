@@ -20,6 +20,7 @@ import {
   clearAccessToken,
   getAccessToken,
 } from './cloud-http'
+import { isTransportError } from './error'
 
 /**
  * Cloud (browser) implementation of the DataClient `auth` domain. Mirrors the main
@@ -51,7 +52,13 @@ export const EMPTY_SESSION: SessionStatus = {
 
 function errorText(e: unknown): string {
   const err = e as { response?: { data?: { message?: string } }; message?: string }
-  return err?.response?.data?.message ?? err?.message ?? 'Something went wrong. Please try again.'
+  const apiMessage = err?.response?.data?.message
+  if (apiMessage) return apiMessage
+  const generic = 'Something went wrong. Please try again.'
+  // A raw transport failure ("Failed to fetch" / "fetch failed") isn't an API message — hide it.
+  const raw = err?.message ?? ''
+  if (!raw || isTransportError(raw)) return generic
+  return raw
 }
 
 function mapContext(context: AuthResponseData['context']): AuthContextInfo | null {
