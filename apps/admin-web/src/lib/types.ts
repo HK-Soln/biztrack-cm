@@ -162,3 +162,83 @@ export interface SyncErrorRow {
   batchCount: number
   lastSyncAt: string
 }
+
+export interface MetricsOverview {
+  growth: {
+    totalBusinesses: number
+    newBusinessesToday: number
+    newBusinessesThisWeek: number
+    newBusinessesThisMonth: number
+  }
+  engagement: { activeToday: number; activeLast7Days: number; totalSalesRecorded: number }
+  revenue: {
+    mrr: number | null
+    trialCount: number | null
+    trialConversionRate: number | null
+    churnRate: number | null
+  }
+  health: {
+    openSupportTickets: number
+    criticalTickets: number
+    syncErrorCount: number
+    failedPayments: number
+  }
+  revenueVisible: boolean
+}
+
+export interface RevenueMetrics {
+  period: string
+  mrr: number
+  arr: number
+  arpu: number
+  activeSubscribers: number
+  trialCount: number
+  trialConversionRate: number
+  churnRate: number
+  caveat: string
+}
+
+export interface RevenueBreakdown {
+  caveat: string
+  breakdown: { plan: string; count: number; revenue: number; percentage: number }[]
+}
+
+export interface MrrHistory {
+  caveat: string
+  points: { date: string; mrr: number }[]
+}
+
+export interface SubscriptionRow {
+  businessId: string
+  name: string
+  plan: string
+  subscriptionStatus: string
+  billingCycle: string
+  trialEndsAt: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  endingWithin7Days?: boolean
+}
+
+export interface PlanConfigItem {
+  plan: string
+  displayName: string
+  priceXAF: number
+  priceAnnualXAF: number
+  resources: string[]
+  quotas: Record<string, number | null>
+  updatedBy: string
+  updatedAt: string
+}
+
+export interface AuditLogRow {
+  id: string
+  adminUserId: string
+  adminRoleName: string
+  action: string
+  entityType: string
+  entityId: string | null
+  payload: Record<string, unknown> | null
+  ipAddress: string
+  at: string
+}

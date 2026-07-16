@@ -14,11 +14,15 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/overview', label: 'Overview' },
+  { href: '/revenue', label: 'Revenue', permission: 'metrics:view' },
   { href: '/businesses', label: 'Businesses', permission: 'businesses:view' },
+  { href: '/subscriptions', label: 'Subscriptions', permission: 'subscriptions:view' },
   { href: '/users', label: 'Users', permission: 'users:view' },
   { href: '/support', label: 'Support', permission: 'support:view' },
+  { href: '/plans', label: 'Plans', permission: 'plans:view' },
   { href: '/roles', label: 'Roles', permission: 'admin_roles:view' },
   { href: '/team', label: 'Team', permission: 'admin_users:view' },
+  { href: '/audit', label: 'Audit log', permission: 'audit_logs:view' },
 ]
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
