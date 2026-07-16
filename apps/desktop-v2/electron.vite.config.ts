@@ -93,6 +93,10 @@ export default defineConfig(({ mode }) => {
         // runtime instead of baking the literal `undefined`.
         'process.env.VITE_API_URL': JSON.stringify(apiUrl ?? ''),
         'process.env.VITE_STOREFRONT_DOMAIN': JSON.stringify(storeDomain ?? ''),
+        // Deployment environment baked in (the packaged app can't read the user's process.env).
+        // Gates DevTools: a `production` build refuses to open them. Falls back to the vite mode
+        // ('production' for a release build, 'development' for dev serve) when NODE_ENV is unset.
+        'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? mode),
       },
       build: {
         rollupOptions: {
