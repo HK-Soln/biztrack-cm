@@ -13,14 +13,13 @@ import type {
   PublicProductsQuery,
   PublicStore,
 } from '@biztrack/types'
+import { API_BASE_URL } from './config'
 
 // The storefront uses the shared HTTP client (packages/http-client). The browser
 // flavor binds globalThis.fetch, so the same client works in server components
 // (SSR, where Next 15 fetches are uncached/dynamic by default) and in the browser
 // (TanStack Query refetches).
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1'
-
-const http = createHttpClient({ baseURL: API_BASE, timeout: 15_000 })
+const http = createHttpClient({ baseURL: API_BASE_URL, timeout: 15_000 })
 
 type ApiEnvelope<T> = { success?: boolean; data: T }
 
