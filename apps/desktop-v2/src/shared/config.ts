@@ -13,6 +13,10 @@ import { z } from 'zod'
  * dev-only `dbPath` / `rendererDevUrl` stay optional.
  */
 
+/** Deployment environment. Gates dev-only affordances (e.g. DevTools) — `production` locks them. */
+export const NODE_ENVS = ['test', 'development', 'staging', 'production'] as const
+export type NodeEnv = (typeof NODE_ENVS)[number]
+
 /** Raw env each runtime supplies (main from process.env, renderer from import.meta.env). */
 export interface RawDesktopEnv {
   /** API base URL incl. the /api/v1 prefix (VITE_API_URL). REQUIRED — no default. */
@@ -23,6 +27,8 @@ export interface RawDesktopEnv {
   rendererDevUrl?: string | null
   /** Root domain for customer storefronts (VITE_STOREFRONT_DOMAIN). REQUIRED — no default. */
   storeRootDomain?: string | null
+  /** Deployment environment (NODE_ENV). One of NODE_ENVS; defaults to `development`. */
+  nodeEnv?: string | null
 }
 
 // Empty/whitespace → undefined so a required field reports a clear "Required" error.
@@ -44,6 +50,15 @@ const schema = z.object({
   storeRootDomain: optionalTrimmed(
     z.string({ required_error: 'VITE_STOREFRONT_DOMAIN is required (no localhost fallback)' }),
   ),
+  // Missing/blank → development. Any other unrecognized value fails fast (fail-loud, not a
+  // silent fallback — a typo'd NODE_ENV must never accidentally unlock production-gated dev tools).
+  nodeEnv: optionalTrimmed(
+    z
+      .enum(NODE_ENVS, {
+        errorMap: () => ({ message: `NODE_ENV must be one of: ${NODE_ENVS.join(', ')}` }),
+      })
+      .default('development'),
+  ),
 })
 
 export interface DesktopConfig {
@@ -55,6 +70,8 @@ export interface DesktopConfig {
   rendererDevUrl: string | null
   /** Storefront root domain (`<slug>.<root>`). */
   storeRootDomain: string
+  /** Deployment environment; `production` disables DevTools in the desktop app. */
+  nodeEnv: NodeEnv
 }
 
 /** Validate raw env and derive the typed config. Throws on a missing/malformed value (fail fast). */
@@ -69,5 +86,6 @@ export function resolveDesktopConfig(raw: RawDesktopEnv): DesktopConfig {
     dbPathOverride: parsed.data.dbPath ?? null,
     rendererDevUrl: parsed.data.rendererDevUrl ?? null,
     storeRootDomain: parsed.data.storeRootDomain,
+    nodeEnv: parsed.data.nodeEnv,
   }
 }

@@ -14,6 +14,8 @@ import { AuthService } from './auth.service'
 import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
 import { RefreshTokenDto } from './dto/refresh-token.dto'
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto'
+import { ResetPasswordDto } from './dto/reset-password.dto'
 import { RequestLoginOtpDto } from './dto/request-login-otp.dto'
 import { RequestLoginDto } from './dto/request-login.dto'
 import { LoginOtpDto } from './dto/login-otp.dto'
@@ -146,6 +148,26 @@ export class AuthController {
       this.setRefreshCookie(res, refreshToken)
     }
     return serializeDto(AuthNextStepResponseDto.fromResult(result))
+  }
+
+  @Post('request-password-reset')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthRateLimitGuard)
+  @ApiOperation({ summary: 'Forgot password — send a one-time reset code (email/SMS/WhatsApp)' })
+  async requestPasswordReset(@Body() dto: RequestPasswordResetDto): Promise<AuthNextStepResponse> {
+    return serializeDto(
+      AuthNextStepResponseDto.fromResult(await this.authService.requestPasswordReset(dto)),
+    )
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthRateLimitGuard)
+  @ApiOperation({ summary: 'Reset password with a one-time code' })
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<AuthNextStepResponse> {
+    return serializeDto(
+      AuthNextStepResponseDto.fromResult(await this.authService.resetPassword(dto)),
+    )
   }
 
   @Post('verify-phone')
