@@ -9,10 +9,16 @@ name: Deploy desktop-v2 (Cloud → Vercel)
 # Vercel project setup (one-time):
 #   - Root Directory  = apps/desktop-v2   (vercel.json sets buildCommand/output)
 #   - Production Branch = main
-#   - Env var VITE_API_URL — set it for BOTH Vercel environments (Settings ->
-#     Environment Variables, pick the scope):
-#       Production = https://<prod-api-host>/api/v1
-#       Preview    = https://<staging-api-host>/api/v1     (must include /api/v1)
+#
+# IMPORTANT: this job runs `vercel build` in the GitHub RUNNER (off-Vercel), so Vercel's
+# project Environment Variables are NOT automatically applied to the build — the renderer's
+# VITE_* vars must be passed here from the matching GitHub Environment. Set BOTH keys under
+# Settings -> Environments -> {production, staging} -> Variables (same ones the desktop release
+# uses):
+#   VITE_API_URL          = https://<host>/api/v1     (must include /api/v1)
+#   VITE_STOREFRONT_DOMAIN = <storefront root domain>
+# The build now HARD-FAILS if either is missing (no localhost fallback), so a misconfigured
+# deploy can never silently ship an app pointed at localhost.
 
 on:
   push:
@@ -56,8 +62,19 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
-      # main -> Production (--prod); staging -> Preview (no flag). Both pull their own
-      # VITE_API_URL from the matching Vercel Environment (Production / Preview).
+      # Fail fast if the GitHub Environment is missing a renderer build var — otherwise the build
+      # below hard-fails with a less obvious "failed to load config" error.
+      - name: Verify required build vars are configured
+        run: |
+          missing=""
+          [ -z "${{ vars.VITE_API_URL }}" ] && missing="$missing VITE_API_URL"
+          [ -z "${{ vars.VITE_STOREFRONT_DOMAIN }}" ] && missing="$missing VITE_STOREFRONT_DOMAIN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required var(s) for environment '${{ github.ref_name == 'main' && 'production' || 'staging' }}':$missing. Add under Settings → Environments → {production|staging} → Variables."
+            exit 1
+          fi
+
+      # main -> Production (--prod); staging -> Preview (no flag).
       - name: Resolve target
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
@@ -71,8 +88,14 @@ jobs:
       - name: Pull Vercel settings + env
         run: vercel pull --yes --environment=$VERCEL_TARGET --token=${{ secrets.VERCEL_TOKEN }}
 
+      # `vercel build` runs `pnpm build:web` as a subprocess, which reads these from process.env
+      # (Vite inlines VITE_* at build). Passing them here is what makes the deployed cloud app talk
+      # to the real API instead of localhost.
       - name: Build
         run: vercel build $PROD_FLAG --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_STOREFRONT_DOMAIN: ${{ vars.VITE_STOREFRONT_DOMAIN }}
 
       - name: Deploy prebuilt output
         run: vercel deploy --prebuilt $PROD_FLAG --token=${{ secrets.VERCEL_TOKEN }}

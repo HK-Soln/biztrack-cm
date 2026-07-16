@@ -52,6 +52,8 @@ export class AuthRateLimitGuard implements CanActivate {
       '/auth/login': { maxAttempts: 10, windowSeconds: 900 },
       '/auth/login-otp': { maxAttempts: 10, windowSeconds: 900 },
       '/auth/resend-otp': { maxAttempts: 3, windowSeconds: 600 },
+      '/auth/request-password-reset': { maxAttempts: 3, windowSeconds: 600 },
+      '/auth/reset-password': { maxAttempts: 10, windowSeconds: 900 },
       '/auth/refresh': { maxAttempts: 30, windowSeconds: 900 },
     }
 

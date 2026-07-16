@@ -20,6 +20,7 @@ import {
   clearAccessToken,
   getAccessToken,
 } from './cloud-http'
+import { isTransportError } from './error'
 
 /**
  * Cloud (browser) implementation of the DataClient `auth` domain. Mirrors the main
@@ -30,7 +31,12 @@ import {
 type AuthResponseData = {
   nextStep?: string
   tokens?: { accessToken: string; refreshToken: string }
-  context?: { maskedPhone?: string; maskedEmail?: string; otpExpiresIn?: number; attemptsLeft?: number }
+  context?: {
+    maskedPhone?: string
+    maskedEmail?: string
+    otpExpiresIn?: number
+    attemptsLeft?: number
+  }
 }
 
 export const EMPTY_SESSION: SessionStatus = {
@@ -46,7 +52,13 @@ export const EMPTY_SESSION: SessionStatus = {
 
 function errorText(e: unknown): string {
   const err = e as { response?: { data?: { message?: string } }; message?: string }
-  return err?.response?.data?.message ?? err?.message ?? 'Something went wrong. Please try again.'
+  const apiMessage = err?.response?.data?.message
+  if (apiMessage) return apiMessage
+  const generic = 'Something went wrong. Please try again.'
+  // A raw transport failure ("Failed to fetch" / "fetch failed") isn't an API message — hide it.
+  const raw = err?.message ?? ''
+  if (!raw || isTransportError(raw)) return generic
+  return raw
 }
 
 function mapContext(context: AuthResponseData['context']): AuthContextInfo | null {
@@ -158,9 +170,33 @@ export const cloudAuth = {
     }
   },
 
+  requestPasswordReset: async (identifier: string, channel?: OtpChannel) => {
+    try {
+      const body: Record<string, unknown> = { identifier }
+      if (channel === 'SMS' || channel === 'WHATSAPP') body.preferredOtpChannel = channel
+      return await ok(await post('/auth/request-password-reset', body, PUBLIC))
+    } catch (e) {
+      return fail(e)
+    }
+  },
+
+  resetPassword: async (identifier: string, code: string, newPassword: string) => {
+    try {
+      return await ok(await post('/auth/reset-password', { identifier, code, newPassword }, PUBLIC))
+    } catch (e) {
+      return fail(e)
+    }
+  },
+
   verifyPhone: async (phone: string, code: string, inviteToken?: string) => {
     try {
-      return await ok(await post('/auth/verify-phone', { phone, code, ...(inviteToken ? { inviteToken } : {}) }, PUBLIC))
+      return await ok(
+        await post(
+          '/auth/verify-phone',
+          { phone, code, ...(inviteToken ? { inviteToken } : {}) },
+          PUBLIC,
+        ),
+      )
     } catch (e) {
       return fail(e)
     }
@@ -168,7 +204,13 @@ export const cloudAuth = {
 
   verifyEmail: async (email: string, code: string, inviteToken?: string) => {
     try {
-      return await ok(await post('/auth/verify-email', { email, code, ...(inviteToken ? { inviteToken } : {}) }, PUBLIC))
+      return await ok(
+        await post(
+          '/auth/verify-email',
+          { email, code, ...(inviteToken ? { inviteToken } : {}) },
+          PUBLIC,
+        ),
+      )
     } catch (e) {
       return fail(e)
     }
@@ -194,7 +236,10 @@ export const cloudAuth = {
 
   getInvitePreview: async (token: string): Promise<InvitePreviewResult> => {
     try {
-      const preview = await cget<InvitePreviewResponse>(`/invites/${encodeURIComponent(token)}`, PUBLIC)
+      const preview = await cget<InvitePreviewResponse>(
+        `/invites/${encodeURIComponent(token)}`,
+        PUBLIC,
+      )
       return { ok: true, preview }
     } catch (e) {
       return { ok: false, error: errorText(e) }
@@ -239,7 +284,12 @@ export const cloudAuth = {
           priceXAF: number
           priceAnnualXAF: number
           trialDays: number
-          quotas?: { products?: number | null; contacts?: number | null; categories?: number | null; users?: number | null }
+          quotas?: {
+            products?: number | null
+            contacts?: number | null
+            categories?: number | null
+            users?: number | null
+          }
           resources?: string[]
           additionalResources?: string[]
           inheritsFrom?: string | null

@@ -1,8 +1,19 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { ContactStatementEntryType } from '@biztrack/types'
-import type { AgeingEntry, AgeingReport, ContactStatement, ContactStatementEntry, DebtDirection } from '@biztrack/types'
-import type { DebtsQuery, LocalDebt, PaginatedResult, RecordDebtPaymentRequest } from '../../shared/ipc'
+import type {
+  AgeingEntry,
+  AgeingReport,
+  ContactStatement,
+  ContactStatementEntry,
+  DebtDirection,
+} from '@biztrack/types'
+import type {
+  DebtsQuery,
+  LocalDebt,
+  PaginatedResult,
+  RecordDebtPaymentRequest,
+} from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import type { AuditLogger } from './audit.service'
 
@@ -73,7 +84,19 @@ export class DebtsService {
     this.db.run(
       `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OUTSTANDING', ?, ?, ?)`,
-      [id, businessId, input.contactId, input.direction, input.sourceType, input.sourceId, input.sourceReference, input.originalAmount, input.dueDate ?? null, input.notes ?? null, now],
+      [
+        id,
+        businessId,
+        input.contactId,
+        input.direction,
+        input.sourceType,
+        input.sourceId,
+        input.sourceReference,
+        input.originalAmount,
+        input.dueDate ?? null,
+        input.notes ?? null,
+        now,
+      ],
     )
     this.enqueue(id, businessId, now)
     this.onMutated()
@@ -82,8 +105,66 @@ export class DebtsService {
       entityType: 'debt',
       entityId: id,
       entityLabel: input.sourceReference,
-      changes: { before: null, after: { direction: input.direction, sourceType: input.sourceType, originalAmount: input.originalAmount, contactId: input.contactId } },
+      changes: {
+        before: null,
+        after: {
+          direction: input.direction,
+          sourceType: input.sourceType,
+          originalAmount: input.originalAmount,
+          contactId: input.contactId,
+        },
+      },
     })
+    return id
+  }
+
+  /**
+   * Create or update the debt that mirrors a contact's opening balance so it can be paid like any
+   * other debt. Natural key (business, OPENING_BALANCE, contactId, direction) with
+   * `source_id = contactId` — deterministic and identical on desktop + cloud, so the two converge
+   * on sync instead of duplicating. `created_at` is pinned to the opening date so it sorts to the
+   * top of the account statement. On amount change the status is recomputed from any payments.
+   */
+  upsertOpeningBalanceDebt(input: {
+    contactId: string
+    direction: 'RECEIVABLE' | 'PAYABLE'
+    amount: number
+    asOfDate: string
+  }): string {
+    const businessId = this.requireBusinessId()
+    const now = new Date().toISOString()
+    const existing = this.db.get<{ id: string; status: string }>(
+      `SELECT id, status FROM debts WHERE business_id = ? AND source_type = 'OPENING_BALANCE' AND source_id = ? AND direction = ?`,
+      [businessId, input.contactId, input.direction],
+    )
+
+    if (existing) {
+      if (existing.status === 'WRITTEN_OFF') return existing.id
+      const paid =
+        this.db.get<{ p: number }>(
+          `SELECT COALESCE(SUM(amount), 0) AS p FROM debt_payments WHERE debt_id = ?`,
+          [existing.id],
+        )?.p ?? 0
+      const settled = paid >= input.amount - 1e-6
+      const status = settled ? 'SETTLED' : paid > 0 ? 'PARTIALLY_PAID' : 'OUTSTANDING'
+      this.db.run(
+        `UPDATE debts SET original_amount = ?, status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
+        [input.amount, status, settled ? now : null, existing.id, businessId],
+      )
+      this.enqueue(existing.id, businessId, now)
+      this.onMutated()
+      return existing.id
+    }
+
+    const id = randomUUID()
+    const createdAt = `${input.asOfDate}T00:00:00.000Z`
+    this.db.run(
+      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, created_at)
+       VALUES (?, ?, ?, ?, 'OPENING_BALANCE', ?, 'Opening balance', ?, 'OUTSTANDING', NULL, NULL, ?)`,
+      [id, businessId, input.contactId, input.direction, input.contactId, input.amount, createdAt],
+    )
+    this.enqueue(id, businessId, now)
+    this.onMutated()
     return id
   }
 
@@ -94,7 +175,8 @@ export class DebtsService {
     if (!debt) throw new Error('Debt not found.')
     if (debt.status === 'WRITTEN_OFF') throw new Error('This debt has been written off.')
     const amount = Number(input.amount)
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Payment amount must be greater than 0.')
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new Error('Payment amount must be greater than 0.')
     const outstanding = debt.original_amount - debt.paid_amount
     if (amount > outstanding + 1e-6) throw new Error('Payment exceeds the outstanding balance.')
 
@@ -102,7 +184,18 @@ export class DebtsService {
     this.db.run(
       `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [randomUUID(), businessId, debtId, amount, input.method, input.mobileMoneyReference ?? null, input.paymentDate || now, input.notes ?? null, this.getActorId() ?? 'unknown', now],
+      [
+        randomUUID(),
+        businessId,
+        debtId,
+        amount,
+        input.method,
+        input.mobileMoneyReference ?? null,
+        input.paymentDate || now,
+        input.notes ?? null,
+        this.getActorId() ?? 'unknown',
+        now,
+      ],
     )
 
     const paid = debt.paid_amount + amount
@@ -122,7 +215,10 @@ export class DebtsService {
       entityType: 'debt',
       entityId: debtId,
       entityLabel: debt.source_reference,
-      changes: { before: { status: debt.status, paid: debt.paid_amount }, after: { status, paid, payment: amount } },
+      changes: {
+        before: { status: debt.status, paid: debt.paid_amount },
+        after: { status, paid, payment: amount },
+      },
     })
     return this.get(debtId)!
   }
@@ -174,13 +270,22 @@ export class DebtsService {
       entityType: 'contact',
       entityId: contactId,
       entityLabel: ref,
-      changes: { before: { receivable: totalR, payable: totalP }, after: { offsetAmount, affected } },
+      changes: {
+        before: { receivable: totalR, payable: totalP },
+        after: { offsetAmount, affected },
+      },
     })
     return { offsetAmount, affected }
   }
 
   /** Apply one cash-neutral OFFSET contra payment to a debt + re-enqueue it for sync. */
-  private applyContra(debtId: string, businessId: string, amount: number, ref: string, now: string): void {
+  private applyContra(
+    debtId: string,
+    businessId: string,
+    amount: number,
+    ref: string,
+    now: string,
+  ): void {
     const debt = this.getRow(debtId, businessId)
     if (!debt) return
     this.db.run(
@@ -203,14 +308,18 @@ export class DebtsService {
       entityType: 'debt',
       entityId: debtId,
       entityLabel: debt.source_reference,
-      changes: { before: { status: debt.status, paid: debt.paid_amount }, after: { status, paid, offset: amount, reference: ref } },
+      changes: {
+        before: { status: debt.status, paid: debt.paid_amount },
+        after: { status, paid, offset: amount, reference: ref },
+      },
     })
   }
 
   /** Paginated debts for a contact (for the contact detail ledger). */
   listByContact(contactId: string, query: DebtsQuery = {}): PaginatedResult<LocalDebt> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalDebt>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalDebt>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'd.business_id = ? AND d.contact_id = ?'
     const params: unknown[] = [businessId, contactId]
@@ -251,20 +360,17 @@ export class DebtsService {
   statement(contactId: string, direction: DebtDirection): ContactStatement {
     const businessId = this.getBusinessId()
     const contactRow = businessId
-      ? this.db.get<{ name: string; phone: string | null }>(`SELECT name, phone FROM contacts WHERE id = ? AND business_id = ?`, [contactId, businessId])
+      ? this.db.get<{ name: string; phone: string | null }>(
+          `SELECT name, phone FROM contacts WHERE id = ? AND business_id = ?`,
+          [contactId, businessId],
+        )
       : null
-    const openingBalance = businessId
-      ? this.db.get<{ amount: number }>(
-          `SELECT amount FROM contact_opening_balances WHERE business_id = ? AND contact_id = ? AND direction = ?`,
-          [businessId, contactId, direction],
-        )?.amount ?? 0
-      : 0
     const base: ContactStatement = {
       contact: { id: contactId, name: contactRow?.name ?? '', phone: contactRow?.phone ?? null },
       direction,
-      openingBalance,
+      openingBalance: 0,
       entries: [],
-      closingBalance: openingBalance,
+      closingBalance: 0,
     }
     if (!businessId) return base
 
@@ -274,9 +380,21 @@ export class DebtsService {
     )
     if (debts.length === 0) return base
 
+    // The opening balance is now an OPENING_BALANCE debt (pinned to the opening date so it sorts
+    // first); it renders as the opening entry and its payments flow like any other debt.
+    base.openingBalance =
+      debts.find((d) => d.source_type === 'OPENING_BALANCE')?.original_amount ?? 0
+
     const ids = debts.map((d) => d.id)
     const ph = ids.map(() => '?').join(',')
-    const pays = this.db.query<{ debt_id: string; amount: number; method: string; mobile_money_reference: string | null; payment_date: string | null; created_at: string }>(
+    const pays = this.db.query<{
+      debt_id: string
+      amount: number
+      method: string
+      mobile_money_reference: string | null
+      payment_date: string | null
+      created_at: string
+    }>(
       `SELECT debt_id, amount, method, mobile_money_reference, payment_date, created_at FROM debt_payments WHERE debt_id IN (${ph}) ORDER BY payment_date ASC, created_at ASC`,
       ids,
     )
@@ -293,24 +411,55 @@ export class DebtsService {
       events.push({ date: d.created_at, kind: 'debt', debt: d })
       if (d.status === 'WRITTEN_OFF') {
         const remaining = Math.max(0, d.original_amount - (paidByDebt.get(d.id) ?? 0))
-        if (remaining > 0) events.push({ date: d.settled_at || d.created_at, kind: 'woff', amount: remaining })
+        if (remaining > 0)
+          events.push({ date: d.settled_at || d.created_at, kind: 'woff', amount: remaining })
       }
     }
     for (const p of pays) events.push({ date: p.payment_date || p.created_at, kind: 'pay', pay: p })
     events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 
-    let balance = base.openingBalance
+    let balance = 0
     const entries: ContactStatementEntry[] = []
     for (const e of events) {
       if (e.kind === 'debt') {
+        const isOpening = e.debt.source_type === 'OPENING_BALANCE'
         balance = round2(balance + e.debt.original_amount)
-        entries.push({ date: e.debt.created_at, type: ContactStatementEntryType.DEBT_CREATED, direction, reference: e.debt.source_reference, description: e.debt.source_type, debit: e.debt.original_amount, credit: 0, balance })
+        entries.push({
+          date: e.debt.created_at,
+          type: isOpening
+            ? ContactStatementEntryType.OPENING_BALANCE
+            : ContactStatementEntryType.DEBT_CREATED,
+          direction,
+          reference: isOpening ? null : e.debt.source_reference,
+          description: isOpening ? 'Opening balance' : e.debt.source_type,
+          debit: e.debt.original_amount,
+          credit: 0,
+          balance,
+        })
       } else if (e.kind === 'pay') {
         balance = round2(balance - e.pay.amount)
-        entries.push({ date: e.date, type: ContactStatementEntryType.PAYMENT, direction, reference: e.pay.method, description: e.pay.mobile_money_reference ?? '', debit: 0, credit: e.pay.amount, balance })
+        entries.push({
+          date: e.date,
+          type: ContactStatementEntryType.PAYMENT,
+          direction,
+          reference: e.pay.method,
+          description: e.pay.mobile_money_reference ?? '',
+          debit: 0,
+          credit: e.pay.amount,
+          balance,
+        })
       } else {
         balance = round2(balance - e.amount)
-        entries.push({ date: e.date, type: ContactStatementEntryType.WRITE_OFF, direction, reference: null, description: '', debit: 0, credit: e.amount, balance })
+        entries.push({
+          date: e.date,
+          type: ContactStatementEntryType.WRITE_OFF,
+          direction,
+          reference: null,
+          description: '',
+          debit: 0,
+          credit: e.amount,
+          balance,
+        })
       }
     }
     base.entries = entries
@@ -328,24 +477,35 @@ export class DebtsService {
   getAgeing(direction: DebtDirection): AgeingReport {
     const now = new Date()
     const today = now.toISOString().slice(0, 10)
-    const emptyTotals = { openingBalance: 0, current: 0, moderate: 0, aged: 0, overdue: 0, totalOutstanding: 0 }
+    const emptyTotals = {
+      openingBalance: 0,
+      current: 0,
+      moderate: 0,
+      aged: 0,
+      overdue: 0,
+      totalOutstanding: 0,
+    }
     const businessId = this.getBusinessId()
     if (!businessId) return { direction, asOf: today, entries: [], totals: emptyTotals }
 
-    const debts = this.db.query<{ id: string; contact_id: string; original_amount: number; created_at: string; paid_amount: number }>(
-      `SELECT d.id, d.contact_id, d.original_amount, d.created_at, ${PAID} AS paid_amount
+    // Opening balances are now OPENING_BALANCE debts, so they come back in this scan — kept in
+    // their own column (not aged), never double-counted against a separate opening-balance table.
+    const debts = this.db.query<{
+      id: string
+      contact_id: string
+      source_type: string
+      original_amount: number
+      created_at: string
+      paid_amount: number
+    }>(
+      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, ${PAID} AS paid_amount
        FROM debts d WHERE d.business_id = ? AND d.direction = ? AND d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`,
       [businessId, direction],
     )
 
-    const openingBalances = this.db.query<{ contact_id: string; amount: number }>(
-      `SELECT contact_id, amount FROM contact_opening_balances WHERE business_id = ? AND direction = ?`,
-      [businessId, direction],
-    )
-    const obByContact = new Map(openingBalances.map((ob) => [ob.contact_id, ob.amount]))
-
     const msPerDay = 1000 * 60 * 60 * 24
     interface Bucket {
+      openingBalance: number
       current: number
       moderate: number
       aged: number
@@ -358,19 +518,25 @@ export class DebtsService {
       const paid = round2(d.paid_amount ?? 0)
       const outstanding = round2(Math.max(0, d.original_amount - paid))
       if (outstanding <= 0) continue
-      const ageDays = Math.floor((now.getTime() - new Date(d.created_at).getTime()) / msPerDay)
-      const b = buckets.get(d.contact_id) ?? { current: 0, moderate: 0, aged: 0, overdue: 0, total: 0 }
-      if (ageDays <= 7) b.current = round2(b.current + outstanding)
-      else if (ageDays <= 15) b.moderate = round2(b.moderate + outstanding)
-      else if (ageDays <= 30) b.aged = round2(b.aged + outstanding)
-      else b.overdue = round2(b.overdue + outstanding)
-      b.total = round2(b.total + outstanding)
+      const b = buckets.get(d.contact_id) ?? {
+        openingBalance: 0,
+        current: 0,
+        moderate: 0,
+        aged: 0,
+        overdue: 0,
+        total: 0,
+      }
+      if (d.source_type === 'OPENING_BALANCE') {
+        b.openingBalance = round2(b.openingBalance + outstanding)
+      } else {
+        const ageDays = Math.floor((now.getTime() - new Date(d.created_at).getTime()) / msPerDay)
+        if (ageDays <= 7) b.current = round2(b.current + outstanding)
+        else if (ageDays <= 15) b.moderate = round2(b.moderate + outstanding)
+        else if (ageDays <= 30) b.aged = round2(b.aged + outstanding)
+        else b.overdue = round2(b.overdue + outstanding)
+        b.total = round2(b.total + outstanding)
+      }
       buckets.set(d.contact_id, b)
-    }
-
-    // Include contacts that only have an opening balance (no open debt rows).
-    for (const ob of openingBalances) {
-      if (!buckets.has(ob.contact_id)) buckets.set(ob.contact_id, { current: 0, moderate: 0, aged: 0, overdue: 0, total: 0 })
     }
 
     const contactIds = [...buckets.keys()]
@@ -389,17 +555,16 @@ export class DebtsService {
       .map((id) => {
         const b = buckets.get(id)!
         const info = contactInfo.get(id)!
-        const ob = obByContact.get(id) ?? 0
         return {
           contactId: id,
           contactName: info.name,
           contactPhone: info.phone,
-          openingBalance: ob,
+          openingBalance: b.openingBalance,
           current: b.current,
           moderate: b.moderate,
           aged: b.aged,
           overdue: b.overdue,
-          totalOutstanding: round2(ob + b.total),
+          totalOutstanding: round2(b.openingBalance + b.total),
         }
       })
 
@@ -424,7 +589,10 @@ export class DebtsService {
 
   private getRow(id: string, businessId: string): DebtRow | null {
     return (
-      this.db.get<DebtRow>(`SELECT ${COLS} FROM debts d WHERE d.id = ? AND d.business_id = ?`, [id, businessId]) ?? null
+      this.db.get<DebtRow>(`SELECT ${COLS} FROM debts d WHERE d.id = ? AND d.business_id = ?`, [
+        id,
+        businessId,
+      ]) ?? null
     )
   }
 
@@ -463,7 +631,10 @@ export class DebtsService {
       notes: string | null
       recorded_by: string
       created_at: string
-    }>(`SELECT id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at FROM debt_payments WHERE debt_id = ? ORDER BY created_at ASC`, [debtId])
+    }>(
+      `SELECT id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at FROM debt_payments WHERE debt_id = ? ORDER BY created_at ASC`,
+      [debtId],
+    )
 
     const payload = {
       id: debtId,

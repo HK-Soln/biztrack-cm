@@ -97,8 +97,19 @@ function resolveDbPath(): string {
     : join(app.getAppPath(), 'biztrack-v2-dev.db')
 }
 
+// DevTools shortcut keys we swallow in production: F12 and the Ctrl/Cmd(+Shift/+Alt)+I/J/C family.
+function isDevToolsShortcut(input: Electron.Input): boolean {
+  const key = input.key?.toLowerCase()
+  if (key === 'f12') return true
+  const combo = input.control || input.meta
+  return combo && (input.shift || input.alt) && (key === 'i' || key === 'j' || key === 'c')
+}
+
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
+  // In production the renderer is trusted, packaged UI — DevTools stay fully locked so the
+  // SQLite-backed BFF and tokens in main can't be inspected/tampered with from a shipped build.
+  const devToolsAllowed = config.nodeEnv !== 'production'
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -119,10 +130,22 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // The primary lock: with devTools disabled Chromium won't open them at all — every
+      // path (shortcuts, menu, context menu, programmatic openDevTools) is a no-op.
+      devTools: devToolsAllowed,
     },
   })
 
   win.once('ready-to-show', () => win.show())
+
+  // Defense-in-depth on top of `devTools: false`: swallow the shortcut keystrokes before
+  // Chromium sees them, and slam the panel shut if it ever manages to open.
+  if (!devToolsAllowed) {
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && isDevToolsShortcut(input)) event.preventDefault()
+    })
+    win.webContents.on('devtools-opened', () => win.webContents.closeDevTools())
+  }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -133,7 +156,7 @@ function createWindow(): void {
   const rendererUrl = config.rendererDevUrl
   if (rendererUrl) {
     win.loadURL(rendererUrl)
-    win.webContents.openDevTools()
+    if (devToolsAllowed) win.webContents.openDevTools()
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -294,6 +317,7 @@ app.whenReady().then(() => {
     () => void sync.sync(),
     () => authService.getSession().user?.id ?? null,
     audit,
+    debts,
   )
   registerOpeningBalancesIpc(openingBalances)
 

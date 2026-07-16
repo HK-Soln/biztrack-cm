@@ -51,10 +51,16 @@ function CategoryProducts({ categoryId }: { categoryId: string }) {
             onClick={() => navigate(`/products/${p.id}`)}
           >
             <span className="ava sm">
-              {p.imageUrl ? <img src={p.imageUrl} alt="" className="ava-img" /> : p.name.trim().charAt(0) || 'P'}
+              {p.imageUrl ? (
+                <img src={p.imageUrl} alt="" className="ava-img" />
+              ) : (
+                p.name.trim().charAt(0) || 'P'
+              )}
             </span>
             <span className="meta">
-              <span className="nm">{p.name}</span>
+              <span className="nm" title={p.name}>
+                {p.name}
+              </span>
               <span className="sub">{p.sku || (p.brandName ?? t('cat.noSku'))}</span>
             </span>
             <span className="catprod-price">{money.format(p.effectiveSellingPrice)}</span>
@@ -95,7 +101,9 @@ export function Categories() {
     search,
     setSearch,
     setPage,
-  } = usePaged<LocalCategory>(queryKeys.categories, (q) => dataClient.categories.list(q), { enabled: true })
+  } = usePaged<LocalCategory>(queryKeys.categories, (q) => dataClient.categories.list(q), {
+    enabled: true,
+  })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<LocalCategory | null>(null)
@@ -129,7 +137,9 @@ export function Categories() {
         )}
       </span>
       <span className="meta">
-        <span className="nm">{c.name}</span>
+        <span className="nm" title={c.name}>
+          {c.name}
+        </span>
         <span className="sub">
           {t('cat.level')} {c.depth}
         </span>
@@ -147,7 +157,12 @@ export function Categories() {
           style={{ height: 36, paddingRight: search ? 34 : undefined }}
         />
         {search ? (
-          <button type="button" className="cat-search-clear" title={t('cat.clearSearch')} onClick={() => setSearch('')}>
+          <button
+            type="button"
+            className="cat-search-clear"
+            title={t('cat.clearSearch')}
+            onClick={() => setSearch('')}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -160,7 +175,9 @@ export function Categories() {
             {search ? t('cat.noResults').replace('{q}', search) : t('cat.empty')}
             {search ? (
               <div style={{ marginTop: 12 }}>
-                <Button variant="soft" onClick={() => setSearch('')}>{t('cat.clearSearch')}</Button>
+                <Button variant="soft" onClick={() => setSearch('')}>
+                  {t('cat.clearSearch')}
+                </Button>
               </div>
             ) : null}
           </div>
@@ -194,8 +211,15 @@ export function Categories() {
         </header>
         {isPending ? <div className="cat-empty">{t('cat.loading')}</div> : list}
         <div style={{ height: 76 }} />
-        <button type="button" className="mfab" onClick={() => navigate('/products/categories/new')} aria-label={t('cat.new')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        <button
+          type="button"
+          className="mfab"
+          onClick={() => navigate('/products/categories/new')}
+          aria-label={t('cat.new')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
         </button>
       </>
     )
@@ -242,12 +266,23 @@ export function Categories() {
                   <Button variant="soft" onClick={() => edit(selected.id)}>
                     {t('cat.edit')}
                   </Button>
-                  <Button variant="soft" onClick={() => setDeleteTarget(selected)} style={{ color: 'var(--danger)' }}>
+                  <Button
+                    variant="soft"
+                    onClick={() => setDeleteTarget(selected)}
+                    style={{ color: 'var(--danger)' }}
+                  >
                     {t('cat.delete')}
                   </Button>
                 </div>
                 {selected.description ? (
-                  <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 14 }}>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: 'var(--text-2)',
+                      lineHeight: 1.6,
+                      marginBottom: 14,
+                    }}
+                  >
                     {selected.description}
                   </p>
                 ) : null}
@@ -266,7 +301,11 @@ export function Categories() {
         title={t('cat.deleteTitle')}
         footer={
           <>
-            <Button variant="soft" onClick={() => setDeleteTarget(null)} disabled={removeM.isPending}>
+            <Button
+              variant="soft"
+              onClick={() => setDeleteTarget(null)}
+              disabled={removeM.isPending}
+            >
               {t('cat.cancel')}
             </Button>
             <Button

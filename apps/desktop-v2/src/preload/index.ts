@@ -20,6 +20,10 @@ const api: BridgeApi = {
     requestLogin: (identifier, channel) =>
       ipcRenderer.invoke(IPC.authRequestLogin, identifier, channel),
     loginOtp: (identifier, code) => ipcRenderer.invoke(IPC.authLoginOtp, identifier, code),
+    requestPasswordReset: (identifier, channel) =>
+      ipcRenderer.invoke(IPC.authRequestPasswordReset, identifier, channel),
+    resetPassword: (identifier, code, newPassword) =>
+      ipcRenderer.invoke(IPC.authResetPassword, identifier, code, newPassword),
     verifyPhone: (phone, code, inviteToken) =>
       ipcRenderer.invoke(IPC.authVerifyPhone, phone, code, inviteToken),
     verifyEmail: (email, code, inviteToken) =>

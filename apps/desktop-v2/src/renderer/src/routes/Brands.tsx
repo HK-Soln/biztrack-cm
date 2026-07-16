@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, CategoryTreePicker, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
+import {
+  BackButton,
+  Button,
+  CategoryTreePicker,
+  Input,
+  Modal,
+  Pagination,
+} from '@biztrack/ui/biztrack'
 import { FileUpload } from '@/components/FileUpload'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -74,7 +81,8 @@ export function Brands() {
   })
   const [editingModel, setEditingModel] = useState<{ id: string; name: string } | null>(null)
   const updateModel = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => dataClient.brands.updateModel(id, { name }),
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      dataClient.brands.updateModel(id, { name }),
     onSuccess: () => {
       invalidate()
       setEditingModel(null)
@@ -125,9 +133,12 @@ export function Brands() {
               {b.logoUrl ? <img src={b.logoUrl} alt="" className="ava-img" /> : initials(b.name)}
             </span>
             <span className="tx">
-              <span className="nm">{b.name}</span>
+              <span className="nm" title={b.name}>
+                {b.name}
+              </span>
               <span className="sub">
-                {b.categoryIds.length} {t('brand.catsWord')} · {b.models.length} {t('brand.modelsWord')}
+                {b.categoryIds.length} {t('brand.catsWord')} · {b.models.length}{' '}
+                {t('brand.modelsWord')}
               </span>
             </span>
           </button>
@@ -149,13 +160,19 @@ export function Brands() {
   const detail = selected ? (
     <div className="mddetail">
       {bp === 'mobile' ? (
-        <BackButton onClick={() => setSelectedId(null)} style={{ marginBottom: 12 }}>{t('brand.back')}</BackButton>
+        <BackButton onClick={() => setSelectedId(null)} style={{ marginBottom: 12 }}>
+          {t('brand.back')}
+        </BackButton>
       ) : null}
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="dhero-in">
           <span className="av">
-            {selected.logoUrl ? <img src={selected.logoUrl} alt="" className="ava-img" /> : initials(selected.name)}
+            {selected.logoUrl ? (
+              <img src={selected.logoUrl} alt="" className="ava-img" />
+            ) : (
+              initials(selected.name)
+            )}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="eyebrow">{t('brand.eyebrow')}</div>
@@ -164,12 +181,18 @@ export function Brands() {
           <Button variant="soft" onClick={() => setBrandModal({ brand: selected })}>
             {t('brand.edit')}
           </Button>
-          <Button variant="soft" onClick={() => setDeleteTarget(selected)} style={{ color: 'var(--danger)' }}>
+          <Button
+            variant="soft"
+            onClick={() => setDeleteTarget(selected)}
+            style={{ color: 'var(--danger)' }}
+          >
             {t('brand.delete')}
           </Button>
         </div>
         {selected.description ? (
-          <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginTop: 12 }}>{selected.description}</p>
+          <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginTop: 12 }}>
+            {selected.description}
+          </p>
         ) : null}
       </div>
 
@@ -213,17 +236,34 @@ export function Brands() {
                   value={editingModel.name}
                   onChange={(e) => setEditingModel({ id: m.id, name: e.target.value })}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); saveModelEdit() }
-                    if (e.key === 'Escape') { e.preventDefault(); setEditingModel(null) }
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      saveModelEdit()
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setEditingModel(null)
+                    }
                   }}
                   style={{ flex: 1, height: 32 }}
                 />
-                <button type="button" className="opt-ok" title={t('brand.save')} disabled={updateModel.isPending || !editingModel.name.trim()} onClick={saveModelEdit}>
+                <button
+                  type="button"
+                  className="opt-ok"
+                  title={t('brand.save')}
+                  disabled={updateModel.isPending || !editingModel.name.trim()}
+                  onClick={saveModelEdit}
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                     <path d="m5 12 5 5L20 7" />
                   </svg>
                 </button>
-                <button type="button" className="opt-del" title={t('brand.cancel')} onClick={() => setEditingModel(null)}>
+                <button
+                  type="button"
+                  className="opt-del"
+                  title={t('brand.cancel')}
+                  onClick={() => setEditingModel(null)}
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path d="M6 6l12 12M18 6 6 18" />
                   </svg>
@@ -231,10 +271,20 @@ export function Brands() {
               </div>
             ) : (
               <div key={m.id} className="opt-edit">
-                <button type="button" className="ov" title={t('brand.editModel')} onClick={() => setEditingModel({ id: m.id, name: m.name })}>
+                <button
+                  type="button"
+                  className="ov"
+                  title={m.name}
+                  onClick={() => setEditingModel({ id: m.id, name: m.name })}
+                >
                   {m.name}
                 </button>
-                <button type="button" className="opt-del" title={t('brand.removeModel')} onClick={() => removeModel.mutate(m.id)}>
+                <button
+                  type="button"
+                  className="opt-del"
+                  title={t('brand.removeModel')}
+                  onClick={() => removeModel.mutate(m.id)}
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path d="M6 6l12 12M18 6 6 18" />
                   </svg>
@@ -242,7 +292,9 @@ export function Brands() {
               </div>
             ),
           )}
-          {selected.models.length === 0 ? <div className="cat-empty">{t('brand.noModels')}</div> : null}
+          {selected.models.length === 0 ? (
+            <div className="cat-empty">{t('brand.noModels')}</div>
+          ) : null}
         </div>
         <div className="opt-add">
           <Input
@@ -256,7 +308,11 @@ export function Brands() {
               }
             }}
           />
-          <Button variant="primary" onClick={submitModel} disabled={addModel.isPending || !newModel.trim()}>
+          <Button
+            variant="primary"
+            onClick={submitModel}
+            disabled={addModel.isPending || !newModel.trim()}
+          >
             {t('brand.add')}
           </Button>
         </div>
@@ -289,7 +345,11 @@ export function Brands() {
         title={t('brand.deleteTitle')}
         footer={
           <>
-            <Button variant="soft" onClick={() => setDeleteTarget(null)} disabled={removeBrand.isPending}>
+            <Button
+              variant="soft"
+              onClick={() => setDeleteTarget(null)}
+              disabled={removeBrand.isPending}
+            >
               {t('brand.cancel')}
             </Button>
             <Button
@@ -326,35 +386,95 @@ export function Brands() {
             </header>
 
             <div className="msearch" style={{ marginBottom: 13 }}>
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
-              <input value={search} placeholder={t('brand.search')} onChange={(e) => setSearch(e.target.value)} />
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                <circle cx="9" cy="9" r="6" />
+                <path d="m14 14 3 3" />
+              </svg>
+              <input
+                value={search}
+                placeholder={t('brand.search')}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
 
             <div className="mlist">
-              {isPending && brands.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('brand.loading')}</div></div></div> : null}
-              {!isPending && brands.length === 0 ? <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('brand.empty')}</div></div></div> : null}
+              {isPending && brands.length === 0 ? (
+                <div className="mrow" style={{ cursor: 'default' }}>
+                  <div className="mt">
+                    <div className="sub">{t('brand.loading')}</div>
+                  </div>
+                </div>
+              ) : null}
+              {!isPending && brands.length === 0 ? (
+                <div className="mrow" style={{ cursor: 'default' }}>
+                  <div className="mt">
+                    <div className="sub">{t('brand.empty')}</div>
+                  </div>
+                </div>
+              ) : null}
               {brands.map((b) => (
-                <button key={b.id} type="button" className="mrow" onClick={() => setSelectedId(b.id)}>
-                  <div className="th">{b.logoUrl ? <img src={b.logoUrl} alt="" /> : initials(b.name)}</div>
+                <button
+                  key={b.id}
+                  type="button"
+                  className="mrow"
+                  onClick={() => setSelectedId(b.id)}
+                >
+                  <div className="th">
+                    {b.logoUrl ? <img src={b.logoUrl} alt="" /> : initials(b.name)}
+                  </div>
                   <div className="mt">
                     <div className="nm">{b.name}</div>
-                    <div className="sub">{b.categoryIds.length} {t('brand.catsWord')} · {b.models.length} {t('brand.modelsWord')}</div>
+                    <div className="sub">
+                      {b.categoryIds.length} {t('brand.catsWord')} · {b.models.length}{' '}
+                      {t('brand.modelsWord')}
+                    </div>
                   </div>
-                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+                  <svg
+                    className="chev"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path d="m9 6 6 6-6 6" />
+                  </svg>
                 </button>
               ))}
             </div>
 
             {totalPages > 1 ? (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
-                <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage(page - 1)}>{t('common.prev')}</button>
-                <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{t('common.next')}</button>
+                <button
+                  type="button"
+                  className="mbtn"
+                  style={{ width: 'auto', padding: '0 18px' }}
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  {t('common.prev')}
+                </button>
+                <button
+                  type="button"
+                  className="mbtn"
+                  style={{ width: 'auto', padding: '0 18px' }}
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(page + 1)}
+                >
+                  {t('common.next')}
+                </button>
               </div>
             ) : null}
 
             <div style={{ height: 76 }} />
-            <button type="button" className="mfab" onClick={() => setBrandModal({})} aria-label={t('brand.new')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+            <button
+              type="button"
+              className="mfab"
+              onClick={() => setBrandModal({})}
+              aria-label={t('brand.new')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
             </button>
           </>
         )}
@@ -426,7 +546,9 @@ function BrandModal({
         logoUrl,
         categoryIds: catIds,
       }
-      return editing && brand ? dataClient.brands.update(brand.id, input) : dataClient.brands.create(input)
+      return editing && brand
+        ? dataClient.brands.update(brand.id, input)
+        : dataClient.brands.create(input)
     },
     onSuccess: (b) => onSaved(b.id),
     onError: () => setError(t('brand.saveError')),
@@ -473,7 +595,15 @@ function BrandModal({
         <label className="lbl2">
           {t('brand.name')} <span className="req">*</span>
         </label>
-        <Input value={name} error={!!error && !name.trim()} placeholder={t('brand.namePh')} onChange={(e) => { setName(e.target.value); setError(null) }} />
+        <Input
+          value={name}
+          error={!!error && !name.trim()}
+          placeholder={t('brand.namePh')}
+          onChange={(e) => {
+            setName(e.target.value)
+            setError(null)
+          }}
+        />
       </div>
       <div className="ff" style={{ marginBottom: 12 }}>
         <label className="lbl2">
@@ -491,9 +621,15 @@ function BrandModal({
       <div className="ff">
         <label className="lbl2">
           {t('brand.categories')} <span className="opt">{t('brand.optional')}</span>
-          {catIds.length > 0 ? <span className="chip-tag" style={{ marginLeft: 8 }}>{catIds.length}</span> : null}
+          {catIds.length > 0 ? (
+            <span className="chip-tag" style={{ marginLeft: 8 }}>
+              {catIds.length}
+            </span>
+          ) : null}
         </label>
-        <div className="hint" style={{ marginBottom: 8 }}>{t('brand.categoriesPickHint')}</div>
+        <div className="hint" style={{ marginBottom: 8 }}>
+          {t('brand.categoriesPickHint')}
+        </div>
         {categories.length === 0 ? (
           <div className="form-note">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -506,7 +642,10 @@ function BrandModal({
           <CategoryTreePicker
             nodes={treeNodes}
             value={catIds}
-            onChange={(next) => { setCatIds(next); setError(null) }}
+            onChange={(next) => {
+              setCatIds(next)
+              setError(null)
+            }}
             searchPlaceholder={t('brand.catSearch')}
             emptyLabel={t('brand.catEmpty')}
             noMatchLabel={t('brand.catNoMatch')}
