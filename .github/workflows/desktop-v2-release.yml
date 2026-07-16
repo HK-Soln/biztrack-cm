@@ -103,6 +103,9 @@ jobs:
         working-directory: apps/desktop-v2
         run: pnpm run build
         env:
+          # Resolved above (dispatch input or tag suffix): `staging` or `production`. Baked into the
+          # main bundle — only `production` locks DevTools in the shipped app (see src/main/index.ts).
+          NODE_ENV: ${{ steps.meta.outputs.environment }}
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           # Storefront root domain baked into the renderer — differs per environment. Required
           # (no fallback); the verify step above fails the run if it's unset.
