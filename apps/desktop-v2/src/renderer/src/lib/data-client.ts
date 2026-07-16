@@ -444,6 +444,12 @@ export interface DataClient {
     login: (identifier: string, password: string) => Promise<AuthFlowResult>
     requestLogin: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     loginOtp: (identifier: string, code: string) => Promise<AuthFlowResult>
+    requestPasswordReset: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
+    resetPassword: (
+      identifier: string,
+      code: string,
+      newPassword: string,
+    ) => Promise<AuthFlowResult>
     verifyPhone: (phone: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     verifyEmail: (email: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
@@ -756,6 +762,10 @@ function electronAdapter(): DataClient {
       login: (identifier, password) => window.api.auth.login(identifier, password),
       requestLogin: (identifier, channel) => window.api.auth.requestLogin(identifier, channel),
       loginOtp: (identifier, code) => window.api.auth.loginOtp(identifier, code),
+      requestPasswordReset: (identifier, channel) =>
+        window.api.auth.requestPasswordReset(identifier, channel),
+      resetPassword: (identifier, code, newPassword) =>
+        window.api.auth.resetPassword(identifier, code, newPassword),
       verifyPhone: (phone, code, inviteToken) =>
         window.api.auth.verifyPhone(phone, code, inviteToken),
       verifyEmail: (email, code, inviteToken) =>

@@ -1847,7 +1847,11 @@ export class SalesService {
 
     for (const item of dto.items) {
       const product = productsById.get(item.productId)!
-      if (product.hasVariants) {
+      // Serialised products carry their variant on the serial unit itself (the sell UI
+      // picks a unit, not a variant), so the variant is derived + validated in the
+      // serial-unit pass below. Only require an explicit variantId for non-serialised
+      // variant products. Mirrors the desktop local rule (`hasVariants && !isSerialized`).
+      if (product.hasVariants && !product.isSerialized) {
         if (!item.variantId) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.variant_required', { args: { name: product.name } }),
@@ -2126,7 +2130,9 @@ export class SalesService {
       subtotal = this.roundMoney(subtotal + lineTotal)
       items.push({
         product,
-        variantId: variant?.id ?? null,
+        // Serialised lines have no explicit variantId — derive it from the serial unit so the
+        // sale item still records the correct variant.
+        variantId: variant?.id ?? serialUnit?.variantId ?? null,
         variantName: variant?.name ?? input.variantName ?? null,
         serialUnitId: serialUnit?.id ?? input.serialUnitId ?? null,
         serialNumber: serialUnit?.serialNumber ?? input.serialNumber ?? null,

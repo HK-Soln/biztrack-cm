@@ -9,6 +9,7 @@ import { SignUp } from '@/routes/SignUp'
 import { Invite } from '@/routes/Invite'
 import { Invitations } from '@/routes/Invitations'
 import { Sso } from '@/routes/Sso'
+import { ForgotPassword } from '@/routes/ForgotPassword'
 import { SelectBusiness } from '@/routes/SelectBusiness'
 import { SetupBusiness } from '@/routes/SetupBusiness'
 import { SelectPlan } from '@/routes/SelectPlan'
@@ -67,6 +68,7 @@ export const router = createHashRouter([
           { path: '/signup', element: <SignUp /> },
           { path: '/invite', element: <Invite /> },
           { path: '/sso', element: <Sso /> },
+          { path: '/forgot-password', element: <ForgotPassword /> },
           { path: '/select-business', element: <SelectBusiness /> },
           { path: '/setup-business', element: <SetupBusiness /> },
           { path: '/select-plan', element: <SelectPlan /> },

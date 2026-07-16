@@ -39,18 +39,22 @@ interface ContactListRow extends ContactRow {
   oldest_unpaid: string | null
 }
 
-const COLS = 'id, type, name, phone, phone_alt, email, address, notes, id_type, id_number, id_issue_date, id_expiry_date, id_documents, selfie_url, is_active, created_at, updated_at'
-const C_COLS = COLS.split(', ').map((c) => `c.${c}`).join(', ')
+const COLS =
+  'id, type, name, phone, phone_alt, email, address, notes, id_type, id_number, id_issue_date, id_expiry_date, id_documents, selfie_url, is_active, created_at, updated_at'
+const C_COLS = COLS.split(', ')
+  .map((c) => `c.${c}`)
+  .join(', ')
 
 // Outstanding per debt = original_amount − settled payments, for live debts only.
 // Computed inline so a contact's balances reflect the local debts table (populated
 // once supplier payables land). Safe (returns 0) before any debt exists.
 const OUTSTANDING = `(d.original_amount - COALESCE((SELECT SUM(dp.amount) FROM debt_payments dp WHERE dp.debt_id = d.id), 0))`
-// A contact's outstanding balance = opening balance (brought forward) + live debts.
-const OB = (dir: string) => `COALESCE((SELECT ob.amount FROM contact_opening_balances ob WHERE ob.contact_id = c.id AND ob.direction = '${dir}'), 0)`
+// A contact's outstanding balance = the sum of live debts. The opening balance is itself an
+// OPENING_BALANCE debt now (see [[opening-balance-as-debt]]), so it is already in this SUM —
+// do NOT add contact_opening_balances on top or it double-counts.
 const BALANCE_COLS = `,
-  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'RECEIVABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) + ${OB('RECEIVABLE')} AS total_receivable,
-  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'PAYABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) + ${OB('PAYABLE')} AS total_payable,
+  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'RECEIVABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS total_receivable,
+  COALESCE((SELECT SUM(${OUTSTANDING}) FROM debts d WHERE d.contact_id = c.id AND d.direction = 'PAYABLE' AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS total_payable,
   COALESCE((SELECT COUNT(*) FROM debts d WHERE d.contact_id = c.id AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')), 0) AS open_debts,
   (SELECT MIN(d.created_at) FROM debts d WHERE d.contact_id = c.id AND d.status IN ('OUTSTANDING','PARTIALLY_PAID')) AS oldest_unpaid`
 
@@ -71,7 +75,8 @@ export class ContactsService {
   /** Paginated contacts with outstanding balances. Supports type/isActive filters + search. */
   list(query: ContactsQuery = {}): PaginatedResult<LocalContactListItem> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalContactListItem>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalContactListItem>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'c.business_id = ?'
     const params: unknown[] = [businessId]
@@ -97,7 +102,11 @@ export class ContactsService {
         params,
         searchColumns: ['c.name', 'c.phone', 'c.phone_alt', 'c.email'],
         defaultSort: 'c.name ASC',
-        sortMap: { name: 'c.name', createdAt: 'c.created_at', balance: '(total_receivable + total_payable)' },
+        sortMap: {
+          name: 'c.name',
+          createdAt: 'c.created_at',
+          balance: '(total_receivable + total_payable)',
+        },
       },
       query,
     )
@@ -106,11 +115,27 @@ export class ContactsService {
 
   /** Aggregate balances + per-tab counts for the list header. */
   summary(): ContactsSummary {
-    const empty: ContactsSummary = { totalReceivable: 0, totalPayable: 0, allCount: 0, customerCount: 0, supplierCount: 0, debtorCount: 0, creditorCount: 0 }
+    const empty: ContactsSummary = {
+      totalReceivable: 0,
+      totalPayable: 0,
+      allCount: 0,
+      customerCount: 0,
+      supplierCount: 0,
+      debtorCount: 0,
+      creditorCount: 0,
+    }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
     const live = "status IN ('OUTSTANDING','PARTIALLY_PAID')"
-    const row = this.db.get<{ tr: number; tp: number; ac: number; cc: number; sc: number; dc: number; cr: number }>(
+    const row = this.db.get<{
+      tr: number
+      tp: number
+      ac: number
+      cc: number
+      sc: number
+      dc: number
+      cr: number
+    }>(
       `SELECT
          (SELECT COALESCE(SUM(${OUTSTANDING}), 0) FROM debts d WHERE d.business_id = ? AND d.direction = 'RECEIVABLE' AND ${live}) AS tr,
          (SELECT COALESCE(SUM(${OUTSTANDING}), 0) FROM debts d WHERE d.business_id = ? AND d.direction = 'PAYABLE' AND ${live}) AS tp,
@@ -163,12 +188,36 @@ export class ContactsService {
     this.db.run(
       `INSERT INTO contacts (id, business_id, type, name, phone, phone_alt, email, address, notes, id_type, id_number, id_issue_date, id_expiry_date, id_documents, selfie_url, is_active, created_by_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)`,
-      [id, businessId, input.type, name, clean(input.phone), clean(input.phoneAlt), clean(input.email), clean(input.address), clean(input.notes), clean(input.idType), clean(input.idNumber), clean(input.idIssueDate), clean(input.idExpiryDate), docsJson(input.idDocuments), clean(input.selfieUrl), now, now],
+      [
+        id,
+        businessId,
+        input.type,
+        name,
+        clean(input.phone),
+        clean(input.phoneAlt),
+        clean(input.email),
+        clean(input.address),
+        clean(input.notes),
+        clean(input.idType),
+        clean(input.idNumber),
+        clean(input.idIssueDate),
+        clean(input.idExpiryDate),
+        docsJson(input.idDocuments),
+        clean(input.selfieUrl),
+        now,
+        now,
+      ],
     )
     this.enqueue(id, businessId, this.payload(input.type, name, input, true, now), now)
     this.onMutated()
     const created = this.getOne(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'contact', entityId: id, entityLabel: name, changes: { before: null, after: created } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'contact',
+      entityId: id,
+      entityLabel: name,
+      changes: { before: null, after: created },
+    })
     return created
   }
 
@@ -186,20 +235,67 @@ export class ContactsService {
     const notes = input.notes !== undefined ? clean(input.notes) : before.notes
     const idType = input.idType !== undefined ? clean(input.idType) : before.idType
     const idNumber = input.idNumber !== undefined ? clean(input.idNumber) : before.idNumber
-    const idIssueDate = input.idIssueDate !== undefined ? clean(input.idIssueDate) : before.idIssueDate
-    const idExpiryDate = input.idExpiryDate !== undefined ? clean(input.idExpiryDate) : before.idExpiryDate
-    const idDocuments = input.idDocuments !== undefined ? (input.idDocuments ?? []) : before.idDocuments
+    const idIssueDate =
+      input.idIssueDate !== undefined ? clean(input.idIssueDate) : before.idIssueDate
+    const idExpiryDate =
+      input.idExpiryDate !== undefined ? clean(input.idExpiryDate) : before.idExpiryDate
+    const idDocuments =
+      input.idDocuments !== undefined ? (input.idDocuments ?? []) : before.idDocuments
     const selfieUrl = input.selfieUrl !== undefined ? clean(input.selfieUrl) : before.selfieUrl
     const now = new Date().toISOString()
 
     this.db.run(
       `UPDATE contacts SET type = ?, name = ?, phone = ?, phone_alt = ?, email = ?, address = ?, notes = ?, id_type = ?, id_number = ?, id_issue_date = ?, id_expiry_date = ?, id_documents = ?, selfie_url = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-      [type, name, phone, phoneAlt, email, address, notes, idType, idNumber, idIssueDate, idExpiryDate, docsJson(idDocuments), selfieUrl, now, id, businessId],
+      [
+        type,
+        name,
+        phone,
+        phoneAlt,
+        email,
+        address,
+        notes,
+        idType,
+        idNumber,
+        idIssueDate,
+        idExpiryDate,
+        docsJson(idDocuments),
+        selfieUrl,
+        now,
+        id,
+        businessId,
+      ],
     )
-    this.enqueue(id, businessId, { type, name, phone, phoneAlt, email, address, notes, idType, idNumber, idIssueDate, idExpiryDate, idDocuments, selfieUrl, isActive: before.isActive, createdAt: before.createdAt }, now)
+    this.enqueue(
+      id,
+      businessId,
+      {
+        type,
+        name,
+        phone,
+        phoneAlt,
+        email,
+        address,
+        notes,
+        idType,
+        idNumber,
+        idIssueDate,
+        idExpiryDate,
+        idDocuments,
+        selfieUrl,
+        isActive: before.isActive,
+        createdAt: before.createdAt,
+      },
+      now,
+    )
     this.onMutated()
     const updated = this.getOne(id)!
-    this.audit?.log({ action: 'UPDATE', entityType: 'contact', entityId: id, entityLabel: name, changes: { before, after: updated } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'contact',
+      entityId: id,
+      entityLabel: name,
+      changes: { before, after: updated },
+    })
     return updated
   }
 
@@ -214,10 +310,40 @@ export class ContactsService {
     )
     if ((open?.n ?? 0) > 0) throw new Error('This contact has open debts and cannot be removed.')
     const now = new Date().toISOString()
-    this.db.run(`UPDATE contacts SET is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`, [now, id, businessId])
-    this.enqueue(id, businessId, { type: before.type, name: before.name, phone: before.phone, phoneAlt: before.phoneAlt, email: before.email, address: before.address, notes: before.notes, idType: before.idType, idNumber: before.idNumber, idIssueDate: before.idIssueDate, idExpiryDate: before.idExpiryDate, idDocuments: before.idDocuments, selfieUrl: before.selfieUrl, isActive: false, createdAt: before.createdAt }, now)
+    this.db.run(
+      `UPDATE contacts SET is_active = 0, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [now, id, businessId],
+    )
+    this.enqueue(
+      id,
+      businessId,
+      {
+        type: before.type,
+        name: before.name,
+        phone: before.phone,
+        phoneAlt: before.phoneAlt,
+        email: before.email,
+        address: before.address,
+        notes: before.notes,
+        idType: before.idType,
+        idNumber: before.idNumber,
+        idIssueDate: before.idIssueDate,
+        idExpiryDate: before.idExpiryDate,
+        idDocuments: before.idDocuments,
+        selfieUrl: before.selfieUrl,
+        isActive: false,
+        createdAt: before.createdAt,
+      },
+      now,
+    )
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'contact', entityId: id, entityLabel: before.name, changes: { before, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'contact',
+      entityId: id,
+      entityLabel: before.name,
+      changes: { before, after: null },
+    })
   }
 
   // ---- internals -----------------------------------------------------------
@@ -271,7 +397,12 @@ export class ContactsService {
   }
 
   /** Local write + sync_outbox enqueue (entity `contacts`), coalesced per record. */
-  private enqueue(recordId: string, businessId: string, payload: Record<string, unknown>, now: string): void {
+  private enqueue(
+    recordId: string,
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
        VALUES (?, 'contacts', ?, 'UPSERT', ?, 'pending', 0, ?, ?)

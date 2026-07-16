@@ -17,13 +17,20 @@ import type {
 import { Brackets, DataSource, EntityManager, Repository } from 'typeorm'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
+import { Contact } from '@/entities/contact.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
-import type { AddDepositPaymentDto, CloseDepositDto, CreateDepositDto, ListDepositsQueryDto } from '../dto/deposit.dto'
+import type {
+  AddDepositPaymentDto,
+  CloseDepositDto,
+  CreateDepositDto,
+  ListDepositsQueryDto,
+} from '../dto/deposit.dto'
 
 const round = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
 const newId = (): string => crypto.randomUUID()
-const accountNumberFor = (id: string): string => `DEP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`
+const accountNumberFor = (id: string): string =>
+  `DEP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`
 
 export interface DepositSummary {
   openCount: number
@@ -49,7 +56,9 @@ export class DepositsService {
 
   /** Structured receipt payload for a single deposit/refund transaction (mirrors desktop). */
   async buildDepositReceipt(transactionId: string, businessId: string): Promise<DepositReceipt> {
-    const tx = await this.savingsTransactionsRepo.findOne({ where: { id: transactionId, businessId } })
+    const tx = await this.savingsTransactionsRepo.findOne({
+      where: { id: transactionId, businessId },
+    })
     if (!tx || (tx.type !== 'deposit' && tx.type !== 'refund')) {
       throw new AppNotFoundException('Deposit receipt not found.', 'DEPOSIT_RECEIPT_NOT_FOUND')
     }
@@ -150,7 +159,9 @@ export class DepositsService {
          AND (total_refunded > 0 OR total_transferred > 0) AND is_deleted = false`,
       [businessId, monthStart],
     )) as Array<{ n: number; amt: string }>
-    const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [businessId])) as Array<{
+    const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [
+      businessId,
+    ])) as Array<{
       currency: string | null
     }>
     return {
@@ -167,9 +178,25 @@ export class DepositsService {
   // ---- REST (cloud direct) — mirrors the desktop deposit-session ops --------
 
   /** Open a new deposit session (fails if the customer already has one open). */
-  async create(businessId: string, user: JwtPayload, dto: CreateDepositDto): Promise<CustomerDeposit> {
-    const open = await this.savingsAccountsRepo.findOne({ where: { businessId, customerId: dto.customerId, status: 'OPEN', isDeleted: false } })
-    if (open) throw new AppBadRequestException('This customer already has an open deposit session.', 'DEPOSIT_OPEN_EXISTS')
+  async create(
+    businessId: string,
+    user: JwtPayload,
+    dto: CreateDepositDto,
+  ): Promise<CustomerDeposit> {
+    // A deposit must belong to a real customer — validate it and denormalize the customer's
+    // name/phone onto the account (mirrors the desktop, which reads the name from the contact).
+    const contact = await this.dataSource
+      .getRepository(Contact)
+      .findOne({ where: { id: dto.customerId, businessId } })
+    if (!contact) throw new AppNotFoundException('Customer not found.', 'CONTACT_NOT_FOUND')
+    const open = await this.savingsAccountsRepo.findOne({
+      where: { businessId, customerId: dto.customerId, status: 'OPEN', isDeleted: false },
+    })
+    if (open)
+      throw new AppBadRequestException(
+        'This customer already has an open deposit session.',
+        'DEPOSIT_OPEN_EXISTS',
+      )
     const now = new Date()
     const id = newId()
     const initial = round(dto.initialDeposit?.amount ?? 0)
@@ -178,6 +205,8 @@ export class DepositsService {
         id,
         businessId,
         customerId: dto.customerId,
+        customerName: contact.name,
+        customerPhone: contact.phone ?? null,
         accountNumber: accountNumberFor(id),
         balance: initial,
         totalDeposited: initial,
@@ -192,12 +221,29 @@ export class DepositsService {
       }),
     )
     if (initial > 0) {
-      await this.insertTxn(this.savingsTransactionsRepo.manager, id, businessId, { type: 'deposit', direction: 'inbound', amount: initial, method: dto.initialDeposit?.method ?? 'CASH', mobileMoneyReference: dto.initialDeposit?.mobileMoneyReference, notes: dto.initialDeposit?.notes, recordedById: user.sub }, now)
+      await this.insertTxn(
+        this.savingsTransactionsRepo.manager,
+        id,
+        businessId,
+        {
+          type: 'deposit',
+          direction: 'inbound',
+          amount: initial,
+          method: dto.initialDeposit?.method ?? 'CASH',
+          mobileMoneyReference: dto.initialDeposit?.mobileMoneyReference,
+          notes: dto.initialDeposit?.notes,
+          recordedById: user.sub,
+        },
+        now,
+      )
     }
     return this.findById(id, businessId)
   }
 
-  async list(businessId: string, query: ListDepositsQueryDto): Promise<PaginatedResult<CustomerDeposit>> {
+  async list(
+    businessId: string,
+    query: ListDepositsQueryDto,
+  ): Promise<PaginatedResult<CustomerDeposit>> {
     const page = Math.max(1, query.page ?? 1)
     const limit = Math.min(100, Math.max(1, query.limit ?? 20))
     const qb = this.savingsAccountsRepo
@@ -206,9 +252,16 @@ export class DepositsService {
     if (query.status) qb.andWhere('s.status = :status', { status: query.status })
     if (query.search?.trim()) {
       const q = `%${query.search.trim()}%`
-      qb.andWhere(new Brackets((w) => w.where('s.customer_name ILIKE :q', { q }).orWhere('s.account_number ILIKE :q', { q })))
+      qb.andWhere(
+        new Brackets((w) =>
+          w.where('s.customer_name ILIKE :q', { q }).orWhere('s.account_number ILIKE :q', { q }),
+        ),
+      )
     }
-    qb.orderBy(`CASE WHEN s.status = 'OPEN' THEN 0 ELSE 1 END`, 'ASC').addOrderBy('s.created_at', 'DESC').skip((page - 1) * limit).take(limit)
+    qb.orderBy(`CASE WHEN s.status = 'OPEN' THEN 0 ELSE 1 END`, 'ASC')
+      .addOrderBy('s.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
     const [rows, total] = await qb.getManyAndCount()
     const data = await Promise.all(rows.map((r) => this.withSalesCount(r)))
     return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) }
@@ -220,74 +273,221 @@ export class DepositsService {
     return this.withSalesCount(acc)
   }
 
-  async getOpenForCustomer(customerId: string, businessId: string): Promise<CustomerDeposit | null> {
-    const acc = await this.savingsAccountsRepo.findOne({ where: { businessId, customerId, status: 'OPEN', isDeleted: false } })
+  async getOpenForCustomer(
+    customerId: string,
+    businessId: string,
+  ): Promise<CustomerDeposit | null> {
+    const acc = await this.savingsAccountsRepo.findOne({
+      where: { businessId, customerId, status: 'OPEN', isDeleted: false },
+    })
     return acc ? this.withSalesCount(acc) : null
   }
 
   async getStatement(id: string, businessId: string): Promise<DepositStatement> {
     const account = await this.findById(id, businessId)
-    const txns = await this.savingsTransactionsRepo.find({ where: { savingsId: id, businessId }, order: { occurredAt: 'ASC', createdAt: 'ASC' } })
+    const txns = await this.savingsTransactionsRepo.find({
+      where: { savingsId: id, businessId },
+      order: { occurredAt: 'ASC', createdAt: 'ASC' },
+    })
     let running = 0
     const entries: DepositStatementEntry[] = txns.map((t) => {
       running = round(running + (t.direction === 'inbound' ? t.amount : -t.amount))
-      return { id: t.id, type: t.type as DepositStatementEntry['type'], direction: t.direction as DepositStatementEntry['direction'], amount: t.amount, method: t.method ?? null, mobileMoneyReference: t.mobileMoneyReference ?? null, saleId: t.saleId ?? null, notes: t.notes ?? null, occurredAt: t.occurredAt.toISOString(), createdAt: t.createdAt.toISOString(), runningBalance: running }
+      return {
+        id: t.id,
+        type: t.type as DepositStatementEntry['type'],
+        direction: t.direction as DepositStatementEntry['direction'],
+        amount: t.amount,
+        method: t.method ?? null,
+        mobileMoneyReference: t.mobileMoneyReference ?? null,
+        saleId: t.saleId ?? null,
+        notes: t.notes ?? null,
+        occurredAt: t.occurredAt.toISOString(),
+        createdAt: t.createdAt.toISOString(),
+        runningBalance: running,
+      }
     })
     return { account: account as unknown as CustomerDepositModel, entries }
   }
 
-  async addPayment(id: string, businessId: string, user: JwtPayload, dto: AddDepositPaymentDto): Promise<CustomerDeposit> {
+  async addPayment(
+    id: string,
+    businessId: string,
+    user: JwtPayload,
+    dto: AddDepositPaymentDto,
+  ): Promise<CustomerDeposit> {
     const acc = await this.requireOpen(id, businessId)
     const amount = round(dto.amount)
-    if (amount <= 0) throw new AppBadRequestException('Deposit amount must be greater than 0.', 'DEPOSIT_AMOUNT_INVALID')
+    if (amount <= 0)
+      throw new AppBadRequestException(
+        'Deposit amount must be greater than 0.',
+        'DEPOSIT_AMOUNT_INVALID',
+      )
     const now = new Date()
     await this.dataSource.transaction(async (m) => {
-      await m.getRepository(CustomerDeposit).update(acc.id, { balance: round(acc.balance + amount), totalDeposited: round(acc.totalDeposited + amount), updatedAt: now })
-      await this.insertTxn(m, id, businessId, { type: 'deposit', direction: 'inbound', amount, method: dto.method ?? 'CASH', mobileMoneyReference: dto.mobileMoneyReference, notes: dto.notes, recordedById: user.sub }, now)
+      await m
+        .getRepository(CustomerDeposit)
+        .update(acc.id, {
+          balance: round(acc.balance + amount),
+          totalDeposited: round(acc.totalDeposited + amount),
+          updatedAt: now,
+        })
+      await this.insertTxn(
+        m,
+        id,
+        businessId,
+        {
+          type: 'deposit',
+          direction: 'inbound',
+          amount,
+          method: dto.method ?? 'CASH',
+          mobileMoneyReference: dto.mobileMoneyReference,
+          notes: dto.notes,
+          recordedById: user.sub,
+        },
+        now,
+      )
     })
     return this.findById(id, businessId)
   }
 
-  async close(id: string, businessId: string, user: JwtPayload, dto: CloseDepositDto): Promise<CustomerDeposit> {
+  async close(
+    id: string,
+    businessId: string,
+    user: JwtPayload,
+    dto: CloseDepositDto,
+  ): Promise<CustomerDeposit> {
     const acc = await this.requireOpen(id, businessId)
     const leftover = round(acc.balance)
-    const salesCount = await this.savingsTransactionsRepo.count({ where: { savingsId: id, businessId, type: 'sale' } })
+    const salesCount = await this.savingsTransactionsRepo.count({
+      where: { savingsId: id, businessId, type: 'sale' },
+    })
     const hasSales = salesCount > 0
     const now = new Date()
 
     await this.dataSource.transaction(async (m) => {
       const repo = m.getRepository(CustomerDeposit)
       if (dto.settlement === 'NONE') {
-        if (leftover > 0) throw new AppBadRequestException('There is a leftover balance — refund it or transfer it.', 'DEPOSIT_LEFTOVER')
+        if (leftover > 0)
+          throw new AppBadRequestException(
+            'There is a leftover balance — refund it or transfer it.',
+            'DEPOSIT_LEFTOVER',
+          )
       } else if (dto.settlement === 'REFUND') {
-        if (leftover <= 0) throw new AppBadRequestException('Nothing to refund.', 'DEPOSIT_NOTHING_TO_REFUND')
-        await this.insertTxn(m, id, businessId, { type: 'refund', direction: 'outbound', amount: leftover, method: dto.method ?? 'CASH', mobileMoneyReference: dto.mobileMoneyReference, notes: dto.notes, recordedById: user.sub }, now)
-        await repo.update(id, { balance: 0, totalRefunded: round(acc.totalRefunded + leftover), updatedAt: now })
+        if (leftover <= 0)
+          throw new AppBadRequestException('Nothing to refund.', 'DEPOSIT_NOTHING_TO_REFUND')
+        await this.insertTxn(
+          m,
+          id,
+          businessId,
+          {
+            type: 'refund',
+            direction: 'outbound',
+            amount: leftover,
+            method: dto.method ?? 'CASH',
+            mobileMoneyReference: dto.mobileMoneyReference,
+            notes: dto.notes,
+            recordedById: user.sub,
+          },
+          now,
+        )
+        await repo.update(id, {
+          balance: 0,
+          totalRefunded: round(acc.totalRefunded + leftover),
+          updatedAt: now,
+        })
       } else {
-        if (!hasSales) throw new AppBadRequestException('A session with no goods collected cannot be transferred — refund it instead.', 'DEPOSIT_TRANSFER_NO_SALES')
-        if (leftover <= 0) throw new AppBadRequestException('Nothing to transfer.', 'DEPOSIT_NOTHING_TO_TRANSFER')
-        await this.insertTxn(m, id, businessId, { type: 'transfer_out', direction: 'outbound', amount: leftover, notes: dto.notes, recordedById: user.sub }, now)
-        await repo.update(id, { balance: 0, totalTransferred: round(acc.totalTransferred + leftover), updatedAt: now })
+        if (!hasSales)
+          throw new AppBadRequestException(
+            'A session with no goods collected cannot be transferred — refund it instead.',
+            'DEPOSIT_TRANSFER_NO_SALES',
+          )
+        if (leftover <= 0)
+          throw new AppBadRequestException('Nothing to transfer.', 'DEPOSIT_NOTHING_TO_TRANSFER')
+        await this.insertTxn(
+          m,
+          id,
+          businessId,
+          {
+            type: 'transfer_out',
+            direction: 'outbound',
+            amount: leftover,
+            notes: dto.notes,
+            recordedById: user.sub,
+          },
+          now,
+        )
+        await repo.update(id, {
+          balance: 0,
+          totalTransferred: round(acc.totalTransferred + leftover),
+          updatedAt: now,
+        })
         const nid = newId()
-        await repo.save(repo.create({ id: nid, businessId, customerId: acc.customerId, customerName: acc.customerName ?? null, customerPhone: acc.customerPhone ?? null, accountNumber: accountNumberFor(nid), balance: leftover, totalDeposited: leftover, totalRefunded: 0, totalUsed: 0, totalTransferred: 0, status: 'OPEN', isDeleted: false, createdAt: now, updatedAt: now }))
-        await this.insertTxn(m, nid, businessId, { type: 'transfer_in', direction: 'inbound', amount: leftover, notes: `From ${acc.accountNumber}`, recordedById: user.sub }, now)
+        await repo.save(
+          repo.create({
+            id: nid,
+            businessId,
+            customerId: acc.customerId,
+            customerName: acc.customerName ?? null,
+            customerPhone: acc.customerPhone ?? null,
+            accountNumber: accountNumberFor(nid),
+            balance: leftover,
+            totalDeposited: leftover,
+            totalRefunded: 0,
+            totalUsed: 0,
+            totalTransferred: 0,
+            status: 'OPEN',
+            isDeleted: false,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        )
+        await this.insertTxn(
+          m,
+          nid,
+          businessId,
+          {
+            type: 'transfer_in',
+            direction: 'inbound',
+            amount: leftover,
+            notes: `From ${acc.accountNumber}`,
+            recordedById: user.sub,
+          },
+          now,
+        )
         await repo.update(id, { transferredToId: nid })
       }
-      const outcome = !hasSales ? 'REFUNDED' : dto.settlement === 'REFUND' ? 'COLLECTED_REFUNDED' : dto.settlement === 'TRANSFER' ? 'COLLECTED_TRANSFERRED' : 'COLLECTED'
-      await repo.update(id, { status: 'CLOSED', outcome, closedAt: now, closedById: user.sub, updatedAt: now })
+      const outcome = !hasSales
+        ? 'REFUNDED'
+        : dto.settlement === 'REFUND'
+          ? 'COLLECTED_REFUNDED'
+          : dto.settlement === 'TRANSFER'
+            ? 'COLLECTED_TRANSFERRED'
+            : 'COLLECTED'
+      await repo.update(id, {
+        status: 'CLOSED',
+        outcome,
+        closedAt: now,
+        closedById: user.sub,
+        updatedAt: now,
+      })
     })
     return this.findById(id, businessId)
   }
 
   private async requireOpen(id: string, businessId: string): Promise<CustomerDeposit> {
-    const acc = await this.savingsAccountsRepo.findOne({ where: { id, businessId, isDeleted: false } })
+    const acc = await this.savingsAccountsRepo.findOne({
+      where: { id, businessId, isDeleted: false },
+    })
     if (!acc) throw new AppNotFoundException('Deposit session not found.', 'DEPOSIT_NOT_FOUND')
-    if (acc.status !== 'OPEN') throw new AppBadRequestException('This deposit session is closed.', 'DEPOSIT_CLOSED')
+    if (acc.status !== 'OPEN')
+      throw new AppBadRequestException('This deposit session is closed.', 'DEPOSIT_CLOSED')
     return acc
   }
 
   private async withSalesCount(acc: CustomerDeposit): Promise<CustomerDeposit> {
-    const salesCount = await this.savingsTransactionsRepo.count({ where: { savingsId: acc.id, businessId: acc.businessId, type: 'sale' } })
+    const salesCount = await this.savingsTransactionsRepo.count({
+      where: { savingsId: acc.id, businessId: acc.businessId, type: 'sale' },
+    })
     return Object.assign(acc, { salesCount }) as CustomerDeposit
   }
 
@@ -307,9 +507,13 @@ export class DepositsService {
     const repo = m.getRepository(CustomerDeposit)
     const acc = await repo.findOne({ where: { id: input.savingsId, businessId, isDeleted: false } })
     if (!acc) throw new AppBadRequestException('Deposit account not found.', 'DEPOSIT_NOT_FOUND')
-    if (acc.status !== 'OPEN') throw new AppBadRequestException('This deposit session is closed.', 'DEPOSIT_CLOSED')
+    if (acc.status !== 'OPEN')
+      throw new AppBadRequestException('This deposit session is closed.', 'DEPOSIT_CLOSED')
     if (acc.balance < amount) {
-      throw new AppBadRequestException('Insufficient deposit balance.', 'DEPOSIT_INSUFFICIENT_BALANCE')
+      throw new AppBadRequestException(
+        'Insufficient deposit balance.',
+        'DEPOSIT_INSUFFICIENT_BALANCE',
+      )
     }
     await repo.update(acc.id, {
       balance: round(acc.balance - amount),
@@ -336,7 +540,16 @@ export class DepositsService {
     m: EntityManager,
     savingsId: string,
     businessId: string,
-    tx: { type: string; direction: string; amount: number; method?: string | null; mobileMoneyReference?: string | null; notes?: string | null; saleId?: string | null; recordedById?: string | null },
+    tx: {
+      type: string
+      direction: string
+      amount: number
+      method?: string | null
+      mobileMoneyReference?: string | null
+      notes?: string | null
+      saleId?: string | null
+      recordedById?: string | null
+    },
     now: Date,
   ): Promise<void> {
     const repo = m.getRepository(DepositTransaction)

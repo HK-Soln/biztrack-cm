@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
@@ -9,33 +9,128 @@ import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
-import type { ChargeType, LocalProduct, LocalSaleDetail, LocalSerialUnit, LocalVariant, SaleInput } from '@shared/ipc'
+import type {
+  ChargeType,
+  LocalProduct,
+  LocalSaleDetail,
+  LocalSerialUnit,
+  LocalVariant,
+  SaleInput,
+} from '@shared/ipc'
 
 const PAGE = 20
 
 // --- tiny icon set (matches the approved design) ---------------------------
 const I = {
-  search: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>,
-  plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 5v14M5 12h14" /></svg>,
-  x: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 6l12 12M18 6 6 18" /></svg>,
-  user: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="8" r="3.2" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>,
-  receipt: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 2v6l2-1.5L16 8V2" /><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z" /></svg>,
-  cash: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>,
-  card: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>,
-  phone: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="6" y="2" width="12" height="20" rx="2" /><path d="M11 18h2" /></svg>,
-  clock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>,
-  split: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h7v12H3zM14 6h7v12h-7z" /></svg>,
-  wallet: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 7a2 2 0 0 1 2-2h12v4M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H6a3 3 0 0 1-3-3Z" /><circle cx="17" cy="13.5" r="1.3" /></svg>,
-  tag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 7v6l8 8 7-7-8-8H3Z" /><circle cx="7.5" cy="11.5" r="1.4" /></svg>,
-  check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6}><path d="m4 12 5 5L20 6" /></svg>,
-  bell: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M10.3 21a2 2 0 0 0 3.4 0" /></svg>,
-  print: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z" /></svg>,
-  chevR: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>,
+  search: (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+      <circle cx="9" cy="9" r="6" />
+      <path d="m14 14 3 3" />
+    </svg>
+  ),
+  plus: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  ),
+  x: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  ),
+  user: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="8" r="3.2" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </svg>
+  ),
+  receipt: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M12 2v6l2-1.5L16 8V2" />
+      <path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z" />
+    </svg>
+  ),
+  cash: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  ),
+  card: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M3 10h18" />
+    </svg>
+  ),
+  phone: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="6" y="2" width="12" height="20" rx="2" />
+      <path d="M11 18h2" />
+    </svg>
+  ),
+  clock: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
+  split: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M3 6h7v12H3zM14 6h7v12h-7z" />
+    </svg>
+  ),
+  wallet: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M3 7a2 2 0 0 1 2-2h12v4M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H6a3 3 0 0 1-3-3Z" />
+      <circle cx="17" cy="13.5" r="1.3" />
+    </svg>
+  ),
+  tag: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M3 7v6l8 8 7-7-8-8H3Z" />
+      <circle cx="7.5" cy="11.5" r="1.4" />
+    </svg>
+  ),
+  check: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6}>
+      <path d="m4 12 5 5L20 6" />
+    </svg>
+  ),
+  bell: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M10.3 21a2 2 0 0 0 3.4 0" />
+    </svg>
+  ),
+  print: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z" />
+    </svg>
+  ),
+  chevR: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  ),
+  edit: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
+      <path d="M14 6l4 4" />
+    </svg>
+  ),
+  trash: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+    </svg>
+  ),
 }
 
 type TenderKey = 'cash' | 'momo' | 'om' | 'card' | 'deposit' | 'credit' | 'split'
 const PM: Record<Exclude<TenderKey, 'credit' | 'split' | 'deposit'>, PaymentMethod> = {
-  cash: PaymentMethod.CASH, momo: PaymentMethod.MTN_MOMO, om: PaymentMethod.ORANGE_MONEY, card: PaymentMethod.CARD,
+  cash: PaymentMethod.CASH,
+  momo: PaymentMethod.MTN_MOMO,
+  om: PaymentMethod.ORANGE_MONEY,
+  card: PaymentMethod.CARD,
 }
 const SPLIT_KEYS = ['cash', 'momo', 'om', 'card'] as const
 
@@ -49,6 +144,22 @@ export interface CartLine {
   variantName?: string | null
   /** Set for a serialized line — one cart line per serial unit (quantity always 1). */
   serialUnitId?: string | null
+  /** Base product name (without the serial suffix) — lets a serialized line reopen its picker. */
+  productName?: string | null
+}
+
+/** What the serial picker manages: the product + the price newly-picked units inherit. */
+interface SerialTarget {
+  productId: string
+  productName: string
+  unitPrice: number
+}
+
+/** Base product name for a serialized line, tolerating legacy lines that predate `productName`. */
+function serialBaseName(l: CartLine): string {
+  if (l.productName) return l.productName
+  const parts = l.name.split(' · ')
+  return parts.length > 1 ? parts.slice(0, -1).join(' · ') : l.name
 }
 
 /** Cart + intent handed to Sell from the Deposits "Collect" flow (via router state). */
@@ -56,16 +167,48 @@ export interface CollectHandoff {
   collectCart: CartLine[]
   forceDeposit?: boolean
 }
-interface ChargeLine { id: string; kind: 'charge' | 'discount'; name: string; mode: 'PERCENT' | 'FIXED'; value: number; chargeTypeId: string | null }
-interface Cust { id: string; name: string; phone: string | null; selfieUrl?: string | null }
+interface ChargeLine {
+  id: string
+  kind: 'charge' | 'discount'
+  name: string
+  mode: 'PERCENT' | 'FIXED'
+  value: number
+  chargeTypeId: string | null
+}
+interface Cust {
+  id: string
+  name: string
+  phone: string | null
+  selfieUrl?: string | null
+}
 
-function round2(n: number): number { return Math.round((n + Number.EPSILON) * 100) / 100 }
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
 
 // Held/parked sales live only in the browser (no DB / no sync) — a counter convenience.
 const HELD_KEY = 'biztrack:sell:held'
-interface Held { id: string; ts: number; cart: CartLine[]; charges: ChargeLine[]; customer: Cust | null }
-function readHeld(): Held[] { try { return JSON.parse(localStorage.getItem(HELD_KEY) || '[]') as Held[] } catch { return [] } }
-function writeHeld(h: Held[]): void { try { localStorage.setItem(HELD_KEY, JSON.stringify(h)) } catch { /* ignore */ } }
+interface Held {
+  id: string
+  ts: number
+  cart: CartLine[]
+  charges: ChargeLine[]
+  customer: Cust | null
+}
+function readHeld(): Held[] {
+  try {
+    return JSON.parse(localStorage.getItem(HELD_KEY) || '[]') as Held[]
+  } catch {
+    return []
+  }
+}
+function writeHeld(h: Held[]): void {
+  try {
+    localStorage.setItem(HELD_KEY, JSON.stringify(h))
+  } catch {
+    /* ignore */
+  }
+}
 
 export function Sell() {
   const t = useT()
@@ -84,7 +227,7 @@ export function Sell() {
   const [payOpen, setPayOpen] = useState(false)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
-  const [serialPick, setSerialPick] = useState<LocalProduct | null>(null)
+  const [serialPick, setSerialPick] = useState<SerialTarget | null>(null)
   const [servicePick, setServicePick] = useState<LocalProduct | null>(null)
   const [held, setHeld] = useState<Held[]>(() => readHeld())
   const [heldOpen, setHeldOpen] = useState(false)
@@ -104,7 +247,13 @@ export function Sell() {
   const catalog = useInfiniteQuery({
     queryKey: [...queryKeys.products, 'sell', search, categoryId],
     queryFn: ({ pageParam }) =>
-      dataClient.products.list({ search, categoryId: categoryId ?? undefined, page: pageParam, limit: PAGE, stockStatus: 'all' }),
+      dataClient.products.list({
+        search,
+        categoryId: categoryId ?? undefined,
+        page: pageParam,
+        limit: PAGE,
+        stockStatus: 'all',
+      }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
     enabled: true,
@@ -120,7 +269,13 @@ export function Sell() {
     enabled: !!customerParam,
   })
   useEffect(() => {
-    if (presetCustomer) setCustomer({ id: presetCustomer.id, name: presetCustomer.name, phone: presetCustomer.phone, selfieUrl: presetCustomer.selfieUrl })
+    if (presetCustomer)
+      setCustomer({
+        id: presetCustomer.id,
+        name: presetCustomer.name,
+        phone: presetCustomer.phone,
+        selfieUrl: presetCustomer.selfieUrl,
+      })
   }, [presetCustomer])
 
   // Hydrate the cart when arriving from the Deposits "Collect" flow (router state), and
@@ -140,22 +295,49 @@ export function Sell() {
   // Click routes to a picker for variant/serialized products; simple products add directly.
   const onProductClick = async (p: LocalProduct) => {
     // Services have a dynamic/no fixed price — confirm the price before adding.
-    if (p.isService) { setServicePick(p); return }
-    if (p.isSerialized) { setSerialPick(p); return }
+    if (p.isService) {
+      setServicePick(p)
+      return
+    }
+    if (p.isSerialized) {
+      setSerialPick({ productId: p.id, productName: p.name, unitPrice: p.effectiveSellingPrice })
+      return
+    }
     const variants = await dataClient.products.listVariants(p.id)
-    if (variants.length > 0) { setVariantPick(p); return }
+    if (variants.length > 0) {
+      setVariantPick(p)
+      return
+    }
     addSimple(p)
   }
   // Each priced service is its own line (different jobs can have different prices).
   const addService = (p: LocalProduct, unitPrice: number) => {
-    setCart((prev) => [...prev, { key: `svc:${p.id}:${crypto.randomUUID()}`, productId: p.id, name: p.name, unitPrice, quantity: 1 }])
+    setCart((prev) => [
+      ...prev,
+      {
+        key: `svc:${p.id}:${crypto.randomUUID()}`,
+        productId: p.id,
+        name: p.name,
+        unitPrice,
+        quantity: 1,
+      },
+    ])
     setServicePick(null)
   }
   const addSimple = (p: LocalProduct) => {
     setCart((prev) => {
       const found = prev.find((l) => l.key === p.id)
       if (found) return prev.map((l) => (l.key === p.id ? { ...l, quantity: l.quantity + 1 } : l))
-      return [...prev, { key: p.id, productId: p.id, name: p.name, unitPrice: p.effectiveSellingPrice, quantity: 1 }]
+      return [
+        ...prev,
+        {
+          key: p.id,
+          productId: p.id,
+          name: p.name,
+          unitPrice: p.effectiveSellingPrice,
+          quantity: 1,
+        },
+      ]
     })
   }
   const addVariant = (p: LocalProduct, v: LocalVariant) => {
@@ -164,36 +346,105 @@ export function Sell() {
     setCart((prev) => {
       const found = prev.find((l) => l.key === key)
       if (found) return prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l))
-      return [...prev, { key, productId: p.id, name: `${p.name} · ${v.name}`, unitPrice, quantity: 1, variantId: v.id, variantName: v.name }]
+      return [
+        ...prev,
+        {
+          key,
+          productId: p.id,
+          name: `${p.name} · ${v.name}`,
+          unitPrice,
+          quantity: 1,
+          variantId: v.id,
+          variantName: v.name,
+        },
+      ]
     })
     setVariantPick(null)
   }
+  const serialLine = (tgt: SerialTarget, u: LocalSerialUnit): CartLine => ({
+    key: `serial:${u.id}`,
+    productId: tgt.productId,
+    name: `${tgt.productName} · ${u.serialNumber}`,
+    productName: tgt.productName,
+    unitPrice: tgt.unitPrice,
+    quantity: 1,
+    serialUnitId: u.id,
+  })
+  // Append path (barcode scan of a specific serial): add the unit, skipping any already in the cart.
   const addSerials = (p: LocalProduct, units: LocalSerialUnit[]) => {
+    const target: SerialTarget = {
+      productId: p.id,
+      productName: p.name,
+      unitPrice: p.effectiveSellingPrice,
+    }
     setCart((prev) => {
       const existing = new Set(prev.map((l) => l.serialUnitId).filter(Boolean))
-      const next = units
-        .filter((u) => !existing.has(u.id))
-        .map<CartLine>((u) => ({ key: `serial:${u.id}`, productId: p.id, name: `${p.name} · ${u.serialNumber}`, unitPrice: p.effectiveSellingPrice, quantity: 1, serialUnitId: u.id }))
+      const next = units.filter((u) => !existing.has(u.id)).map((u) => serialLine(target, u))
       return [...prev, ...next]
+    })
+  }
+  // Picker path: REPLACE this product's serialized lines with exactly the picked set (preselected
+  // with what's already in the cart, so it doubles as the "edit which units are sold" flow). The
+  // number of serialized lines IS the quantity sold — you never +/− a serialized product.
+  const applySerials = (target: SerialTarget, units: LocalSerialUnit[]) => {
+    setCart((prev) => {
+      const at = prev.findIndex((l) => l.productId === target.productId && l.serialUnitId)
+      const without = prev.filter((l) => !(l.productId === target.productId && l.serialUnitId))
+      const lines = units.map((u) => serialLine(target, u))
+      if (at < 0) return [...without, ...lines]
+      return [...without.slice(0, at), ...lines, ...without.slice(at)]
     })
     setSerialPick(null)
   }
   const setQty = (key: string, d: number) =>
-    setCart((prev) => prev.flatMap((l) => (l.key === key ? (l.quantity + d <= 0 ? [] : [{ ...l, quantity: l.quantity + d }]) : [l])))
+    setCart((prev) =>
+      prev.flatMap((l) =>
+        l.key === key ? (l.quantity + d <= 0 ? [] : [{ ...l, quantity: l.quantity + d }]) : [l],
+      ),
+    )
+  // Direct quantity entry — clamp to a positive integer (never serialized; those are 1/line).
+  const setQtyValue = (key: string, n: number) =>
+    setCart((prev) =>
+      prev.map((l) =>
+        l.key === key ? { ...l, quantity: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1 } : l,
+      ),
+    )
   const removeLine = (key: string) => setCart((prev) => prev.filter((l) => l.key !== key))
-  const clearAll = () => { setCart([]); setCharges([]) }
+  const editSerials = (l: CartLine) =>
+    setSerialPick({
+      productId: l.productId,
+      productName: serialBaseName(l),
+      unitPrice: l.unitPrice,
+    })
+  const clearAll = () => {
+    setCart([])
+    setCharges([])
+  }
 
   // --- hold / park (local only) -------------------------------------------
   const hold = () => {
     if (cart.length === 0) return
     const next = [...held, { id: crypto.randomUUID(), ts: Date.now(), cart, charges, customer }]
-    setHeld(next); writeHeld(next); setCart([]); setCharges([]); setCustomer(null)
+    setHeld(next)
+    writeHeld(next)
+    setCart([])
+    setCharges([])
+    setCustomer(null)
   }
   const resume = (h: Held) => {
-    setCart(h.cart); setCharges(h.charges); setCustomer(h.customer)
-    const next = held.filter((x) => x.id !== h.id); setHeld(next); writeHeld(next); setHeldOpen(false)
+    setCart(h.cart)
+    setCharges(h.charges)
+    setCustomer(h.customer)
+    const next = held.filter((x) => x.id !== h.id)
+    setHeld(next)
+    writeHeld(next)
+    setHeldOpen(false)
   }
-  const dropHeld = (id: string) => { const next = held.filter((x) => x.id !== id); setHeld(next); writeHeld(next) }
+  const dropHeld = (id: string) => {
+    const next = held.filter((x) => x.id !== id)
+    setHeld(next)
+    writeHeld(next)
+  }
 
   // --- scanning ------------------------------------------------------------
   // Resolve a scanned/typed code to a product/variant/serial and add it to the cart.
@@ -202,7 +453,10 @@ export function Sell() {
     if (!code) return false
     const hit = await dataClient.products.resolveScan(code)
     if (!hit) {
-      if (!opts?.silent) { setScanMiss(code); window.setTimeout(() => setScanMiss(null), 1600) }
+      if (!opts?.silent) {
+        setScanMiss(code)
+        window.setTimeout(() => setScanMiss(null), 1600)
+      }
       return false
     }
     // A specific serial/variant code adds directly; a product code routes through the same
@@ -215,24 +469,64 @@ export function Sell() {
   // Hardware barcode scanners type fast and end with Enter — capture them globally
   // (capture phase, scanner-speed timing) so a scan adds to the cart wherever focus is.
   // Paused while a dialog is open so those handle their own input.
-  const overlayOpen = payOpen || custOpen || !!variantPick || !!serialPick || !!servicePick || heldOpen || !!done || sheetOpen
-  useBarcodeScanner((code) => { void handleScan(code) }, { enabled: !overlayOpen, minLength: 3 })
+  const overlayOpen =
+    payOpen ||
+    custOpen ||
+    !!variantPick ||
+    !!serialPick ||
+    !!servicePick ||
+    heldOpen ||
+    !!done ||
+    sheetOpen
+  useBarcodeScanner(
+    (code) => {
+      void handleScan(code)
+    },
+    { enabled: !overlayOpen, minLength: 3 },
+  )
 
   // --- charge/discount library --------------------------------------------
   const addCharge = (c: ChargeType) =>
-    setCharges((prev) => [...prev, { id: crypto.randomUUID(), kind: 'charge', name: c.name, mode: c.rateType === 'PERCENT' ? 'PERCENT' : 'FIXED', value: c.defaultValue ?? 0, chargeTypeId: c.id }])
+    setCharges((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        kind: 'charge',
+        name: c.name,
+        mode: c.rateType === 'PERCENT' ? 'PERCENT' : 'FIXED',
+        value: c.defaultValue ?? 0,
+        chargeTypeId: c.id,
+      },
+    ])
   const addCustom = (kind: 'charge' | 'discount') =>
-    setCharges((prev) => [...prev, { id: crypto.randomUUID(), kind, name: kind === 'discount' ? t('sell.discount') : t('sell.customCharge'), mode: kind === 'discount' ? 'PERCENT' : 'FIXED', value: kind === 'discount' ? 5 : 500, chargeTypeId: null }])
-  const setChargeValue = (id: string, value: number) => setCharges((prev) => prev.map((c) => (c.id === id ? { ...c, value } : c)))
+    setCharges((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        kind,
+        name: kind === 'discount' ? t('sell.discount') : t('sell.customCharge'),
+        mode: kind === 'discount' ? 'PERCENT' : 'FIXED',
+        value: kind === 'discount' ? 5 : 500,
+        chargeTypeId: null,
+      },
+    ])
+  const setChargeValue = (id: string, value: number) =>
+    setCharges((prev) => prev.map((c) => (c.id === id ? { ...c, value } : c)))
   const removeCharge = (id: string) => setCharges((prev) => prev.filter((c) => c.id !== id))
 
   // --- totals --------------------------------------------------------------
   const calc = useMemo(() => {
     const subtotal = round2(cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0))
-    const amountOf = (c: ChargeLine) => round2(c.mode === 'PERCENT' ? (subtotal * c.value) / 100 : c.value)
-    let disc = 0, chg = 0
-    for (const c of charges) { if (c.kind === 'discount') disc += amountOf(c); else chg += amountOf(c) }
-    disc = round2(Math.min(subtotal, disc)); chg = round2(chg)
+    const amountOf = (c: ChargeLine) =>
+      round2(c.mode === 'PERCENT' ? (subtotal * c.value) / 100 : c.value)
+    let disc = 0,
+      chg = 0
+    for (const c of charges) {
+      if (c.kind === 'discount') disc += amountOf(c)
+      else chg += amountOf(c)
+    }
+    disc = round2(Math.min(subtotal, disc))
+    chg = round2(chg)
     const total = round2(Math.max(0, subtotal - disc + chg))
     return { subtotal, disc, chg, total, amountOf }
   }, [cart, charges])
@@ -246,29 +540,76 @@ export function Sell() {
     customerPhone: customer?.phone ?? null,
     items: cart.map((l) =>
       l.serialUnitId
-        ? { productId: l.productId, unitPrice: l.unitPrice, quantity: 1, serialUnitIds: [l.serialUnitId] }
-        : { productId: l.productId, variantId: l.variantId ?? null, variantName: l.variantName ?? null, quantity: l.quantity, unitPrice: l.unitPrice },
+        ? {
+            productId: l.productId,
+            unitPrice: l.unitPrice,
+            quantity: 1,
+            serialUnitIds: [l.serialUnitId],
+          }
+        : {
+            productId: l.productId,
+            variantId: l.variantId ?? null,
+            variantName: l.variantName ?? null,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+          },
     ),
     payments,
-    charges: charges.filter((c) => c.kind === 'charge').map((c) => ({ id: c.id, chargeTypeId: c.chargeTypeId, name: c.name, rateType: c.mode, rateValue: c.value, amount: calc.amountOf(c) })),
-    discounts: charges.filter((c) => c.kind === 'discount').map((c) => ({ id: c.id, description: c.name, discountType: c.mode === 'PERCENT' ? 'PERCENTAGE' : 'FIXED_AMOUNT', rate: c.mode === 'PERCENT' ? c.value : null, amount: calc.amountOf(c) })),
+    charges: charges
+      .filter((c) => c.kind === 'charge')
+      .map((c) => ({
+        id: c.id,
+        chargeTypeId: c.chargeTypeId,
+        name: c.name,
+        rateType: c.mode,
+        rateValue: c.value,
+        amount: calc.amountOf(c),
+      })),
+    discounts: charges
+      .filter((c) => c.kind === 'discount')
+      .map((c) => ({
+        id: c.id,
+        description: c.name,
+        discountType: c.mode === 'PERCENT' ? 'PERCENTAGE' : 'FIXED_AMOUNT',
+        rate: c.mode === 'PERCENT' ? c.value : null,
+        amount: calc.amountOf(c),
+      })),
   })
 
   const checkout = useMutation({
     mutationFn: (input: SaleInput) => dataClient.sales.create(input),
-    onSuccess: (sale) => { setDone(sale); setPayOpen(false) },
+    onSuccess: (sale) => {
+      setDone(sale)
+      setPayOpen(false)
+    },
   })
 
-  const startNew = () => { setCart([]); setCharges([]); setCustomer(null); setDone(null); void catalog.refetch() }
+  const startNew = () => {
+    setCart([])
+    setCharges([])
+    setCustomer(null)
+    setDone(null)
+    void catalog.refetch()
+  }
 
   // Shared modals/overlays — same on desktop, tablet and mobile (they're all triggered
   // by the same state, so both layout branches render them).
   const renderOverlays = () => (
     <>
       {heldOpen ? (
-        <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) setHeldOpen(false) }}>
+        <div
+          className="pay-overlay open"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setHeldOpen(false)
+          }}
+        >
           <div className="pay-modal" style={{ width: 440 }}>
-            <div className="pm-head"><h3>{t('sell.heldSales')}</h3><button type="button" className="x" onClick={() => setHeldOpen(false)}>{I.x}</button></div>
+            <div className="pm-head">
+              <h3>{t('sell.heldSales')}</h3>
+              <button type="button" className="x" onClick={() => setHeldOpen(false)}>
+                {I.x}
+              </button>
+            </div>
             <div className="cust-list">
               {held.length === 0 ? <div className="cat-empty">{t('sell.noHeld')}</div> : null}
               {held.map((h) => {
@@ -277,8 +618,26 @@ export function Sell() {
                 return (
                   <button key={h.id} type="button" onClick={() => resume(h)}>
                     <div className="a">{I.receipt}</div>
-                    <div className="t"><div className="nm">{h.customer?.name ?? t('sell.walkIn')} · {items} {t('sell.itemsWord')}</div><div className="s">{money.format(tot)}</div></div>
-                    <div className="rt"><span className="trm" role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); dropHeld(h.id) }} style={{ display: 'inline-flex' }}>{I.x}</span></div>
+                    <div className="t">
+                      <div className="nm">
+                        {h.customer?.name ?? t('sell.walkIn')} · {items} {t('sell.itemsWord')}
+                      </div>
+                      <div className="s">{money.format(tot)}</div>
+                    </div>
+                    <div className="rt">
+                      <span
+                        className="trm"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          dropHeld(h.id)
+                        }}
+                        style={{ display: 'inline-flex' }}
+                      >
+                        {I.x}
+                      </span>
+                    </div>
                   </button>
                 )
               })}
@@ -288,23 +647,44 @@ export function Sell() {
       ) : null}
 
       {variantPick ? (
-        <VariantPicker product={variantPick} onClose={() => setVariantPick(null)} onPick={(v) => addVariant(variantPick, v)} />
+        <VariantPicker
+          product={variantPick}
+          onClose={() => setVariantPick(null)}
+          onPick={(v) => addVariant(variantPick, v)}
+        />
       ) : null}
 
       {serialPick ? (
-        <SerialPicker product={serialPick} onClose={() => setSerialPick(null)} onAdd={(units) => addSerials(serialPick, units)} />
+        <SerialPicker
+          target={serialPick}
+          initialSelected={cart
+            .filter((l) => l.productId === serialPick.productId && l.serialUnitId)
+            .map((l) => l.serialUnitId!)}
+          onClose={() => setSerialPick(null)}
+          onApply={(units) => applySerials(serialPick, units)}
+        />
       ) : null}
 
       {servicePick ? (
-        <ServicePricePicker product={servicePick} onClose={() => setServicePick(null)} onConfirm={(price) => addService(servicePick, price)} />
+        <ServicePricePicker
+          product={servicePick}
+          onClose={() => setServicePick(null)}
+          onConfirm={(price) => addService(servicePick, price)}
+        />
       ) : null}
 
       {custOpen ? (
         <CustomerPicker
           currentId={customer?.id ?? null}
           onClose={() => setCustOpen(false)}
-          onPick={(c) => { setCustomer(c); setCustOpen(false) }}
-          onWalkIn={() => { setCustomer(null); setCustOpen(false) }}
+          onPick={(c) => {
+            setCustomer(c)
+            setCustOpen(false)
+          }}
+          onWalkIn={() => {
+            setCustomer(null)
+            setCustOpen(false)
+          }}
         />
       ) : null}
 
@@ -318,13 +698,22 @@ export function Sell() {
           defaultTender={forceDeposit ? 'deposit' : undefined}
           forceDeposit={forceDeposit}
           onClose={() => setPayOpen(false)}
-          onPickCustomer={() => { setPayOpen(false); setCustOpen(true) }}
+          onPickCustomer={() => {
+            setPayOpen(false)
+            setCustOpen(true)
+          }}
           busy={checkout.isPending}
           onConfirm={(payments) => checkout.mutate(buildInput(payments))}
         />
       ) : null}
 
-      {done ? <SuccessModal sale={done} customerName={customer?.name ?? t('sell.walkIn')} onNew={startNew} /> : null}
+      {done ? (
+        <SuccessModal
+          sale={done}
+          customerName={customer?.name ?? t('sell.walkIn')}
+          onNew={startNew}
+        />
+      ) : null}
     </>
   )
 
@@ -335,9 +724,18 @@ export function Sell() {
         <header className="m-head">
           <div className="m-tt">
             <div className="m-title">{t('sell.title')}</div>
-            <div className="m-sub">{customer?.name ?? t('sell.walkIn')} · {t('sell.tapToAdd')}</div>
+            <div className="m-sub">
+              {customer?.name ?? t('sell.walkIn')} · {t('sell.tapToAdd')}
+            </div>
           </div>
-          <button type="button" className="m-ic" onClick={() => setCustOpen(true)} aria-label={t('sell.selectCustomer')}>{I.user}</button>
+          <button
+            type="button"
+            className="m-ic"
+            onClick={() => setCustOpen(true)}
+            aria-label={t('sell.selectCustomer')}
+          >
+            {I.user}
+          </button>
         </header>
 
         <div className="msearch" style={{ marginBottom: 13 }}>
@@ -349,17 +747,34 @@ export function Sell() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && search.trim()) {
                 e.preventDefault()
-                void handleScan(search.trim(), { silent: true }).then((ok) => { if (ok) setSearch('') })
+                void handleScan(search.trim(), { silent: true }).then((ok) => {
+                  if (ok) setSearch('')
+                })
               }
             }}
           />
         </div>
-        {scanMiss ? <div className="scan-miss">{t('sell.scanMiss').replace('{code}', scanMiss)}</div> : null}
+        {scanMiss ? (
+          <div className="scan-miss">{t('sell.scanMiss').replace('{code}', scanMiss)}</div>
+        ) : null}
 
         <div className="mchips" style={{ marginBottom: 14 }}>
-          <button type="button" className={`mchip${categoryId === null ? ' active' : ''}`} onClick={() => setCategoryId(null)}>{t('sell.allCats')}</button>
+          <button
+            type="button"
+            className={`mchip${categoryId === null ? ' active' : ''}`}
+            onClick={() => setCategoryId(null)}
+          >
+            {t('sell.allCats')}
+          </button>
           {cats.map((c) => (
-            <button key={c.id} type="button" className={`mchip${categoryId === c.id ? ' active' : ''}`} onClick={() => setCategoryId(c.id)}>{c.name}</button>
+            <button
+              key={c.id}
+              type="button"
+              className={`mchip${categoryId === c.id ? ' active' : ''}`}
+              onClick={() => setCategoryId(c.id)}
+            >
+              {c.name}
+            </button>
           ))}
         </div>
 
@@ -367,30 +782,60 @@ export function Sell() {
           {products.map((p) => {
             const out = p.trackInventory && p.currentStock <= 0
             return (
-              <button key={p.id} type="button" className="pos-tile" disabled={out} onClick={() => void onProductClick(p)}>
+              <button
+                key={p.id}
+                type="button"
+                className="pos-tile"
+                disabled={out}
+                onClick={() => void onProductClick(p)}
+              >
                 <span className="padd">{I.plus}</span>
-                <div className="pth">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.trim().charAt(0).toUpperCase()}</div>
-                <div className="pn">{p.name}</div>
+                <div className="pth">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt="" />
+                  ) : (
+                    p.name.trim().charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div className="pn" title={p.name}>
+                  {p.name}
+                </div>
                 <div className="pp">
                   <span>{money.format(p.effectiveSellingPrice)}</span>
-                  {p.trackInventory ? <span className={`ps${out ? ' out' : ''}`}>{out ? t('sell.outOfStock') : p.currentStock}</span> : null}
+                  {p.trackInventory ? (
+                    <span className={`ps${out ? ' out' : ''}`}>
+                      {out ? t('sell.outOfStock') : p.currentStock}
+                    </span>
+                  ) : null}
                 </div>
               </button>
             )
           })}
-          {!catalog.isPending && products.length === 0 ? <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>{t('sell.noProducts')}</div> : null}
+          {!catalog.isPending && products.length === 0 ? (
+            <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>
+              {t('sell.noProducts')}
+            </div>
+          ) : null}
         </div>
         {catalog.hasNextPage ? (
           <div style={{ textAlign: 'center', marginTop: 12 }}>
-            <button type="button" className="mbtn" onClick={() => void catalog.fetchNextPage()}>{t('sell.loadMore')}</button>
+            <button type="button" className="mbtn" onClick={() => void catalog.fetchNextPage()}>
+              {t('sell.loadMore')}
+            </button>
           </div>
         ) : null}
 
         {itemCount > 0 ? (
           <button type="button" className="cartbar" onClick={() => setSheetOpen(true)}>
             <span className="cc">{itemCount}</span>
-            <span className="ct"><span className="l">{t('sell.viewTicket')}</span><span className="v">{money.format(calc.total)}</span></span>
-            <span className="go">{t('sell.charge')}{I.chevR}</span>
+            <span className="ct">
+              <span className="l">{t('sell.viewTicket')}</span>
+              <span className="v">{money.format(calc.total)}</span>
+            </span>
+            <span className="go">
+              {t('sell.charge')}
+              {I.chevR}
+            </span>
           </button>
         ) : null}
 
@@ -402,8 +847,14 @@ export function Sell() {
             t={t}
             itemCount={itemCount}
             setQty={setQty}
+            setQtyValue={setQtyValue}
+            onEditSerial={editSerials}
+            removeLine={removeLine}
             onClose={() => setSheetOpen(false)}
-            onCharge={() => { setSheetOpen(false); setPayOpen(true) }}
+            onCharge={() => {
+              setSheetOpen(false)
+              setPayOpen(true)
+            }}
           />
         ) : null}
 
@@ -420,7 +871,12 @@ export function Sell() {
           <p>{t('sell.subtitle')}</p>
         </div>
         {held.length > 0 ? (
-          <button type="button" className="ab" style={{ width: 'auto', padding: '9px 14px' }} onClick={() => setHeldOpen(true)}>
+          <button
+            type="button"
+            className="ab"
+            style={{ width: 'auto', padding: '9px 14px' }}
+            onClick={() => setHeldOpen(true)}
+          >
             {t('sell.resume')} <span className="cnt2">{held.length}</span>
           </button>
         ) : null}
@@ -440,37 +896,83 @@ export function Sell() {
                 // the text stays as a catalog filter (no toast).
                 if (e.key === 'Enter' && search.trim()) {
                   e.preventDefault()
-                  void handleScan(search.trim(), { silent: true }).then((ok) => { if (ok) setSearch('') })
+                  void handleScan(search.trim(), { silent: true }).then((ok) => {
+                    if (ok) setSearch('')
+                  })
                 }
               }}
             />
           </div>
-          {scanMiss ? <div className="scan-miss">{t('sell.scanMiss').replace('{code}', scanMiss)}</div> : null}
+          {scanMiss ? (
+            <div className="scan-miss">{t('sell.scanMiss').replace('{code}', scanMiss)}</div>
+          ) : null}
           <div className="cat-chips">
-            <button type="button" className={`chip${categoryId === null ? ' active' : ''}`} onClick={() => setCategoryId(null)}>{t('sell.allCats')}</button>
+            <button
+              type="button"
+              className={`chip${categoryId === null ? ' active' : ''}`}
+              onClick={() => setCategoryId(null)}
+            >
+              {t('sell.allCats')}
+            </button>
             {cats.map((c) => (
-              <button key={c.id} type="button" className={`chip${categoryId === c.id ? ' active' : ''}`} onClick={() => setCategoryId(c.id)}>{c.name}</button>
+              <button
+                key={c.id}
+                type="button"
+                className={`chip${categoryId === c.id ? ' active' : ''}`}
+                onClick={() => setCategoryId(c.id)}
+              >
+                {c.name}
+              </button>
             ))}
           </div>
           <div className="prod-grid">
             {products.map((p) => {
               const out = p.trackInventory && p.currentStock <= 0
               return (
-                <button key={p.id} type="button" className="prod" disabled={out} onClick={() => void onProductClick(p)}>
-                  <div className="thumb">{p.imageUrl ? <img src={p.imageUrl} alt="" className="ava-img" /> : p.name.trim().charAt(0).toUpperCase()}</div>
-                  <div className="pn">{p.name}</div>
+                <button
+                  key={p.id}
+                  type="button"
+                  className="prod"
+                  disabled={out}
+                  onClick={() => void onProductClick(p)}
+                >
+                  <div className="thumb">
+                    {p.imageUrl ? (
+                      <img src={p.imageUrl} alt="" className="ava-img" />
+                    ) : (
+                      p.name.trim().charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div className="pn" title={p.name}>
+                    {p.name}
+                  </div>
                   <div className="pmeta">
                     <span className="pp">{money.format(p.effectiveSellingPrice)}</span>
-                    {p.trackInventory ? <span className={`ps${p.currentStock <= 0 ? ' out' : ''}`}>{out ? t('sell.outOfStock') : p.currentStock}</span> : null}
+                    {p.trackInventory ? (
+                      <span className={`ps${p.currentStock <= 0 ? ' out' : ''}`}>
+                        {out ? t('sell.outOfStock') : p.currentStock}
+                      </span>
+                    ) : null}
                   </div>
                 </button>
               )
             })}
-            {!catalog.isPending && products.length === 0 ? <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>{t('sell.noProducts')}</div> : null}
+            {!catalog.isPending && products.length === 0 ? (
+              <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>
+                {t('sell.noProducts')}
+              </div>
+            ) : null}
           </div>
           {catalog.hasNextPage ? (
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button type="button" className="ab" style={{ maxWidth: 200, margin: '0 auto' }} onClick={() => void catalog.fetchNextPage()}>{t('sell.loadMore')}</button>
+              <button
+                type="button"
+                className="ab"
+                style={{ maxWidth: 200, margin: '0 auto' }}
+                onClick={() => void catalog.fetchNextPage()}
+              >
+                {t('sell.loadMore')}
+              </button>
             </div>
           ) : null}
         </div>
@@ -478,30 +980,71 @@ export function Sell() {
         {/* Ticket */}
         <div className="ticket">
           <div className="ticket-h">
-            <h3>{t('sell.currentSale')} <span className="cnt2">{itemCount}</span></h3>
+            <h3>
+              {t('sell.currentSale')} <span className="cnt2">{itemCount}</span>
+            </h3>
             <button type="button" className="cust" onClick={() => setCustOpen(true)}>
-              {I.user}<span>{customer?.name ?? t('sell.walkIn')}</span>
+              {I.user}
+              <span>{customer?.name ?? t('sell.walkIn')}</span>
             </button>
           </div>
 
           <div className="tl">
             {cart.length === 0 ? (
-              <div className="tl-empty">{I.receipt}<div className="t">{t('sell.noItems')}</div><div className="s">{t('sell.noItemsHint')}</div></div>
+              <div className="tl-empty">
+                {I.receipt}
+                <div className="t">{t('sell.noItems')}</div>
+                <div className="s">{t('sell.noItemsHint')}</div>
+              </div>
             ) : (
               cart.map((l) => (
                 <div key={l.key} className="tl-row">
-                  <div className="tn"><div className="nm">{l.name}</div><div className="up">{money.format(l.unitPrice)} × {l.quantity}</div></div>
+                  <div className="tn">
+                    <div className="nm">{l.name}</div>
+                    <div className="up">
+                      {money.format(l.unitPrice)} × {l.quantity}
+                    </div>
+                  </div>
                   {l.serialUnitId ? (
-                    <span className="qty"><span>1</span></span>
+                    // No delete here — the row's hover-× (.trm) already removes it. Edit swaps units.
+                    <span className="qty serial">
+                      <button
+                        type="button"
+                        title={t('sell.editSerials')}
+                        onClick={() => editSerials(l)}
+                      >
+                        {I.edit}
+                      </button>
+                    </span>
                   ) : (
                     <span className="qty">
-                      <button type="button" onClick={() => setQty(l.key, -1)}>−</button>
-                      <span>{l.quantity}</span>
-                      <button type="button" onClick={() => setQty(l.key, 1)}>+</button>
+                      <button type="button" onClick={() => setQty(l.key, -1)}>
+                        −
+                      </button>
+                      <input
+                        className="qi"
+                        inputMode="numeric"
+                        aria-label={t('sell.qtyLabel')}
+                        value={l.quantity}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) =>
+                          setQtyValue(l.key, parseInt(e.target.value.replace(/\D/g, ''), 10))
+                        }
+                      />
+                      <button type="button" onClick={() => setQty(l.key, 1)}>
+                        +
+                      </button>
                     </span>
                   )}
                   <span className="lt">{money.format(l.unitPrice * l.quantity)}</span>
-                  <button type="button" className="trm" title={t('sell.remove')} onClick={() => removeLine(l.key)}>{I.x}</button>
+                  <button
+                    type="button"
+                    className="trm"
+                    title={t('sell.remove')}
+                    onClick={() => removeLine(l.key)}
+                  >
+                    {I.x}
+                  </button>
                 </div>
               ))
             )}
@@ -514,51 +1057,136 @@ export function Sell() {
                   <div className="ci">{c.kind === 'discount' ? I.tag : I.plus}</div>
                   <div className="cl">{c.name}</div>
                   <span className="cinp">
-                    <input value={c.value} inputMode="decimal" onChange={(e) => setChargeValue(c.id, Number(e.target.value.replace(',', '.')) || 0)} />
+                    <input
+                      value={c.value}
+                      inputMode="decimal"
+                      onChange={(e) =>
+                        setChargeValue(c.id, Number(e.target.value.replace(',', '.')) || 0)
+                      }
+                    />
                     <span className="u">{c.mode === 'PERCENT' ? '%' : money.symbol}</span>
                   </span>
-                  <span className="ca">{c.kind === 'discount' ? '−' : '+'}{money.format(calc.amountOf(c))}</span>
-                  <button type="button" className="crm" title={t('sell.remove')} onClick={() => removeCharge(c.id)}>{I.x}</button>
+                  <span className="ca">
+                    {c.kind === 'discount' ? '−' : '+'}
+                    {money.format(calc.amountOf(c))}
+                  </span>
+                  <button
+                    type="button"
+                    className="crm"
+                    title={t('sell.remove')}
+                    onClick={() => removeCharge(c.id)}
+                  >
+                    {I.x}
+                  </button>
                 </div>
               ))}
             </div>
           ) : null}
 
           <div className="addcharge">
-            <button type="button" className="ab" onClick={() => setMenuOpen((v) => !v)}>{I.plus}{t('sell.addCharge')}</button>
+            <button type="button" className="ab" onClick={() => setMenuOpen((v) => !v)}>
+              {I.plus}
+              {t('sell.addCharge')}
+            </button>
             {menuOpen ? (
               <div className="charge-menu open" onMouseLeave={() => setMenuOpen(false)}>
                 <div className="mh">{t('sell.addToSale')}</div>
                 {chargeTypes.map((c) => (
-                  <button key={c.id} type="button" onClick={() => { addCharge(c); setMenuOpen(false) }}>
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      addCharge(c)
+                      setMenuOpen(false)
+                    }}
+                  >
                     <span className="mi">{I.plus}</span>
-                    <span className="mt"><span className="nm">{c.name}</span><small>{c.rateType === 'PERCENT' ? `${c.defaultValue ?? 0}%` : money.format(c.defaultValue ?? 0)}</small></span>
+                    <span className="mt">
+                      <span className="nm">{c.name}</span>
+                      <small>
+                        {c.rateType === 'PERCENT'
+                          ? `${c.defaultValue ?? 0}%`
+                          : money.format(c.defaultValue ?? 0)}
+                      </small>
+                    </span>
                   </button>
                 ))}
-                <button type="button" className="disc" onClick={() => { addCustom('discount'); setMenuOpen(false) }}>
-                  <span className="mi">{I.tag}</span><span className="mt"><span className="nm">{t('sell.discount')}</span><small>{t('sell.discountHint')}</small></span>
+                <button
+                  type="button"
+                  className="disc"
+                  onClick={() => {
+                    addCustom('discount')
+                    setMenuOpen(false)
+                  }}
+                >
+                  <span className="mi">{I.tag}</span>
+                  <span className="mt">
+                    <span className="nm">{t('sell.discount')}</span>
+                    <small>{t('sell.discountHint')}</small>
+                  </span>
                 </button>
-                <button type="button" onClick={() => { addCustom('charge'); setMenuOpen(false) }}>
-                  <span className="mi">{I.plus}</span><span className="mt"><span className="nm">{t('sell.customCharge')}</span><small>{t('sell.customChargeHint')}</small></span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    addCustom('charge')
+                    setMenuOpen(false)
+                  }}
+                >
+                  <span className="mi">{I.plus}</span>
+                  <span className="mt">
+                    <span className="nm">{t('sell.customCharge')}</span>
+                    <small>{t('sell.customChargeHint')}</small>
+                  </span>
                 </button>
               </div>
             ) : null}
           </div>
 
           <div className="totals">
-            <div className="tr"><span>{t('sell.subtotal')}</span><span>{money.format(calc.subtotal)}</span></div>
-            {calc.disc > 0 ? <div className="tr charge"><span>{t('sell.discounts')}</span><span className="pos2">− {money.format(calc.disc)}</span></div> : null}
-            {calc.chg > 0 ? <div className="tr charge"><span>{t('sell.charges')}</span><span>+ {money.format(calc.chg)}</span></div> : null}
-            <div className="tr grand"><span>{t('sell.total')}</span><span>{money.format(calc.total)}</span></div>
+            <div className="tr">
+              <span>{t('sell.subtotal')}</span>
+              <span>{money.format(calc.subtotal)}</span>
+            </div>
+            {calc.disc > 0 ? (
+              <div className="tr charge">
+                <span>{t('sell.discounts')}</span>
+                <span className="pos2">− {money.format(calc.disc)}</span>
+              </div>
+            ) : null}
+            {calc.chg > 0 ? (
+              <div className="tr charge">
+                <span>{t('sell.charges')}</span>
+                <span>+ {money.format(calc.chg)}</span>
+              </div>
+            ) : null}
+            <div className="tr grand">
+              <span>{t('sell.total')}</span>
+              <span>{money.format(calc.total)}</span>
+            </div>
           </div>
 
           <div className="charge">
-            <button type="button" id="chargeBtn" disabled={cart.length === 0} onClick={() => setPayOpen(true)}>
-              {cart.length ? `${t('sell.charge')} ${money.format(calc.total)}` : t('sell.addItemsToCharge')}
+            <button
+              type="button"
+              id="chargeBtn"
+              disabled={cart.length === 0}
+              onClick={() => setPayOpen(true)}
+            >
+              {cart.length
+                ? `${t('sell.charge')} ${money.format(calc.total)}`
+                : t('sell.addItemsToCharge')}
             </button>
             <div className="row2">
-              <button type="button" onClick={hold} disabled={cart.length === 0}>{t('sell.hold')}</button>
-              <button type="button" onClick={clearAll} disabled={cart.length === 0 && charges.length === 0}>{t('sell.clear')}</button>
+              <button type="button" onClick={hold} disabled={cart.length === 0}>
+                {t('sell.hold')}
+              </button>
+              <button
+                type="button"
+                onClick={clearAll}
+                disabled={cart.length === 0 && charges.length === 0}
+              >
+                {t('sell.clear')}
+              </button>
             </div>
           </div>
         </div>
@@ -571,13 +1199,34 @@ export function Sell() {
 
 // --- mobile checkout sheet -------------------------------------------------
 // Bottom sheet that reviews/edits the ticket then hands off to the shared PaymentModal.
-function MobileTicketSheet({ cart, calc, money, t, itemCount, setQty, onClose, onCharge }: {
+function MobileTicketSheet({
+  cart,
+  calc,
+  money,
+  t,
+  itemCount,
+  setQty,
+  setQtyValue,
+  onEditSerial,
+  removeLine,
+  onClose,
+  onCharge,
+}: {
   cart: CartLine[]
-  calc: { subtotal: number; disc: number; chg: number; total: number; amountOf: (c: ChargeLine) => number }
+  calc: {
+    subtotal: number
+    disc: number
+    chg: number
+    total: number
+    amountOf: (c: ChargeLine) => number
+  }
   money: ReturnType<typeof useCurrency>
   t: ReturnType<typeof useT>
   itemCount: number
   setQty: (key: string, d: number) => void
+  setQtyValue: (key: string, n: number) => void
+  onEditSerial: (l: CartLine) => void
+  removeLine: (key: string) => void
   onClose: () => void
   onCharge: () => void
 }) {
@@ -587,8 +1236,12 @@ function MobileTicketSheet({ cart, calc, money, t, itemCount, setQty, onClose, o
       <div className="msheet">
         <div className="grab" />
         <div className="sh-h">
-          <h3>{t('sell.currentSale')} · {itemCount} {t('sell.itemsWord')}</h3>
-          <button type="button" className="m-ic" onClick={onClose} aria-label={t('sell.remove')}>{I.x}</button>
+          <h3>
+            {t('sell.currentSale')} · {itemCount} {t('sell.itemsWord')}
+          </h3>
+          <button type="button" className="m-ic" onClick={onClose} aria-label={t('sell.remove')}>
+            {I.x}
+          </button>
         </div>
         <div className="sh-b">
           {cart.map((l) => (
@@ -596,26 +1249,75 @@ function MobileTicketSheet({ cart, calc, money, t, itemCount, setQty, onClose, o
               <div className="th">{l.name.trim().charAt(0).toUpperCase()}</div>
               <div className="li">
                 <div className="nm">{l.name}</div>
-                <div className="up">{money.format(l.unitPrice)} × {l.quantity}</div>
+                <div className="up">
+                  {money.format(l.unitPrice)} × {l.quantity}
+                </div>
               </div>
               {l.serialUnitId ? (
-                <div className="sh-qty"><b>1</b></div>
+                <div className="sh-qty serial">
+                  <button
+                    type="button"
+                    title={t('sell.editSerials')}
+                    onClick={() => onEditSerial(l)}
+                  >
+                    {I.edit}
+                  </button>
+                  <button
+                    type="button"
+                    className="del"
+                    title={t('sell.remove')}
+                    onClick={() => removeLine(l.key)}
+                  >
+                    {I.trash}
+                  </button>
+                </div>
               ) : (
                 <div className="sh-qty">
-                  <button type="button" onClick={() => setQty(l.key, -1)}>−</button>
-                  <b>{l.quantity}</b>
-                  <button type="button" onClick={() => setQty(l.key, 1)}>+</button>
+                  <button type="button" onClick={() => setQty(l.key, -1)}>
+                    −
+                  </button>
+                  <input
+                    className="qi"
+                    inputMode="numeric"
+                    aria-label={t('sell.qtyLabel')}
+                    value={l.quantity}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) =>
+                      setQtyValue(l.key, parseInt(e.target.value.replace(/\D/g, ''), 10))
+                    }
+                  />
+                  <button type="button" onClick={() => setQty(l.key, 1)}>
+                    +
+                  </button>
                 </div>
               )}
             </div>
           ))}
           <div className="sh-tot">
-            <div className="r"><span>{t('sell.subtotal')}</span><span>{money.format(calc.subtotal)}</span></div>
-            {calc.disc > 0 ? <div className="r"><span>{t('sell.discounts')}</span><span>− {money.format(calc.disc)}</span></div> : null}
-            {calc.chg > 0 ? <div className="r"><span>{t('sell.charges')}</span><span>+ {money.format(calc.chg)}</span></div> : null}
-            <div className="r grand"><span>{t('sell.total')}</span><span>{money.format(calc.total)}</span></div>
+            <div className="r">
+              <span>{t('sell.subtotal')}</span>
+              <span>{money.format(calc.subtotal)}</span>
+            </div>
+            {calc.disc > 0 ? (
+              <div className="r">
+                <span>{t('sell.discounts')}</span>
+                <span>− {money.format(calc.disc)}</span>
+              </div>
+            ) : null}
+            {calc.chg > 0 ? (
+              <div className="r">
+                <span>{t('sell.charges')}</span>
+                <span>+ {money.format(calc.chg)}</span>
+              </div>
+            ) : null}
+            <div className="r grand">
+              <span>{t('sell.total')}</span>
+              <span>{money.format(calc.total)}</span>
+            </div>
           </div>
-          <button type="button" className="mbtn mbtn-primary" onClick={onCharge}>{t('sell.charge')} {money.format(calc.total)}</button>
+          <button type="button" className="mbtn mbtn-primary" onClick={onCharge}>
+            {t('sell.charge')} {money.format(calc.total)}
+          </button>
         </div>
       </div>
     </>
@@ -623,7 +1325,17 @@ function MobileTicketSheet({ cart, calc, money, t, itemCount, setQty, onClose, o
 }
 
 // --- customer picker -------------------------------------------------------
-function CustomerPicker({ currentId, onClose, onPick, onWalkIn }: { currentId: string | null; onClose: () => void; onPick: (c: Cust) => void; onWalkIn: () => void }) {
+function CustomerPicker({
+  currentId,
+  onClose,
+  onPick,
+  onWalkIn,
+}: {
+  currentId: string | null
+  onClose: () => void
+  onPick: (c: Cust) => void
+  onWalkIn: () => void
+}) {
   const t = useT()
   const [q, setQ] = useState('')
   const { data: customers = [] } = useQuery({
@@ -633,20 +1345,54 @@ function CustomerPicker({ currentId, onClose, onPick, onWalkIn }: { currentId: s
   })
   const list = customers.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()))
   return (
-    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className="pay-modal" style={{ width: 440 }}>
-        <div className="pm-head"><h3>{t('sell.selectCustomer')}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+        <div className="pm-head">
+          <h3>{t('sell.selectCustomer')}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {I.x}
+          </button>
+        </div>
         <div style={{ padding: '14px 16px 6px' }}>
-          <div className="field">{I.search}<input className="input ic" placeholder={t('sell.searchCustomers')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <div className="field">
+            {I.search}
+            <input
+              className="input ic"
+              placeholder={t('sell.searchCustomers')}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
         </div>
         <div className="cust-list">
           <button type="button" className={currentId === null ? 'sel' : ''} onClick={onWalkIn}>
-            <div className="a">{I.user}</div><div className="t"><div className="nm">{t('sell.walkIn')}</div><div className="s">{t('sell.walkInHint')}</div></div>
+            <div className="a">{I.user}</div>
+            <div className="t">
+              <div className="nm">{t('sell.walkIn')}</div>
+              <div className="s">{t('sell.walkInHint')}</div>
+            </div>
           </button>
           {list.map((c) => (
-            <button key={c.id} type="button" className={currentId === c.id ? 'sel' : ''} onClick={() => onPick({ id: c.id, name: c.name, phone: c.phone, selfieUrl: c.selfieUrl })}>
-              <div className="a">{c.selfieUrl ? <img src={c.selfieUrl} alt="" /> : initials(c.name)}</div>
-              <div className="t"><div className="nm">{c.name}</div><div className="s">{c.phone || '—'}</div></div>
+            <button
+              key={c.id}
+              type="button"
+              className={currentId === c.id ? 'sel' : ''}
+              onClick={() =>
+                onPick({ id: c.id, name: c.name, phone: c.phone, selfieUrl: c.selfieUrl })
+              }
+            >
+              <div className="a">
+                {c.selfieUrl ? <img src={c.selfieUrl} alt="" /> : initials(c.name)}
+              </div>
+              <div className="t">
+                <div className="nm">{c.name}</div>
+                <div className="s">{c.phone || '—'}</div>
+              </div>
             </button>
           ))}
         </div>
@@ -656,7 +1402,15 @@ function CustomerPicker({ currentId, onClose, onPick, onWalkIn }: { currentId: s
 }
 
 // --- variant picker --------------------------------------------------------
-function VariantPicker({ product, onClose, onPick }: { product: LocalProduct; onClose: () => void; onPick: (v: LocalVariant) => void }) {
+function VariantPicker({
+  product,
+  onClose,
+  onPick,
+}: {
+  product: LocalProduct
+  onClose: () => void
+  onPick: (v: LocalVariant) => void
+}) {
   const t = useT()
   const money = useCurrency()
   const { data: variants = [], isPending } = useQuery({
@@ -665,22 +1419,48 @@ function VariantPicker({ product, onClose, onPick }: { product: LocalProduct; on
     enabled: true,
   })
   return (
-    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className="pay-modal" style={{ width: 440 }}>
-        <div className="pm-head"><h3>{product.name}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+        <div className="pm-head">
+          <h3>{product.name}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {I.x}
+          </button>
+        </div>
         <div className="pm-body" style={{ paddingTop: 14 }}>
           <div className="pm-lbl">{t('sell.pickVariant')}</div>
           {isPending ? <div className="cat-empty">…</div> : null}
           <div className="pm-split">
-            {variants.filter((v) => v.isActive).map((v) => {
-              const out = v.stockQuantity <= 0
-              return (
-                <button key={v.id} type="button" className="pm-cust" style={{ marginBottom: 0 }} disabled={out} onClick={() => onPick(v)}>
-                  <div className="t"><div className="nm">{v.name}</div><div className="s">{out ? t('sell.outOfStock') : `${v.stockQuantity} ${t('sell.inStock')}`}</div></div>
-                  <div className="ch">{money.format(v.priceOverride ?? product.sellingPrice)}</div>
-                </button>
-              )
-            })}
+            {variants
+              .filter((v) => v.isActive)
+              .map((v) => {
+                const out = v.stockQuantity <= 0
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className="pm-cust"
+                    style={{ marginBottom: 0 }}
+                    disabled={out}
+                    onClick={() => onPick(v)}
+                  >
+                    <div className="t">
+                      <div className="nm">{v.name}</div>
+                      <div className="s">
+                        {out ? t('sell.outOfStock') : `${v.stockQuantity} ${t('sell.inStock')}`}
+                      </div>
+                    </div>
+                    <div className="ch">
+                      {money.format(v.priceOverride ?? product.sellingPrice)}
+                    </div>
+                  </button>
+                )
+              })}
           </div>
         </div>
       </div>
@@ -690,14 +1470,34 @@ function VariantPicker({ product, onClose, onPick }: { product: LocalProduct; on
 
 // --- service price picker --------------------------------------------------
 // Services have no fixed price; confirm/enter it before adding to the cart.
-function ServicePricePicker({ product, onClose, onConfirm }: { product: LocalProduct; onClose: () => void; onConfirm: (price: number) => void }) {
+function ServicePricePicker({
+  product,
+  onClose,
+  onConfirm,
+}: {
+  product: LocalProduct
+  onClose: () => void
+  onConfirm: (price: number) => void
+}) {
   const t = useT()
-  const [price, setPrice] = useState(product.effectiveSellingPrice > 0 ? String(product.effectiveSellingPrice) : '')
+  const [price, setPrice] = useState(
+    product.effectiveSellingPrice > 0 ? String(product.effectiveSellingPrice) : '',
+  )
   const priceN = Number(price.replace(/\s/g, '').replace(',', '.')) || 0
   return (
-    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className="pay-modal" style={{ width: 380 }}>
-        <div className="pm-head"><h3>{product.name}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+        <div className="pm-head">
+          <h3>{product.name}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {I.x}
+          </button>
+        </div>
         <div className="pm-body" style={{ paddingTop: 14 }}>
           <div className="pm-lbl">{t('sell.servicePrice')}</div>
           <input
@@ -707,9 +1507,16 @@ function ServicePricePicker({ product, onClose, onConfirm }: { product: LocalPro
             value={price}
             placeholder="0"
             onChange={(e) => setPrice(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') onConfirm(priceN) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onConfirm(priceN)
+            }}
           />
-          <button type="button" className="pm-confirm" style={{ marginTop: 14 }} onClick={() => onConfirm(priceN)}>
+          <button
+            type="button"
+            className="pm-confirm"
+            style={{ marginTop: 14 }}
+            onClick={() => onConfirm(priceN)}
+          >
             {t('sell.addToCart')}
           </button>
         </div>
@@ -719,35 +1526,102 @@ function ServicePricePicker({ product, onClose, onConfirm }: { product: LocalPro
 }
 
 // --- serial picker ---------------------------------------------------------
-function SerialPicker({ product, onClose, onAdd }: { product: LocalProduct; onClose: () => void; onAdd: (units: LocalSerialUnit[]) => void }) {
+// Manages which serialized units are on the sale. Preselected with the units already in the cart,
+// so the same modal serves both first-add and later "edit which units are sold". The picked set —
+// not a quantity — determines how many are sold. Confirm REPLACES the product's serialized lines.
+function SerialPicker({
+  target,
+  initialSelected,
+  onClose,
+  onApply,
+}: {
+  target: SerialTarget
+  initialSelected: string[]
+  onClose: () => void
+  onApply: (units: LocalSerialUnit[]) => void
+}) {
   const t = useT()
-  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(initialSelected))
   const [q, setQ] = useState('')
+  const editing = initialSelected.length > 0
   const { data: serials = [], isPending } = useQuery({
-    queryKey: [...queryKeys.products, 'in-stock-serials', product.id, q],
-    queryFn: () => dataClient.products.listInStockSerials(product.id, null, q),
+    queryKey: [...queryKeys.products, 'in-stock-serials', target.productId, q],
+    queryFn: () => dataClient.products.listInStockSerials(target.productId, null, q),
     enabled: true,
   })
-  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  // Remember every unit we've loaded (across searches) so a picked unit isn't lost when the
+  // current search filters it out — the query is capped/LIKE-filtered server-side.
+  const seen = useRef<Map<string, LocalSerialUnit>>(new Map())
+  useEffect(() => {
+    for (const u of serials) seen.current.set(u.id, u)
+  }, [serials])
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  const apply = () =>
+    onApply([...picked].map((id) => seen.current.get(id)).filter((u): u is LocalSerialUnit => !!u))
   return (
-    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className="pay-modal" style={{ width: 440 }}>
-        <div className="pm-head"><h3>{product.name}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
+        <div className="pm-head">
+          <h3>{target.productName}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {I.x}
+          </button>
+        </div>
         <div className="pm-body" style={{ paddingTop: 14 }}>
           <div className="pm-lbl">{t('sell.pickSerials')}</div>
-          <div className="field" style={{ marginBottom: 10 }}>{I.search}<input className="input ic" placeholder={t('sell.searchSerials')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          {isPending ? <div className="cat-empty">…</div> : serials.length === 0 ? <div className="cat-empty">{t('sell.noSerials')}</div> : null}
+          <div className="field" style={{ marginBottom: 10 }}>
+            {I.search}
+            <input
+              className="input ic"
+              placeholder={t('sell.searchSerials')}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          {isPending ? (
+            <div className="cat-empty">…</div>
+          ) : serials.length === 0 ? (
+            <div className="cat-empty">{t('sell.noSerials')}</div>
+          ) : null}
           <div className="cust-list" style={{ maxHeight: 320, overflowY: 'auto' }}>
             {serials.map((u) => (
-              <button key={u.id} type="button" className={picked.has(u.id) ? 'sel' : ''} onClick={() => toggle(u.id)}>
-                <span className={`ctree-cb${picked.has(u.id) ? ' on' : ''}`} aria-hidden>{picked.has(u.id) ? I.check : null}</span>
-                <div className="t"><div className="nm">{u.serialNumber}</div></div>
+              <button
+                key={u.id}
+                type="button"
+                className={picked.has(u.id) ? 'sel' : ''}
+                onClick={() => toggle(u.id)}
+              >
+                <span className={`ctree-cb${picked.has(u.id) ? ' on' : ''}`} aria-hidden>
+                  {picked.has(u.id) ? I.check : null}
+                </span>
+                <div className="t">
+                  <div className="nm">{u.serialNumber}</div>
+                </div>
               </button>
             ))}
           </div>
-          <button type="button" className="pm-confirm" style={{ marginTop: 14 }} disabled={picked.size === 0}
-            onClick={() => onAdd(serials.filter((u) => picked.has(u.id)))}>
-            {t('sell.addSerials').replace('{n}', String(picked.size))}
+          <button
+            type="button"
+            className="pm-confirm"
+            style={{ marginTop: 14 }}
+            disabled={picked.size === 0}
+            onClick={apply}
+          >
+            {(editing ? t('sell.updateSerials') : t('sell.addSerials')).replace(
+              '{n}',
+              String(picked.size),
+            )}
           </button>
         </div>
       </div>
@@ -756,9 +1630,30 @@ function SerialPicker({ product, onClose, onAdd }: { product: LocalProduct; onCl
 }
 
 // --- payment modal ---------------------------------------------------------
-function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, forceDeposit, onClose, onPickCustomer, onConfirm, busy }: {
-  total: number; subtotal: number; disc: number; chg: number; customer: Cust | null; defaultTender?: TenderKey; forceDeposit?: boolean
-  onClose: () => void; onPickCustomer: () => void; onConfirm: (p: SaleInput['payments']) => void; busy: boolean
+function PaymentModal({
+  total,
+  subtotal,
+  disc,
+  chg,
+  customer,
+  defaultTender,
+  forceDeposit,
+  onClose,
+  onPickCustomer,
+  onConfirm,
+  busy,
+}: {
+  total: number
+  subtotal: number
+  disc: number
+  chg: number
+  customer: Cust | null
+  defaultTender?: TenderKey
+  forceDeposit?: boolean
+  onClose: () => void
+  onPickCustomer: () => void
+  onConfirm: (p: SaleInput['payments']) => void
+  busy: boolean
 }) {
   const t = useT()
   const money = useCurrency()
@@ -766,7 +1661,13 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
   const [tendered, setTendered] = useState<number | null>(null)
   const [momoRef, setMomoRef] = useState('')
   const [depRem, setDepRem] = useState<number | null>(null)
-  const [splits, setSplits] = useState<Record<string, number>>({ cash: 0, momo: 0, om: 0, card: 0, deposit: 0 })
+  const [splits, setSplits] = useState<Record<string, number>>({
+    cash: 0,
+    momo: 0,
+    om: 0,
+    card: 0,
+    deposit: 0,
+  })
 
   const { data: deposit } = useQuery({
     queryKey: [...queryKeys.contacts, 'savings', customer?.id],
@@ -778,9 +1679,12 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
   const hasDeposit = depBalance > 0
 
   const METHODS: Array<{ key: TenderKey; label: string; icon: ReactNode }> = [
-    { key: 'cash', label: t('sell.cash'), icon: I.cash }, { key: 'momo', label: t('sell.momo'), icon: I.phone },
-    { key: 'om', label: t('sell.om'), icon: I.phone }, { key: 'card', label: t('sell.card'), icon: I.card },
-    { key: 'deposit', label: t('sell.deposit'), icon: I.wallet }, { key: 'credit', label: t('sell.credit'), icon: I.clock },
+    { key: 'cash', label: t('sell.cash'), icon: I.cash },
+    { key: 'momo', label: t('sell.momo'), icon: I.phone },
+    { key: 'om', label: t('sell.om'), icon: I.phone },
+    { key: 'card', label: t('sell.card'), icon: I.card },
+    { key: 'deposit', label: t('sell.deposit'), icon: I.wallet },
+    { key: 'credit', label: t('sell.credit'), icon: I.clock },
     { key: 'split', label: t('sell.split'), icon: I.split },
   ]
   // Deposit is a split option whenever a customer is selected (disabled if they have no
@@ -805,56 +1709,109 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
   let canConfirm = true
   let confirmLabel = t('sell.confirmPayment')
   if (method === 'cash' || method === 'momo' || method === 'om') canConfirm = change >= 0
-  else if (method === 'credit') { canConfirm = !isWalkIn; confirmLabel = t('sell.recordCredit') }
-  else if (method === 'deposit') {
+  else if (method === 'credit') {
+    canConfirm = !isWalkIn
+    confirmLabel = t('sell.recordCredit')
+  } else if (method === 'deposit') {
     if (forceDeposit) {
       canConfirm = hasDeposit && (depLeftover <= 0 || !isWalkIn)
-      confirmLabel = depLeftover > 0 ? `${t('sell.confirm')} · ${money.format(depLeftover)} ${t('sell.onCredit')}` : t('sell.payFromDeposit')
+      confirmLabel =
+        depLeftover > 0
+          ? `${t('sell.confirm')} · ${money.format(depLeftover)} ${t('sell.onCredit')}`
+          : t('sell.payFromDeposit')
     } else {
       canConfirm = hasDeposit && depChange >= 0
       confirmLabel = depRemaining > 0 ? t('sell.confirmPayment') : t('sell.payFromDeposit')
     }
+  } else if (method === 'split') {
+    canConfirm = remaining <= 0 || !isWalkIn
+    confirmLabel =
+      remaining > 0
+        ? `${t('sell.confirm')} · ${money.format(remaining)} ${t('sell.onCredit')}`
+        : t('sell.confirmSplit')
   }
-  else if (method === 'split') { canConfirm = remaining <= 0 || !isWalkIn; confirmLabel = remaining > 0 ? `${t('sell.confirm')} · ${money.format(remaining)} ${t('sell.onCredit')}` : t('sell.confirmSplit') }
 
   const confirm = () => {
     let payments: SaleInput['payments'] = []
     if (method === 'cash') payments = [{ method: PM.cash, amount: t2 }]
-    else if (method === 'momo') payments = [{ method: PM.momo, amount: t2, mobileMoneyReference: momoRef.trim() || null }]
-    else if (method === 'om') payments = [{ method: PM.om, amount: t2, mobileMoneyReference: momoRef.trim() || null }]
+    else if (method === 'momo')
+      payments = [{ method: PM.momo, amount: t2, mobileMoneyReference: momoRef.trim() || null }]
+    else if (method === 'om')
+      payments = [{ method: PM.om, amount: t2, mobileMoneyReference: momoRef.trim() || null }]
     else if (method === 'card') payments = [{ method: PM.card, amount: total }]
     else if (method === 'credit') payments = []
     else if (method === 'deposit') {
-      payments = [{ method: PaymentMethod.SAVINGS, amount: depApplied, savingsAccountId: depAccountId }]
+      payments = [
+        { method: PaymentMethod.SAVINGS, amount: depApplied, savingsAccountId: depAccountId },
+      ]
       if (depRemaining > 0) {
         if (forceDeposit) {
           // Remainder via the other methods; anything still unpaid → credit (buildInput computes it).
           for (const k of SPLIT_KEYS) {
-            if ((splits[k] || 0) > 0) payments.push({ method: PM[k], amount: splits[k]!, mobileMoneyReference: (k === 'momo' || k === 'om') && momoRef.trim() ? momoRef.trim() : null })
+            if ((splits[k] || 0) > 0)
+              payments.push({
+                method: PM[k],
+                amount: splits[k]!,
+                mobileMoneyReference:
+                  (k === 'momo' || k === 'om') && momoRef.trim() ? momoRef.trim() : null,
+              })
           }
         } else {
           payments.push({ method: PM.cash, amount: depTendered })
         }
       }
     } else if (method === 'split') {
-      payments = splitKeys.filter((k) => (splits[k] || 0) > 0).map((k) =>
-        k === 'deposit'
-          ? { method: PaymentMethod.SAVINGS, amount: splits[k]!, savingsAccountId: depAccountId }
-          : { method: PM[k], amount: splits[k]!, mobileMoneyReference: (k === 'momo' || k === 'om') && momoRef.trim() ? momoRef.trim() : null },
-      )
+      payments = splitKeys
+        .filter((k) => (splits[k] || 0) > 0)
+        .map((k) =>
+          k === 'deposit'
+            ? { method: PaymentMethod.SAVINGS, amount: splits[k]!, savingsAccountId: depAccountId }
+            : {
+                method: PM[k],
+                amount: splits[k]!,
+                mobileMoneyReference:
+                  (k === 'momo' || k === 'om') && momoRef.trim() ? momoRef.trim() : null,
+              },
+        )
     }
     onConfirm(payments)
   }
 
   return (
-    <div className="pay-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div className="pay-modal">
-        <div className="pm-head"><h3>{t('sell.takePayment')}</h3><button type="button" className="x" onClick={onClose}>{I.x}</button></div>
-        <div className="pm-due"><div className="l">{t('sell.amountDue')}</div><div className="v">{money.format(total)}</div></div>
+        <div className="pm-head">
+          <h3>{t('sell.takePayment')}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {I.x}
+          </button>
+        </div>
+        <div className="pm-due">
+          <div className="l">{t('sell.amountDue')}</div>
+          <div className="v">{money.format(total)}</div>
+        </div>
         <div className="pm-body" style={{ paddingBottom: 0 }}>
           <button type="button" className="pm-cust" onClick={onPickCustomer}>
-            <div className="a">{customer ? (customer.selfieUrl ? <img src={customer.selfieUrl} alt="" /> : initials(customer.name)) : I.user}</div>
-            <div className="t"><div className="nm">{customer?.name ?? t('sell.walkIn')}</div><div className="s">{customer?.phone ?? t('sell.walkInHint')}</div></div>
+            <div className="a">
+              {customer ? (
+                customer.selfieUrl ? (
+                  <img src={customer.selfieUrl} alt="" />
+                ) : (
+                  initials(customer.name)
+                )
+              ) : (
+                I.user
+              )}
+            </div>
+            <div className="t">
+              <div className="nm">{customer?.name ?? t('sell.walkIn')}</div>
+              <div className="s">{customer?.phone ?? t('sell.walkInHint')}</div>
+            </div>
             <div className="ch">{t('sell.change2')}</div>
           </button>
         </div>
@@ -864,43 +1821,94 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
             {METHODS.map((m) => {
               const locked = forceDeposit && m.key !== 'deposit'
               return (
-                <button key={m.key} type="button" disabled={locked} className={`pm-m${method === m.key ? ' active' : ''}${locked ? ' locked' : ''}`} onClick={() => { if (!locked) setMethod(m.key) }}>{m.icon}{m.label}</button>
+                <button
+                  key={m.key}
+                  type="button"
+                  disabled={locked}
+                  className={`pm-m${method === m.key ? ' active' : ''}${locked ? ' locked' : ''}`}
+                  onClick={() => {
+                    if (!locked) setMethod(m.key)
+                  }}
+                >
+                  {m.icon}
+                  {m.label}
+                </button>
               )
             })}
           </div>
 
-          {(method === 'cash' || method === 'momo' || method === 'om') ? (
+          {method === 'cash' || method === 'momo' || method === 'om' ? (
             <>
-              {(method === 'momo' || method === 'om') ? (
-                <div className="pm-field"><div className="pm-lbl">{method === 'momo' ? t('sell.momoNumber') : t('sell.omNumber')}</div>
-                  <input className="input" value={momoRef} onChange={(e) => setMomoRef(e.target.value)} placeholder="6 91 22 14 08" /></div>
+              {method === 'momo' || method === 'om' ? (
+                <div className="pm-field">
+                  <div className="pm-lbl">
+                    {method === 'momo' ? t('sell.momoNumber') : t('sell.omNumber')}
+                  </div>
+                  <input
+                    className="input"
+                    value={momoRef}
+                    onChange={(e) => setMomoRef(e.target.value)}
+                    placeholder="6 91 22 14 08"
+                  />
+                </div>
               ) : null}
-              <div className="pm-field"><div className="pm-lbl">{t('sell.amountReceived')}</div>
-                <input className="input" inputMode="decimal" value={String(t2)} onChange={(e) => setTendered(Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0)} />
+              <div className="pm-field">
+                <div className="pm-lbl">{t('sell.amountReceived')}</div>
+                <input
+                  className="input"
+                  inputMode="decimal"
+                  value={String(t2)}
+                  onChange={(e) =>
+                    setTendered(Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0)
+                  }
+                />
                 <div className="pm-quick">
-                  {quickAmounts(total).map((v) => <button key={v} type="button" onClick={() => setTendered(v)}>{money.format(v)}</button>)}
+                  {quickAmounts(total).map((v) => (
+                    <button key={v} type="button" onClick={() => setTendered(v)}>
+                      {money.format(v)}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className={`pm-change${change < 0 ? ' short' : ''}`}><span>{change < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span><span className="big">{money.format(Math.abs(change))}</span></div>
+              <div className={`pm-change${change < 0 ? ' short' : ''}`}>
+                <span>{change < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span>
+                <span className="big">{money.format(Math.abs(change))}</span>
+              </div>
             </>
           ) : null}
 
-          {method === 'card' ? <div className="pm-note">{I.card}<span>{t('sell.cardHint')}</span></div> : null}
+          {method === 'card' ? (
+            <div className="pm-note">
+              {I.card}
+              <span>{t('sell.cardHint')}</span>
+            </div>
+          ) : null}
 
           {method === 'deposit' ? (
             !hasDeposit ? (
-              <div className="pm-note">{I.bell}<span>{t('sell.noDeposit')}</span></div>
+              <div className="pm-note">
+                {I.bell}
+                <span>{t('sell.noDeposit')}</span>
+              </div>
             ) : (
               <>
                 <div className="dep-applied">
-                  <div><div className="l">{t('sell.fromDeposit').replace('{name}', customer!.name)}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 3 }}>{t('sell.balanceAfter')} {money.format(depBalance - depApplied)}</div></div>
+                  <div>
+                    <div className="l">
+                      {t('sell.fromDeposit').replace('{name}', customer!.name)}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 3 }}>
+                      {t('sell.balanceAfter')} {money.format(depBalance - depApplied)}
+                    </div>
+                  </div>
                   <div className="v">− {money.format(depApplied)}</div>
                 </div>
                 {depRemaining > 0 ? (
                   forceDeposit ? (
                     <>
-                      <div className="pm-lbl">{t('sell.payRemaining').replace('{amt}', money.format(depRemaining))}</div>
+                      <div className="pm-lbl">
+                        {t('sell.payRemaining').replace('{amt}', money.format(depRemaining))}
+                      </div>
                       <div className="pm-split">
                         {SPLIT_KEYS.map((k) => {
                           const m = METHODS.find((x) => x.key === k)!
@@ -908,24 +1916,57 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
                             <div key={k} className="split-row">
                               <div className="si">{m.icon}</div>
                               <div className="sl">{m.label}</div>
-                              <div className="sf"><input inputMode="decimal" value={splits[k] ? String(splits[k]) : ''} placeholder="0" onChange={(e) => {
-                                const v = Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
-                                setSplits((s) => ({ ...s, [k]: v }))
-                              }} /></div>
+                              <div className="sf">
+                                <input
+                                  inputMode="decimal"
+                                  value={splits[k] ? String(splits[k]) : ''}
+                                  placeholder="0"
+                                  onChange={(e) => {
+                                    const v =
+                                      Number(e.target.value.replace(/\s/g, '').replace(',', '.')) ||
+                                      0
+                                    setSplits((s) => ({ ...s, [k]: v }))
+                                  }}
+                                />
+                              </div>
                             </div>
                           )
                         })}
                       </div>
-                      <div className={`split-sum ${depLeftover > 0 ? 'credit' : depLeftover < 0 ? 'short' : 'ok'}`}>
-                        <span>{depLeftover > 0 ? t('sell.remainingCredit') : depLeftover < 0 ? t('sell.changeCash') : t('sell.fullyAllocated')}</span>
+                      <div
+                        className={`split-sum ${depLeftover > 0 ? 'credit' : depLeftover < 0 ? 'short' : 'ok'}`}
+                      >
+                        <span>
+                          {depLeftover > 0
+                            ? t('sell.remainingCredit')
+                            : depLeftover < 0
+                              ? t('sell.changeCash')
+                              : t('sell.fullyAllocated')}
+                        </span>
                         <span className="big">{money.format(Math.abs(depLeftover))}</span>
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="pm-field"><div className="pm-lbl">{t('sell.payRemainingCash').replace('{amt}', money.format(depRemaining))}</div>
-                        <input className="input" inputMode="decimal" value={String(depTendered)} onChange={(e) => setDepRem(Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0)} /></div>
-                      <div className={`pm-change${depChange < 0 ? ' short' : ''}`}><span>{depChange < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span><span className="big">{money.format(Math.abs(depChange))}</span></div>
+                      <div className="pm-field">
+                        <div className="pm-lbl">
+                          {t('sell.payRemainingCash').replace('{amt}', money.format(depRemaining))}
+                        </div>
+                        <input
+                          className="input"
+                          inputMode="decimal"
+                          value={String(depTendered)}
+                          onChange={(e) =>
+                            setDepRem(
+                              Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className={`pm-change${depChange < 0 ? ' short' : ''}`}>
+                        <span>{depChange < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span>
+                        <span className="big">{money.format(Math.abs(depChange))}</span>
+                      </div>
                     </>
                   )
                 ) : null}
@@ -934,7 +1975,14 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
           ) : null}
 
           {method === 'credit' ? (
-            isWalkIn ? <CustNeeded t={t} onPick={onPickCustomer} /> : <div className="pm-note">{I.clock}<span>{t('sell.creditHint').replace('{name}', customer!.name)}</span></div>
+            isWalkIn ? (
+              <CustNeeded t={t} onPick={onPickCustomer} />
+            ) : (
+              <div className="pm-note">
+                {I.clock}
+                <span>{t('sell.creditHint').replace('{name}', customer!.name)}</span>
+              </div>
+            )
           ) : null}
 
           {method === 'split' ? (
@@ -947,18 +1995,43 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
                   return (
                     <div key={k} className="split-row">
                       <div className="si">{m.icon}</div>
-                      <div className="sl">{m.label}{k === 'deposit' ? <small>{hasDeposit ? `${t('sell.max')} ${money.format(depBalance)}` : t('sell.noDepositShort')}</small> : null}</div>
-                      <div className="sf"><input inputMode="decimal" disabled={depDisabled} value={splits[k] ? String(splits[k]) : ''} placeholder="0" onChange={(e) => {
-                        let v = Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
-                        if (k === 'deposit' && v > depBalance) v = depBalance
-                        setSplits((s) => ({ ...s, [k]: v }))
-                      }} /></div>
+                      <div className="sl">
+                        {m.label}
+                        {k === 'deposit' ? (
+                          <small>
+                            {hasDeposit
+                              ? `${t('sell.max')} ${money.format(depBalance)}`
+                              : t('sell.noDepositShort')}
+                          </small>
+                        ) : null}
+                      </div>
+                      <div className="sf">
+                        <input
+                          inputMode="decimal"
+                          disabled={depDisabled}
+                          value={splits[k] ? String(splits[k]) : ''}
+                          placeholder="0"
+                          onChange={(e) => {
+                            let v = Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
+                            if (k === 'deposit' && v > depBalance) v = depBalance
+                            setSplits((s) => ({ ...s, [k]: v }))
+                          }}
+                        />
+                      </div>
                     </div>
                   )
                 })}
               </div>
-              <div className={`split-sum ${remaining > 0 ? 'credit' : remaining < 0 ? 'short' : 'ok'}`}>
-                <span>{remaining > 0 ? t('sell.remainingCredit') : remaining < 0 ? t('sell.changeCash') : t('sell.fullyAllocated')}</span>
+              <div
+                className={`split-sum ${remaining > 0 ? 'credit' : remaining < 0 ? 'short' : 'ok'}`}
+              >
+                <span>
+                  {remaining > 0
+                    ? t('sell.remainingCredit')
+                    : remaining < 0
+                      ? t('sell.changeCash')
+                      : t('sell.fullyAllocated')}
+                </span>
                 <span className="big">{money.format(Math.abs(remaining))}</span>
               </div>
               {remaining > 0 && isWalkIn ? <CustNeeded t={t} onPick={onPickCustomer} /> : null}
@@ -966,11 +2039,31 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
           ) : null}
 
           <div className="pm-recap-mini">
-            <div className="r"><span>{t('sell.subtotal')}</span><span>{money.format(subtotal)}</span></div>
-            {disc > 0 ? <div className="r"><span>{t('sell.discounts')}</span><span>− {money.format(disc)}</span></div> : null}
-            {chg > 0 ? <div className="r"><span>{t('sell.charges')}</span><span>+ {money.format(chg)}</span></div> : null}
+            <div className="r">
+              <span>{t('sell.subtotal')}</span>
+              <span>{money.format(subtotal)}</span>
+            </div>
+            {disc > 0 ? (
+              <div className="r">
+                <span>{t('sell.discounts')}</span>
+                <span>− {money.format(disc)}</span>
+              </div>
+            ) : null}
+            {chg > 0 ? (
+              <div className="r">
+                <span>{t('sell.charges')}</span>
+                <span>+ {money.format(chg)}</span>
+              </div>
+            ) : null}
           </div>
-          <button type="button" className="pm-confirm" disabled={!canConfirm || busy} onClick={confirm}>{confirmLabel}</button>
+          <button
+            type="button"
+            className="pm-confirm"
+            disabled={!canConfirm || busy}
+            onClick={confirm}
+          >
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </div>
@@ -980,13 +2073,36 @@ function PaymentModal({ total, subtotal, disc, chg, customer, defaultTender, for
 function CustNeeded({ t, onPick }: { t: ReturnType<typeof useT>; onPick: () => void }) {
   return (
     <>
-      <div className="pm-note">{I.bell}<span>{t('sell.creditNeedsCustomer')}</span></div>
-      <button type="button" className="pm-confirm" style={{ background: 'var(--inset)', color: 'var(--text)', border: '1px solid var(--border)', marginBottom: 6 }} onClick={onPick}>{t('sell.chooseCustomer')}</button>
+      <div className="pm-note">
+        {I.bell}
+        <span>{t('sell.creditNeedsCustomer')}</span>
+      </div>
+      <button
+        type="button"
+        className="pm-confirm"
+        style={{
+          background: 'var(--inset)',
+          color: 'var(--text)',
+          border: '1px solid var(--border)',
+          marginBottom: 6,
+        }}
+        onClick={onPick}
+      >
+        {t('sell.chooseCustomer')}
+      </button>
     </>
   )
 }
 
-function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; customerName: string; onNew: () => void }) {
+function SuccessModal({
+  sale,
+  customerName,
+  onNew,
+}: {
+  sale: LocalSaleDetail
+  customerName: string
+  onNew: () => void
+}) {
   const t = useT()
   const lang = useLangStore((s) => s.lang)
   const onCredit = sale.creditAmount > 0
@@ -1000,7 +2116,10 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
     queryFn: () => dataClient.sales.receiptHtml(sale.id, lang),
   })
 
-  const flash = (msg: string) => { setNote(msg); window.setTimeout(() => setNote(null), 2400) }
+  const flash = (msg: string) => {
+    setNote(msg)
+    window.setTimeout(() => setNote(null), 2400)
+  }
   const print = async () => {
     setPrinting(true)
     try {
@@ -1013,7 +2132,11 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
     }
   }
 
-  const title = onCredit ? (sale.amountPaid > 0 ? t('sell.partPaid') : t('sell.onCreditTitle')) : t('sell.paymentReceived')
+  const title = onCredit
+    ? sale.amountPaid > 0
+      ? t('sell.partPaid')
+      : t('sell.onCreditTitle')
+    : t('sell.paymentReceived')
   return (
     // No outside-click close: the cashier must start a new sale to begin a new session.
     <div className="pay-overlay open">
@@ -1021,19 +2144,41 @@ function SuccessModal({ sale, customerName, onNew }: { sale: LocalSaleDetail; cu
         <div className="pm-success">
           <div className="pm-check">{I.check}</div>
           <h2>{title}</h2>
-          <div className="sub">{sale.saleNumber} · {customerName} · {sale.itemCount} {t('sell.itemsWord')}</div>
+          <div className="sub">
+            {sale.saleNumber} · {customerName} · {sale.itemCount} {t('sell.itemsWord')}
+          </div>
           <div className="receipt-preview">
             {receiptHtml ? <iframe title="receipt" srcDoc={receiptHtml} /> : null}
           </div>
-          {note ? <div className="hint" style={{ textAlign: 'center', marginTop: 4 }}>{note}</div> : null}
-          <div className="pm-success-acts" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 14 }}>
-            <button type="button" disabled={printing} onClick={print}>{printing ? '…' : t('sell.print')}</button>
-            <button type="button" onClick={() => setSendOpen(true)}>{t('sell.send')}</button>
-            <button type="button" className="primary" onClick={onNew}>{t('sell.newSale')}</button>
+          {note ? (
+            <div className="hint" style={{ textAlign: 'center', marginTop: 4 }}>
+              {note}
+            </div>
+          ) : null}
+          <div
+            className="pm-success-acts"
+            style={{ gridTemplateColumns: '1fr 1fr', marginTop: 14 }}
+          >
+            <button type="button" disabled={printing} onClick={print}>
+              {printing ? '…' : t('sell.print')}
+            </button>
+            <button type="button" onClick={() => setSendOpen(true)}>
+              {t('sell.send')}
+            </button>
+            <button type="button" className="primary" onClick={onNew}>
+              {t('sell.newSale')}
+            </button>
           </div>
         </div>
       </div>
-      {sendOpen ? <ReceiptSendDialog sale={sale} customerName={customerName} locale={lang} onClose={() => setSendOpen(false)} /> : null}
+      {sendOpen ? (
+        <ReceiptSendDialog
+          sale={sale}
+          customerName={customerName}
+          locale={lang}
+          onClose={() => setSendOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1045,6 +2190,11 @@ function initials(name: string): string {
   return ((p[0]![0] ?? '') + (p[1]?.[0] ?? '')).toUpperCase()
 }
 function quickAmounts(total: number): number[] {
-  const set = [total, Math.ceil(total / 1000) * 1000, Math.ceil(total / 5000) * 5000, Math.ceil(total / 10000) * 10000]
+  const set = [
+    total,
+    Math.ceil(total / 1000) * 1000,
+    Math.ceil(total / 5000) * 5000,
+    Math.ceil(total / 10000) * 10000,
+  ]
   return [...new Set(set)].filter((v) => v > 0)
 }

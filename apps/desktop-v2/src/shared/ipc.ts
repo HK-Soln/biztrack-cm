@@ -11,6 +11,8 @@ export const IPC = {
   authLogin: 'auth:login',
   authRequestLogin: 'auth:request-login',
   authLoginOtp: 'auth:login-otp',
+  authRequestPasswordReset: 'auth:request-password-reset',
+  authResetPassword: 'auth:reset-password',
   authVerifyPhone: 'auth:verify-phone',
   authVerifyEmail: 'auth:verify-email',
   authResendOtp: 'auth:resend-otp',
@@ -1607,6 +1609,12 @@ export interface BridgeApi {
     login: (identifier: string, password: string) => Promise<AuthFlowResult>
     requestLogin: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     loginOtp: (identifier: string, code: string) => Promise<AuthFlowResult>
+    requestPasswordReset: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
+    resetPassword: (
+      identifier: string,
+      code: string,
+      newPassword: string,
+    ) => Promise<AuthFlowResult>
     verifyPhone: (phone: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     verifyEmail: (email: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
