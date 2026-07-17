@@ -2876,8 +2876,11 @@ body {
   flex-shrink: 0;
 }
 /* Cap the title at two lines. `anywhere` matters as much as the clamp: a single long
-   unbroken name has nowhere to wrap and would otherwise run under the buttons. */
-.mddetail .dhero-in h1 {
+   unbroken name has nowhere to wrap and would otherwise run under the buttons.
+   `.cat-detail` builds the same hero from inline styles rather than .dhero-in, so it needs
+   naming here explicitly — it is the same title, not a second pattern. */
+.mddetail .dhero-in h1,
+.cat-detail h1 {
   line-height: 1.25;
   overflow: hidden;
   display: -webkit-box;

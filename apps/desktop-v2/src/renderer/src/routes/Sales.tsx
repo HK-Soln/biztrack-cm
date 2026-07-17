@@ -525,7 +525,9 @@ export function Sales() {
                   >
                     <td className="mono">{s.saleNumber}</td>
                     <td>{formatSaleTime(s.soldAt, lang)}</td>
-                    <td>{s.customerName ?? t('sales.walkIn')}</td>
+                    <td className="trunc" title={s.customerName ?? undefined}>
+                      {s.customerName ?? t('sales.walkIn')}
+                    </td>
                     <td>
                       <span className="pill-tag">{salePayLabel(t, s.paymentMethod)}</span>
                     </td>
