@@ -204,6 +204,7 @@ export const IPC = {
   salesRefunds: 'sales:refunds',
   salesGrossProfit: 'sales:gross-profit',
   salesGet: 'sales:get',
+  salesVoid: 'sales:void',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
   salesReceiptHtml: 'sales:receipt-html',
@@ -290,7 +291,7 @@ export interface ProductStats {
 }
 
 // ---- Audit trail ----------------------------------------------------------
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE'
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID'
 
 /** One append-only audit row (who changed what, when). */
 export interface LocalAuditLog {
@@ -562,6 +563,8 @@ export type { AuthPhase, SessionUser, SessionStatus }
 export interface AuthContextInfo {
   maskedPhone?: string
   maskedEmail?: string
+  /** Unmasked phone/email to submit to verify-phone/verify-email when resuming a pending step. */
+  verifyContact?: string
   otpExpiresIn?: number
   attemptsLeft?: number
 }
@@ -1883,6 +1886,8 @@ export interface BridgeApi {
     /** Product revenue + COGS over the range (feeds the Income Statement). */
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
+    /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
+    void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (
       saleId: string,

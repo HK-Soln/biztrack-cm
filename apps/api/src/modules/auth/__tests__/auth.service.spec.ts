@@ -110,7 +110,7 @@ const makeService = () => {
   const permissionsService = {
     invalidateCache: jest.fn(),
     buildAuthPermissions: jest.fn().mockResolvedValue({ permissions: [] }),
-  };
+  }
   const quotaService = {
     assertWithinQuota: jest.fn(),
   }
@@ -176,6 +176,9 @@ describe('AuthService flow', () => {
       expect(result.nextStep).toBe(AuthNextStep.VERIFY_PHONE)
       expect((result as any)?.verification?.channel).toBe(VerificationChannel.PHONE)
       expect((result as any)?.verification?.delivery).toBe(user.preferredPhoneChannel)
+      // The unmasked phone must be returned so the client can call verify-phone even when
+      // the user logged in with a different identifier (e.g. their email).
+      expect((result as any)?.context?.verifyContact).toBe(user.phone)
       expect(verificationCodesRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: user.id,
@@ -217,7 +220,11 @@ describe('AuthService flow', () => {
   describe('verifyPhone', () => {
     it('sends email verification when email exists and is not verified', async () => {
       const { service, usersRepo, verificationCodesRepo } = makeService()
-      const user = makeUser({ email: 'user@example.com', isEmailVerified: false, isPhoneVerified: false })
+      const user = makeUser({
+        email: 'user@example.com',
+        isEmailVerified: false,
+        isPhoneVerified: false,
+      })
       usersRepo.findOne.mockResolvedValue(user)
       verificationCodesRepo.findOne.mockResolvedValue(makeVerificationRecord())
 
@@ -225,7 +232,10 @@ describe('AuthService flow', () => {
 
       expect(usersRepo.update).toHaveBeenCalledWith(
         user.id,
-        expect.objectContaining({ isPhoneVerified: true, onboardingStep: OnboardingStep.VERIFY_EMAIL }),
+        expect.objectContaining({
+          isPhoneVerified: true,
+          onboardingStep: OnboardingStep.VERIFY_EMAIL,
+        }),
       )
       expect(result.nextStep).toBe(AuthNextStep.VERIFY_EMAIL)
       expect((result as any)?.verification?.channel).toBe(VerificationChannel.EMAIL)
@@ -279,7 +289,9 @@ describe('AuthService flow', () => {
       usersRepo.findOne.mockResolvedValue(user)
       verificationCodesRepo.findOne.mockResolvedValue(makeVerificationRecord())
 
-      await expect(service.verifyEmail(user.email!, '123456')).rejects.toMatchObject<AppUnauthorizedException>({
+      await expect(
+        service.verifyEmail(user.email!, '123456'),
+      ).rejects.toMatchObject<AppUnauthorizedException>({
         code: 'PHONE_NOT_VERIFIED',
       } as any)
     })

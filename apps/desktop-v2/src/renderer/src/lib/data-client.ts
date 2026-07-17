@@ -354,6 +354,7 @@ export interface DataClient {
     ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
+    void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
     sendReceipt: (
       saleId: string,
       channel: DocumentSendChannel,
@@ -678,6 +679,7 @@ function electronAdapter(): DataClient {
       refunds: (query) => window.api.sales.refunds(query),
       grossProfit: (query) => window.api.sales.grossProfit(query),
       get: (id) => window.api.sales.get(id),
+      void: (saleId, reason) => window.api.sales.void(saleId, reason),
       sendReceipt: (saleId, channel, locale, opts) =>
         window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),

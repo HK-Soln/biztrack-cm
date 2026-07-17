@@ -1,4 +1,4 @@
-import { SubscriptionPlan } from "./business.types"
+import { SubscriptionPlan } from './business.types'
 
 export enum Resource {
   SALES_CREATE = 'SALES_CREATE',
@@ -78,6 +78,7 @@ export enum Resource {
 export const FREE_PERMISSIONS: Resource[] = [
   Resource.SALES_CREATE,
   Resource.SALES_VIEW,
+  Resource.SALES_VOID,
   Resource.PRODUCTS_CREATE,
   Resource.PRODUCTS_VIEW,
   Resource.PRODUCTS_EDIT,
@@ -116,7 +117,7 @@ export interface PlanQuotaUsage {
   requiredPlan: SubscriptionPlan | null
 }
 
-const unique = <T,>(values: T[]) => Array.from(new Set(values))
+const unique = <T>(values: T[]) => Array.from(new Set(values))
 
 // The boolean-resource matrix intentionally preserves current BizTrack-specific
 // extras such as scanner/desktop flags while also introducing the documented
