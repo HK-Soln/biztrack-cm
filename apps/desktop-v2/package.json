@@ -41,7 +41,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "BizTrack-CM-Setup.${ext}"
+      "artifactName": "BizTrack-CM-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [

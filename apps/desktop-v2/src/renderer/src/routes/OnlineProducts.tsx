@@ -396,7 +396,9 @@ export function OnlineProducts() {
                         >
                           <Thumb p={p} />
                           <div>
-                            <div className="nm">{p.name}</div>
+                            <div className="nm" title={p.name}>
+                              {p.name}
+                            </div>
                             <div className="sub">{p.sku ?? '—'}</div>
                           </div>
                         </button>
