@@ -8,6 +8,11 @@ name: Deploy storefront (Vercel)
 #
 # ONE Vercel project (free/Hobby friendly): main -> Production, staging -> Preview.
 #
+# This workflow is the ONLY deploy path. `git.deploymentEnabled: false` in the app's vercel.json
+# turns off Vercel's commit-triggered deploys, which would otherwise race this job and deploy the
+# same project twice per push. CLI deploys (below) are an explicit API call and are unaffected.
+# Trade-off: no automatic per-PR preview URLs — deploys happen on main/staging only.
+#
 # Vercel project setup (one-time):
 #   - Root Directory   = apps/storefront   (vercel.json sets framework/build/install)
 #   - Production Branch = main
