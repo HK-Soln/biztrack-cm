@@ -41,6 +41,7 @@ export class AuthVerificationDto implements AuthVerification {
 export class AuthContextDto implements AuthContext {
   maskedPhone?: string
   maskedEmail?: string
+  verifyContact?: string
   otpChannel?: AuthContext['otpChannel']
   otpExpiresIn?: number
   attemptsLeft?: number
