@@ -4,9 +4,22 @@ name: Release desktop-v2 (Windows)
 # the NSIS installer to a GitHub Release. Windows-only for now — macOS/Linux can be added as a
 # build matrix later (better-sqlite3 is native and can't be cross-compiled).
 #
+# VERSIONING — you never type a version. It is derived from the existing tags:
+#   staging     -> bumps the newest version anywhere (0.1.1 -> 0.1.2-staging)
+#   production  -> PROMOTES the newest staged version (0.1.2-staging -> 0.1.2), so the number you
+#                  tested is the number you ship. It does not bump again.
+# Override with the `version` input when you need an exact number; `bump` (patch|minor|major)
+# only affects staging. Publishing over an existing tag FAILS — bump instead, so an installer
+# someone already downloaded is never silently swapped.
+#
+# The resolved version is stamped into the build (`extraMetadata.version`), not just the tag:
+# apps/desktop-v2/package.json is only the floor for the first release. This matters because
+# electron-builder reads package.json for the app version, the installer filename AND latest.yml
+# (the electron-updater feed) — so a tag-only version would ship a release whose app reports a
+# different version than its tag, and whose update feed never advances.
+#
 # Two ways to release, both produce a TAGGED release with the .exe attached:
-#   1. Manual (recommended): Actions → this workflow → Run, pick environment (staging|production)
-#      and optionally a version. The workflow tags the release itself.
+#   1. Manual (recommended): Actions → this workflow → Run, pick environment (staging|production).
 #   2. Push a tag: `desktop-v<version>` = production, `desktop-v<version>-staging` = staging.
 #
 # Environment (staging|production) drives BOTH the release tag/pre-release flag AND the baked-in
@@ -23,8 +36,13 @@ on:
         type: choice
         options: [staging, production]
         default: staging
+      bump:
+        description: Version bump (staging only; production promotes the newest staged version)
+        type: choice
+        options: [patch, minor, major]
+        default: patch
       version:
-        description: Version, e.g. 0.1.0 (defaults to apps/desktop-v2/package.json).
+        description: Exact version override, e.g. 0.2.0. Leave blank to derive it automatically.
         type: string
         required: false
 
@@ -45,23 +63,66 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Tags are the version source of truth below — a shallow clone would hide them and
+          # silently restart versioning from the package.json floor.
+          fetch-depth: 0
 
       # Compute environment / version / tag / prerelease for both trigger types.
       - name: Resolve release metadata
         id: meta
         shell: bash
         run: |
+          set -euo pipefail
+
+          # Highest existing version, by tag namespace. `sort -V` orders 0.9.0 < 0.10.0 correctly.
+          latest_of() { git tag -l "$1" | sed -E 's/^desktop-v//; s/-staging$//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1; }
+          ANY=$(latest_of 'desktop-v*')
+          STAGED=$(git tag -l 'desktop-v*-staging' | sed -E 's/^desktop-v//; s/-staging$//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          PROD=$(git tag -l 'desktop-v*' | grep -v -- '-staging$' | sed -E 's/^desktop-v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+
+          bump_of() {
+            local v="${1:-}" kind="$2"
+            [ -z "$v" ] && v="$(node -p "require('./apps/desktop-v2/package.json').version")"
+            local MA MI PA; IFS=. read -r MA MI PA <<< "$v"
+            case "$kind" in
+              major) MA=$((MA + 1)); MI=0; PA=0 ;;
+              minor) MI=$((MI + 1)); PA=0 ;;
+              *)     PA=$((PA + 1)) ;;
+            esac
+            echo "$MA.$MI.$PA"
+          }
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENVIRONMENT="${{ github.event.inputs.environment }}"
             VERSION="${{ github.event.inputs.version }}"
-            [ -z "$VERSION" ] && VERSION="$(node -p "require('./apps/desktop-v2/package.json').version")"
+            BUMP="${{ github.event.inputs.bump }}"
+            if [ -n "$VERSION" ]; then
+              REASON="explicit override"
+            elif [ "$ENVIRONMENT" = "staging" ]; then
+              VERSION="$(bump_of "$ANY" "$BUMP")"; REASON="$BUMP bump from ${ANY:-package.json}"
+            else
+              # Production ships what staging tested. Only bump if nothing was ever staged.
+              if [ -n "$STAGED" ]; then
+                VERSION="$STAGED"; REASON="promoting newest staged version"
+              else
+                VERSION="$(bump_of "$PROD" "$BUMP")"; REASON="no staged version; $BUMP bump from ${PROD:-package.json}"
+              fi
+            fi
             SUFFIX=""; [ "$ENVIRONMENT" = "staging" ] && SUFFIX="-staging"
             TAG="desktop-v${VERSION}${SUFFIX}"
           else
             TAG="${{ github.ref_name }}"
             case "$TAG" in *-staging) ENVIRONMENT="staging";; *) ENVIRONMENT="production";; esac
             VERSION="${TAG#desktop-v}"; VERSION="${VERSION%-staging}"
+            REASON="from pushed tag"
           fi
+
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Resolved version '$VERSION' is not x.y.z. Pass a valid \`version\` input."
+            exit 1
+          fi
+
           PRERELEASE="false"; [ "$ENVIRONMENT" = "staging" ] && PRERELEASE="true"
           {
             echo "environment=$ENVIRONMENT"
@@ -69,7 +130,24 @@ jobs:
             echo "tag=$TAG"
             echo "prerelease=$PRERELEASE"
           } >> "$GITHUB_OUTPUT"
-          echo "Releasing $TAG ($ENVIRONMENT, prerelease=$PRERELEASE)"
+          echo "Releasing $TAG ($ENVIRONMENT, prerelease=$PRERELEASE) — version $VERSION ($REASON)"
+
+      # Refuse to publish over a released tag. softprops would otherwise UPDATE that release,
+      # swapping the installer under everyone who already has the link.
+      - name: Refuse to overwrite an existing release
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            if [ "${{ steps.meta.outputs.environment }}" = "production" ]; then
+              echo "::error::${{ steps.meta.outputs.version }} is already released to production ($TAG). The newest staged version has already been promoted — release a new staging build first, then promote that. To force an exact number, pass the \`version\` input."
+            else
+              echo "::error::Tag $TAG already exists — bump instead of republishing it, so an installer someone already downloaded is never swapped. Re-run with a different \`bump\`, or pass an explicit \`version\`."
+            fi
+            exit 1
+          fi
+          echo "$TAG is free."
 
       # Fail fast if the environment is missing a required var — the build now hard-fails on these
       # (no localhost fallback), so surface it here with a clear message. Set them in the matching
@@ -111,19 +189,35 @@ jobs:
           # (no fallback); the verify step above fails the run if it's unset.
           VITE_STOREFRONT_DOMAIN: ${{ vars.VITE_STOREFRONT_DOMAIN }}
 
+      # `extraMetadata.version` overrides package.json for THIS build, so the app version, the
+      # installer filename and latest.yml all carry the version we are actually tagging.
       - name: Package installer (NSIS)
         working-directory: apps/desktop-v2
-        run: pnpm exec electron-builder --win --publish never
+        run: pnpm exec electron-builder --win --publish never --config.extraMetadata.version=${{ steps.meta.outputs.version }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional signing (unsigned installs work but show a SmartScreen warning):
           # CSC_LINK: ${{ secrets.CSC_LINK }}
           # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
 
-      # Surface what electron-builder produced so a mismatch is obvious in the logs.
-      - name: List build output
+      # Surface what electron-builder produced so a mismatch is obvious in the logs, and prove the
+      # artifact carries the version we tagged rather than package.json's stale floor.
+      - name: Verify artifact version
         shell: bash
-        run: ls -la "${{ env.RELEASE_DIR }}" || echo "release dir missing"
+        run: |
+          set -euo pipefail
+          ls -la "${{ env.RELEASE_DIR }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          if [ ! -f "${{ env.RELEASE_DIR }}/BizTrack-CM-Setup-${VERSION}.exe" ]; then
+            echo "::error::Expected BizTrack-CM-Setup-${VERSION}.exe — the build did not pick up the resolved version."
+            exit 1
+          fi
+          if ! grep -q "version: ${VERSION}" "${{ env.RELEASE_DIR }}/latest.yml"; then
+            echo "::error::latest.yml does not report ${VERSION}. The auto-update feed would be wrong."
+            cat "${{ env.RELEASE_DIR }}/latest.yml"
+            exit 1
+          fi
+          echo "Artifact and update feed both report ${VERSION}."
 
       # Publish (and CREATE the tag when triggered manually — softprops tags target_commitish).
       - name: Publish GitHub Release
