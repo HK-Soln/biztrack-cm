@@ -863,6 +863,10 @@ body {
 .content {
   padding: 24px;
   flex: 1;
+  /* Flex items default to min-width:auto, which lets wide content (e.g. the Sell
+     catalog+ticket grid) push this region past the viewport and shove the cart
+     off-screen. Allow it to shrink within the shell row instead. */
+  min-width: 0;
 }
 .frame {
   max-width: 1180px;
@@ -8539,6 +8543,9 @@ textarea.input {
 }
 .pos > div {
   min-height: 0;
+  /* Grid tracks default to min-width:auto; without this the 1fr catalog column
+     refuses to shrink below its content and pushes the ticket column off-screen. */
+  min-width: 0;
 }
 .pos > div:first-child {
   display: flex;
@@ -8896,10 +8903,71 @@ textarea.input {
 }
 .charge-line {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  flex-direction: column;
+  gap: 8px;
   padding: 9px 0;
   border-top: 1px dashed var(--border);
+}
+.charge-line .cl-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+/* Value controls align under the name (past the leading icon). */
+.charge-line .cl-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 37px;
+}
+/* Segmented %/amount toggle. */
+.charge-line .cmode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.charge-line .cmode button {
+  border: 0;
+  background: var(--inset);
+  color: var(--text-2);
+  height: 30px;
+  min-width: 36px;
+  padding: 0 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.charge-line .cmode button + button {
+  border-left: 1px solid var(--border);
+}
+.charge-line .cmode button.on {
+  background: var(--brand);
+  color: #fff;
+}
+/* Editable custom-charge name. */
+.charge-line .cl-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0 10px;
+  outline: none;
+}
+.charge-line .cl-input:focus {
+  border-color: var(--brand);
+}
+.charge-line .cl-input.invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
 }
 .charge-line .ci {
   width: 28px;
@@ -9119,6 +9187,13 @@ textarea.input {
 .charge {
   padding: 0 16px 16px;
   flex-shrink: 0;
+}
+.charge .charge-err {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-align: center;
 }
 .charge > button {
   width: 100%;
@@ -10541,6 +10616,46 @@ textarea.input {
   gap: 8px;
   padding: 14px 18px;
   border-top: 1px solid var(--border);
+}
+/* Void sale — subdued danger action in the sale detail drawer. */
+.void-btn {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  padding: 10px;
+  border-radius: 11px;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.void-btn:hover {
+  background: var(--danger-soft);
+}
+.void-reason {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 11px;
+  outline: none;
+  resize: vertical;
+  min-height: 66px;
+}
+.void-reason:focus {
+  border-color: var(--brand);
+}
+.void-hint {
+  min-height: 15px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 .od-status {
   display: flex;

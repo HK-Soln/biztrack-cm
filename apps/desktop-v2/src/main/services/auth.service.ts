@@ -24,6 +24,7 @@ interface AuthResponseData {
   context?: {
     maskedPhone?: string
     maskedEmail?: string
+    verifyContact?: string
     otpExpiresIn?: number
     attemptsLeft?: number
   }
@@ -540,6 +541,7 @@ export class AuthService {
         ? {
             maskedPhone: data.context.maskedPhone,
             maskedEmail: data.context.maskedEmail,
+            verifyContact: data.context.verifyContact,
             otpExpiresIn: data.context.otpExpiresIn,
             attemptsLeft: data.context.attemptsLeft,
           }

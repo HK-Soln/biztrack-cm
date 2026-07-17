@@ -34,6 +34,7 @@ type AuthResponseData = {
   context?: {
     maskedPhone?: string
     maskedEmail?: string
+    verifyContact?: string
     otpExpiresIn?: number
     attemptsLeft?: number
   }
@@ -66,6 +67,7 @@ function mapContext(context: AuthResponseData['context']): AuthContextInfo | nul
   return {
     maskedPhone: context.maskedPhone,
     maskedEmail: context.maskedEmail,
+    verifyContact: context.verifyContact,
     otpExpiresIn: context.otpExpiresIn,
     attemptsLeft: context.attemptsLeft,
   }

@@ -239,6 +239,13 @@ export interface AuthTokens {
 export interface AuthContext {
   maskedPhone?: string
   maskedEmail?: string
+  /**
+   * Unmasked phone or email the client must submit to verify-phone/verify-email to
+   * resume a pending verification step. Set only on VERIFY_PHONE/VERIFY_EMAIL responses
+   * (e.g. login for a half-onboarded account) so the client has the exact contact even
+   * when it differs from the identifier the user typed. Never set on password-reset.
+   */
+  verifyContact?: string
   otpChannel?: VerificationChannel
   otpExpiresIn?: number
   attemptsLeft?: number

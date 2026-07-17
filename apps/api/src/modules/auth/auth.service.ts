@@ -195,11 +195,10 @@ export class AuthService {
         this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
-          context: this.buildOtpContext(
-            VerificationChannel.EMAIL,
-            verification.expiresAt,
-            user.email,
-          ),
+          context: {
+            ...this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+            verifyContact: user.email ?? undefined,
+          },
           verification: {
             channel: VerificationChannel.EMAIL,
             expiresAt: verification.expiresAt,
@@ -218,11 +217,10 @@ export class AuthService {
       this.dispatchPhoneOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.VERIFY_PHONE,
-        context: this.buildOtpContext(
-          VerificationChannel.PHONE,
-          verification.expiresAt,
-          user.phone,
-        ),
+        context: {
+          ...this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+          verifyContact: user.phone ?? undefined,
+        },
         verification: {
           channel: VerificationChannel.PHONE,
           delivery: user.preferredPhoneChannel,
@@ -258,11 +256,10 @@ export class AuthService {
       this.dispatchPhoneOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.VERIFY_PHONE,
-        context: this.buildOtpContext(
-          VerificationChannel.PHONE,
-          verification.expiresAt,
-          user.phone,
-        ),
+        context: {
+          ...this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+          verifyContact: user.phone ?? undefined,
+        },
         verification: {
           channel: VerificationChannel.PHONE,
           delivery: user.preferredPhoneChannel,
@@ -281,11 +278,10 @@ export class AuthService {
       this.dispatchEmailOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.VERIFY_EMAIL,
-        context: this.buildOtpContext(
-          VerificationChannel.EMAIL,
-          verification.expiresAt,
-          user.email,
-        ),
+        context: {
+          ...this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+          verifyContact: user.email ?? undefined,
+        },
         verification: {
           channel: VerificationChannel.EMAIL,
           expiresAt: verification.expiresAt,
@@ -699,11 +695,10 @@ export class AuthService {
         this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
-          context: this.buildOtpContext(
-            VerificationChannel.EMAIL,
-            verification.expiresAt,
-            user.email,
-          ),
+          context: {
+            ...this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+            verifyContact: user.email ?? undefined,
+          },
           verification: {
             channel: VerificationChannel.EMAIL,
             expiresAt: verification.expiresAt,

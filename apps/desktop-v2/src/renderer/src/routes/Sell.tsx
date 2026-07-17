@@ -10,7 +10,6 @@ import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
 import type {
-  ChargeType,
   LocalProduct,
   LocalSaleDetail,
   LocalSerialUnit,
@@ -237,11 +236,6 @@ export function Sell() {
   const { data: cats = [] } = useQuery({
     queryKey: [...queryKeys.categories, 'selectable', 'sell'],
     queryFn: () => dataClient.categories.listSelectable({}),
-    enabled: true,
-  })
-  const { data: chargeTypes = [] } = useQuery({
-    queryKey: ['charge-types'],
-    queryFn: () => dataClient.charges.listActive(),
     enabled: true,
   })
   const catalog = useInfiniteQuery({
@@ -486,33 +480,41 @@ export function Sell() {
   )
 
   // --- charge/discount library --------------------------------------------
-  const addCharge = (c: ChargeType) =>
-    setCharges((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        kind: 'charge',
-        name: c.name,
-        mode: c.rateType === 'PERCENT' ? 'PERCENT' : 'FIXED',
-        value: c.defaultValue ?? 0,
-        chargeTypeId: c.id,
-      },
-    ])
+  // Two entries only: a discount (name fixed, value by % or amount) and a custom
+  // charge (name required, value by % rate or amount). Both are always custom —
+  // no predefined charge-type library.
   const addCustom = (kind: 'charge' | 'discount') =>
     setCharges((prev) => [
       ...prev,
       {
         id: crypto.randomUUID(),
         kind,
-        name: kind === 'discount' ? t('sell.discount') : t('sell.customCharge'),
+        name: kind === 'discount' ? t('sell.discount') : '',
         mode: kind === 'discount' ? 'PERCENT' : 'FIXED',
-        value: kind === 'discount' ? 5 : 500,
+        value: 0,
         chargeTypeId: null,
       },
     ])
   const setChargeValue = (id: string, value: number) =>
     setCharges((prev) => prev.map((c) => (c.id === id ? { ...c, value } : c)))
+  const setChargeName = (id: string, name: string) =>
+    setCharges((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)))
+  const setChargeMode = (id: string, mode: 'PERCENT' | 'FIXED') =>
+    setCharges((prev) => prev.map((c) => (c.id === id ? { ...c, mode } : c)))
   const removeCharge = (id: string) => setCharges((prev) => prev.filter((c) => c.id !== id))
+
+  // A custom charge must be named before checkout. `chargeErr` turns on the inline
+  // validation state when the user tries to charge with an unnamed charge line.
+  const [chargeErr, setChargeErr] = useState(false)
+  const hasUnnamedCharge = charges.some((c) => c.kind === 'charge' && !c.name.trim())
+  const openPayment = () => {
+    if (hasUnnamedCharge) {
+      setChargeErr(true)
+      return
+    }
+    setChargeErr(false)
+    setPayOpen(true)
+  }
 
   // --- totals --------------------------------------------------------------
   const calc = useMemo(() => {
@@ -853,7 +855,7 @@ export function Sell() {
             onClose={() => setSheetOpen(false)}
             onCharge={() => {
               setSheetOpen(false)
-              setPayOpen(true)
+              openPayment()
             }}
           />
         ) : null}
@@ -1052,34 +1054,73 @@ export function Sell() {
 
           {charges.length > 0 ? (
             <div className="tl-charges">
-              {charges.map((c) => (
-                <div key={c.id} className={`charge-line${c.kind === 'discount' ? ' disc' : ''}`}>
-                  <div className="ci">{c.kind === 'discount' ? I.tag : I.plus}</div>
-                  <div className="cl">{c.name}</div>
-                  <span className="cinp">
-                    <input
-                      value={c.value}
-                      inputMode="decimal"
-                      onChange={(e) =>
-                        setChargeValue(c.id, Number(e.target.value.replace(',', '.')) || 0)
-                      }
-                    />
-                    <span className="u">{c.mode === 'PERCENT' ? '%' : money.symbol}</span>
-                  </span>
-                  <span className="ca">
-                    {c.kind === 'discount' ? '−' : '+'}
-                    {money.format(calc.amountOf(c))}
-                  </span>
-                  <button
-                    type="button"
-                    className="crm"
-                    title={t('sell.remove')}
-                    onClick={() => removeCharge(c.id)}
-                  >
-                    {I.x}
-                  </button>
-                </div>
-              ))}
+              {charges.map((c) => {
+                const nameMissing = c.kind === 'charge' && chargeErr && !c.name.trim()
+                return (
+                  <div key={c.id} className={`charge-line${c.kind === 'discount' ? ' disc' : ''}`}>
+                    <div className="cl-head">
+                      <div className="ci">{c.kind === 'discount' ? I.tag : I.plus}</div>
+                      {c.kind === 'charge' ? (
+                        <input
+                          className={`cl-input${nameMissing ? ' invalid' : ''}`}
+                          value={c.name}
+                          placeholder={t('sell.chargeNamePh')}
+                          aria-label={t('sell.chargeName')}
+                          onChange={(e) => {
+                            setChargeName(c.id, e.target.value)
+                            if (chargeErr) setChargeErr(false)
+                          }}
+                        />
+                      ) : (
+                        <div className="cl">{c.name}</div>
+                      )}
+                      <span className="ca">
+                        {c.kind === 'discount' ? '−' : '+'}
+                        {money.format(calc.amountOf(c))}
+                      </span>
+                      <button
+                        type="button"
+                        className="crm"
+                        title={t('sell.remove')}
+                        onClick={() => removeCharge(c.id)}
+                      >
+                        {I.x}
+                      </button>
+                    </div>
+                    <div className="cl-ctrl">
+                      <span className="cmode" role="group" aria-label={t('sell.valueMode')}>
+                        <button
+                          type="button"
+                          className={c.mode === 'PERCENT' ? 'on' : ''}
+                          title={t('sell.byPercent')}
+                          onClick={() => setChargeMode(c.id, 'PERCENT')}
+                        >
+                          %
+                        </button>
+                        <button
+                          type="button"
+                          className={c.mode === 'FIXED' ? 'on' : ''}
+                          title={t('sell.byAmount')}
+                          onClick={() => setChargeMode(c.id, 'FIXED')}
+                        >
+                          {money.symbol}
+                        </button>
+                      </span>
+                      <span className="cinp">
+                        <input
+                          value={c.value}
+                          inputMode="decimal"
+                          onFocus={(e) => e.currentTarget.select()}
+                          onChange={(e) =>
+                            setChargeValue(c.id, Number(e.target.value.replace(',', '.')) || 0)
+                          }
+                        />
+                        <span className="u">{c.mode === 'PERCENT' ? '%' : money.symbol}</span>
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ) : null}
 
@@ -1091,26 +1132,6 @@ export function Sell() {
             {menuOpen ? (
               <div className="charge-menu open" onMouseLeave={() => setMenuOpen(false)}>
                 <div className="mh">{t('sell.addToSale')}</div>
-                {chargeTypes.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      addCharge(c)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    <span className="mi">{I.plus}</span>
-                    <span className="mt">
-                      <span className="nm">{c.name}</span>
-                      <small>
-                        {c.rateType === 'PERCENT'
-                          ? `${c.defaultValue ?? 0}%`
-                          : money.format(c.defaultValue ?? 0)}
-                      </small>
-                    </span>
-                  </button>
-                ))}
                 <button
                   type="button"
                   className="disc"
@@ -1166,12 +1187,10 @@ export function Sell() {
           </div>
 
           <div className="charge">
-            <button
-              type="button"
-              id="chargeBtn"
-              disabled={cart.length === 0}
-              onClick={() => setPayOpen(true)}
-            >
+            {chargeErr && hasUnnamedCharge ? (
+              <div className="charge-err">{t('sell.nameChargeFirst')}</div>
+            ) : null}
+            <button type="button" id="chargeBtn" disabled={cart.length === 0} onClick={openPayment}>
               {cart.length
                 ? `${t('sell.charge')} ${money.format(calc.total)}`
                 : t('sell.addItemsToCharge')}

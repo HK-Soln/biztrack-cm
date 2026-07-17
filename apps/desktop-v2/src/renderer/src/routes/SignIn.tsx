@@ -49,13 +49,20 @@ export function SignIn() {
     }
     // The account still owes a verification step (abandoned onboarding) — login sent a
     // fresh OTP and returned the step. Resume it on the sign-up screen, carrying the
-    // channel + the identifier we have so that page can verify.
+    // channel + the contact to verify. The pending channel can differ from the identifier
+    // the user typed (e.g. login by email, but phone is unverified), so prefer the exact
+    // contact the server returned; fall back to the typed identifier only if it matches.
     const step = normalizeNextStep(res.nextStep)
     if (step === 'verify_phone' || step === 'verify_email') {
+      const channel = step === 'verify_email' ? 'email' : 'phone'
+      const contact = res.context?.verifyContact ?? (mode === channel ? identifier : '')
+      // The server-masked destination is shown on the OTP screen (raw contact is only used
+      // for the verify call, never displayed).
+      const masked = channel === 'email' ? res.context?.maskedEmail : res.context?.maskedPhone
       const q = new URLSearchParams()
-      q.set('verify', step === 'verify_email' ? 'email' : 'phone')
-      if (mode === 'email') q.set('email', identifier)
-      else q.set('phone', identifier)
+      q.set('verify', channel)
+      if (contact) q.set(channel, contact)
+      if (masked) q.set('masked', masked)
       navigate(`/signup?${q.toString()}`)
       return
     }
