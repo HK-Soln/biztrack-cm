@@ -543,6 +543,249 @@ export class SalesService {
     return this.get(saleId)!
   }
 
+  /**
+   * Void a completed sale (offline-first). Reverses the sale locally — restocks products
+   * and variants (with a VOID_REVERSAL movement), releases sold serial units, refunds any
+   * deposit draw-down, and (via the trg_sales_source_debt trigger) writes off any credit
+   * receivable — then re-enqueues the sale to sync as VOIDED so the API performs its own
+   * authoritative reversal. Role gating (OWNER/MANAGER) is enforced by the caller/UI.
+   */
+  voidSale(saleId: string, reason: string): LocalSaleDetail {
+    const businessId = this.requireBusinessId()
+    const trimmed = (reason ?? '').trim()
+    if (trimmed.length < 10)
+      throw new Error('Give a reason (at least 10 characters) to void this sale.')
+
+    const actorId = this.getActorId()
+    if (!actorId) throw new Error('No active session.')
+
+    const sale = this.db.get<{ id: string; status: string; sale_number: string }>(
+      `SELECT id, status, sale_number FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+      [saleId, businessId],
+    )
+    if (!sale) throw new Error('Sale not found.')
+    if (sale.status === 'VOIDED') throw new Error(`Sale ${sale.sale_number} is already voided.`)
+
+    const now = new Date().toISOString()
+
+    // 1) Flip to VOIDED. The trg_sales_source_debt trigger writes off any linked receivable.
+    this.db.run(
+      `UPDATE sales SET status = 'VOIDED', voided_at = ?, voided_by = ?, void_reason = ?, updated_at = ? WHERE id = ?`,
+      [now, actorId, trimmed, now, saleId],
+    )
+
+    // 2) Restock + reversing movement per (product, variant); release serial units.
+    const items = this.db.query<{
+      product_id: string
+      variant_id: string | null
+      serial_unit_id: string | null
+      quantity: number
+    }>(
+      `SELECT product_id, variant_id, serial_unit_id, quantity FROM sale_items WHERE sale_id = ? AND is_deleted = 0`,
+      [saleId],
+    )
+    const byKey = new Map<string, { productId: string; variantId: string | null; qty: number }>()
+    const soldSerialIds: string[] = []
+    for (const it of items) {
+      if (it.serial_unit_id) soldSerialIds.push(it.serial_unit_id)
+      const key = `${it.product_id}:${it.variant_id ?? ''}`
+      const cur = byKey.get(key) ?? { productId: it.product_id, variantId: it.variant_id, qty: 0 }
+      cur.qty += it.quantity
+      byKey.set(key, cur)
+    }
+    for (const { productId, variantId, qty } of byKey.values()) {
+      const meta = this.db.get<{ track_inventory: number }>(
+        `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
+        [productId, businessId],
+      )
+      if (!meta?.track_inventory) continue
+      if (variantId) {
+        this.db.run(
+          `UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`,
+          [qty, now, variantId],
+        )
+      } else {
+        this.db.run(
+          `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [qty, now, productId, businessId],
+        )
+      }
+      recordStockMovement(
+        this.db,
+        businessId,
+        productId,
+        qty,
+        {
+          referenceType: 'sale',
+          referenceId: saleId,
+          notes: `Void ${sale.sale_number}`,
+          type: 'VOID_REVERSAL',
+        },
+        now,
+      )
+    }
+    if (soldSerialIds.length > 0) {
+      const ph = soldSerialIds.map(() => '?').join(', ')
+      this.db.run(
+        `UPDATE product_serial_units SET status = 'IN_STOCK', sale_id = NULL, sold_at = NULL, customer_id = NULL, updated_at = ?
+         WHERE id IN (${ph})`,
+        [now, ...soldSerialIds],
+      )
+    }
+
+    // 3) Refund any deposit (savings) draw-down.
+    this.savings.reverseSaleUsage(saleId, now, actorId)
+
+    // 4) Re-enqueue the sale as VOIDED so the API reverses server-side. Coalesces the
+    //    existing ('sales', saleId) outbox row if the create hasn't synced yet.
+    this.enqueueSale(
+      saleId,
+      businessId,
+      this.buildVoidPayload(saleId, businessId, actorId, trimmed, now),
+      now,
+    )
+
+    this.audit?.log({
+      action: 'VOID',
+      entityType: 'sale',
+      entityId: saleId,
+      entityLabel: sale.sale_number,
+      changes: {
+        before: { status: 'COMPLETED' },
+        after: { status: 'VOIDED', voidReason: trimmed },
+      },
+    })
+    this.onMutated()
+    return this.get(saleId)!
+  }
+
+  /** Rebuild the full SaleSyncPayload from stored rows, stamped VOIDED, for the outbox. */
+  private buildVoidPayload(
+    saleId: string,
+    businessId: string,
+    actorId: string,
+    reason: string,
+    now: string,
+  ): Record<string, unknown> {
+    const s = this.db.get<{
+      client_id: string
+      sale_number: string
+      sold_at: string
+      cashier_id: string | null
+      cashier_name: string | null
+      customer_id: string | null
+      customer_name: string | null
+      customer_phone: string | null
+      notes: string | null
+      discount_amount: number
+      charges_amount: number
+      credit_amount: number
+    }>(
+      `SELECT client_id, sale_number, sold_at, cashier_id, cashier_name, customer_id, customer_name,
+              customer_phone, notes, discount_amount, charges_amount, credit_amount
+       FROM sales WHERE id = ? AND business_id = ?`,
+      [saleId, businessId],
+    )!
+    const items = this.db.query<{
+      id: string
+      product_id: string
+      variant_id: string | null
+      variant_name: string | null
+      serial_unit_id: string | null
+      serial_number: string | null
+      quantity: number
+      unit_price: number
+      discount_amount: number
+      cost_price: number | null
+    }>(
+      `SELECT id, product_id, variant_id, variant_name, serial_unit_id, serial_number, quantity, unit_price, discount_amount, cost_price
+       FROM sale_items WHERE sale_id = ? AND is_deleted = 0`,
+      [saleId],
+    )
+    const payments = this.db.query<{
+      id: string
+      method: string
+      amount: number
+      mobile_money_reference: string | null
+    }>(`SELECT id, method, amount, mobile_money_reference FROM sale_payments WHERE sale_id = ?`, [
+      saleId,
+    ])
+    const charges = this.db.query<{
+      id: string
+      charge_type_id: string | null
+      name: string
+      rate_type: string
+      rate_value: number
+      amount: number
+    }>(
+      `SELECT id, charge_type_id, name, rate_type, rate_value, amount FROM sale_charges WHERE sale_id = ?`,
+      [saleId],
+    )
+    const discounts = this.db.query<{
+      id: string
+      description: string
+      discount_type: string
+      rate: number | null
+      amount: number
+    }>(
+      `SELECT id, description, discount_type, rate, amount FROM sale_discounts WHERE sale_id = ?`,
+      [saleId],
+    )
+    return {
+      clientId: s.client_id,
+      saleNumber: s.sale_number,
+      soldAt: s.sold_at,
+      cashierId: s.cashier_id,
+      cashierName: s.cashier_name,
+      customerId: s.customer_id,
+      customerName: s.customer_name,
+      customerPhone: s.customer_phone,
+      notes: s.notes,
+      discountAmount: s.discount_amount,
+      chargesAmount: s.charges_amount,
+      creditAmount: s.credit_amount,
+      status: 'VOIDED',
+      voidedAt: now,
+      voidedById: actorId,
+      voidReason: reason,
+      payments: payments.map((p) => ({
+        id: p.id,
+        method: p.method,
+        amount: round2(p.amount),
+        mobileMoneyReference: p.mobile_money_reference,
+        savingsAccountId: null,
+      })),
+      items: items.map((e) => ({
+        id: e.id,
+        productId: e.product_id,
+        variantId: e.variant_id,
+        variantName: e.variant_name ?? undefined,
+        serialUnitId: e.serial_unit_id,
+        serialNumber: e.serial_number ?? undefined,
+        quantity: e.quantity,
+        unitPrice: e.unit_price,
+        discountAmount: e.discount_amount,
+        costPrice: e.cost_price ?? undefined,
+        movementId: null,
+      })),
+      charges: charges.map((c) => ({
+        id: c.id,
+        chargeTypeId: c.charge_type_id,
+        name: c.name,
+        rateType: c.rate_type,
+        rateValue: c.rate_value,
+        amount: c.amount,
+      })),
+      discounts: discounts.map((d) => ({
+        id: d.id,
+        description: d.description,
+        discountType: d.discount_type,
+        rate: d.rate,
+        amount: d.amount,
+      })),
+    }
+  }
+
   /** Paginated sales history (newest first). */
   list(query: SalesListQuery = {}): PaginatedResult<LocalSale> {
     const businessId = this.getBusinessId()

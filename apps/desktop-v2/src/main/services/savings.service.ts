@@ -95,10 +95,14 @@ export class SavingsService {
   /** Paginated deposit sessions (newest first), filterable by status + customer search. */
   list(query: DepositsListQuery = {}): PaginatedResult<CustomerDeposit> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<CustomerDeposit>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<CustomerDeposit>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
     let where = 's.business_id = ? AND s.is_deleted = 0'
     const params: unknown[] = [businessId]
-    if (query.status) { where += ' AND s.status = ?'; params.push(query.status) }
+    if (query.status) {
+      where += ' AND s.status = ?'
+      params.push(query.status)
+    }
     const { rows, ...meta } = paginateRows<AccountRow>(
       this.db,
       {
@@ -118,7 +122,10 @@ export class SavingsService {
   get(id: string): (CustomerDeposit & { transactions: DepositTransaction[] }) | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const row = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`, [id, businessId])
+    const row = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`,
+      [id, businessId],
+    )
     if (!row) return null
     return { ...toCustomerDeposit(row), transactions: this.txnsFor(id) }
   }
@@ -127,20 +134,51 @@ export class SavingsService {
   statement(id: string): DepositStatement | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const row = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`, [id, businessId])
+    const row = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`,
+      [id, businessId],
+    )
     if (!row) return null
     let running = 0
     const entries: DepositStatementEntry[] = this.txnsFor(id).map((t) => {
       running = round2(running + (t.direction === 'inbound' ? t.amount : -t.amount))
-      return { id: t.id, type: t.type, direction: t.direction, amount: t.amount, method: t.method, mobileMoneyReference: t.mobileMoneyReference, saleId: t.saleId, notes: t.notes, occurredAt: t.occurredAt, createdAt: t.createdAt, runningBalance: running }
+      return {
+        id: t.id,
+        type: t.type,
+        direction: t.direction,
+        amount: t.amount,
+        method: t.method,
+        mobileMoneyReference: t.mobileMoneyReference,
+        saleId: t.saleId,
+        notes: t.notes,
+        occurredAt: t.occurredAt,
+        createdAt: t.createdAt,
+        runningBalance: running,
+      }
     })
     return { account: toCustomerDeposit(row), entries }
   }
 
   /** KPI strip: open sessions + deposits held, plus this-month collected / refunded-or-transferred. */
-  summary(): { openCount: number; depositsHeld: number; collectedCount: number; collectedAmount: number; refundedTransferredCount: number; refundedTransferredAmount: number; currency: string } {
+  summary(): {
+    openCount: number
+    depositsHeld: number
+    collectedCount: number
+    collectedAmount: number
+    refundedTransferredCount: number
+    refundedTransferredAmount: number
+    currency: string
+  } {
     const currency = this.businessCurrency()
-    const empty = { openCount: 0, depositsHeld: 0, collectedCount: 0, collectedAmount: 0, refundedTransferredCount: 0, refundedTransferredAmount: 0, currency }
+    const empty = {
+      openCount: 0,
+      depositsHeld: 0,
+      collectedCount: 0,
+      collectedAmount: 0,
+      refundedTransferredCount: 0,
+      refundedTransferredAmount: 0,
+      currency,
+    }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
@@ -172,7 +210,11 @@ export class SavingsService {
   private businessCurrency(): string {
     const businessId = this.getBusinessId()
     if (!businessId) return 'XAF'
-    return this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [businessId])?.currency ?? 'XAF'
+    return (
+      this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [
+        businessId,
+      ])?.currency ?? 'XAF'
+    )
   }
 
   /** Open a new deposit session for a customer (fails if one is already open). */
@@ -188,8 +230,15 @@ export class SavingsService {
     const id = randomUUID()
     const now = new Date().toISOString()
     const accountNumber = `DEP-${now.slice(0, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`
-    const name = this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [input.customerId])?.name ?? input.customerName ?? null
-    const tagged = input.taggedProducts && input.taggedProducts.length ? JSON.stringify(input.taggedProducts) : null
+    const name =
+      this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [input.customerId])
+        ?.name ??
+      input.customerName ??
+      null
+    const tagged =
+      input.taggedProducts && input.taggedProducts.length
+        ? JSON.stringify(input.taggedProducts)
+        : null
     const initial = round2(Number(input.initialDeposit?.amount ?? 0))
     const balance = initial > 0 ? initial : 0
 
@@ -198,14 +247,44 @@ export class SavingsService {
         (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
          total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', ?, 0, ?, ?)`,
-      [id, businessId, input.customerId, name, input.customerPhone ?? null, accountNumber, balance, balance, tagged, now, now],
+      [
+        id,
+        businessId,
+        input.customerId,
+        name,
+        input.customerPhone ?? null,
+        accountNumber,
+        balance,
+        balance,
+        tagged,
+        now,
+        now,
+      ],
     )
     if (initial > 0) {
-      this.insertTxn(id, businessId, { type: 'deposit', direction: 'inbound', amount: initial, method: input.initialDeposit?.method ?? 'CASH', mobileMoneyReference: input.initialDeposit?.mobileMoneyReference ?? null, notes: input.initialDeposit?.notes ?? null }, now)
+      this.insertTxn(
+        id,
+        businessId,
+        {
+          type: 'deposit',
+          direction: 'inbound',
+          amount: initial,
+          method: input.initialDeposit?.method ?? 'CASH',
+          mobileMoneyReference: input.initialDeposit?.mobileMoneyReference ?? null,
+          notes: input.initialDeposit?.notes ?? null,
+        },
+        now,
+      )
     }
     this.pushSession(id, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'CREATE', entityType: 'deposit', entityId: id, entityLabel: accountNumber, changes: { before: null, after: { customerId: input.customerId, initial } } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'deposit',
+      entityId: id,
+      entityLabel: accountNumber,
+      changes: { before: null, after: { customerId: input.customerId, initial } },
+    })
     return this.get(id)!
   }
 
@@ -214,16 +293,38 @@ export class SavingsService {
     const businessId = this.requireBusinessId()
     const acc = this.requireOpen(id, businessId)
     const amount = round2(Number(input.amount))
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Deposit amount must be greater than 0.')
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new Error('Deposit amount must be greater than 0.')
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE savings_accounts SET balance = ?, total_deposited = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
       [round2(acc.balance + amount), round2(acc.total_deposited + amount), now, id, businessId],
     )
-    this.insertTxn(id, businessId, { type: 'deposit', direction: 'inbound', amount, method: input.method ?? 'CASH', mobileMoneyReference: input.mobileMoneyReference ?? null, notes: input.notes ?? null }, now)
+    this.insertTxn(
+      id,
+      businessId,
+      {
+        type: 'deposit',
+        direction: 'inbound',
+        amount,
+        method: input.method ?? 'CASH',
+        mobileMoneyReference: input.mobileMoneyReference ?? null,
+        notes: input.notes ?? null,
+      },
+      now,
+    )
     this.pushSession(id, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'deposit', entityId: id, entityLabel: acc.account_number, changes: { before: { balance: acc.balance }, after: { deposit: amount, balance: round2(acc.balance + amount) } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'deposit',
+      entityId: id,
+      entityLabel: acc.account_number,
+      changes: {
+        before: { balance: acc.balance },
+        after: { deposit: amount, balance: round2(acc.balance + amount) },
+      },
+    })
     return this.get(id)!
   }
 
@@ -240,17 +341,51 @@ export class SavingsService {
     const now = new Date().toISOString()
 
     if (input.settlement === 'NONE') {
-      if (leftover > 0) throw new Error('There is a leftover balance — refund it or transfer it to a new session.')
+      if (leftover > 0)
+        throw new Error('There is a leftover balance — refund it or transfer it to a new session.')
     } else if (input.settlement === 'REFUND') {
       if (leftover <= 0) throw new Error('Nothing to refund.')
-      this.insertTxn(id, businessId, { type: 'refund', direction: 'outbound', amount: leftover, method: input.method ?? 'CASH', mobileMoneyReference: input.mobileMoneyReference ?? null, notes: input.notes ?? null }, now)
-      this.db.run(`UPDATE savings_accounts SET balance = 0, total_refunded = ?, updated_at = ? WHERE id = ?`, [round2(acc.total_refunded + leftover), now, id])
+      this.insertTxn(
+        id,
+        businessId,
+        {
+          type: 'refund',
+          direction: 'outbound',
+          amount: leftover,
+          method: input.method ?? 'CASH',
+          mobileMoneyReference: input.mobileMoneyReference ?? null,
+          notes: input.notes ?? null,
+        },
+        now,
+      )
+      this.db.run(
+        `UPDATE savings_accounts SET balance = 0, total_refunded = ?, updated_at = ? WHERE id = ?`,
+        [round2(acc.total_refunded + leftover), now, id],
+      )
     } else if (input.settlement === 'TRANSFER') {
-      if (!hasSales) throw new Error('A session with no goods collected cannot be transferred — refund it instead.')
+      if (!hasSales)
+        throw new Error(
+          'A session with no goods collected cannot be transferred — refund it instead.',
+        )
       if (leftover <= 0) throw new Error('Nothing to transfer.')
       // Out of this session, into a fresh open session for the same customer.
-      this.insertTxn(id, businessId, { type: 'transfer_out', direction: 'outbound', amount: leftover, method: null, mobileMoneyReference: null, notes: input.notes ?? null }, now)
-      this.db.run(`UPDATE savings_accounts SET balance = 0, total_transferred = ?, updated_at = ? WHERE id = ?`, [round2(acc.total_transferred + leftover), now, id])
+      this.insertTxn(
+        id,
+        businessId,
+        {
+          type: 'transfer_out',
+          direction: 'outbound',
+          amount: leftover,
+          method: null,
+          mobileMoneyReference: null,
+          notes: input.notes ?? null,
+        },
+        now,
+      )
+      this.db.run(
+        `UPDATE savings_accounts SET balance = 0, total_transferred = ?, updated_at = ? WHERE id = ?`,
+        [round2(acc.total_transferred + leftover), now, id],
+      )
       const newId = randomUUID()
       const accountNumber = `DEP-${now.slice(0, 10).replace(/-/g, '')}-${newId.slice(0, 4).toUpperCase()}`
       this.db.run(
@@ -258,9 +393,32 @@ export class SavingsService {
           (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
            total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', NULL, 0, ?, ?)`,
-        [newId, businessId, acc.customer_id, acc.customer_name, acc.customer_phone, accountNumber, leftover, leftover, now, now],
+        [
+          newId,
+          businessId,
+          acc.customer_id,
+          acc.customer_name,
+          acc.customer_phone,
+          accountNumber,
+          leftover,
+          leftover,
+          now,
+          now,
+        ],
       )
-      this.insertTxn(newId, businessId, { type: 'transfer_in', direction: 'inbound', amount: leftover, method: null, mobileMoneyReference: null, notes: `From ${acc.account_number}` }, now)
+      this.insertTxn(
+        newId,
+        businessId,
+        {
+          type: 'transfer_in',
+          direction: 'inbound',
+          amount: leftover,
+          method: null,
+          mobileMoneyReference: null,
+          notes: `From ${acc.account_number}`,
+        },
+        now,
+      )
       this.db.run(`UPDATE savings_accounts SET transferred_to_id = ? WHERE id = ?`, [newId, id])
       this.pushSession(newId, businessId, now)
     }
@@ -278,28 +436,116 @@ export class SavingsService {
     )
     this.pushSession(id, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'deposit', entityId: id, entityLabel: acc.account_number, changes: { before: { status: 'OPEN', balance: leftover }, after: { status: 'CLOSED', outcome, settlement: input.settlement } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'deposit',
+      entityId: id,
+      entityLabel: acc.account_number,
+      changes: {
+        before: { status: 'OPEN', balance: leftover },
+        after: { status: 'CLOSED', outcome, settlement: input.settlement },
+      },
+    })
     return this.get(id)!
   }
 
   /**
    * Draw `amount` from a deposit session to pay (part of) a sale — the "goods collected" record.
    */
-  recordSaleUsage(input: { accountId: string; saleId: string; amount: number; now: string; recordedById: string | null }): boolean {
+  recordSaleUsage(input: {
+    accountId: string
+    saleId: string
+    amount: number
+    now: string
+    recordedById: string | null
+  }): boolean {
     const businessId = this.getBusinessId()
     if (!businessId) return false
     const amount = round2(input.amount)
     if (amount <= 0) return false
-    const acc = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ? AND s.is_deleted = 0`, [input.accountId, businessId])
+    const acc = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ? AND s.is_deleted = 0`,
+      [input.accountId, businessId],
+    )
     if (!acc || acc.status !== 'OPEN' || acc.balance < amount) return false
 
     this.db.run(
       `UPDATE savings_accounts SET balance = ?, total_used = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-      [round2(acc.balance - amount), round2(acc.total_used + amount), input.now, acc.id, businessId],
+      [
+        round2(acc.balance - amount),
+        round2(acc.total_used + amount),
+        input.now,
+        acc.id,
+        businessId,
+      ],
     )
-    this.insertTxn(acc.id, businessId, { type: 'sale', direction: 'outbound', amount, method: 'SAVINGS', mobileMoneyReference: null, notes: null, saleId: input.saleId, recordedById: input.recordedById }, input.now)
+    this.insertTxn(
+      acc.id,
+      businessId,
+      {
+        type: 'sale',
+        direction: 'outbound',
+        amount,
+        method: 'SAVINGS',
+        mobileMoneyReference: null,
+        notes: null,
+        saleId: input.saleId,
+        recordedById: input.recordedById,
+      },
+      input.now,
+    )
     this.pushSession(acc.id, businessId, input.now)
     return true
+  }
+
+  /**
+   * Reverse the deposit draw-down(s) of a voided sale: credit the amount back to the
+   * account balance and record an inbound `voided_sale` transaction (mirrors the API's
+   * createVoidedSaleTransaction). One reversal per original outbound `sale` usage.
+   */
+  reverseSaleUsage(saleId: string, now: string, actorId: string | null): void {
+    const businessId = this.getBusinessId()
+    if (!businessId) return
+    const usages = this.db.query<{ savings_id: string; amount: number }>(
+      `SELECT savings_id, amount FROM savings_transactions
+       WHERE business_id = ? AND sale_id = ? AND type = 'sale' AND direction = 'outbound'`,
+      [businessId, saleId],
+    )
+    for (const u of usages) {
+      const acc = this.db.get<AccountRow>(
+        `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ? AND s.is_deleted = 0`,
+        [u.savings_id, businessId],
+      )
+      if (!acc) continue
+      const amount = round2(u.amount)
+      if (amount <= 0) continue
+      this.db.run(
+        `UPDATE savings_accounts SET balance = ?, total_used = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+        [
+          round2(acc.balance + amount),
+          round2(Math.max(0, acc.total_used - amount)),
+          now,
+          acc.id,
+          businessId,
+        ],
+      )
+      this.insertTxn(
+        acc.id,
+        businessId,
+        {
+          type: 'voided_sale',
+          direction: 'inbound',
+          amount,
+          method: 'SAVINGS',
+          mobileMoneyReference: null,
+          notes: null,
+          saleId,
+          recordedById: actorId,
+        },
+        now,
+      )
+      this.pushSession(acc.id, businessId, now)
+    }
   }
 
   /**
@@ -307,25 +553,46 @@ export class SavingsService {
    * running balance through that transaction. Returns null for non-cash-movement rows
    * (sales/transfers don't get a customer deposit receipt).
    */
-  buildDepositReceipt(transactionId: string): { receipt: DepositReceipt; phone: string | null; email: string | null } | null {
+  buildDepositReceipt(
+    transactionId: string,
+  ): { receipt: DepositReceipt; phone: string | null; email: string | null } | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const tx = this.db.get<{ id: string; savings_id: string; type: string; direction: string; amount: number; method: string | null; occurred_at: string; created_at: string }>(
+    const tx = this.db.get<{
+      id: string
+      savings_id: string
+      type: string
+      direction: string
+      amount: number
+      method: string | null
+      occurred_at: string
+      created_at: string
+    }>(
       `SELECT id, savings_id, type, direction, amount, method, occurred_at, created_at FROM savings_transactions WHERE id = ? AND business_id = ?`,
       [transactionId, businessId],
     )
     if (!tx || (tx.type !== 'deposit' && tx.type !== 'refund')) return null
-    const acc = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`, [tx.savings_id, businessId])
+    const acc = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`,
+      [tx.savings_id, businessId],
+    )
     if (!acc) return null
-    const biz = this.db.get<{ name: string; phone: string | null; address: string | null }>(`SELECT name, phone, address FROM local_businesses WHERE id = ?`, [businessId])
-    const email = this.db.get<{ email: string | null }>(`SELECT email FROM contacts WHERE id = ?`, [acc.customer_id])?.email ?? null
+    const biz = this.db.get<{ name: string; phone: string | null; address: string | null }>(
+      `SELECT name, phone, address FROM local_businesses WHERE id = ?`,
+      [businessId],
+    )
+    const email =
+      this.db.get<{ email: string | null }>(`SELECT email FROM contacts WHERE id = ?`, [
+        acc.customer_id,
+      ])?.email ?? null
     // Running balance through this transaction (chronological).
-    const balanceAfter = this.db.get<{ bal: number }>(
-      `SELECT COALESCE(SUM(CASE WHEN direction = 'inbound' THEN amount ELSE -amount END), 0) AS bal
+    const balanceAfter =
+      this.db.get<{ bal: number }>(
+        `SELECT COALESCE(SUM(CASE WHEN direction = 'inbound' THEN amount ELSE -amount END), 0) AS bal
        FROM savings_transactions WHERE savings_id = ?
          AND (occurred_at < ? OR (occurred_at = ? AND created_at <= ?))`,
-      [tx.savings_id, tx.occurred_at, tx.occurred_at, tx.created_at],
-    )?.bal ?? 0
+        [tx.savings_id, tx.occurred_at, tx.occurred_at, tx.created_at],
+      )?.bal ?? 0
 
     const receipt: DepositReceipt = {
       businessName: biz?.name ?? 'BizTrack',
@@ -347,18 +614,37 @@ export class SavingsService {
   }
 
   /** Build the full session report (header, summary, tagged items, running-balance statement). */
-  buildDepositReport(id: string): { report: DepositReport; phone: string | null; email: string | null } | null {
+  buildDepositReport(
+    id: string,
+  ): { report: DepositReport; phone: string | null; email: string | null } | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const acc = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`, [id, businessId])
+    const acc = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`,
+      [id, businessId],
+    )
     if (!acc) return null
-    const biz = this.db.get<{ name: string; phone: string | null; address: string | null }>(`SELECT name, phone, address FROM local_businesses WHERE id = ?`, [businessId])
-    const email = this.db.get<{ email: string | null }>(`SELECT email FROM contacts WHERE id = ?`, [acc.customer_id])?.email ?? null
+    const biz = this.db.get<{ name: string; phone: string | null; address: string | null }>(
+      `SELECT name, phone, address FROM local_businesses WHERE id = ?`,
+      [businessId],
+    )
+    const email =
+      this.db.get<{ email: string | null }>(`SELECT email FROM contacts WHERE id = ?`, [
+        acc.customer_id,
+      ])?.email ?? null
 
     let running = 0
     const entries: DepositReportEntry[] = this.txnsFor(id).map((t) => {
       running = round2(running + (t.direction === 'inbound' ? t.amount : -t.amount))
-      return { occurredAt: t.occurredAt, type: t.type, direction: t.direction, amount: t.amount, method: t.method, notes: t.notes, runningBalance: running }
+      return {
+        occurredAt: t.occurredAt,
+        type: t.type,
+        direction: t.direction,
+        amount: t.amount,
+        method: t.method,
+        notes: t.notes,
+        runningBalance: running,
+      }
     })
 
     const report: DepositReport = {
@@ -389,22 +675,53 @@ export class SavingsService {
   private txnsFor(savingsId: string): DepositTransaction[] {
     const businessId = this.getBusinessId()!
     return this.db
-      .query<{ id: string; type: string; direction: string; amount: number; method: string | null; mobile_money_reference: string | null; sale_id: string | null; notes: string | null; recorded_by_id: string | null; occurred_at: string; created_at: string }>(
+      .query<{
+        id: string
+        type: string
+        direction: string
+        amount: number
+        method: string | null
+        mobile_money_reference: string | null
+        sale_id: string | null
+        notes: string | null
+        recorded_by_id: string | null
+        occurred_at: string
+        created_at: string
+      }>(
         `SELECT id, type, direction, amount, method, mobile_money_reference, sale_id, notes, recorded_by_id, occurred_at, created_at
          FROM savings_transactions WHERE savings_id = ? ORDER BY occurred_at ASC, created_at ASC`,
         [savingsId],
       )
       .map((t) => ({
-        id: t.id, savingsId, businessId, type: t.type as DepositTransaction['type'], direction: t.direction as DepositTransaction['direction'],
-        amount: t.amount, method: t.method, mobileMoneyReference: t.mobile_money_reference, saleId: t.sale_id, notes: t.notes,
-        recordedById: t.recorded_by_id, occurredAt: t.occurred_at, createdAt: t.created_at,
+        id: t.id,
+        savingsId,
+        businessId,
+        type: t.type as DepositTransaction['type'],
+        direction: t.direction as DepositTransaction['direction'],
+        amount: t.amount,
+        method: t.method,
+        mobileMoneyReference: t.mobile_money_reference,
+        saleId: t.sale_id,
+        notes: t.notes,
+        recordedById: t.recorded_by_id,
+        occurredAt: t.occurred_at,
+        createdAt: t.created_at,
       }))
   }
 
   private insertTxn(
     savingsId: string,
     businessId: string,
-    tx: { type: DepositTransaction['type']; direction: DepositTransaction['direction']; amount: number; method?: string | null; mobileMoneyReference?: string | null; notes?: string | null; saleId?: string | null; recordedById?: string | null },
+    tx: {
+      type: DepositTransaction['type']
+      direction: DepositTransaction['direction']
+      amount: number
+      method?: string | null
+      mobileMoneyReference?: string | null
+      notes?: string | null
+      saleId?: string | null
+      recordedById?: string | null
+    },
     now: string,
   ): void {
     const id = randomUUID()
@@ -412,31 +729,84 @@ export class SavingsService {
     this.db.run(
       `INSERT INTO savings_transactions (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id, notes, recorded_by_id, occurred_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, savingsId, businessId, tx.type, tx.direction, round2(tx.amount), tx.method ?? null, tx.mobileMoneyReference ?? null, tx.saleId ?? null, tx.notes ?? null, recordedById, now, now],
+      [
+        id,
+        savingsId,
+        businessId,
+        tx.type,
+        tx.direction,
+        round2(tx.amount),
+        tx.method ?? null,
+        tx.mobileMoneyReference ?? null,
+        tx.saleId ?? null,
+        tx.notes ?? null,
+        recordedById,
+        now,
+        now,
+      ],
     )
-    this.enqueue('savingsTransactions', id, {
-      transactionId: id, savingsId, businessId, type: tx.type, direction: tx.direction, amount: round2(tx.amount),
-      method: tx.method ?? null, mobileMoneyReference: tx.mobileMoneyReference ?? null, saleId: tx.saleId ?? null,
-      notes: tx.notes ?? null, recordedById, occurredAt: now, createdAt: now,
-    }, now)
+    this.enqueue(
+      'savingsTransactions',
+      id,
+      {
+        transactionId: id,
+        savingsId,
+        businessId,
+        type: tx.type,
+        direction: tx.direction,
+        amount: round2(tx.amount),
+        method: tx.method ?? null,
+        mobileMoneyReference: tx.mobileMoneyReference ?? null,
+        saleId: tx.saleId ?? null,
+        notes: tx.notes ?? null,
+        recordedById,
+        occurredAt: now,
+        createdAt: now,
+      },
+      now,
+    )
   }
 
   /** Push the session's current full state so the server mirrors it (it trusts this record). */
   private pushSession(id: string, businessId: string, now: string): void {
-    const acc = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`, [id, businessId])
+    const acc = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ?`,
+      [id, businessId],
+    )
     if (!acc) return
-    this.enqueue('savings', id, {
-      savingsId: id, businessId, customerId: acc.customer_id, accountNumber: acc.account_number,
-      balance: acc.balance, totalDeposited: acc.total_deposited, totalRefunded: acc.total_refunded,
-      totalUsed: acc.total_used, totalTransferred: acc.total_transferred, status: acc.status, outcome: acc.outcome,
-      closedAt: acc.closed_at, closedById: acc.closed_by_id, transferredToId: acc.transferred_to_id,
-      taggedProducts: acc.tagged_products ? JSON.parse(acc.tagged_products) : null,
-      customerName: acc.customer_name, customerPhone: acc.customer_phone, createdAt: acc.created_at, updatedAt: now,
-    }, now)
+    this.enqueue(
+      'savings',
+      id,
+      {
+        savingsId: id,
+        businessId,
+        customerId: acc.customer_id,
+        accountNumber: acc.account_number,
+        balance: acc.balance,
+        totalDeposited: acc.total_deposited,
+        totalRefunded: acc.total_refunded,
+        totalUsed: acc.total_used,
+        totalTransferred: acc.total_transferred,
+        status: acc.status,
+        outcome: acc.outcome,
+        closedAt: acc.closed_at,
+        closedById: acc.closed_by_id,
+        transferredToId: acc.transferred_to_id,
+        taggedProducts: acc.tagged_products ? JSON.parse(acc.tagged_products) : null,
+        customerName: acc.customer_name,
+        customerPhone: acc.customer_phone,
+        createdAt: acc.created_at,
+        updatedAt: now,
+      },
+      now,
+    )
   }
 
   private requireOpen(id: string, businessId: string): AccountRow {
-    const acc = this.db.get<AccountRow>(`SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ? AND s.is_deleted = 0`, [id, businessId])
+    const acc = this.db.get<AccountRow>(
+      `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ? AND s.is_deleted = 0`,
+      [id, businessId],
+    )
     if (!acc) throw new Error('Deposit session not found.')
     if (acc.status !== 'OPEN') throw new Error('This deposit session is closed.')
     return acc
@@ -448,7 +818,12 @@ export class SavingsService {
     return businessId
   }
 
-  private enqueue(entity: 'savings' | 'savingsTransactions', recordId: string, payload: Record<string, unknown>, now: string): void {
+  private enqueue(
+    entity: 'savings' | 'savingsTransactions',
+    recordId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
        VALUES (?, ?, ?, 'UPSERT', ?, 'pending', 0, ?, ?)

@@ -11,10 +11,19 @@ import { dataClient } from '@/lib/data-client'
 type Step = 'form' | 'verify'
 type VerifyChannel = 'phone' | 'email'
 type FieldErrors = Partial<
-  Record<'businessName' | 'name' | 'phone' | 'email' | 'password' | 'confirmPassword' | 'terms', MessageKey>
+  Record<
+    'businessName' | 'name' | 'phone' | 'email' | 'password' | 'confirmPassword' | 'terms',
+    MessageKey
+  >
 >
 
-const PW_LABELS: MessageKey[] = ['signup.pwWeak', 'signup.pwWeak', 'signup.pwFair', 'signup.pwGood', 'signup.pwStrong']
+const PW_LABELS: MessageKey[] = [
+  'signup.pwWeak',
+  'signup.pwWeak',
+  'signup.pwFair',
+  'signup.pwGood',
+  'signup.pwStrong',
+]
 
 export function SignUp() {
   const navigate = useNavigate()
@@ -28,6 +37,9 @@ export function SignUp() {
   // ?email=… seeds the email so the follow-on email-verify step (same page) has it.
   const resumePhone = params.get('phone') ?? ''
   const resumeEmail = params.get('email') ?? ''
+  // Server-masked destination for the OTP screen (e.g. "+237 6XX XXX X69"), passed by SignIn
+  // so the resume screen shows a masked contact rather than the raw phone/email.
+  const resumeMasked = params.get('masked') ?? ''
   // Arriving from the accept-invite page (existing-user tab): carry the invite token so
   // completing verification also accepts the invite server-side.
   const inviteToken = params.get('token') || undefined
@@ -51,7 +63,9 @@ export function SignUp() {
   const [busy, setBusy] = useState(false)
   const [code, setCode] = useState('')
   const [verifyChannel, setVerifyChannel] = useState<VerifyChannel>(resumeChannel)
-  const [maskedDest, setMaskedDest] = useState(resumeChannel === 'email' ? resumeEmail : resumePhone)
+  const [maskedDest, setMaskedDest] = useState(
+    resumeMasked || (resumeChannel === 'email' ? resumeEmail : resumePhone),
+  )
   const [resendIn, setResendIn] = useState(resuming ? 30 : 0)
 
   const strength = passwordStrength(password)
@@ -145,10 +159,14 @@ export function SignUp() {
       return
     }
     setStatus(res.session)
-    // If the backend now wants email verification, switch the step to email.
+    // If the backend now wants email verification, switch the step to email. When resuming
+    // from login the form was never filled, so seed the email from the contact the server
+    // returned — otherwise verifyEmail below would have no address to submit.
     if (normalizeNextStep(res.nextStep) === 'verify_email') {
+      const rawEmail = res.context?.verifyContact
+      if (rawEmail) setEmail(rawEmail)
       setVerifyChannel('email')
-      setMaskedDest(res.context?.maskedEmail ?? email.trim())
+      setMaskedDest(res.context?.maskedEmail ?? rawEmail ?? email.trim())
       setCode('')
       setResendIn(30)
       return
@@ -159,7 +177,8 @@ export function SignUp() {
   const resend = async () => {
     if (resendIn > 0) return
     if (verifyChannel === 'phone' && phone) await dataClient.auth.resendOtp(phone, 'VERIFY_PHONE')
-    else if (verifyChannel === 'email') await dataClient.auth.resendOtp(email.trim(), 'VERIFY_EMAIL')
+    else if (verifyChannel === 'email')
+      await dataClient.auth.resendOtp(email.trim(), 'VERIFY_EMAIL')
     setResendIn(30)
   }
 
@@ -191,7 +210,12 @@ export function SignUp() {
             void verify()
           }}
         >
-          <OtpInput value={code} onChange={setCode} onComplete={(v) => void verify(v)} error={!!serverError} />
+          <OtpInput
+            value={code}
+            onChange={setCode}
+            onComplete={(v) => void verify(v)}
+            error={!!serverError}
+          />
           {serverError ? (
             <div className="ff invalid">
               <div className="msg err" style={{ justifyContent: 'center' }}>
@@ -239,7 +263,13 @@ export function SignUp() {
             {t('signup.businessName')} <span className="req">*</span>
           </label>
           <div className="inwrap has-lead">
-            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="lead"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5" />
             </svg>
             <Input
@@ -269,16 +299,34 @@ export function SignUp() {
           <label className="lbl2">
             {t('signup.phone')} <span className="req">*</span>
           </label>
-          <PhoneInput value={phone} onChange={setPhone} error={!!errors.phone} placeholder="6 91 22 14 08" />
-          {errors.phone ? <FieldError message={t(errors.phone)} /> : <div className="hint">{t('signup.phoneHint')}</div>}
+          <PhoneInput
+            value={phone}
+            onChange={setPhone}
+            error={!!errors.phone}
+            placeholder="6 91 22 14 08"
+          />
+          {errors.phone ? (
+            <FieldError message={t(errors.phone)} />
+          ) : (
+            <div className="hint">{t('signup.phoneHint')}</div>
+          )}
         </div>
 
         <div className={`ff${errors.email ? ' invalid' : ''}`}>
           <label className="lbl2">
-            {t('signup.email')} <span className="opt" style={{ marginLeft: 'auto' }}>{t('signup.emailOptional')}</span>
+            {t('signup.email')}{' '}
+            <span className="opt" style={{ marginLeft: 'auto' }}>
+              {t('signup.emailOptional')}
+            </span>
           </label>
           <div className="inwrap has-lead">
-            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="lead"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <rect x="3" y="5" width="18" height="14" rx="2" />
               <path d="m3 7 9 6 9-6" />
             </svg>
@@ -298,7 +346,13 @@ export function SignUp() {
             {t('signup.password')} <span className="req">*</span>
           </label>
           <div className="inwrap has-lead">
-            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="lead"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <rect x="4" y="11" width="16" height="9" rx="2" />
               <path d="M8 11V8a4 4 0 0 1 8 0v3" />
             </svg>
@@ -310,7 +364,12 @@ export function SignUp() {
               onChange={(e) => setPassword(e.target.value)}
             />
             <span className="trail">
-              <button type="button" className="eye" aria-label="Show password" onClick={() => setShowPw((v) => !v)}>
+              <button
+                type="button"
+                className="eye"
+                aria-label="Show password"
+                onClick={() => setShowPw((v) => !v)}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
                   <circle cx="12" cy="12" r="3" />
@@ -325,7 +384,11 @@ export function SignUp() {
             <i />
           </div>
           <div className="pwmeta">
-            {errors.password ? t(errors.password) : password ? t(PW_LABELS[strength]!) : t('signup.passwordHint')}
+            {errors.password
+              ? t(errors.password)
+              : password
+                ? t(PW_LABELS[strength]!)
+                : t('signup.passwordHint')}
           </div>
         </div>
 
@@ -334,7 +397,13 @@ export function SignUp() {
             {t('signup.confirmPassword')} <span className="req">*</span>
           </label>
           <div className="inwrap has-lead">
-            <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="lead"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <rect x="4" y="11" width="16" height="9" rx="2" />
               <path d="M8 11V8a4 4 0 0 1 8 0v3" />
             </svg>
@@ -376,7 +445,10 @@ export function SignUp() {
       </form>
 
       <div className="auth-foot">
-        {t('signup.haveAccount')} <a onClick={() => navigate('/signin')} style={{ cursor: 'pointer' }}>{t('auth.signIn')}</a>
+        {t('signup.haveAccount')}{' '}
+        <a onClick={() => navigate('/signin')} style={{ cursor: 'pointer' }}>
+          {t('auth.signIn')}
+        </a>
       </div>
     </div>
   )
