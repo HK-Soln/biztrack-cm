@@ -217,5 +217,24 @@
     "subjectOther": "Other",
     "emptyTitle": "Contact details coming soon",
     "emptyDesc": "This store hasn't added its contact details yet."
+  },
+  "notFound": {
+    "title": "This page can't be found",
+    "body": "The product or page you are looking for may have moved, sold out, or no longer exists. Check the address or carry on shopping.",
+    "searchPlaceholder": "Search for a product…",
+    "search": "Search",
+    "home": "Back to home",
+    "shop": "Browse the shop",
+    "popular": "Popular aisles"
+  },
+  "error": {
+    "code": "Error {status}",
+    "title": "Sorry, something went wrong",
+    "body": "Our shop is having a temporary technical problem. It is not your fault — try again in a moment, your cart is safe.",
+    "retry": "Try again",
+    "home": "Back to home",
+    "persists": "Still not working?",
+    "contact": "Contact the shop",
+    "reference": "Error reference:"
   }
 }

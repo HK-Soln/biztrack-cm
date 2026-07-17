@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { listAllProductSlugs } from '@/lib/api'
-import { slugFromHost } from '@/lib/store'
+import { slugFromHost } from '@/lib/host'
 import { escapeXml, storeOrigin } from '@/lib/seo'
 
 // Per-store, host-aware — must run per request, never cached at build.
