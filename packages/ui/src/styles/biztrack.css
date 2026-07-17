@@ -10270,6 +10270,14 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Bound the row so a long product/customer name ellipsizes instead of stretching its column
+     and squeezing every other one. Matches the 260px used by .saletable td.trunc. */
+  max-width: 260px;
+}
+/* The text column — everything but the fixed-size thumb — must be allowed to shrink, or the
+   ellipsis below never triggers: a flex item's min-width is auto, not 0. */
+.ord-cust > div:not(.av) {
+  min-width: 0;
 }
 .ord-cust .av {
   width: 34px;
@@ -10287,11 +10295,17 @@ textarea.input {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ord-cust .sub {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .deliv {
   display: inline-flex;
