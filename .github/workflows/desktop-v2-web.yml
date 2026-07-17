@@ -6,6 +6,13 @@ name: Deploy desktop-v2 (Cloud → Vercel)
 # desktop-v2-release.yml.
 #
 # ONE Vercel project (free/Hobby friendly): main -> Production, staging -> Preview.
+#
+# This workflow is the ONLY deploy path. `git.deploymentEnabled: false` in the app's vercel.json
+# turns off Vercel's commit-triggered deploys, which would otherwise race this job and deploy the
+# same project twice per push — and, because they build ON Vercel with different env, could ship a
+# different bundle than the one verified here. CLI deploys (below) are unaffected.
+# Trade-off: no automatic per-PR preview URLs — deploys happen on main/staging only.
+#
 # Vercel project setup (one-time):
 #   - Root Directory  = apps/desktop-v2   (vercel.json sets buildCommand/output)
 #   - Production Branch = main

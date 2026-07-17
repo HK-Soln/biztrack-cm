@@ -13,14 +13,13 @@ import type {
   PublicProductsQuery,
   PublicStore,
 } from '@biztrack/types'
+import { API_BASE_URL } from './config'
 
 // The storefront uses the shared HTTP client (packages/http-client). The browser
 // flavor binds globalThis.fetch, so the same client works in server components
 // (SSR, where Next 15 fetches are uncached/dynamic by default) and in the browser
 // (TanStack Query refetches).
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1'
-
-const http = createHttpClient({ baseURL: API_BASE, timeout: 15_000 })
+const http = createHttpClient({ baseURL: API_BASE_URL, timeout: 15_000 })
 
 type ApiEnvelope<T> = { success?: boolean; data: T }
 
@@ -70,8 +69,20 @@ const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
 
 // ---- Reads ----------------------------------------------------------------
 
-export function getStore(slug: string) {
-  return readJson<PublicStore>(storePath(slug))
+/**
+ * Resolve a store by slug: `null` means "no such shop" (404), and anything else that goes wrong
+ * THROWS. Unlike the other reads, this one must not collapse every failure into `null` — a null
+ * store sends the visitor to the marketing site, so a transient API outage would otherwise bounce
+ * every customer off every perfectly good shop instead of showing them an error.
+ */
+export async function getStore(slug: string): Promise<PublicStore | null> {
+  try {
+    const res = await http.get<ApiEnvelope<PublicStore>>(storePath(slug))
+    return unwrap(res.data)
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 404) return null
+    throw error
+  }
 }
 
 const joinIds = (ids?: string[]) => (ids && ids.length ? ids.join(',') : undefined)

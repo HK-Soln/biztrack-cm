@@ -1,0 +1,116 @@
+name: Deploy storefront (Vercel)
+
+# Deploys apps/storefront — the multi-tenant customer storefront. One subdomain = one shop
+# (`<slug>.<STORE_ROOT_DOMAIN>`), resolved per request from the Host header (src/lib/store.ts).
+# Unlike desktop-v2's cloud build (a static SPA), this is a Next.js SSR app: it runs as Vercel
+# functions, so it has BOTH build-time and runtime configuration — and they come from different
+# places. Getting this wrong is what shipped a localhost-pointed cloud app before.
+#
+# ONE Vercel project (free/Hobby friendly): main -> Production, staging -> Preview.
+#
+# This workflow is the ONLY deploy path. `git.deploymentEnabled: false` in the app's vercel.json
+# turns off Vercel's commit-triggered deploys, which would otherwise race this job and deploy the
+# same project twice per push. CLI deploys (below) are an explicit API call and are unaffected.
+# Trade-off: no automatic per-PR preview URLs — deploys happen on main/staging only.
+#
+# Vercel project setup (one-time):
+#   - Root Directory   = apps/storefront   (vercel.json sets framework/build/install)
+#   - Production Branch = main
+#   - Domains: `*.biztrack.hk-solutions.app` (wildcard) -> this project.
+#     NOTE: `biztrack.hk-solutions.app` itself belongs to the desktop-v2 cloud project, not here.
+#
+# Configuration — set BOTH, in BOTH places:
+#   NEXT_PUBLIC_API_URL = https://<host>/api/v1   (must include /api/v1)
+#   STORE_ROOT_DOMAIN   = biztrack.hk-solutions.app
+#
+#   1. GitHub -> Settings -> Environments -> {production, staging} -> Variables
+#      `vercel build` runs in THIS runner (off-Vercel), so the Vercel project's env vars are NOT
+#      applied to the build. NEXT_PUBLIC_API_URL is inlined into the client bundle at build time,
+#      so it MUST be passed here or the browser will call localhost.
+#   2. Vercel -> Project -> Settings -> Environment Variables (Production + Preview)
+#      STORE_ROOT_DOMAIN is read by the server at REQUEST time, so it must exist in the Vercel
+#      project env — the prebuilt functions read it there, not from this workflow.
+#
+# The app hard-fails on a missing value (no localhost fallback), so a misconfigured deploy breaks
+# loudly instead of silently serving the wrong thing.
+
+on:
+  push:
+    branches: [main, staging] # main -> Vercel Production, staging -> Vercel Preview
+    paths:
+      - 'apps/storefront/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/storefront-web.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: storefront-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy (${{ github.ref_name == 'main' && 'production' || 'staging' }})
+    runs-on: ubuntu-latest
+    # `production` (main) carries the manual-approval gate. One Vercel project serves both
+    # environments, so VERCEL_* are repo-level secrets (not per-environment).
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_STOREFRONT_PROJECT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # `vercel build` runs the project's install + build in THIS runner, so pnpm + Node
+      # must be on PATH — otherwise it fails with "spawn pnpm ENOENT".
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Fail fast if the GitHub Environment is missing a build var — otherwise the build below
+      # fails with a less obvious error from src/lib/config.ts.
+      - name: Verify required build vars are configured
+        run: |
+          missing=""
+          [ -z "${{ vars.NEXT_PUBLIC_API_URL }}" ] && missing="$missing NEXT_PUBLIC_API_URL"
+          [ -z "${{ vars.STORE_ROOT_DOMAIN }}" ] && missing="$missing STORE_ROOT_DOMAIN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required var(s) for environment '${{ github.ref_name == 'main' && 'production' || 'staging' }}':$missing. Add under Settings → Environments → {production|staging} → Variables."
+            exit 1
+          fi
+
+      # main -> Production (--prod); staging -> Preview (no flag).
+      - name: Resolve target
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "VERCEL_TARGET=production" >> "$GITHUB_ENV"
+            echo "PROD_FLAG=--prod" >> "$GITHUB_ENV"
+          else
+            echo "VERCEL_TARGET=preview" >> "$GITHUB_ENV"
+            echo "PROD_FLAG=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Pull Vercel settings + env
+        run: vercel pull --yes --environment=$VERCEL_TARGET --token=${{ secrets.VERCEL_TOKEN }}
+
+      # NEXT_PUBLIC_API_URL is inlined into the client bundle here — this is what makes the
+      # deployed storefront talk to the real API instead of localhost. STORE_ROOT_DOMAIN is only
+      # needed at request time, but is passed too so the build fails here (not in production) if
+      # it is ever referenced during prerender.
+      - name: Build
+        run: vercel build $PROD_FLAG --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          STORE_ROOT_DOMAIN: ${{ vars.STORE_ROOT_DOMAIN }}
+
+      - name: Deploy prebuilt output
+        run: vercel deploy --prebuilt $PROD_FLAG --token=${{ secrets.VERCEL_TOKEN }}
