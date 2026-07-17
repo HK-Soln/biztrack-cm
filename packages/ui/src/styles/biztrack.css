@@ -2811,6 +2811,8 @@ body {
   font-size: 15px;
   background: var(--surface-2);
   color: var(--text-2);
+  /* Clip logos to the rounded box — a square image otherwise pokes its corners out. */
+  overflow: hidden;
 }
 .slist .it .ic.sw {
   background: color-mix(in srgb, var(--brand-int) 16%, transparent);
@@ -2868,6 +2870,24 @@ body {
   align-items: center;
   gap: 13px;
 }
+/* The action buttons keep their size; only the title column gives way. Without this a long
+   name squeezes the buttons instead of wrapping. */
+.mddetail .dhero-in > button {
+  flex-shrink: 0;
+}
+/* Cap the title at two lines. `anywhere` matters as much as the clamp: a single long
+   unbroken name has nowhere to wrap and would otherwise run under the buttons.
+   `.cat-detail` builds the same hero from inline styles rather than .dhero-in, so it needs
+   naming here explicitly — it is the same title, not a second pattern. */
+.mddetail .dhero-in h1,
+.cat-detail h1 {
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
 .mddetail .dhero-in .av {
   flex-shrink: 0;
   width: 48px;
@@ -2878,6 +2898,8 @@ body {
   font-size: 20px;
   background: var(--surface-2);
   color: var(--text-2);
+  /* Clip logos to the rounded box — a square image otherwise pokes its corners out. */
+  overflow: hidden;
 }
 .mddetail .dhero-in .av.sw {
   background: color-mix(in srgb, var(--brand-int) 16%, transparent);
@@ -6134,6 +6156,9 @@ textarea.input {
   color: var(--text-2);
   flex-shrink: 0;
   border: 1px solid var(--border);
+  /* Clip logos to the rounded box. `.th img` sets no radius of its own, so without this a
+     square logo's corners sit visibly outside the border. */
+  overflow: hidden;
 }
 .m-content .mrow .th.brand {
   background: var(--brand-soft);
@@ -10245,6 +10270,14 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Bound the row so a long product/customer name ellipsizes instead of stretching its column
+     and squeezing every other one. Matches the 260px used by .saletable td.trunc. */
+  max-width: 260px;
+}
+/* The text column — everything but the fixed-size thumb — must be allowed to shrink, or the
+   ellipsis below never triggers: a flex item's min-width is auto, not 0. */
+.ord-cust > div:not(.av) {
+  min-width: 0;
 }
 .ord-cust .av {
   width: 34px;
@@ -10262,11 +10295,17 @@ textarea.input {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ord-cust .sub {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .deliv {
   display: inline-flex;

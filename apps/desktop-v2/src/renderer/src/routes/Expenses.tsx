@@ -603,7 +603,9 @@ export function Expenses() {
                       '—'
                     )}
                   </td>
-                  <td className="hide-sm">{e.vendor || '—'}</td>
+                  <td className="hide-sm trunc" title={e.vendor || undefined}>
+                    {e.vendor || '—'}
+                  </td>
                   <td className="hide-sm">
                     <span className="pill-tag">{payLabel(t, e.paymentMethod)}</span>
                   </td>
