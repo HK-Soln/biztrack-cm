@@ -4,6 +4,14 @@
  */
 
 /**
+ * Where a visitor goes when there is no shop to show — the root domain, its `www` alias, or a slug
+ * that matches no store. The storefront only ever serves shops; everything else is marketing.
+ *
+ * Not env-driven: a fixed product decision, not per-deploy configuration.
+ */
+export const MARKETING_URL = 'https://hk-solutions.app'
+
+/**
  * Root domains under which each business gets its own permanent subdomain (`<slug>.<root>`),
  * from STORE_ROOT_DOMAIN — a comma-separated list, so one deployment can serve several roots
  * (e.g. the live domain plus `localhost` in dev). Must match the desktop/cloud app's

@@ -1,15 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { isStoreRootHost } from '@/lib/host'
+import { isStoreRootHost, MARKETING_URL } from '@/lib/host'
 
 /**
  * The storefront only ever serves shops, one per subdomain (`<slug>.<root>`). The root domain
- * itself — and its `www` alias — carry no shop, so they are sent to the marketing site rather
- * than rendering a "not found" for a URL a customer may well have typed by hand.
- *
- * Not env-driven: this is a fixed product decision, not per-deploy configuration.
+ * itself — and its `www` alias — carry no shop, so they go to the marketing site. A slug that
+ * matches no store is handled in the (store) layout, which needs an API call to know.
  */
-const MARKETING_URL = 'https://hk-solutions.app'
-
 export function middleware(req: NextRequest) {
   // Temporary (307): the root is only parked here. Never 308 — browsers cache permanent
   // redirects indefinitely, which would strand the domain if it ever needs to serve its own page.

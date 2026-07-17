@@ -69,8 +69,20 @@ const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
 
 // ---- Reads ----------------------------------------------------------------
 
-export function getStore(slug: string) {
-  return readJson<PublicStore>(storePath(slug))
+/**
+ * Resolve a store by slug: `null` means "no such shop" (404), and anything else that goes wrong
+ * THROWS. Unlike the other reads, this one must not collapse every failure into `null` — a null
+ * store sends the visitor to the marketing site, so a transient API outage would otherwise bounce
+ * every customer off every perfectly good shop instead of showing them an error.
+ */
+export async function getStore(slug: string): Promise<PublicStore | null> {
+  try {
+    const res = await http.get<ApiEnvelope<PublicStore>>(storePath(slug))
+    return unwrap(res.data)
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 404) return null
+    throw error
+  }
 }
 
 const joinIds = (ids?: string[]) => (ids && ids.length ? ids.join(',') : undefined)
