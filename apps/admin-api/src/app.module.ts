@@ -20,6 +20,16 @@ import { IpAllowlistMiddleware } from './common/middleware/ip-allowlist.middlewa
 import { AuditLog } from './entities/audit-log.entity'
 import { HealthModule } from './modules/health/health.module'
 import { AdminAuthModule } from './modules/admin-auth/admin-auth.module'
+import { AdminRolesModule } from './modules/admin-roles/admin-roles.module'
+import { AdminUsersModule } from './modules/admin-users/admin-users.module'
+import { BusinessesModule } from './modules/businesses/businesses.module'
+import { ClientUsersModule } from './modules/client-users/client-users.module'
+import { SupportModule } from './modules/support/support.module'
+import { MetricsModule } from './modules/metrics/metrics.module'
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module'
+import { PaymentsModule } from './modules/payments/payments.module'
+import { PlansModule } from './modules/plans/plans.module'
+import { AuditModule } from './modules/audit/audit.module'
 
 const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/')
 
@@ -50,6 +60,16 @@ const entitiesPath = join(__dirname, '**', '*.entity.{ts,js}').replace(/\\/g, '/
     SecurityModule,
     HealthModule,
     AdminAuthModule,
+    AdminRolesModule,
+    AdminUsersModule,
+    BusinessesModule,
+    ClientUsersModule,
+    SupportModule,
+    MetricsModule,
+    SubscriptionsModule,
+    PaymentsModule,
+    PlansModule,
+    AuditModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

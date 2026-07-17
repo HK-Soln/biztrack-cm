@@ -13,6 +13,7 @@ import {
 } from '@/common/exceptions/app.exception'
 import type { AdminJwtPayload, PermissionScope } from '@/common/auth/admin-jwt-payload'
 import { ALL_PERMISSIONS } from '@/common/permissions/admin-permissions'
+import { adminPermissionsCacheKey } from '@/common/permissions/cache-keys'
 import { AdminUser } from '@/entities/admin-user.entity'
 import { AdminUsersRepository } from './repositories/admin-users.repository'
 import { AdminRolePermissionsRepository } from './repositories/admin-role-permissions.repository'
@@ -41,8 +42,6 @@ export interface AdminTokens {
   refreshToken: string
   expiresIn: string
 }
-
-export const adminPermissionsCacheKey = (adminUserId: string) => `admin_permissions:${adminUserId}`
 
 @Injectable()
 export class AdminAuthService {
