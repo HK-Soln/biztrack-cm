@@ -31,7 +31,12 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesRefunds, (_e, query?: SalesListQuery) => sales.refunds(query))
   ipcMain.handle(IPC.salesGrossProfit, (_e, query?: SalesListQuery) => sales.grossProfit(query))
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
-  ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) => savings.getForCustomer(customerId))
+  ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) =>
+    sales.voidSale(saleId, reason),
+  )
+  ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) =>
+    savings.getForCustomer(customerId),
+  )
 
   // The compiled receipt HTML (shown as a preview + the exact thing printed/sent).
   ipcMain.handle(IPC.salesReceiptHtml, (_e, saleId: string, locale: string) => {
@@ -46,7 +51,10 @@ export function registerSalesIpc(
     const built = sales.buildReceipt(saleId)
     if (!built) throw new Error('Sale not found.')
     const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
-    return documents.printReceipt(html, { filename: `receipt-${built.receipt.saleNumber}`, paperWidthMm: RECEIPT_WIDTH_MM })
+    return documents.printReceipt(html, {
+      filename: `receipt-${built.receipt.saleNumber}`,
+      paperWidthMm: RECEIPT_WIDTH_MM,
+    })
   })
 
   // Render the receipt to a PDF and save it via the native dialog.
@@ -61,7 +69,13 @@ export function registerSalesIpc(
   // WAHA), same as RFQ/PO. Offline → open the desktop WhatsApp/email share composer.
   ipcMain.handle(
     IPC.salesSendReceipt,
-    async (_e, saleId: string, channel: DocumentSendChannel, locale: string, opts?: { recipient?: DocumentRecipient; online?: boolean }) => {
+    async (
+      _e,
+      saleId: string,
+      channel: DocumentSendChannel,
+      locale: string,
+      opts?: { recipient?: DocumentRecipient; online?: boolean },
+    ) => {
       const built = sales.buildReceipt(saleId)
       if (!built) throw new Error('Sale not found.')
       const { receipt } = built
@@ -72,7 +86,11 @@ export function registerSalesIpc(
         try {
           // Server renders + dispatches (Resend/WAHA). Falls back to the local composer
           // below if it fails — e.g. the just-made sale hasn't synced to the server yet.
-          await http.post(`/sales/${saleId}/send`, { channels: [channel], locale, recipient: { phone, email } })
+          await http.post(`/sales/${saleId}/send`, {
+            channels: [channel],
+            locale,
+            recipient: { phone, email },
+          })
           return
         } catch {
           /* fall through to the offline share composer */

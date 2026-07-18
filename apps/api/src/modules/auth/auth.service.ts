@@ -12,6 +12,8 @@ import {
   RegisterRequest,
   RequestLoginRequest,
   RequestLoginOtpRequest,
+  RequestPasswordResetRequest,
+  ResetPasswordRequest,
   ResendOtpRequest,
   SendInviteRequest,
   OtpType,
@@ -55,10 +57,7 @@ import { BusinessesRepository } from '@/modules/business/repositories/businesses
 import { RedisService } from '@/common/redis/redis.service'
 import { generateSlug } from '@biztrack/utils'
 import { NotificationsService } from '@/modules/notifications/services/notifications.service'
-import {
-  NotificationChannel,
-  NotificationType,
-} from '@/entities/notification.entity'
+import { NotificationChannel, NotificationType } from '@/entities/notification.entity'
 import { WhatsAppProvider } from '@/modules/notifications/providers/whatsapp.provider'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
@@ -149,7 +148,8 @@ export class AuthService {
       }
 
       if (
-        (dto.preferredPhoneChannel ?? PrefferedPhoneChannel.SMS) === PrefferedPhoneChannel.WHATSAPP &&
+        (dto.preferredPhoneChannel ?? PrefferedPhoneChannel.SMS) ===
+          PrefferedPhoneChannel.WHATSAPP &&
         this.isWhatsAppConfigured()
       ) {
         phone = await this.resolveWhatsAppPhoneForRegister(phone)
@@ -168,7 +168,8 @@ export class AuthService {
         // The invited channel is proven by the invite delivery → auto-verified, no OTP.
         isEmailVerified: invitedChannel === 'email',
         isPhoneVerified: invitedChannel === 'phone',
-        onboardingStep: invitedChannel === 'phone' ? OnboardingStep.VERIFY_EMAIL : OnboardingStep.VERIFY_PHONE,
+        onboardingStep:
+          invitedChannel === 'phone' ? OnboardingStep.VERIFY_EMAIL : OnboardingStep.VERIFY_PHONE,
       })
       await this.usersRepo.save(user)
 
@@ -194,7 +195,10 @@ export class AuthService {
         this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
-          context: this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+          context: {
+            ...this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+            verifyContact: user.email ?? undefined,
+          },
           verification: {
             channel: VerificationChannel.EMAIL,
             expiresAt: verification.expiresAt,
@@ -213,11 +217,10 @@ export class AuthService {
       this.dispatchPhoneOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.VERIFY_PHONE,
-        context: this.buildOtpContext(
-          VerificationChannel.PHONE,
-          verification.expiresAt,
-          user.phone,
-        ),
+        context: {
+          ...this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+          verifyContact: user.phone ?? undefined,
+        },
         verification: {
           channel: VerificationChannel.PHONE,
           delivery: user.preferredPhoneChannel,
@@ -244,13 +247,19 @@ export class AuthService {
         VerificationChannel.PHONE,
         VerificationPurpose.VERIFY_PHONE,
       )
-      if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+      if (
+        user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP &&
+        this.isWhatsAppConfigured()
+      ) {
         await this.assertWhatsAppContactExistsForOtp(user.phone!)
       }
       this.dispatchPhoneOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.VERIFY_PHONE,
-        context: this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+        context: {
+          ...this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+          verifyContact: user.phone ?? undefined,
+        },
         verification: {
           channel: VerificationChannel.PHONE,
           delivery: user.preferredPhoneChannel,
@@ -269,7 +278,10 @@ export class AuthService {
       this.dispatchEmailOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.VERIFY_EMAIL,
-        context: this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+        context: {
+          ...this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+          verifyContact: user.email ?? undefined,
+        },
         verification: {
           channel: VerificationChannel.EMAIL,
           expiresAt: verification.expiresAt,
@@ -423,7 +435,11 @@ export class AuthService {
         this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.CONFIRM_LOGIN,
-          context: this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+          context: this.buildOtpContext(
+            VerificationChannel.EMAIL,
+            verification.expiresAt,
+            user.email,
+          ),
           verification: {
             channel: VerificationChannel.EMAIL,
             expiresAt: verification.expiresAt,
@@ -447,13 +463,20 @@ export class AuthService {
         VerificationChannel.PHONE,
         VerificationPurpose.LOGIN,
       )
-      if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+      if (
+        user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP &&
+        this.isWhatsAppConfigured()
+      ) {
         await this.assertWhatsAppContactExistsForOtp(user.phone)
       }
       this.dispatchPhoneOtp(user, verification.code)
       return {
         nextStep: AuthNextStep.CONFIRM_LOGIN,
-        context: this.buildOtpContext(VerificationChannel.PHONE, verification.expiresAt, user.phone),
+        context: this.buildOtpContext(
+          VerificationChannel.PHONE,
+          verification.expiresAt,
+          user.phone,
+        ),
         verification: {
           channel: VerificationChannel.PHONE,
           delivery: user.preferredPhoneChannel,
@@ -512,6 +535,126 @@ export class AuthService {
     }
   }
 
+  /**
+   * Forgot-password step 1: send a one-time reset code to the account's email/phone. To avoid
+   * account enumeration the response is IDENTICAL whether or not the account exists — a code is
+   * only actually dispatched when there is an active user with the matching contact.
+   */
+  async requestPasswordReset(dto: RequestPasswordResetRequest) {
+    this.logger.debug('Request password reset', 'AuthService', { identifier: dto.identifier })
+
+    try {
+      const isEmail = dto.identifier.includes('@')
+      const channel = isEmail ? VerificationChannel.EMAIL : VerificationChannel.PHONE
+      const user = await this.findUserByIdentifier(dto.identifier)
+
+      if (user?.isActive) {
+        if (isEmail && user.email) {
+          const verification = await this.createVerificationCode(
+            user.id,
+            VerificationChannel.EMAIL,
+            VerificationPurpose.RESET_PASSWORD,
+          )
+          this.dispatchEmailOtp(user, verification.code)
+          return {
+            nextStep: AuthNextStep.RESET_PASSWORD_OTP,
+            context: this.buildOtpContext(
+              VerificationChannel.EMAIL,
+              verification.expiresAt,
+              user.email,
+            ),
+            verification: {
+              channel: VerificationChannel.EMAIL,
+              expiresAt: verification.expiresAt,
+              code: this.shouldReturnOtp() ? verification.code : undefined,
+            },
+          }
+        }
+        if (!isEmail && user.phone) {
+          if (dto.preferredOtpChannel && dto.preferredOtpChannel !== user.preferredPhoneChannel) {
+            await this.usersRepo.update(user.id, { preferredPhoneChannel: dto.preferredOtpChannel })
+            user.preferredPhoneChannel = dto.preferredOtpChannel
+          }
+          const verification = await this.createVerificationCode(
+            user.id,
+            VerificationChannel.PHONE,
+            VerificationPurpose.RESET_PASSWORD,
+          )
+          if (
+            user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP &&
+            this.isWhatsAppConfigured()
+          ) {
+            await this.assertWhatsAppContactExistsForOtp(user.phone)
+          }
+          this.dispatchPhoneOtp(user, verification.code)
+          return {
+            nextStep: AuthNextStep.RESET_PASSWORD_OTP,
+            context: this.buildOtpContext(
+              VerificationChannel.PHONE,
+              verification.expiresAt,
+              user.phone,
+            ),
+            verification: {
+              channel: VerificationChannel.PHONE,
+              delivery: user.preferredPhoneChannel,
+              expiresAt: verification.expiresAt,
+              code: this.shouldReturnOtp() ? verification.code : undefined,
+            },
+          }
+        }
+      }
+
+      // Unknown account / no matching contact — return an indistinguishable response, send nothing.
+      const expiresAt = new Date(Date.now() + this.getOtpTtlMinutes() * 60 * 1000)
+      return {
+        nextStep: AuthNextStep.RESET_PASSWORD_OTP,
+        context: this.buildOtpContext(channel, expiresAt, dto.identifier),
+        verification: { channel, expiresAt },
+      }
+    } catch (error) {
+      return this.handleServiceError('requestPasswordReset', error, { identifier: dto.identifier })
+    }
+  }
+
+  /**
+   * Forgot-password step 2: verify the reset code and set the new password. Clears any login
+   * lockout and revokes all existing refresh tokens so a compromised session can't outlive a reset.
+   * The user must sign in again with the new password.
+   */
+  async resetPassword(dto: ResetPasswordRequest) {
+    this.logger.debug('Reset password attempt', 'AuthService', { identifier: dto.identifier })
+
+    try {
+      const user = await this.findUserByIdentifier(dto.identifier)
+      if (!user || !user.isActive) {
+        // Don't reveal whether the account exists — same error the OTP path returns.
+        throw new AppBadRequestException(
+          await this.i18n.translate('auth.otp.invalid'),
+          'INVALID_CODE',
+        )
+      }
+
+      const channel = dto.identifier.includes('@')
+        ? VerificationChannel.EMAIL
+        : VerificationChannel.PHONE
+      await this.verifyCodeOrThrow(user.id, channel, VerificationPurpose.RESET_PASSWORD, dto.code)
+
+      const passwordHash = await this.passwordManager.hashPassword(dto.newPassword)
+      await this.usersRepo.update(user.id, {
+        passwordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      })
+      // Invalidate every existing session — the reset must log other devices out.
+      await this.refreshTokensRepo.updateByUserId(user.id, { revokedAt: new Date() })
+
+      this.logger.log('Password reset', 'AuthService', { userId: user.id })
+      return { nextStep: AuthNextStep.PASSWORD_RESET_COMPLETE }
+    } catch (error) {
+      return this.handleServiceError('resetPassword', error, { identifier: dto.identifier })
+    }
+  }
+
   async verifyPhone(phone: string, code: string, inviteToken?: string) {
     this.logger.debug('Verify phone attempt', 'AuthService', { phone })
 
@@ -552,11 +695,10 @@ export class AuthService {
         this.dispatchEmailOtp(user, verification.code)
         return {
           nextStep: AuthNextStep.VERIFY_EMAIL,
-          context: this.buildOtpContext(
-            VerificationChannel.EMAIL,
-            verification.expiresAt,
-            user.email,
-          ),
+          context: {
+            ...this.buildOtpContext(VerificationChannel.EMAIL, verification.expiresAt, user.email),
+            verifyContact: user.email ?? undefined,
+          },
           verification: {
             channel: VerificationChannel.EMAIL,
             expiresAt: verification.expiresAt,
@@ -682,7 +824,10 @@ export class AuthService {
       const nextStep =
         dto.type === OtpType.LOGIN ? AuthNextStep.CONFIRM_LOGIN : AuthNextStep.VERIFY_PHONE
 
-      if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+      if (
+        user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP &&
+        this.isWhatsAppConfigured()
+      ) {
         await this.assertWhatsAppContactExistsForOtp(user.phone!)
       }
       this.dispatchPhoneOtp(user, verification.code)
@@ -921,9 +1066,9 @@ export class AuthService {
 
       const invitedBy = invite.invitedById
         ? await this.usersRepo.findOne({
-          where: { id: invite.invitedById },
-          select: { id: true, name: true },
-        })
+            where: { id: invite.invitedById },
+            select: { id: true, name: true },
+          })
         : null
 
       const sentTo = invite.phone
@@ -1159,7 +1304,10 @@ export class AuthService {
       const authPermissions = await this.getAuthPermissions(invite.businessId)
 
       const business = await this.businessesRepo.findOne({ where: { id: invite.businessId } })
-      const nextStep = this.resolveBusinessNextStep(invite.role ?? BusinessMemberRole.CASHIER, business?.businessStatus ?? null)
+      const nextStep = this.resolveBusinessNextStep(
+        invite.role ?? BusinessMemberRole.CASHIER,
+        business?.businessStatus ?? null,
+      )
 
       return { nextStep, tokens, authPermissions }
     } catch (error) {
@@ -1246,21 +1394,19 @@ export class AuthService {
       const requester = await this.businessMembersRepo.findOne({
         where: { businessId, userId, status: BusinessMemberStatus.ACTIVE },
       })
-      if (!requester || (requester.role !== BusinessMemberRole.OWNER && requester.role !== BusinessMemberRole.MANAGER)) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+      if (
+        !requester ||
+        (requester.role !== BusinessMemberRole.OWNER &&
+          requester.role !== BusinessMemberRole.MANAGER)
+      ) {
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       const invite = await this.pendingInvitesRepo.findOne({
         where: { id: inviteId, businessId, acceptedAt: IsNull() },
       })
       if (!invite) {
-        throw new AppNotFoundException(
-          await this.i18n.translate('errors.not_found'),
-          'NOT_FOUND',
-        )
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
       }
 
       const newExpiry = new Date()
@@ -1293,21 +1439,19 @@ export class AuthService {
       const requester = await this.businessMembersRepo.findOne({
         where: { businessId, userId, status: BusinessMemberStatus.ACTIVE },
       })
-      if (!requester || (requester.role !== BusinessMemberRole.OWNER && requester.role !== BusinessMemberRole.MANAGER)) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+      if (
+        !requester ||
+        (requester.role !== BusinessMemberRole.OWNER &&
+          requester.role !== BusinessMemberRole.MANAGER)
+      ) {
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       const invite = await this.pendingInvitesRepo.findOne({
         where: { id: inviteId, businessId },
       })
       if (!invite) {
-        throw new AppNotFoundException(
-          await this.i18n.translate('errors.not_found'),
-          'NOT_FOUND',
-        )
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
       }
 
       await this.pendingInvitesRepo.delete(invite.id)
@@ -1389,7 +1533,7 @@ export class AuthService {
       channel,
       purpose,
       expiresAt,
-      code
+      code,
     })
 
     const record = this.verificationCodesRepo.create({
@@ -1532,7 +1676,10 @@ export class AuthService {
       VerificationPurpose.LOGIN,
     )
 
-    if (user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP && this.isWhatsAppConfigured()) {
+    if (
+      user.preferredPhoneChannel === PrefferedPhoneChannel.WHATSAPP &&
+      this.isWhatsAppConfigured()
+    ) {
       await this.assertWhatsAppContactExistsForOtp(user.phone!)
     }
     this.dispatchPhoneOtp(user, verification.code)
@@ -1695,12 +1842,12 @@ export class AuthService {
       isOffline: false,
       user: user
         ? {
-          id: user.id,
-          name: user.name ?? '',
-          email: user.email ?? payload.email ?? null,
-          phone: user.phone ?? payload.phone ?? null,
-          role: (payload.role as string | null) ?? null,
-        }
+            id: user.id,
+            name: user.name ?? '',
+            email: user.email ?? payload.email ?? null,
+            phone: user.phone ?? payload.phone ?? null,
+            role: (payload.role as string | null) ?? null,
+          }
         : null,
       businessId,
       businessName,

@@ -354,6 +354,7 @@ export interface DataClient {
     ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
+    void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
     sendReceipt: (
       saleId: string,
       channel: DocumentSendChannel,
@@ -444,6 +445,12 @@ export interface DataClient {
     login: (identifier: string, password: string) => Promise<AuthFlowResult>
     requestLogin: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     loginOtp: (identifier: string, code: string) => Promise<AuthFlowResult>
+    requestPasswordReset: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
+    resetPassword: (
+      identifier: string,
+      code: string,
+      newPassword: string,
+    ) => Promise<AuthFlowResult>
     verifyPhone: (phone: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     verifyEmail: (email: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
@@ -672,6 +679,7 @@ function electronAdapter(): DataClient {
       refunds: (query) => window.api.sales.refunds(query),
       grossProfit: (query) => window.api.sales.grossProfit(query),
       get: (id) => window.api.sales.get(id),
+      void: (saleId, reason) => window.api.sales.void(saleId, reason),
       sendReceipt: (saleId, channel, locale, opts) =>
         window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
@@ -756,6 +764,10 @@ function electronAdapter(): DataClient {
       login: (identifier, password) => window.api.auth.login(identifier, password),
       requestLogin: (identifier, channel) => window.api.auth.requestLogin(identifier, channel),
       loginOtp: (identifier, code) => window.api.auth.loginOtp(identifier, code),
+      requestPasswordReset: (identifier, channel) =>
+        window.api.auth.requestPasswordReset(identifier, channel),
+      resetPassword: (identifier, code, newPassword) =>
+        window.api.auth.resetPassword(identifier, code, newPassword),
       verifyPhone: (phone, code, inviteToken) =>
         window.api.auth.verifyPhone(phone, code, inviteToken),
       verifyEmail: (email, code, inviteToken) =>

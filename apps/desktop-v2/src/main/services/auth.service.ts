@@ -21,7 +21,13 @@ type ApiEnvelope<T> = { success?: boolean; data: T }
 interface AuthResponseData {
   nextStep?: string
   tokens?: { accessToken: string; refreshToken: string }
-  context?: { maskedPhone?: string; maskedEmail?: string; otpExpiresIn?: number; attemptsLeft?: number }
+  context?: {
+    maskedPhone?: string
+    maskedEmail?: string
+    verifyContact?: string
+    otpExpiresIn?: number
+    attemptsLeft?: number
+  }
 }
 
 const PUBLIC: RequestOptions = { headers: { 'x-skip-auth': '1', 'x-skip-auth-refresh': '1' } }
@@ -40,7 +46,10 @@ const EMPTY: SessionStatus = {
 // Maps phase + cached onboarding step to the AuthNextStep that drives routing.
 // Mirrors the backend's step resolution so a relaunched session lands on the
 // right screen (e.g. a phase2 owner mid-onboarding → setup_business, not dashboard).
-function deriveNextStep(phase: 'none' | 'phase1' | 'phase2', onboardingStep: string | null): string | null {
+function deriveNextStep(
+  phase: 'none' | 'phase1' | 'phase2',
+  onboardingStep: string | null,
+): string | null {
   if (phase === 'none') return null
   if (phase === 'phase1') return 'select_business'
   switch ((onboardingStep ?? '').toUpperCase()) {
@@ -85,7 +94,11 @@ export class AuthService {
 
   async login(identifier: string, password: string): Promise<AuthFlowResult> {
     try {
-      const data = await this.post<AuthResponseData>('/auth/login', { identifier, password }, PUBLIC)
+      const data = await this.post<AuthResponseData>(
+        '/auth/login',
+        { identifier, password },
+        PUBLIC,
+      )
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
         this.tokens.setPasswordHash(await bcrypt.hash(password, 10))
@@ -112,7 +125,11 @@ export class AuthService {
 
   async loginOtp(identifier: string, code: string): Promise<AuthFlowResult> {
     try {
-      const data = await this.post<AuthResponseData>('/auth/login-otp', { identifier, code }, PUBLIC)
+      const data = await this.post<AuthResponseData>(
+        '/auth/login-otp',
+        { identifier, code },
+        PUBLIC,
+      )
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
         this.applyTokens(data.tokens, false, data.nextStep)
@@ -123,12 +140,48 @@ export class AuthService {
     }
   }
 
+  async requestPasswordReset(identifier: string, channel?: OtpChannel): Promise<AuthFlowResult> {
+    try {
+      const body: Record<string, unknown> = { identifier }
+      if (channel === 'SMS' || channel === 'WHATSAPP') body.preferredOtpChannel = channel
+      const data = await this.post<AuthResponseData>('/auth/request-password-reset', body, PUBLIC)
+      return this.ok(data)
+    } catch (e) {
+      return this.fail(e)
+    }
+  }
+
+  async resetPassword(
+    identifier: string,
+    code: string,
+    newPassword: string,
+  ): Promise<AuthFlowResult> {
+    try {
+      const data = await this.post<AuthResponseData>(
+        '/auth/reset-password',
+        { identifier, code, newPassword },
+        PUBLIC,
+      )
+      return this.ok(data)
+    } catch (e) {
+      return this.fail(e)
+    }
+  }
+
   async verifyPhone(phone: string, code: string, inviteToken?: string): Promise<AuthFlowResult> {
-    return this.verify('/auth/verify-phone', { phone, code, ...(inviteToken ? { inviteToken } : {}) })
+    return this.verify('/auth/verify-phone', {
+      phone,
+      code,
+      ...(inviteToken ? { inviteToken } : {}),
+    })
   }
 
   async verifyEmail(email: string, code: string, inviteToken?: string): Promise<AuthFlowResult> {
-    return this.verify('/auth/verify-email', { email, code, ...(inviteToken ? { inviteToken } : {}) })
+    return this.verify('/auth/verify-email', {
+      email,
+      code,
+      ...(inviteToken ? { inviteToken } : {}),
+    })
   }
 
   private async verify(path: string, body: Record<string, unknown>): Promise<AuthFlowResult> {
@@ -171,7 +224,10 @@ export class AuthService {
    * expired/revoked/invalid token. No auth required. */
   async getInvitePreview(token: string): Promise<InvitePreviewResult> {
     try {
-      const preview = await this.get<InvitePreviewResponse>(`/invites/${encodeURIComponent(token)}`, PUBLIC)
+      const preview = await this.get<InvitePreviewResponse>(
+        `/invites/${encodeURIComponent(token)}`,
+        PUBLIC,
+      )
       return { ok: true, preview }
     } catch (e) {
       return { ok: false, error: this.errorText(e) }
@@ -182,7 +238,10 @@ export class AuthService {
    * phase-2 token for the joined business and refreshes the session. */
   async acceptInvite(token: string): Promise<AuthFlowResult> {
     try {
-      const data = await this.post<AuthResponseData>(`/invites/${encodeURIComponent(token)}/accept`, {})
+      const data = await this.post<AuthResponseData>(
+        `/invites/${encodeURIComponent(token)}/accept`,
+        {},
+      )
       if (data.tokens) {
         this.tokens.setTokens(data.tokens)
         this.applyTokens(data.tokens, false, data.nextStep)
@@ -225,7 +284,12 @@ export class AuthService {
           priceXAF: number
           priceAnnualXAF: number
           trialDays: number
-          quotas?: { products?: number | null; contacts?: number | null; categories?: number | null; users?: number | null }
+          quotas?: {
+            products?: number | null
+            contacts?: number | null
+            categories?: number | null
+            users?: number | null
+          }
           resources?: string[]
           additionalResources?: string[]
           inheritsFrom?: string | null
@@ -292,7 +356,9 @@ export class AuthService {
     try {
       const raw = await this.get<unknown>('/businesses/mine')
       const items = Array.isArray(raw) ? raw : []
-      const options = items.map((item) => this.toBusinessOption(item)).filter((o): o is BusinessOption => !!o)
+      const options = items
+        .map((item) => this.toBusinessOption(item))
+        .filter((o): o is BusinessOption => !!o)
       const userId = this.session.user?.id ?? this.tokens.getLastUserId()
       if (userId) this.cache.saveBusinesses(userId, options)
       return options
@@ -322,12 +388,15 @@ export class AuthService {
     const cb = businessId ? this.cache.getBusiness(businessId) : null
     const phase = businessId ? 'phase2' : 'phase1'
     // Prefer the last authoritative step from the API; derive only if none is stored.
-    const nextStep = this.tokens.getLastNextStep() || deriveNextStep(phase, cu?.onboardingStep ?? null)
+    const nextStep =
+      this.tokens.getLastNextStep() || deriveNextStep(phase, cu?.onboardingStep ?? null)
     this.session = {
       authenticated: !!businessId,
       phase,
       isOffline: true,
-      user: cu ? { id: cu.id, name: cu.name ?? '', email: cu.email, phone: cu.phone, role: cu.role } : null,
+      user: cu
+        ? { id: cu.id, name: cu.name ?? '', email: cu.email, phone: cu.phone, role: cu.role }
+        : null,
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
@@ -364,7 +433,11 @@ export class AuthService {
    * offline, where no fresh API answer exists. The authoritative value is persisted
    * so the next cold start restores it instead of re-guessing.
    */
-  private applyTokens(tokens: StoredTokens, offline: boolean, authoritativeNextStep?: string | null): void {
+  private applyTokens(
+    tokens: StoredTokens,
+    offline: boolean,
+    authoritativeNextStep?: string | null,
+  ): void {
     const payload = decodeJwt(tokens.accessToken)
     if (!payload?.sub) {
       this.session = EMPTY
@@ -425,7 +498,9 @@ export class AuthService {
 
   private async ensureSyncToken(): Promise<void> {
     try {
-      const data = await this.post<{ syncToken?: string }>('/sync/token', { deviceId: this.deviceId })
+      const data = await this.post<{ syncToken?: string }>('/sync/token', {
+        deviceId: this.deviceId,
+      })
       if (data.syncToken) this.tokens.setSyncCredential(data.syncToken)
     } catch {
       // Sync token is best-effort here; the sync engine milestone will own retries.
@@ -466,6 +541,7 @@ export class AuthService {
         ? {
             maskedPhone: data.context.maskedPhone,
             maskedEmail: data.context.maskedEmail,
+            verifyContact: data.context.verifyContact,
             otpExpiresIn: data.context.otpExpiresIn,
             attemptsLeft: data.context.attemptsLeft,
           }
@@ -475,14 +551,33 @@ export class AuthService {
   }
 
   private errorText(e: unknown): string {
-    if (e instanceof HttpError) {
-      return (e.response?.data as { message?: string } | undefined)?.message ?? e.message
+    const generic = 'Something went wrong. Please try again.'
+    const apiMessage =
+      e instanceof HttpError
+        ? (e.response?.data as { message?: string } | undefined)?.message
+        : undefined
+    if (apiMessage) return apiMessage
+    const raw = e instanceof Error ? e.message : ''
+    // A raw transport failure (undici "fetch failed", ECONN*, socket hang up, aborted) isn't an
+    // API message — surface a friendly generic instead of the low-level string.
+    if (
+      !raw ||
+      /failed to fetch|fetch failed|networkerror|network request failed|econnrefused|econnreset|enotfound|etimedout|socket hang up|terminated|aborted/i.test(
+        raw,
+      )
+    ) {
+      return generic
     }
-    if (e instanceof Error) return e.message
-    return 'Something went wrong. Please try again.'
+    return raw
   }
 
   private fail(e: unknown): AuthFlowResult {
-    return { ok: false, nextStep: null, session: this.session, context: null, error: this.errorText(e) }
+    return {
+      ok: false,
+      nextStep: null,
+      session: this.session,
+      context: null,
+      error: this.errorText(e),
+    }
   }
 }

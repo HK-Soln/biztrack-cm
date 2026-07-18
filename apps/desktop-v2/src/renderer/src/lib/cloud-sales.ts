@@ -269,6 +269,15 @@ export const cloudSales = {
       return null
     }
   },
+  // Void a completed sale — the API reverses stock/serials/deposit/debt server-side.
+  void: async (saleId: string, reason: string): Promise<LocalSaleDetail> => {
+    const s = await cpost<ApiSaleDetail>(`/sales/${saleId}/void`, { reason })
+    return {
+      ...toLocalSale(s),
+      items: (s.items ?? []).map(toLocalSaleItem),
+      payments: (s.payments ?? []).map(toLocalSalePayment),
+    }
+  },
   // Render the receipt server-side payload + dispatch via the API (email/WhatsApp).
   sendReceipt: async (
     saleId: string,

@@ -217,5 +217,24 @@
     "subjectOther": "Autre",
     "emptyTitle": "Coordonnées bientôt disponibles",
     "emptyDesc": "Cette boutique n'a pas encore ajouté ses coordonnées."
+  },
+  "notFound": {
+    "title": "Cette page est introuvable",
+    "body": "Le produit ou la page que vous cherchez a peut-être été déplacé, épuisé ou n'existe plus. Vérifiez l'adresse ou reprenez vos achats.",
+    "searchPlaceholder": "Rechercher un produit…",
+    "search": "Rechercher",
+    "home": "Retour à l'accueil",
+    "shop": "Voir la boutique",
+    "popular": "Rayons populaires"
+  },
+  "error": {
+    "code": "Erreur {status}",
+    "title": "Oups, un problème est survenu",
+    "body": "Notre boutique rencontre une difficulté technique passagère. Ce n'est pas de votre faute — réessayez dans un instant, votre panier est bien conservé.",
+    "retry": "Réessayer",
+    "home": "Retour à l'accueil",
+    "persists": "Le problème persiste ?",
+    "contact": "Contactez la boutique",
+    "reference": "Référence de l'erreur :"
   }
 }

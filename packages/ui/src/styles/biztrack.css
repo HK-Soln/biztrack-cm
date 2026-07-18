@@ -863,6 +863,10 @@ body {
 .content {
   padding: 24px;
   flex: 1;
+  /* Flex items default to min-width:auto, which lets wide content (e.g. the Sell
+     catalog+ticket grid) push this region past the viewport and shove the cart
+     off-screen. Allow it to shrink within the shell row instead. */
+  min-width: 0;
 }
 .frame {
   max-width: 1180px;
@@ -2559,6 +2563,7 @@ body {
 .cat-row .nm {
   font-size: 13.5px;
   font-weight: 600;
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2636,6 +2641,8 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
+  color: var(--text);
+  font: inherit;
   cursor: pointer;
   transition:
     border-color 0.12s,
@@ -2666,6 +2673,7 @@ body {
 .catprod-row .nm {
   font-size: 13px;
   font-weight: 600;
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2807,6 +2815,8 @@ body {
   font-size: 15px;
   background: var(--surface-2);
   color: var(--text-2);
+  /* Clip logos to the rounded box — a square image otherwise pokes its corners out. */
+  overflow: hidden;
 }
 .slist .it .ic.sw {
   background: color-mix(in srgb, var(--brand-int) 16%, transparent);
@@ -2819,6 +2829,7 @@ body {
 .slist .it .nm {
   font-size: 13.5px;
   font-weight: 600;
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2863,6 +2874,24 @@ body {
   align-items: center;
   gap: 13px;
 }
+/* The action buttons keep their size; only the title column gives way. Without this a long
+   name squeezes the buttons instead of wrapping. */
+.mddetail .dhero-in > button {
+  flex-shrink: 0;
+}
+/* Cap the title at two lines. `anywhere` matters as much as the clamp: a single long
+   unbroken name has nowhere to wrap and would otherwise run under the buttons.
+   `.cat-detail` builds the same hero from inline styles rather than .dhero-in, so it needs
+   naming here explicitly — it is the same title, not a second pattern. */
+.mddetail .dhero-in h1,
+.cat-detail h1 {
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
 .mddetail .dhero-in .av {
   flex-shrink: 0;
   width: 48px;
@@ -2873,6 +2902,8 @@ body {
   font-size: 20px;
   background: var(--surface-2);
   color: var(--text-2);
+  /* Clip logos to the rounded box — a square image otherwise pokes its corners out. */
+  overflow: hidden;
 }
 .mddetail .dhero-in .av.sw {
   background: color-mix(in srgb, var(--brand-int) 16%, transparent);
@@ -2945,8 +2976,12 @@ body {
 }
 .opt-edit .ov {
   flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .opt-edit button.ov {
   background: none;
@@ -6125,6 +6160,9 @@ textarea.input {
   color: var(--text-2);
   flex-shrink: 0;
   border: 1px solid var(--border);
+  /* Clip logos to the rounded box. `.th img` sets no radius of its own, so without this a
+     square logo's corners sit visibly outside the border. */
+  overflow: hidden;
 }
 .m-content .mrow .th.brand {
   background: var(--brand-soft);
@@ -6774,6 +6812,45 @@ textarea.input {
   min-width: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+.m-content .sh-qty .qi {
+  width: 46px;
+  height: 30px;
+  padding: 0 4px;
+  text-align: center;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  -moz-appearance: textfield;
+}
+.m-content .sh-qty .qi:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.m-content .sh-qty.serial button {
+  color: var(--text-2);
+}
+.m-content .sh-qty.serial .del:active {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.m-content .sh-qty .qi::-webkit-outer-spin-button,
+.m-content .sh-qty .qi::-webkit-inner-spin-button,
+.tl-row .qty .qi::-webkit-outer-spin-button,
+.tl-row .qty .qi::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.m-content .sh-qty button svg,
+.tl-row .qty button svg {
+  width: 15px;
+  height: 15px;
 }
 .m-content .sh-tot {
   margin-top: 16px;
@@ -7996,15 +8073,28 @@ textarea.input {
   height: 100%;
   object-fit: cover;
 }
+.cell > div {
+  min-width: 0;
+}
 .cell .nm {
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.2;
+  display: block;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cell .sub {
   font-size: 11.5px;
   color: var(--text-muted);
   margin-top: 2px;
+  display: block;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .num {
   font-variant-numeric: tabular-nums;
@@ -8453,6 +8543,9 @@ textarea.input {
 }
 .pos > div {
   min-height: 0;
+  /* Grid tracks default to min-width:auto; without this the 1fr catalog column
+     refuses to shrink below its content and pushes the ticket column off-screen. */
+  min-width: 0;
 }
 .pos > div:first-child {
   display: flex;
@@ -8730,6 +8823,27 @@ textarea.input {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+/* Direct quantity entry — type the amount instead of clicking + repeatedly. */
+.tl-row .qty .qi {
+  width: 40px;
+  height: 24px;
+  padding: 0 4px;
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  -moz-appearance: textfield;
+}
+.tl-row .qty .qi:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
 .tl-row .lt {
   min-width: 64px;
   text-align: right;
@@ -8789,10 +8903,71 @@ textarea.input {
 }
 .charge-line {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  flex-direction: column;
+  gap: 8px;
   padding: 9px 0;
   border-top: 1px dashed var(--border);
+}
+.charge-line .cl-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+/* Value controls align under the name (past the leading icon). */
+.charge-line .cl-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 37px;
+}
+/* Segmented %/amount toggle. */
+.charge-line .cmode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.charge-line .cmode button {
+  border: 0;
+  background: var(--inset);
+  color: var(--text-2);
+  height: 30px;
+  min-width: 36px;
+  padding: 0 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.charge-line .cmode button + button {
+  border-left: 1px solid var(--border);
+}
+.charge-line .cmode button.on {
+  background: var(--brand);
+  color: #fff;
+}
+/* Editable custom-charge name. */
+.charge-line .cl-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0 10px;
+  outline: none;
+}
+.charge-line .cl-input:focus {
+  border-color: var(--brand);
+}
+.charge-line .cl-input.invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
 }
 .charge-line .ci {
   width: 28px;
@@ -8817,6 +8992,9 @@ textarea.input {
   min-width: 0;
   font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .charge-line .cinp {
   display: inline-flex;
@@ -9009,6 +9187,13 @@ textarea.input {
 .charge {
   padding: 0 16px 16px;
   flex-shrink: 0;
+}
+.charge .charge-err {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-align: center;
 }
 .charge > button {
   width: 100%;
@@ -9432,6 +9617,9 @@ textarea.input {
 .pm-cust .t .nm {
   font-size: 13.5px;
   font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pm-cust .t .s {
   font-size: 11.5px;
@@ -9493,6 +9681,9 @@ textarea.input {
 .cust-list .t .nm {
   font-size: 13.5px;
   font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cust-list .t .s {
   font-size: 11.5px;
@@ -10163,6 +10354,14 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Bound the row so a long product/customer name ellipsizes instead of stretching its column
+     and squeezing every other one. Matches the 260px used by .saletable td.trunc. */
+  max-width: 260px;
+}
+/* The text column — everything but the fixed-size thumb — must be allowed to shrink, or the
+   ellipsis below never triggers: a flex item's min-width is auto, not 0. */
+.ord-cust > div:not(.av) {
+  min-width: 0;
 }
 .ord-cust .av {
   width: 34px;
@@ -10180,11 +10379,17 @@ textarea.input {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ord-cust .sub {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .deliv {
   display: inline-flex;
@@ -10401,7 +10606,9 @@ textarea.input {
 }
 .drawer-b {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 18px;
 }
 .drawer-f {
@@ -10409,6 +10616,46 @@ textarea.input {
   gap: 8px;
   padding: 14px 18px;
   border-top: 1px solid var(--border);
+}
+/* Void sale — subdued danger action in the sale detail drawer. */
+.void-btn {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  padding: 10px;
+  border-radius: 11px;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.void-btn:hover {
+  background: var(--danger-soft);
+}
+.void-reason {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 11px;
+  outline: none;
+  resize: vertical;
+  min-height: 66px;
+}
+.void-reason:focus {
+  border-color: var(--brand);
+}
+.void-hint {
+  min-height: 15px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 .od-status {
   display: flex;
@@ -11612,6 +11859,12 @@ textarea.input {
   border-bottom: 1px solid var(--border);
   color: var(--text);
 }
+.saletable td.trunc {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .saletable td.mono {
   color: var(--brand-int);
   font-weight: 550;
@@ -12527,8 +12780,14 @@ textarea.input {
   background: var(--canvas);
   display: flex;
   flex-direction: column;
+  /* The overlay covers the window's native title-bar strip (Window Controls Overlay), which is
+     draggable and otherwise swallows hover/pointer events over the toolbar's non-button areas —
+     so the title/gaps wouldn't reveal the exit X. Opt the whole overlay out of the drag region.
+     (Inherited, so it also frees the bar background; harmless in the browser/cloud build.) */
+  -webkit-app-region: no-drag;
 }
 .rv-fs-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -12536,6 +12795,12 @@ textarea.input {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+/* Desktop app only: the in-app fullscreen overlay sits under the native window caption buttons
+   (minimize/maximize/close), which the OS paints over the top-right corner. Reserve that band so
+   the export/exit actions never sit beneath them (an accidental click there closes the app). */
+.rv-fs.desktop .rv-fs-bar {
+  padding-right: 152px;
 }
 .rv-fs-title {
   font-size: 14px;
@@ -12551,6 +12816,46 @@ textarea.input {
   gap: 8px;
   flex-wrap: wrap;
   flex-shrink: 0;
+}
+/* Centered big X — hidden until the pointer is over the header (or it's focused), then revealed
+   so users who don't know F11/Esc have an obvious way out of fullscreen. */
+.rv-fs-exit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.14s,
+    color 0.12s,
+    border-color 0.12s,
+    background 0.12s;
+}
+/* Reveal while the pointer is anywhere over the toolbar/header section (report name + actions).
+   The X is a child of that bar, centered over it. */
+.rv-fs-bar:hover .rv-fs-exit,
+.rv-fs-exit:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.rv-fs-exit:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.rv-fs-exit svg {
+  width: 18px;
+  height: 18px;
 }
 .rv-fs-body {
   flex: 1;

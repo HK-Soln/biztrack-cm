@@ -101,10 +101,32 @@ export function Products() {
 
   const statusPill = (p: LocalProduct) => {
     const s = stockState(p)
-    if (s === 'out') return <span className="st st-out"><span className="d" />{t('prod.stockOut')}</span>
-    if (s === 'low') return <span className="st st-low"><span className="d" />{t('prod.stockLow')}</span>
-    if (s === 'in') return <span className="st st-ok"><span className="d" />{t('prod.stockIn')}</span>
-    return p.isActive ? <span className="st st-brand">{t('prod.active')}</span> : <span className="st st-neutral">{t('prod.inactive')}</span>
+    if (s === 'out')
+      return (
+        <span className="st st-out">
+          <span className="d" />
+          {t('prod.stockOut')}
+        </span>
+      )
+    if (s === 'low')
+      return (
+        <span className="st st-low">
+          <span className="d" />
+          {t('prod.stockLow')}
+        </span>
+      )
+    if (s === 'in')
+      return (
+        <span className="st st-ok">
+          <span className="d" />
+          {t('prod.stockIn')}
+        </span>
+      )
+    return p.isActive ? (
+      <span className="st st-brand">{t('prod.active')}</span>
+    ) : (
+      <span className="st st-neutral">{t('prod.inactive')}</span>
+    )
   }
   const stockCell = (p: LocalProduct) => (p.trackInventory ? String(p.currentStock) : '—')
 
@@ -116,7 +138,11 @@ export function Products() {
           <path d="M14 6l4 4" />
         </svg>
       </button>
-      <button title={t('prod.delete')} onClick={() => setDeleteTarget(p)} style={{ color: 'var(--danger)' }}>
+      <button
+        title={t('prod.delete')}
+        onClick={() => setDeleteTarget(p)}
+        style={{ color: 'var(--danger)' }}
+      >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
         </svg>
@@ -126,9 +152,13 @@ export function Products() {
 
   const productCell = (p: LocalProduct) => (
     <div className="cell">
-      <span className="th">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}</span>
+      <span className="th">
+        {p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}
+      </span>
       <div>
-        <div className="nm">{p.name}</div>
+        <div className="nm" title={p.name}>
+          {p.name}
+        </div>
         <div className="sub">{p.sku ? `SKU · ${p.sku}` : t('prod.noSku')}</div>
       </div>
     </div>
@@ -141,8 +171,20 @@ export function Products() {
       header: t('prod.colCategory'),
       render: (p) => (p.categoryName ? <span className="chip-tag">{p.categoryName}</span> : '—'),
     },
-    { key: 'cost', header: t('prod.colCost'), align: 'right', tdClassName: 'num', render: (p) => (p.effectiveCostPrice != null ? money.format(p.effectiveCostPrice) : '—') },
-    { key: 'price', header: t('prod.colPrice'), align: 'right', tdClassName: 'num', render: (p) => money.format(p.effectiveSellingPrice) },
+    {
+      key: 'cost',
+      header: t('prod.colCost'),
+      align: 'right',
+      tdClassName: 'num',
+      render: (p) => (p.effectiveCostPrice != null ? money.format(p.effectiveCostPrice) : '—'),
+    },
+    {
+      key: 'price',
+      header: t('prod.colPrice'),
+      align: 'right',
+      tdClassName: 'num',
+      render: (p) => money.format(p.effectiveSellingPrice),
+    },
     {
       key: 'margin',
       header: t('prod.colMargin'),
@@ -153,7 +195,13 @@ export function Products() {
         return <span style={m.good ? { color: 'var(--success)' } : undefined}>{m.text}</span>
       },
     },
-    { key: 'stock', header: t('prod.colStock'), align: 'right', tdClassName: 'num', render: stockCell },
+    {
+      key: 'stock',
+      header: t('prod.colStock'),
+      align: 'right',
+      tdClassName: 'num',
+      render: stockCell,
+    },
     { key: 'status', header: t('prod.colStatus'), render: statusPill },
     { key: 'actions', header: t('prod.colActions'), align: 'right', render: actions },
   ]
@@ -178,24 +226,42 @@ export function Products() {
           <div className="flt-pop" role="dialog">
             <div className="ff">
               <label className="lbl2">{t('prod.colBrand')}</label>
-              <Select value={brandId} onChange={(e) => { setBrandId(e.target.value); setPage(1) }}>
+              <Select
+                value={brandId}
+                onChange={(e) => {
+                  setBrandId(e.target.value)
+                  setPage(1)
+                }}
+              >
                 <option value="">{t('prod.allBrands')}</option>
                 {(brandPage?.data ?? []).map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
                 ))}
               </Select>
             </div>
             <div className="ff">
               <label className="lbl2">{t('prod.colStatus')}</label>
-              <Select value={status} onChange={(e) => { setStatus(e.target.value as StatusFilter); setPage(1) }}>
+              <Select
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value as StatusFilter)
+                  setPage(1)
+                }}
+              >
                 <option value="all">{t('prod.statusAll')}</option>
                 <option value="active">{t('prod.active')}</option>
                 <option value="inactive">{t('prod.inactive')}</option>
               </Select>
             </div>
             <div className="flt-foot">
-              <button type="button" className="flt-clear" onClick={resetMore}>{t('prod.clearFilters')}</button>
-              <Button variant="soft" onClick={() => setFiltersOpen(false)}>{t('prod.done')}</Button>
+              <button type="button" className="flt-clear" onClick={resetMore}>
+                {t('prod.clearFilters')}
+              </button>
+              <Button variant="soft" onClick={() => setFiltersOpen(false)}>
+                {t('prod.done')}
+              </Button>
             </div>
           </div>
         </>
@@ -207,10 +273,33 @@ export function Products() {
   if (bp === 'mobile') {
     const mPill = (p: LocalProduct) => {
       const s = stockState(p)
-      if (s === 'out') return <span className="mst mst-out"><span className="d" />{t('prod.stockOut')}</span>
-      if (s === 'low') return <span className="mst mst-low"><span className="d" />{t('prod.stockLow')}</span>
-      if (s === 'in') return <span className="mst mst-ok"><span className="d" />{t('prod.stockIn')}</span>
-      return <span className="mst mst-neutral"><span className="d" />{p.isActive ? t('prod.active') : t('prod.inactive')}</span>
+      if (s === 'out')
+        return (
+          <span className="mst mst-out">
+            <span className="d" />
+            {t('prod.stockOut')}
+          </span>
+        )
+      if (s === 'low')
+        return (
+          <span className="mst mst-low">
+            <span className="d" />
+            {t('prod.stockLow')}
+          </span>
+        )
+      if (s === 'in')
+        return (
+          <span className="mst mst-ok">
+            <span className="d" />
+            {t('prod.stockIn')}
+          </span>
+        )
+      return (
+        <span className="mst mst-neutral">
+          <span className="d" />
+          {p.isActive ? t('prod.active') : t('prod.inactive')}
+        </span>
+      )
     }
     return (
       <>
@@ -219,7 +308,9 @@ export function Products() {
             <div className="m-title">{t('prod.title')}</div>
             <div className="m-sub">
               {stats
-                ? t('prod.subtitleStats').replace('{n}', String(stats.totalSkus)).replace('{c}', String(stats.categories))
+                ? t('prod.subtitleStats')
+                    .replace('{n}', String(stats.totalSkus))
+                    .replace('{c}', String(stats.categories))
                 : t('prod.subtitle')}
             </div>
           </div>
@@ -227,51 +318,131 @@ export function Products() {
         </header>
 
         <div className="msearch" style={{ marginBottom: 13 }}>
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="9" cy="9" r="6" /><path d="m14 14 3 3" /></svg>
-          <input value={search} placeholder={t('prod.search')} onChange={(e) => setSearch(e.target.value)} />
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+            <circle cx="9" cy="9" r="6" />
+            <path d="m14 14 3 3" />
+          </svg>
+          <input
+            value={search}
+            placeholder={t('prod.search')}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
 
         <div className="mchips" style={{ marginBottom: 16 }}>
-          <button type="button" className={`mchip${categoryId === '' && stockStatus === 'all' ? ' active' : ''}`} onClick={() => { setCategoryId(''); setStockStatus('all'); setPage(1) }}>{t('prod.allCategories')}</button>
-          <button type="button" className={`mchip${stockStatus === 'low' ? ' active' : ''}`} onClick={() => { setStockStatus(stockStatus === 'low' ? 'all' : 'low'); setPage(1) }}>{t('prod.stockLow')}</button>
+          <button
+            type="button"
+            className={`mchip${categoryId === '' && stockStatus === 'all' ? ' active' : ''}`}
+            onClick={() => {
+              setCategoryId('')
+              setStockStatus('all')
+              setPage(1)
+            }}
+          >
+            {t('prod.allCategories')}
+          </button>
+          <button
+            type="button"
+            className={`mchip${stockStatus === 'low' ? ' active' : ''}`}
+            onClick={() => {
+              setStockStatus(stockStatus === 'low' ? 'all' : 'low')
+              setPage(1)
+            }}
+          >
+            {t('prod.stockLow')}
+          </button>
           {categories.map((c) => (
-            <button key={c.id} type="button" className={`mchip${categoryId === c.id ? ' active' : ''}`} onClick={() => { setCategoryId(categoryId === c.id ? '' : c.id); setPage(1) }}>{c.name}</button>
+            <button
+              key={c.id}
+              type="button"
+              className={`mchip${categoryId === c.id ? ' active' : ''}`}
+              onClick={() => {
+                setCategoryId(categoryId === c.id ? '' : c.id)
+                setPage(1)
+              }}
+            >
+              {c.name}
+            </button>
           ))}
         </div>
 
         <div className="mlist">
           {products.map((p) => (
             <button key={p.id} type="button" className="mrow" onClick={() => openDetail(p.id)}>
-              <div className="th">{p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}</div>
+              <div className="th">
+                {p.imageUrl ? <img src={p.imageUrl} alt="" /> : p.name.slice(0, 2).toUpperCase()}
+              </div>
               <div className="mt">
                 <div className="nm">{p.name}</div>
-                <div className="sub">{p.sku ? p.sku : t('prod.noSku')}{p.categoryName ? ` · ${p.categoryName}` : ''}</div>
+                <div className="sub">
+                  {p.sku ? p.sku : t('prod.noSku')}
+                  {p.categoryName ? ` · ${p.categoryName}` : ''}
+                </div>
               </div>
               <div className="rt">
                 <div className="v">{money.format(p.effectiveSellingPrice)}</div>
                 <div className="s">{mPill(p)}</div>
               </div>
-              <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+              <svg
+                className="chev"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path d="m9 6 6 6-6 6" />
+              </svg>
             </button>
           ))}
           {!isPending && products.length === 0 ? (
-            <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('prod.empty')}</div></div></div>
+            <div className="mrow" style={{ cursor: 'default' }}>
+              <div className="mt">
+                <div className="sub">{t('prod.empty')}</div>
+              </div>
+            </div>
           ) : null}
           {isPending && products.length === 0 ? (
-            <div className="mrow" style={{ cursor: 'default' }}><div className="mt"><div className="sub">{t('prod.loading')}</div></div></div>
+            <div className="mrow" style={{ cursor: 'default' }}>
+              <div className="mt">
+                <div className="sub">{t('prod.loading')}</div>
+              </div>
+            </div>
           ) : null}
         </div>
 
         {totalPages > 1 ? (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
-            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page <= 1} onClick={() => setPage(page - 1)}>{t('common.prev')}</button>
-            <button type="button" className="mbtn" style={{ width: 'auto', padding: '0 18px' }} disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{t('common.next')}</button>
+            <button
+              type="button"
+              className="mbtn"
+              style={{ width: 'auto', padding: '0 18px' }}
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              {t('common.prev')}
+            </button>
+            <button
+              type="button"
+              className="mbtn"
+              style={{ width: 'auto', padding: '0 18px' }}
+              disabled={page >= totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              {t('common.next')}
+            </button>
           </div>
         ) : null}
 
         <div style={{ height: 76 }} />
-        <button type="button" className="mfab" onClick={() => navigate('/products/new')} aria-label={t('prod.new')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>
+        <button
+          type="button"
+          className="mfab"
+          onClick={() => navigate('/products/new')}
+          aria-label={t('prod.new')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
         </button>
       </>
     )
@@ -284,7 +455,9 @@ export function Products() {
           <h1>{t('prod.title')}</h1>
           <p>
             {stats
-              ? t('prod.subtitleStats').replace('{n}', String(stats.totalSkus)).replace('{c}', String(stats.categories))
+              ? t('prod.subtitleStats')
+                  .replace('{n}', String(stats.totalSkus))
+                  .replace('{c}', String(stats.categories))
               : t('prod.subtitle')}
           </p>
         </div>
@@ -310,17 +483,23 @@ export function Products() {
         <div className="m">
           <div className="k">{t('prod.kpiCatalog')}</div>
           <div className="v">{stats ? money.compact(stats.catalogValueCost) : '—'}</div>
-          <div className="h">{t('prod.kpiCatalogHint').replace('{n}', String(stats?.totalSkus ?? 0))}</div>
+          <div className="h">
+            {t('prod.kpiCatalogHint').replace('{n}', String(stats?.totalSkus ?? 0))}
+          </div>
         </div>
         <div className="m">
           <div className="k">{t('prod.kpiRetail')}</div>
           <div className="v">{stats ? money.compact(stats.retailValue) : '—'}</div>
-          <div className="h">{t('prod.kpiRetailHint').replace('{p}', (stats?.blendedMarginPct ?? 0).toFixed(1))}</div>
+          <div className="h">
+            {t('prod.kpiRetailHint').replace('{p}', (stats?.blendedMarginPct ?? 0).toFixed(1))}
+          </div>
         </div>
         <div className="m">
           <div className="k">
             {t('prod.kpiLow')}
-            {stats && stats.lowStock > 0 ? <span className="badge b-warn">{stats.lowStock}</span> : null}
+            {stats && stats.lowStock > 0 ? (
+              <span className="badge b-warn">{stats.lowStock}</span>
+            ) : null}
           </div>
           <div className="v">{stats?.lowStock ?? 0}</div>
           <div className="h">{t('prod.kpiLowHint')}</div>
@@ -328,7 +507,9 @@ export function Products() {
         <div className="m">
           <div className="k">
             {t('prod.kpiOut')}
-            {stats && stats.outOfStock > 0 ? <span className="badge b-down">{stats.outOfStock}</span> : null}
+            {stats && stats.outOfStock > 0 ? (
+              <span className="badge b-down">{stats.outOfStock}</span>
+            ) : null}
           </div>
           <div className="v">{stats?.outOfStock ?? 0}</div>
           <div className="h">{t('prod.kpiOutHint')}</div>
@@ -341,7 +522,12 @@ export function Products() {
             <circle cx="9" cy="9" r="6" />
             <path d="m14 14 3 3" />
           </svg>
-          <Input className="ic" value={search} placeholder={t('prod.search')} onChange={(e) => setSearch(e.target.value)} />
+          <Input
+            className="ic"
+            value={search}
+            placeholder={t('prod.search')}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         <Select
           value={categoryId}
@@ -400,7 +586,11 @@ export function Products() {
         title={t('prod.deleteTitle')}
         footer={
           <>
-            <Button variant="soft" onClick={() => setDeleteTarget(null)} disabled={removeM.isPending}>
+            <Button
+              variant="soft"
+              onClick={() => setDeleteTarget(null)}
+              disabled={removeM.isPending}
+            >
               {t('prod.cancel')}
             </Button>
             <Button

@@ -34,7 +34,11 @@ function initials(name?: string | null): string {
 function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   const t = useT()
   return (
-    <NavLink to={to} end={to === '/'} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+    <NavLink
+      to={to}
+      end={to === '/'}
+      className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+    >
       {icon ? Icon[icon] : <span style={{ width: 16 }} />}
       <span className="lab">{t(label)}</span>
       {badge ? <span className="badge-a">{t(badge)}</span> : null}
@@ -42,10 +46,18 @@ function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   )
 }
 
-function NavGroup({ entry, rail }: { entry: Extract<NavEntry, { children: unknown }>; rail?: boolean }) {
+function NavGroup({
+  entry,
+  rail,
+}: {
+  entry: Extract<NavEntry, { children: unknown }>
+  rail?: boolean
+}) {
   const t = useT()
   const { pathname } = useLocation()
-  const hasActiveChild = entry.children.some((c) => pathname === c.to || pathname.startsWith(c.to + '/'))
+  const hasActiveChild = entry.children.some(
+    (c) => pathname === c.to || pathname.startsWith(c.to + '/'),
+  )
   const [open, setOpen] = useState(hasActiveChild)
   // Icon-rail flyout: children are hidden in the rail, so a click opens a fixed popover
   // (fixed so it escapes the .nav overflow clip) listing the child links with labels.
@@ -64,7 +76,9 @@ function NavGroup({ entry, rail }: { entry: Extract<NavEntry, { children: unknow
       if (btnRef.current?.contains(n) || popRef.current?.contains(n)) return
       setPos(null)
     }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPos(null) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPos(null)
+    }
     const onScroll = () => setPos(null)
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
@@ -86,7 +100,10 @@ function NavGroup({ entry, rail }: { entry: Extract<NavEntry, { children: unknow
           title={t(entry.label)}
           aria-label={t(entry.label)}
           onClick={() => {
-            if (pos) { setPos(null); return }
+            if (pos) {
+              setPos(null)
+              return
+            }
             const r = btnRef.current?.getBoundingClientRect()
             if (r) setPos({ top: r.top, left: r.right + 6 })
           }}
@@ -95,7 +112,12 @@ function NavGroup({ entry, rail }: { entry: Extract<NavEntry, { children: unknow
           <span className="lab">{t(entry.label)}</span>
         </button>
         {pos ? (
-          <div ref={popRef} className="nav-flyout" role="menu" style={{ top: pos.top, left: pos.left }}>
+          <div
+            ref={popRef}
+            className="nav-flyout"
+            role="menu"
+            style={{ top: pos.top, left: pos.left }}
+          >
             <div className="nav-flyout-h">{t(entry.label)}</div>
             {entry.children.map((c) => (
               <NavLink
@@ -121,7 +143,13 @@ function NavGroup({ entry, rail }: { entry: Extract<NavEntry, { children: unknow
       <button type="button" className="nav-item" onClick={() => setOpen((o) => !o)}>
         {Icon[entry.icon]}
         <span className="lab">{t(entry.label)}</span>
-        <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+        <svg
+          className="chev"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.4}
+        >
           <path d="m9 6 6 6-6 6" />
         </svg>
       </button>
@@ -210,7 +238,9 @@ function UserMenu() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
-  const roleLabel = user?.role ? t(ROLE_LABEL[user.role.toUpperCase()] ?? 'selectBiz.role.member') : null
+  const roleLabel = user?.role
+    ? t(ROLE_LABEL[user.role.toUpperCase()] ?? 'selectBiz.role.member')
+    : null
   const secondary = roleLabel ? `${roleLabel} · ${businessName ?? ''}` : (businessName ?? '')
   const contact = user?.email || user?.phone || ''
 
@@ -226,14 +256,24 @@ function UserMenu() {
             </span>
           </div>
           {businessName ? <div className="sb-menu-biz">{businessName}</div> : null}
-          <NavLink to="/profile" className="sb-menu-item" role="menuitem" onClick={() => setOpen(false)}>
+          <NavLink
+            to="/profile"
+            className="sb-menu-item"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <circle cx="12" cy="8" r="4" />
               <path d="M4 21a8 8 0 0 1 16 0" />
             </svg>
             {t('usermenu.profile')}
           </NavLink>
-          <button type="button" className="sb-menu-item danger" role="menuitem" onClick={() => void logout()}>
+          <button
+            type="button"
+            className="sb-menu-item danger"
+            role="menuitem"
+            onClick={() => void logout()}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <path d="m16 17 5-5-5-5M21 12H9" />
@@ -257,7 +297,13 @@ function UserMenu() {
             {secondary}
           </span>
         </span>
-        <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+        <svg
+          className="chev"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.2}
+        >
           <path d="m6 9 6 6 6-6" />
         </svg>
       </button>
@@ -330,7 +376,10 @@ function TopBar() {
       ? `${t('sync.syncing')}…`
       : `${t('top.lastSyncLabel')} ${relativeSync(sync.lastSyncedAt, now, t)}`
   return (
-    <header className="topbar app-drag" style={isWindows && isElectron ? { paddingRight: 138 } : undefined}>
+    <header
+      className="topbar app-drag"
+      style={isWindows && isElectron ? { paddingRight: 138 } : undefined}
+    >
       <button type="button" className="biz app-no-drag">
         <span className="biz-tile">{initials(businessName)}</span>
         <span>
@@ -340,9 +389,7 @@ function TopBar() {
       </button>
       <PlanChip now={now} />
       <div className="tb-right">
-        {
-          isElectron  && <SyncIndicator />
-        }
+        {isElectron && <SyncIndicator />}
         <NotificationBell />
         <LanguageToggle />
         <ModeToggle />
@@ -376,7 +423,9 @@ function PlanChip({ now }: { now: number }) {
       {sub.plan} {t('top.plan')}
       {showExp ? (
         <span className={`tb-exp${daysLeft <= 7 ? ' danger' : ''}`}>
-          {daysLeft <= 0 ? t('top.expired') : t('top.expiresInDays').replace('{n}', String(daysLeft))}
+          {daysLeft <= 0
+            ? t('top.expired')
+            : t('top.expiresInDays').replace('{n}', String(daysLeft))}
         </span>
       ) : null}
     </span>
@@ -393,7 +442,10 @@ function SyncIndicator() {
 
   useEffect(() => {
     if (cooldownUntil == null) return
-    const id = window.setTimeout(() => setCooldownUntil(null), Math.max(0, cooldownUntil - Date.now()))
+    const id = window.setTimeout(
+      () => setCooldownUntil(null),
+      Math.max(0, cooldownUntil - Date.now()),
+    )
     return () => window.clearTimeout(id)
   }, [cooldownUntil])
 
@@ -402,16 +454,50 @@ function SyncIndicator() {
     prevPending.current = s.pendingCount
   }, [s.pendingCount, cooldownUntil])
 
+  const syncing = s.state === 'syncing'
+  const cooling = cooldownUntil != null
+  const disabled = syncing || cooling
+
+  // Ctrl/Cmd + Shift + S = full resync, then hard-reload the window so the freshly pulled
+  // data renders. Same action as Shift/Alt-clicking the sync button — a pure-keyboard path.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        if (disabled) return
+        void dataClient.sync
+          .fullSync()
+          .then(() => window.location.reload())
+          .catch(() => {})
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [disabled])
+
   if (s.deadCount > 0) {
     return (
       <button
         type="button"
         className="tb-sync app-no-drag"
-        style={{ color: 'var(--danger)', background: 'none', border: 0, cursor: 'pointer', font: 'inherit' }}
+        style={{
+          color: 'var(--danger)',
+          background: 'none',
+          border: 0,
+          cursor: 'pointer',
+          font: 'inherit',
+        }}
         title={t('sync.retry')}
         onClick={() => void dataClient.sync.retry()}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
           <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
           <path d="M12 9v4M12 17h.01" />
         </svg>
@@ -420,18 +506,25 @@ function SyncIndicator() {
     )
   }
 
-  const syncing = s.state === 'syncing'
-  const cooling = cooldownUntil != null
-  const disabled = syncing || cooling
-  const label = syncing ? t('sync.syncing') : s.state === 'error' ? t('sync.error') : t('top.synced')
+  const label = syncing
+    ? t('sync.syncing')
+    : s.state === 'error'
+      ? t('sync.error')
+      : t('top.synced')
 
   async function onSync(full = false) {
     if (disabled) return
     try {
-      // Shift/Alt-click = full resync (reset the pull cursor + re-pull everything from
-      // the server). Recovers from a wiped/diverged local DB; the normal click is the
-      // incremental push+pull.
-      await (full ? dataClient.sync.fullSync() : dataClient.sync.trigger())
+      if (full) {
+        // Shift/Alt-click (or Ctrl/Cmd+Shift+S) = full resync (reset the pull cursor +
+        // re-pull everything), then hard-reload so the fresh data renders on screen.
+        // Recovers from a wiped/diverged local DB.
+        await dataClient.sync.fullSync()
+        window.location.reload()
+        return
+      }
+      // Normal click = incremental push+pull.
+      await dataClient.sync.trigger()
       setCooldownUntil(Date.now() + 60_000)
     } catch {
       /* leave the button enabled so they can retry */
@@ -442,12 +535,26 @@ function SyncIndicator() {
     <button
       type="button"
       className="tb-sync app-no-drag"
-      style={{ background: 'none', border: 0, font: 'inherit', cursor: disabled ? 'default' : 'pointer', ...(s.state === 'error' ? { color: 'var(--danger)' } : {}) }}
-      title={cooling ? t('sync.justSynced') : t('sync.syncNow')}
+      style={{
+        background: 'none',
+        border: 0,
+        font: 'inherit',
+        cursor: disabled ? 'default' : 'pointer',
+        ...(s.state === 'error' ? { color: 'var(--danger)' } : {}),
+      }}
+      title={cooling ? t('sync.justSynced') : `${t('sync.syncNow')} · ${t('sync.fullSyncHint')}`}
       disabled={disabled}
       onClick={(e) => void onSync(e.shiftKey || e.altKey)}
     >
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} className={syncing ? 'spin' : undefined}>
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 20 20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        className={syncing ? 'spin' : undefined}
+      >
         <path d="M16 3v4h-4M4 17v-4h4" />
         <path d="M15 8A6 6 0 0 0 5 5L4 7M5 12a6 6 0 0 0 10 3l1-2" />
       </svg>
@@ -482,7 +589,11 @@ function TabBar() {
     <nav className="tabbar">
       {TABS.map((item) =>
         item.center ? (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => `tab sell${isActive ? ' active' : ''}`}>
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => `tab sell${isActive ? ' active' : ''}`}
+          >
             <span className="ti">{Icon[item.icon!]}</span>
           </NavLink>
         ) : (

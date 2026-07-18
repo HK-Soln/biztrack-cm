@@ -11,6 +11,8 @@ export const IPC = {
   authLogin: 'auth:login',
   authRequestLogin: 'auth:request-login',
   authLoginOtp: 'auth:login-otp',
+  authRequestPasswordReset: 'auth:request-password-reset',
+  authResetPassword: 'auth:reset-password',
   authVerifyPhone: 'auth:verify-phone',
   authVerifyEmail: 'auth:verify-email',
   authResendOtp: 'auth:resend-otp',
@@ -202,6 +204,7 @@ export const IPC = {
   salesRefunds: 'sales:refunds',
   salesGrossProfit: 'sales:gross-profit',
   salesGet: 'sales:get',
+  salesVoid: 'sales:void',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
   salesReceiptHtml: 'sales:receipt-html',
@@ -288,7 +291,7 @@ export interface ProductStats {
 }
 
 // ---- Audit trail ----------------------------------------------------------
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE'
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID'
 
 /** One append-only audit row (who changed what, when). */
 export interface LocalAuditLog {
@@ -560,6 +563,8 @@ export type { AuthPhase, SessionUser, SessionStatus }
 export interface AuthContextInfo {
   maskedPhone?: string
   maskedEmail?: string
+  /** Unmasked phone/email to submit to verify-phone/verify-email when resuming a pending step. */
+  verifyContact?: string
   otpExpiresIn?: number
   attemptsLeft?: number
 }
@@ -1607,6 +1612,12 @@ export interface BridgeApi {
     login: (identifier: string, password: string) => Promise<AuthFlowResult>
     requestLogin: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
     loginOtp: (identifier: string, code: string) => Promise<AuthFlowResult>
+    requestPasswordReset: (identifier: string, channel?: OtpChannel) => Promise<AuthFlowResult>
+    resetPassword: (
+      identifier: string,
+      code: string,
+      newPassword: string,
+    ) => Promise<AuthFlowResult>
     verifyPhone: (phone: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     verifyEmail: (email: string, code: string, inviteToken?: string) => Promise<AuthFlowResult>
     resendOtp: (identifier: string, type: string, channel?: OtpChannel) => Promise<AuthFlowResult>
@@ -1875,6 +1886,8 @@ export interface BridgeApi {
     /** Product revenue + COGS over the range (feeds the Income Statement). */
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
     get: (id: string) => Promise<LocalSaleDetail | null>
+    /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
+    void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (
       saleId: string,

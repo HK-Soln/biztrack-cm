@@ -9,6 +9,7 @@ export enum VerificationPurpose {
   LOGIN = 'LOGIN',
   VERIFY_PHONE = 'VERIFY_PHONE',
   VERIFY_EMAIL = 'VERIFY_EMAIL',
+  RESET_PASSWORD = 'RESET_PASSWORD',
 }
 
 @Entity('verification_codes')

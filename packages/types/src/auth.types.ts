@@ -28,6 +28,10 @@ export enum AuthNextStep {
   REGISTER = 'register',
   LOGIN = 'login',
   REQUEST_NEW_OTP = 'request_new_otp',
+  /** A reset OTP was sent — the client collects the code + a new password next. */
+  RESET_PASSWORD_OTP = 'reset_password_otp',
+  /** Password reset succeeded — the client sends the user back to sign in. */
+  PASSWORD_RESET_COMPLETE = 'password_reset_complete',
 }
 
 export enum PrefferedPhoneChannel {
@@ -96,6 +100,18 @@ export interface RequestLoginOtpRequest {
 export interface LoginOtpRequest {
   identifier: string
   code: string
+}
+
+export interface RequestPasswordResetRequest {
+  /** Email or phone. Sends a one-time reset code (never reveals whether the account exists). */
+  identifier: string
+  preferredOtpChannel?: PrefferedPhoneChannel
+}
+
+export interface ResetPasswordRequest {
+  identifier: string
+  code: string
+  newPassword: string
 }
 
 export interface VerifyPhoneRequest {
@@ -223,6 +239,13 @@ export interface AuthTokens {
 export interface AuthContext {
   maskedPhone?: string
   maskedEmail?: string
+  /**
+   * Unmasked phone or email the client must submit to verify-phone/verify-email to
+   * resume a pending verification step. Set only on VERIFY_PHONE/VERIFY_EMAIL responses
+   * (e.g. login for a half-onboarded account) so the client has the exact contact even
+   * when it differs from the identifier the user typed. Never set on password-reset.
+   */
+  verifyContact?: string
   otpChannel?: VerificationChannel
   otpExpiresIn?: number
   attemptsLeft?: number

@@ -20,6 +20,10 @@ const api: BridgeApi = {
     requestLogin: (identifier, channel) =>
       ipcRenderer.invoke(IPC.authRequestLogin, identifier, channel),
     loginOtp: (identifier, code) => ipcRenderer.invoke(IPC.authLoginOtp, identifier, code),
+    requestPasswordReset: (identifier, channel) =>
+      ipcRenderer.invoke(IPC.authRequestPasswordReset, identifier, channel),
+    resetPassword: (identifier, code, newPassword) =>
+      ipcRenderer.invoke(IPC.authResetPassword, identifier, code, newPassword),
     verifyPhone: (phone, code, inviteToken) =>
       ipcRenderer.invoke(IPC.authVerifyPhone, phone, code, inviteToken),
     verifyEmail: (email, code, inviteToken) =>
@@ -220,6 +224,7 @@ const api: BridgeApi = {
     refunds: (query) => ipcRenderer.invoke(IPC.salesRefunds, query),
     grossProfit: (query) => ipcRenderer.invoke(IPC.salesGrossProfit, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
+    void: (saleId, reason) => ipcRenderer.invoke(IPC.salesVoid, saleId, reason),
     sendReceipt: (saleId, channel, locale, opts) =>
       ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
     printReceipt: (saleId, locale) => ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale),

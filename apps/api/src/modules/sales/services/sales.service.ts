@@ -1251,6 +1251,23 @@ export class SalesService {
           writtenOffAt: new Date(),
           writtenOffById: user.sub,
         })
+
+        // Refund any deposit (savings) used to pay this sale. This is the direct-API
+        // (cloud) counterpart to what the desktop does locally before syncing — mirrors
+        // how create() draws savings here while createFromSync leaves it to the client.
+        // The sync void path (applyVoidFromSync) must NOT repeat this, or deposits would
+        // be refunded twice.
+        for (const payment of sale.payments ?? []) {
+          if (payment.method === PaymentMethod.SAVINGS && payment.savingsAccountId) {
+            await this.savingsService.createVoidedSaleTransaction(
+              businessId,
+              payment.savingsAccountId,
+              sale.id,
+              payment.amount,
+              new Date(),
+            )
+          }
+        }
       })
 
       const result = await this.findById(id, businessId)
@@ -1847,7 +1864,11 @@ export class SalesService {
 
     for (const item of dto.items) {
       const product = productsById.get(item.productId)!
-      if (product.hasVariants) {
+      // Serialised products carry their variant on the serial unit itself (the sell UI
+      // picks a unit, not a variant), so the variant is derived + validated in the
+      // serial-unit pass below. Only require an explicit variantId for non-serialised
+      // variant products. Mirrors the desktop local rule (`hasVariants && !isSerialized`).
+      if (product.hasVariants && !product.isSerialized) {
         if (!item.variantId) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.variant_required', { args: { name: product.name } }),
@@ -2126,7 +2147,9 @@ export class SalesService {
       subtotal = this.roundMoney(subtotal + lineTotal)
       items.push({
         product,
-        variantId: variant?.id ?? null,
+        // Serialised lines have no explicit variantId — derive it from the serial unit so the
+        // sale item still records the correct variant.
+        variantId: variant?.id ?? serialUnit?.variantId ?? null,
         variantName: variant?.name ?? input.variantName ?? null,
         serialUnitId: serialUnit?.id ?? input.serialUnitId ?? null,
         serialNumber: serialUnit?.serialNumber ?? input.serialNumber ?? null,
@@ -2244,17 +2267,12 @@ export class SalesService {
       writtenOffById: voidedById,
     })
 
-    for (const payment of sale.payments ?? []) {
-      if (payment.method === PaymentMethod.SAVINGS && payment.savingsAccountId) {
-        await this.savingsService.createVoidedSaleTransaction(
-          businessId,
-          payment.savingsAccountId,
-          sale.id,
-          payment.amount,
-          voidedAt,
-        )
-      }
-    }
+    // NOTE: deposit (savings) refunds are intentionally NOT applied here. The desktop is
+    // the source of truth for savings — it refunds locally on void and pushes the
+    // savings account + transaction as their own sync entities (mirroring how create's
+    // savings draw-down is client-authoritative and createFromSync leaves it alone).
+    // Refunding here as well would double-credit the deposit. The direct void() endpoint
+    // (cloud, no local savings state) is the one that refunds savings itself.
   }
 
   private resolveSortField(sortBy?: string) {
