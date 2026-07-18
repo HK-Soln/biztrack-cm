@@ -149,22 +149,73 @@ export function SiteChrome() {
     })
     cleanups.push(() => faqHandlers.forEach(([q, h]) => q.removeEventListener('click', h)))
 
-    /* ---------- contact form success ---------- */
+    /* ---------- contact form: capture the lead on the server ---------- */
     const form = document.getElementById('lead-form') as HTMLFormElement | null
     if (form) {
-      const onSubmit = (e: Event) => {
+      const btn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null
+      const btnLabel = () =>
+        btn?.getAttribute(`data-${document.documentElement.lang}`) ||
+        btn?.textContent ||
+        'Send message'
+      const showErr = (msg: string) => {
+        let el = form.querySelector<HTMLElement>('.form-err')
+        if (!el) {
+          el = document.createElement('p')
+          el.className = 'form-err'
+          el.style.cssText = 'color:var(--danger);font-size:13px;text-align:center;margin-top:10px'
+          btn?.insertAdjacentElement('afterend', el)
+        }
+        el.textContent = msg
+      }
+      const onSubmit = async (e: Event) => {
         e.preventDefault()
         if (!form.checkValidity()) {
           form.reportValidity()
           return
         }
-        const ok = document.getElementById('form-ok')
-        form.style.display = 'none'
-        ok?.classList.add('show')
-        window.scrollTo({
-          top: form.getBoundingClientRect().top + window.scrollY - 120,
-          behavior: 'smooth',
-        })
+        form.querySelector('.form-err')?.remove()
+        const isFr = document.documentElement.lang === 'fr'
+        const data = new FormData(form)
+        const payload = {
+          name: String(data.get('name') || ''),
+          business: String(data.get('business') || ''),
+          phone: String(data.get('phone') || ''),
+          email: String(data.get('email') || ''),
+          city: String(data.get('city') || ''),
+          topic: String(data.get('topic') || ''),
+          message: String(data.get('message') || ''),
+          consent: data.get('consent') != null,
+          locale: isFr ? 'fr' : 'en',
+        }
+        if (btn) {
+          btn.disabled = true
+          btn.textContent = isFr ? 'Envoi…' : 'Sending…'
+        }
+        try {
+          const res = await fetch('/api/contact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const ok = document.getElementById('form-ok')
+          form.style.display = 'none'
+          ok?.classList.add('show')
+          window.scrollTo({
+            top: form.getBoundingClientRect().top + window.scrollY - 120,
+            behavior: 'smooth',
+          })
+        } catch {
+          showErr(
+            isFr
+              ? "Échec de l'envoi. Réessayez ou écrivez-nous sur WhatsApp."
+              : 'Could not send. Please try again or reach us on WhatsApp.',
+          )
+          if (btn) {
+            btn.disabled = false
+            btn.textContent = btnLabel()
+          }
+        }
       }
       form.addEventListener('submit', onSubmit)
       cleanups.push(() => form.removeEventListener('submit', onSubmit))

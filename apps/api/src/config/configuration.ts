@@ -67,6 +67,8 @@ const envSchema = z.object({
   RESEND_SENDER_DOMAINS: z.preprocess(normalizeEnvArray, z.array(z.string().min(1)).min(1)),
   // For receiving notifications about important account events (e.g. approaching usage limits)
   FOUNDER_EMAIL: z.preprocess(normalizeEnvString, z.string().email()).optional(),
+  // Recipient for contact-form lead notifications; falls back to FOUNDER_EMAIL when unset.
+  SUPPORT_EMAIL: z.preprocess(normalizeEnvString, z.string().email()).optional(),
   // BizTrack marketing site — used in the "Powered by BizTrack" footer of order emails.
   BIZTRACK_WEB_URL: z
     .preprocess(normalizeEnvString, z.string().url())
