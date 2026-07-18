@@ -54,7 +54,7 @@ const BODY = `
           <div class="pd" data-en="Get started with the essentials." data-fr="L'essentiel pour démarrer.">Get started with the essentials.</div>
           <div class="prow"><span class="amt" data-mo="0" data-yr="0">0</span><span class="cur">FCFA</span></div>
           <div class="per" data-en="Free forever" data-fr="Gratuit à vie">Free forever</div>
-          <a class="btn btn-ghost btn-block" href="download.html" data-en="Download" data-fr="Télécharger">Download</a>
+          <a class="btn btn-ghost btn-block" href="/contact" data-en="Download" data-fr="Télécharger">Download</a>
           <div class="note" data-en="Includes:" data-fr="Inclut :">Includes:</div>
           <ul class="feats">
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m5 12 4 4L19 6"/></svg><span data-en="1 user account" data-fr="1 compte utilisateur">1 user account</span></li>
@@ -68,7 +68,7 @@ const BODY = `
           <div class="pd" data-en="For a single owner-run shop." data-fr="Pour une boutique tenue par le propriétaire.">For a single owner-run shop.</div>
           <div class="prow"><span class="amt" data-mo="5 000" data-yr="50 000">5 000</span><span class="cur">FCFA</span></div>
           <div class="per" data-per-mo data-per-mo-en="per month" data-per-yr-en="per year · save 10 000" data-per-mo-fr="par mois" data-per-yr-fr="par an · économisez 10 000" data-en="per month" data-fr="par mois">per month</div>
-          <a class="btn btn-ghost btn-block" href="download.html" data-en="Start free trial" data-fr="Essai gratuit">Start free trial</a>
+          <a class="btn btn-ghost btn-block" href="/contact" data-en="Start free trial" data-fr="Essai gratuit">Start free trial</a>
           <div class="note" data-en="Everything in Free, plus:" data-fr="Tout de Free, plus :">Everything in Free, plus:</div>
           <ul class="feats">
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m5 12 4 4L19 6"/></svg><span data-en="2 user accounts" data-fr="2 comptes utilisateurs">2 user accounts</span></li>
@@ -83,7 +83,7 @@ const BODY = `
           <div class="pd" data-en="For growing shops with a team." data-fr="Pour les commerces avec une équipe.">For growing shops with a team.</div>
           <div class="prow"><span class="amt" data-mo="15 000" data-yr="150 000">15 000</span><span class="cur">FCFA</span></div>
           <div class="per" data-per-mo data-per-mo-en="per month" data-per-yr-en="per year · save 30 000" data-per-mo-fr="par mois" data-per-yr-fr="par an · économisez 30 000" data-en="per month" data-fr="par mois">per month</div>
-          <a class="btn btn-primary btn-block" href="download.html" data-en="Start free trial" data-fr="Essai gratuit">Start free trial</a>
+          <a class="btn btn-primary btn-block" href="/contact" data-en="Start free trial" data-fr="Essai gratuit">Start free trial</a>
           <div class="note" data-en="Everything in Solo, plus:" data-fr="Tout de Solo, plus :">Everything in Solo, plus:</div>
           <ul class="feats">
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m5 12 4 4L19 6"/></svg><span data-en="10 user accounts" data-fr="10 comptes utilisateurs">10 user accounts</span></li>

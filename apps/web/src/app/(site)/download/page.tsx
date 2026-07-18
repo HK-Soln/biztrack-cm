@@ -14,14 +14,6 @@ export const metadata: Metadata = {
   },
 }
 
-// Branded desktop download → API redirect to the latest Windows installer
-// (GET /api/v1/download/desktop). Uses the configured API base so staging/prod differ.
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(
-  /\/$/,
-  '',
-)
-const DESKTOP_DL = `${API_BASE}/download/desktop`
-
 const BODY = `
   <section class="page-hero">
     <div class="wrap">
@@ -42,8 +34,8 @@ const BODY = `
           <div class="meta" data-en="Android 8.0+ · 38 MB" data-fr="Android 8.0+ · 38 Mo">Android 8.0+ · 38 MB</div>
           <p data-en="The full app for phones and tablets. Get it on Google Play, or download the APK directly if you're outside the store." data-fr="L'app complète pour téléphones et tablettes. Sur Google Play, ou téléchargez l'APK directement hors du store.">The full app for phones and tablets — Google Play or direct APK.</p>
           <div class="badge-row">
-            <a class="store-badge" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5v17a1 1 0 0 0 1.5.87l14-8.5a1 1 0 0 0 0-1.74l-14-8.5A1 1 0 0 0 5 3.5Z"/></svg><span><span class="sb-t" data-en="Get it on" data-fr="Disponible sur">Get it on</span><span class="sb-b">Google Play</span></span></a>
-            <a class="store-badge" href="#" style="background:var(--gold);color:var(--navy-900)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16"/></svg><span><span class="sb-t" style="opacity:.7" data-en="Direct download" data-fr="Téléchargement direct">Direct download</span><span class="sb-b" data-en="APK · v1.0" data-fr="APK · v1.0">APK · v1.0</span></span></a>
+            <a class="store-badge" href="/contact"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5v17a1 1 0 0 0 1.5.87l14-8.5a1 1 0 0 0 0-1.74l-14-8.5A1 1 0 0 0 5 3.5Z"/></svg><span><span class="sb-t" data-en="Get it on" data-fr="Disponible sur">Get it on</span><span class="sb-b">Google Play</span></span></a>
+            <a class="store-badge" href="/contact" style="background:var(--gold);color:var(--navy-900)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16"/></svg><span><span class="sb-t" style="opacity:.7" data-en="Direct download" data-fr="Téléchargement direct">Direct download</span><span class="sb-b" data-en="APK · v1.0" data-fr="APK · v1.0">APK · v1.0</span></span></a>
           </div>
         </div>
         <div class="dl-card reveal">
@@ -53,7 +45,7 @@ const BODY = `
           <div class="meta" data-en="iOS 14+ · iPhone &amp; iPad" data-fr="iOS 14+ · iPhone &amp; iPad">iOS 14+ · iPhone & iPad</div>
           <p data-en="Native iPhone and iPad app with the same offline-first sync. Download from the App Store." data-fr="App iPhone et iPad native avec la même synchro hors-ligne. Téléchargez depuis l'App Store.">Native iPhone and iPad app with the same offline-first sync.</p>
           <div class="badge-row">
-            <a class="store-badge" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2-.05 1.6-.75 3-.75s1.8.75 3 .72c1.2-.02 2-1.1 2.8-2.2.9-1.3 1.2-2.5 1.3-2.6-.03-.02-2.5-1-2.5-3.8ZM14.2 5.6c.65-.8 1.1-1.9 1-3-1 .04-2.1.66-2.8 1.45-.6.7-1.15 1.83-1 2.9 1.05.08 2.15-.55 2.8-1.35Z"/></svg><span><span class="sb-t" data-en="Download on the" data-fr="Télécharger sur l'">Download on the</span><span class="sb-b">App Store</span></span></a>
+            <a class="store-badge" href="/contact"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2-.05 1.6-.75 3-.75s1.8.75 3 .72c1.2-.02 2-1.1 2.8-2.2.9-1.3 1.2-2.5 1.3-2.6-.03-.02-2.5-1-2.5-3.8ZM14.2 5.6c.65-.8 1.1-1.9 1-3-1 .04-2.1.66-2.8 1.45-.6.7-1.15 1.83-1 2.9 1.05.08 2.15-.55 2.8-1.35Z"/></svg><span><span class="sb-t" data-en="Download on the" data-fr="Télécharger sur l'">Download on the</span><span class="sb-b">App Store</span></span></a>
           </div>
         </div>
         <div class="dl-card reveal">
@@ -63,8 +55,8 @@ const BODY = `
           <div class="meta" data-en="Windows 10+ · macOS 11+" data-fr="Windows 10+ · macOS 11+">Windows 10+ · macOS 11+</div>
           <p data-en="The desktop app for managing products, reviewing reports and running the back office on a bigger screen." data-fr="L'app bureau pour gérer les produits, consulter les rapports et tenir le back-office sur grand écran.">Manage products and review reports on a bigger screen.</p>
           <div class="badge-row">
-            <a class="store-badge" href="${DESKTOP_DL}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.6 10.4 4.6v7.1H3V5.6Zm0 12.8 7.4 1v-7H3v6ZM11.3 4.5 21 3v8.7h-9.7V4.5Zm0 7.9H21V21l-9.7-1.35v-7.25Z"/></svg><span><span class="sb-t" data-en="Download for" data-fr="Télécharger pour">Download for</span><span class="sb-b">Windows</span></span></a>
-            <a class="store-badge" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2-.05 1.6-.75 3-.75s1.8.75 3 .72c1.2-.02 2-1.1 2.8-2.2.9-1.3 1.2-2.5 1.3-2.6-.03-.02-2.5-1-2.5-3.8ZM14.2 5.6c.65-.8 1.1-1.9 1-3-1 .04-2.1.66-2.8 1.45-.6.7-1.15 1.83-1 2.9 1.05.08 2.15-.55 2.8-1.35Z"/></svg><span><span class="sb-t" data-en="Download for" data-fr="Télécharger pour">Download for</span><span class="sb-b">macOS</span></span></a>
+            <a class="store-badge" href="/contact"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.6 10.4 4.6v7.1H3V5.6Zm0 12.8 7.4 1v-7H3v6ZM11.3 4.5 21 3v8.7h-9.7V4.5Zm0 7.9H21V21l-9.7-1.35v-7.25Z"/></svg><span><span class="sb-t" data-en="Download for" data-fr="Télécharger pour">Download for</span><span class="sb-b">Windows</span></span></a>
+            <a class="store-badge" href="/contact"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2-.05 1.6-.75 3-.75s1.8.75 3 .72c1.2-.02 2-1.1 2.8-2.2.9-1.3 1.2-2.5 1.3-2.6-.03-.02-2.5-1-2.5-3.8ZM14.2 5.6c.65-.8 1.1-1.9 1-3-1 .04-2.1.66-2.8 1.45-.6.7-1.15 1.83-1 2.9 1.05.08 2.15-.55 2.8-1.35Z"/></svg><span><span class="sb-t" data-en="Download for" data-fr="Télécharger pour">Download for</span><span class="sb-b">macOS</span></span></a>
           </div>
         </div>
       </div>
@@ -75,9 +67,9 @@ const BODY = `
           <h3 style="font-size:18px" data-en="Scan to install on Android" data-fr="Scannez pour installer sur Android">Scan to install on Android</h3>
           <p style="font-size:13.5px;color:var(--text-2);margin-top:6px" data-en="Point your phone camera at the code to download the APK directly — handy for outfitting a shop full of devices." data-fr="Pointez l'appareil photo vers le code pour télécharger l'APK directement — pratique pour équiper toute une boutique.">Point your phone camera at the code to download the APK directly.</p>
         </div>
-        <a class="btn btn-primary" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16"/></svg><span data-en="Download APK" data-fr="Télécharger l'APK">Download APK</span></a>
+        <a class="btn btn-primary" href="/contact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16"/></svg><span data-en="Download APK" data-fr="Télécharger l'APK">Download APK</span></a>
       </div>
-      <p class="center" style="margin-top:18px;font-size:13px;color:var(--text-muted)" data-en="Mobile &amp; store links arrive with the mobile launch. Need a hand rolling out to your team? " data-fr="Les liens mobiles &amp; stores arrivent avec le lancement mobile. Besoin d'aide pour équiper votre équipe ? "><a class="tlink" href="contact.html" data-en="Contact us" data-fr="Contactez-nous">Contact us</a></p>
+      <p class="center" style="margin-top:18px;font-size:13px;color:var(--text-muted)" data-en="Mobile &amp; store links arrive with the mobile launch. Need a hand rolling out to your team? " data-fr="Les liens mobiles &amp; stores arrivent avec le lancement mobile. Besoin d'aide pour équiper votre équipe ? "><a class="tlink" href="/contact" data-en="Contact us" data-fr="Contactez-nous">Contact us</a></p>
     </div>
   </section>
 

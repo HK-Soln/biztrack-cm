@@ -27,10 +27,14 @@ function Brand() {
 function LangTog() {
   return (
     <div className="lang-tog" role="group" aria-label="Language">
-      <button data-lang="en" className="on">
+      {/* Form-filler browser extensions stamp fdprocessedid onto buttons post-SSR;
+          suppress the resulting benign hydration attribute mismatch. */}
+      <button data-lang="en" className="on" suppressHydrationWarning>
         EN
       </button>
-      <button data-lang="fr">FR</button>
+      <button data-lang="fr" suppressHydrationWarning>
+        FR
+      </button>
     </div>
   )
 }
@@ -64,7 +68,7 @@ export function SiteHeader() {
             <LangTog />
             <a
               className="btn btn-ghost btn-sm"
-              href="https://hk-solutions.app"
+              href="https://biztrack.hk-solutions.app"
               data-en="Sign in"
               data-fr="Connexion"
             >
@@ -72,7 +76,7 @@ export function SiteHeader() {
             </a>
             <a
               className="btn btn-primary btn-sm"
-              href="/download"
+              href="/contact"
               data-en="Get the app"
               data-fr="Obtenir l'app"
             >
@@ -107,7 +111,7 @@ export function SiteHeader() {
           <LangTog />
           <a
             className="btn btn-primary btn-block"
-            href="/download"
+            href="/contact"
             data-en="Get the app"
             data-fr="Obtenir l'app"
           >

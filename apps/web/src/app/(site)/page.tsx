@@ -87,7 +87,7 @@ export default function HomePage() {
             <div className="cta">
               <a
                 className="btn btn-gold btn-lg"
-                href="/download"
+                href="/contact"
                 data-en="Download free"
                 data-fr="Télécharger gratuitement"
               >
@@ -756,7 +756,7 @@ export default function HomePage() {
               </div>
               <a
                 className="btn btn-ghost btn-block"
-                href="/download"
+                href="/contact"
                 data-en="Download"
                 data-fr="Télécharger"
               >
@@ -1033,7 +1033,7 @@ export default function HomePage() {
             <div className="cta">
               <a
                 className="btn btn-gold btn-lg"
-                href="/download"
+                href="/contact"
                 data-en="Download free"
                 data-fr="Télécharger gratuitement"
               >

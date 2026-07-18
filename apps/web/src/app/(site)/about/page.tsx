@@ -83,7 +83,7 @@ const BODY = `
     <div class="wrap"><div class="cta-band reveal">
       <h2 data-en="Join the shops already running on BizTrack" data-fr="Rejoignez les commerces déjà sur BizTrack">Join the shops already running on BizTrack</h2>
       <p data-en="Free to start, works offline, in French and English." data-fr="Gratuit au démarrage, fonctionne hors-ligne, en français et en anglais.">Free to start, works offline, in French and English.</p>
-      <div class="cta"><a class="btn btn-gold btn-lg" href="download.html" data-en="Download free" data-fr="Télécharger gratuitement">Download free</a>
+      <div class="cta"><a class="btn btn-gold btn-lg" href="/contact" data-en="Download free" data-fr="Télécharger gratuitement">Download free</a>
         <a class="btn btn-on-dark btn-lg" href="contact.html" data-en="Talk to us" data-fr="Nous contacter">Talk to us</a></div>
     </div></div>
   </section>

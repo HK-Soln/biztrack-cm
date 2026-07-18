@@ -97,7 +97,7 @@ const BODY = `
       <h2 style="margin-top:14px" data-en="Android in the shop, desktop in the back office" data-fr="Android au comptoir, ordinateur au bureau">Android in the shop, desktop in the back office</h2>
       <p data-en="The same business, in sync across Android, iOS, Windows and Mac. Cashiers sell on a phone or tablet; you review reports on a laptop." data-fr="La même activité, synchronisée sur Android, iOS, Windows et Mac. Les caissiers vendent sur téléphone ou tablette ; vous consultez les rapports sur ordinateur.">The same business in sync across Android, iOS, Windows and Mac.</p>
       <div class="cta">
-        <a class="btn btn-gold btn-lg" href="download.html" data-en="Download BizTrack" data-fr="Télécharger BizTrack">Download BizTrack</a>
+        <a class="btn btn-gold btn-lg" href="/contact" data-en="Download BizTrack" data-fr="Télécharger BizTrack">Download BizTrack</a>
         <a class="btn btn-on-dark btn-lg" href="pricing.html" data-en="See pricing" data-fr="Voir les tarifs">See pricing</a>
       </div>
     </div></div>
