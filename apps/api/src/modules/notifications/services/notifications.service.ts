@@ -17,6 +17,7 @@ import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import type { AppConfig } from '@/config/configuration'
 import type { WaitlistEntry } from '@/entities/waitlist-entry.entity'
+import type { ContactLead } from '@/entities/contact-lead.entity'
 import {
   Notification,
   NotificationChannel,
@@ -132,7 +133,11 @@ export class NotificationsService {
   }
 
   /** Update notification to SENT after successful delivery. */
-  async markSent(notificationId: string, providerMessageId?: string, provider?: string): Promise<void> {
+  async markSent(
+    notificationId: string,
+    providerMessageId?: string,
+    provider?: string,
+  ): Promise<void> {
     await this.notificationsRepo.update(notificationId, {
       status: NotificationStatus.SENT,
       providerMessageId: providerMessageId ?? null,
@@ -163,7 +168,11 @@ export class NotificationsService {
   }
 
   /** Mark notification FAILED by provider message ID (e.g. from a webhook). */
-  async markFailedByProvider(providerMessageId: string, reason: string, provider: string): Promise<void> {
+  async markFailedByProvider(
+    providerMessageId: string,
+    reason: string,
+    provider: string,
+  ): Promise<void> {
     const notification = await this.notificationsRepo.findOne({
       where: { providerMessageId, provider },
     })
@@ -224,7 +233,10 @@ export class NotificationsService {
     return item
   }
 
-  async listInApp(userId: string, query: ListNotificationsQuery): Promise<ListNotificationsResponse> {
+  async listInApp(
+    userId: string,
+    query: ListNotificationsQuery,
+  ): Promise<ListNotificationsResponse> {
     const page = Math.max(1, query.page ?? 1)
     const limit = Math.min(50, Math.max(1, query.limit ?? 20))
     const [rows, total] = await this.notificationsRepo.findAndCount({
@@ -266,7 +278,8 @@ export class NotificationsService {
   }
 
   private toItem(n: Notification): NotificationItem {
-    const created = n.createdAt instanceof Date ? n.createdAt : new Date(n.createdAt as unknown as string)
+    const created =
+      n.createdAt instanceof Date ? n.createdAt : new Date(n.createdAt as unknown as string)
     return {
       id: n.id,
       type: n.type,
@@ -289,20 +302,28 @@ export class NotificationsService {
   }): Promise<void> {
     const founderEmail = this.configService.get('FOUNDER_EMAIL', { infer: true })
     if (!founderEmail) {
-      this.logger.warn('FOUNDER_EMAIL not set — skipping inbound email forward', 'NotificationsService')
+      this.logger.warn(
+        'FOUNDER_EMAIL not set — skipping inbound email forward',
+        'NotificationsService',
+      )
       return
     }
 
     this.logger.debug('Forwarding inbound email to founder', 'NotificationsService', {
       emailId: data.emailId,
       from: data.from,
-      subject: data.subject,    })
+      subject: data.subject,
+    })
 
     const content = await this.emailProvider.fetchReceivedEmail(data.emailId)
     if (!content) {
-      this.logger.warn('Could not fetch inbound email body — skipping forward', 'NotificationsService', {
-        emailId: data.emailId,
-      })
+      this.logger.warn(
+        'Could not fetch inbound email body — skipping forward',
+        'NotificationsService',
+        {
+          emailId: data.emailId,
+        },
+      )
       return
     }
 
@@ -496,6 +517,153 @@ Next step: contact ${entry.name} on WhatsApp within 48 hours.
       await this.markSent(clientNotif!.id, clientResult.value.id, RESEND_PROVIDER)
     } else {
       await this.markFailed(clientNotif!.id, String(clientResult.reason))
+    }
+  }
+
+  /**
+   * Contact-form lead: notify the support team (reply-to the lead) and — when the lead left
+   * an email — send them a branded acknowledgement. Mirrors sendWaitlistNotification: persist
+   * a Notification row per email, send directly via Resend, then mark sent/failed.
+   */
+  async sendContactLeadNotification(lead: ContactLead): Promise<void> {
+    const supportEmail =
+      this.configService.get('SUPPORT_EMAIL', { infer: true }) ??
+      this.configService.get('FOUNDER_EMAIL', { infer: true })
+    if (!supportEmail) {
+      this.logger.warn('SUPPORT_EMAIL/FOUNDER_EMAIL not set — skipping contact lead email')
+      return
+    }
+
+    const when = lead.created_at.toLocaleString('en-GB', { timeZone: 'Africa/Douala' })
+    const row = (k: string, v: string, alt = false) =>
+      `<tr><td style="padding:10px 12px;background:${alt ? '#0D2B1F' : '#112B20'};color:#8FBFAA;width:130px">${k}</td><td style="padding:10px 12px;background:${alt ? '#0D2B1F' : '#112B20'}">${v}</td></tr>`
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+    const teamSubject = `📩 New BizTrack CM contact lead — ${lead.name}`
+    const teamHtml = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#06140F;color:#F0F7F4;padding:32px;border-radius:12px">
+        <div style="color:#1D9E75;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">BizTrack CM — New contact lead</div>
+        <h2 style="font-size:24px;font-weight:300;margin:0 0 24px;color:#F0F7F4">${esc(lead.name)} got in touch</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          ${row('Name', esc(lead.name))}
+          ${lead.business ? row('Business', esc(lead.business), true) : ''}
+          ${row('WhatsApp', `<a href="https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}" style="color:#1D9E75">${esc(lead.phone)}</a>`, !lead.business)}
+          ${lead.email ? row('Email', `<a href="mailto:${esc(lead.email)}" style="color:#1D9E75">${esc(lead.email)}</a>`) : ''}
+          ${lead.city ? row('City', esc(lead.city), true) : ''}
+          ${lead.topic ? row('Interested in', esc(lead.topic)) : ''}
+          ${row('Language', lead.locale === 'fr' ? '🇫🇷 French' : '🇬🇧 English', true)}
+          ${row('Received', `${when} WAT`)}
+        </table>
+        <div style="margin-top:16px;padding:14px 16px;background:#0D2B1F;border-radius:8px;font-size:14px;line-height:1.6;color:#F0F7F4;white-space:pre-wrap">${esc(lead.message)}</div>
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid rgba(29,158,117,.2);font-size:12px;color:#5A8A74">
+          <strong style="color:#8FBFAA">Next step:</strong> reply to this email or message ${esc(lead.name)} on <a href="https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}" style="color:#1D9E75">WhatsApp →</a> within one business day.
+        </div>
+      </div>`
+    const teamText = `New BizTrack CM contact lead\n\nName: ${lead.name}\nBusiness: ${lead.business ?? '—'}\nWhatsApp: ${lead.phone}\nEmail: ${lead.email ?? '—'}\nCity: ${lead.city ?? '—'}\nInterested in: ${lead.topic ?? '—'}\nLanguage: ${lead.locale}\nReceived: ${when} WAT\n\nMessage:\n${lead.message}`
+
+    const notifications = [
+      this.notificationsRepo.create({
+        channel: NotificationChannel.EMAIL,
+        type: NotificationType.MARKETING,
+        recipient: supportEmail,
+        subject: teamSubject,
+        body: teamHtml,
+        status: NotificationStatus.PENDING,
+        attempts: 0,
+        sender: this.emailProvider.noReplySender,
+      }),
+    ]
+
+    const isFr = lead.locale !== 'en'
+    const ackSubject = isFr
+      ? '✓ Nous avons bien reçu votre message — BizTrack CM'
+      : "✓ We've received your message — BizTrack CM"
+    const ackHtml = isFr
+      ? `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#06140F;color:#F0F7F4;padding:32px;border-radius:12px">
+        <div style="color:#1D9E75;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px">BizTrack CM</div>
+        <h2 style="font-size:24px;font-weight:300;margin:0 0 16px;color:#F0F7F4">Bonjour ${esc(lead.name)} 👋</h2>
+        <p style="font-size:15px;line-height:1.7;color:#8FBFAA;margin:0 0 20px">Merci de nous avoir contactés. Nous avons bien reçu votre message et notre équipe vous répondra sous un jour ouvré — souvent bien plus vite sur WhatsApp.</p>
+        <div style="background:#112B20;border:1px solid rgba(29,158,117,0.18);border-radius:12px;padding:20px 24px;margin-bottom:24px">
+          <div style="font-size:13px;color:#5A8A74;margin-bottom:6px">Votre message</div>
+          <div style="font-size:14px;color:#F0F7F4;white-space:pre-wrap">${esc(lead.message)}</div>
+        </div>
+        <p style="font-size:13px;color:#5A8A74;line-height:1.6;margin:0 0 8px">Besoin d'une réponse immédiate ? Écrivez-nous sur WhatsApp au <a href="https://wa.me/971588629213" style="color:#1D9E75">+971 58 862 9213</a> ou à <a href="mailto:${this.emailProvider.generalEnquiriesReplier}" style="color:#1D9E75">${this.emailProvider.generalEnquiriesReplier}</a>.</p>
+        <p style="font-size:13px;color:#5A8A74;margin:0">À très bientôt,<br><strong style="color:#8FBFAA">L'équipe BizTrack CM</strong></p>
+        <div style="margin-top:32px;padding-top:20px;border-top:1px solid rgba(29,158,117,0.12);font-size:11px;color:#3A6A54;text-align:center">🇨🇲 Fait au Cameroun · Pour le Cameroun · <a href="https://hk-solutions.app" style="color:#1D9E75">biztrack.cm</a></div>
+      </div>`
+      : `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#06140F;color:#F0F7F4;padding:32px;border-radius:12px">
+        <div style="color:#1D9E75;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px">BizTrack CM</div>
+        <h2 style="font-size:24px;font-weight:300;margin:0 0 16px;color:#F0F7F4">Hi ${esc(lead.name)} 👋</h2>
+        <p style="font-size:15px;line-height:1.7;color:#8FBFAA;margin:0 0 20px">Thanks for reaching out. We've received your message and our team will get back to you within one business day — usually much sooner on WhatsApp.</p>
+        <div style="background:#112B20;border:1px solid rgba(29,158,117,0.18);border-radius:12px;padding:20px 24px;margin-bottom:24px">
+          <div style="font-size:13px;color:#5A8A74;margin-bottom:6px">Your message</div>
+          <div style="font-size:14px;color:#F0F7F4;white-space:pre-wrap">${esc(lead.message)}</div>
+        </div>
+        <p style="font-size:13px;color:#5A8A74;line-height:1.6;margin:0 0 8px">Need a reply now? Message us on WhatsApp at <a href="https://wa.me/971588629213" style="color:#1D9E75">+971 58 862 9213</a> or email <a href="mailto:${this.emailProvider.generalEnquiriesReplier}" style="color:#1D9E75">${this.emailProvider.generalEnquiriesReplier}</a>.</p>
+        <p style="font-size:13px;color:#5A8A74;margin:0">Talk soon,<br><strong style="color:#8FBFAA">The BizTrack CM team</strong></p>
+        <div style="margin-top:32px;padding-top:20px;border-top:1px solid rgba(29,158,117,0.12);font-size:11px;color:#3A6A54;text-align:center">🇨🇲 Made in Cameroon · For Cameroon · <a href="https://hk-solutions.app" style="color:#1D9E75">biztrack.cm</a></div>
+      </div>`
+    const ackText = isFr
+      ? `Bonjour ${lead.name},\n\nMerci de nous avoir contactés. Nous avons bien reçu votre message et vous répondrons sous un jour ouvré.\n\nBesoin d'une réponse immédiate ? WhatsApp : +971 58 862 9213\n\nL'équipe BizTrack CM`
+      : `Hi ${lead.name},\n\nThanks for reaching out. We've received your message and will get back to you within one business day.\n\nNeed a reply now? WhatsApp: +971 58 862 9213\n\nThe BizTrack CM team`
+
+    if (lead.email) {
+      notifications.push(
+        this.notificationsRepo.create({
+          channel: NotificationChannel.EMAIL,
+          type: NotificationType.MARKETING,
+          recipient: lead.email,
+          subject: ackSubject,
+          body: ackHtml,
+          status: NotificationStatus.PENDING,
+          attempts: 0,
+          sender: this.emailProvider.noReplySender,
+        }),
+      )
+    }
+
+    const saved = await this.notificationsRepo.save(notifications)
+    const teamNotif = saved[0]!
+    const ackNotif = lead.email ? saved[1] : undefined
+
+    const sends: Promise<{ id?: string }>[] = [
+      this.emailProvider.sendRaw({
+        from: teamNotif.sender ?? this.emailProvider.noReplySender,
+        to: supportEmail,
+        reply_to: lead.email ?? undefined,
+        subject: teamSubject,
+        html: teamHtml,
+        text: teamText,
+      }),
+    ]
+    if (ackNotif) {
+      sends.push(
+        this.emailProvider.sendRaw({
+          from: ackNotif.sender ?? this.emailProvider.noReplySender,
+          to: ackNotif.recipient,
+          subject: ackSubject,
+          html: ackHtml,
+          text: ackText,
+        }),
+      )
+    }
+
+    const results = await Promise.allSettled(sends)
+    const teamResult = results[0]!
+    if (teamResult.status === 'fulfilled') {
+      await this.markSent(teamNotif.id, teamResult.value.id, RESEND_PROVIDER)
+    } else {
+      await this.markFailed(teamNotif.id, String(teamResult.reason))
+    }
+    const ackResult = results[1]
+    if (ackNotif && ackResult) {
+      if (ackResult.status === 'fulfilled') {
+        await this.markSent(ackNotif.id, ackResult.value.id, RESEND_PROVIDER)
+      } else {
+        await this.markFailed(ackNotif.id, String(ackResult.reason))
+      }
     }
   }
 }
