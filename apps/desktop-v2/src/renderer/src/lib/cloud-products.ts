@@ -1,4 +1,5 @@
 import type {
+  ListQuery,
   LocalProduct,
   ProductListQuery,
   ProductStats,
@@ -76,6 +77,7 @@ interface ApiProduct {
   barcode?: string | null
   sellingPrice: number
   effectiveSellingPrice?: number | null
+  effectiveCostPrice?: number | null
   costPrice?: number | null
   currency: string
   taxRate: number
@@ -102,6 +104,7 @@ interface ApiProduct {
   onlineStockReserve?: number
   metaTitle?: string | null
   metaDescription?: string | null
+  hasVariants?: boolean
 }
 
 function toLocalProduct(p: ApiProduct): LocalProduct {
@@ -115,7 +118,7 @@ function toLocalProduct(p: ApiProduct): LocalProduct {
     sellingPrice: p.sellingPrice,
     costPrice: p.costPrice ?? null,
     effectiveSellingPrice: p.effectiveSellingPrice ?? p.sellingPrice,
-    effectiveCostPrice: p.costPrice ?? null,
+    effectiveCostPrice: p.effectiveCostPrice ?? p.costPrice ?? null,
     currency: p.currency,
     taxRate: p.taxRate,
     productType: p.productType,
@@ -139,6 +142,7 @@ function toLocalProduct(p: ApiProduct): LocalProduct {
     lowStockThreshold: p.lowStockThreshold ?? null,
     reorderPoint: p.reorderPoint ?? null,
     currentStock: p.currentStock ?? 0,
+    hasVariants: p.hasVariants ?? false,
     categoryName: p.category?.name ?? null,
     brandName: null,
     unitAbbr: p.unitOfMeasure?.abbreviation ?? null,
@@ -297,8 +301,19 @@ export const cloudProducts = {
       else await cpost<unknown>(`/products/${productId}/images`, body)
     }
   },
+  // GET /products/:id/variants is paginated ({ data, total, … }) — cgetAll flattens the pages
+  // for pickers/name-maps that need the full set.
   listVariants: async (productId: string): Promise<LocalVariant[]> =>
-    (await cget<ProductVariant[]>(`/products/${productId}/variants`)).map(toLocalVariant),
+    (await cgetAll<ProductVariant>(`/products/${productId}/variants`)).map(toLocalVariant),
+  listVariantsPage: async (
+    productId: string,
+    query?: ListQuery,
+  ): Promise<PaginatedResult<LocalVariant>> => {
+    const res = await cget<PaginatedResult<ProductVariant>>(
+      `/products/${productId}/variants${qs({ page: query?.page, limit: query?.limit, search: query?.search })}`,
+    )
+    return { ...res, data: res.data.map(toLocalVariant) }
+  },
   // Only called at product creation (no pre-existing variants) — add each.
   setVariants: async (productId: string, variants: VariantInput[]): Promise<void> => {
     for (const v of variants)
@@ -329,6 +344,15 @@ export const cloudProducts = {
     cdelete<void>(`/products/${productId}/variants/${variantId}`, { reason }),
   listSerialUnits: async (productId: string): Promise<LocalSerialUnit[]> =>
     (await cgetAll<ApiSerialUnit>(`/products/${productId}/serial-units`)).map(toLocalSerialUnit),
+  listSerialUnitsPage: async (
+    productId: string,
+    query?: ListQuery,
+  ): Promise<PaginatedResult<LocalSerialUnit>> => {
+    const res = await cget<PaginatedResult<ApiSerialUnit>>(
+      `/products/${productId}/serial-units${qs({ page: query?.page, limit: query?.limit, search: query?.search })}`,
+    )
+    return { ...res, data: res.data.map(toLocalSerialUnit) }
+  },
   listInStockSerials: async (
     productId: string,
     variantId?: string | null,

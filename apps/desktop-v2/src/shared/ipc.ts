@@ -70,11 +70,13 @@ export const IPC = {
   productsListImages: 'products:list-images',
   productsSetImages: 'products:set-images',
   productsListVariants: 'products:list-variants',
+  productsListVariantsPage: 'products:list-variants-page',
   productsSetVariants: 'products:set-variants',
   productsAddVariant: 'products:add-variant',
   productsUpdateVariant: 'products:update-variant',
   productsRemoveVariant: 'products:remove-variant',
   productsListSerialUnits: 'products:list-serial-units',
+  productsListSerialUnitsPage: 'products:list-serial-units-page',
   productsListInStockSerials: 'products:list-in-stock-serials',
   productsResolveScan: 'products:resolve-scan',
   productsSetSerialUnits: 'products:set-serial-units',
@@ -808,6 +810,8 @@ export interface LocalProduct {
   reorderPoint: number | null
   /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
   currentStock: number
+  /** Whether the product has any (non-deleted) variants — lets callers skip loading them. */
+  hasVariants: boolean
   categoryName: string | null
   brandName: string | null
   unitAbbr: string | null
@@ -873,6 +877,8 @@ export interface AdjustStockInput {
   quantity: number
   /** Reason (>= 3 chars) — recorded on the movement + audit. */
   notes: string
+  /** When set, adjusts the stock of a specific (non-serialized) variant instead of the product. */
+  variantId?: string | null
 }
 
 /** Reorder/low-stock thresholds (no movement). */
@@ -1697,6 +1703,8 @@ export interface BridgeApi {
     /** Replace a product's gallery (diff + enqueues changes). */
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
+    /** Paginated variants for the product-detail management section (default limit 5). */
+    listVariantsPage: (productId: string, query?: ListQueryT) => Promise<PaginatedT<LocalVariant>>
     /** Set a product's initial variants at creation. */
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
     /** Add a variant post-creation (opening stock → stock-in movement). */
@@ -1710,6 +1718,11 @@ export interface BridgeApi {
     /** Remove a variant (writes off its stock) with a reason. */
     removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    /** Paginated serial units for the product-detail management section (default limit 5). */
+    listSerialUnitsPage: (
+      productId: string,
+      query?: ListQueryT,
+    ) => Promise<PaginatedT<LocalSerialUnit>>
     /** IN_STOCK serial units a sale can consume (optionally scoped to a variant + serial search). */
     listInStockSerials: (
       productId: string,

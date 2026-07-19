@@ -6,6 +6,8 @@ import {
   SerialUnitStatus,
   type AddProductVariantRequest,
   type AuditContext,
+  type ListQuery,
+  type PaginatedResult,
   type ProductVariant as ProductVariantModel,
   type RemoveProductVariantRequest,
   type UpdateProductVariantRequest,
@@ -64,6 +66,14 @@ export class ProductVariantManagementService {
     return this.variantsService.listVariantsForProduct(businessId, productId)
   }
 
+  listPaged(
+    productId: string,
+    businessId: string,
+    query: ListQuery,
+  ): Promise<PaginatedResult<ProductVariantModel>> {
+    return this.variantsService.listVariantsPageForProduct(businessId, productId, query)
+  }
+
   async addVariant(
     productId: string,
     businessId: string,
@@ -100,6 +110,8 @@ export class ProductVariantManagementService {
           )
         }
       }
+
+      await this.assertSkuUnique(businessId, dto.sku?.trim() || null, null)
 
       let name = dto.name?.trim()
       if (!name) {
@@ -141,9 +153,18 @@ export class ProductVariantManagementService {
 
         if (product.trackInventory && !product.isSerialized) {
           const quantity = dto.openingStock ?? 0
-          await invRepo.save(invRepo.create({ businessId, productId, variantId: variant.id, quantity, lowStockThreshold: null }))
+          await invRepo.save(
+            invRepo.create({
+              businessId,
+              productId,
+              variantId: variant.id,
+              quantity,
+              lowStockThreshold: null,
+            }),
+          )
           if (quantity > 0) {
-            const before = (await this.productStockTotal(manager, businessId, productId, false)) - quantity
+            const before =
+              (await this.productStockTotal(manager, businessId, productId, false)) - quantity
             await this.writeMovement(manager, businessId, productId, quantity, before, {
               referenceId: variant.id,
               notes: `Added variant "${name}" (+${quantity})`,
@@ -183,14 +204,29 @@ export class ProductVariantManagementService {
       await this.requireProduct(productId, businessId)
       const variant = await this.requireVariant(productId, variantId, businessId)
 
-      const before = { name: variant.name, priceOverride: variant.priceOverride ?? null, costPriceOverride: variant.costPriceOverride ?? null, sku: variant.sku ?? null, isActive: variant.isActive }
+      if (dto.sku !== undefined) {
+        await this.assertSkuUnique(businessId, dto.sku?.trim() || null, variantId)
+      }
+
+      const before = {
+        name: variant.name,
+        priceOverride: variant.priceOverride ?? null,
+        costPriceOverride: variant.costPriceOverride ?? null,
+        sku: variant.sku ?? null,
+        isActive: variant.isActive,
+      }
       await this.variantsRepo.update(
         { id: variantId },
         {
           name: dto.name?.trim() ?? variant.name,
-          displayNameOverride: dto.name === undefined ? variant.displayNameOverride : (dto.name?.trim() ?? null),
-          priceOverride: dto.priceOverride === undefined ? variant.priceOverride : (dto.priceOverride ?? null),
-          costPriceOverride: dto.costPriceOverride === undefined ? variant.costPriceOverride : (dto.costPriceOverride ?? null),
+          displayNameOverride:
+            dto.name === undefined ? variant.displayNameOverride : (dto.name?.trim() ?? null),
+          priceOverride:
+            dto.priceOverride === undefined ? variant.priceOverride : (dto.priceOverride ?? null),
+          costPriceOverride:
+            dto.costPriceOverride === undefined
+              ? variant.costPriceOverride
+              : (dto.costPriceOverride ?? null),
           sku: dto.sku === undefined ? variant.sku : (dto.sku?.trim() ?? null),
           isActive: dto.isActive ?? variant.isActive,
         },
@@ -202,11 +238,42 @@ export class ProductVariantManagementService {
         entityType: 'product_variant',
         entityId: variantId,
         entityLabel: updated.name,
-        changes: { before, after: { name: updated.name, priceOverride: updated.priceOverride ?? null, costPriceOverride: updated.costPriceOverride ?? null, sku: updated.sku ?? null, isActive: updated.isActive } },
+        changes: {
+          before,
+          after: {
+            name: updated.name,
+            priceOverride: updated.priceOverride ?? null,
+            costPriceOverride: updated.costPriceOverride ?? null,
+            sku: updated.sku ?? null,
+            isActive: updated.isActive,
+          },
+        },
       })
       return updated
     } catch (error) {
       return this.handleServiceError('updateVariant', error, { productId, variantId, businessId })
+    }
+  }
+
+  /**
+   * The variant SKU doubles as the tile "code" and must resolve to exactly one variant, so it's
+   * unique per business. Friendly guard on top of the partial unique index (also catches races
+   * across products). No-op when sku is null.
+   */
+  private async assertSkuUnique(
+    businessId: string,
+    sku: string | null,
+    excludeVariantId: string | null,
+  ): Promise<void> {
+    if (!sku) return
+    const dup = await this.variantsRepo.findOne({
+      where: { businessId, sku, deletedAt: IsNull() },
+    })
+    if (dup && dup.id !== excludeVariantId) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.variant_duplicate_sku', { args: { sku } }),
+        'VARIANT_DUPLICATE_SKU',
+      )
     }
   }
 
@@ -223,7 +290,12 @@ export class ProductVariantManagementService {
       const reason = dto.reason.trim()
 
       await this.dataSource.transaction(async (manager) => {
-        const before = await this.productStockTotal(manager, businessId, productId, product.isSerialized)
+        const before = await this.productStockTotal(
+          manager,
+          businessId,
+          productId,
+          product.isSerialized,
+        )
         let writeOff = 0
 
         if (product.isSerialized) {
@@ -233,7 +305,10 @@ export class ProductVariantManagementService {
           })
           writeOff = units.length
           for (const unit of units) {
-            await serialRepo.update({ id: unit.id }, { status: SerialUnitStatus.DAMAGED, notes: reason })
+            await serialRepo.update(
+              { id: unit.id },
+              { status: SerialUnitStatus.DAMAGED, notes: reason },
+            )
             await serialRepo.softDelete({ id: unit.id })
           }
         } else {
@@ -255,7 +330,9 @@ export class ProductVariantManagementService {
           })
         }
 
-        const remaining = await manager.getRepository(ProductVariant).count({ where: { productId, businessId, deletedAt: IsNull() } })
+        const remaining = await manager
+          .getRepository(ProductVariant)
+          .count({ where: { productId, businessId, deletedAt: IsNull() } })
         if (remaining === 0) {
           await manager.getRepository(Product).update({ id: productId }, { hasVariants: false })
         }
@@ -291,7 +368,10 @@ export class ProductVariantManagementService {
       .getRepository(InventoryLevel)
       .createQueryBuilder('l')
       .select('COALESCE(SUM(l.quantity), 0)', 's')
-      .where('l.business_id = :b AND l.product_id = :p AND l.variant_id IS NOT NULL', { b: businessId, p: productId })
+      .where('l.business_id = :b AND l.product_id = :p AND l.variant_id IS NOT NULL', {
+        b: businessId,
+        p: productId,
+      })
       .getRawOne<{ s: string }>()
     return Number(row?.s ?? 0)
   }
@@ -307,7 +387,8 @@ export class ProductVariantManagementService {
   ): Promise<void> {
     const movementRepo = manager.getRepository(InventoryMovement)
     const hasHistory = (await movementRepo.count({ where: { businessId, productId } })) > 0
-    const type = change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    const type =
+      change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
     await movementRepo.save(
       movementRepo.create({
         businessId,
@@ -327,15 +408,27 @@ export class ProductVariantManagementService {
   private async requireProduct(productId: string, businessId: string): Promise<Product> {
     const product = await this.productsRepo.findOne({ where: { id: productId, businessId } })
     if (!product) {
-      throw new AppNotFoundException(await this.i18n.translate('errors.product_not_found'), 'PRODUCT_NOT_FOUND')
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.product_not_found'),
+        'PRODUCT_NOT_FOUND',
+      )
     }
     return product
   }
 
-  private async requireVariant(productId: string, variantId: string, businessId: string): Promise<ProductVariant> {
-    const variant = await this.variantsRepo.findOne({ where: { id: variantId, productId, businessId, deletedAt: IsNull() } })
+  private async requireVariant(
+    productId: string,
+    variantId: string,
+    businessId: string,
+  ): Promise<ProductVariant> {
+    const variant = await this.variantsRepo.findOne({
+      where: { id: variantId, productId, businessId, deletedAt: IsNull() },
+    })
     if (!variant) {
-      throw new AppNotFoundException(await this.i18n.translate('errors.variant_not_found'), 'VARIANT_NOT_FOUND')
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.variant_not_found'),
+        'VARIANT_NOT_FOUND',
+      )
     }
     return variant
   }
@@ -348,12 +441,19 @@ export class ProductVariantManagementService {
     const all = await this.variantsService.listVariantsForProduct(businessId, productId)
     const found = all.find((v) => v.id === variantId)
     if (!found) {
-      throw new AppNotFoundException(await this.i18n.translate('errors.variant_not_found'), 'VARIANT_NOT_FOUND')
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.variant_not_found'),
+        'VARIANT_NOT_FOUND',
+      )
     }
     return found
   }
 
-  private async handleServiceError(action: string, error: unknown, metadata?: LogMetadata): Promise<never> {
+  private async handleServiceError(
+    action: string,
+    error: unknown,
+    metadata?: LogMetadata,
+  ): Promise<never> {
     if (error instanceof AppException) {
       this.logger.warn('ProductVariantManagementService error', 'ProductVariantManagementService', {
         action,
@@ -363,11 +463,15 @@ export class ProductVariantManagementService {
       })
       throw error
     }
-    this.logger.error('ProductVariantManagementService unexpected error', 'ProductVariantManagementService', {
-      action,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      ...(metadata ?? {}),
-    })
+    this.logger.error(
+      'ProductVariantManagementService unexpected error',
+      'ProductVariantManagementService',
+      {
+        action,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        ...(metadata ?? {}),
+      },
+    )
     throw new AppInternalServerException(
       await this.i18n.translate('errors.server_error'),
       'VARIANT_MANAGEMENT_SERVICE_ERROR',

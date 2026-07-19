@@ -1,8 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { EntityManager, In, IsNull, Repository } from 'typeorm'
+import { EntityManager, ILike, In, IsNull, Repository } from 'typeorm'
+import { SerialUnitStatus } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
+  ListQuery,
+  PaginatedResult,
   PreviewVariant,
   PreviewVariantsResponse,
   ProductAttributeSelection,
@@ -21,6 +24,7 @@ import { AttributeOption } from '@/entities/attribute-option.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { Product } from '@/entities/product.entity'
+import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -63,6 +67,43 @@ export class ProductVariantsService {
       where: { productId, businessId, deletedAt: IsNull() },
       order: { sortOrder: 'ASC' },
     })
+    return this.hydrateVariants(businessId, productId, variants)
+  }
+
+  /** Paginated variants for the product-detail management section (server-side LIMIT/OFFSET
+   * + COUNT so the client never receives the full list). */
+  async listVariantsPageForProduct(
+    businessId: string,
+    productId: string,
+    query: ListQuery,
+  ): Promise<PaginatedResult<ProductVariantModel>> {
+    const page = Math.max(query.page ?? 1, 1)
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
+    const search = query.search?.trim()
+    const base = { productId, businessId, deletedAt: IsNull() }
+    // Search matches the variant name or its SKU (tile code).
+    const where = search
+      ? [
+          { ...base, name: ILike(`%${search}%`) },
+          { ...base, sku: ILike(`%${search}%`) },
+        ]
+      : base
+    const [variants, total] = await this.variantsRepo.findAndCount({
+      where,
+      order: { sortOrder: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    })
+    const data = await this.hydrateVariants(businessId, productId, variants)
+    return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) }
+  }
+
+  /** Attach each variant's options (with group/option display data) and current stock. */
+  private async hydrateVariants(
+    businessId: string,
+    productId: string,
+    variants: ProductVariant[],
+  ): Promise<ProductVariantModel[]> {
     if (variants.length === 0) {
       return []
     }
@@ -86,6 +127,30 @@ export class ProductVariantsService {
     const levelByVariant = new Map(
       levels.filter((level) => level.variantId).map((level) => [level.variantId as string, level]),
     )
+
+    // For serialized products a variant's stock is the count of its IN_STOCK serial units
+    // (inventory levels aren't the source of truth there), computed here so the client
+    // never has to load every serial to count.
+    const manager = this.inventoryLevelsRepo.manager
+    const product = await manager
+      .getRepository(Product)
+      .findOne({ where: { id: productId, businessId }, select: ['id', 'isSerialized'] })
+    const serialStock = new Map<string, number>()
+    if (product?.isSerialized) {
+      const rows = await manager
+        .getRepository(ProductSerialUnit)
+        .createQueryBuilder('su')
+        .select('su.variantId', 'variantId')
+        .addSelect('COUNT(*)', 'n')
+        .where('su.businessId = :businessId', { businessId })
+        .andWhere('su.productId = :productId', { productId })
+        .andWhere('su.status = :status', { status: SerialUnitStatus.IN_STOCK })
+        .andWhere('su.deletedAt IS NULL')
+        .andWhere('su.variantId IS NOT NULL')
+        .groupBy('su.variantId')
+        .getRawMany<{ variantId: string; n: string }>()
+      for (const r of rows) serialStock.set(r.variantId, Number(r.n))
+    }
     const linksByVariant = new Map<string, typeof links>()
     for (const link of links) {
       const list = linksByVariant.get(link.variantId) ?? []
@@ -95,6 +160,9 @@ export class ProductVariantsService {
 
     return variants.map((variant) => {
       const level = levelByVariant.get(variant.id)
+      const currentStock = product?.isSerialized
+        ? (serialStock.get(variant.id) ?? 0)
+        : (level?.quantity ?? 0)
       return {
         id: variant.id,
         businessId: variant.businessId,
@@ -117,7 +185,7 @@ export class ProductVariantsService {
           optionValue: optionById.get(link.attributeOptionId)?.value,
           colorHex: optionById.get(link.attributeOptionId)?.colorHex ?? null,
         })),
-        currentStock: level?.quantity ?? 0,
+        currentStock,
         lowStockThreshold: level?.lowStockThreshold ?? null,
       }
     })
@@ -341,9 +409,7 @@ export class ProductVariantsService {
       .map((option) => option.id)
       .sort()
       .join('|')
-    return overrides.find(
-      (override) => [...override.optionIds].sort().join('|') === key,
-    )
+    return overrides.find((override) => [...override.optionIds].sort().join('|') === key)
   }
 
   private async handleServiceError(
