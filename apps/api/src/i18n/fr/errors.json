@@ -51,6 +51,7 @@
   "variant_not_found": "La variante selectionnee n'est pas disponible.",
   "variant_options_required": "Selectionnez au moins une option pour la variante.",
   "variant_duplicate_combination": "Une variante avec cette combinaison existe deja.",
+  "variant_duplicate_sku": "Le code \"{sku}\" est deja utilise par une autre variante. Les codes doivent etre uniques.",
   "brand_not_found": "Marque introuvable.",
   "model_not_found": "Modele introuvable.",
   "quantity_must_be_integer": "\"{name}\" ne peut etre vendu qu'en unites entieres.",

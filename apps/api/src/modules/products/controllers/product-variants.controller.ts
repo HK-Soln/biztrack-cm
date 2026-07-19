@@ -8,17 +8,19 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
-import type { AuditContext, JwtPayload, ProductVariant } from '@biztrack/types'
-import { serializeDto, serializeDtos } from '@/common/http/serialization'
+import type { AuditContext, JwtPayload, PaginatedResult, ProductVariant } from '@biztrack/types'
+import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { AddProductVariantDto } from '../dto/add-product-variant.dto'
+import { ListVariantsQueryDto } from '../dto/list-variants-query.dto'
 import { RemoveProductVariantDto } from '../dto/remove-product-variant.dto'
 import { UpdateProductVariantDto } from '../dto/update-product-variant.dto'
 import { ProductVariantManagementService } from '../services/product-variant-management.service'
@@ -32,12 +34,18 @@ export class ProductVariantsController {
 
   @Get()
   @RequireResource(Resource.PRODUCTS_VIEW)
-  @ApiOperation({ summary: 'List a product’s variants (with current stock)' })
+  @ApiOperation({ summary: 'List a product’s variants (with current stock), paginated' })
   async findAll(
     @CurrentUser() user: JwtPayload,
     @Param('productId') productId: string,
-  ): Promise<ProductVariant[]> {
-    return serializeDtos(await this.variantManagement.list(productId, user.businessId as string), (v) => v)
+    @Query() query: ListVariantsQueryDto,
+  ): Promise<PaginatedResult<ProductVariant>> {
+    const result = await this.variantManagement.listPaged(
+      productId,
+      user.businessId as string,
+      query,
+    )
+    return serializePaginatedResult(result, (v) => v)
   }
 
   @Post()
@@ -49,7 +57,14 @@ export class ProductVariantsController {
     @Body() dto: AddProductVariantDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<ProductVariant> {
-    return serializeDto(await this.variantManagement.addVariant(productId, user.businessId as string, dto, auditContext))
+    return serializeDto(
+      await this.variantManagement.addVariant(
+        productId,
+        user.businessId as string,
+        dto,
+        auditContext,
+      ),
+    )
   }
 
   @Patch(':variantId')
@@ -63,7 +78,13 @@ export class ProductVariantsController {
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<ProductVariant> {
     return serializeDto(
-      await this.variantManagement.updateVariant(productId, variantId, user.businessId as string, dto, auditContext),
+      await this.variantManagement.updateVariant(
+        productId,
+        variantId,
+        user.businessId as string,
+        dto,
+        auditContext,
+      ),
     )
   }
 
@@ -78,6 +99,12 @@ export class ProductVariantsController {
     @Body() dto: RemoveProductVariantDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<void> {
-    return this.variantManagement.removeVariant(productId, variantId, user.businessId as string, dto, auditContext)
+    return this.variantManagement.removeVariant(
+      productId,
+      variantId,
+      user.businessId as string,
+      dto,
+      auditContext,
+    )
   }
 }

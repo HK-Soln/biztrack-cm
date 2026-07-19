@@ -2156,6 +2156,59 @@ export class SyncService {
     )
   }
 
+  /** Count a product's IN_STOCK (non-deleted) serial units — the effective stock of a
+   * serialized product. */
+  private countInStockSerials(businessId: string, productId: string): Promise<number> {
+    return this.productSerialUnitsRepo.count({
+      where: { businessId, productId, status: SerialUnitStatus.IN_STOCK },
+    })
+  }
+
+  /** Sum of a product's variant inventory levels — the effective stock of a variant product. */
+  private async sumVariantLevels(businessId: string, productId: string): Promise<number> {
+    const row = await this.inventoryLevelsRepo
+      .createQueryBuilder('l')
+      .select('COALESCE(SUM(l.quantity), 0)', 'n')
+      .where('l.businessId = :businessId AND l.productId = :productId', { businessId, productId })
+      .getRawOne<{ n: string }>()
+    return Number(row?.n ?? 0)
+  }
+
+  /** Write a product-level stock movement while applying a synced variant/serial op, so the
+   * cloud bin card mirrors the desktop ledger. `quantityAfter` is the product's effective
+   * stock after the change; the first ever positive movement is the OPENING_STOCK. */
+  private async recordSyncStockMovement(
+    businessId: string,
+    productId: string,
+    change: number,
+    quantityAfter: number,
+    referenceType: string,
+    referenceId: string,
+    notes: string,
+    createdAt: Date,
+  ): Promise<void> {
+    if (change === 0) return
+    const hasHistory =
+      (await this.inventoryMovementsRepo.count({ where: { businessId, productId } })) > 0
+    const type =
+      change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    await this.inventoryMovementsRepo.save(
+      this.inventoryMovementsRepo.create({
+        businessId,
+        productId,
+        type,
+        quantityChange: change,
+        quantityBefore: quantityAfter - change,
+        quantityAfter,
+        referenceType,
+        referenceId,
+        notes,
+        performedById: null,
+        createdAt,
+      }),
+    )
+  }
+
   private async applyProductVariantOperation(
     businessId: string,
     operation: SyncOperation,
@@ -2227,15 +2280,29 @@ export class SyncService {
         where: { businessId, productId, variantId: operation.recordId },
       })
       if (!level) {
+        const openingStock = Math.max(payload.openingStock ?? 0, 0)
         await this.inventoryLevelsRepo.save(
           this.inventoryLevelsRepo.create({
             businessId,
             productId,
             variantId: operation.recordId,
-            quantity: Math.max(payload.openingStock ?? 0, 0),
+            quantity: openingStock,
             lowStockThreshold: payload.lowStockThreshold ?? null,
           }),
         )
+        // The variant's opening stock is a stock-in — mirror the desktop ledger entry.
+        if (openingStock > 0) {
+          await this.recordSyncStockMovement(
+            businessId,
+            productId,
+            openingStock,
+            await this.sumVariantLevels(businessId, productId),
+            'product_variant',
+            operation.recordId,
+            `Added variant "${fields.name}" (+${openingStock})`,
+            this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          )
+        }
       } else if (payload.lowStockThreshold !== undefined) {
         await this.inventoryLevelsRepo.update(level.id, {
           lowStockThreshold: payload.lowStockThreshold,
@@ -2320,10 +2387,24 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        const wasInStock = !existing.deletedAt && existing.status === SerialUnitStatus.IN_STOCK
         await this.productSerialUnitsRepo.update(operation.recordId, {
           deletedAt: operation.recordUpdatedAt,
           updatedAt: operation.recordUpdatedAt,
         })
+        // Retiring an in-stock unit is a stock-out — mirror the desktop ledger entry.
+        if (wasInStock) {
+          await this.recordSyncStockMovement(
+            businessId,
+            existing.productId,
+            -1,
+            await this.countInStockSerials(businessId, existing.productId),
+            'serial_unit',
+            operation.recordId,
+            'Retired serial unit',
+            operation.recordUpdatedAt,
+          )
+        }
       }
       return { status: 'applied' }
     }
@@ -2346,6 +2427,7 @@ export class SyncService {
       SerialUnitStatus.IN_STOCK) as SerialUnitStatus
 
     if (existing) {
+      const wasInStock = !existing.deletedAt && existing.status === SerialUnitStatus.IN_STOCK
       await this.productSerialUnitsRepo.update(operation.recordId, {
         productId,
         variantId,
@@ -2355,6 +2437,20 @@ export class SyncService {
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
+      // Reviving a retired/sold unit back into stock is a stock-in; a plain rename is not.
+      const change = (status === SerialUnitStatus.IN_STOCK ? 1 : 0) - (wasInStock ? 1 : 0)
+      if (change !== 0) {
+        await this.recordSyncStockMovement(
+          businessId,
+          productId,
+          change,
+          await this.countInStockSerials(businessId, productId),
+          'serial_unit',
+          productId,
+          change > 0 ? 'Added serial unit' : 'Removed serial unit',
+          this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        )
+      }
       return { status: 'applied' }
     }
 
@@ -2371,6 +2467,19 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       }),
     )
+    // A new in-stock unit is a stock-in — mirror the desktop ledger entry.
+    if (status === SerialUnitStatus.IN_STOCK) {
+      await this.recordSyncStockMovement(
+        businessId,
+        productId,
+        1,
+        await this.countInStockSerials(businessId, productId),
+        'serial_unit',
+        productId,
+        'Added serial unit',
+        this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+      )
+    }
     return { status: 'applied' }
   }
 
@@ -3184,14 +3293,16 @@ export class SyncService {
       const inventoryRepo = manager.getRepository(InventoryLevel)
       const movementRepo = manager.getRepository(InventoryMovement)
 
+      const variantId = payload.variantId ?? null
       const level =
         (await inventoryRepo.findOne({
-          where: { businessId, productId: payload.productId },
+          where: { businessId, productId: payload.productId, variantId: variantId ?? IsNull() },
         })) ??
         (await inventoryRepo.save(
           inventoryRepo.create({
             businessId,
             productId: payload.productId,
+            variantId,
             quantity: 0,
             createdAt: operation.recordUpdatedAt,
             updatedAt: operation.recordUpdatedAt,
@@ -3224,8 +3335,8 @@ export class SyncService {
           quantityChange: quantityAfter - quantityBefore,
           quantityBefore,
           quantityAfter,
-          referenceType: 'adjustment',
-          referenceId: payload.productId,
+          referenceType: variantId ? 'product_variant' : 'adjustment',
+          referenceId: variantId ?? payload.productId,
           notes: payload.notes.trim(),
           performedById: null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,

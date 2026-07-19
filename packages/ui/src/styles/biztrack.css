@@ -7407,6 +7407,13 @@ textarea.input {
   gap: 7px;
   flex-wrap: wrap;
 }
+/* Variant/tile code (SKU) — monospace so codes read clearly. */
+.vcode {
+  font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
 .vcard-sw {
   display: inline-flex;
   align-items: center;

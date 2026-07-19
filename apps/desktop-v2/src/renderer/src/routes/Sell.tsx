@@ -1471,6 +1471,7 @@ function VariantPicker({
                     <div className="t">
                       <div className="nm">{v.name}</div>
                       <div className="s">
+                        {v.sku ? `${v.sku} · ` : ''}
                         {out ? t('sell.outOfStock') : `${v.stockQuantity} ${t('sell.inStock')}`}
                       </div>
                     </div>

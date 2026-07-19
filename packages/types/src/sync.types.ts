@@ -731,6 +731,8 @@ export interface InventoryAdjustmentSyncPayload {
   quantity: number
   notes: string
   createdAt: string
+  /** When set, the adjustment targets a specific (non-serialized) variant's stock level. */
+  variantId?: string | null
 }
 
 export interface InventoryRestockSyncItemPayload {

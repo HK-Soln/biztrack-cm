@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { CommandSelect } from '@biztrack/ui/biztrack'
 import { PurchaseOrderStatus } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
@@ -7,22 +7,39 @@ import { useT } from '@/i18n'
 import { ReceiveLine, newGroup, type RecvGroup } from '@/components/inventory/receive/ReceiveLine'
 import { SettlementPanel } from '@/components/inventory/receive/SettlementPanel'
 import { validateSerial } from '@/lib/serial'
-import type { LocalProduct, LocalPurchaseOrderItem, LocalVariant, RestockItemInput } from '@shared/ipc'
+import type {
+  LocalProduct,
+  LocalPurchaseOrderItem,
+  LocalVariant,
+  RestockItemInput,
+} from '@shared/ipc'
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : 0)
 const round2 = (n: number) => Math.round(n * 100) / 100
 const newId = () => crypto.randomUUID()
 
-const RECEIVABLE = new Set<string>([PurchaseOrderStatus.SENT, PurchaseOrderStatus.CONFIRMED, PurchaseOrderStatus.PARTIALLY_RECEIVED])
+const RECEIVABLE = new Set<string>([
+  PurchaseOrderStatus.SENT,
+  PurchaseOrderStatus.CONFIRMED,
+  PurchaseOrderStatus.PARTIALLY_RECEIVED,
+])
 
-interface ProductMeta { product: LocalProduct; variants: LocalVariant[] }
-interface ManualLine { id: string; productId: string; name: string }
+interface ProductMeta {
+  product: LocalProduct
+  variants: LocalVariant[]
+}
+interface ManualLine {
+  id: string
+  productId: string
+  name: string
+}
 
 /** Ad-hoc goods receipt. Either pick an open purchase order (→ the PO receive screen),
  * or add products manually and settle the same way (charges/discounts/payments/invoice). */
 export function ReceiveStock() {
   const t = useT()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [lines, setLines] = useState<ManualLine[]>([])
   const [meta, setMeta] = useState<Record<string, ProductMeta>>({})
@@ -39,7 +56,12 @@ export function ReceiveStock() {
   // Add a product as a manual line.
   const loadProducts = useCallback(async (search: string) => {
     const res = await dataClient.products.list({ search: search || undefined, limit: 20 })
-    return res.data.map((p) => ({ value: p.id, label: p.name, sublabel: p.sku ?? undefined, imageUrl: p.imageUrl }))
+    return res.data.map((p) => ({
+      value: p.id,
+      label: p.name,
+      sublabel: p.sku ?? undefined,
+      imageUrl: p.imageUrl,
+    }))
   }, [])
 
   const addProduct = async (productId: string | null, label?: string) => {
@@ -47,7 +69,10 @@ export function ReceiveStock() {
     const lineId = newId()
     let m = meta[productId]
     if (!m) {
-      const [product, variants] = await Promise.all([dataClient.products.get(productId), dataClient.products.listVariants(productId)])
+      const [product, variants] = await Promise.all([
+        dataClient.products.get(productId),
+        dataClient.products.listVariants(productId),
+      ])
       if (!product) return
       m = { product, variants }
       setMeta((s) => ({ ...s, [productId]: m! }))
@@ -59,8 +84,22 @@ export function ReceiveStock() {
 
   const removeLine = (lineId: string) => {
     setLines((ls) => ls.filter((l) => l.id !== lineId))
-    setGroups((s) => { const next = { ...s }; delete next[lineId]; return next })
+    setGroups((s) => {
+      const next = { ...s }
+      delete next[lineId]
+      return next
+    })
   }
+
+  // Launched from a product page (?product=<id>) → pre-load that product as a line once.
+  const preloaded = useRef(false)
+  useEffect(() => {
+    const productId = searchParams.get('product')
+    if (!productId || preloaded.current) return
+    preloaded.current = true
+    void addProduct(productId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const built = useMemo(() => {
     const items: RestockItemInput[] = []
@@ -81,12 +120,22 @@ export function ReceiveStock() {
             return true
           })
           if (valid.length === 0) continue
-          items.push({ productId: ml.productId, variantId: g.variantId, serialNumbers: valid, unitCost: cost })
+          items.push({
+            productId: ml.productId,
+            variantId: g.variantId,
+            serialNumbers: valid,
+            unitCost: cost,
+          })
           subtotal += valid.length * cost
         } else {
           const qty = num(g.qty)
           if (qty <= 0) continue
-          items.push({ productId: ml.productId, variantId: g.variantId, quantity: qty, unitCost: cost })
+          items.push({
+            productId: ml.productId,
+            variantId: g.variantId,
+            quantity: qty,
+            unitCost: cost,
+          })
           subtotal += qty * cost
         }
       }
@@ -95,12 +144,22 @@ export function ReceiveStock() {
   }, [lines, meta, groups])
 
   // A PO-line-shaped object so ReceiveLine can render a manual line.
-  const asLine = (ml: ManualLine): LocalPurchaseOrderItem => ({ id: ml.id, productId: ml.productId, variantId: null, description: ml.name, quantity: 0, unitPrice: 0, receivedQuantity: 0 })
+  const asLine = (ml: ManualLine): LocalPurchaseOrderItem => ({
+    id: ml.id,
+    productId: ml.productId,
+    variantId: null,
+    description: ml.name,
+    quantity: 0,
+    unitPrice: 0,
+    receivedQuantity: 0,
+  })
 
   return (
     <div className="frame">
       <button type="button" className="back-btn" onClick={() => navigate('/inventory')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M15 18l-6-6 6-6" /></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
         {t('nav.inventory')}
       </button>
 
@@ -112,24 +171,48 @@ export function ReceiveStock() {
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="fsec-h" style={{ marginBottom: 8 }}>{t('recv.fromPo')}</div>
-        <div style={{ maxWidth: 360 }}>
-          <CommandSelect value={null} valueLabel={null} onChange={(poId) => { if (poId) navigate(`/purchasing/orders/${poId}/receive`) }} loadOptions={loadPos} placeholder={t('recv.pickPo')} searchPlaceholder={t('recv.searchPo')} />
+        <div className="fsec-h" style={{ marginBottom: 8 }}>
+          {t('recv.fromPo')}
         </div>
-        <div className="hint" style={{ marginTop: 6 }}>{t('recv.fromPoHint')}</div>
+        <div style={{ maxWidth: 360 }}>
+          <CommandSelect
+            value={null}
+            valueLabel={null}
+            onChange={(poId) => {
+              if (poId) navigate(`/purchasing/orders/${poId}/receive`)
+            }}
+            loadOptions={loadPos}
+            placeholder={t('recv.pickPo')}
+            searchPlaceholder={t('recv.searchPo')}
+          />
+        </div>
+        <div className="hint" style={{ marginTop: 6 }}>
+          {t('recv.fromPoHint')}
+        </div>
       </div>
 
       <div className="recv">
         <div className="recv-main">
           <div className="card" style={{ marginBottom: 12 }}>
-            <div className="fsec-h" style={{ marginBottom: 8 }}>{t('recv.addProducts')}</div>
+            <div className="fsec-h" style={{ marginBottom: 8 }}>
+              {t('recv.addProducts')}
+            </div>
             <div style={{ maxWidth: 360 }}>
-              <CommandSelect value={null} valueLabel={null} onChange={(id, opt) => void addProduct(id, opt?.label)} loadOptions={loadProducts} placeholder={t('field.addProduct')} searchPlaceholder={t('field.searchProducts')} />
+              <CommandSelect
+                value={null}
+                valueLabel={null}
+                onChange={(id, opt) => void addProduct(id, opt?.label)}
+                loadOptions={loadProducts}
+                placeholder={t('field.addProduct')}
+                searchPlaceholder={t('field.searchProducts')}
+              />
             </div>
           </div>
 
           {lines.length === 0 ? (
-            <div className="recv-line"><div className="sub">{t('recv.noManualItems')}</div></div>
+            <div className="recv-line">
+              <div className="sub">{t('recv.noManualItems')}</div>
+            </div>
           ) : (
             lines.map((ml) =>
               meta[ml.productId] ? (

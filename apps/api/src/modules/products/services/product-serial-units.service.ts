@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { DataSource, Repository } from 'typeorm'
+import { DataSource, ILike, Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   SerialType,
@@ -65,6 +65,8 @@ export class ProductSerialUnitsService {
       const where: Record<string, unknown> = { businessId, productId }
       if (query.status) where.status = query.status
       if (query.variantId) where.variantId = query.variantId
+      const search = query.search?.trim()
+      if (search) where.serialNumber = ILike(`%${search}%`)
 
       const [data, total] = await this.serialUnitsRepo.findAndCount({
         where,
@@ -197,7 +199,12 @@ export class ProductSerialUnitsService {
           entityLabel: unit.serialNumber,
           changes: {
             before: null,
-            after: { productId, variantId: unit.variantId ?? null, serialNumber: unit.serialNumber, status: unit.status },
+            after: {
+              productId,
+              variantId: unit.variantId ?? null,
+              serialNumber: unit.serialNumber,
+              status: unit.status,
+            },
           },
         })
       }
@@ -237,7 +244,9 @@ export class ProductSerialUnitsService {
         })
         if (clash && clash.id !== unit.id) {
           throw new AppBadRequestException(
-            await this.i18n.translate('errors.serial_duplicate_in_stock', { args: { serial: serialNumber } }),
+            await this.i18n.translate('errors.serial_duplicate_in_stock', {
+              args: { serial: serialNumber },
+            }),
             'SERIAL_DUPLICATE_IN_STOCK',
           )
         }
@@ -287,7 +296,10 @@ export class ProductSerialUnitsService {
           where: { businessId, productId, status: SerialUnitStatus.IN_STOCK },
         })
 
-        await serialRepo.update({ id: unit.id }, { status: SerialUnitStatus.DAMAGED, notes: reason })
+        await serialRepo.update(
+          { id: unit.id },
+          { status: SerialUnitStatus.DAMAGED, notes: reason },
+        )
         await serialRepo.softDelete({ id: unit.id })
 
         await movementRepo.save(
@@ -311,7 +323,10 @@ export class ProductSerialUnitsService {
         entityType: 'product_serial_unit',
         entityId: unit.id,
         entityLabel: unit.serialNumber,
-        changes: { before: { serialNumber: unit.serialNumber, status: unit.status, retireReason: reason }, after: null },
+        changes: {
+          before: { serialNumber: unit.serialNumber, status: unit.status, retireReason: reason },
+          after: null,
+        },
       })
     } catch (error) {
       return this.handleServiceError('retire', error, { productId, unitId, businessId })
