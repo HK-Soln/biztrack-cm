@@ -141,6 +141,7 @@ import type {
   ScanHit,
   ThresholdInput,
   ModelInput,
+  ListQuery,
   PaginatedResult,
   ProductImageInput,
   ProductInput,
@@ -223,6 +224,10 @@ export interface DataClient {
     listImages: (productId: string) => Promise<LocalProductImage[]>
     setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
+    listVariantsPage: (
+      productId: string,
+      query?: ListQuery,
+    ) => Promise<PaginatedResult<LocalVariant>>
     setVariants: (productId: string, variants: VariantInput[]) => Promise<void>
     addVariant: (productId: string, input: VariantInput) => Promise<LocalVariant>
     updateVariant: (
@@ -232,6 +237,10 @@ export interface DataClient {
     ) => Promise<LocalVariant>
     removeVariant: (productId: string, variantId: string, reason: string) => Promise<void>
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
+    listSerialUnitsPage: (
+      productId: string,
+      query?: ListQuery,
+    ) => Promise<PaginatedResult<LocalSerialUnit>>
     listInStockSerials: (
       productId: string,
       variantId?: string | null,
@@ -567,6 +576,8 @@ function electronAdapter(): DataClient {
       listImages: (productId) => window.api.products.listImages(productId),
       setImages: (productId, images) => window.api.products.setImages(productId, images),
       listVariants: (productId) => window.api.products.listVariants(productId),
+      listVariantsPage: (productId, query) =>
+        window.api.products.listVariantsPage(productId, query),
       setVariants: (productId, variants) => window.api.products.setVariants(productId, variants),
       addVariant: (productId, input) => window.api.products.addVariant(productId, input),
       updateVariant: (productId, variantId, input) =>
@@ -574,6 +585,8 @@ function electronAdapter(): DataClient {
       removeVariant: (productId, variantId, reason) =>
         window.api.products.removeVariant(productId, variantId, reason),
       listSerialUnits: (productId) => window.api.products.listSerialUnits(productId),
+      listSerialUnitsPage: (productId, query) =>
+        window.api.products.listSerialUnitsPage(productId, query),
       listInStockSerials: (productId, variantId, search) =>
         window.api.products.listInStockSerials(productId, variantId, search),
       resolveScan: (code) => window.api.products.resolveScan(code),

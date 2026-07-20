@@ -103,6 +103,8 @@ const api: BridgeApi = {
     listImages: (productId) => ipcRenderer.invoke(IPC.productsListImages, productId),
     setImages: (productId, images) => ipcRenderer.invoke(IPC.productsSetImages, productId, images),
     listVariants: (productId) => ipcRenderer.invoke(IPC.productsListVariants, productId),
+    listVariantsPage: (productId, query) =>
+      ipcRenderer.invoke(IPC.productsListVariantsPage, productId, query),
     setVariants: (productId, variants) =>
       ipcRenderer.invoke(IPC.productsSetVariants, productId, variants),
     addVariant: (productId, input) => ipcRenderer.invoke(IPC.productsAddVariant, productId, input),
@@ -111,6 +113,8 @@ const api: BridgeApi = {
     removeVariant: (productId, variantId, reason) =>
       ipcRenderer.invoke(IPC.productsRemoveVariant, productId, variantId, reason),
     listSerialUnits: (productId) => ipcRenderer.invoke(IPC.productsListSerialUnits, productId),
+    listSerialUnitsPage: (productId, query) =>
+      ipcRenderer.invoke(IPC.productsListSerialUnitsPage, productId, query),
     listInStockSerials: (productId, variantId, search) =>
       ipcRenderer.invoke(IPC.productsListInStockSerials, productId, variantId, search),
     resolveScan: (code) => ipcRenderer.invoke(IPC.productsResolveScan, code),

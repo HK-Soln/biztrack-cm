@@ -322,6 +322,8 @@ export interface SerialUnitsQuery {
   limit?: number
   status?: SerialUnitStatus
   variantId?: string
+  /** Matches the serial/IMEI number (partial). */
+  search?: string
 }
 
 // ---- Variant management (REST + offline twin) -----------------------------

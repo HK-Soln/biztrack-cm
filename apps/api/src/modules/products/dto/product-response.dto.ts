@@ -68,6 +68,8 @@ export class ProductResponseDto implements Product {
   sellingPrice!: number
   // Displayed "from" price: lowest variant price for variant products, else sellingPrice.
   effectiveSellingPrice?: number
+  // Effective cost: average variant cost for variant products, else costPrice.
+  effectiveCostPrice?: number | null
   costPrice?: number | null
   currency!: string
   taxRate!: number
@@ -118,6 +120,10 @@ export class ProductResponseDto implements Product {
     dto.sellingPrice = model.sellingPrice
     dto.effectiveSellingPrice =
       (model as { effectiveSellingPrice?: number }).effectiveSellingPrice ?? model.sellingPrice
+    dto.effectiveCostPrice =
+      (model as { effectiveCostPrice?: number | null }).effectiveCostPrice ??
+      model.costPrice ??
+      null
     dto.costPrice = model.costPrice ?? null
     dto.currency = model.currency
     dto.taxRate = model.taxRate

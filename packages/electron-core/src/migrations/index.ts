@@ -51,6 +51,7 @@ import { migration_0049 } from './0049_deposit_sessions'
 import { migration_0050 } from './0050_online_sale_flow'
 import { migration_0051 } from './0051_backfill_opening_balance_debts'
 import { migration_0052 } from './0052_drop_stale_savings_unique'
+import { migration_0053 } from './0053_variant_sku_unique'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -109,6 +110,7 @@ export const MIGRATIONS: Migration[] = [
   migration_0050,
   migration_0051,
   migration_0052,
+  migration_0053,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

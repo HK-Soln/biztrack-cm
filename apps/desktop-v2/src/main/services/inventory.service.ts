@@ -94,7 +94,8 @@ export class InventoryService {
   /** Tracked products with stock levels + thresholds (paginated). */
   list(query: InventoryListQuery = {}): PaginatedResult<LocalInventoryItem> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalInventoryItem>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalInventoryItem>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1'
     const params: unknown[] = [businessId]
@@ -104,8 +105,10 @@ export class InventoryService {
     }
     if (query.stockStatus && query.stockStatus !== 'all') {
       if (query.stockStatus === 'out') where += ` AND ${STOCK_EXPR} <= 0`
-      else if (query.stockStatus === 'low') where += ` AND ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}`
-      else if (query.stockStatus === 'in') where += ` AND ${STOCK_EXPR} > 0 AND (${INV_THRESHOLD} = 0 OR ${STOCK_EXPR} > ${INV_THRESHOLD})`
+      else if (query.stockStatus === 'low')
+        where += ` AND ${STOCK_EXPR} > 0 AND ${INV_THRESHOLD} > 0 AND ${STOCK_EXPR} <= ${INV_THRESHOLD}`
+      else if (query.stockStatus === 'in')
+        where += ` AND ${STOCK_EXPR} > 0 AND (${INV_THRESHOLD} = 0 OR ${STOCK_EXPR} > ${INV_THRESHOLD})`
     }
 
     const { rows, ...meta } = paginateRows<InventoryRow>(
@@ -126,7 +129,13 @@ export class InventoryService {
 
   /** KPI roll-up for the inventory header (tracked products only). */
   stats(): InventoryStats {
-    const empty: InventoryStats = { trackedSkus: 0, unitsOnHand: 0, stockValueCost: 0, lowStock: 0, outOfStock: 0 }
+    const empty: InventoryStats = {
+      trackedSkus: 0,
+      unitsOnHand: 0,
+      stockValueCost: 0,
+      lowStock: 0,
+      outOfStock: 0,
+    }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
     const row = this.db.get<InventoryStats>(
@@ -184,39 +193,62 @@ export class InventoryService {
       // Restock to a par level of 2× the reorder point so the order actually clears
       // the alert (restocking to exactly the reorder point leaves it still flagged).
       const suggestedQty = target > 0 ? Math.max(target * 2 - stock, 1) : 1
-      return { productId: r.id, name: r.name, sku: r.sku, currentStock: stock, target, suggestedQty, unitCost: r.cost_price ?? null, currency: r.currency ?? 'XAF' }
+      return {
+        productId: r.id,
+        name: r.name,
+        sku: r.sku,
+        currentStock: stock,
+        target,
+        suggestedQty,
+        unitCost: r.cost_price ?? null,
+        currency: r.currency ?? 'XAF',
+      }
     })
   }
 
-  /** Manually adjust a direct product's stock. Only direct products (no variants,
-   * not serialized) — variant/serial stock is changed in their own tables. */
+  /** Manually adjust stock. Direct products adjust the product's own stock; passing a
+   * variantId adjusts that (non-serialized) variant's stock. Serialized stock is changed
+   * by adding/removing serial units, not here. */
   adjust(productId: string, input: AdjustStockInput): void {
     const businessId = this.requireBusinessId()
     const meta = this.requireProduct(productId, businessId)
     if (!meta.trackInventory) throw new Error('This product does not track stock.')
-    if (meta.isSerialized || meta.hasVariants) {
-      throw new Error('Adjust applies to direct products only; manage variant/serial stock from their panels.')
-    }
+
     const notes = input.notes.trim()
     if (notes.length < 3) throw new Error('A reason (at least 3 characters) is required.')
     if (!Number.isFinite(input.quantity)) throw new Error('Quantity is invalid.')
-    if ((input.type === 'ADD' || input.type === 'REMOVE') && input.quantity <= 0) throw new Error('Quantity must be greater than 0.')
+    if ((input.type === 'ADD' || input.type === 'REMOVE') && input.quantity <= 0)
+      throw new Error('Quantity must be greater than 0.')
     if (input.type === 'SET' && input.quantity < 0) throw new Error('Quantity cannot be negative.')
 
+    const variantId = input.variantId ?? null
+    if (variantId) {
+      this.adjustVariant(businessId, productId, meta, variantId, input, notes)
+      return
+    }
+    if (meta.isSerialized || meta.hasVariants) {
+      throw new Error(
+        'Adjust applies to direct products only; manage variant/serial stock from their panels.',
+      )
+    }
+
     const current = meta.stock
-    const next = input.type === 'ADD' ? current + input.quantity : input.type === 'REMOVE' ? current - input.quantity : input.quantity
+    const next =
+      input.type === 'ADD'
+        ? current + input.quantity
+        : input.type === 'REMOVE'
+          ? current - input.quantity
+          : input.quantity
     if (next < 0) throw new Error('Not enough stock for this adjustment.')
 
     const change = next - current
     if (change === 0) return // no-op (e.g. SET to the current value)
 
     const now = new Date().toISOString()
-    this.db.run(`UPDATE products SET stock_quantity = ?, updated_at = ? WHERE id = ? AND business_id = ?`, [
-      next,
-      now,
-      productId,
-      businessId,
-    ])
+    this.db.run(
+      `UPDATE products SET stock_quantity = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [next, now, productId, businessId],
+    )
     const movementId =
       recordStockMovement(
         this.db,
@@ -229,13 +261,93 @@ export class InventoryService {
 
     // Sync as an inventory adjustment event (server replays the same delta). record_id
     // = movement id so the server applies it idempotently.
-    this.enqueue('inventoryAdjustments', movementId, businessId, { productId, type: input.type, quantity: input.quantity, notes, createdAt: now }, now)
+    this.enqueue(
+      'inventoryAdjustments',
+      movementId,
+      businessId,
+      { productId, type: input.type, quantity: input.quantity, notes, createdAt: now },
+      now,
+    )
     this.audit?.log({
       action: 'UPDATE',
       entityType: 'inventory',
       entityId: productId,
       entityLabel: meta.name,
-      changes: { before: { stock: current }, after: { stock: next, adjust: input.type, quantity: input.quantity, reason: notes } },
+      changes: {
+        before: { stock: current },
+        after: { stock: next, adjust: input.type, quantity: input.quantity, reason: notes },
+      },
+    })
+    this.onMutated()
+  }
+
+  /** Adjust a single non-serialized variant's stock (product_variants.stock_quantity),
+   * recording a product-level movement referencing the variant so it ties out with the API. */
+  private adjustVariant(
+    businessId: string,
+    productId: string,
+    meta: ProductMeta,
+    variantId: string,
+    input: AdjustStockInput,
+    notes: string,
+  ): void {
+    if (meta.isSerialized) {
+      throw new Error('Serialized stock is changed by adding or removing serial units.')
+    }
+    const variant = this.db.get<{ id: string; name: string; stock_quantity: number }>(
+      `SELECT id, name, stock_quantity FROM product_variants WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
+      [variantId, productId, businessId],
+    )
+    if (!variant) throw new Error('Variant not found.')
+
+    const current = Number(variant.stock_quantity ?? 0)
+    const next =
+      input.type === 'ADD'
+        ? current + input.quantity
+        : input.type === 'REMOVE'
+          ? current - input.quantity
+          : input.quantity
+    if (next < 0) throw new Error('Not enough stock for this adjustment.')
+
+    const change = next - current
+    if (change === 0) return // no-op
+
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE product_variants SET stock_quantity = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [next, now, variantId, businessId],
+    )
+    const movementId =
+      recordStockMovement(
+        this.db,
+        businessId,
+        productId,
+        change,
+        {
+          referenceType: 'product_variant',
+          referenceId: variantId,
+          notes,
+          type: 'MANUAL_ADJUSTMENT',
+        },
+        now,
+      ) ?? randomUUID()
+
+    this.enqueue(
+      'inventoryAdjustments',
+      movementId,
+      businessId,
+      { productId, variantId, type: input.type, quantity: input.quantity, notes, createdAt: now },
+      now,
+    )
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'inventory',
+      entityId: productId,
+      entityLabel: `${meta.name} — ${variant.name}`,
+      changes: {
+        before: { stock: current },
+        after: { stock: next, adjust: input.type, quantity: input.quantity, reason: notes },
+      },
     })
     this.onMutated()
   }
@@ -254,61 +366,141 @@ export class InventoryService {
     const restockId = randomUUID()
 
     type Line =
-      | { kind: 'direct'; productId: string; name: string; quantity: number; unitCost: number | null }
-      | { kind: 'variant'; productId: string; name: string; variantId: string; quantity: number; unitCost: number | null }
-      | { kind: 'serial'; productId: string; name: string; variantId: string | null; serialType: SerialType; serials: string[]; quantity: number; unitCost: number | null }
+      | {
+          kind: 'direct'
+          productId: string
+          name: string
+          quantity: number
+          unitCost: number | null
+        }
+      | {
+          kind: 'variant'
+          productId: string
+          name: string
+          variantId: string
+          quantity: number
+          unitCost: number | null
+        }
+      | {
+          kind: 'serial'
+          productId: string
+          name: string
+          variantId: string | null
+          serialType: SerialType
+          serials: string[]
+          quantity: number
+          unitCost: number | null
+        }
 
     // Validate + classify everything before writing.
     const lines: Line[] = input.items.map((item) => {
       const meta = this.requireProduct(item.productId, businessId)
       if (!meta.trackInventory) throw new Error(`“${meta.name}” does not track stock.`)
-      const unitCost = item.unitCost != null && Number.isFinite(item.unitCost) && item.unitCost >= 0 ? item.unitCost : null
+      const unitCost =
+        item.unitCost != null && Number.isFinite(item.unitCost) && item.unitCost >= 0
+          ? item.unitCost
+          : null
       if (meta.isSerialized) {
         const serials = (item.serialNumbers ?? []).map((s) => s.trim()).filter(Boolean)
-        if (serials.length === 0) throw new Error(`Add the serial numbers received for “${meta.name}”.`)
-        return { kind: 'serial', productId: item.productId, name: meta.name, variantId: item.variantId ?? null, serialType: meta.serialType ?? 'SERIAL_NUMBER', serials, quantity: serials.length, unitCost }
+        if (serials.length === 0)
+          throw new Error(`Add the serial numbers received for “${meta.name}”.`)
+        return {
+          kind: 'serial',
+          productId: item.productId,
+          name: meta.name,
+          variantId: item.variantId ?? null,
+          serialType: meta.serialType ?? 'SERIAL_NUMBER',
+          serials,
+          quantity: serials.length,
+          unitCost,
+        }
       }
       const qty = item.quantity ?? 0
-      if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
+      if (!Number.isFinite(qty) || qty <= 0)
+        throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
       if (meta.hasVariants) {
         if (!item.variantId) throw new Error(`Select a variant for “${meta.name}”.`)
-        const variant = this.db.get<{ id: string }>(`SELECT id FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`, [item.variantId, item.productId])
+        const variant = this.db.get<{ id: string }>(
+          `SELECT id FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`,
+          [item.variantId, item.productId],
+        )
         if (!variant) throw new Error(`Variant not found for “${meta.name}”.`)
-        return { kind: 'variant', productId: item.productId, name: meta.name, variantId: item.variantId, quantity: qty, unitCost }
+        return {
+          kind: 'variant',
+          productId: item.productId,
+          name: meta.name,
+          variantId: item.variantId,
+          quantity: qty,
+          unitCost,
+        }
       }
       return { kind: 'direct', productId: item.productId, name: meta.name, quantity: qty, unitCost }
     })
 
     // Settlement: goods subtotal − discounts + charges = invoice total, settled by payments.
     const subtotal = round2(lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0))
-    const discountLines = (input.discounts ?? []).map((d) => ({ ...d, id: d.id ?? randomUUID(), amount: round2(Math.max(0, d.amount)) }))
-    const chargeLines = (input.charges ?? []).map((c) => ({ ...c, id: c.id ?? randomUUID(), amount: round2(Math.max(0, c.amount)) }))
+    const discountLines = (input.discounts ?? []).map((d) => ({
+      ...d,
+      id: d.id ?? randomUUID(),
+      amount: round2(Math.max(0, d.amount)),
+    }))
+    const chargeLines = (input.charges ?? []).map((c) => ({
+      ...c,
+      id: c.id ?? randomUUID(),
+      amount: round2(Math.max(0, c.amount)),
+    }))
     const discountAmount = round2(discountLines.reduce((s, d) => s + d.amount, 0))
     const chargesAmount = round2(chargeLines.reduce((s, c) => s + c.amount, 0))
     const totalAmount = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
 
-    const paymentLines = (input.payments ?? []).filter((p) => Number.isFinite(p.amount) && p.amount > 0)
-    const amountPaid = input.payments != null
-      ? round2(paymentLines.reduce((s, p) => s + p.amount, 0))
-      : input.amountPaid != null && Number.isFinite(input.amountPaid)
-        ? Math.max(0, Math.min(input.amountPaid, totalAmount))
-        : totalAmount
+    const paymentLines = (input.payments ?? []).filter(
+      (p) => Number.isFinite(p.amount) && p.amount > 0,
+    )
+    const amountPaid =
+      input.payments != null
+        ? round2(paymentLines.reduce((s, p) => s + p.amount, 0))
+        : input.amountPaid != null && Number.isFinite(input.amountPaid)
+          ? Math.max(0, Math.min(input.amountPaid, totalAmount))
+          : totalAmount
     const creditAmount = round2(Math.max(0, totalAmount - amountPaid))
-    if (creditAmount > 0 && !input.supplierId) throw new Error('Select a supplier for a restock on credit.')
+    if (creditAmount > 0 && !input.supplierId)
+      throw new Error('Select a supplier for a restock on credit.')
     const invoiceFileUrl = input.invoiceFileUrl?.trim() || null
-    if (creditAmount > 0 && !invoiceFileUrl) throw new Error('Attach the supplier invoice for a receipt on credit.')
+    if (creditAmount > 0 && !invoiceFileUrl)
+      throw new Error('Attach the supplier invoice for a receipt on credit.')
 
     const reference = input.reference?.trim() || null
     const notes = input.notes?.trim() || null
     const invoiceNumber = input.invoiceNumber?.trim() || null
     const invoiceDate = input.invoiceDate?.trim() || null
-    const supplierName = input.supplierId ? this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [input.supplierId])?.name ?? null : null
+    const supplierName = input.supplierId
+      ? (this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [input.supplierId])
+          ?.name ?? null)
+      : null
     const movementNote = reference ? `Restock ${reference}` : 'Restock'
 
     this.db.run(
       `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, discount_amount, charges_amount, amount_paid, credit_amount, invoice_number, invoice_date, invoice_file_url, notes, performed_by_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-      [restockId, businessId, reference, input.supplierId ?? null, supplierName, input.purchaseOrderId ?? null, totalAmount, subtotal, discountAmount, chargesAmount, amountPaid, creditAmount, invoiceNumber, invoiceDate, invoiceFileUrl, notes, now],
+      [
+        restockId,
+        businessId,
+        reference,
+        input.supplierId ?? null,
+        supplierName,
+        input.purchaseOrderId ?? null,
+        totalAmount,
+        subtotal,
+        discountAmount,
+        chargesAmount,
+        amountPaid,
+        creditAmount,
+        invoiceNumber,
+        invoiceDate,
+        invoiceFileUrl,
+        notes,
+        now,
+      ],
     )
 
     // Settlement children (charges, discounts, split payments).
@@ -316,7 +508,17 @@ export class InventoryService {
       this.db.run(
         `INSERT INTO restock_charges (id, restock_record_id, business_id, charge_type_id, name, rate_type, rate_value, amount, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [c.id, restockId, businessId, c.chargeTypeId ?? null, c.name, c.rateType, c.rateValue, c.amount, now],
+        [
+          c.id,
+          restockId,
+          businessId,
+          c.chargeTypeId ?? null,
+          c.name,
+          c.rateType,
+          c.rateValue,
+          c.amount,
+          now,
+        ],
       )
     }
     for (const d of discountLines) {
@@ -330,11 +532,26 @@ export class InventoryService {
       this.db.run(
         `INSERT INTO restock_payments (id, restock_record_id, business_id, method, amount, mobile_money_reference, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), restockId, businessId, p.method, round2(p.amount), p.mobileMoneyReference ?? null, now],
+        [
+          randomUUID(),
+          restockId,
+          businessId,
+          p.method,
+          round2(p.amount),
+          p.mobileMoneyReference ?? null,
+          now,
+        ],
       )
     }
 
-    const syncItems: Array<{ id: string; productId: string; variantId?: string | null; quantity: number; unitCost?: number; movementId: string }> = []
+    const syncItems: Array<{
+      id: string
+      productId: string
+      variantId?: string | null
+      quantity: number
+      unitCost?: number
+      movementId: string
+    }> = []
     const receipts: Array<{ productId: string; variantId: string | null; quantity: number }> = []
 
     for (const line of lines) {
@@ -344,26 +561,78 @@ export class InventoryService {
         // product_serial_unit events, and records a stock movement.
         this.products.addSerialUnits(
           line.productId,
-          line.serials.map((sn) => ({ serialNumber: sn, serialType: line.serialType, variantId: line.variantId })),
+          line.serials.map((sn) => ({
+            serialNumber: sn,
+            serialType: line.serialType,
+            variantId: line.variantId,
+          })),
           movementNote,
           'RESTOCK_IN',
         )
         movementId = randomUUID()
       } else if (line.kind === 'variant') {
-        this.db.run(`UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`, [line.quantity, now, line.variantId])
-        movementId = recordStockMovement(this.db, businessId, line.productId, line.quantity, { referenceType: 'restock', referenceId: restockId, notes: movementNote, type: 'RESTOCK_IN' }, now) ?? randomUUID()
+        this.db.run(
+          `UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`,
+          [line.quantity, now, line.variantId],
+        )
+        movementId =
+          recordStockMovement(
+            this.db,
+            businessId,
+            line.productId,
+            line.quantity,
+            {
+              referenceType: 'restock',
+              referenceId: restockId,
+              notes: movementNote,
+              type: 'RESTOCK_IN',
+            },
+            now,
+          ) ?? randomUUID()
       } else {
-        this.db.run(`UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`, [line.quantity, now, line.productId, businessId])
-        movementId = recordStockMovement(this.db, businessId, line.productId, line.quantity, { referenceType: 'restock', referenceId: restockId, notes: movementNote, type: 'RESTOCK_IN' }, now) ?? randomUUID()
+        this.db.run(
+          `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+          [line.quantity, now, line.productId, businessId],
+        )
+        movementId =
+          recordStockMovement(
+            this.db,
+            businessId,
+            line.productId,
+            line.quantity,
+            {
+              referenceType: 'restock',
+              referenceId: restockId,
+              notes: movementNote,
+              type: 'RESTOCK_IN',
+            },
+            now,
+          ) ?? randomUUID()
       }
       const variantId = line.kind === 'direct' ? null : line.variantId
       this.db.run(
         `INSERT INTO restock_items (id, restock_record_id, product_id, variant_id, quantity, unit_cost, new_quantity, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), restockId, line.productId, variantId, line.quantity, line.unitCost, effectiveStock(this.db, line.productId), now],
+        [
+          randomUUID(),
+          restockId,
+          line.productId,
+          variantId,
+          line.quantity,
+          line.unitCost,
+          effectiveStock(this.db, line.productId),
+          now,
+        ],
       )
       const itemId = randomUUID()
-      syncItems.push({ id: itemId, productId: line.productId, ...(variantId ? { variantId } : {}), quantity: line.quantity, ...(line.unitCost != null ? { unitCost: line.unitCost } : {}), movementId })
+      syncItems.push({
+        id: itemId,
+        productId: line.productId,
+        ...(variantId ? { variantId } : {}),
+        quantity: line.quantity,
+        ...(line.unitCost != null ? { unitCost: line.unitCost } : {}),
+        movementId,
+      })
       receipts.push({ productId: line.productId, variantId, quantity: line.quantity })
     }
 
@@ -387,9 +656,26 @@ export class InventoryService {
         invoiceFileUrl,
         notes,
         createdAt: now,
-        payments: paymentLines.map((p) => ({ method: p.method, amount: round2(p.amount), ...(p.mobileMoneyReference ? { mobileMoneyReference: p.mobileMoneyReference } : {}) })),
-        charges: chargeLines.map((c) => ({ id: c.id, chargeTypeId: c.chargeTypeId ?? null, name: c.name, rateType: c.rateType, rateValue: c.rateValue, amount: c.amount })),
-        discounts: discountLines.map((d) => ({ id: d.id, description: d.description, discountType: d.discountType, rate: d.rate ?? null, amount: d.amount })),
+        payments: paymentLines.map((p) => ({
+          method: p.method,
+          amount: round2(p.amount),
+          ...(p.mobileMoneyReference ? { mobileMoneyReference: p.mobileMoneyReference } : {}),
+        })),
+        charges: chargeLines.map((c) => ({
+          id: c.id,
+          chargeTypeId: c.chargeTypeId ?? null,
+          name: c.name,
+          rateType: c.rateType,
+          rateValue: c.rateValue,
+          amount: c.amount,
+        })),
+        discounts: discountLines.map((d) => ({
+          id: d.id,
+          description: d.description,
+          discountType: d.discountType,
+          rate: d.rate ?? null,
+          amount: d.amount,
+        })),
         items: syncItems,
       },
       now,
@@ -417,7 +703,23 @@ export class InventoryService {
       entityType: 'restock',
       entityId: restockId,
       entityLabel: reference ?? `${lines.length} item(s)`,
-      changes: { before: null, after: { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })), subtotal, discountAmount, chargesAmount, totalAmount, amountPaid, creditAmount, purchaseOrderId: input.purchaseOrderId ?? null } },
+      changes: {
+        before: null,
+        after: {
+          items: lines.map((l) => ({
+            productId: l.productId,
+            quantity: l.quantity,
+            unitCost: l.unitCost,
+          })),
+          subtotal,
+          discountAmount,
+          chargesAmount,
+          totalAmount,
+          amountPaid,
+          creditAmount,
+          purchaseOrderId: input.purchaseOrderId ?? null,
+        },
+      },
     })
     this.onMutated()
   }
@@ -440,7 +742,13 @@ export class InventoryService {
        WHERE business_id = ? AND product_id = ? AND variant_id IS NULL`,
       [low, reorder, now, businessId, productId],
     )
-    this.enqueue('inventoryThresholds', productId, businessId, { productId, lowStockThreshold: low, reorderPoint: reorder }, now)
+    this.enqueue(
+      'inventoryThresholds',
+      productId,
+      businessId,
+      { productId, lowStockThreshold: low, reorderPoint: reorder },
+      now,
+    )
     this.audit?.log({
       action: 'UPDATE',
       entityType: 'inventory',
@@ -452,9 +760,13 @@ export class InventoryService {
   }
 
   /** Paginated stock-movement ledger for a product (newest first). */
-  listMovements(productId: string, query: MovementsQuery = {}): PaginatedResult<LocalStockMovement> {
+  listMovements(
+    productId: string,
+    query: MovementsQuery = {},
+  ): PaginatedResult<LocalStockMovement> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalStockMovement>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalStockMovement>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'business_id = ? AND product_id = ?'
     const params: unknown[] = [businessId, productId]
@@ -510,7 +822,8 @@ export class InventoryService {
    */
   listAllMovements(query: MovementsQuery = {}): PaginatedResult<LocalStockMovement> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalStockMovement>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalStockMovement>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'm.business_id = ?'
     const params: unknown[] = [businessId]
@@ -574,10 +887,21 @@ export class InventoryService {
        WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1 AND ${STOCK_EXPR} > 0`,
       [businessId],
     )
-    const conds = ['s.business_id = ?', 's.is_deleted = 0', "s.status = 'COMPLETED'", 'si.is_deleted = 0']
+    const conds = [
+      's.business_id = ?',
+      's.is_deleted = 0',
+      "s.status = 'COMPLETED'",
+      'si.is_deleted = 0',
+    ]
     const params: unknown[] = [businessId]
-    if (query.dateFrom) { conds.push('s.sale_date >= ?'); params.push(query.dateFrom) }
-    if (query.dateTo) { conds.push('s.sale_date <= ?'); params.push(query.dateTo) }
+    if (query.dateFrom) {
+      conds.push('s.sale_date >= ?')
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      conds.push('s.sale_date <= ?')
+      params.push(query.dateTo)
+    }
     const cogsRows = this.db.query<{ productId: string; cogs: number }>(
       `SELECT si.product_id AS productId, COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
        FROM sale_items si JOIN sales s ON s.id = si.sale_id
@@ -604,7 +928,13 @@ export class InventoryService {
   deadStock(): { rows: DeadStockRow[]; stockCostTotal: number } {
     const businessId = this.getBusinessId()
     if (!businessId) return { rows: [], stockCostTotal: 0 }
-    const stockRows = this.db.query<{ productId: string; name: string; sku: string | null; qty: number; costValue: number }>(
+    const stockRows = this.db.query<{
+      productId: string
+      name: string
+      sku: string | null
+      qty: number
+      costValue: number
+    }>(
       `SELECT p.id AS productId, p.name AS name, p.sku AS sku,
               ${STOCK_EXPR} AS qty, COALESCE(${COST_EXPR}, 0) * ${STOCK_EXPR} AS costValue
        FROM products p
@@ -640,7 +970,13 @@ export class InventoryService {
   supplierPriceTrend(): SupplierPriceRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
-    const rows = this.db.query<{ productId: string; name: string; supplier: string | null; unitCost: number | null; createdAt: string }>(
+    const rows = this.db.query<{
+      productId: string
+      name: string
+      supplier: string | null
+      unitCost: number | null
+      createdAt: string
+    }>(
       `SELECT ri.product_id AS productId, p.name AS name, rr.supplier_name AS supplier,
               ri.unit_cost AS unitCost, rr.created_at AS createdAt
        FROM restock_items ri
@@ -700,7 +1036,14 @@ export class InventoryService {
        ON CONFLICT(entity, record_id) DO UPDATE SET
          operation = excluded.operation, payload = excluded.payload, status = 'pending',
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
-      [randomUUID(), entity, recordId, JSON.stringify({ id: recordId, businessId, ...payload }), now, now],
+      [
+        randomUUID(),
+        entity,
+        recordId,
+        JSON.stringify({ id: recordId, businessId, ...payload }),
+        now,
+        now,
+      ],
     )
   }
 }
@@ -708,7 +1051,8 @@ export class InventoryService {
 function toInventoryItem(r: InventoryRow): LocalInventoryItem {
   const stock = Math.max(0, r.effective_stock ?? 0)
   const threshold = r.reorder_point ?? r.low_stock_threshold ?? 0
-  const stockStatus: LocalInventoryItem['stockStatus'] = stock <= 0 ? 'out' : threshold > 0 && stock <= threshold ? 'low' : 'in'
+  const stockStatus: LocalInventoryItem['stockStatus'] =
+    stock <= 0 ? 'out' : threshold > 0 && stock <= threshold ? 'low' : 'in'
   return {
     productId: r.id,
     name: r.name,
@@ -738,7 +1082,10 @@ const MS_PER_DAY = 86400000
 /** Annualise a period COGS by 365 / periodDays (inclusive). */
 function annualiseFactor(dateFrom?: string, dateTo?: string): number {
   if (!dateFrom || !dateTo) return 1
-  const days = Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1)
+  const days = Math.max(
+    1,
+    Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1,
+  )
   return 365 / days
 }
 
@@ -752,12 +1099,21 @@ function daysSince(ts: string | Date | null): number | null {
 
 /** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. */
 function bucketSupplierPrices(
-  rows: Array<{ productId: string; name: string; supplier: string | null; unitCost: string | number | null; createdAt: string | Date }>,
+  rows: Array<{
+    productId: string
+    name: string
+    supplier: string | null
+    unitCost: string | number | null
+    createdAt: string | Date
+  }>,
 ): SupplierPriceRow[] {
   const now = Date.now()
   const cut3 = now - 90 * MS_PER_DAY
   const cut6 = now - 180 * MS_PER_DAY
-  const byProduct = new Map<string, { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }>()
+  const byProduct = new Map<
+    string,
+    { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }
+  >()
   for (const r of rows) {
     if (r.unitCost === null) continue
     const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
@@ -778,7 +1134,14 @@ function bucketSupplierPrices(
   for (const [productId, g] of byProduct) {
     const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
     const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
-    out.push({ productId, name: g.name, supplier: g.supplier, cost6mo: pick(sorted, cut6), cost3mo: pick(sorted, cut3), current })
+    out.push({
+      productId,
+      name: g.name,
+      supplier: g.supplier,
+      cost6mo: pick(sorted, cut6),
+      cost3mo: pick(sorted, cut3),
+      current,
+    })
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }

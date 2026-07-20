@@ -1,6 +1,15 @@
-import { ApiProperty } from '@nestjs/swagger'
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsEnum, IsNumber, IsString, Max, Min, MinLength } from 'class-validator'
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator'
 import { StockAdjustmentType, type AdjustInventoryRequest } from '@biztrack/types'
 
 export { StockAdjustmentType }
@@ -21,4 +30,9 @@ export class AdjustStockDto implements AdjustInventoryRequest {
   @IsString()
   @MinLength(3)
   notes!: string
+
+  @ApiPropertyOptional({ description: 'Adjust a specific variant instead of the product' })
+  @IsOptional()
+  @IsUUID()
+  variantId?: string | null
 }

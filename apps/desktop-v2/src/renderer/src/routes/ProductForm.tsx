@@ -1,15 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  BackButton,
-  Button,
-  CommandSelect,
-  Input,
-  ScanInput,
-  Select,
-  Stepper,
-} from '@biztrack/ui/biztrack'
+import { BackButton, Button, CommandSelect, Input, ScanInput, Stepper } from '@biztrack/ui/biztrack'
 import type { CommandSelectOption, StepperStep } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -44,6 +36,10 @@ interface DraftOption {
 interface DraftVariant {
   key: string
   options: DraftOption[]
+  /** Editable label; defaults to the composed "Size / Colour". */
+  name: string
+  /** The tile "code" — variant SKU; must be unique per business. */
+  sku: string
   price: string
   cost: string
   stock: string
@@ -292,6 +288,8 @@ export function ProductForm() {
           colorHex: opt?.colorHex ?? null,
         }
       }),
+      name: v.name,
+      sku: v.sku ?? '',
       price: v.priceOverride != null ? String(v.priceOverride) : '',
       cost: v.costPriceOverride != null ? String(v.costPriceOverride) : '',
       stock: String(v.stockQuantity ?? 0),
@@ -426,7 +424,17 @@ export function ProductForm() {
     patch((s) => ({
       variants: [
         ...s.variants,
-        { key, options, price: '', cost: '', stock: '', serials: [], active: true },
+        {
+          key,
+          options,
+          name: options.map((o) => o.value).join(' / '),
+          sku: '',
+          price: '',
+          cost: '',
+          stock: '',
+          serials: [],
+          active: true,
+        },
       ],
     }))
     setBuilderSel({})
@@ -600,7 +608,8 @@ export function ProductForm() {
       // the detail page (add/edit/remove), each writing a stock movement.
       if (!editing && canHaveVariants) {
         const variantInputs: VariantInput[] = d.variants.map((v) => ({
-          name: v.options.map((o) => o.value).join(' / '),
+          name: v.name.trim() || v.options.map((o) => o.value).join(' / '),
+          sku: v.sku.trim() || null,
           priceOverride: numOrNull(v.price),
           costPriceOverride: numOrNull(v.cost),
           openingStock: d.isSerialized ? 0 : (numOrU(v.stock) ?? 0),
@@ -1010,23 +1019,31 @@ export function ProductForm() {
                           {categoryLinks.map((g) => (
                             <div className="ff" key={g.id} style={{ margin: 0 }}>
                               <label className="lbl2">{g.name}</label>
-                              <Select
-                                value={builderSel[g.attributeGroupId] ?? ''}
-                                onChange={(e) => {
+                              <CommandSelect
+                                value={builderSel[g.attributeGroupId] ?? null}
+                                valueLabel={
+                                  g.options.find((o) => o.id === builderSel[g.attributeGroupId])
+                                    ?.value ?? null
+                                }
+                                placeholder={t('prodf.variantPick')}
+                                searchPlaceholder={t('prodf.variantSearchOption')}
+                                onChange={(val) => {
                                   setBuilderSel((p) => ({
                                     ...p,
-                                    [g.attributeGroupId]: e.target.value,
+                                    [g.attributeGroupId]: val ?? '',
                                   }))
                                   setVarError(null)
                                 }}
-                              >
-                                <option value="">{t('prodf.variantPick')}</option>
-                                {g.options.map((o) => (
-                                  <option key={o.id} value={o.id}>
-                                    {o.value}
-                                  </option>
-                                ))}
-                              </Select>
+                                loadOptions={(s) =>
+                                  Promise.resolve(
+                                    g.options
+                                      .filter((o) =>
+                                        o.value.toLowerCase().includes(s.toLowerCase()),
+                                      )
+                                      .map((o) => ({ value: o.id, label: o.value })),
+                                  )
+                                }
+                              />
                             </div>
                           ))}
                         </div>
@@ -1090,6 +1107,26 @@ export function ProductForm() {
                                     </svg>
                                   </button>
                                 </span>
+                              </div>
+                              <div className="vcard-fields">
+                                <div className="ff" style={{ gridColumn: 'span 2' }}>
+                                  <label className="lbl2">{t('prodf.vColName')}</label>
+                                  <Input
+                                    value={v.name}
+                                    placeholder={v.options.map((o) => o.value).join(' / ')}
+                                    onChange={(e) => updateVariant(v.key, { name: e.target.value })}
+                                    style={{ height: 36 }}
+                                  />
+                                </div>
+                                <div className="ff">
+                                  <label className="lbl2">{t('prodf.vColCode')}</label>
+                                  <Input
+                                    value={v.sku}
+                                    placeholder={t('prodf.vColCodePh')}
+                                    onChange={(e) => updateVariant(v.key, { sku: e.target.value })}
+                                    style={{ height: 36 }}
+                                  />
+                                </div>
                               </div>
                               <div className="vcard-fields">
                                 <div className="ff">
