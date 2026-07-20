@@ -9,8 +9,19 @@ import type { LocalProduct, StockAdjustmentType } from '@shared/ipc'
 
 const TYPES: StockAdjustmentType[] = ['ADD', 'REMOVE', 'SET']
 
-/** Adjust a direct product's stock (set/add/remove + reason → MANUAL_ADJUSTMENT). */
-export function AdjustStockModal({ product, open, onClose }: { product: LocalProduct; open: boolean; onClose: () => void }) {
+/** Adjust stock (set/add/remove + reason → MANUAL_ADJUSTMENT). Adjusts the product's own
+ * stock, or a specific non-serialized variant when `variant` is passed. */
+export function AdjustStockModal({
+  product,
+  variant,
+  open,
+  onClose,
+}: {
+  product: LocalProduct
+  variant?: { id: string; name: string; stock: number }
+  open: boolean
+  onClose: () => void
+}) {
   const t = useT()
   const qc = useQueryClient()
   const [type, setType] = useState<StockAdjustmentType>('ADD')
@@ -18,8 +29,15 @@ export function AdjustStockModal({ product, open, onClose }: { product: LocalPro
   const [reason, setReason] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
+  const currentStock = variant ? variant.stock : product.currentStock
+  const displayName = variant ? `${product.name} — ${variant.name}` : product.name
   const quantity = Number(qty.replace(/\s/g, '')) || 0
-  const resulting = type === 'ADD' ? product.currentStock + quantity : type === 'REMOVE' ? product.currentStock - quantity : quantity
+  const resulting =
+    type === 'ADD'
+      ? currentStock + quantity
+      : type === 'REMOVE'
+        ? currentStock - quantity
+        : quantity
 
   const reset = () => {
     setType('ADD')
@@ -28,7 +46,13 @@ export function AdjustStockModal({ product, open, onClose }: { product: LocalPro
     setErr(null)
   }
   const m = useMutation({
-    mutationFn: () => dataClient.inventory.adjust(product.id, { type, quantity, notes: reason.trim() }),
+    mutationFn: () =>
+      dataClient.inventory.adjust(product.id, {
+        type,
+        quantity,
+        notes: reason.trim(),
+        variantId: variant?.id ?? null,
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.products })
       reset()
@@ -52,18 +76,30 @@ export function AdjustStockModal({ product, open, onClose }: { product: LocalPro
       title={t('inv.adjustTitle')}
       footer={
         <>
-          <Button variant="soft" onClick={onClose} disabled={m.isPending}>{t('inv.cancel')}</Button>
-          <Button variant="primary" loading={m.isPending} onClick={submit}>{t('inv.apply')}</Button>
+          <Button variant="soft" onClick={onClose} disabled={m.isPending}>
+            {t('inv.cancel')}
+          </Button>
+          <Button variant="primary" loading={m.isPending} onClick={submit}>
+            {t('inv.apply')}
+          </Button>
         </>
       }
     >
       <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>
-        {t('inv.adjustSub').replace('{name}', product.name)}
+        {t('inv.adjustSub').replace('{name}', displayName)}
       </p>
       <label className="lbl2">{t('inv.adjustType')}</label>
       <div className="seg-pick" style={{ marginBottom: 12 }}>
         {TYPES.map((tp) => (
-          <button key={tp} type="button" aria-pressed={tp === type} onClick={() => { setType(tp); setErr(null) }}>
+          <button
+            key={tp}
+            type="button"
+            aria-pressed={tp === type}
+            onClick={() => {
+              setType(tp)
+              setErr(null)
+            }}
+          >
             {t(`inv.type_${tp}` as Parameters<typeof t>[0])}
           </button>
         ))}
@@ -71,20 +107,47 @@ export function AdjustStockModal({ product, open, onClose }: { product: LocalPro
       <div className="form-2col">
         <div className="ff">
           <label className="lbl2">{type === 'SET' ? t('inv.newQty') : t('inv.quantity')}</label>
-          <Input value={qty} inputMode="numeric" placeholder="0" onChange={(e) => { setQty(e.target.value); setErr(null) }} />
+          <Input
+            value={qty}
+            inputMode="numeric"
+            placeholder="0"
+            onChange={(e) => {
+              setQty(e.target.value)
+              setErr(null)
+            }}
+          />
         </div>
         <div className="ff">
           <label className="lbl2">{t('inv.resulting')}</label>
-          <div className="input" style={{ display: 'flex', alignItems: 'center', background: 'var(--inset)', fontWeight: 600 }}>
+          <div
+            className="input"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              background: 'var(--inset)',
+              fontWeight: 600,
+            }}
+          >
             {resulting}
           </div>
         </div>
       </div>
       <div className="ff" style={{ marginTop: 10 }}>
         <label className="lbl2">{t('inv.reason')}</label>
-        <Input value={reason} placeholder={t('inv.reasonPh')} onChange={(e) => { setReason(e.target.value); setErr(null) }} />
+        <Input
+          value={reason}
+          placeholder={t('inv.reasonPh')}
+          onChange={(e) => {
+            setReason(e.target.value)
+            setErr(null)
+          }}
+        />
       </div>
-      {err ? <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">{err}</p> : null}
+      {err ? (
+        <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
+          {err}
+        </p>
+      ) : null}
     </Modal>
   )
 }

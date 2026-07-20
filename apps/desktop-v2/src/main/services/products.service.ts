@@ -4,6 +4,7 @@ import type {
   LocalProduct,
   LocalProductImage,
   LocalSerialUnit,
+  ListQuery,
   LocalStockMovement,
   LocalVariant,
   PaginatedResult,
@@ -65,6 +66,7 @@ interface ProductRow {
   effective_stock: number | null
   effective_price: number | null
   effective_cost: number | null
+  has_variants: number
   category_name: string | null
   brand_name: string | null
   unit_abbr: string | null
@@ -133,6 +135,7 @@ const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.
    p.is_serialized, p.serial_type, p.warranty_months,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
    ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
+   EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) AS has_variants,
    c.name AS category_name, b.name AS brand_name, u.abbreviation AS unit_abbr`
 const FROM = `products p
    LEFT JOIN product_categories c ON c.id = p.category_id
@@ -242,6 +245,19 @@ export class ProductsService {
       }
     }
 
+    // Search matches the product's name/sku/barcode OR any of its variants' sku/name, so a
+    // scanned/typed variant code (the tile "code") surfaces its product. Built here (not via
+    // paginateRows.searchColumns) because it needs a variant EXISTS sub-select.
+    const search = query.search?.trim()
+    if (search) {
+      where +=
+        ` AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?` +
+        ` OR EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.is_deleted = 0` +
+        ` AND (v.sku LIKE ? OR v.name LIKE ?)))`
+      const like = `%${search}%`
+      params.push(like, like, like, like, like)
+    }
+
     const { rows, ...meta } = paginateRows<ProductRow>(
       this.db,
       {
@@ -249,7 +265,6 @@ export class ProductsService {
         columns: COLS,
         where,
         params,
-        searchColumns: ['p.name', 'p.sku', 'p.barcode'],
         defaultSort: 'p.name ASC',
         sortMap: {
           name: 'p.name',
@@ -671,6 +686,44 @@ export class ProductsService {
        ORDER BY sort_order ASC`,
       [businessId, productId],
     )
+    return this.hydrateVariants(businessId, productId, variants)
+  }
+
+  /** Paginated variants for the product-detail management section. Server-side (BFF)
+   * LIMIT/OFFSET + COUNT so the renderer never slices the full list. */
+  listVariantsPage(productId: string, query: ListQuery = {}): PaginatedResult<LocalVariant> {
+    const businessId = this.getBusinessId()
+    if (!businessId)
+      return toPaginated<LocalVariant>([], {
+        total: 0,
+        page: 1,
+        limit: query.limit ?? 20,
+        totalPages: 1,
+      })
+    const { rows, ...meta } = paginateRows<VariantRow>(
+      this.db,
+      {
+        from: 'product_variants',
+        columns:
+          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold',
+        where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
+        params: [businessId, productId],
+        searchColumns: ['name', 'sku'],
+        defaultSort: 'sort_order ASC',
+      },
+      query,
+    )
+    return toPaginated(this.hydrateVariants(businessId, productId, rows), meta)
+  }
+
+  /** Attach each variant's attribute options + current stock, and map rows → LocalVariant.
+   * For serialized products a variant's stock is the count of its IN_STOCK serial units
+   * (computed here so the renderer never has to load every serial to count). */
+  private hydrateVariants(
+    businessId: string,
+    productId: string,
+    variants: VariantRow[],
+  ): LocalVariant[] {
     if (variants.length === 0) return []
     const ph = variants.map(() => '?').join(', ')
     const opts = this.db.query<VariantOptionRow>(
@@ -684,6 +737,23 @@ export class ProductsService {
       list.push(o)
       optsByVariant.set(o.variant_id, list)
     }
+
+    const isSerialized =
+      this.db.get<{ s: number }>(
+        `SELECT is_serialized AS s FROM products WHERE id = ? AND business_id = ?`,
+        [productId, businessId],
+      )?.s === 1
+    const serialStock = new Map<string, number>()
+    if (isSerialized) {
+      const counts = this.db.query<{ variant_id: string | null; n: number }>(
+        `SELECT variant_id, COUNT(*) AS n FROM product_serial_units
+         WHERE business_id = ? AND product_id = ? AND is_deleted = 0 AND status = 'IN_STOCK'
+         GROUP BY variant_id`,
+        [businessId, productId],
+      )
+      for (const c of counts) if (c.variant_id) serialStock.set(c.variant_id, c.n)
+    }
+
     return variants.map((v) => ({
       id: v.id,
       name: v.name,
@@ -692,13 +762,41 @@ export class ProductsService {
       sku: v.sku,
       isActive: v.is_active === 1,
       sortOrder: v.sort_order,
-      stockQuantity: v.stock_quantity ?? 0,
+      stockQuantity: isSerialized ? (serialStock.get(v.id) ?? 0) : (v.stock_quantity ?? 0),
       lowStockThreshold: v.low_stock_threshold,
       options: (optsByVariant.get(v.id) ?? []).map((o) => ({
         attributeGroupId: o.attribute_group_id,
         attributeOptionId: o.attribute_option_id,
       })),
     }))
+  }
+
+  /** Codes (variant SKUs) must be unique per business so a scanned code resolves to one tile.
+   * Friendly guard backing the DB unique index: catches within-batch duplicates and clashes
+   * with existing variants (keepId = the variant that may legitimately already hold this sku).
+   * No-op for null/blank skus. */
+  private assertVariantSkusFree(
+    businessId: string,
+    entries: Array<{ sku: string | null; keepId?: string }>,
+  ): void {
+    const seen = new Set<string>()
+    for (const e of entries) {
+      const sku = e.sku?.trim()
+      if (!sku) continue
+      if (seen.has(sku)) {
+        throw new Error(`The code "${sku}" is used by more than one variant. Codes must be unique.`)
+      }
+      seen.add(sku)
+      const dup = this.db.get<{ id: string }>(
+        `SELECT id FROM product_variants WHERE business_id = ? AND sku = ? AND is_deleted = 0 LIMIT 1`,
+        [businessId, sku],
+      )
+      if (dup && dup.id !== e.keepId) {
+        throw new Error(
+          `The code "${sku}" is already used by another variant. Codes must be unique.`,
+        )
+      }
+    }
   }
 
   /** Replace a product's variants. Matches by attribute-option combination so an
@@ -710,6 +808,13 @@ export class ProductsService {
     const existing = this.listVariants(productId)
     const existingBySig = new Map(
       existing.map((v) => [variantSignature(v.options.map((o) => o.attributeOptionId)), v]),
+    )
+    this.assertVariantSkusFree(
+      businessId,
+      variants.map((v) => ({
+        sku: v.sku ?? null,
+        keepId: existingBySig.get(variantSignature(v.options.map((o) => o.attributeOptionId)))?.id,
+      })),
     )
     const keepIds = new Set<string>()
 
@@ -862,6 +967,7 @@ export class ProductsService {
     ) {
       throw new Error('A variant with this combination already exists.')
     }
+    this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null }])
     const id = randomUUID()
     const sortOrder = this.listVariants(productId).length
     const stock = product.isSerialized ? 0 : Math.max(input.openingStock ?? 0, 0)
@@ -951,6 +1057,7 @@ export class ProductsService {
     const businessId = this.requireBusinessId()
     const prior = this.listVariants(productId).find((v) => v.id === variantId)
     if (!prior) throw new Error('Variant not found.')
+    this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null, keepId: variantId }])
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, updated_at = ?
@@ -1086,14 +1193,47 @@ export class ProductsService {
        ORDER BY created_at ASC`,
       [businessId, productId],
     )
-    return rows.map((r) => ({
+    return rows.map((r) => this.toLocalSerialUnit(r))
+  }
+
+  /** Paginated serial units for the product-detail management section. Server-side (BFF)
+   * LIMIT/OFFSET + COUNT so the renderer never slices the full list. */
+  listSerialUnitsPage(productId: string, query: ListQuery = {}): PaginatedResult<LocalSerialUnit> {
+    const businessId = this.getBusinessId()
+    if (!businessId)
+      return toPaginated<LocalSerialUnit>([], {
+        total: 0,
+        page: 1,
+        limit: query.limit ?? 20,
+        totalPages: 1,
+      })
+    const { rows, ...meta } = paginateRows<SerialUnitRow>(
+      this.db,
+      {
+        from: 'product_serial_units',
+        columns: 'id, product_id, variant_id, serial_number, serial_type, status',
+        where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
+        params: [businessId, productId],
+        searchColumns: ['serial_number'],
+        defaultSort: 'created_at ASC',
+      },
+      query,
+    )
+    return toPaginated(
+      rows.map((r) => this.toLocalSerialUnit(r)),
+      meta,
+    )
+  }
+
+  private toLocalSerialUnit(r: SerialUnitRow): LocalSerialUnit {
+    return {
       id: r.id,
       productId: r.product_id,
       variantId: r.variant_id,
       serialNumber: r.serial_number,
       serialType: r.serial_type as LocalSerialUnit['serialType'],
       status: r.status,
-    }))
+    }
   }
 
   /** IN_STOCK serial units for a product (optionally a variant) — the units a sale can
@@ -1712,6 +1852,7 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     lowStockThreshold: row.low_stock_threshold,
     reorderPoint: row.reorder_point,
     currentStock: row.effective_stock ?? row.stock_quantity ?? 0,
+    hasVariants: row.has_variants === 1,
     categoryName: row.category_name,
     brandName: row.brand_name,
     unitAbbr: row.unit_abbr,

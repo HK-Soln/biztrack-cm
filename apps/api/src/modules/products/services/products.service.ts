@@ -346,8 +346,17 @@ export class ProductsService {
 
       // Apply search
       if (query.search) {
+        // Match the product's own name/sku/barcode OR any of its variants' sku/name — so a
+        // scanned/typed variant code (the tile "code") surfaces its product.
         qb.andWhere(
-          '(LOWER(product.name) LIKE LOWER(:search) OR LOWER(product.sku) LIKE LOWER(:search) OR LOWER(product.barcode) LIKE LOWER(:search))',
+          `(LOWER(product.name) LIKE LOWER(:search)
+            OR LOWER(product.sku) LIKE LOWER(:search)
+            OR LOWER(product.barcode) LIKE LOWER(:search)
+            OR EXISTS (
+              SELECT 1 FROM product_variants pv
+              WHERE pv.product_id = product.id AND pv.deleted_at IS NULL
+                AND (LOWER(pv.sku) LIKE LOWER(:search) OR LOWER(pv.name) LIKE LOWER(:search))
+            ))`,
           { search: `%${query.search}%` },
         )
       }
@@ -457,16 +466,31 @@ export class ProductsService {
       const inStockSerialCount =
         serialUnitRows?.filter((row) => row.status === SerialUnitStatus.IN_STOCK).length ?? 0
 
+      // Derived stock / display price / cost — must match the desktop's STOCK/DISPLAY_PRICE/
+      // COST expressions so both builds show the same figures. For variant products: stock is
+      // the SUM of variant stock, the displayed price is the LOWEST variant price ("from"), and
+      // the cost is the AVERAGE variant cost.
+      const activeVariants = variants ?? []
+      const variantPrices = activeVariants.map((v) => v.priceOverride ?? product.sellingPrice)
+      const variantCosts = activeVariants.map((v) => v.costPriceOverride ?? product.costPrice ?? 0)
+      const displayPrice = variantPrices.length ? Math.min(...variantPrices) : product.sellingPrice
+      const avgCost = variantCosts.length
+        ? Math.round(variantCosts.reduce((sum, c) => sum + c, 0) / variantCosts.length)
+        : (product.costPrice ?? null)
+
+      const currentStock = product.isSerialized
+        ? inStockSerialCount
+        : product.hasVariants
+          ? activeVariants.reduce((sum, v) => sum + (v.currentStock ?? 0), 0)
+          : product.trackInventory
+            ? (inventoryLevel?.quantity ?? 0)
+            : null
+
       return {
         ...product,
-        // Variant/serialised products carry stock elsewhere; product-level figure varies.
-        currentStock: product.hasVariants
-          ? null
-          : product.isSerialized
-            ? inStockSerialCount
-            : product.trackInventory
-              ? (inventoryLevel?.quantity ?? 0)
-              : null,
+        currentStock,
+        effectiveSellingPrice: product.hasVariants ? displayPrice : product.sellingPrice,
+        effectiveCostPrice: product.hasVariants ? avgCost : (product.costPrice ?? null),
         lowStockThreshold: inventoryLevel?.lowStockThreshold ?? null,
         reorderPoint: inventoryLevel?.reorderPoint ?? null,
         primaryImageUrl: images[0]?.url ?? product.imageUrl ?? null,

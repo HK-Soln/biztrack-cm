@@ -55,14 +55,23 @@ import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
 import type { InventoryLowStockAlertDigest } from '../constants/inventory.constants'
-import { stockExpr, costExpr, thresholdExpr, round2, type InventoryStats } from '@/common/stats/stock-stats'
+import {
+  stockExpr,
+  costExpr,
+  thresholdExpr,
+  round2,
+  type InventoryStats,
+} from '@/common/stats/stock-stats'
 
 const MS_PER_DAY = 86400000
 
 /** Annualise a period COGS by 365 / periodDays (inclusive). Kept in sync with the desktop copy. */
 function annualiseFactor(dateFrom?: string, dateTo?: string): number {
   if (!dateFrom || !dateTo) return 1
-  const days = Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1)
+  const days = Math.max(
+    1,
+    Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / MS_PER_DAY) + 1,
+  )
   return 365 / days
 }
 
@@ -76,12 +85,21 @@ function daysSince(ts: string | Date | null): number | null {
 
 /** Bucket a product's restock history into current / ~3mo / ~6mo unit cost. Sync with desktop. */
 function bucketSupplierPrices(
-  rows: Array<{ productId: string; name: string; supplier: string | null; unitCost: string | number | null; createdAt: string | Date }>,
+  rows: Array<{
+    productId: string
+    name: string
+    supplier: string | null
+    unitCost: string | number | null
+    createdAt: string | Date
+  }>,
 ): SupplierPriceRow[] {
   const now = Date.now()
   const cut3 = now - 90 * MS_PER_DAY
   const cut6 = now - 180 * MS_PER_DAY
-  const byProduct = new Map<string, { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }>()
+  const byProduct = new Map<
+    string,
+    { name: string; supplier: string | null; entries: Array<{ cost: number; t: number }> }
+  >()
   for (const r of rows) {
     if (r.unitCost === null) continue
     const t = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()
@@ -103,7 +121,14 @@ function bucketSupplierPrices(
   for (const [productId, g] of byProduct) {
     const sorted = g.entries.slice().sort((a, b) => a.t - b.t)
     const current = sorted.length ? round2(sorted[sorted.length - 1]!.cost) : null
-    out.push({ productId, name: g.name, supplier: g.supplier, cost6mo: pick(sorted, cut6), cost3mo: pick(sorted, cut3), current })
+    out.push({
+      productId,
+      name: g.name,
+      supplier: g.supplier,
+      cost6mo: pick(sorted, cut6),
+      cost3mo: pick(sorted, cut3),
+      current,
+    })
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -120,8 +145,7 @@ type SaleInventoryItemInput = {
 
 // Composite stock key — one inventory_levels row per (product, variant). The
 // non-variant row uses an empty variant segment.
-const stockKey = (productId: string, variantId?: string | null) =>
-  `${productId}|${variantId ?? ''}`
+const stockKey = (productId: string, variantId?: string | null) => `${productId}|${variantId ?? ''}`
 
 type RestockInputItem = {
   id?: string
@@ -190,7 +214,10 @@ export class InventoryService {
     this.logger.setContext('InventoryService')
   }
 
-  async findAll(businessId: string, filters?: InventoryQuery & { stockStatus?: 'in' | 'low' | 'out' }) {
+  async findAll(
+    businessId: string,
+    filters?: InventoryQuery & { stockStatus?: 'in' | 'low' | 'out' },
+  ) {
     try {
       const query = this.inventoryLevelsRepo
         .createQueryBuilder('inventory')
@@ -213,10 +240,14 @@ export class InventoryService {
         query.andWhere('inventory.quantity <= 0')
       } else if (filters?.stockStatus === 'low') {
         query.andWhere('inventory.low_stock_threshold IS NOT NULL')
-        query.andWhere('inventory.quantity > 0 AND inventory.quantity <= inventory.low_stock_threshold')
+        query.andWhere(
+          'inventory.quantity > 0 AND inventory.quantity <= inventory.low_stock_threshold',
+        )
       } else if (filters?.stockStatus === 'in') {
         query.andWhere('inventory.quantity > 0')
-        query.andWhere('(inventory.low_stock_threshold IS NULL OR inventory.quantity > inventory.low_stock_threshold)')
+        query.andWhere(
+          '(inventory.low_stock_threshold IS NULL OR inventory.quantity > inventory.low_stock_threshold)',
+        )
       }
 
       const sort = this.resolveSort(filters?.sortBy)
@@ -264,8 +295,9 @@ export class InventoryService {
       const STOCK = stockExpr('p')
       const COST = costExpr('p')
       const THR = thresholdExpr('p')
-      const rows: Array<Record<string, string | number>> = await this.inventoryLevelsRepo.manager.query(
-        `SELECT
+      const rows: Array<Record<string, string | number>> =
+        await this.inventoryLevelsRepo.manager.query(
+          `SELECT
            COUNT(*)::int AS "trackedSkus",
            COALESCE(SUM(${STOCK}), 0) AS "unitsOnHand",
            COALESCE(SUM(COALESCE(${COST}, 0) * ${STOCK}), 0) AS "stockValueCost",
@@ -273,8 +305,8 @@ export class InventoryService {
            COALESCE(SUM(CASE WHEN ${STOCK} <= 0 THEN 1 ELSE 0 END), 0)::int AS "outOfStock"
          FROM products p
          WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true`,
-        [businessId],
-      )
+          [businessId],
+        )
       const r = rows[0] ?? {}
       return {
         trackedSkus: Number(r.trackedSkus ?? 0),
@@ -370,7 +402,12 @@ export class InventoryService {
       )) as Array<{ productId: string; name: string; avgStockCost: string }>
 
       const cogsParams: unknown[] = [businessId]
-      const cogsConds = ['s.business_id = $1', 's.deleted_at IS NULL', "s.status = 'COMPLETED'", 'si.deleted_at IS NULL']
+      const cogsConds = [
+        's.business_id = $1',
+        's.deleted_at IS NULL',
+        "s.status = 'COMPLETED'",
+        'si.deleted_at IS NULL',
+      ]
       if (query.dateFrom) {
         cogsParams.push(query.dateFrom)
         cogsConds.push(`s.sale_date >= $${cogsParams.length}`)
@@ -407,7 +444,9 @@ export class InventoryService {
    * ago (or never). Mirrors the desktop getDeadStock (last-sale from sale_items, days computed
    * in JS from the same clock). Returns rows + the total tracked stock value (KPI denominator).
    */
-  async getDeadStock(businessId: string): Promise<{ rows: DeadStockRow[]; stockCostTotal: number }> {
+  async getDeadStock(
+    businessId: string,
+  ): Promise<{ rows: DeadStockRow[]; stockCostTotal: number }> {
     try {
       const STOCK = stockExpr('p')
       const COST = costExpr('p')
@@ -418,7 +457,13 @@ export class InventoryService {
          FROM products p
          WHERE p.business_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true AND ${STOCK} > 0`,
         [businessId],
-      )) as Array<{ productId: string; name: string; sku: string | null; qty: string; costValue: string }>
+      )) as Array<{
+        productId: string
+        name: string
+        sku: string | null
+        qty: string
+        costValue: string
+      }>
       const lastSaleRows = (await mgr.query(
         `SELECT si.product_id AS "productId", MAX(s.sold_at) AS "lastSoldAt"
          FROM sale_items si JOIN sales s ON s.id = si.sale_id
@@ -461,7 +506,13 @@ export class InventoryService {
          WHERE rr.business_id = $1 AND ri.unit_cost IS NOT NULL
          ORDER BY rr.created_at ASC`,
         [businessId],
-      )) as Array<{ productId: string; name: string; supplier: string | null; unitCost: string | null; createdAt: string | Date }>
+      )) as Array<{
+        productId: string
+        name: string
+        supplier: string | null
+        unitCost: string | null
+        createdAt: string | Date
+      }>
       return bucketSupplierPrices(rows)
     } catch (error) {
       return this.handleServiceError('getSupplierPriceTrend', error, { businessId })
@@ -484,12 +535,23 @@ export class InventoryService {
   async adjust(productId: string, businessId: string, userId: string, dto: AdjustInventoryRequest) {
     try {
       this.validateAdjustment(dto)
-      const level = await this.requireTrackedProduct(productId, businessId)
+      await this.requireTrackedProduct(productId, businessId)
+      const variantId = dto.variantId ?? null
 
       return this.dataSource.transaction(async (manager) => {
         const inventoryRepo = manager.getRepository(InventoryLevel)
         const movementRepo = manager.getRepository(InventoryMovement)
-        const current = await inventoryRepo.findOneByOrFail({ id: level.id })
+        // Variant products track stock per (product, variant) level; direct products use the
+        // variant_id IS NULL level. Create the level lazily so an adjust never fails on a
+        // never-stocked variant.
+        let current = await inventoryRepo.findOne({
+          where: { businessId, productId, variantId: variantId ?? IsNull() },
+        })
+        if (!current) {
+          current = await inventoryRepo.save(
+            inventoryRepo.create({ businessId, productId, variantId, quantity: 0 }),
+          )
+        }
 
         const quantityBefore = Number(current.quantity)
         const quantityAfter = this.calculateAdjustedQuantity(quantityBefore, dto)
@@ -511,7 +573,8 @@ export class InventoryService {
             quantityChange: quantityAfter - quantityBefore,
             quantityBefore,
             quantityAfter,
-            referenceType: 'adjustment',
+            referenceType: variantId ? 'product_variant' : 'adjustment',
+            referenceId: variantId ?? undefined,
             notes: dto.notes.trim(),
             performedById: userId,
           }),
@@ -552,7 +615,7 @@ export class InventoryService {
           items: dto.items.map((item) => ({
             productId: item.productId,
             // Serialised products receive serial numbers instead of a quantity.
-            quantity: item.quantity ?? (item.serialNumbers?.length ?? 0),
+            quantity: item.quantity ?? item.serialNumbers?.length ?? 0,
             unitCost: item.unitCost ?? null,
             variantId: item.variantId ?? null,
             serialNumbers: item.serialNumbers,
@@ -685,11 +748,11 @@ export class InventoryService {
       businessName: business.name,
       owner: business.owner
         ? {
-          userId: business.owner.id,
-          name: business.owner.name,
-          email: business.owner.email ?? null,
-          phone: business.owner.phone ?? null,
-        }
+            userId: business.owner.id,
+            name: business.owner.name,
+            email: business.owner.email ?? null,
+            phone: business.owner.phone ?? null,
+          }
         : null,
       alerts,
     }
@@ -811,7 +874,12 @@ export class InventoryService {
         await movementRepo.save(movementsToInsert)
       }
     } catch (error) {
-      return this.handleServiceError('deductForSale', error, { businessId, saleId, saleNumber, userId })
+      return this.handleServiceError('deductForSale', error, {
+        businessId,
+        saleId,
+        saleNumber,
+        userId,
+      })
     }
   }
 
@@ -898,16 +966,21 @@ export class InventoryService {
   }
 
   private validateAdjustment(dto: AdjustInventoryRequest) {
-    const isAddOrRemove = dto.type === StockAdjustmentType.ADD || dto.type === StockAdjustmentType.REMOVE
+    const isAddOrRemove =
+      dto.type === StockAdjustmentType.ADD || dto.type === StockAdjustmentType.REMOVE
     const isValid =
       (isAddOrRemove && dto.quantity > 0) ||
       (dto.type === StockAdjustmentType.SET && dto.quantity >= 0)
 
     if (!isValid) {
-      throw new AppBadRequestException('Invalid adjustment quantity.', 'INVALID_INVENTORY_ADJUSTMENT_QUANTITY', {
-        type: dto.type,
-        quantity: dto.quantity,
-      })
+      throw new AppBadRequestException(
+        'Invalid adjustment quantity.',
+        'INVALID_INVENTORY_ADJUSTMENT_QUANTITY',
+        {
+          type: dto.type,
+          quantity: dto.quantity,
+        },
+      )
     }
   }
 
@@ -1075,10 +1148,7 @@ export class InventoryService {
     return manager?.getRepository(Product) ?? this.productsRepo
   }
 
-  private async createRestockRecord(
-    manager: EntityManager,
-    input: RestockCreationInput,
-  ) {
+  private async createRestockRecord(manager: EntityManager, input: RestockCreationInput) {
     const productRepo = manager.getRepository(Product)
     const inventoryRepo = manager.getRepository(InventoryLevel)
     const movementRepo = manager.getRepository(InventoryMovement)
@@ -1348,7 +1418,11 @@ export class InventoryService {
         manager,
         input.businessId,
         input.purchaseOrderId,
-        processedItems.map((p) => ({ productId: p.productId, variantId: p.variantId, quantity: p.quantity })),
+        processedItems.map((p) => ({
+          productId: p.productId,
+          variantId: p.variantId,
+          quantity: p.quantity,
+        })),
         input.updatedAt ?? input.createdAt,
       )
     }
@@ -1437,7 +1511,9 @@ export class InventoryService {
   ): Promise<void> {
     const poRepo = manager.getRepository(PurchaseOrder)
     const poItemRepo = manager.getRepository(PurchaseOrderItem)
-    const po = await poRepo.findOne({ where: { id: purchaseOrderId, businessId, deletedAt: IsNull() } })
+    const po = await poRepo.findOne({
+      where: { id: purchaseOrderId, businessId, deletedAt: IsNull() },
+    })
     if (!po) return
     const lines = await poItemRepo.find({ where: { purchaseOrderId } })
     for (const r of receipts) {
@@ -1567,8 +1643,7 @@ export class InventoryService {
     explicitTotalCost?: number | null
     items: Array<{ quantity: number; unitCost?: number | null }>
   }) {
-    const explicitTotal =
-      input.explicitTotalAmount ?? input.explicitTotalCost ?? null
+    const explicitTotal = input.explicitTotalAmount ?? input.explicitTotalCost ?? null
     const normalizedExplicitTotal =
       explicitTotal === null || explicitTotal === undefined ? null : this.roundMoney(explicitTotal)
     const allUnitCostsPresent = input.items.every(
@@ -1576,10 +1651,7 @@ export class InventoryService {
     )
     const computedTotal = allUnitCostsPresent
       ? this.roundMoney(
-          input.items.reduce(
-            (sum, item) => sum + item.quantity * (item.unitCost ?? 0),
-            0,
-          ),
+          input.items.reduce((sum, item) => sum + item.quantity * (item.unitCost ?? 0), 0),
         )
       : null
 
@@ -1757,9 +1829,9 @@ export class InventoryService {
     const lastRestockInfo =
       lastRestock === null
         ? null
-        : referenceInfo.get(
+        : (referenceInfo.get(
             this.getMovementReferenceLookupKey(lastRestock.referenceType, lastRestock.referenceId),
-          ) ?? null
+          ) ?? null)
 
     return {
       openingStock: this.roundQuantity(currentBalance - totalChange),
@@ -1813,7 +1885,10 @@ export class InventoryService {
     return Array.from(points.values())
   }
 
-  private getMovementReferenceLookupKey(referenceType?: string | null, referenceId?: string | null) {
+  private getMovementReferenceLookupKey(
+    referenceType?: string | null,
+    referenceId?: string | null,
+  ) {
     return `${referenceType ?? 'none'}:${referenceId ?? 'none'}`
   }
 
@@ -1841,7 +1916,10 @@ export class InventoryService {
     }
 
     if (!this.isUuid(trimmed)) {
-      throw new AppBadRequestException('Restock supplier id is invalid.', 'INVALID_RESTOCK_SUPPLIER_ID')
+      throw new AppBadRequestException(
+        'Restock supplier id is invalid.',
+        'INVALID_RESTOCK_SUPPLIER_ID',
+      )
     }
 
     return trimmed
@@ -1850,9 +1928,7 @@ export class InventoryService {
   private isUuid(value: string | null | undefined): value is string {
     return Boolean(
       value &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          value,
-        ),
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),
     )
   }
 

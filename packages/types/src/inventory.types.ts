@@ -136,6 +136,8 @@ export interface AdjustInventoryRequest {
   type: StockAdjustmentType
   quantity: number
   notes: string
+  /** When set, adjusts the stock of a specific (non-serialized) variant instead of the product. */
+  variantId?: string | null
 }
 
 export interface RestockItemRequest {
