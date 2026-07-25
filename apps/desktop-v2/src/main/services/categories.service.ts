@@ -20,6 +20,7 @@ interface CategoryRow {
   icon: string | null
   image_url: string | null
   sort_order: number
+  default_unit_of_measure_id: string | null
   parent_id: string | null
   depth: number
   is_active: number
@@ -27,7 +28,7 @@ interface CategoryRow {
 }
 
 const SELECT_COLS =
-  'id, name, slug, description, color, icon, image_url, sort_order, parent_id, depth, is_active, show_online'
+  'id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online'
 
 function slugify(name: string): string {
   return name
@@ -165,8 +166,8 @@ export class CategoriesService {
     const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
       `INSERT INTO product_categories
-        (id, business_id, name, slug, description, color, icon, image_url, sort_order, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        (id, business_id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -177,6 +178,7 @@ export class CategoriesService {
         input.icon ?? null,
         input.imageUrl ?? null,
         input.sortOrder ?? 0,
+        input.defaultUnitOfMeasureId ?? null,
         input.parentId ?? null,
         depth,
         input.isActive === false ? 0 : 1,
@@ -205,7 +207,7 @@ export class CategoriesService {
     const depth = this.depthFor(input.parentId ?? null)
     this.db.run(
       `UPDATE product_categories
-       SET name = ?, slug = ?, description = ?, color = ?, icon = ?, image_url = ?, sort_order = ?, parent_id = ?, depth = ?, is_active = ?, show_online = ?, updated_at = ?
+       SET name = ?, slug = ?, description = ?, color = ?, icon = ?, image_url = ?, sort_order = ?, default_unit_of_measure_id = ?, parent_id = ?, depth = ?, is_active = ?, show_online = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
@@ -215,6 +217,7 @@ export class CategoriesService {
         input.icon ?? null,
         input.imageUrl ?? null,
         input.sortOrder ?? 0,
+        input.defaultUnitOfMeasureId ?? null,
         input.parentId ?? null,
         depth,
         input.isActive === false ? 0 : 1,
@@ -293,7 +296,10 @@ export class CategoriesService {
     return this.db
       .query<{
         category_id: string
-      }>(`SELECT category_id FROM brand_categories WHERE business_id = ? AND brand_id = ? AND is_deleted = 0`, [businessId, brandId])
+      }>(
+        `SELECT category_id FROM brand_categories WHERE business_id = ? AND brand_id = ? AND is_deleted = 0`,
+        [businessId, brandId],
+      )
       .map((r) => r.category_id)
   }
 
@@ -384,6 +390,7 @@ export class CategoriesService {
       icon: input.icon ?? null,
       imageUrl: input.imageUrl ?? null,
       sortOrder: input.sortOrder ?? 0,
+      defaultUnitOfMeasureId: input.defaultUnitOfMeasureId ?? null,
       parentId: input.parentId ?? null,
       depth,
       isActive: input.isActive !== false,
@@ -466,5 +473,6 @@ function toLocalCategory(row: CategoryRow): LocalCategory {
     depth: row.depth,
     isActive: row.is_active === 1,
     showOnline: row.show_online === 1,
+    defaultUnitOfMeasureId: row.default_unit_of_measure_id,
   }
 }

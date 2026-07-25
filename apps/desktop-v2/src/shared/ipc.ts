@@ -672,6 +672,8 @@ export interface LocalCategory {
   depth: number
   isActive: boolean
   showOnline: boolean
+  /** Default unit of measure pre-filled when creating a product in this category. */
+  defaultUnitOfMeasureId: string | null
 }
 
 /** Fields the user supplies when creating/editing a category. */
@@ -685,6 +687,8 @@ export interface CategoryInput {
   sortOrder?: number
   isActive?: boolean
   showOnline?: boolean
+  /** Default unit of measure pre-filled when creating a product in this category. */
+  defaultUnitOfMeasureId?: string | null
 }
 
 // ---- Attributes (variant dimensions) --------------------------------------

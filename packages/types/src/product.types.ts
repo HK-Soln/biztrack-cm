@@ -407,6 +407,8 @@ export interface ProductCategory {
   isActive?: boolean
   /** Visible in the online store (when the plan includes an online store). */
   showOnline?: boolean
+  /** Default unit of measure pre-filled when creating a product in this category. */
+  defaultUnitOfMeasureId?: string | null
   createdAt: IsoDateString
   updatedAt: IsoDateString
 }
@@ -574,6 +576,8 @@ export interface CreateCategoryRequest {
   parentId?: string | null
   isActive?: boolean
   showOnline?: boolean
+  /** Default unit of measure pre-filled when creating a product in this category. */
+  defaultUnitOfMeasureId?: string | null
 }
 
 export interface UpdateCategoryRequest extends Partial<CreateCategoryRequest> {

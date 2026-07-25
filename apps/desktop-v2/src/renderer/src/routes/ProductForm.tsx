@@ -172,6 +172,9 @@ export function ProductForm() {
   const loadedRef = useRef(false)
   const galleryLoadedRef = useRef(false)
   const variantsLoadedRef = useRef(false)
+  // categoryId → its default unit id, cached from loadCategories so selecting a category
+  // can auto-fill the unit field.
+  const catDefaultUnitRef = useRef<Map<string, string | null>>(new Map())
 
   // --- data loads -----------------------------------------------------------
   const { data: existing } = useQuery({
@@ -201,6 +204,21 @@ export function ProductForm() {
     queryFn: () => dataClient.attributes.listCategoryLinks(d.categoryId),
     enabled: !!d.categoryId,
   })
+  // Units, to label a category's default unit when auto-filling the unit field.
+  const { data: unitsPage } = useQuery({
+    queryKey: [...queryKeys.units, 'all-for-product'],
+    queryFn: () => dataClient.units.list({ limit: 100 }),
+  })
+  const unitLabelById = useMemo(
+    () =>
+      new Map(
+        (unitsPage?.data ?? []).map((u) => [
+          u.id,
+          u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name,
+        ]),
+      ),
+    [unitsPage],
+  )
   const { data: existingVariants } = useQuery({
     queryKey: [...queryKeys.products, 'variants', id],
     queryFn: () => dataClient.products.listVariants(id!),
@@ -304,12 +322,31 @@ export function ProductForm() {
     if (!selectedBrand) return
     if (!d.categoryId && brandSelectable.length === 1) {
       const only = brandSelectable[0]!
-      patch({ categoryId: only.id, categoryLabel: only.name })
+      catDefaultUnitRef.current.set(only.id, only.defaultUnitOfMeasureId)
+      const fillUnit = only.defaultUnitOfMeasureId && !d.unitId
+      patch({
+        categoryId: only.id,
+        categoryLabel: only.name,
+        ...(fillUnit
+          ? {
+              unitId: only.defaultUnitOfMeasureId!,
+              unitLabel: unitLabelById.get(only.defaultUnitOfMeasureId!) ?? null,
+            }
+          : {}),
+      })
     }
     if (d.modelId && !d.modelLabel) {
       patch({ modelLabel: selectedBrand.models.find((m) => m.id === d.modelId)?.name ?? null })
     }
-  }, [selectedBrand, brandSelectable, d.categoryId, d.modelId, d.modelLabel])
+  }, [
+    selectedBrand,
+    brandSelectable,
+    d.categoryId,
+    d.unitId,
+    d.modelId,
+    d.modelLabel,
+    unitLabelById,
+  ])
 
   // --- derived --------------------------------------------------------------
   const costN = Number(d.cost.replace(/\s/g, '')) || 0
@@ -384,9 +421,27 @@ export function ProductForm() {
     (s: string) =>
       dataClient.categories
         .listSelectable({ brandId: d.brandId || undefined, search: s })
-        .then((rows) => rows.map((c) => ({ value: c.id, label: c.name }))),
+        .then((rows) => {
+          for (const c of rows) catDefaultUnitRef.current.set(c.id, c.defaultUnitOfMeasureId)
+          return rows.map((c) => ({ value: c.id, label: c.name }))
+        }),
     [d.brandId],
   )
+
+  // Selecting a category pre-fills the unit from the category's default — but only when the
+  // user hasn't already chosen a unit, so we never overwrite an explicit choice.
+  const onCategoryChange = (value: string | null, option?: CommandSelectOption) => {
+    const patchData: Partial<Draft> = {
+      categoryId: value ?? '',
+      categoryLabel: option?.label ?? null,
+    }
+    const defaultUnit = value ? catDefaultUnitRef.current.get(value) : null
+    if (defaultUnit && !d.unitId) {
+      patchData.unitId = defaultUnit
+      patchData.unitLabel = unitLabelById.get(defaultUnit) ?? null
+    }
+    patch(patchData)
+  }
 
   const onBrandChange = (value: string | null, option?: CommandSelectOption) =>
     patch({
@@ -765,9 +820,7 @@ export function ProductForm() {
                   <CommandSelect
                     value={d.categoryId || null}
                     valueLabel={d.categoryLabel}
-                    onChange={(v, o) =>
-                      patch({ categoryId: v ?? '', categoryLabel: o?.label ?? null })
-                    }
+                    onChange={onCategoryChange}
                     loadOptions={loadCategories}
                     placeholder={t('prodf.categoryNone')}
                     searchPlaceholder={t('prodf.searchCategories')}
