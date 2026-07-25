@@ -159,6 +159,7 @@ type CategorySyncPayload = {
   icon?: string | null
   imageUrl?: string | null
   sortOrder?: number | null
+  defaultUnitOfMeasureId?: string | null
   parentId?: string | null
   depth?: number | null
   createdAt?: string
@@ -1655,6 +1656,7 @@ export class SyncService {
       imageUrl: payload.imageUrl ?? undefined,
       sortOrder: payload.sortOrder ?? undefined,
       showOnline: payload.showOnline ?? undefined,
+      defaultUnitOfMeasureId: payload.defaultUnitOfMeasureId ?? undefined,
     })
     await this.ensureValidDto(dto)
 
@@ -1696,6 +1698,7 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        defaultUnitOfMeasureId: this.normalizeOptionalString(payload.defaultUnitOfMeasureId),
         parentId,
         depth,
         deletedAt: null,
@@ -1721,6 +1724,7 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        defaultUnitOfMeasureId: this.normalizeOptionalString(payload.defaultUnitOfMeasureId),
         parentId,
         depth,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -4197,6 +4201,7 @@ export class SyncService {
       icon: record.icon ?? null,
       imageUrl: record.imageUrl ?? null,
       sortOrder: record.sortOrder,
+      defaultUnitOfMeasureId: record.defaultUnitOfMeasureId ?? null,
       parentId: record.parentId ?? null,
       depth: record.depth,
       createdAt: record.createdAt.toISOString(),

@@ -1,12 +1,4 @@
-import {
-  Entity,
-  Column,
-  ManyToOne,
-  OneToMany,
-  JoinColumn,
-  Index,
-  Unique,
-} from 'typeorm'
+import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index, Unique } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { Business } from './business.entity'
 import { Product } from './product.entity'
@@ -19,7 +11,10 @@ export class ProductCategory extends BaseEntity {
   businessId!: string
 
   @ManyToOne(() => Business, (business) => business.productCategories, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'business_id', foreignKeyConstraintName: 'fk_product_categories_business_id' })
+  @JoinColumn({
+    name: 'business_id',
+    foreignKeyConstraintName: 'fk_product_categories_business_id',
+  })
   business?: Business
 
   @Column()
@@ -40,7 +35,7 @@ export class ProductCategory extends BaseEntity {
   @Column({ nullable: true, type: 'varchar', length: 7 })
   color?: string | null // Hex color code (e.g., #FF5733)
 
-  @Column({ nullable: true, type: 'varchar', })
+  @Column({ nullable: true, type: 'varchar' })
   icon?: string | null
 
   @Column({ name: 'image_url', nullable: true, type: 'varchar' })
@@ -48,6 +43,10 @@ export class ProductCategory extends BaseEntity {
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number
+
+  // Default unit of measure pre-filled when creating a product in this category.
+  @Column({ name: 'default_unit_of_measure_id', type: 'uuid', nullable: true })
+  defaultUnitOfMeasureId?: string | null
 
   @Column({ name: 'parent_id', type: 'uuid', nullable: true })
   parentId?: string | null

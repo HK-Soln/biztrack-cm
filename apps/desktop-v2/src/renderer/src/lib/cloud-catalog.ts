@@ -32,7 +32,6 @@ import { cget, cgetAll, cpost, cpatch, cdelete } from './cloud-http'
  * stripping null/undefined (the API DTOs use non-null `string` + `forbidNonWhitelisted`).
  */
 
-
 /** Drop null/undefined so a payload satisfies the API's non-null optional DTO fields. */
 function clean<T extends Record<string, unknown>>(o: T): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -65,6 +64,7 @@ interface ApiCategory {
   depth?: number
   isActive?: boolean
   showOnline?: boolean
+  defaultUnitOfMeasureId?: string | null
 }
 
 function toLocalCategory(c: ApiCategory): LocalCategory {
@@ -81,27 +81,39 @@ function toLocalCategory(c: ApiCategory): LocalCategory {
     depth: c.depth ?? 0,
     isActive: c.isActive ?? true,
     showOnline: c.showOnline ?? false,
+    defaultUnitOfMeasureId: c.defaultUnitOfMeasureId ?? null,
   }
 }
 
 export const cloudCategories = {
   list: async (query?: CategoryListQuery): Promise<PaginatedResult<LocalCategory>> => {
-    const res = await cget<PaginatedResult<ApiCategory>>(`/products/categories${qs(query as Record<string, unknown>)}`)
+    const res = await cget<PaginatedResult<ApiCategory>>(
+      `/products/categories${qs(query as Record<string, unknown>)}`,
+    )
     return { ...res, data: res.data.map(toLocalCategory) }
   },
   listAll: async (): Promise<LocalCategory[]> =>
     (await cgetAll<ApiCategory>('/products/categories')).map(toLocalCategory),
   listSelectable: async (query?: CategorySelectableQuery): Promise<LocalCategory[]> =>
-    (await cget<ApiCategory[]>(`/products/categories/selectable${qs(query as Record<string, unknown>)}`)).map(toLocalCategory),
+    (
+      await cget<ApiCategory[]>(
+        `/products/categories/selectable${qs(query as Record<string, unknown>)}`,
+      )
+    ).map(toLocalCategory),
   listParentOptions: async (query?: CategoryParentOptionsQuery): Promise<LocalCategory[]> =>
-    (await cget<ApiCategory[]>(`/products/categories/parent-options${qs(query as Record<string, unknown>)}`)).map(
-      toLocalCategory,
-    ),
+    (
+      await cget<ApiCategory[]>(
+        `/products/categories/parent-options${qs(query as Record<string, unknown>)}`,
+      )
+    ).map(toLocalCategory),
   create: async (input: CategoryInput): Promise<LocalCategory> =>
     toLocalCategory(await cpost<ApiCategory>('/products/categories', categoryPayload(input))),
   update: async (id: string, input: CategoryInput): Promise<LocalCategory> =>
     toLocalCategory(
-      await cpatch<ApiCategory>(`/products/categories/${id}`, clean({ ...categoryPayload(input), isActive: input.isActive })),
+      await cpatch<ApiCategory>(
+        `/products/categories/${id}`,
+        clean({ ...categoryPayload(input), isActive: input.isActive }),
+      ),
     ),
   remove: (id: string): Promise<void> => cdelete<void>(`/products/categories/${id}`),
 }
@@ -116,6 +128,7 @@ function categoryPayload(input: CategoryInput): Record<string, unknown> {
     parentId: input.parentId,
     sortOrder: input.sortOrder,
     showOnline: input.showOnline,
+    defaultUnitOfMeasureId: input.defaultUnitOfMeasureId,
   })
 }
 
@@ -140,7 +153,13 @@ interface ApiBrand {
 }
 
 function toLocalModel(m: ApiModel): LocalModel {
-  return { id: m.id, brandId: m.brandId, name: m.name, isActive: m.isActive ?? true, sortOrder: m.sortOrder ?? 0 }
+  return {
+    id: m.id,
+    brandId: m.brandId,
+    name: m.name,
+    isActive: m.isActive ?? true,
+    sortOrder: m.sortOrder ?? 0,
+  }
 }
 function toLocalBrand(b: ApiBrand): LocalBrand {
   return {
@@ -158,7 +177,9 @@ function toLocalBrand(b: ApiBrand): LocalBrand {
 
 export const cloudBrands = {
   list: async (query?: BrandListQuery): Promise<PaginatedResult<LocalBrand>> => {
-    const res = await cget<PaginatedResult<ApiBrand>>(`/brands${qs(query as Record<string, unknown>)}`)
+    const res = await cget<PaginatedResult<ApiBrand>>(
+      `/brands${qs(query as Record<string, unknown>)}`,
+    )
     return { ...res, data: res.data.map(toLocalBrand) }
   },
   get: async (id: string): Promise<LocalBrand | null> => {
@@ -171,7 +192,12 @@ export const cloudBrands = {
   create: async (input: BrandInput): Promise<LocalBrand> =>
     toLocalBrand(await cpost<ApiBrand>('/brands', brandPayload(input))),
   update: async (id: string, input: BrandInput): Promise<LocalBrand> =>
-    toLocalBrand(await cpatch<ApiBrand>(`/brands/${id}`, clean({ ...brandPayload(input), isActive: input.isActive }))),
+    toLocalBrand(
+      await cpatch<ApiBrand>(
+        `/brands/${id}`,
+        clean({ ...brandPayload(input), isActive: input.isActive }),
+      ),
+    ),
   remove: (id: string): Promise<void> => cdelete<void>(`/brands/${id}`),
   addModel: async (brandId: string, input: ModelInput): Promise<LocalModel> =>
     toLocalModel(await cpost<ApiModel>(`/brands/${brandId}/models`, clean({ name: input.name }))),
@@ -180,7 +206,10 @@ export const cloudBrands = {
   updateModel: async (modelId: string, input: ModelInput): Promise<LocalModel> => {
     const brandId = await findBrandIdForModel(modelId)
     return toLocalModel(
-      await cpatch<ApiModel>(`/brands/${brandId}/models/${modelId}`, clean({ name: input.name, isActive: input.isActive })),
+      await cpatch<ApiModel>(
+        `/brands/${brandId}/models/${modelId}`,
+        clean({ name: input.name, isActive: input.isActive }),
+      ),
     )
   },
   removeModel: async (modelId: string): Promise<void> => {
@@ -231,16 +260,28 @@ function toLocalUnit(u: ApiUnit): LocalUnit {
 
 export const cloudUnits = {
   list: async (query?: UnitListQuery): Promise<PaginatedResult<LocalUnit>> => {
-    const res = await cget<PaginatedResult<ApiUnit>>(`/unit-of-measures${qs(query as Record<string, unknown>)}`)
+    const res = await cget<PaginatedResult<ApiUnit>>(
+      `/unit-of-measures${qs(query as Record<string, unknown>)}`,
+    )
     return { ...res, data: res.data.map(toLocalUnit) }
   },
   create: async (input: UnitInput): Promise<LocalUnit> =>
-    toLocalUnit(await cpost<ApiUnit>('/unit-of-measures', clean({ name: input.name, abbreviation: input.abbreviation, type: input.type }))),
+    toLocalUnit(
+      await cpost<ApiUnit>(
+        '/unit-of-measures',
+        clean({ name: input.name, abbreviation: input.abbreviation, type: input.type }),
+      ),
+    ),
   update: async (id: string, input: UnitInput): Promise<LocalUnit> =>
     toLocalUnit(
       await cpatch<ApiUnit>(
         `/unit-of-measures/${id}`,
-        clean({ name: input.name, abbreviation: input.abbreviation, type: input.type, isActive: input.isActive }),
+        clean({
+          name: input.name,
+          abbreviation: input.abbreviation,
+          type: input.type,
+          isActive: input.isActive,
+        }),
       ),
     ),
   remove: (id: string): Promise<void> => cdelete<void>(`/unit-of-measures/${id}`),
@@ -276,7 +317,10 @@ export const cloudExpenseCategories = {
     (await cget<ApiExpenseCategory[]>('/expense-categories')).map(toLocalExpenseCategory),
   create: async (input: ExpenseCategoryInput): Promise<LocalExpenseCategory> =>
     toLocalExpenseCategory(
-      await cpost<ApiExpenseCategory>('/expense-categories', clean({ name: input.name, color: input.color, icon: input.icon })),
+      await cpost<ApiExpenseCategory>(
+        '/expense-categories',
+        clean({ name: input.name, color: input.color, icon: input.icon }),
+      ),
     ),
 }
 
@@ -300,7 +344,14 @@ interface ApiAttributeGroup {
 }
 
 function toLocalAttributeOption(o: ApiAttributeOption): LocalAttributeOption {
-  return { id: o.id, groupId: o.groupId, value: o.value, colorHex: o.colorHex ?? null, sortOrder: o.sortOrder, isActive: o.isActive }
+  return {
+    id: o.id,
+    groupId: o.groupId,
+    value: o.value,
+    colorHex: o.colorHex ?? null,
+    sortOrder: o.sortOrder,
+    isActive: o.isActive,
+  }
 }
 function toLocalAttributeGroup(g: ApiAttributeGroup): LocalAttributeGroup {
   return {
@@ -313,7 +364,10 @@ function toLocalAttributeGroup(g: ApiAttributeGroup): LocalAttributeGroup {
     options: (g.options ?? []).map(toLocalAttributeOption),
   }
 }
-function toLocalCategoryLink(n: CategoryAttributeGroupNode, categoryId: string): LocalCategoryAttributeGroup {
+function toLocalCategoryLink(
+  n: CategoryAttributeGroupNode,
+  categoryId: string,
+): LocalCategoryAttributeGroup {
   return {
     id: n.id,
     categoryId,
@@ -328,29 +382,43 @@ function toLocalCategoryLink(n: CategoryAttributeGroupNode, categoryId: string):
 
 export const cloudAttributes = {
   // The API returns ALL groups as a flat array; wrap it as a single-page result.
-  listGroups: async (_query?: AttributeGroupListQuery): Promise<PaginatedResult<LocalAttributeGroup>> => {
+  listGroups: async (
+    _query?: AttributeGroupListQuery,
+  ): Promise<PaginatedResult<LocalAttributeGroup>> => {
     const data = (await cget<ApiAttributeGroup[]>('/attribute-groups')).map(toLocalAttributeGroup)
     return { data, total: data.length, page: 1, limit: data.length || 1, totalPages: 1 }
   },
   listAllGroups: async (): Promise<LocalAttributeGroup[]> =>
     (await cget<ApiAttributeGroup[]>('/attribute-groups')).map(toLocalAttributeGroup),
   listCategoryLinks: async (categoryId: string): Promise<LocalCategoryAttributeGroup[]> =>
-    (await cget<CategoryAttributeGroupNode[]>(`/products/categories/${categoryId}/attribute-groups`)).map((n) =>
-      toLocalCategoryLink(n, categoryId),
-    ),
+    (
+      await cget<CategoryAttributeGroupNode[]>(
+        `/products/categories/${categoryId}/attribute-groups`,
+      )
+    ).map((n) => toLocalCategoryLink(n, categoryId)),
   createGroup: async (input: AttributeGroupInput): Promise<LocalAttributeGroup> =>
     toLocalAttributeGroup(await cpost<ApiAttributeGroup>('/attribute-groups', clean({ ...input }))),
   updateGroup: async (id: string, input: AttributeGroupInput): Promise<LocalAttributeGroup> =>
-    toLocalAttributeGroup(await cpatch<ApiAttributeGroup>(`/attribute-groups/${id}`, clean({ ...input }))),
+    toLocalAttributeGroup(
+      await cpatch<ApiAttributeGroup>(`/attribute-groups/${id}`, clean({ ...input })),
+    ),
   deleteGroup: (id: string): Promise<void> => cdelete<void>(`/attribute-groups/${id}`),
   addOption: async (groupId: string, input: AttributeOptionInput): Promise<LocalAttributeOption> =>
-    toLocalAttributeOption(await cpost<ApiAttributeOption>(`/attribute-groups/${groupId}/options`, clean({ ...input }))),
+    toLocalAttributeOption(
+      await cpost<ApiAttributeOption>(`/attribute-groups/${groupId}/options`, clean({ ...input })),
+    ),
   // Option edit/delete get only the optionId; the group list carries its options, so
   // resolve the owning group first (the API route is nested under it).
-  updateOption: async (optionId: string, input: AttributeOptionInput): Promise<LocalAttributeOption> => {
+  updateOption: async (
+    optionId: string,
+    input: AttributeOptionInput,
+  ): Promise<LocalAttributeOption> => {
     const groupId = await findGroupIdForOption(optionId)
     return toLocalAttributeOption(
-      await cpatch<ApiAttributeOption>(`/attribute-groups/${groupId}/options/${optionId}`, clean({ ...input })),
+      await cpatch<ApiAttributeOption>(
+        `/attribute-groups/${groupId}/options/${optionId}`,
+        clean({ ...input }),
+      ),
     )
   },
   deleteOption: async (optionId: string): Promise<void> => {
@@ -358,18 +426,27 @@ export const cloudAttributes = {
     await cdelete<void>(`/attribute-groups/${groupId}/options/${optionId}`)
   },
   // No bulk "set" endpoint — reconcile the desired links against the current ones.
-  setCategoryLinks: async (categoryId: string, links: CategoryAttributeLinkInput[]): Promise<void> => {
+  setCategoryLinks: async (
+    categoryId: string,
+    links: CategoryAttributeLinkInput[],
+  ): Promise<void> => {
     const base = `/products/categories/${categoryId}/attribute-groups`
     const current = await cget<CategoryAttributeGroupNode[]>(base)
     const currentIds = new Set(current.map((c) => c.attributeGroupId))
     const desiredIds = new Set(links.map((l) => l.attributeGroupId))
     for (const l of links) {
-      const body = clean({ attributeGroupId: l.attributeGroupId, isRequired: l.isRequired, sortOrder: l.sortOrder })
-      if (currentIds.has(l.attributeGroupId)) await cpatch<unknown>(`${base}/${l.attributeGroupId}`, body)
+      const body = clean({
+        attributeGroupId: l.attributeGroupId,
+        isRequired: l.isRequired,
+        sortOrder: l.sortOrder,
+      })
+      if (currentIds.has(l.attributeGroupId))
+        await cpatch<unknown>(`${base}/${l.attributeGroupId}`, body)
       else await cpost<unknown>(base, body)
     }
     for (const c of current) {
-      if (!desiredIds.has(c.attributeGroupId)) await cdelete<unknown>(`${base}/${c.attributeGroupId}`)
+      if (!desiredIds.has(c.attributeGroupId))
+        await cdelete<unknown>(`${base}/${c.attributeGroupId}`)
     }
   },
 }

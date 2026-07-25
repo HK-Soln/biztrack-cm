@@ -41,7 +41,8 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   sortOrder?: number
 
   @ApiPropertyOptional({
-    description: 'Parent category id. Omit/null for a top-level (L1) category. Parent must have depth < 3.',
+    description:
+      'Parent category id. Omit/null for a top-level (L1) category. Parent must have depth < 3.',
   })
   @IsOptional()
   @IsUUID()
@@ -51,4 +52,11 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   @IsOptional()
   @IsBoolean()
   showOnline?: boolean
+
+  @ApiPropertyOptional({
+    description: 'Default unit of measure pre-filled when creating a product in this category.',
+  })
+  @IsOptional()
+  @IsUUID()
+  defaultUnitOfMeasureId?: string | null
 }

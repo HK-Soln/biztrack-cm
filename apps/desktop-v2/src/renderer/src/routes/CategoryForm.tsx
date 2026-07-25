@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, Input, Select } from '@biztrack/ui/biztrack'
+import { BackButton, Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
 import { FileUpload } from '@/components/FileUpload'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
@@ -60,7 +60,9 @@ export function CategoryForm() {
   const linksReady = !editing || linksQuery.isSuccess
 
   // Ordered list of attached groups (the category's variant dimensions).
-  const [attached, setAttached] = useState<Array<{ attributeGroupId: string; isRequired: boolean }>>([])
+  const [attached, setAttached] = useState<
+    Array<{ attributeGroupId: string; isRequired: boolean }>
+  >([])
   const [attachLoaded, setAttachLoaded] = useState(false)
 
   const [name, setName] = useState('')
@@ -69,6 +71,8 @@ export function CategoryForm() {
   const [sortOrder, setSortOrder] = useState('0')
   const [isActive, setIsActive] = useState(true)
   const [showOnline, setShowOnline] = useState(true)
+  const [defaultUnitId, setDefaultUnitId] = useState('')
+  const [defaultUnitLabel, setDefaultUnitLabel] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -84,6 +88,7 @@ export function CategoryForm() {
       setSortOrder(String(current.sortOrder))
       setIsActive(current.isActive)
       setShowOnline(current.showOnline)
+      setDefaultUnitId(current.defaultUnitOfMeasureId ?? '')
       setImageUrl(current.imageUrl)
       setLoaded(true)
     }
@@ -105,7 +110,9 @@ export function CategoryForm() {
   const groupsById = new Map(allGroups.map((g) => [g.id, g]))
   // Attached groups first (in their order), then the rest available to attach.
   const orderedGroups = [
-    ...attached.map((a) => groupsById.get(a.attributeGroupId)).filter((g): g is LocalAttributeGroup => !!g),
+    ...attached
+      .map((a) => groupsById.get(a.attributeGroupId))
+      .filter((g): g is LocalAttributeGroup => !!g),
     ...allGroups.filter((g) => !attachedIds.has(g.id)),
   ]
 
@@ -137,6 +144,22 @@ export function CategoryForm() {
     enabled: true,
   })
 
+  // Units for the default-unit picker; the map resolves the current value's label on edit.
+  const { data: unitsPage } = useQuery({
+    queryKey: [...queryKeys.units, 'all-for-category'],
+    queryFn: () => dataClient.units.list({ limit: 100 }),
+  })
+  const formatUnit = (u: { name: string; abbreviation: string | null }) =>
+    u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name
+  const unitLabelById = useMemo(
+    () => new Map((unitsPage?.data ?? []).map((u) => [u.id, formatUnit(u)])),
+    [unitsPage],
+  )
+  const loadUnits = (s: string) =>
+    dataClient.units
+      .list({ search: s, limit: 20 })
+      .then((r) => r.data.map((u) => ({ value: u.id, label: formatUnit(u) })))
+
   const parent = categories.find((c) => c.id === parentId) ?? null
   const depth = (parent?.depth ?? 0) + 1
   const path = parent ? ancestorPath(categories, parent.id) : []
@@ -145,13 +168,19 @@ export function CategoryForm() {
   const save = useMutation({
     mutationFn: async (input: CategoryInput) => {
       const saved =
-        editing && id ? await dataClient.categories.update(id, input) : await dataClient.categories.create(input)
+        editing && id
+          ? await dataClient.categories.update(id, input)
+          : await dataClient.categories.create(input)
       // Persist variant-attribute links only for leaf categories — and only once the
       // existing links have loaded, so a save before the seed can't wipe them.
       if (isLeaf && linksReady) {
         await dataClient.attributes.setCategoryLinks(
           saved.id,
-          attached.map((a, i) => ({ attributeGroupId: a.attributeGroupId, isRequired: a.isRequired, sortOrder: i })),
+          attached.map((a, i) => ({
+            attributeGroupId: a.attributeGroupId,
+            isRequired: a.isRequired,
+            sortOrder: i,
+          })),
         )
       }
       return saved
@@ -178,6 +207,7 @@ export function CategoryForm() {
       sortOrder: Number(sortOrder) || 0,
       isActive,
       showOnline,
+      defaultUnitOfMeasureId: defaultUnitId || null,
       imageUrl,
       color: current?.color ?? null,
     })
@@ -188,7 +218,11 @@ export function CategoryForm() {
       <div className="detail-top">
         <BackButton onClick={() => navigate('/products/categories')}>{t('cat.back')}</BackButton>
         <div className="acts2">
-          <Button variant="soft" onClick={() => navigate('/products/categories')} disabled={save.isPending}>
+          <Button
+            variant="soft"
+            onClick={() => navigate('/products/categories')}
+            disabled={save.isPending}
+          >
             {t('cat.cancel')}
           </Button>
           <Button variant="primary" loading={save.isPending} onClick={() => submit()}>
@@ -264,9 +298,33 @@ export function CategoryForm() {
                     onChange={(e) => setDescription(e.target.value)}
                   />
                 </div>
-                <div className="ff" style={{ maxWidth: 180 }}>
-                  <label className="lbl2">{t('cat.sortOrder')}</label>
-                  <Input value={sortOrder} inputMode="numeric" onChange={(e) => setSortOrder(e.target.value)} />
+                <div className="form-2col">
+                  <div className="ff" style={{ maxWidth: 180 }}>
+                    <label className="lbl2">{t('cat.sortOrder')}</label>
+                    <Input
+                      value={sortOrder}
+                      inputMode="numeric"
+                      onChange={(e) => setSortOrder(e.target.value)}
+                    />
+                  </div>
+                  <div className="ff">
+                    <label className="lbl2">
+                      {t('cat.defaultUnit')} <span className="opt">{t('cat.optional')}</span>
+                    </label>
+                    <CommandSelect
+                      value={defaultUnitId || null}
+                      valueLabel={defaultUnitLabel ?? unitLabelById.get(defaultUnitId) ?? null}
+                      onChange={(v, o) => {
+                        setDefaultUnitId(v ?? '')
+                        setDefaultUnitLabel(o?.label ?? null)
+                      }}
+                      loadOptions={loadUnits}
+                      placeholder={t('cat.defaultUnitNone')}
+                      searchPlaceholder={t('prodf.searchUnits')}
+                      clearLabel={t('cat.defaultUnitNone')}
+                    />
+                    <div className="hint">{t('cat.defaultUnitHint')}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -278,7 +336,9 @@ export function CategoryForm() {
                   {t('cat.attrTitle')}
                 </span>
                 {isLeaf ? (
-                  <span className="chip-tag">{t('cat.attrAttached').replace('{n}', String(attached.length))}</span>
+                  <span className="chip-tag">
+                    {t('cat.attrAttached').replace('{n}', String(attached.length))}
+                  </span>
                 ) : null}
               </div>
 
@@ -322,13 +382,22 @@ export function CategoryForm() {
                           />
                           <div className="attr-main">
                             <div className="attr-name">
-                              {g.name} <span className="attr-type">{t(`attr.${g.displayType.toLowerCase()}` as MessageKey)}</span>
+                              {g.name}{' '}
+                              <span className="attr-type">
+                                {t(`attr.${g.displayType.toLowerCase()}` as MessageKey)}
+                              </span>
                             </div>
                             <div className="attr-preview">
                               {g.displayType === 'SWATCHES'
-                                ? g.options.slice(0, 6).map((o) => (
-                                    <span key={o.id} className="attr-sw" style={{ background: o.colorHex ?? '#ccc' }} />
-                                  ))
+                                ? g.options
+                                    .slice(0, 6)
+                                    .map((o) => (
+                                      <span
+                                        key={o.id}
+                                        className="attr-sw"
+                                        style={{ background: o.colorHex ?? '#ccc' }}
+                                      />
+                                    ))
                                 : g.options.slice(0, 5).map((o) => (
                                     <span key={o.id} className="attr-cp">
                                       {o.value}
@@ -347,8 +416,18 @@ export function CategoryForm() {
                                 {att!.isRequired ? t('cat.attrRequired') : t('cat.attrOptional')}
                               </button>
                               <div className="attr-reorder">
-                                <button type="button" disabled={pos === 0} onClick={() => moveAttached(g.id, -1)} aria-label="up">
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                <button
+                                  type="button"
+                                  disabled={pos === 0}
+                                  onClick={() => moveAttached(g.id, -1)}
+                                  aria-label="up"
+                                >
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                  >
                                     <path d="m6 15 6-6 6 6" />
                                   </svg>
                                 </button>
@@ -358,7 +437,12 @@ export function CategoryForm() {
                                   onClick={() => moveAttached(g.id, 1)}
                                   aria-label="down"
                                 >
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                  >
                                     <path d="m6 9 6 6 6-6" />
                                   </svg>
                                 </button>
@@ -372,7 +456,12 @@ export function CategoryForm() {
                 </>
               )}
 
-              <button type="button" className="ab" style={{ marginTop: 10 }} onClick={() => navigate('/products/attributes')}>
+              <button
+                type="button"
+                className="ab"
+                style={{ marginTop: 10 }}
+                onClick={() => navigate('/products/attributes')}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path d="M12 5v14M5 12h14" />
                 </svg>
@@ -387,7 +476,13 @@ export function CategoryForm() {
                 {t('cat.placement')}
               </div>
               <div className="level-pill" style={{ marginBottom: 12 }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ width: 14, height: 14 }}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  style={{ width: 14, height: 14 }}
+                >
                   <path d="M3 21h18M5 21V7l7-4 7 4v14" />
                 </svg>
                 <span>{t(LEVEL_KEY[Math.min(depth, 3) - 1] ?? 'cat.levelDept')}</span>
@@ -453,7 +548,12 @@ export function CategoryForm() {
             ) : null}
 
             <div className="fp-actions">
-              <Button variant="soft" type="button" onClick={() => navigate('/products/categories')} disabled={save.isPending}>
+              <Button
+                variant="soft"
+                type="button"
+                onClick={() => navigate('/products/categories')}
+                disabled={save.isPending}
+              >
                 {t('cat.cancel')}
               </Button>
               <Button variant="primary" type="submit" loading={save.isPending}>

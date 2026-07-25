@@ -1119,12 +1119,13 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO product_categories
-        (id, business_id, name, slug, description, color, icon, image_url, sort_order, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, description = excluded.description,
           color = excluded.color, icon = excluded.icon,
-          image_url = excluded.image_url, sort_order = excluded.sort_order, parent_id = excluded.parent_id,
+          image_url = excluded.image_url, sort_order = excluded.sort_order,
+          default_unit_of_measure_id = excluded.default_unit_of_measure_id, parent_id = excluded.parent_id,
           depth = excluded.depth, is_active = excluded.is_active, show_online = excluded.show_online,
           is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
@@ -1137,6 +1138,7 @@ export class SyncService {
         asStr(c.icon),
         asStr(c.imageUrl),
         asNum(c.sortOrder) ?? 0,
+        asStr(c.defaultUnitOfMeasureId),
         asStr(c.parentId),
         asNum(c.depth) ?? 1,
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
