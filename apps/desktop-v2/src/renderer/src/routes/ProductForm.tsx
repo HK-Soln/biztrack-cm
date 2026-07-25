@@ -35,6 +35,9 @@ interface Draft {
   productType: ProductType
   unitId: string
   unitLabel: string | null
+  /** True while the unit came from a category default — so switching category refreshes it,
+   * but a unit the user picked themselves is never overwritten. */
+  unitAutoFilled: boolean
   cost: string
   price: string
   taxable: boolean
@@ -69,6 +72,7 @@ const DEFAULT_DRAFT: Draft = {
   productType: 'SIMPLE',
   unitId: '',
   unitLabel: null,
+  unitAutoFilled: false,
   cost: '',
   price: '',
   taxable: true,
@@ -267,17 +271,19 @@ export function ProductForm() {
     [d.brandId],
   )
 
-  // Selecting a category pre-fills the unit from the category's default — but only when the
-  // user hasn't already chosen a unit, so we never overwrite an explicit choice.
+  // Selecting a category fills the unit from the category's default. It refreshes the unit
+  // when it's empty or was itself auto-filled from a previous category — but never overwrites
+  // a unit the user picked themselves.
   const onCategoryChange = (value: string | null, option?: CommandSelectOption) => {
     const patchData: Partial<Draft> = {
       categoryId: value ?? '',
       categoryLabel: option?.label ?? null,
     }
     const defaultUnit = value ? catDefaultUnitRef.current.get(value) : null
-    if (defaultUnit && !d.unitId) {
+    if (defaultUnit && (!d.unitId || d.unitAutoFilled)) {
       patchData.unitId = defaultUnit
       patchData.unitLabel = unitLabelById.get(defaultUnit) ?? null
+      patchData.unitAutoFilled = true
     }
     patch(patchData)
   }
@@ -299,7 +305,7 @@ export function ProductForm() {
     if (!d.categoryId && brandSelectable.length === 1) {
       const only = brandSelectable[0]!
       catDefaultUnitRef.current.set(only.id, only.defaultUnitOfMeasureId)
-      const fillUnit = only.defaultUnitOfMeasureId && !d.unitId
+      const fillUnit = only.defaultUnitOfMeasureId && (!d.unitId || d.unitAutoFilled)
       patch({
         categoryId: only.id,
         categoryLabel: only.name,
@@ -307,6 +313,7 @@ export function ProductForm() {
           ? {
               unitId: only.defaultUnitOfMeasureId!,
               unitLabel: unitLabelById.get(only.defaultUnitOfMeasureId!) ?? null,
+              unitAutoFilled: true,
             }
           : {}),
       })
@@ -319,6 +326,7 @@ export function ProductForm() {
     brandSelectable,
     d.categoryId,
     d.unitId,
+    d.unitAutoFilled,
     d.modelId,
     d.modelLabel,
     unitLabelById,
@@ -565,7 +573,7 @@ export function ProductForm() {
                 value={d.unitId || null}
                 valueLabel={d.unitLabel}
                 onChange={(v, o) => {
-                  patch({ unitId: v ?? '', unitLabel: o?.label ?? null })
+                  patch({ unitId: v ?? '', unitLabel: o?.label ?? null, unitAutoFilled: false })
                   setError(null)
                 }}
                 loadOptions={loadUnits}
