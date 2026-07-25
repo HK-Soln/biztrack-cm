@@ -12,7 +12,9 @@ import type { ProductImageInput, ProductInput, ProductType, SerialType } from '@
 
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const TVA_RATE = 19.25
-const PRODUCT_TYPES: ProductType[] = ['SIMPLE', 'SERVICE', 'VARIABLE_QUANTITY', 'COMPOSITE']
+// Only Simple (stock item) and Service are offered. VARIABLE_QUANTITY/COMPOSITE remain valid
+// enum values (legacy data) but are intentionally not selectable in the create flow.
+const PRODUCT_TYPES: ProductType[] = ['SIMPLE', 'SERVICE']
 const DRAFT_KEY = 'biztrack:product-draft:new'
 
 // The product editor: a single, mostly-optional page. Only Name · Category · Price · Unit are
