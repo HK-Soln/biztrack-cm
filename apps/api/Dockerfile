@@ -53,6 +53,15 @@ ENV LOG_DIR=""
 # Run as an unprivileged user.
 RUN groupadd --gid 1001 nodejs \
   && useradd --uid 1001 --gid nodejs --shell /usr/sbin/nologin nestjs
+# Drop build-time tooling the runtime never uses — npm and the corepack/pnpm cache.
+# The app starts via `node` and runs migrations via the typeorm CLI (also `node`), so
+# neither npm nor pnpm is needed at runtime. Both bundle a `tar` with CRITICAL CVEs that
+# the image scan (Trivy) flags; removing them clears the finding and shrinks attack surface.
+RUN rm -rf \
+      /usr/local/lib/node_modules/npm \
+      /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /root/.cache/node/corepack
 COPY --from=installer --chown=nestjs:nodejs /app ./
 USER nestjs
 
