@@ -453,6 +453,7 @@ export interface UnitOfMeasure {
 export interface ProductImage {
   id: string
   productId: string
+  variantId?: string | null
   url: string
   altText?: string | null
   sortOrder: number
@@ -647,12 +648,17 @@ export interface BrandsQuery extends ListQuery {
   categoryId?: string
 }
 
-export type ProductImagesQuery = ListQuery
+export type ProductImagesQuery = ListQuery & {
+  /** Scope: a variant's gallery when set, else the product-level gallery. */
+  variantId?: string | null
+}
 
 export interface CreateProductImageRequest {
   url: string
   altText?: string
   sortOrder?: number
+  /** Attach the image to a variant (mini-product gallery); omit for a product-level image. */
+  variantId?: string | null
 }
 
 export type UpdateProductImageRequest = Partial<CreateProductImageRequest>

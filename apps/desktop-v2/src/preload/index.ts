@@ -100,8 +100,10 @@ const api: BridgeApi = {
     create: (input) => ipcRenderer.invoke(IPC.productsCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.productsUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.productsDelete, id),
-    listImages: (productId) => ipcRenderer.invoke(IPC.productsListImages, productId),
-    setImages: (productId, images) => ipcRenderer.invoke(IPC.productsSetImages, productId, images),
+    listImages: (productId, variantId) =>
+      ipcRenderer.invoke(IPC.productsListImages, productId, variantId),
+    setImages: (productId, images, variantId) =>
+      ipcRenderer.invoke(IPC.productsSetImages, productId, images, variantId),
     listVariants: (productId) => ipcRenderer.invoke(IPC.productsListVariants, productId),
     listVariantsPage: (productId, query) =>
       ipcRenderer.invoke(IPC.productsListVariantsPage, productId, query),

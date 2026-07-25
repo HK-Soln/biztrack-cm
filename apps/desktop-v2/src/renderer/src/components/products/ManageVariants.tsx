@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
@@ -10,10 +10,11 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
 import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
-import type { LocalProduct, LocalVariant, VariantInput } from '@shared/ipc'
+import type { LocalProduct, LocalVariant, ProductImageInput, VariantInput } from '@shared/ipc'
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : null)
 const PAGE_SIZE = 5
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 /**
  * Manage a product's variants (movement-based). Add (opening stock → stock-in),
@@ -74,6 +75,11 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const [remove, setRemove] = useState<LocalVariant | null>(null)
   const [reason, setReason] = useState('')
   const [adjust, setAdjust] = useState<LocalVariant | null>(null)
+  // Per-variant image gallery (a variant is a mini-product with its own images).
+  const [editGallery, setEditGallery] = useState<ProductImageInput[]>([])
+  const [editImgUploading, setEditImgUploading] = useState(false)
+  const editFileRef = useRef<HTMLInputElement>(null)
+  const editImgLoadedRef = useRef<string | null>(null)
 
   const addM = useMutation({
     mutationFn: (input: VariantInput) => dataClient.products.addVariant(id, input),
@@ -90,9 +96,27 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
     },
     onError: (e) => setAddErr(errorMessage(e, t('pvar.addError'))),
   })
+  // The editing variant's own gallery — seeded once per open, edited locally, saved with it.
+  const editImages = useQuery({
+    queryKey: [...queryKeys.products, 'variant-images', id, edit?.id],
+    queryFn: () => dataClient.products.listImages(id, edit!.id),
+    enabled: !!edit,
+  })
+  useEffect(() => {
+    if (!edit || !editImages.data || editImgLoadedRef.current === edit.id) return
+    editImgLoadedRef.current = edit.id
+    setEditGallery(editImages.data.map((i) => ({ id: i.id, url: i.url, altText: i.altText })))
+  }, [edit, editImages.data])
+
   const updateM = useMutation({
-    mutationFn: (input: { variantId: string; data: VariantInput }) =>
-      dataClient.products.updateVariant(id, input.variantId, input.data),
+    mutationFn: async (input: {
+      variantId: string
+      data: VariantInput
+      images: ProductImageInput[]
+    }) => {
+      await dataClient.products.updateVariant(id, input.variantId, input.data)
+      await dataClient.products.setImages(id, input.images, input.variantId)
+    },
     onSuccess: () => {
       setEdit(null)
       invalidate()
@@ -147,6 +171,8 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
     }
   }
   const openEdit = (v: LocalVariant) => {
+    editImgLoadedRef.current = null
+    setEditGallery([])
     setEdit(v)
     setEditFields({
       name: v.name,
@@ -168,7 +194,30 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
         isActive: editFields.active,
         options: edit.options,
       },
+      images: editGallery,
     })
+  }
+
+  async function onPickVariantImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    const valid = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type))
+    if (valid.length === 0) return
+    setEditImgUploading(true)
+    try {
+      for (const file of valid) {
+        const bytes = await file.arrayBuffer()
+        const res = await dataClient.uploads.file({
+          bytes,
+          filename: file.name,
+          contentType: file.type,
+          folder: 'products',
+        })
+        setEditGallery((g) => [...g, { url: res.url }])
+      }
+    } finally {
+      setEditImgUploading(false)
+    }
   }
 
   const editIcon = (
@@ -530,6 +579,53 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
           <span className={`switch${editFields.active ? ' on' : ''}`} />
           <span>{t('pvar.active')}</span>
         </button>
+
+        {/* Per-variant image gallery. */}
+        <div className="ff" style={{ marginTop: 14 }}>
+          <div className="gallery-head">
+            <span>{t('pvar.images')}</span>
+            <button
+              type="button"
+              className="gallery-add"
+              onClick={() => editFileRef.current?.click()}
+              disabled={editImgUploading}
+            >
+              + {t('prodf.galleryAdd')}
+            </button>
+          </div>
+          <input
+            ref={editFileRef}
+            type="file"
+            accept={ALLOWED_IMAGE_TYPES.join(',')}
+            multiple
+            style={{ display: 'none' }}
+            onChange={onPickVariantImage}
+          />
+          {editGallery.length === 0 ? (
+            <div className="gallery-empty">
+              {editImgUploading ? t('prodf.imageUploading') : t('pvar.imagesEmpty')}
+            </div>
+          ) : (
+            <div className="gallery-grid">
+              {editGallery.map((g, i) => (
+                <div key={g.id ?? `new-${i}`} className="gallery-thumb">
+                  <img src={g.url} alt="" />
+                  <div className="gallery-acts">
+                    <button
+                      type="button"
+                      title={t('prodf.galleryRemove')}
+                      onClick={() => setEditGallery((gg) => gg.filter((_, idx) => idx !== i))}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path d="M6 6l12 12M18 6 6 18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Modal>
 
       {/* Remove (write-off) modal. */}

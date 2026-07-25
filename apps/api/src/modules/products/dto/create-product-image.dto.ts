@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
+import { IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator'
 import type { CreateProductImageRequest } from '@biztrack/types'
 
 export class CreateProductImageDto implements CreateProductImageRequest {
@@ -21,4 +21,9 @@ export class CreateProductImageDto implements CreateProductImageRequest {
   @Min(0)
   @Type(() => Number)
   sortOrder?: number
+
+  @ApiPropertyOptional({ description: 'Attach to a variant; omit for a product-level image.' })
+  @IsOptional()
+  @IsUUID()
+  variantId?: string | null
 }

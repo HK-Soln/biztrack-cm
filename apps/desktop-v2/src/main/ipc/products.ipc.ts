@@ -19,9 +19,13 @@ export function registerProductsIpc(products: ProductsService): void {
     products.update(id, input),
   )
   ipcMain.handle(IPC.productsDelete, (_e, id: string) => products.remove(id))
-  ipcMain.handle(IPC.productsListImages, (_e, productId: string) => products.listImages(productId))
-  ipcMain.handle(IPC.productsSetImages, (_e, productId: string, images: ProductImageInput[]) =>
-    products.setImages(productId, images),
+  ipcMain.handle(IPC.productsListImages, (_e, productId: string, variantId?: string | null) =>
+    products.listImages(productId, variantId ?? null),
+  )
+  ipcMain.handle(
+    IPC.productsSetImages,
+    (_e, productId: string, images: ProductImageInput[], variantId?: string | null) =>
+      products.setImages(productId, images, variantId ?? null),
   )
   ipcMain.handle(IPC.productsListVariants, (_e, productId: string) =>
     products.listVariants(productId),

@@ -226,6 +226,7 @@ type BrandCategoryPayload = {
 
 type ProductImagePayload = {
   productId?: string
+  variantId?: string | null
   url?: string
   altText?: string | null
   sortOrder?: number | null
@@ -1155,6 +1156,7 @@ export class SyncService {
           id: record.id,
           businessId: record.businessId ?? null,
           productId: record.productId,
+          variantId: record.variantId ?? null,
           url: record.url,
           altText: record.altText ?? null,
           sortOrder: record.sortOrder,
@@ -2119,9 +2121,12 @@ export class SyncService {
       )
     }
 
+    const variantId = this.normalizeOptionalString(payload.variantId)
+
     if (existing) {
       await this.productImagesRepo.update(operation.recordId, {
         productId,
+        variantId,
         url: payload.url!.trim(),
         altText: this.normalizeOptionalString(payload.altText),
         sortOrder: payload.sortOrder ?? existing.sortOrder,
@@ -2136,6 +2141,7 @@ export class SyncService {
         id: operation.recordId,
         businessId,
         productId,
+        variantId,
         url: payload.url!.trim(),
         altText: this.normalizeOptionalString(payload.altText),
         sortOrder: payload.sortOrder ?? 0,

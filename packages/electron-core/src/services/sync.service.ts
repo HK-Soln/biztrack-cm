@@ -1407,15 +1407,17 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO product_images
-        (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, product_id, variant_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          product_id = excluded.product_id, url = excluded.url, alt_text = excluded.alt_text,
-          sort_order = excluded.sort_order, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          product_id = excluded.product_id, variant_id = excluded.variant_id, url = excluded.url,
+          alt_text = excluded.alt_text, sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(c.businessId),
         asStr(c.productId),
+        asStr(c.variantId),
         asStr(c.url),
         asStr(c.altText),
         asNum(c.sortOrder) ?? 0,

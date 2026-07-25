@@ -221,8 +221,12 @@ export interface DataClient {
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>
     remove: (id: string) => Promise<void>
-    listImages: (productId: string) => Promise<LocalProductImage[]>
-    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    listImages: (productId: string, variantId?: string | null) => Promise<LocalProductImage[]>
+    setImages: (
+      productId: string,
+      images: ProductImageInput[],
+      variantId?: string | null,
+    ) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
     listVariantsPage: (
       productId: string,
@@ -573,8 +577,9 @@ function electronAdapter(): DataClient {
       create: (input) => window.api.products.create(input),
       update: (id, input) => window.api.products.update(id, input),
       remove: (id) => window.api.products.remove(id),
-      listImages: (productId) => window.api.products.listImages(productId),
-      setImages: (productId, images) => window.api.products.setImages(productId, images),
+      listImages: (productId, variantId) => window.api.products.listImages(productId, variantId),
+      setImages: (productId, images, variantId) =>
+        window.api.products.setImages(productId, images, variantId),
       listVariants: (productId) => window.api.products.listVariants(productId),
       listVariantsPage: (productId, query) =>
         window.api.products.listVariantsPage(productId, query),

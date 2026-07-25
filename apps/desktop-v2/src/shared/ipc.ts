@@ -1475,6 +1475,8 @@ export interface LocalStockMovement {
 export interface LocalProductImage {
   id: string
   productId: string
+  /** Set when the image belongs to a specific variant; null for a product-level image. */
+  variantId: string | null
   url: string
   altText: string | null
   sortOrder: number
@@ -1703,9 +1705,14 @@ export interface BridgeApi {
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>
     remove: (id: string) => Promise<void>
-    listImages: (productId: string) => Promise<LocalProductImage[]>
-    /** Replace a product's gallery (diff + enqueues changes). */
-    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    /** Images for a product (variantId omitted/null) or a specific variant. */
+    listImages: (productId: string, variantId?: string | null) => Promise<LocalProductImage[]>
+    /** Replace a product's — or a variant's — gallery (diff + enqueues changes). */
+    setImages: (
+      productId: string,
+      images: ProductImageInput[],
+      variantId?: string | null,
+    ) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
     /** Paginated variants for the product-detail management section (default limit 5). */
     listVariantsPage: (productId: string, query?: ListQueryT) => Promise<PaginatedT<LocalVariant>>

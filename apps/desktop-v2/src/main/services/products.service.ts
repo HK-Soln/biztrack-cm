@@ -75,6 +75,7 @@ interface ProductRow {
 interface ProductImageRow {
   id: string
   product_id: string
+  variant_id: string | null
   url: string
   alt_text: string | null
   sort_order: number
@@ -605,32 +606,42 @@ export class ProductsService {
 
   // ---- gallery images ------------------------------------------------------
 
-  listImages(productId: string): LocalProductImage[] {
+  // Images belong to a product (variantId null) or a specific variant. The scope is passed
+  // through so a variant's gallery is independent of the product's.
+  listImages(productId: string, variantId: string | null = null): LocalProductImage[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    const scope = variantId ? 'variant_id = ?' : 'variant_id IS NULL'
+    const params: unknown[] = [businessId, productId]
+    if (variantId) params.push(variantId)
     const rows = this.db.query<ProductImageRow>(
-      `SELECT id, product_id, url, alt_text, sort_order FROM product_images
-       WHERE business_id = ? AND product_id = ? AND is_deleted = 0
+      `SELECT id, product_id, variant_id, url, alt_text, sort_order FROM product_images
+       WHERE business_id = ? AND product_id = ? AND ${scope} AND is_deleted = 0
        ORDER BY sort_order ASC`,
-      [businessId, productId],
+      params,
     )
     return rows.map((r) => ({
       id: r.id,
       productId: r.product_id,
+      variantId: r.variant_id,
       url: r.url,
       altText: r.alt_text,
       sortOrder: r.sort_order,
     }))
   }
 
-  /** Replace a product's gallery with `images` (diff: add new, soft-delete removed, reindex). */
-  setImages(productId: string, images: ProductImageInput[]): void {
+  /** Replace a product's — or a variant's — gallery with `images` (diff: add new, soft-delete
+   * removed, reindex), scoped by variantId (null = product-level). */
+  setImages(productId: string, images: ProductImageInput[], variantId: string | null = null): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const scope = variantId ? 'variant_id = ?' : 'variant_id IS NULL'
+    const scopeParams: unknown[] = [businessId, productId]
+    if (variantId) scopeParams.push(variantId)
     const existing = this.db.query<ProductImageRow>(
-      `SELECT id, product_id, url, alt_text, sort_order FROM product_images
-       WHERE business_id = ? AND product_id = ? AND is_deleted = 0`,
-      [businessId, productId],
+      `SELECT id, product_id, variant_id, url, alt_text, sort_order FROM product_images
+       WHERE business_id = ? AND product_id = ? AND ${scope} AND is_deleted = 0`,
+      scopeParams,
     )
     const keepIds = new Set(images.map((i) => i.id).filter(Boolean) as string[])
 
@@ -643,16 +654,16 @@ export class ProductsService {
         )
       } else {
         this.db.run(
-          `INSERT INTO product_images (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, businessId, productId, img.url, img.altText ?? null, index, now, now],
+          `INSERT INTO product_images (id, business_id, product_id, variant_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, businessId, productId, variantId, img.url, img.altText ?? null, index, now, now],
         )
       }
       this.enqueueImage(
         id,
         'UPSERT',
         businessId,
-        { productId, url: img.url, altText: img.altText ?? null, sortOrder: index },
+        { productId, variantId, url: img.url, altText: img.altText ?? null, sortOrder: index },
         now,
       )
     })
@@ -671,7 +682,7 @@ export class ProductsService {
       entityType: 'product',
       entityId: productId,
       entityLabel: this.getOne(productId)?.name ?? null,
-      changes: { before: null, after: { gallery: images.length } },
+      changes: { before: null, after: { gallery: images.length, variantId } },
     })
   }
 

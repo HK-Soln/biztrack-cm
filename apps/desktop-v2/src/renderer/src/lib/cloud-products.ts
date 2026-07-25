@@ -215,6 +215,7 @@ function toLocalSerialUnit(s: ApiSerialUnit): LocalSerialUnit {
 interface ApiProductImage {
   id: string
   productId: string
+  variantId?: string | null
   url: string
   altText?: string | null
   sortOrder: number
@@ -223,6 +224,7 @@ function toLocalProductImage(i: ApiProductImage): LocalProductImage {
   return {
     id: i.id,
     productId: i.productId,
+    variantId: i.variantId ?? null,
     url: i.url,
     altText: i.altText ?? null,
     sortOrder: i.sortOrder,
@@ -283,19 +285,27 @@ export const cloudProducts = {
     ),
   // GET /products/:id/images is paginated ({ data, total, … }) — cgetAll flattens the pages
   // into a plain array (never treat the paginated envelope as the array itself).
-  listImages: async (productId: string): Promise<LocalProductImage[]> =>
-    (await cgetAll<ApiProductImage>(`/products/${productId}/images`)).map(toLocalProductImage),
-  // No bulk endpoint — reconcile the desired gallery against the current rows (images are
-  // stateless url+alt+order, so this is safe).
-  setImages: async (productId: string, images: ProductImageInput[]): Promise<void> => {
-    const current = await cgetAll<ApiProductImage>(`/products/${productId}/images`)
+  listImages: async (productId: string, variantId?: string | null): Promise<LocalProductImage[]> =>
+    (await cgetAll<ApiProductImage>(`/products/${productId}/images${qs({ variantId })}`)).map(
+      toLocalProductImage,
+    ),
+  // No bulk endpoint — reconcile the desired gallery (for the given scope) against the current
+  // rows (images are stateless url+alt+order, so this is safe).
+  setImages: async (
+    productId: string,
+    images: ProductImageInput[],
+    variantId?: string | null,
+  ): Promise<void> => {
+    const current = await cgetAll<ApiProductImage>(
+      `/products/${productId}/images${qs({ variantId })}`,
+    )
     const desiredIds = new Set(images.map((i) => i.id).filter(Boolean))
     for (const c of current) {
       if (!desiredIds.has(c.id)) await cdelete<unknown>(`/products/${productId}/images/${c.id}`)
     }
     let sortOrder = 0
     for (const img of images) {
-      const body = clean({ url: img.url, altText: img.altText, sortOrder: sortOrder++ })
+      const body = clean({ url: img.url, altText: img.altText, sortOrder: sortOrder++, variantId })
       if (img.id && current.some((c) => c.id === img.id))
         await cpatch<unknown>(`/products/${productId}/images/${img.id}`, body)
       else await cpost<unknown>(`/products/${productId}/images`, body)
