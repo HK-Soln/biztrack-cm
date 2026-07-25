@@ -91,6 +91,11 @@ interface VariantRow {
   sort_order: number
   stock_quantity: number | null
   low_stock_threshold: number | null
+  description: string | null
+  meta_title: string | null
+  meta_description: string | null
+  online_description: string | null
+  is_published_online: number
 }
 
 interface VariantOptionRow {
@@ -692,7 +697,8 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const variants = this.db.query<VariantRow>(
-      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold
+      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold,
+              description, meta_title, meta_description, online_description, is_published_online
        FROM product_variants WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY sort_order ASC`,
       [businessId, productId],
@@ -716,7 +722,7 @@ export class ProductsService {
       {
         from: 'product_variants',
         columns:
-          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold',
+          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, description, meta_title, meta_description, online_description, is_published_online',
         where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
         params: [businessId, productId],
         searchColumns: ['name', 'sku'],
@@ -775,6 +781,11 @@ export class ProductsService {
       sortOrder: v.sort_order,
       stockQuantity: isSerialized ? (serialStock.get(v.id) ?? 0) : (v.stock_quantity ?? 0),
       lowStockThreshold: v.low_stock_threshold,
+      description: v.description,
+      metaTitle: v.meta_title,
+      metaDescription: v.meta_description,
+      onlineDescription: v.online_description,
+      isPublishedOnline: v.is_published_online === 1,
       options: (optsByVariant.get(v.id) ?? []).map((o) => ({
         attributeGroupId: o.attribute_group_id,
         attributeOptionId: o.attribute_option_id,
@@ -1081,8 +1092,17 @@ export class ProductsService {
     if (!prior) throw new Error('Variant not found.')
     this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null, keepId: variantId }])
     const now = new Date().toISOString()
+    // Descriptive/SEO fields: an explicit value (incl. null) sets it; undefined keeps the prior.
+    const keep = (v: string | null | undefined, p: string | null) =>
+      v === undefined ? p : (v ?? null)
+    const description = keep(input.description, prior.description)
+    const metaTitle = keep(input.metaTitle, prior.metaTitle)
+    const metaDescription = keep(input.metaDescription, prior.metaDescription)
+    const onlineDescription = keep(input.onlineDescription, prior.onlineDescription)
+    const isPublishedOnline = input.isPublishedOnline ?? prior.isPublishedOnline
     this.db.run(
-      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, updated_at = ?
+      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?,
+              description = ?, meta_title = ?, meta_description = ?, online_description = ?, is_published_online = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name,
@@ -1091,6 +1111,11 @@ export class ProductsService {
         input.sku ?? null,
         input.isActive === false ? 0 : 1,
         input.lowStockThreshold ?? null,
+        description,
+        metaTitle,
+        metaDescription,
+        onlineDescription,
+        isPublishedOnline ? 1 : 0,
         now,
         variantId,
         businessId,
@@ -1110,6 +1135,11 @@ export class ProductsService {
         isActive: input.isActive !== false,
         sortOrder: prior.sortOrder,
         lowStockThreshold: input.lowStockThreshold ?? null,
+        description,
+        metaTitle,
+        metaDescription,
+        onlineDescription,
+        isPublishedOnline,
       },
       now,
     )

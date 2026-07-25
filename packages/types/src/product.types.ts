@@ -172,6 +172,12 @@ export interface ProductVariant {
   isActive: boolean
   sortOrder: number
   options?: ProductVariantOption[]
+  // A variant is a mini-product with its own description + SEO/online fields.
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   // Enriched stock (optional — populated by sell-screen / detail responses).
   currentStock?: number | null
   lowStockThreshold?: number | null
@@ -342,6 +348,11 @@ export interface AddProductVariantRequest {
   costPriceOverride?: number | null
   sku?: string | null
   isActive?: boolean
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   /** Opening stock for the new variant (non-serialised only) → stock-in movement. */
   openingStock?: number | null
 }
@@ -353,6 +364,11 @@ export interface UpdateProductVariantRequest {
   costPriceOverride?: number | null
   sku?: string | null
   isActive?: boolean
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
 }
 
 /** Remove a variant from the catalog; writes off its remaining stock. */

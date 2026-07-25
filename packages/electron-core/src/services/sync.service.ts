@@ -1434,14 +1434,19 @@ export class SyncService {
     return {
       sql: `INSERT INTO product_variants
         (id, business_id, product_id, name, display_name_override, price_override, cost_price_override,
-         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold,
+         description, meta_title, meta_description, online_description, is_published_online,
+         is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           product_id = excluded.product_id, name = excluded.name,
           display_name_override = excluded.display_name_override, price_override = excluded.price_override,
           cost_price_override = excluded.cost_price_override, sku = excluded.sku, barcode = excluded.barcode,
           is_active = excluded.is_active, sort_order = excluded.sort_order,
           stock_quantity = excluded.stock_quantity, low_stock_threshold = excluded.low_stock_threshold,
+          description = excluded.description, meta_title = excluded.meta_title,
+          meta_description = excluded.meta_description, online_description = excluded.online_description,
+          is_published_online = excluded.is_published_online,
           is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
@@ -1457,6 +1462,11 @@ export class SyncService {
         asNum(c.sortOrder) ?? 0,
         asNum(c.stockQuantity) ?? 0,
         asNum(c.lowStockThreshold),
+        asStr(c.description),
+        asStr(c.metaTitle),
+        asStr(c.metaDescription),
+        asStr(c.onlineDescription),
+        c.isPublishedOnline ? 1 : 0,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

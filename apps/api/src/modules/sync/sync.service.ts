@@ -246,6 +246,11 @@ type ProductVariantPayload = {
   sortOrder?: number | null
   openingStock?: number | null
   lowStockThreshold?: number | null
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   createdAt?: string
   isDeleted?: boolean
 }
@@ -1176,6 +1181,11 @@ export class SyncService {
           barcode: record.barcode ?? null,
           isActive: record.isActive,
           sortOrder: record.sortOrder,
+          description: record.description ?? null,
+          metaTitle: record.metaTitle ?? null,
+          metaDescription: record.metaDescription ?? null,
+          onlineDescription: record.onlineDescription ?? null,
+          isPublishedOnline: record.isPublishedOnline ?? false,
           stockQuantity: variantStock.get(record.id)?.quantity ?? 0,
           lowStockThreshold: variantStock.get(record.id)?.lowStockThreshold ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
@@ -2262,6 +2272,11 @@ export class SyncService {
       barcode: this.normalizeOptionalString(payload.barcode),
       isActive: payload.isActive ?? existing?.isActive ?? true,
       sortOrder: payload.sortOrder ?? existing?.sortOrder ?? 0,
+      description: this.normalizeOptionalString(payload.description),
+      metaTitle: this.normalizeOptionalString(payload.metaTitle),
+      metaDescription: this.normalizeOptionalString(payload.metaDescription),
+      onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
+      isPublishedOnline: payload.isPublishedOnline ?? existing?.isPublishedOnline ?? false,
     }
 
     if (existing) {

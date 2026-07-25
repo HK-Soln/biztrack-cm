@@ -65,6 +65,35 @@ export class AddProductVariantDto implements AddProductVariantRequest {
   @IsBoolean()
   isActive?: boolean
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  metaTitle?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  metaDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  onlineDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isPublishedOnline?: boolean
+
   @ApiPropertyOptional({ description: 'Opening stock (non-serialised only) → stock-in movement.' })
   @IsOptional()
   @IsInt()

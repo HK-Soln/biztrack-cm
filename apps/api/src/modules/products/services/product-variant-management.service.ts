@@ -142,6 +142,11 @@ export class ProductVariantManagementService {
             sku: dto.sku?.trim() ?? null,
             isActive: dto.isActive ?? true,
             sortOrder: existing.length,
+            description: dto.description?.trim() ?? null,
+            metaTitle: dto.metaTitle?.trim() ?? null,
+            metaDescription: dto.metaDescription?.trim() ?? null,
+            onlineDescription: dto.onlineDescription?.trim() ?? null,
+            isPublishedOnline: dto.isPublishedOnline ?? false,
           }),
         )
         if (hasOptions) {
@@ -235,6 +240,19 @@ export class ProductVariantManagementService {
               : (dto.costPriceOverride ?? null),
           sku: dto.sku === undefined ? variant.sku : (dto.sku?.trim() ?? null),
           isActive: dto.isActive ?? variant.isActive,
+          description:
+            dto.description === undefined ? variant.description : (dto.description?.trim() ?? null),
+          metaTitle:
+            dto.metaTitle === undefined ? variant.metaTitle : (dto.metaTitle?.trim() ?? null),
+          metaDescription:
+            dto.metaDescription === undefined
+              ? variant.metaDescription
+              : (dto.metaDescription?.trim() ?? null),
+          onlineDescription:
+            dto.onlineDescription === undefined
+              ? variant.onlineDescription
+              : (dto.onlineDescription?.trim() ?? null),
+          isPublishedOnline: dto.isPublishedOnline ?? variant.isPublishedOnline,
         },
       )
 

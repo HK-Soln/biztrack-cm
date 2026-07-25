@@ -839,6 +839,12 @@ export interface LocalVariant {
   /** Read-only per-variant stock (from the variant's inventory level). */
   stockQuantity: number
   lowStockThreshold: number | null
+  // A variant is a mini-product with its own description + SEO/online fields.
+  description: string | null
+  metaTitle: string | null
+  metaDescription: string | null
+  onlineDescription: string | null
+  isPublishedOnline: boolean
   options: VariantOptionRef[]
 }
 
@@ -852,6 +858,11 @@ export interface VariantInput {
   /** Opening stock to seed the variant's inventory on create (non-serialised). */
   openingStock?: number | null
   lowStockThreshold?: number | null
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   options: VariantOptionRef[]
 }
 

@@ -69,6 +69,11 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
     cost: '',
     sku: '',
     active: true,
+    description: '',
+    metaTitle: '',
+    metaDescription: '',
+    onlineDescription: '',
+    publishOnline: false,
   })
   const [addSku, setAddSku] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -180,6 +185,11 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
       cost: v.costPriceOverride != null ? String(v.costPriceOverride) : '',
       sku: v.sku ?? '',
       active: v.isActive,
+      description: v.description ?? '',
+      metaTitle: v.metaTitle ?? '',
+      metaDescription: v.metaDescription ?? '',
+      onlineDescription: v.onlineDescription ?? '',
+      publishOnline: v.isPublishedOnline,
     })
   }
   const saveEdit = () => {
@@ -192,6 +202,11 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
         priceOverride: num(editFields.price),
         costPriceOverride: num(editFields.cost),
         isActive: editFields.active,
+        description: editFields.description.trim() || null,
+        metaTitle: editFields.metaTitle.trim() || null,
+        metaDescription: editFields.metaDescription.trim() || null,
+        onlineDescription: editFields.onlineDescription.trim() || null,
+        isPublishedOnline: editFields.publishOnline,
         options: edit.options,
       },
       images: editGallery,
@@ -542,6 +557,19 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
           />
         </div>
         <div className="ff" style={{ marginTop: 10 }}>
+          <label className="lbl2">
+            {t('prodf.description')} <span className="opt">{t('prodf.optional')}</span>
+          </label>
+          <textarea
+            className="input"
+            rows={2}
+            style={{ resize: 'vertical', paddingTop: 10 }}
+            placeholder={t('prodf.descriptionPh')}
+            value={editFields.description}
+            onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))}
+          />
+        </div>
+        <div className="ff" style={{ marginTop: 10 }}>
           <label className="lbl2">{t('pvar.code')}</label>
           <Input
             value={editFields.sku}
@@ -579,6 +607,56 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
           <span className={`switch${editFields.active ? ' on' : ''}`} />
           <span>{t('pvar.active')}</span>
         </button>
+
+        {/* Online store / SEO — a variant is a mini-product with its own online presence. */}
+        <div className="set-line" style={{ marginTop: 4 }}>
+          <div className="t">
+            <div className="nm">{t('prodf.publishOnline')}</div>
+            <div className="ds">{t('prodf.publishOnlineHint')}</div>
+          </div>
+          <button
+            type="button"
+            className={`switch${editFields.publishOnline ? ' on' : ''}`}
+            aria-pressed={editFields.publishOnline}
+            onClick={() => setEditFields((f) => ({ ...f, publishOnline: !f.publishOnline }))}
+          />
+        </div>
+        <div className="ff" style={{ marginTop: 10 }}>
+          <label className="lbl2">
+            {t('prodf.onlineDesc')} <span className="opt">SEO</span>
+          </label>
+          <textarea
+            className="input"
+            rows={2}
+            style={{ resize: 'vertical', paddingTop: 10 }}
+            placeholder={t('prodf.onlineDescPh')}
+            value={editFields.onlineDescription}
+            onChange={(e) => setEditFields((f) => ({ ...f, onlineDescription: e.target.value }))}
+          />
+        </div>
+        <div className="ff" style={{ marginTop: 10 }}>
+          <label className="lbl2">
+            {t('prodf.metaTitle')} <span className="opt">SEO</span>
+          </label>
+          <Input
+            value={editFields.metaTitle}
+            placeholder={editFields.name || t('prodf.metaTitlePh')}
+            onChange={(e) => setEditFields((f) => ({ ...f, metaTitle: e.target.value }))}
+          />
+        </div>
+        <div className="ff" style={{ marginTop: 10 }}>
+          <label className="lbl2">
+            {t('prodf.metaDescription')} <span className="opt">SEO</span>
+          </label>
+          <textarea
+            className="input"
+            rows={2}
+            style={{ resize: 'vertical', paddingTop: 10 }}
+            placeholder={t('prodf.metaDescriptionPh')}
+            value={editFields.metaDescription}
+            onChange={(e) => setEditFields((f) => ({ ...f, metaDescription: e.target.value }))}
+          />
+        </div>
 
         {/* Per-variant image gallery. */}
         <div className="ff" style={{ marginTop: 14 }}>
