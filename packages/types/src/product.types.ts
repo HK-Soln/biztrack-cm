@@ -334,7 +334,9 @@ export interface SerialUnitsQuery {
 
 /** Add one variant from a specific option combination. */
 export interface AddProductVariantRequest {
-  options: { attributeGroupId: string; attributeOptionId: string }[]
+  /** Attribute-based variants pass one option per group; free-form variants omit this
+   * (and must supply a name). */
+  options?: { attributeGroupId: string; attributeOptionId: string }[]
   name?: string
   priceOverride?: number | null
   costPriceOverride?: number | null

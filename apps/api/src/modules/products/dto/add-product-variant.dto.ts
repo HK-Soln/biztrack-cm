@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -25,12 +24,15 @@ export class VariantOptionRefDto {
 }
 
 export class AddProductVariantDto implements AddProductVariantRequest {
-  @ApiProperty({ type: [VariantOptionRefDto], description: 'One option per attribute group.' })
+  @ApiPropertyOptional({
+    type: [VariantOptionRefDto],
+    description: 'One option per attribute group. Omit for a free-form (manually named) variant.',
+  })
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => VariantOptionRefDto)
-  options!: VariantOptionRefDto[]
+  options?: VariantOptionRefDto[]
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -959,13 +959,24 @@ export class ProductsService {
     const product = this.getOne(productId)
     if (!product) throw new Error('Product not found.')
     const now = new Date().toISOString()
-    const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
-    if (
-      this.listVariants(productId).some(
-        (v) => variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
-      )
-    ) {
-      throw new Error('A variant with this combination already exists.')
+    // Variants are attribute-based (options) OR free-form (a manually named option).
+    // Combination-dedupe only applies to attribute-based variants; a free-form variant
+    // just needs a name.
+    const hasOptions = input.options.length > 0
+    if (!hasOptions && !input.name?.trim()) {
+      throw new Error('Give the variant a name or select at least one option.')
+    }
+    if (hasOptions) {
+      const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
+      if (
+        this.listVariants(productId).some(
+          (v) =>
+            v.options.length > 0 &&
+            variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
+        )
+      ) {
+        throw new Error('A variant with this combination already exists.')
+      }
     }
     this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null }])
     const id = randomUUID()
