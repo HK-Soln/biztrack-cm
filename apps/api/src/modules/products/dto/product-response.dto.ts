@@ -31,6 +31,7 @@ type ProductModel = {
   isSerialized?: boolean
   serialType?: SerialType | string | null
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   serialUnits?: ProductSerialUnit[]
   category?: Parameters<typeof CategoryDto.fromEntity>[0]
   unitOfMeasure?: Parameters<typeof UnitOfMeasureDto.fromEntity>[0]
@@ -83,6 +84,7 @@ export class ProductResponseDto implements Product {
   isSerialized?: boolean
   serialType?: SerialType | null
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   serialUnits?: ProductSerialUnit[]
   category?: CategoryDto | null
   unitOfMeasure?: UnitOfMeasureDto
@@ -137,6 +139,7 @@ export class ProductResponseDto implements Product {
     dto.isSerialized = model.isSerialized ?? false
     dto.serialType = (model.serialType as SerialType | null) ?? null
     dto.warrantyMonths = model.warrantyMonths ?? null
+    dto.uniqueItems = model.uniqueItems ?? false
     dto.serialUnits = model.serialUnits
     dto.category = CategoryDto.fromEntity(model.category) ?? null
     dto.unitOfMeasure = UnitOfMeasureDto.fromEntity(model.unitOfMeasure) ?? undefined

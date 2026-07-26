@@ -148,6 +148,7 @@ import type {
   ProductListQuery,
   ProductStats,
   SerialUnitInput,
+  SerialUnitUpdateInput,
   VariantInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
@@ -262,6 +263,11 @@ export interface DataClient {
       productId: string,
       unitId: string,
       serialNumber: string,
+    ) => Promise<LocalSerialUnit>
+    updateSerialUnit: (
+      productId: string,
+      unitId: string,
+      input: SerialUnitUpdateInput,
     ) => Promise<LocalSerialUnit>
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
@@ -602,6 +608,8 @@ function electronAdapter(): DataClient {
         window.api.products.retireSerialUnit(productId, unitId, reason),
       updateSerialNumber: (productId, unitId, serialNumber) =>
         window.api.products.updateSerialNumber(productId, unitId, serialNumber),
+      updateSerialUnit: (productId, unitId, input) =>
+        window.api.products.updateSerialUnit(productId, unitId, input),
       listMovements: (productId) => window.api.products.listMovements(productId),
     },
     inventory: {

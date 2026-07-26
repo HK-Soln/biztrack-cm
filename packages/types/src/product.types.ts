@@ -265,6 +265,11 @@ export interface ProductSerialUnit {
   reservedAt?: IsoDateString | null
   reservedBy?: string | null
   notes?: string | null
+  /** Unique-item mode: each unit is a mini-product with its own copy/media/SEO. */
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: IsoDateString
   updatedAt?: IsoDateString
 }
@@ -312,9 +317,14 @@ export interface AddSerialUnitsRequest {
   notes?: string | null
 }
 
-/** Correct a unit's serial number (no quantity change → no movement). */
+/** Edit a unit's catalog info — its serial number and, in unique-item mode, its own
+ * description / image / SEO. No quantity change → no movement. */
 export interface UpdateSerialUnitRequest {
-  serialNumber: string
+  serialNumber?: string
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 
 /** Retire a unit from stock (a stock-out). The reason is recorded on the
@@ -502,6 +512,8 @@ export interface Product {
   isSerialized?: boolean
   serialType?: SerialType | null
   warrantyMonths?: number | null
+  /** Unique-item mode: each serial unit is a mini-product with its own image/SEO. */
+  uniqueItems?: boolean
   // IN_STOCK / RESERVED units synced to the device (detail / sell screen).
   serialUnits?: ProductSerialUnit[]
   category?: ProductCategory | null
@@ -575,6 +587,8 @@ export interface CreateProductRequest {
   isSerialized?: boolean
   serialType?: SerialType
   warrantyMonths?: number
+  /** Unique-item mode: each serial unit is a mini-product with its own image/SEO. */
+  uniqueItems?: boolean
 }
 
 export type UpdateProductRequest = Partial<CreateProductRequest>

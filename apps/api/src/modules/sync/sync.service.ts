@@ -269,6 +269,10 @@ type ProductSerialUnitPayload = {
   serialNumber?: string
   serialType?: string
   status?: string | null
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: string
   isDeleted?: boolean
 }
@@ -331,6 +335,7 @@ type ProductSyncPayload = {
   isSerialized?: boolean
   serialType?: string | null
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
@@ -1221,6 +1226,10 @@ export class SyncService {
           serialNumber: record.serialNumber,
           serialType: record.serialType,
           status: record.status,
+          description: record.description ?? null,
+          imageUrl: record.imageUrl ?? null,
+          metaTitle: record.metaTitle ?? null,
+          metaDescription: record.metaDescription ?? null,
           warrantyExpiresAt: record.warrantyExpiresAt?.toISOString() ?? null,
           reservedAt: record.reservedAt?.toISOString() ?? null,
           reservedBy: record.reservedBy ?? null,
@@ -2459,6 +2468,13 @@ export class SyncService {
         serialNumber,
         serialType,
         status,
+        description: payload.description === undefined ? existing.description : payload.description,
+        imageUrl: payload.imageUrl === undefined ? existing.imageUrl : payload.imageUrl,
+        metaTitle: payload.metaTitle === undefined ? existing.metaTitle : payload.metaTitle,
+        metaDescription:
+          payload.metaDescription === undefined
+            ? existing.metaDescription
+            : payload.metaDescription,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -2488,6 +2504,10 @@ export class SyncService {
         serialNumber,
         serialType,
         status,
+        description: payload.description ?? null,
+        imageUrl: payload.imageUrl ?? null,
+        metaTitle: payload.metaTitle ?? null,
+        metaDescription: payload.metaDescription ?? null,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3122,6 +3142,7 @@ export class SyncService {
           isSerialized: payload.isSerialized ?? existing.isSerialized,
           serialType: this.normalizeOptionalString(payload.serialType),
           warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
+          uniqueItems: payload.uniqueItems ?? existing.uniqueItems,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           deletedAt: null,
           updatedAt: operation.recordUpdatedAt,
@@ -3199,6 +3220,7 @@ export class SyncService {
           isSerialized: payload.isSerialized ?? false,
           serialType: this.normalizeOptionalString(payload.serialType),
           warrantyMonths: payload.warrantyMonths ?? null,
+          uniqueItems: payload.uniqueItems ?? false,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           createdById: payload.createdById ?? null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -4136,6 +4158,7 @@ export class SyncService {
       isSerialized: record.isSerialized,
       serialType: record.serialType ?? null,
       warrantyMonths: record.warrantyMonths ?? null,
+      uniqueItems: record.uniqueItems,
       categoryId: record.categoryId ?? null,
       brandId: record.brandId ?? null,
       modelId: record.modelId ?? null,

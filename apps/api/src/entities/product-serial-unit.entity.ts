@@ -79,4 +79,18 @@ export class ProductSerialUnit extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   notes?: string | null
+
+  // Unique-item mode: when the parent product has uniqueItems on, each unit is a
+  // mini-product with its own description / image / SEO.
+  @Column({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Column({ name: 'image_url', type: 'varchar', length: 1000, nullable: true })
+  imageUrl?: string | null
+
+  @Column({ name: 'meta_title', type: 'varchar', length: 200, nullable: true })
+  metaTitle?: string | null
+
+  @Column({ name: 'meta_description', type: 'varchar', length: 500, nullable: true })
+  metaDescription?: string | null
 }

@@ -6,6 +6,7 @@ import {
   type ProductInput,
   type ProductListQuery,
   type SerialUnitInput,
+  type SerialUnitUpdateInput,
   type VariantInput,
 } from '../../shared/ipc'
 import type { ProductsService } from '../services/products.service'
@@ -78,6 +79,11 @@ export function registerProductsIpc(products: ProductsService): void {
     IPC.productsUpdateSerialNumber,
     (_e, productId: string, unitId: string, serialNumber: string) =>
       products.updateSerialNumber(productId, unitId, serialNumber),
+  )
+  ipcMain.handle(
+    IPC.productsUpdateSerialUnit,
+    (_e, productId: string, unitId: string, input: SerialUnitUpdateInput) =>
+      products.updateSerialUnit(productId, unitId, input),
   )
   ipcMain.handle(IPC.productsListMovements, (_e, productId: string) =>
     products.listMovements(productId),

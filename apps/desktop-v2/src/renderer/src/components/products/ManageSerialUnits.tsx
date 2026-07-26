@@ -8,6 +8,7 @@ import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { validateSerial } from '@/lib/serial'
+import { FileUpload } from '@/components/FileUpload'
 import type { LocalProduct, LocalSerialUnit } from '@shared/ipc'
 
 const PAGE_SIZE = 5
@@ -61,6 +62,17 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
   const [editErr, setEditErr] = useState<string | null>(null)
   const [retire, setRetire] = useState<LocalSerialUnit | null>(null)
   const [reason, setReason] = useState('')
+  // Unique-item mode: each unit is a mini-product with its own photo/description/SEO.
+  const uniqueItems = product.uniqueItems === true
+  const [details, setDetails] = useState<LocalSerialUnit | null>(null)
+  const [detailFields, setDetailFields] = useState({
+    serialNumber: '',
+    description: '',
+    imageUrl: null as string | null,
+    metaTitle: '',
+    metaDescription: '',
+  })
+  const [detailErr, setDetailErr] = useState<string | null>(null)
 
   const addM = useMutation({
     mutationFn: (input: { serialNumber: string; variantId: string | null }) =>
@@ -94,6 +106,40 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       invalidate()
     },
   })
+  const detailsM = useMutation({
+    mutationFn: (unitId: string) =>
+      dataClient.products.updateSerialUnit(id, unitId, {
+        serialNumber: detailFields.serialNumber.trim() || undefined,
+        description: detailFields.description.trim() || null,
+        imageUrl: detailFields.imageUrl,
+        metaTitle: detailFields.metaTitle.trim() || null,
+        metaDescription: detailFields.metaDescription.trim() || null,
+      }),
+    onSuccess: () => {
+      setDetails(null)
+      setDetailErr(null)
+      invalidate()
+    },
+    onError: (e) => setDetailErr(errorMessage(e, t('psu.detailsError'))),
+  })
+  const openDetails = (u: LocalSerialUnit) => {
+    setDetails(u)
+    setDetailErr(null)
+    setDetailFields({
+      serialNumber: u.serialNumber,
+      description: u.description ?? '',
+      imageUrl: u.imageUrl,
+      metaTitle: u.metaTitle ?? '',
+      metaDescription: u.metaDescription ?? '',
+    })
+  }
+  const saveDetails = () => {
+    if (!details) return
+    const v = detailFields.serialNumber.trim()
+    if (!v) return setDetailErr(t('psu.invalid').replace('{type}', typeLabel))
+    if (!validateSerial(v, type)) return setDetailErr(t('psu.invalid').replace('{type}', typeLabel))
+    detailsM.mutate(details.id)
+  }
 
   const addSerial = (raw: string) => {
     const v = raw.trim()
@@ -255,6 +301,12 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
   const retireIcon = (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+    </svg>
+  )
+  const detailsIcon = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
     </svg>
   )
 
@@ -514,6 +566,11 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                 </span>
                 {canModify(u) ? (
                   <span className="acts" style={{ display: 'inline-flex', gap: 4 }}>
+                    {uniqueItems ? (
+                      <button type="button" title={t('psu.details')} onClick={() => openDetails(u)}>
+                        {detailsIcon}
+                      </button>
+                    ) : null}
                     <button type="button" title={t('psu.edit')} onClick={() => startEdit(u)}>
                       {editIcon}
                     </button>
@@ -568,6 +625,15 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                       className="acts"
                       style={{ display: 'inline-flex', gap: 4, justifyContent: 'flex-end' }}
                     >
+                      {uniqueItems ? (
+                        <button
+                          type="button"
+                          title={t('psu.details')}
+                          onClick={() => openDetails(u)}
+                        >
+                          {detailsIcon}
+                        </button>
+                      ) : null}
                       <button type="button" title={t('psu.edit')} onClick={() => startEdit(u)}>
                         {editIcon}
                       </button>
@@ -635,6 +701,92 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           placeholder={t('psu.reasonPh')}
           onChange={(e) => setReason(e.target.value)}
         />
+      </Modal>
+
+      {/* Unique-item editor — a unit is a mini-product with its own photo/description/SEO. */}
+      <Modal
+        open={!!details}
+        onClose={() => setDetails(null)}
+        title={t('psu.detailsTitle')}
+        footer={
+          <>
+            <Button variant="soft" onClick={() => setDetails(null)} disabled={detailsM.isPending}>
+              {t('psu.cancel')}
+            </Button>
+            <Button variant="primary" loading={detailsM.isPending} onClick={saveDetails}>
+              {t('psu.save')}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 14 }}>
+          {t('psu.detailsSub')}
+        </p>
+        <label className="lbl2">{t('psu.serialLabel')}</label>
+        <ScanInput
+          value={detailFields.serialNumber}
+          inputMode={type === 'IMEI' ? 'numeric' : 'text'}
+          onChange={(e) => {
+            setDetailFields((f) => ({ ...f, serialNumber: e.target.value }))
+            setDetailErr(null)
+          }}
+          onScan={(v) => {
+            setDetailFields((f) => ({ ...f, serialNumber: v }))
+            setDetailErr(null)
+          }}
+          scanTitle={t('scan.title')}
+          cameraTitle={t('scan.camTitle')}
+          cameraHint={t('scan.camHint')}
+          cameraError={t('scan.camError')}
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('psu.image')}
+        </label>
+        <FileUpload
+          value={detailFields.imageUrl}
+          onChange={(url) => setDetailFields((f) => ({ ...f, imageUrl: url }))}
+          folder="products"
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('psu.description')}
+        </label>
+        <textarea
+          className="ta"
+          rows={3}
+          value={detailFields.description}
+          placeholder={t('psu.descriptionPh')}
+          onChange={(e) => setDetailFields((f) => ({ ...f, description: e.target.value }))}
+          style={{ width: '100%', resize: 'vertical' }}
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('prodf.metaTitle')} <span className="opt">SEO</span>
+        </label>
+        <Input
+          value={detailFields.metaTitle}
+          placeholder={detailFields.serialNumber || t('prodf.metaTitlePh')}
+          onChange={(e) => setDetailFields((f) => ({ ...f, metaTitle: e.target.value }))}
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('prodf.metaDescription')} <span className="opt">SEO</span>
+        </label>
+        <textarea
+          className="ta"
+          rows={2}
+          value={detailFields.metaDescription}
+          placeholder={t('prodf.metaDescriptionPh')}
+          onChange={(e) => setDetailFields((f) => ({ ...f, metaDescription: e.target.value }))}
+          style={{ width: '100%', resize: 'vertical' }}
+        />
+
+        {detailErr ? (
+          <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
+            {detailErr}
+          </p>
+        ) : null}
       </Modal>
     </div>
   )

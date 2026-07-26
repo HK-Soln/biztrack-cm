@@ -21,6 +21,10 @@ export class SerialUnitDto implements ProductSerialUnit {
   reservedAt?: string | null
   reservedBy?: string | null
   notes?: string | null
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: string
   updatedAt?: string
 
@@ -46,6 +50,10 @@ export class SerialUnitDto implements ProductSerialUnit {
     dto.reservedAt = toIsoString(entity.reservedAt) ?? null
     dto.reservedBy = entity.reservedBy ?? null
     dto.notes = entity.notes ?? null
+    dto.description = entity.description ?? null
+    dto.imageUrl = entity.imageUrl ?? null
+    dto.metaTitle = entity.metaTitle ?? null
+    dto.metaDescription = entity.metaDescription ?? null
     dto.createdAt = toIsoString(entity.createdAt) ?? undefined
     dto.updatedAt = toIsoString(entity.updatedAt) ?? undefined
     return dto

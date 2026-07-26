@@ -12,6 +12,7 @@ import type {
   ProductImageInput,
   VariantInput,
   SerialUnitInput,
+  SerialUnitUpdateInput,
   ScanHit,
 } from '@shared/ipc'
 import type { ProductVariant } from '@biztrack/types'
@@ -96,6 +97,7 @@ interface ApiProduct {
   isSerialized?: boolean
   serialType?: LocalProduct['serialType']
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   currentStock?: number | null
@@ -144,6 +146,7 @@ function toLocalProduct(p: ApiProduct): LocalProduct {
     isSerialized: p.isSerialized ?? false,
     serialType: p.serialType ?? null,
     warrantyMonths: p.warrantyMonths ?? null,
+    uniqueItems: p.uniqueItems ?? false,
     lowStockThreshold: p.lowStockThreshold ?? null,
     reorderPoint: p.reorderPoint ?? null,
     currentStock: p.currentStock ?? 0,
@@ -210,6 +213,10 @@ interface ApiSerialUnit {
   serialNumber: string
   serialType: LocalSerialUnit['serialType']
   status: string
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 function toLocalSerialUnit(s: ApiSerialUnit): LocalSerialUnit {
   return {
@@ -219,6 +226,10 @@ function toLocalSerialUnit(s: ApiSerialUnit): LocalSerialUnit {
     serialNumber: s.serialNumber,
     serialType: s.serialType,
     status: s.status,
+    description: s.description ?? null,
+    imageUrl: s.imageUrl ?? null,
+    metaTitle: s.metaTitle ?? null,
+    metaDescription: s.metaDescription ?? null,
   }
 }
 
@@ -443,6 +454,17 @@ export const cloudProducts = {
       await cpatch<ApiSerialUnit>(`/products/${productId}/serial-units/${unitId}`, {
         serialNumber,
       }),
+    ),
+  updateSerialUnit: async (
+    productId: string,
+    unitId: string,
+    input: SerialUnitUpdateInput,
+  ): Promise<LocalSerialUnit> =>
+    toLocalSerialUnit(
+      await cpatch<ApiSerialUnit>(
+        `/products/${productId}/serial-units/${unitId}`,
+        clean(input as unknown as Record<string, unknown>),
+      ),
     ),
   listMovements: async (productId: string): Promise<LocalStockMovement[]> => {
     const res = await cget<PaginatedResult<ApiMovement>>(

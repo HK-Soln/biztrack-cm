@@ -128,6 +128,8 @@ const api: BridgeApi = {
       ipcRenderer.invoke(IPC.productsRetireSerialUnit, productId, unitId, reason),
     updateSerialNumber: (productId, unitId, serialNumber) =>
       ipcRenderer.invoke(IPC.productsUpdateSerialNumber, productId, unitId, serialNumber),
+    updateSerialUnit: (productId, unitId, input) =>
+      ipcRenderer.invoke(IPC.productsUpdateSerialUnit, productId, unitId, input),
     listMovements: (productId) => ipcRenderer.invoke(IPC.productsListMovements, productId),
   },
   inventory: {

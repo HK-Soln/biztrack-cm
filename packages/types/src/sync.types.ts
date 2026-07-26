@@ -1035,6 +1035,10 @@ export interface ProductSerialUnitSyncPayload {
   serialNumber: string
   serialType: string
   status?: string | null
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null

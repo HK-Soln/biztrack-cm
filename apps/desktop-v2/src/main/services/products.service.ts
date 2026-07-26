@@ -15,6 +15,7 @@ import type {
   ProductType,
   ScanHit,
   SerialUnitInput,
+  SerialUnitUpdateInput,
   StockMovementType,
   VariantInput,
 } from '../../shared/ipc'
@@ -60,6 +61,7 @@ interface ProductRow {
   is_serialized: number
   serial_type: string | null
   warranty_months: number | null
+  unique_items: number
   low_stock_threshold: number | null
   reorder_point: number | null
   stock_quantity: number | null
@@ -112,6 +114,10 @@ interface SerialUnitRow {
   serial_number: string
   serial_type: string
   status: string
+  description?: string | null
+  image_url?: string | null
+  meta_title?: string | null
+  meta_description?: string | null
 }
 
 interface MovementRow {
@@ -138,7 +144,7 @@ const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
    p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
-   p.is_serialized, p.serial_type, p.warranty_months,
+   p.is_serialized, p.serial_type, p.warranty_months, p.unique_items,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
    ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) AS has_variants,
@@ -340,9 +346,9 @@ export class ProductsService {
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
          product_type, is_service, track_inventory, category_id, brand_id, model_id, unit_of_measure_id,
          image_url, is_active, is_featured, is_published_online, online_description, online_stock_reserve,
-         meta_title, meta_description, is_serialized, serial_type, warranty_months, low_stock_threshold, reorder_point,
+         meta_title, meta_description, is_serialized, serial_type, warranty_months, unique_items, low_stock_threshold, reorder_point,
          stock_quantity, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -373,6 +379,7 @@ export class ProductsService {
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
+        input.uniqueItems ? 1 : 0,
         input.lowStockThreshold ?? 0, // column is NOT NULL; 0 = no low-stock alert
         input.reorderPoint ?? null,
         tracks ? (input.openingStock ?? 0) : 0,
@@ -409,7 +416,7 @@ export class ProductsService {
         unit_of_measure_id = ?, image_url = ?, is_active = ?, is_featured = ?, is_published_online = ?,
         online_description = ?, online_stock_reserve = ?, meta_title = ?, meta_description = ?,
         is_serialized = ?, serial_type = ?,
-        warranty_months = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
+        warranty_months = ?, unique_items = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
@@ -438,6 +445,7 @@ export class ProductsService {
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
+        input.uniqueItems ? 1 : 0,
         input.lowStockThreshold ?? 0, // column is NOT NULL; 0 = no low-stock alert
         input.reorderPoint ?? null,
         now,
@@ -573,14 +581,7 @@ export class ProductsService {
         return {
           kind: 'serial',
           product,
-          serial: {
-            id: su.id,
-            productId: su.product_id,
-            variantId: su.variant_id,
-            serialNumber: su.serial_number,
-            serialType: su.serial_type as LocalSerialUnit['serialType'],
-            status: su.status as LocalSerialUnit['status'],
-          },
+          serial: this.toLocalSerialUnit(su),
         }
       }
     }
@@ -1239,7 +1240,8 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const rows = this.db.query<SerialUnitRow>(
-      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status,
+              description, image_url, meta_title, meta_description
        FROM product_serial_units
        WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY created_at ASC`,
@@ -1263,7 +1265,8 @@ export class ProductsService {
       this.db,
       {
         from: 'product_serial_units',
-        columns: 'id, product_id, variant_id, serial_number, serial_type, status',
+        columns:
+          'id, product_id, variant_id, serial_number, serial_type, status, description, image_url, meta_title, meta_description',
         where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
         params: [businessId, productId],
         searchColumns: ['serial_number'],
@@ -1285,6 +1288,10 @@ export class ProductsService {
       serialNumber: r.serial_number,
       serialType: r.serial_type as LocalSerialUnit['serialType'],
       status: r.status,
+      description: r.description ?? null,
+      imageUrl: r.image_url ?? null,
+      metaTitle: r.meta_title ?? null,
+      metaDescription: r.meta_description ?? null,
     }
   }
 
@@ -1313,14 +1320,7 @@ export class ProductsService {
        FROM product_serial_units WHERE ${where} ORDER BY created_at ASC LIMIT 200`,
       params,
     )
-    return rows.map((r) => ({
-      id: r.id,
-      productId: r.product_id,
-      variantId: r.variant_id,
-      serialNumber: r.serial_number,
-      serialType: r.serial_type as LocalSerialUnit['serialType'],
-      status: r.status,
-    }))
+    return rows.map((r) => this.toLocalSerialUnit(r))
   }
 
   /** Replace a product's serial units. Matches live units by serialNumber so their
@@ -1458,6 +1458,10 @@ export class ProductsService {
         serialNumber: serial,
         serialType: u.serialType,
         status: 'IN_STOCK',
+        description: null,
+        imageUrl: null,
+        metaTitle: null,
+        metaDescription: null,
       })
     }
 
@@ -1537,28 +1541,54 @@ export class ProductsService {
 
   /** Correct a unit's serial number (a typo fix). No quantity change → no movement. */
   updateSerialNumber(productId: string, unitId: string, serialNumber: string): LocalSerialUnit {
+    return this.updateSerialUnit(productId, unitId, { serialNumber })
+  }
+
+  /** Edit a serial unit's catalog info — serial number and, for unique-item mode,
+   * its own description / image / SEO. No quantity change → no movement. */
+  updateSerialUnit(
+    productId: string,
+    unitId: string,
+    input: SerialUnitUpdateInput,
+  ): LocalSerialUnit {
     const businessId = this.requireBusinessId()
     const unit = this.db.get<SerialUnitRow>(
-      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status,
+              description, image_url, meta_title, meta_description
        FROM product_serial_units WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
       [unitId, productId, businessId],
     )
     if (!unit) throw new Error('Serial unit not found.')
-    const serial = serialNumber.trim()
-    if (!serial) throw new Error('Serial number is required.')
-    if (serial !== unit.serial_number) {
-      const clash = this.db.get<{ id: string }>(
-        `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
-        [businessId, serial],
-      )
-      if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
+    if (unit.status !== 'IN_STOCK') throw new Error('Sold or retired units cannot be edited.')
+
+    let serial = unit.serial_number
+    if (input.serialNumber !== undefined) {
+      serial = input.serialNumber.trim()
+      if (!serial) throw new Error('Serial number is required.')
+      if (serial !== unit.serial_number) {
+        const clash = this.db.get<{ id: string }>(
+          `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+          [businessId, serial],
+        )
+        if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
+      }
     }
+
+    const description =
+      input.description !== undefined ? input.description : (unit.description ?? null)
+    const imageUrl = input.imageUrl !== undefined ? input.imageUrl : (unit.image_url ?? null)
+    const metaTitle = input.metaTitle !== undefined ? input.metaTitle : (unit.meta_title ?? null)
+    const metaDescription =
+      input.metaDescription !== undefined ? input.metaDescription : (unit.meta_description ?? null)
+
     const now = new Date().toISOString()
-    this.db.run(`UPDATE product_serial_units SET serial_number = ?, updated_at = ? WHERE id = ?`, [
-      serial,
-      now,
-      unitId,
-    ])
+    this.db.run(
+      `UPDATE product_serial_units
+         SET serial_number = ?, description = ?, image_url = ?, meta_title = ?, meta_description = ?,
+             updated_at = ?
+       WHERE id = ?`,
+      [serial, description, imageUrl, metaTitle, metaDescription, now, unitId],
+    )
     this.enqueueSerialUnit(
       unitId,
       'UPSERT',
@@ -1569,6 +1599,10 @@ export class ProductsService {
         serialNumber: serial,
         serialType: unit.serial_type,
         status: unit.status,
+        description,
+        imageUrl,
+        metaTitle,
+        metaDescription,
       },
       now,
     )
@@ -1577,7 +1611,10 @@ export class ProductsService {
       entityType: 'product_serial_unit',
       entityId: unitId,
       entityLabel: serial,
-      changes: { before: { serialNumber: unit.serial_number }, after: { serialNumber: serial } },
+      changes: {
+        before: { serialNumber: unit.serial_number },
+        after: { serialNumber: serial },
+      },
     })
     this.onMutated()
     return {
@@ -1587,6 +1624,10 @@ export class ProductsService {
       serialNumber: serial,
       serialType: unit.serial_type as LocalSerialUnit['serialType'],
       status: unit.status,
+      description,
+      imageUrl,
+      metaTitle,
+      metaDescription,
     }
   }
 
@@ -1837,6 +1878,7 @@ export class ProductsService {
       isSerialized: input.isSerialized === true,
       serialType: input.serialType ?? null,
       warrantyMonths: input.warrantyMonths ?? null,
+      uniqueItems: input.uniqueItems === true,
       // Inventory fields — the API uses these to seed the inventory level on create.
       openingStock: input.openingStock ?? 0,
       lowStockThreshold: input.lowStockThreshold ?? null,
@@ -1901,6 +1943,7 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     isSerialized: row.is_serialized === 1,
     serialType: (row.serial_type as LocalProduct['serialType']) ?? null,
     warrantyMonths: row.warranty_months,
+    uniqueItems: row.unique_items === 1,
     lowStockThreshold: row.low_stock_threshold,
     reorderPoint: row.reorder_point,
     currentStock: row.effective_stock ?? row.stock_quantity ?? 0,

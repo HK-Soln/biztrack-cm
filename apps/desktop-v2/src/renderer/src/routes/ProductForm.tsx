@@ -44,6 +44,7 @@ interface Draft {
   isSerialized: boolean
   serialType: SerialType
   warrantyMonths: string
+  uniqueItems: boolean
   openingStock: string
   reorderPoint: string
   lowStockThreshold: string
@@ -79,6 +80,7 @@ const DEFAULT_DRAFT: Draft = {
   isSerialized: false,
   serialType: 'IMEI',
   warrantyMonths: '',
+  uniqueItems: false,
   openingStock: '',
   reorderPoint: '',
   lowStockThreshold: '',
@@ -214,6 +216,7 @@ export function ProductForm() {
       isSerialized: existing.isSerialized,
       serialType: existing.serialType ?? 'IMEI',
       warrantyMonths: existing.warrantyMonths != null ? String(existing.warrantyMonths) : '',
+      uniqueItems: existing.uniqueItems ?? false,
     })
   }, [editing, existing])
 
@@ -426,6 +429,7 @@ export function ProductForm() {
         isSerialized: serialized,
         serialType: serialized ? d.serialType : null,
         warrantyMonths: serialized ? (numOrU(d.warrantyMonths) ?? null) : null,
+        uniqueItems: serialized ? d.uniqueItems : false,
         // A serialized product's stock is its serial-unit count; variants own their own stock.
         // Both are added on the product page after saving, so opening stock is product-level only.
         openingStock: tracksInventory && !serialized ? (numOrU(d.openingStock) ?? 0) : 0,
@@ -747,6 +751,20 @@ export function ProductForm() {
                       onChange={(e) => patch({ warrantyMonths: e.target.value })}
                     />
                   </div>
+                </div>
+              ) : null}
+              {d.isSerialized ? (
+                <div className="set-line" style={{ marginTop: 12 }}>
+                  <div className="t">
+                    <div className="nm">{t('prodf.uniqueItems')}</div>
+                    <div className="ds">{t('prodf.uniqueItemsHint')}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`switch${d.uniqueItems ? ' on' : ''}`}
+                    aria-pressed={d.uniqueItems}
+                    onClick={() => patch({ uniqueItems: !d.uniqueItems })}
+                  />
                 </div>
               ) : null}
             </>

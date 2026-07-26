@@ -27,8 +27,7 @@ import { User } from './user.entity'
 @Unique('unq_products_business_id_sku', ['businessId', 'sku'])
 @Unique('unq_products_business_id_slug', ['businessId', 'slug'])
 @Index('idx_products_business_id_deleted_at', ['businessId', 'deletedAt'])
-export class Product
-  extends BaseEntity {
+export class Product extends BaseEntity {
   @Column({ name: 'business_id' })
   businessId!: string
 
@@ -57,7 +56,13 @@ export class Product
   @Column({ name: 'is_barcode_generated', default: false })
   isBarcodeGenerated!: boolean
 
-  @Column({ name: 'price', type: 'decimal', precision: 12, scale: 2, transformer: decimalTransformer })
+  @Column({
+    name: 'price',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    transformer: decimalTransformer,
+  })
   sellingPrice!: number
 
   @Column({
@@ -113,6 +118,11 @@ export class Product
   @Column({ name: 'warranty_months', type: 'int', nullable: true })
   warrantyMonths?: number | null
 
+  // Unique-item mode: when a serialized product opts in, each serial unit becomes a
+  // mini-product with its own image/description/SEO (see ProductSerialUnit).
+  @Column({ name: 'unique_items', default: false })
+  uniqueItems!: boolean
+
   // Online storefront (Phase 3I).
   @Column({ name: 'is_published_online', default: false })
   isPublishedOnline!: boolean
@@ -152,7 +162,10 @@ export class Product
   unitOfMeasureId!: string
 
   @ManyToOne(() => UnitOfMeasure, (unitOfMeasure) => unitOfMeasure.products)
-  @JoinColumn({ name: 'unit_of_measure_id', foreignKeyConstraintName: 'fk_products_unit_of_measure_id' })
+  @JoinColumn({
+    name: 'unit_of_measure_id',
+    foreignKeyConstraintName: 'fk_products_unit_of_measure_id',
+  })
   unitOfMeasure!: UnitOfMeasure
 
   @Column({ name: 'image_url', nullable: true, type: 'varchar' })

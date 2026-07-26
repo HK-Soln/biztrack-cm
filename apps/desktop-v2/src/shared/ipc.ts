@@ -83,6 +83,7 @@ export const IPC = {
   productsAddSerialUnits: 'products:add-serial-units',
   productsRetireSerialUnit: 'products:retire-serial-unit',
   productsUpdateSerialNumber: 'products:update-serial-number',
+  productsUpdateSerialUnit: 'products:update-serial-unit',
   productsListMovements: 'products:list-movements',
   inventoryList: 'inventory:list',
   inventoryStats: 'inventory:stats',
@@ -810,6 +811,8 @@ export interface LocalProduct {
   isSerialized: boolean
   serialType: SerialType | null
   warrantyMonths: number | null
+  /** Serialized products only: each unit is a unique item with its own image/description/SEO. */
+  uniqueItems: boolean
   lowStockThreshold: number | null
   reorderPoint: number | null
   /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
@@ -874,6 +877,11 @@ export interface LocalSerialUnit {
   serialNumber: string
   serialType: SerialType
   status: string
+  // In unique-item mode each unit is a mini-product with its own image/description/SEO.
+  description: string | null
+  imageUrl: string | null
+  metaTitle: string | null
+  metaDescription: string | null
 }
 
 /** Desired serial unit on save (matched by serialNumber so live units keep their id). */
@@ -881,6 +889,15 @@ export interface SerialUnitInput {
   variantId?: string | null
   serialNumber: string
   serialType: SerialType
+}
+
+/** Edit a unique serial unit's mini-product fields (unique-item mode). */
+export interface SerialUnitUpdateInput {
+  serialNumber?: string
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 
 /** How a manual stock adjustment changes the quantity (mirrors API StockAdjustmentType). */
@@ -1525,6 +1542,7 @@ export interface ProductInput {
   isSerialized?: boolean
   serialType?: SerialType | null
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   openingStock?: number
   lowStockThreshold?: number | null
   reorderPoint?: number | null
@@ -1768,6 +1786,12 @@ export interface BridgeApi {
       productId: string,
       unitId: string,
       serialNumber: string,
+    ) => Promise<LocalSerialUnit>
+    /** Edit a unique serial unit's mini-product fields (image/description/SEO). */
+    updateSerialUnit: (
+      productId: string,
+      unitId: string,
+      input: SerialUnitUpdateInput,
     ) => Promise<LocalSerialUnit>
     /** Stock-ledger entries for the detail stock card (newest first). */
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
