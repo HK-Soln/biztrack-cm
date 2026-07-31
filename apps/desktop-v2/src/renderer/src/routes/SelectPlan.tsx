@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from '@biztrack/ui/biztrack'
+import { BrandMark, Button } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { BillingCycle, PlanQuotas, PlanSummary } from '@shared/ipc'
@@ -75,7 +75,10 @@ export function SelectPlan() {
   const isFree = !!selectedPlan && selectedPlan.priceXAF === 0 && selectedPlan.priceAnnualXAF === 0
   // Free-trial length is backend-driven (config MVP_PAID_PLAN_TRIAL_DAYS) — never hard-coded.
   const trialDays = plans?.reduce((max, p) => Math.max(max, p.trialDays), 0) ?? 0
-  const subtitle = trialDays > 0 ? t('plan.subtitle').replace('{days}', String(trialDays)) : t('plan.subtitleShort')
+  const subtitle =
+    trialDays > 0
+      ? t('plan.subtitle').replace('{days}', String(trialDays))
+      : t('plan.subtitleShort')
 
   const submit = async () => {
     if (busy || !selectedPlan) return
@@ -100,7 +103,8 @@ export function SelectPlan() {
     const prevQ = prev?.quotas
     const feats: string[] = []
     const quotaLine = (key: keyof PlanQuotas, label: MessageKey) => {
-      if (!prevQ || p.quotas[key] !== prevQ[key]) feats.push(`${fmtQuota(p.quotas[key])} ${t(label)}`)
+      if (!prevQ || p.quotas[key] !== prevQ[key])
+        feats.push(`${fmtQuota(p.quotas[key])} ${t(label)}`)
     }
     quotaLine('users', 'plan.usersLabel')
     quotaLine('products', 'plan.productsLabel')
@@ -119,7 +123,9 @@ export function SelectPlan() {
   return (
     <div className="auth-card" style={{ maxWidth: 820 }}>
       <div className="auth-logo">
-        <div className="mk">B</div>
+        <div className="mk">
+          <BrandMark size={22} />
+        </div>
         <div className="wm">BizTrack CM</div>
       </div>
       <div className="auth-h" style={{ textAlign: 'center' }}>
@@ -129,10 +135,18 @@ export function SelectPlan() {
 
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
         <span className="fseg" style={{ width: 'auto' }}>
-          <button type="button" aria-pressed={cycle === 'MONTHLY'} onClick={() => setCycle('MONTHLY')}>
+          <button
+            type="button"
+            aria-pressed={cycle === 'MONTHLY'}
+            onClick={() => setCycle('MONTHLY')}
+          >
             {t('plan.cycleMonthly')}
           </button>
-          <button type="button" aria-pressed={cycle === 'ANNUAL'} onClick={() => setCycle('ANNUAL')}>
+          <button
+            type="button"
+            aria-pressed={cycle === 'ANNUAL'}
+            onClick={() => setCycle('ANNUAL')}
+          >
             {t('plan.cycleAnnual')}
             <span className="chip-tag chip-save">{t('plan.annualSave')}</span>
           </button>
@@ -161,13 +175,19 @@ export function SelectPlan() {
                   <span className="rdot" />
                   <span className="aname">
                     <span className="pn">{p.displayName}</span>
-                    {p.name === RECOMMENDED ? <span className="ptag">{t('plan.recommended')}</span> : null}
+                    {p.name === RECOMMENDED ? (
+                      <span className="ptag">{t('plan.recommended')}</span>
+                    ) : null}
                   </span>
                 </div>
                 <div className="pricebox">
                   <span className="pr">{fmtXAF(amount)}</span>
                   <span className={`pcyc${free ? ' free' : ''}`}>
-                    {free ? t('plan.freeForever') : cycle === 'MONTHLY' ? t('plan.perMonth') : t('plan.perYear')}
+                    {free
+                      ? t('plan.freeForever')
+                      : cycle === 'MONTHLY'
+                        ? t('plan.perMonth')
+                        : t('plan.perYear')}
                   </span>
                 </div>
                 {note ? <div className="pnote">{note}</div> : null}

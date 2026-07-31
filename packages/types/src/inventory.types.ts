@@ -122,6 +122,7 @@ export type InventoryAlertsQuery = ListQuery
 
 export interface InventoryMovementsQuery extends ListQuery {
   productId?: string
+  variantId?: string
   type?: InventoryMovementType
   dateFrom?: IsoDateString
   dateTo?: IsoDateString

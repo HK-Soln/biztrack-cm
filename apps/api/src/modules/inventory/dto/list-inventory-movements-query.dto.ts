@@ -19,6 +19,11 @@ export class ListInventoryMovementsQueryDto
   @IsUUID()
   productId?: string
 
+  @ApiPropertyOptional({ description: "Filter to one variant's movement history." })
+  @IsOptional()
+  @IsUUID()
+  variantId?: string
+
   @ApiPropertyOptional({ enum: InventoryMovementType })
   @IsOptional()
   @Transform(({ value }) => toUndefined(value))

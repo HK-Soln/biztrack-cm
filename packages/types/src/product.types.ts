@@ -172,9 +172,16 @@ export interface ProductVariant {
   isActive: boolean
   sortOrder: number
   options?: ProductVariantOption[]
+  // A variant is a mini-product with its own description + SEO/online fields.
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   // Enriched stock (optional — populated by sell-screen / detail responses).
   currentStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   createdAt?: IsoDateString
   updatedAt?: IsoDateString
 }
@@ -259,6 +266,11 @@ export interface ProductSerialUnit {
   reservedAt?: IsoDateString | null
   reservedBy?: string | null
   notes?: string | null
+  /** Unique-item mode: each unit is a mini-product with its own copy/media/SEO. */
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: IsoDateString
   updatedAt?: IsoDateString
 }
@@ -306,9 +318,14 @@ export interface AddSerialUnitsRequest {
   notes?: string | null
 }
 
-/** Correct a unit's serial number (no quantity change → no movement). */
+/** Edit a unit's catalog info — its serial number and, in unique-item mode, its own
+ * description / image / SEO. No quantity change → no movement. */
 export interface UpdateSerialUnitRequest {
-  serialNumber: string
+  serialNumber?: string
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 
 /** Retire a unit from stock (a stock-out). The reason is recorded on the
@@ -334,14 +351,24 @@ export interface SerialUnitsQuery {
 
 /** Add one variant from a specific option combination. */
 export interface AddProductVariantRequest {
-  options: { attributeGroupId: string; attributeOptionId: string }[]
+  /** Attribute-based variants pass one option per group; free-form variants omit this
+   * (and must supply a name). */
+  options?: { attributeGroupId: string; attributeOptionId: string }[]
   name?: string
   priceOverride?: number | null
   costPriceOverride?: number | null
   sku?: string | null
   isActive?: boolean
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   /** Opening stock for the new variant (non-serialised only) → stock-in movement. */
   openingStock?: number | null
+  /** Per-variant stock alert thresholds (stored on the variant's inventory level). */
+  lowStockThreshold?: number | null
+  reorderPoint?: number | null
 }
 
 /** Edit a variant's catalog info. No quantity change → no movement. */
@@ -351,6 +378,14 @@ export interface UpdateProductVariantRequest {
   costPriceOverride?: number | null
   sku?: string | null
   isActive?: boolean
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
+  /** Per-variant stock alert thresholds (stored on the variant's inventory level). */
+  lowStockThreshold?: number | null
+  reorderPoint?: number | null
 }
 
 /** Remove a variant from the catalog; writes off its remaining stock. */
@@ -451,6 +486,7 @@ export interface UnitOfMeasure {
 export interface ProductImage {
   id: string
   productId: string
+  variantId?: string | null
   url: string
   altText?: string | null
   sortOrder: number
@@ -483,6 +519,8 @@ export interface Product {
   isSerialized?: boolean
   serialType?: SerialType | null
   warrantyMonths?: number | null
+  /** Unique-item mode: each serial unit is a mini-product with its own image/SEO. */
+  uniqueItems?: boolean
   // IN_STOCK / RESERVED units synced to the device (detail / sell screen).
   serialUnits?: ProductSerialUnit[]
   category?: ProductCategory | null
@@ -556,6 +594,8 @@ export interface CreateProductRequest {
   isSerialized?: boolean
   serialType?: SerialType
   warrantyMonths?: number
+  /** Unique-item mode: each serial unit is a mini-product with its own image/SEO. */
+  uniqueItems?: boolean
 }
 
 export type UpdateProductRequest = Partial<CreateProductRequest>
@@ -645,12 +685,17 @@ export interface BrandsQuery extends ListQuery {
   categoryId?: string
 }
 
-export type ProductImagesQuery = ListQuery
+export type ProductImagesQuery = ListQuery & {
+  /** Scope: a variant's gallery when set, else the product-level gallery. */
+  variantId?: string | null
+}
 
 export interface CreateProductImageRequest {
   url: string
   altText?: string
   sortOrder?: number
+  /** Attach the image to a variant (mini-product gallery); omit for a product-level image. */
+  variantId?: string | null
 }
 
 export type UpdateProductImageRequest = Partial<CreateProductImageRequest>

@@ -1,5 +1,7 @@
 /* Server-rendered marketing footer (ported from the design's buildFooter). */
 
+import { BrandMark } from '@biztrack/ui/brand-mark'
+
 const PHONE_RAW = '971588629213'
 
 type Link = [en: string, fr: string, href: string]
@@ -66,7 +68,7 @@ export function SiteFooter() {
           <div className="fbrand">
             <a className="brand" href="/">
               <span className="mk">
-                B<span className="pip" />
+                <BrandMark size={22} />
               </span>
               <span>
                 <span className="bt">BizTrack CM</span>

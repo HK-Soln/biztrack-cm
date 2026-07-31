@@ -95,13 +95,16 @@ const api: BridgeApi = {
   },
   products: {
     list: (query) => ipcRenderer.invoke(IPC.productsList, query),
+    listSellable: (query) => ipcRenderer.invoke(IPC.productsListSellable, query),
     stats: () => ipcRenderer.invoke(IPC.productsStats),
     get: (id) => ipcRenderer.invoke(IPC.productsGet, id),
     create: (input) => ipcRenderer.invoke(IPC.productsCreate, input),
     update: (id, input) => ipcRenderer.invoke(IPC.productsUpdate, id, input),
     remove: (id) => ipcRenderer.invoke(IPC.productsDelete, id),
-    listImages: (productId) => ipcRenderer.invoke(IPC.productsListImages, productId),
-    setImages: (productId, images) => ipcRenderer.invoke(IPC.productsSetImages, productId, images),
+    listImages: (productId, variantId) =>
+      ipcRenderer.invoke(IPC.productsListImages, productId, variantId),
+    setImages: (productId, images, variantId) =>
+      ipcRenderer.invoke(IPC.productsSetImages, productId, images, variantId),
     listVariants: (productId) => ipcRenderer.invoke(IPC.productsListVariants, productId),
     listVariantsPage: (productId, query) =>
       ipcRenderer.invoke(IPC.productsListVariantsPage, productId, query),
@@ -126,6 +129,8 @@ const api: BridgeApi = {
       ipcRenderer.invoke(IPC.productsRetireSerialUnit, productId, unitId, reason),
     updateSerialNumber: (productId, unitId, serialNumber) =>
       ipcRenderer.invoke(IPC.productsUpdateSerialNumber, productId, unitId, serialNumber),
+    updateSerialUnit: (productId, unitId, input) =>
+      ipcRenderer.invoke(IPC.productsUpdateSerialUnit, productId, unitId, input),
     listMovements: (productId) => ipcRenderer.invoke(IPC.productsListMovements, productId),
   },
   inventory: {

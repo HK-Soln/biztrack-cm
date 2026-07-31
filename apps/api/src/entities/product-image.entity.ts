@@ -29,6 +29,10 @@ export class ProductImage {
   @JoinColumn({ name: 'product_id', foreignKeyConstraintName: 'fk_product_images_product_id' })
   product?: Product
 
+  // Set when the image belongs to a specific variant; null for a product-level image.
+  @Column({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
   @Column({ length: 500 })
   url!: string
 

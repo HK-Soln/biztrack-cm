@@ -12,7 +12,10 @@ import type {
   ProductImageInput,
   VariantInput,
   SerialUnitInput,
+  SerialUnitUpdateInput,
+  SerialUnitsPageQuery,
   ScanHit,
+  SellEntry,
 } from '@shared/ipc'
 import type { ProductVariant } from '@biztrack/types'
 import { SerialUnitStatus } from '@biztrack/types'
@@ -31,7 +34,6 @@ function clean<T extends Record<string, unknown>>(o: T): Record<string, unknown>
   return out
 }
 
-// AddProductVariantDto accepts these (not lowStockThreshold).
 function variantCreatePayload(v: VariantInput): Record<string, unknown> {
   return clean({
     name: v.name,
@@ -40,6 +42,13 @@ function variantCreatePayload(v: VariantInput): Record<string, unknown> {
     sku: v.sku,
     isActive: v.isActive,
     openingStock: v.openingStock,
+    lowStockThreshold: v.lowStockThreshold,
+    reorderPoint: v.reorderPoint,
+    description: v.description,
+    metaTitle: v.metaTitle,
+    metaDescription: v.metaDescription,
+    onlineDescription: v.onlineDescription,
+    isPublishedOnline: v.isPublishedOnline,
     options: v.options,
   })
 }
@@ -91,6 +100,7 @@ interface ApiProduct {
   isSerialized?: boolean
   serialType?: LocalProduct['serialType']
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   currentStock?: number | null
@@ -139,6 +149,7 @@ function toLocalProduct(p: ApiProduct): LocalProduct {
     isSerialized: p.isSerialized ?? false,
     serialType: p.serialType ?? null,
     warrantyMonths: p.warrantyMonths ?? null,
+    uniqueItems: p.uniqueItems ?? false,
     lowStockThreshold: p.lowStockThreshold ?? null,
     reorderPoint: p.reorderPoint ?? null,
     currentStock: p.currentStock ?? 0,
@@ -186,6 +197,12 @@ function toLocalVariant(v: ProductVariant): LocalVariant {
     sortOrder: v.sortOrder,
     stockQuantity: v.currentStock ?? 0,
     lowStockThreshold: v.lowStockThreshold ?? null,
+    reorderPoint: v.reorderPoint ?? null,
+    description: v.description ?? null,
+    metaTitle: v.metaTitle ?? null,
+    metaDescription: v.metaDescription ?? null,
+    onlineDescription: v.onlineDescription ?? null,
+    isPublishedOnline: v.isPublishedOnline ?? false,
     options: (v.options ?? []).map((o) => ({
       attributeGroupId: o.attributeGroupId,
       attributeOptionId: o.attributeOptionId,
@@ -200,6 +217,10 @@ interface ApiSerialUnit {
   serialNumber: string
   serialType: LocalSerialUnit['serialType']
   status: string
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 function toLocalSerialUnit(s: ApiSerialUnit): LocalSerialUnit {
   return {
@@ -209,12 +230,17 @@ function toLocalSerialUnit(s: ApiSerialUnit): LocalSerialUnit {
     serialNumber: s.serialNumber,
     serialType: s.serialType,
     status: s.status,
+    description: s.description ?? null,
+    imageUrl: s.imageUrl ?? null,
+    metaTitle: s.metaTitle ?? null,
+    metaDescription: s.metaDescription ?? null,
   }
 }
 
 interface ApiProductImage {
   id: string
   productId: string
+  variantId?: string | null
   url: string
   altText?: string | null
   sortOrder: number
@@ -223,6 +249,7 @@ function toLocalProductImage(i: ApiProductImage): LocalProductImage {
   return {
     id: i.id,
     productId: i.productId,
+    variantId: i.variantId ?? null,
     url: i.url,
     altText: i.altText ?? null,
     sortOrder: i.sortOrder,
@@ -231,6 +258,7 @@ function toLocalProductImage(i: ApiProductImage): LocalProductImage {
 
 interface ApiMovement {
   id: string
+  variantId?: string | null
   type: LocalStockMovement['type']
   quantityChange: number
   quantityBefore: number
@@ -244,6 +272,7 @@ interface ApiMovement {
 function toLocalStockMovement(m: ApiMovement): LocalStockMovement {
   return {
     id: m.id,
+    variantId: m.variantId ?? null,
     type: m.type,
     quantityChange: m.quantityChange,
     quantityBefore: m.quantityBefore,
@@ -256,10 +285,31 @@ function toLocalStockMovement(m: ApiMovement): LocalStockMovement {
   }
 }
 
+type ApiSellEntry =
+  | { kind: 'product'; product: ApiProduct }
+  | { kind: 'variant'; product: ApiProduct; variant: ProductVariant }
+
 export const cloudProducts = {
   list: async (query?: ProductListQuery): Promise<PaginatedResult<LocalProduct>> => {
     const res = await cget<PaginatedResult<ApiProduct>>(`/products${qs(productQuery(query))}`)
     return { ...res, data: res.data.map(toLocalProduct) }
+  },
+  listSellable: async (query?: ProductListQuery): Promise<PaginatedResult<SellEntry>> => {
+    const res = await cget<PaginatedResult<ApiSellEntry>>(
+      `/products/sellable${qs(productQuery(query))}`,
+    )
+    return {
+      ...res,
+      data: res.data.map((e) =>
+        e.kind === 'variant'
+          ? {
+              kind: 'variant' as const,
+              product: toLocalProduct(e.product),
+              variant: toLocalVariant(e.variant),
+            }
+          : { kind: 'product' as const, product: toLocalProduct(e.product) },
+      ),
+    }
   },
   stats: (): Promise<ProductStats> => cget<ProductStats>('/products/stats'),
   get: async (id: string): Promise<LocalProduct | null> => {
@@ -283,19 +333,27 @@ export const cloudProducts = {
     ),
   // GET /products/:id/images is paginated ({ data, total, … }) — cgetAll flattens the pages
   // into a plain array (never treat the paginated envelope as the array itself).
-  listImages: async (productId: string): Promise<LocalProductImage[]> =>
-    (await cgetAll<ApiProductImage>(`/products/${productId}/images`)).map(toLocalProductImage),
-  // No bulk endpoint — reconcile the desired gallery against the current rows (images are
-  // stateless url+alt+order, so this is safe).
-  setImages: async (productId: string, images: ProductImageInput[]): Promise<void> => {
-    const current = await cgetAll<ApiProductImage>(`/products/${productId}/images`)
+  listImages: async (productId: string, variantId?: string | null): Promise<LocalProductImage[]> =>
+    (await cgetAll<ApiProductImage>(`/products/${productId}/images${qs({ variantId })}`)).map(
+      toLocalProductImage,
+    ),
+  // No bulk endpoint — reconcile the desired gallery (for the given scope) against the current
+  // rows (images are stateless url+alt+order, so this is safe).
+  setImages: async (
+    productId: string,
+    images: ProductImageInput[],
+    variantId?: string | null,
+  ): Promise<void> => {
+    const current = await cgetAll<ApiProductImage>(
+      `/products/${productId}/images${qs({ variantId })}`,
+    )
     const desiredIds = new Set(images.map((i) => i.id).filter(Boolean))
     for (const c of current) {
       if (!desiredIds.has(c.id)) await cdelete<unknown>(`/products/${productId}/images/${c.id}`)
     }
     let sortOrder = 0
     for (const img of images) {
-      const body = clean({ url: img.url, altText: img.altText, sortOrder: sortOrder++ })
+      const body = clean({ url: img.url, altText: img.altText, sortOrder: sortOrder++, variantId })
       if (img.id && current.some((c) => c.id === img.id))
         await cpatch<unknown>(`/products/${productId}/images/${img.id}`, body)
       else await cpost<unknown>(`/products/${productId}/images`, body)
@@ -337,6 +395,13 @@ export const cloudProducts = {
           costPriceOverride: input.costPriceOverride,
           sku: input.sku,
           isActive: input.isActive,
+          lowStockThreshold: input.lowStockThreshold,
+          reorderPoint: input.reorderPoint,
+          description: input.description,
+          metaTitle: input.metaTitle,
+          metaDescription: input.metaDescription,
+          onlineDescription: input.onlineDescription,
+          isPublishedOnline: input.isPublishedOnline,
         }),
       ),
     ),
@@ -346,10 +411,10 @@ export const cloudProducts = {
     (await cgetAll<ApiSerialUnit>(`/products/${productId}/serial-units`)).map(toLocalSerialUnit),
   listSerialUnitsPage: async (
     productId: string,
-    query?: ListQuery,
+    query?: SerialUnitsPageQuery,
   ): Promise<PaginatedResult<LocalSerialUnit>> => {
     const res = await cget<PaginatedResult<ApiSerialUnit>>(
-      `/products/${productId}/serial-units${qs({ page: query?.page, limit: query?.limit, search: query?.search })}`,
+      `/products/${productId}/serial-units${qs({ page: query?.page, limit: query?.limit, search: query?.search, variantId: query?.variantId })}`,
     )
     return { ...res, data: res.data.map(toLocalSerialUnit) }
   },
@@ -418,6 +483,17 @@ export const cloudProducts = {
       await cpatch<ApiSerialUnit>(`/products/${productId}/serial-units/${unitId}`, {
         serialNumber,
       }),
+    ),
+  updateSerialUnit: async (
+    productId: string,
+    unitId: string,
+    input: SerialUnitUpdateInput,
+  ): Promise<LocalSerialUnit> =>
+    toLocalSerialUnit(
+      await cpatch<ApiSerialUnit>(
+        `/products/${productId}/serial-units/${unitId}`,
+        clean(input as unknown as Record<string, unknown>),
+      ),
     ),
   listMovements: async (productId: string): Promise<LocalStockMovement[]> => {
     const res = await cget<PaginatedResult<ApiMovement>>(

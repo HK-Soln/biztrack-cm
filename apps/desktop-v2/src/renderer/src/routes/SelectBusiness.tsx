@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from '@biztrack/ui/biztrack'
+import { BrandMark, Button } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { BusinessOption } from '@shared/ipc'
@@ -84,7 +84,9 @@ export function SelectBusiness() {
   return (
     <div className="auth-card">
       <div className="auth-logo">
-        <div className="mk">B</div>
+        <div className="mk">
+          <BrandMark size={22} />
+        </div>
         <div className="wm">BizTrack CM</div>
       </div>
 
@@ -120,16 +122,30 @@ export function SelectBusiness() {
                   <span className="nm">{b.name}</span>
                   <span className="rl">{locked ? t('selectBiz.askOwner') : roleLabel(b.role)}</span>
                 </span>
-                {isIncomplete(b) ? <span className="biz-badge">{t('selectBiz.setupIncomplete')}</span> : null}
+                {isIncomplete(b) ? (
+                  <span className="biz-badge">{t('selectBiz.setupIncomplete')}</span>
+                ) : null}
                 {selecting === b.id ? (
                   <span className="spin" aria-hidden />
                 ) : locked ? (
-                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className="chev"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
                     <rect x="5" y="11" width="14" height="9" rx="2" />
                     <path d="M8 11V8a4 4 0 0 1 8 0v3" />
                   </svg>
                 ) : (
-                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className="chev"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
                     <path d="m9 18 6-6-6-6" />
                   </svg>
                 )}

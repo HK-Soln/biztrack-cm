@@ -50,6 +50,7 @@
   "variant_required": "Selectionnez une variante pour \"{name}\".",
   "variant_not_found": "La variante selectionnee n'est pas disponible.",
   "variant_options_required": "Selectionnez au moins une option pour la variante.",
+  "variant_name_or_options_required": "Donnez un nom a la variante ou selectionnez au moins une option.",
   "variant_duplicate_combination": "Une variante avec cette combinaison existe deja.",
   "variant_duplicate_sku": "Le code \"{sku}\" est deja utilise par une autre variante. Les codes doivent etre uniques.",
   "brand_not_found": "Marque introuvable.",

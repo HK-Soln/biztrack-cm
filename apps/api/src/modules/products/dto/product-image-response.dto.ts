@@ -5,6 +5,7 @@ import { toIsoString } from '@/common/http/serialization'
 export class ProductImageDto implements ProductImage {
   id!: string
   productId!: string
+  variantId?: string | null
   url!: string
   altText?: string | null
   sortOrder!: number
@@ -16,6 +17,7 @@ export class ProductImageDto implements ProductImage {
     const dto = new ProductImageDto()
     dto.id = entity.id
     dto.productId = entity.productId
+    dto.variantId = entity.variantId ?? null
     dto.url = entity.url
     dto.altText = entity.altText ?? null
     dto.sortOrder = entity.sortOrder
