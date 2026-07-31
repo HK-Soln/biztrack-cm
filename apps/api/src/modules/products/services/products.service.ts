@@ -54,6 +54,10 @@ import {
   type ProductStats,
 } from '@/common/stats/stock-stats'
 
+/** The hydrated product shape returned by {@link ProductsService.attachInventoryAndImages} — the
+ * plain product plus derived stock/price/threshold/image fields (not the raw TypeORM entity). */
+type HydratedProduct = Awaited<ReturnType<ProductsService['attachInventoryAndImages']>>[number]
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -406,8 +410,8 @@ export class ProductsService {
     query: ProductsQuery & { categoryId?: string },
   ): Promise<{
     data: Array<
-      | { kind: 'product'; product: Product }
-      | { kind: 'variant'; product: Product; variant: ProductVariantModel }
+      | { kind: 'product'; product: HydratedProduct }
+      | { kind: 'variant'; product: HydratedProduct; variant: ProductVariantModel }
     >
     total: number
     page: number
@@ -498,8 +502,8 @@ export class ProductsService {
     }
 
     const data: Array<
-      | { kind: 'product'; product: Product }
-      | { kind: 'variant'; product: Product; variant: ProductVariantModel }
+      | { kind: 'product'; product: HydratedProduct }
+      | { kind: 'variant'; product: HydratedProduct; variant: ProductVariantModel }
     > = []
     for (const r of pageRows) {
       const product = productById.get(r.pid)
