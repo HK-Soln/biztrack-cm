@@ -1,6 +1,14 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
+import {
+  Button,
+  CommandSelect,
+  ImageGallery,
+  Input,
+  Modal,
+  Pagination,
+} from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
@@ -10,10 +18,12 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
 import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
-import type { LocalProduct, LocalVariant, VariantInput } from '@shared/ipc'
+import { VariantEditModal } from './VariantEditModal'
+import type { LocalProduct, LocalVariant, ProductImageInput, VariantInput } from '@shared/ipc'
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : null)
 const PAGE_SIZE = 5
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 /**
  * Manage a product's variants (movement-based). Add (opening stock → stock-in),
@@ -25,7 +35,10 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const qc = useQueryClient()
   const bp = useBreakpoint()
   const money = useCurrency()
+  const navigate = useNavigate()
   const id = product.id
+  // A variant is managed on its own detail page.
+  const openVariant = (variantId: string) => navigate(`/products/${id}/variants/${variantId}`)
 
   // Variant management works in both builds — the cloud data-client mirrors the local calls.
   // The displayed list is paginated + searched by the BFF/API (5 per page); the renderer
@@ -55,39 +68,47 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const [sel, setSel] = useState<Record<string, string>>({})
   const [opening, setOpening] = useState('')
   const [addErr, setAddErr] = useState<string | null>(null)
+  // Variants can be attribute-based (compose from Size/Colour) or free-form (a typed name).
+  // 'attributes' mode is only offered when the category has groups.
+  const [addMode, setAddMode] = useState<'attributes' | 'custom'>('custom')
+  const [addName, setAddName] = useState('')
+  const [addPrice, setAddPrice] = useState('')
+  const [addCost, setAddCost] = useState('')
+  const [addLowStock, setAddLowStock] = useState('')
+  const [addReorder, setAddReorder] = useState('')
+  // The variant being edited — the form itself lives in the shared VariantEditModal.
   const [edit, setEdit] = useState<LocalVariant | null>(null)
-  const [editFields, setEditFields] = useState({
-    name: '',
-    price: '',
-    cost: '',
-    sku: '',
-    active: true,
-  })
   const [addSku, setAddSku] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [remove, setRemove] = useState<LocalVariant | null>(null)
   const [reason, setReason] = useState('')
   const [adjust, setAdjust] = useState<LocalVariant | null>(null)
+  // New variant's images — a variant is a mini-product, so images can be attached at creation
+  // (mirrors the create wizard). Committed after the variant row exists.
+  const [addGallery, setAddGallery] = useState<ProductImageInput[]>([])
+  const [addImgUploading, setAddImgUploading] = useState(false)
 
   const addM = useMutation({
-    mutationFn: (input: VariantInput) => dataClient.products.addVariant(id, input),
+    mutationFn: async (input: VariantInput) => {
+      const created = await dataClient.products.addVariant(id, input)
+      if (addGallery.length > 0) await dataClient.products.setImages(id, addGallery, created.id)
+      return created
+    },
     onSuccess: () => {
       setSel({})
       setOpening('')
       setAddSku('')
+      setAddName('')
+      setAddPrice('')
+      setAddCost('')
+      setAddLowStock('')
+      setAddReorder('')
+      setAddGallery([])
       setAddErr(null)
       setAddOpen(false)
       invalidate()
     },
     onError: (e) => setAddErr(errorMessage(e, t('pvar.addError'))),
-  })
-  const updateM = useMutation({
-    mutationFn: (input: { variantId: string; data: VariantInput }) =>
-      dataClient.products.updateVariant(id, input.variantId, input.data),
-    onSuccess: () => {
-      setEdit(null)
-      invalidate()
-    },
   })
   const removeM = useMutation({
     mutationFn: (input: { variantId: string; reason: string }) =>
@@ -99,48 +120,60 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
     },
   })
 
+  const openAdd = () => {
+    setSel({})
+    setAddSku('')
+    setOpening('')
+    setAddName('')
+    setAddPrice('')
+    setAddCost('')
+    setAddLowStock('')
+    setAddReorder('')
+    setAddGallery([])
+    setAddErr(null)
+    setAddMode(links.length > 0 ? 'attributes' : 'custom')
+    setAddOpen(true)
+  }
+
   const submitAdd = () => {
-    if (links.some((g) => !sel[g.attributeGroupId])) return setAddErr(t('pvar.pickAll'))
-    const options = links.map((g) => ({
-      attributeGroupId: g.attributeGroupId,
-      attributeOptionId: sel[g.attributeGroupId]!,
-    }))
-    // Duplicate combinations are enforced server-side (VARIANT_DUPLICATE_COMBINATION) — the
-    // renderer only holds the current page, so it can't reliably pre-check here.
-    const name = links
-      .map((g) => g.options.find((o) => o.id === sel[g.attributeGroupId])?.value ?? '?')
-      .join(' / ')
-    addM.mutate({
-      name,
+    const common = {
       sku: addSku.trim() || null,
+      priceOverride: num(addPrice),
+      costPriceOverride: num(addCost),
       openingStock: product.isSerialized ? 0 : (num(opening) ?? 0),
+      lowStockThreshold: num(addLowStock),
+      reorderPoint: num(addReorder),
       isActive: true,
-      options,
-    })
+    }
+    if (addMode === 'attributes') {
+      if (links.some((g) => !sel[g.attributeGroupId])) return setAddErr(t('pvar.pickAll'))
+      const options = links.map((g) => ({
+        attributeGroupId: g.attributeGroupId,
+        attributeOptionId: sel[g.attributeGroupId]!,
+      }))
+      // Duplicate combinations are enforced server-side (VARIANT_DUPLICATE_COMBINATION) — the
+      // renderer only holds the current page, so it can't reliably pre-check here.
+      const name = links
+        .map((g) => g.options.find((o) => o.id === sel[g.attributeGroupId])?.value ?? '?')
+        .join(' / ')
+      addM.mutate({ ...common, name, options })
+    } else {
+      // Free-form variant: a typed name, no attribute options.
+      if (!addName.trim()) return setAddErr(t('pvar.nameRequired'))
+      addM.mutate({ ...common, name: addName.trim(), options: [] })
+    }
   }
-  const openEdit = (v: LocalVariant) => {
-    setEdit(v)
-    setEditFields({
-      name: v.name,
-      price: v.priceOverride != null ? String(v.priceOverride) : '',
-      cost: v.costPriceOverride != null ? String(v.costPriceOverride) : '',
-      sku: v.sku ?? '',
-      active: v.isActive,
+  const openEdit = (v: LocalVariant) => setEdit(v)
+
+  const uploadImage = async (file: File): Promise<string> => {
+    const bytes = await file.arrayBuffer()
+    const res = await dataClient.uploads.file({
+      bytes,
+      filename: file.name,
+      contentType: file.type,
+      folder: 'products',
     })
-  }
-  const saveEdit = () => {
-    if (!edit) return
-    updateM.mutate({
-      variantId: edit.id,
-      data: {
-        name: editFields.name.trim() || edit.name,
-        sku: editFields.sku.trim() || null,
-        priceOverride: num(editFields.price),
-        costPriceOverride: num(editFields.cost),
-        isActive: editFields.active,
-        options: edit.options,
-      },
-    })
+    return res.url
   }
 
   const editIcon = (
@@ -187,12 +220,11 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
       <span className="st st-neutral">{t('prod.inactive')}</span>
     )
 
-  // A product "supports variants" only when its (leaf) category has attribute groups
-  // linked (variants can't exist without them). Products that don't support variants show
-  // no variants section at all. Base this on the (unfiltered) links so an active search
-  // that returns nothing never hides the section. Render nothing until links settle.
-  const supportsVariants = links.length > 0
-  if (linksLoading || !supportsVariants) return null
+  // Variants are optional and never forced: any product can have them. Attribute groups
+  // (when the category has them) just power the "from options" generator; without groups the
+  // user adds free-form variants. Wait for links to settle so the add modal knows which
+  // modes to offer.
+  if (linksLoading) return null
 
   return (
     <div className="card" style={{ marginTop: 14 }}>
@@ -213,16 +245,7 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
           marginBottom: 12,
         }}
       >
-        <Button
-          variant="soft"
-          onClick={() => {
-            setSel({})
-            setAddSku('')
-            setOpening('')
-            setAddErr(null)
-            setAddOpen(true)
-          }}
-        >
+        <Button variant="soft" onClick={openAdd}>
           + {t('pvar.add')}
         </Button>
         {totalVariants > 0 || search ? (
@@ -250,10 +273,10 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
                   gap: 8,
                 }}
               >
-                <span className="nm">
+                <button type="button" className="nm vlink" onClick={() => openVariant(v.id)}>
                   {v.name}
                   {v.sku ? <span className="vcode"> · {v.sku}</span> : null}
-                </span>
+                </button>
                 {statusPill(v)}
               </div>
               <div
@@ -291,7 +314,9 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             {variants.map((v) => (
               <tr key={v.id}>
                 <td>
-                  <span className="nm">{v.name}</span>
+                  <button type="button" className="nm vlink" onClick={() => openVariant(v.id)}>
+                    {v.name}
+                  </button>
                 </td>
                 <td>
                   {v.sku ? (
@@ -334,34 +359,80 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             <Button variant="soft" onClick={() => setAddOpen(false)} disabled={addM.isPending}>
               {t('pvar.cancel')}
             </Button>
-            <Button variant="primary" loading={addM.isPending} onClick={submitAdd}>
+            <Button
+              variant="primary"
+              loading={addM.isPending}
+              disabled={addImgUploading}
+              onClick={submitAdd}
+            >
               {t('pvar.add')}
             </Button>
           </>
         }
       >
-        {links.map((g) => (
-          <div className="ff" key={g.id} style={{ marginBottom: 10 }}>
-            <label className="lbl2">{g.name}</label>
-            <CommandSelect
-              value={sel[g.attributeGroupId] ?? null}
-              valueLabel={g.options.find((o) => o.id === sel[g.attributeGroupId])?.value ?? null}
-              placeholder={t('pvar.pick')}
-              searchPlaceholder={t('pvar.searchOption')}
-              onChange={(val) => {
-                setSel((p) => ({ ...p, [g.attributeGroupId]: val ?? '' }))
+        {/* Mode toggle only when the category offers attribute groups to combine. */}
+        {links.length > 0 ? (
+          <div className="seg-pick" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              aria-pressed={addMode === 'attributes'}
+              onClick={() => {
+                setAddMode('attributes')
                 setAddErr(null)
               }}
-              loadOptions={(s) =>
-                Promise.resolve(
-                  g.options
-                    .filter((o) => o.value.toLowerCase().includes(s.toLowerCase()))
-                    .map((o) => ({ value: o.id, label: o.value })),
-                )
-              }
+            >
+              {t('pvar.modeAttributes')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={addMode === 'custom'}
+              onClick={() => {
+                setAddMode('custom')
+                setAddErr(null)
+              }}
+            >
+              {t('pvar.modeCustom')}
+            </button>
+          </div>
+        ) : null}
+
+        {addMode === 'attributes' ? (
+          links.map((g) => (
+            <div className="ff" key={g.id} style={{ marginBottom: 10 }}>
+              <label className="lbl2">{g.name}</label>
+              <CommandSelect
+                value={sel[g.attributeGroupId] ?? null}
+                valueLabel={g.options.find((o) => o.id === sel[g.attributeGroupId])?.value ?? null}
+                placeholder={t('pvar.pick')}
+                searchPlaceholder={t('pvar.searchOption')}
+                onChange={(val) => {
+                  setSel((p) => ({ ...p, [g.attributeGroupId]: val ?? '' }))
+                  setAddErr(null)
+                }}
+                loadOptions={(s) =>
+                  Promise.resolve(
+                    g.options
+                      .filter((o) => o.value.toLowerCase().includes(s.toLowerCase()))
+                      .map((o) => ({ value: o.id, label: o.value })),
+                  )
+                }
+              />
+            </div>
+          ))
+        ) : (
+          <div className="ff" style={{ marginBottom: 10 }}>
+            <label className="lbl2">{t('pvar.name')}</label>
+            <Input
+              value={addName}
+              placeholder={t('pvar.namePh')}
+              onChange={(e) => {
+                setAddName(e.target.value)
+                setAddErr(null)
+              }}
             />
           </div>
-        ))}
+        )}
+
         <div className="ff" style={{ marginBottom: 10 }}>
           <label className="lbl2">{t('pvar.code')}</label>
           <Input
@@ -370,8 +441,28 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             onChange={(e) => setAddSku(e.target.value)}
           />
         </div>
-        {!product.isSerialized ? (
+        <div className="form-2col" style={{ marginBottom: 10 }}>
           <div className="ff">
+            <label className="lbl2">{t('pvar.price')}</label>
+            <Input
+              value={addPrice}
+              inputMode="decimal"
+              placeholder={String(product.sellingPrice)}
+              onChange={(e) => setAddPrice(e.target.value)}
+            />
+          </div>
+          <div className="ff">
+            <label className="lbl2">{t('pvar.cost')}</label>
+            <Input
+              value={addCost}
+              inputMode="decimal"
+              placeholder="0"
+              onChange={(e) => setAddCost(e.target.value)}
+            />
+          </div>
+        </div>
+        {!product.isSerialized ? (
+          <div className="ff" style={{ marginBottom: 10 }}>
             <label className="lbl2">{t('pvar.opening')}</label>
             <Input
               value={opening}
@@ -381,8 +472,52 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             />
           </div>
         ) : (
-          <div className="hint">{t('pvar.serializedNote')}</div>
+          <div className="hint" style={{ marginBottom: 10 }}>
+            {t('pvar.serializedNote')}
+          </div>
         )}
+        <div className="form-2col">
+          <div className="ff">
+            <label className="lbl2">{t('prodf.lowStock')}</label>
+            <Input
+              value={addLowStock}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(e) => setAddLowStock(e.target.value)}
+            />
+          </div>
+          <div className="ff">
+            <label className="lbl2">{t('prodf.reorderPoint')}</label>
+            <Input
+              value={addReorder}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(e) => setAddReorder(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Variant images — first image is the cover; drag to reorder. */}
+        <div className="ff" style={{ marginTop: 10 }}>
+          <label className="lbl2">{t('pvar.images')}</label>
+          <ImageGallery
+            items={addGallery}
+            onChange={setAddGallery}
+            onUpload={uploadImage}
+            onUploadingChange={setAddImgUploading}
+            allowedTypes={ALLOWED_IMAGE_TYPES}
+            labels={{
+              cta: t('gal.cta'),
+              hint: t('gal.hint'),
+              uploading: t('prodf.imageUploading'),
+              remove: t('prodf.galleryRemove'),
+              setMain: t('prodf.setMain'),
+              main: t('prodf.main'),
+              typeError: t('prodf.imageTypeError'),
+            }}
+          />
+        </div>
+
         {addErr ? (
           <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
             {addErr}
@@ -390,68 +525,14 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
         ) : null}
       </Modal>
 
-      {/* Edit info modal. */}
-      <Modal
+      {/* Edit — the form lives in the shared VariantEditModal (also used by the variant page). */}
+      <VariantEditModal
+        productId={id}
+        product={product}
+        variant={edit}
         open={!!edit}
         onClose={() => setEdit(null)}
-        title={t('pvar.editTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setEdit(null)} disabled={updateM.isPending}>
-              {t('pvar.cancel')}
-            </Button>
-            <Button variant="primary" loading={updateM.isPending} onClick={saveEdit}>
-              {t('pvar.save')}
-            </Button>
-          </>
-        }
-      >
-        <div className="ff">
-          <label className="lbl2">{t('pvar.name')}</label>
-          <Input
-            value={editFields.name}
-            onChange={(e) => setEditFields((f) => ({ ...f, name: e.target.value }))}
-          />
-        </div>
-        <div className="ff" style={{ marginTop: 10 }}>
-          <label className="lbl2">{t('pvar.code')}</label>
-          <Input
-            value={editFields.sku}
-            placeholder={t('pvar.codePh')}
-            onChange={(e) => setEditFields((f) => ({ ...f, sku: e.target.value }))}
-          />
-        </div>
-        <div className="form-2col" style={{ marginTop: 10 }}>
-          <div className="ff">
-            <label className="lbl2">{t('pvar.price')}</label>
-            <Input
-              value={editFields.price}
-              inputMode="decimal"
-              placeholder={String(product.sellingPrice)}
-              onChange={(e) => setEditFields((f) => ({ ...f, price: e.target.value }))}
-            />
-          </div>
-          <div className="ff">
-            <label className="lbl2">{t('pvar.cost')}</label>
-            <Input
-              value={editFields.cost}
-              inputMode="decimal"
-              placeholder="0"
-              onChange={(e) => setEditFields((f) => ({ ...f, cost: e.target.value }))}
-            />
-          </div>
-        </div>
-        <button
-          type="button"
-          className={`switch-line${editFields.active ? ' on' : ''}`}
-          style={{ marginTop: 12 }}
-          onClick={() => setEditFields((f) => ({ ...f, active: !f.active }))}
-          aria-pressed={editFields.active}
-        >
-          <span className={`switch${editFields.active ? ' on' : ''}`} />
-          <span>{t('pvar.active')}</span>
-        </button>
-      </Modal>
+      />
 
       {/* Remove (write-off) modal. */}
       <Modal

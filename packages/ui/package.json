@@ -13,6 +13,10 @@
       "types": "./dist/biztrack/index.d.ts",
       "default": "./dist/biztrack/index.js"
     },
+    "./brand-mark": {
+      "types": "./dist/biztrack/BrandMark.d.ts",
+      "default": "./dist/biztrack/BrandMark.js"
+    },
     "./styles.css": "./src/styles/biztrack.css"
   },
   "scripts": {

@@ -62,6 +62,7 @@ export const IPC = {
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
   productsList: 'products:list',
+  productsListSellable: 'products:list-sellable',
   productsGet: 'products:get',
   productsCreate: 'products:create',
   productsUpdate: 'products:update',
@@ -83,6 +84,7 @@ export const IPC = {
   productsAddSerialUnits: 'products:add-serial-units',
   productsRetireSerialUnit: 'products:retire-serial-unit',
   productsUpdateSerialNumber: 'products:update-serial-number',
+  productsUpdateSerialUnit: 'products:update-serial-unit',
   productsListMovements: 'products:list-movements',
   inventoryList: 'inventory:list',
   inventoryStats: 'inventory:stats',
@@ -279,6 +281,11 @@ export interface ProductListQuery extends ListQueryT {
   brandId?: string
   isActive?: boolean
   stockStatus?: StockStatus
+}
+
+/** Serial-units page query — base list query optionally scoped to one variant. */
+export interface SerialUnitsPageQuery extends ListQueryT {
+  variantId?: string
 }
 
 /** Catalog KPI roll-up for the products list header (computed from local SQLite). */
@@ -672,6 +679,8 @@ export interface LocalCategory {
   depth: number
   isActive: boolean
   showOnline: boolean
+  /** Default unit of measure pre-filled when creating a product in this category. */
+  defaultUnitOfMeasureId: string | null
 }
 
 /** Fields the user supplies when creating/editing a category. */
@@ -685,6 +694,8 @@ export interface CategoryInput {
   sortOrder?: number
   isActive?: boolean
   showOnline?: boolean
+  /** Default unit of measure pre-filled when creating a product in this category. */
+  defaultUnitOfMeasureId?: string | null
 }
 
 // ---- Attributes (variant dimensions) --------------------------------------
@@ -806,6 +817,8 @@ export interface LocalProduct {
   isSerialized: boolean
   serialType: SerialType | null
   warrantyMonths: number | null
+  /** Serialized products only: each unit is a unique item with its own image/description/SEO. */
+  uniqueItems: boolean
   lowStockThreshold: number | null
   reorderPoint: number | null
   /** Read-only stock (owned by the Inventory module; reflects opening stock until that syncs). */
@@ -835,6 +848,13 @@ export interface LocalVariant {
   /** Read-only per-variant stock (from the variant's inventory level). */
   stockQuantity: number
   lowStockThreshold: number | null
+  reorderPoint: number | null
+  // A variant is a mini-product with its own description + SEO/online fields.
+  description: string | null
+  metaTitle: string | null
+  metaDescription: string | null
+  onlineDescription: string | null
+  isPublishedOnline: boolean
   options: VariantOptionRef[]
 }
 
@@ -848,6 +868,12 @@ export interface VariantInput {
   /** Opening stock to seed the variant's inventory on create (non-serialised). */
   openingStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   options: VariantOptionRef[]
 }
 
@@ -859,6 +885,11 @@ export interface LocalSerialUnit {
   serialNumber: string
   serialType: SerialType
   status: string
+  // In unique-item mode each unit is a mini-product with its own image/description/SEO.
+  description: string | null
+  imageUrl: string | null
+  metaTitle: string | null
+  metaDescription: string | null
 }
 
 /** Desired serial unit on save (matched by serialNumber so live units keep their id). */
@@ -866,6 +897,15 @@ export interface SerialUnitInput {
   variantId?: string | null
   serialNumber: string
   serialType: SerialType
+}
+
+/** Edit a unique serial unit's mini-product fields (unique-item mode). */
+export interface SerialUnitUpdateInput {
+  serialNumber?: string
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
 }
 
 /** How a manual stock adjustment changes the quantity (mirrors API StockAdjustmentType). */
@@ -892,6 +932,8 @@ export interface MovementsQuery extends ListQueryT {
   type?: StockMovementType
   dateFrom?: string
   dateTo?: string
+  /** Scope to one variant's movements (variant detail page). */
+  variantId?: string
 }
 
 /** One row in the inventory (stock-levels) list. */
@@ -1439,6 +1481,12 @@ export type ScanHit =
   | { kind: 'variant'; product: LocalProduct; variant: LocalVariant }
   | { kind: 'serial'; product: LocalProduct; serial: LocalSerialUnit }
 
+/** A sellable catalog entry for the POS grid: a non-variant product, or one variant of a
+ * variant product (each variant is its own tile). */
+export type SellEntry =
+  | { kind: 'product'; product: LocalProduct }
+  | { kind: 'variant'; product: LocalProduct; variant: LocalVariant }
+
 /** Why a stock level changed (mirrors the API's MovementType). */
 export type StockMovementType =
   | 'OPENING_STOCK'
@@ -1456,6 +1504,8 @@ export interface LocalStockMovement {
   productId?: string
   /** Product display name — populated only by the all-products movements list (reports). */
   productName?: string | null
+  /** The variant this movement affected (null = product-level). */
+  variantId?: string | null
   type: StockMovementType
   quantityChange: number
   quantityBefore: number
@@ -1471,6 +1521,8 @@ export interface LocalStockMovement {
 export interface LocalProductImage {
   id: string
   productId: string
+  /** Set when the image belongs to a specific variant; null for a product-level image. */
+  variantId: string | null
   url: string
   altText: string | null
   sortOrder: number
@@ -1508,6 +1560,7 @@ export interface ProductInput {
   isSerialized?: boolean
   serialType?: SerialType | null
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   openingStock?: number
   lowStockThreshold?: number | null
   reorderPoint?: number | null
@@ -1694,14 +1747,21 @@ export interface BridgeApi {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    /** Flattened sellable catalog for the POS grid: products + one entry per variant. */
+    listSellable: (query?: ProductListQuery) => Promise<PaginatedT<SellEntry>>
     stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>
     remove: (id: string) => Promise<void>
-    listImages: (productId: string) => Promise<LocalProductImage[]>
-    /** Replace a product's gallery (diff + enqueues changes). */
-    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    /** Images for a product (variantId omitted/null) or a specific variant. */
+    listImages: (productId: string, variantId?: string | null) => Promise<LocalProductImage[]>
+    /** Replace a product's — or a variant's — gallery (diff + enqueues changes). */
+    setImages: (
+      productId: string,
+      images: ProductImageInput[],
+      variantId?: string | null,
+    ) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
     /** Paginated variants for the product-detail management section (default limit 5). */
     listVariantsPage: (productId: string, query?: ListQueryT) => Promise<PaginatedT<LocalVariant>>
@@ -1721,7 +1781,7 @@ export interface BridgeApi {
     /** Paginated serial units for the product-detail management section (default limit 5). */
     listSerialUnitsPage: (
       productId: string,
-      query?: ListQueryT,
+      query?: SerialUnitsPageQuery,
     ) => Promise<PaginatedT<LocalSerialUnit>>
     /** IN_STOCK serial units a sale can consume (optionally scoped to a variant + serial search). */
     listInStockSerials: (
@@ -1746,6 +1806,12 @@ export interface BridgeApi {
       productId: string,
       unitId: string,
       serialNumber: string,
+    ) => Promise<LocalSerialUnit>
+    /** Edit a unique serial unit's mini-product fields (image/description/SEO). */
+    updateSerialUnit: (
+      productId: string,
+      unitId: string,
+      input: SerialUnitUpdateInput,
     ) => Promise<LocalSerialUnit>
     /** Stock-ledger entries for the detail stock card (newest first). */
     listMovements: (productId: string) => Promise<LocalStockMovement[]>

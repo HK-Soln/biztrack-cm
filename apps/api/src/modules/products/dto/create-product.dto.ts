@@ -256,7 +256,9 @@ export class CreateProductDto implements CreateProductRequest {
   @IsBoolean()
   isService?: boolean
 
-  @ApiPropertyOptional({ description: 'Defaults to false for services and true for physical products.' })
+  @ApiPropertyOptional({
+    description: 'Defaults to false for services and true for physical products.',
+  })
   @IsOptional()
   @IsBoolean()
   trackInventory?: boolean
@@ -298,7 +300,10 @@ export class CreateProductDto implements CreateProductRequest {
   @Type(() => CreateBundleComponentDto)
   bundleComponents?: CreateBundleComponentDto[]
 
-  @ApiPropertyOptional({ default: false, description: 'Track each unit by serial/IMEI (SIMPLE only).' })
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Track each unit by serial/IMEI (SIMPLE only).',
+  })
   @IsOptional()
   @IsBoolean()
   isSerialized?: boolean
@@ -313,4 +318,12 @@ export class CreateProductDto implements CreateProductRequest {
   @IsInt()
   @Min(0)
   warrantyMonths?: number
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Unique-item mode: each serial unit is a mini-product with its own image/SEO.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  uniqueItems?: boolean
 }

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
+import { BrandMark } from '@biztrack/ui/brand-mark'
 import type { PublicStore } from '@biztrack/types'
 
 const socialIcon: Record<string, React.ReactNode> = {
@@ -126,8 +127,10 @@ export async function StoreFooter({ store, base }: { store: PublicStore; base: s
           <span className="cp">
             © {year} {store.storeName}. {t('rights')}
           </span>
-          <span className="pw">
-            {t('poweredBy')} <b>BizTrack CM</b>
+          <span className="pw" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {t('poweredBy')}
+            <BrandMark size={15} />
+            <b>BizTrack CM</b>
           </span>
         </div>
       </div>

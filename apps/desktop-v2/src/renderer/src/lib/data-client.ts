@@ -139,6 +139,7 @@ import type {
   SaleInput,
   SalesListQuery,
   ScanHit,
+  SellEntry,
   ThresholdInput,
   ModelInput,
   ListQuery,
@@ -148,6 +149,8 @@ import type {
   ProductListQuery,
   ProductStats,
   SerialUnitInput,
+  SerialUnitUpdateInput,
+  SerialUnitsPageQuery,
   VariantInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
@@ -216,13 +219,18 @@ export interface DataClient {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    listSellable: (query?: ProductListQuery) => Promise<PaginatedResult<SellEntry>>
     stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
     create: (input: ProductInput) => Promise<LocalProduct>
     update: (id: string, input: ProductInput) => Promise<LocalProduct>
     remove: (id: string) => Promise<void>
-    listImages: (productId: string) => Promise<LocalProductImage[]>
-    setImages: (productId: string, images: ProductImageInput[]) => Promise<void>
+    listImages: (productId: string, variantId?: string | null) => Promise<LocalProductImage[]>
+    setImages: (
+      productId: string,
+      images: ProductImageInput[],
+      variantId?: string | null,
+    ) => Promise<void>
     listVariants: (productId: string) => Promise<LocalVariant[]>
     listVariantsPage: (
       productId: string,
@@ -239,7 +247,7 @@ export interface DataClient {
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     listSerialUnitsPage: (
       productId: string,
-      query?: ListQuery,
+      query?: SerialUnitsPageQuery,
     ) => Promise<PaginatedResult<LocalSerialUnit>>
     listInStockSerials: (
       productId: string,
@@ -258,6 +266,11 @@ export interface DataClient {
       productId: string,
       unitId: string,
       serialNumber: string,
+    ) => Promise<LocalSerialUnit>
+    updateSerialUnit: (
+      productId: string,
+      unitId: string,
+      input: SerialUnitUpdateInput,
     ) => Promise<LocalSerialUnit>
     listMovements: (productId: string) => Promise<LocalStockMovement[]>
   }
@@ -568,13 +581,15 @@ function electronAdapter(): DataClient {
     },
     products: {
       list: (query) => window.api.products.list(query),
+      listSellable: (query) => window.api.products.listSellable(query),
       stats: () => window.api.products.stats(),
       get: (id) => window.api.products.get(id),
       create: (input) => window.api.products.create(input),
       update: (id, input) => window.api.products.update(id, input),
       remove: (id) => window.api.products.remove(id),
-      listImages: (productId) => window.api.products.listImages(productId),
-      setImages: (productId, images) => window.api.products.setImages(productId, images),
+      listImages: (productId, variantId) => window.api.products.listImages(productId, variantId),
+      setImages: (productId, images, variantId) =>
+        window.api.products.setImages(productId, images, variantId),
       listVariants: (productId) => window.api.products.listVariants(productId),
       listVariantsPage: (productId, query) =>
         window.api.products.listVariantsPage(productId, query),
@@ -597,6 +612,8 @@ function electronAdapter(): DataClient {
         window.api.products.retireSerialUnit(productId, unitId, reason),
       updateSerialNumber: (productId, unitId, serialNumber) =>
         window.api.products.updateSerialNumber(productId, unitId, serialNumber),
+      updateSerialUnit: (productId, unitId, input) =>
+        window.api.products.updateSerialUnit(productId, unitId, input),
       listMovements: (productId) => window.api.products.listMovements(productId),
     },
     inventory: {

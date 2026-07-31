@@ -82,17 +82,21 @@ export class ProductVariantManagementService {
   ): Promise<ProductVariantModel> {
     try {
       const product = await this.requireProduct(productId, businessId)
-      if (!dto.options?.length) {
+      // Variants can be attribute-based (options) OR free-form (a manually named option).
+      // A free-form variant just needs a name; option-based variants derive a name if omitted.
+      const hasOptions = (dto.options?.length ?? 0) > 0
+      if (!hasOptions && !dto.name?.trim()) {
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.variant_options_required'),
-          'VARIANT_OPTIONS_REQUIRED',
+          await this.i18n.translate('errors.variant_name_or_options_required'),
+          'VARIANT_NAME_OR_OPTIONS_REQUIRED',
         )
       }
 
       const existing = await this.variantsRepo.find({
         where: { productId, businessId, deletedAt: IsNull() },
       })
-      if (existing.length) {
+      // Duplicate detection: by attribute combination when option-based, else by name.
+      if (hasOptions && existing.length) {
         const links = await this.variantOptionsRepo.find({
           where: { variantId: In(existing.map((v) => v.id)), businessId, deletedAt: IsNull() },
         })
@@ -103,7 +107,7 @@ export class ProductVariantManagementService {
           sigsByVariant.set(link.variantId, list)
         }
         const taken = new Set([...sigsByVariant.values()].map((ids) => sig(ids)))
-        if (taken.has(sig(dto.options.map((o) => o.attributeOptionId)))) {
+        if (taken.has(sig(dto.options!.map((o) => o.attributeOptionId)))) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.variant_duplicate_combination'),
             'VARIANT_DUPLICATE_COMBINATION',
@@ -114,12 +118,12 @@ export class ProductVariantManagementService {
       await this.assertSkuUnique(businessId, dto.sku?.trim() || null, null)
 
       let name = dto.name?.trim()
-      if (!name) {
+      if (!name && hasOptions) {
         const opts = await this.optionsRepo.find({
-          where: { id: In(dto.options.map((o) => o.attributeOptionId)), businessId },
+          where: { id: In(dto.options!.map((o) => o.attributeOptionId)), businessId },
         })
         const valueById = new Map(opts.map((o) => [o.id, o.value]))
-        name = dto.options.map((o) => valueById.get(o.attributeOptionId) ?? '?').join(' ')
+        name = dto.options!.map((o) => valueById.get(o.attributeOptionId) ?? '?').join(' ')
       }
 
       const variantId = await this.dataSource.transaction(async (manager) => {
@@ -138,18 +142,25 @@ export class ProductVariantManagementService {
             sku: dto.sku?.trim() ?? null,
             isActive: dto.isActive ?? true,
             sortOrder: existing.length,
+            description: dto.description?.trim() ?? null,
+            metaTitle: dto.metaTitle?.trim() ?? null,
+            metaDescription: dto.metaDescription?.trim() ?? null,
+            onlineDescription: dto.onlineDescription?.trim() ?? null,
+            isPublishedOnline: dto.isPublishedOnline ?? false,
           }),
         )
-        await olRepo.save(
-          dto.options.map((o) =>
-            olRepo.create({
-              businessId,
-              variantId: variant.id,
-              attributeGroupId: o.attributeGroupId,
-              attributeOptionId: o.attributeOptionId,
-            }),
-          ),
-        )
+        if (hasOptions) {
+          await olRepo.save(
+            dto.options!.map((o) =>
+              olRepo.create({
+                businessId,
+                variantId: variant.id,
+                attributeGroupId: o.attributeGroupId,
+                attributeOptionId: o.attributeOptionId,
+              }),
+            ),
+          )
+        }
 
         if (product.trackInventory && !product.isSerialized) {
           const quantity = dto.openingStock ?? 0
@@ -159,7 +170,8 @@ export class ProductVariantManagementService {
               productId,
               variantId: variant.id,
               quantity,
-              lowStockThreshold: null,
+              lowStockThreshold: dto.lowStockThreshold ?? null,
+              reorderPoint: dto.reorderPoint ?? null,
             }),
           )
           if (quantity > 0) {
@@ -229,8 +241,34 @@ export class ProductVariantManagementService {
               : (dto.costPriceOverride ?? null),
           sku: dto.sku === undefined ? variant.sku : (dto.sku?.trim() ?? null),
           isActive: dto.isActive ?? variant.isActive,
+          description:
+            dto.description === undefined ? variant.description : (dto.description?.trim() ?? null),
+          metaTitle:
+            dto.metaTitle === undefined ? variant.metaTitle : (dto.metaTitle?.trim() ?? null),
+          metaDescription:
+            dto.metaDescription === undefined
+              ? variant.metaDescription
+              : (dto.metaDescription?.trim() ?? null),
+          onlineDescription:
+            dto.onlineDescription === undefined
+              ? variant.onlineDescription
+              : (dto.onlineDescription?.trim() ?? null),
+          isPublishedOnline: dto.isPublishedOnline ?? variant.isPublishedOnline,
         },
       )
+
+      // Stock alert thresholds live on the variant's inventory level, not the variant row.
+      if (dto.lowStockThreshold !== undefined || dto.reorderPoint !== undefined) {
+        const invRepo = this.dataSource.getRepository(InventoryLevel)
+        const level = await invRepo.findOne({ where: { businessId, productId, variantId } })
+        if (level) {
+          const patch: Partial<InventoryLevel> = {}
+          if (dto.lowStockThreshold !== undefined)
+            patch.lowStockThreshold = dto.lowStockThreshold ?? null
+          if (dto.reorderPoint !== undefined) patch.reorderPoint = dto.reorderPoint ?? null
+          await invRepo.update({ id: level.id }, patch)
+        }
+      }
 
       const updated = await this.requireVariantModel(productId, businessId, variantId)
       this.auditService.log(context, {

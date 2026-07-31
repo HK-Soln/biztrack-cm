@@ -267,6 +267,7 @@ const INVENTORY_MOVEMENT_MAP: Record<string, string> = {
   id: 'id',
   business_id: 'businessId',
   product_id: 'productId',
+  variant_id: 'variantId',
   type: 'type',
   quantity_change: 'quantityChange',
   quantity_before: 'quantityBefore',
@@ -1119,12 +1120,13 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO product_categories
-        (id, business_id, name, slug, description, color, icon, image_url, sort_order, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, description = excluded.description,
           color = excluded.color, icon = excluded.icon,
-          image_url = excluded.image_url, sort_order = excluded.sort_order, parent_id = excluded.parent_id,
+          image_url = excluded.image_url, sort_order = excluded.sort_order,
+          default_unit_of_measure_id = excluded.default_unit_of_measure_id, parent_id = excluded.parent_id,
           depth = excluded.depth, is_active = excluded.is_active, show_online = excluded.show_online,
           is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
@@ -1137,6 +1139,7 @@ export class SyncService {
         asStr(c.icon),
         asStr(c.imageUrl),
         asNum(c.sortOrder) ?? 0,
+        asStr(c.defaultUnitOfMeasureId),
         asStr(c.parentId),
         asNum(c.depth) ?? 1,
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
@@ -1334,9 +1337,9 @@ export class SyncService {
          low_stock_threshold, reorder_point,
          category_id, brand_id, model_id, unit_of_measure_id, image_url, created_by_id,
          is_featured, is_published_online, online_description, online_stock_reserve,
-         meta_title, meta_description, is_serialized, serial_type, warranty_months,
+         meta_title, meta_description, is_serialized, serial_type, warranty_months, unique_items,
          is_active, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, description = excluded.description,
           sku = excluded.sku, barcode = excluded.barcode, barcode_type = excluded.barcode_type,
@@ -1353,6 +1356,7 @@ export class SyncService {
           online_stock_reserve = excluded.online_stock_reserve, meta_title = excluded.meta_title,
           meta_description = excluded.meta_description, is_serialized = excluded.is_serialized,
           serial_type = excluded.serial_type, warranty_months = excluded.warranty_months,
+          unique_items = excluded.unique_items,
           is_active = excluded.is_active, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
@@ -1392,6 +1396,7 @@ export class SyncService {
         c.isSerialized === true ? 1 : 0,
         asStr(c.serialType),
         asNum(c.warrantyMonths),
+        c.uniqueItems === true ? 1 : 0,
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
@@ -1405,15 +1410,17 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO product_images
-        (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, product_id, variant_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          product_id = excluded.product_id, url = excluded.url, alt_text = excluded.alt_text,
-          sort_order = excluded.sort_order, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          product_id = excluded.product_id, variant_id = excluded.variant_id, url = excluded.url,
+          alt_text = excluded.alt_text, sort_order = excluded.sort_order,
+          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(c.businessId),
         asStr(c.productId),
+        asStr(c.variantId),
         asStr(c.url),
         asStr(c.altText),
         asNum(c.sortOrder) ?? 0,
@@ -1430,14 +1437,20 @@ export class SyncService {
     return {
       sql: `INSERT INTO product_variants
         (id, business_id, product_id, name, display_name_override, price_override, cost_price_override,
-         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point,
+         description, meta_title, meta_description, online_description, is_published_online,
+         is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           product_id = excluded.product_id, name = excluded.name,
           display_name_override = excluded.display_name_override, price_override = excluded.price_override,
           cost_price_override = excluded.cost_price_override, sku = excluded.sku, barcode = excluded.barcode,
           is_active = excluded.is_active, sort_order = excluded.sort_order,
           stock_quantity = excluded.stock_quantity, low_stock_threshold = excluded.low_stock_threshold,
+          reorder_point = excluded.reorder_point,
+          description = excluded.description, meta_title = excluded.meta_title,
+          meta_description = excluded.meta_description, online_description = excluded.online_description,
+          is_published_online = excluded.is_published_online,
           is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
@@ -1453,6 +1466,12 @@ export class SyncService {
         asNum(c.sortOrder) ?? 0,
         asNum(c.stockQuantity) ?? 0,
         asNum(c.lowStockThreshold),
+        asNum(c.reorderPoint),
+        asStr(c.description),
+        asStr(c.metaTitle),
+        asStr(c.metaDescription),
+        asStr(c.onlineDescription),
+        c.isPublishedOnline ? 1 : 0,
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
@@ -1489,12 +1508,15 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO product_serial_units
-        (id, business_id, product_id, variant_id, serial_number, serial_type, status, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, product_id, variant_id, serial_number, serial_type, status,
+         description, image_url, meta_title, meta_description, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           product_id = excluded.product_id, variant_id = excluded.variant_id,
           serial_number = excluded.serial_number, serial_type = excluded.serial_type,
-          status = excluded.status, is_deleted = excluded.is_deleted,
+          status = excluded.status, description = excluded.description,
+          image_url = excluded.image_url, meta_title = excluded.meta_title,
+          meta_description = excluded.meta_description, is_deleted = excluded.is_deleted,
           updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
@@ -1504,6 +1526,10 @@ export class SyncService {
         asStr(c.serialNumber),
         asStr(c.serialType),
         asStr(c.status) ?? 'IN_STOCK',
+        asStr(c.description),
+        asStr(c.imageUrl),
+        asStr(c.metaTitle),
+        asStr(c.metaDescription),
         r.isDeleted ? 1 : 0,
         asStr(c.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,

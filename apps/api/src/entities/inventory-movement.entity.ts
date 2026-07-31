@@ -1,10 +1,4 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-} from 'typeorm'
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm'
 import { ImmutableBaseEntity } from '@/common/entities/immutable-base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -28,7 +22,10 @@ export class InventoryMovement extends ImmutableBaseEntity {
   businessId!: string
 
   @ManyToOne(() => Business, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'business_id', foreignKeyConstraintName: 'fk_inventory_movements_business_id' })
+  @JoinColumn({
+    name: 'business_id',
+    foreignKeyConstraintName: 'fk_inventory_movements_business_id',
+  })
   business?: Business
 
   @Column({ name: 'product_id' })
@@ -37,6 +34,10 @@ export class InventoryMovement extends ImmutableBaseEntity {
   @ManyToOne(() => Product, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id', foreignKeyConstraintName: 'fk_inventory_movements_product_id' })
   product?: Product
+
+  // The variant this movement affected (null = product-level). Enables per-variant history.
+  @Column({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
 
   @Column({ type: 'varchar' })
   type!: MovementType
@@ -81,6 +82,9 @@ export class InventoryMovement extends ImmutableBaseEntity {
   performedById?: string | null
 
   @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: 'performed_by', foreignKeyConstraintName: 'fk_inventory_movements_performed_by' })
+  @JoinColumn({
+    name: 'performed_by',
+    foreignKeyConstraintName: 'fk_inventory_movements_performed_by',
+  })
   performedBy?: User | null
 }

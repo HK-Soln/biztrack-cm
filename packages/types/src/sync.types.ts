@@ -296,6 +296,7 @@ export interface InventoryLevelSyncRecord extends SyncRecord {
 export interface InventoryMovementSyncRecord extends SyncRecord {
   businessId: string
   productId: string
+  variantId?: string | null
   type: InventoryMovementType
   quantityChange: number
   quantityBefore: number
@@ -1013,6 +1014,7 @@ export interface ProductVariantSyncPayload {
   /** Opening stock to seed the variant's inventory level (non-serialised only). */
   openingStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null
@@ -1035,6 +1037,10 @@ export interface ProductSerialUnitSyncPayload {
   serialNumber: string
   serialType: string
   status?: string | null
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null

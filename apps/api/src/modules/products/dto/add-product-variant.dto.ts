@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -25,12 +24,15 @@ export class VariantOptionRefDto {
 }
 
 export class AddProductVariantDto implements AddProductVariantRequest {
-  @ApiProperty({ type: [VariantOptionRefDto], description: 'One option per attribute group.' })
+  @ApiPropertyOptional({
+    type: [VariantOptionRefDto],
+    description: 'One option per attribute group. Omit for a free-form (manually named) variant.',
+  })
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => VariantOptionRefDto)
-  options!: VariantOptionRefDto[]
+  options?: VariantOptionRefDto[]
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -63,10 +65,53 @@ export class AddProductVariantDto implements AddProductVariantRequest {
   @IsBoolean()
   isActive?: boolean
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  metaTitle?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  metaDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  onlineDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isPublishedOnline?: boolean
+
   @ApiPropertyOptional({ description: 'Opening stock (non-serialised only) → stock-in movement.' })
   @IsOptional()
   @IsInt()
   @Min(0)
   @Type(() => Number)
   openingStock?: number | null
+
+  @ApiPropertyOptional({ description: 'Per-variant low-stock alert threshold.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  lowStockThreshold?: number | null
+
+  @ApiPropertyOptional({ description: 'Per-variant reorder point.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  reorderPoint?: number | null
 }

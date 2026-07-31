@@ -7,18 +7,46 @@ import { MV_PILL, formatMovementDate } from '@/lib/movements'
 import { useT } from '@/i18n'
 import type { LocalProduct, StockMovementType } from '@shared/ipc'
 
-const TYPES: StockMovementType[] = ['OPENING_STOCK', 'RESTOCK_IN', 'MANUAL_ADJUSTMENT', 'SALE', 'VOID_REVERSAL', 'TRANSFER_IN', 'TRANSFER_OUT']
+const TYPES: StockMovementType[] = [
+  'OPENING_STOCK',
+  'RESTOCK_IN',
+  'MANUAL_ADJUSTMENT',
+  'SALE',
+  'VOID_REVERSAL',
+  'TRANSFER_IN',
+  'TRANSFER_OUT',
+]
 
-/** Full, paginated stock-movement ledger for a product. */
-export function MovementHistoryModal({ product, open, onClose }: { product: LocalProduct; open: boolean; onClose: () => void }) {
+/** Full, paginated stock-movement ledger for a product — or one variant when `variantId` is set. */
+export function MovementHistoryModal({
+  product,
+  variantId,
+  title,
+  open,
+  onClose,
+}: {
+  product: LocalProduct
+  /** Scope the ledger to a single variant (variant detail page). */
+  variantId?: string
+  /** Subtitle shown top-left (defaults to the product name). */
+  title?: string
+  open: boolean
+  onClose: () => void
+}) {
   const t = useT()
   const [page, setPage] = useState(1)
   const [type, setType] = useState<StockMovementType | ''>('')
   const limit = 10
 
   const { data, isPending } = useQuery({
-    queryKey: [...queryKeys.products, 'movements-page', product.id, page, type],
-    queryFn: () => dataClient.inventory.listMovements(product.id, { page, limit, ...(type ? { type } : {}) }),
+    queryKey: [...queryKeys.products, 'movements-page', product.id, variantId ?? 'all', page, type],
+    queryFn: () =>
+      dataClient.inventory.listMovements(product.id, {
+        page,
+        limit,
+        ...(variantId ? { variantId } : {}),
+        ...(type ? { type } : {}),
+      }),
     enabled: isElectron && open,
   })
   const rows = data?.data ?? []
@@ -26,22 +54,42 @@ export function MovementHistoryModal({ product, open, onClose }: { product: Loca
 
   return (
     <Modal open={open} onClose={onClose} title={t('inv.historyTitle')} className="modal-lg">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{product.name}</span>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 12,
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{title ?? product.name}</span>
         <div style={{ maxWidth: 200 }}>
-          <Select value={type} onChange={(e) => { setType(e.target.value as StockMovementType | ''); setPage(1) }}>
+          <Select
+            value={type}
+            onChange={(e) => {
+              setType(e.target.value as StockMovementType | '')
+              setPage(1)
+            }}
+          >
             <option value="">{t('inv.allTypes')}</option>
             {TYPES.map((tp) => (
-              <option key={tp} value={tp}>{t(`pdv.mv_${tp}` as Parameters<typeof t>[0])}</option>
+              <option key={tp} value={tp}>
+                {t(`pdv.mv_${tp}` as Parameters<typeof t>[0])}
+              </option>
             ))}
           </Select>
         </div>
       </div>
 
       {isPending ? (
-        <div className="hint" style={{ padding: 20, textAlign: 'center' }}>{t('inv.loading')}</div>
+        <div className="hint" style={{ padding: 20, textAlign: 'center' }}>
+          {t('inv.loading')}
+        </div>
       ) : rows.length === 0 ? (
-        <div className="hint" style={{ padding: 20, textAlign: 'center' }}>{t('pdv.noMovements')}</div>
+        <div className="hint" style={{ padding: 20, textAlign: 'center' }}>
+          {t('pdv.noMovements')}
+        </div>
       ) : (
         <table className="ltbl">
           <thead>
@@ -59,9 +107,18 @@ export function MovementHistoryModal({ product, open, onClose }: { product: Loca
               return (
                 <tr key={m.id}>
                   <td className="num">{formatMovementDate(m.createdAt)}</td>
-                  <td><span className={`et ${MV_PILL[m.type] ?? 'et-sale'}`}>{t(`pdv.mv_${m.type}` as Parameters<typeof t>[0])}</span></td>
-                  <td>{m.type === 'OPENING_STOCK' ? t('pdv.mvInitial') : m.notes || t('pdv.none')}</td>
-                  <td className={`right ${positive ? 't-credit' : 't-debit'}`}>{positive ? '+' : '−'}{Math.abs(m.quantityChange)}</td>
+                  <td>
+                    <span className={`et ${MV_PILL[m.type] ?? 'et-sale'}`}>
+                      {t(`pdv.mv_${m.type}` as Parameters<typeof t>[0])}
+                    </span>
+                  </td>
+                  <td>
+                    {m.type === 'OPENING_STOCK' ? t('pdv.mvInitial') : m.notes || t('pdv.none')}
+                  </td>
+                  <td className={`right ${positive ? 't-credit' : 't-debit'}`}>
+                    {positive ? '+' : '−'}
+                    {Math.abs(m.quantityChange)}
+                  </td>
                   <td className="right t-bal">{m.quantityAfter}</td>
                 </tr>
               )
@@ -72,10 +129,20 @@ export function MovementHistoryModal({ product, open, onClose }: { product: Loca
 
       {totalPages > 1 ? (
         <div className="panel-foot" style={{ borderTop: 0, paddingLeft: 0, paddingRight: 0 }}>
-          <span>{t('inv.pageOf').replace('{p}', String(page)).replace('{n}', String(totalPages))}</span>
+          <span>
+            {t('inv.pageOf').replace('{p}', String(page)).replace('{n}', String(totalPages))}
+          </span>
           <div className="spacer" />
-          <Button variant="soft" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{t('inv.prev')}</Button>
-          <Button variant="soft" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>{t('inv.next')}</Button>
+          <Button variant="soft" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('inv.prev')}
+          </Button>
+          <Button
+            variant="soft"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('inv.next')}
+          </Button>
         </div>
       ) : null}
     </Modal>

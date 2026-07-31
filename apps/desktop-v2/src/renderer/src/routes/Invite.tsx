@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
+import { BrandMark, Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
 import type { InvitePreviewResponse } from '@biztrack/types'
 import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
@@ -68,7 +68,7 @@ export function Invite() {
   const [busy, setBusy] = useState(false)
 
   // the identifier the invite was sent to (locked, unmasked)
-  const maskedIdentifier = preview?.sentTo || '';
+  const maskedIdentifier = preview?.sentTo || ''
   const identifier = preview?.email ?? preview?.phone ?? ''
   const idIsEmail = identifier.includes('@')
   const otherOnFile =
@@ -107,8 +107,14 @@ export function Invite() {
   // field is shown read-only in the idlock; the OTHER contact is an editable input.
   useEffect(() => {
     if (!preview) return
-    if (preview.email) { setEmail(preview.email); setSiEmail(preview.email) }
-    if (preview.phone) { setPhone(preview.phone); setSiPhone(preview.phone) }
+    if (preview.email) {
+      setEmail(preview.email)
+      setSiEmail(preview.email)
+    }
+    if (preview.phone) {
+      setPhone(preview.phone)
+      setSiPhone(preview.phone)
+    }
     // Default the sign-in channel to whatever the invite was sent on.
     setSiMode(preview.email ? 'email' : 'phone')
   }, [preview])
@@ -238,7 +244,9 @@ export function Invite() {
   // ---------------- render ----------------
   const Logo = (
     <div className="auth-logo">
-      <div className="mk">B</div>
+      <div className="mk">
+        <BrandMark size={22} />
+      </div>
       <div className="wm">BizTrack CM</div>
     </div>
   )
@@ -316,7 +324,10 @@ export function Invite() {
         <div className="jh-role">
           {t('invite.asRole')}{' '}
           {preview?.role ? (
-            <span className="st" style={{ color: 'var(--success)', background: 'var(--success-soft)' }}>
+            <span
+              className="st"
+              style={{ color: 'var(--success)', background: 'var(--success-soft)' }}
+            >
               {preview.role}
             </span>
           ) : (
@@ -330,43 +341,49 @@ export function Invite() {
         <button type="button" aria-pressed={mode === 'new'} onClick={() => switchMode('new')}>
           {t('invite.modeNew')}
         </button>
-        <button type="button" aria-pressed={mode === 'existing'} onClick={() => switchMode('existing')}>
+        <button
+          type="button"
+          aria-pressed={mode === 'existing'}
+          onClick={() => switchMode('existing')}
+        >
           {t('invite.modeExisting')}
         </button>
       </div>
 
       {mode === 'new' ? (
         <>
-      <div className="idlock">
-        <div className="ic">
-          {idIsEmail ? (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="m3 7 9 6 9-6" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <rect x="7" y="3" width="10" height="18" rx="2" />
-              <path d="M11 18h2" />
-            </svg>
-          )}
-        </div>
-        <div className="tx">
-          <div className="v">{maskedIdentifier}</div>
-          <div className="k">{mode === 'new' ? t('invite.fromInvitation') : t('invite.signingInAs')}</div>
-        </div>
-        <span className="lk">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <rect x="5" y="11" width="14" height="9" rx="2" />
-            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-          </svg>
-        </span>
-      </div>
-      {otherOnFile ? (
-        <div className="alt-id">
-          {t('invite.alsoOnFile')} <b>{otherOnFile}</b>
-        </div>
-      ) : null}
+          <div className="idlock">
+            <div className="ic">
+              {idIsEmail ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="m3 7 9 6 9-6" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <rect x="7" y="3" width="10" height="18" rx="2" />
+                  <path d="M11 18h2" />
+                </svg>
+              )}
+            </div>
+            <div className="tx">
+              <div className="v">{maskedIdentifier}</div>
+              <div className="k">
+                {mode === 'new' ? t('invite.fromInvitation') : t('invite.signingInAs')}
+              </div>
+            </div>
+            <span className="lk">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect x="5" y="11" width="14" height="9" rx="2" />
+                <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+              </svg>
+            </span>
+          </div>
+          {otherOnFile ? (
+            <div className="alt-id">
+              {t('invite.alsoOnFile')} <b>{otherOnFile}</b>
+            </div>
+          ) : null}
         </>
       ) : null}
 
@@ -401,7 +418,12 @@ export function Invite() {
                 <label className="lbl2">
                   {t('signup.phone')} <span className="req">*</span>
                 </label>
-                <PhoneInput value={phone} onChange={setPhone} error={!!errors.phone} placeholder="6 91 22 14 08" />
+                <PhoneInput
+                  value={phone}
+                  onChange={setPhone}
+                  error={!!errors.phone}
+                  placeholder="6 91 22 14 08"
+                />
                 {errors.phone ? (
                   <FieldError message={t(errors.phone)} />
                 ) : (
@@ -414,7 +436,13 @@ export function Invite() {
                   {t('signup.email')} <span className="req">*</span>
                 </label>
                 <div className="inwrap has-lead">
-                  <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className="lead"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
                     <rect x="3" y="5" width="18" height="14" rx="2" />
                     <path d="m3 7 9 6 9-6" />
                   </svg>
@@ -450,7 +478,11 @@ export function Invite() {
                 <i />
               </div>
               <div className="pwmeta">
-                {errors.password ? t(errors.password) : password ? t(PW_LABELS[strength]!) : t('signup.passwordHint')}
+                {errors.password
+                  ? t(errors.password)
+                  : password
+                    ? t(PW_LABELS[strength]!)
+                    : t('signup.passwordHint')}
               </div>
             </div>
 
@@ -492,15 +524,30 @@ export function Invite() {
                 <button
                   type="button"
                   className="opt"
-                  style={{ color: 'var(--brand-int)', background: 'none', border: 0, cursor: 'pointer', fontWeight: 600 }}
-                  onClick={() => { setSiMode((m) => (m === 'email' ? 'phone' : 'email')); setServerError(null) }}
+                  style={{
+                    color: 'var(--brand-int)',
+                    background: 'none',
+                    border: 0,
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                  onClick={() => {
+                    setSiMode((m) => (m === 'email' ? 'phone' : 'email'))
+                    setServerError(null)
+                  }}
                 >
                   {siMode === 'email' ? t('auth.usePhoneInstead') : t('auth.useEmailInstead')}
                 </button>
               </label>
               {siMode === 'email' ? (
                 <div className="inwrap has-lead">
-                  <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className="lead"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
                     <rect x="3" y="5" width="18" height="14" rx="2" />
                     <path d="m3 7 9 6 9-6" />
                   </svg>
@@ -519,7 +566,11 @@ export function Invite() {
             <div className="ff">
               <label className="lbl2">
                 {t('invite.yourPassword')}
-                <a className="opt" href="#" style={{ color: 'var(--brand-int)', textDecoration: 'none', fontWeight: 600 }}>
+                <a
+                  className="opt"
+                  href="#"
+                  style={{ color: 'var(--brand-int)', textDecoration: 'none', fontWeight: 600 }}
+                >
                   {t('auth.forgot')}
                 </a>
               </label>
@@ -551,7 +602,11 @@ export function Invite() {
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
         </svg>
-        {d <= 0 ? t('invite.expiredNote') : d === 1 ? t('invite.expiresTomorrow') : `${t('invite.expiresIn')} ${d} ${t('invite.days')}`}
+        {d <= 0
+          ? t('invite.expiredNote')
+          : d === 1
+            ? t('invite.expiresTomorrow')
+            : `${t('invite.expiresIn')} ${d} ${t('invite.days')}`}
       </div>
 
       <div className="decline">

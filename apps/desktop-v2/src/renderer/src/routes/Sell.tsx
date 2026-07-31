@@ -15,7 +15,18 @@ import type {
   LocalSerialUnit,
   LocalVariant,
   SaleInput,
+  SellEntry,
 } from '@shared/ipc'
+
+/** Normalised catalog tile derived from a sellable entry (product or variant). */
+interface SellTile {
+  key: string
+  name: string
+  imageUrl: string | null
+  price: number
+  stock: number
+  trackInventory: boolean
+}
 
 const PAGE = 20
 
@@ -152,6 +163,9 @@ interface SerialTarget {
   productId: string
   productName: string
   unitPrice: number
+  /** Set when the serialized product is sold as a variant — scopes the serial picker + lines. */
+  variantId?: string | null
+  variantName?: string | null
 }
 
 /** Base product name for a serialized line, tolerating legacy lines that predate `productName`. */
@@ -238,11 +252,17 @@ export function Sell() {
     queryFn: () => dataClient.categories.listSelectable({}),
     enabled: true,
   })
+  // Debounced search so the catalog doesn't refetch on every keystroke (Enter-to-scan is separate).
+  const [dSearch, setDSearch] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDSearch(search.trim()), 250)
+    return () => clearTimeout(id)
+  }, [search])
   const catalog = useInfiniteQuery({
-    queryKey: [...queryKeys.products, 'sell', search, categoryId],
+    queryKey: [...queryKeys.products, 'sell', dSearch, categoryId],
     queryFn: ({ pageParam }) =>
-      dataClient.products.list({
-        search,
+      dataClient.products.listSellable({
+        search: dSearch,
         categoryId: categoryId ?? undefined,
         page: pageParam,
         limit: PAGE,
@@ -252,7 +272,7 @@ export function Sell() {
     getNextPageParam: (last) => (last.page < last.totalPages ? last.page + 1 : undefined),
     enabled: true,
   })
-  const products = catalog.data?.pages.flatMap((p) => p.data) ?? []
+  const entries = catalog.data?.pages.flatMap((p) => p.data) ?? []
 
   // Preset the customer when arriving from a contact's "New sale" (/sell?customer=<id>).
   const [searchParams] = useSearchParams()
@@ -358,10 +378,12 @@ export function Sell() {
   const serialLine = (tgt: SerialTarget, u: LocalSerialUnit): CartLine => ({
     key: `serial:${u.id}`,
     productId: tgt.productId,
-    name: `${tgt.productName} · ${u.serialNumber}`,
+    name: `${tgt.productName}${tgt.variantName ? ` · ${tgt.variantName}` : ''} · ${u.serialNumber}`,
     productName: tgt.productName,
     unitPrice: tgt.unitPrice,
     quantity: 1,
+    variantId: tgt.variantId ?? null,
+    variantName: tgt.variantName ?? null,
     serialUnitId: u.id,
   })
   // Append path (barcode scan of a specific serial): add the unit, skipping any already in the cart.
@@ -381,9 +403,14 @@ export function Sell() {
   // with what's already in the cart, so it doubles as the "edit which units are sold" flow). The
   // number of serialized lines IS the quantity sold — you never +/− a serialized product.
   const applySerials = (target: SerialTarget, units: LocalSerialUnit[]) => {
+    const tv = target.variantId ?? null
+    // Scope the replace to this product AND variant, so a serialized variant's units don't wipe
+    // another variant's (or the product-level) serial lines.
+    const inScope = (l: CartLine) =>
+      l.productId === target.productId && !!l.serialUnitId && (l.variantId ?? null) === tv
     setCart((prev) => {
-      const at = prev.findIndex((l) => l.productId === target.productId && l.serialUnitId)
-      const without = prev.filter((l) => !(l.productId === target.productId && l.serialUnitId))
+      const at = prev.findIndex(inScope)
+      const without = prev.filter((l) => !inScope(l))
       const lines = units.map((u) => serialLine(target, u))
       if (at < 0) return [...without, ...lines]
       return [...without.slice(0, at), ...lines, ...without.slice(at)]
@@ -409,7 +436,44 @@ export function Sell() {
       productId: l.productId,
       productName: serialBaseName(l),
       unitPrice: l.unitPrice,
+      variantId: l.variantId ?? null,
+      variantName: l.variantName ?? null,
     })
+  // Click a catalog entry: a plain product routes through onProductClick; a variant adds directly,
+  // or (serialized) opens the serial picker scoped to that variant.
+  const onEntryClick = (e: SellEntry) => {
+    if (e.kind === 'product') return void onProductClick(e.product)
+    const { product, variant } = e
+    if (product.isSerialized) {
+      setSerialPick({
+        productId: product.id,
+        productName: product.name,
+        unitPrice: variant.priceOverride ?? product.sellingPrice,
+        variantId: variant.id,
+        variantName: variant.name,
+      })
+      return
+    }
+    addVariant(product, variant)
+  }
+  const entryTile = (e: SellEntry): SellTile =>
+    e.kind === 'variant'
+      ? {
+          key: `${e.product.id}:${e.variant.id}`,
+          name: `${e.product.name} · ${e.variant.name}`,
+          imageUrl: e.product.imageUrl,
+          price: e.variant.priceOverride ?? e.product.sellingPrice,
+          stock: e.variant.stockQuantity,
+          trackInventory: e.product.trackInventory,
+        }
+      : {
+          key: e.product.id,
+          name: e.product.name,
+          imageUrl: e.product.imageUrl,
+          price: e.product.effectiveSellingPrice,
+          stock: e.product.currentStock,
+          trackInventory: e.product.trackInventory,
+        }
   const clearAll = () => {
     setCart([])
     setCharges([])
@@ -660,7 +724,12 @@ export function Sell() {
         <SerialPicker
           target={serialPick}
           initialSelected={cart
-            .filter((l) => l.productId === serialPick.productId && l.serialUnitId)
+            .filter(
+              (l) =>
+                l.productId === serialPick.productId &&
+                l.serialUnitId &&
+                (l.variantId ?? null) === (serialPick.variantId ?? null),
+            )
             .map((l) => l.serialUnitId!)}
           onClose={() => setSerialPick(null)}
           onApply={(units) => applySerials(serialPick, units)}
@@ -781,39 +850,40 @@ export function Sell() {
         </div>
 
         <div className="pos-grid">
-          {products.map((p) => {
-            const out = p.trackInventory && p.currentStock <= 0
+          {entries.map((e) => {
+            const tile = entryTile(e)
+            const out = tile.trackInventory && tile.stock <= 0
             return (
               <button
-                key={p.id}
+                key={tile.key}
                 type="button"
                 className="pos-tile"
                 disabled={out}
-                onClick={() => void onProductClick(p)}
+                onClick={() => onEntryClick(e)}
               >
                 <span className="padd">{I.plus}</span>
                 <div className="pth">
-                  {p.imageUrl ? (
-                    <img src={p.imageUrl} alt="" />
+                  {tile.imageUrl ? (
+                    <img src={tile.imageUrl} alt="" />
                   ) : (
-                    p.name.trim().charAt(0).toUpperCase()
+                    tile.name.trim().charAt(0).toUpperCase()
                   )}
                 </div>
-                <div className="pn" title={p.name}>
-                  {p.name}
+                <div className="pn" title={tile.name}>
+                  {tile.name}
                 </div>
                 <div className="pp">
-                  <span>{money.format(p.effectiveSellingPrice)}</span>
-                  {p.trackInventory ? (
+                  <span>{money.format(tile.price)}</span>
+                  {tile.trackInventory ? (
                     <span className={`ps${out ? ' out' : ''}`}>
-                      {out ? t('sell.outOfStock') : p.currentStock}
+                      {out ? t('sell.outOfStock') : tile.stock}
                     </span>
                   ) : null}
                 </div>
               </button>
             )
           })}
-          {!catalog.isPending && products.length === 0 ? (
+          {!catalog.isPending && entries.length === 0 ? (
             <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>
               {t('sell.noProducts')}
             </div>
@@ -928,38 +998,39 @@ export function Sell() {
             ))}
           </div>
           <div className="prod-grid">
-            {products.map((p) => {
-              const out = p.trackInventory && p.currentStock <= 0
+            {entries.map((e) => {
+              const tile = entryTile(e)
+              const out = tile.trackInventory && tile.stock <= 0
               return (
                 <button
-                  key={p.id}
+                  key={tile.key}
                   type="button"
                   className="prod"
                   disabled={out}
-                  onClick={() => void onProductClick(p)}
+                  onClick={() => onEntryClick(e)}
                 >
                   <div className="thumb">
-                    {p.imageUrl ? (
-                      <img src={p.imageUrl} alt="" className="ava-img" />
+                    {tile.imageUrl ? (
+                      <img src={tile.imageUrl} alt="" className="ava-img" />
                     ) : (
-                      p.name.trim().charAt(0).toUpperCase()
+                      tile.name.trim().charAt(0).toUpperCase()
                     )}
                   </div>
-                  <div className="pn" title={p.name}>
-                    {p.name}
+                  <div className="pn" title={tile.name}>
+                    {tile.name}
                   </div>
                   <div className="pmeta">
-                    <span className="pp">{money.format(p.effectiveSellingPrice)}</span>
-                    {p.trackInventory ? (
-                      <span className={`ps${p.currentStock <= 0 ? ' out' : ''}`}>
-                        {out ? t('sell.outOfStock') : p.currentStock}
+                    <span className="pp">{money.format(tile.price)}</span>
+                    {tile.trackInventory ? (
+                      <span className={`ps${tile.stock <= 0 ? ' out' : ''}`}>
+                        {out ? t('sell.outOfStock') : tile.stock}
                       </span>
                     ) : null}
                   </div>
                 </button>
               )
             })}
-            {!catalog.isPending && products.length === 0 ? (
+            {!catalog.isPending && entries.length === 0 ? (
               <div className="cat-empty" style={{ gridColumn: '1 / -1' }}>
                 {t('sell.noProducts')}
               </div>
@@ -1565,8 +1636,15 @@ function SerialPicker({
   const [q, setQ] = useState('')
   const editing = initialSelected.length > 0
   const { data: serials = [], isPending } = useQuery({
-    queryKey: [...queryKeys.products, 'in-stock-serials', target.productId, q],
-    queryFn: () => dataClient.products.listInStockSerials(target.productId, null, q),
+    queryKey: [
+      ...queryKeys.products,
+      'in-stock-serials',
+      target.productId,
+      target.variantId ?? 'all',
+      q,
+    ],
+    queryFn: () =>
+      dataClient.products.listInStockSerials(target.productId, target.variantId ?? null, q),
     enabled: true,
   })
   // Remember every unit we've loaded (across searches) so a picked unit isn't lost when the
@@ -1593,7 +1671,11 @@ function SerialPicker({
     >
       <div className="pay-modal" style={{ width: 440 }}>
         <div className="pm-head">
-          <h3>{target.productName}</h3>
+          <h3>
+            {target.variantName
+              ? `${target.productName} · ${target.variantName}`
+              : target.productName}
+          </h3>
           <button type="button" className="x" onClick={onClose}>
             {I.x}
           </button>

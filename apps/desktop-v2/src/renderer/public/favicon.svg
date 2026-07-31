@@ -6,8 +6,11 @@
     </linearGradient>
   </defs>
   <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#bt)" />
-  <text x="15" y="16.5" text-anchor="middle" dominant-baseline="central"
-    font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700"
-    letter-spacing="-0.5" fill="#FFFFFF">B</text>
-  <circle cx="24.5" cy="24.5" r="4.5" fill="#2F7D4F" stroke="#143F6E" stroke-width="2" />
+  <path d="M7 26 L24 9" stroke="#fff" stroke-width="1.7" stroke-linecap="round"
+    stroke-dasharray="0.1 5" opacity="0.45" />
+  <circle cx="7" cy="26" r="1.8" fill="#fff" opacity="0.55" />
+  <circle cx="12.7" cy="20.7" r="2" fill="#fff" opacity="0.72" />
+  <circle cx="18.3" cy="15.3" r="2.2" fill="#fff" />
+  <circle cx="24" cy="9" r="3.9" fill="#fff" />
+  <circle cx="24" cy="9" r="1.7" fill="#2F7D4F" />
 </svg>

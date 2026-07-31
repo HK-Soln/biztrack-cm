@@ -569,6 +569,7 @@ export class InventoryService {
           movementRepo.create({
             businessId,
             productId,
+            variantId,
             type: MovementType.MANUAL_ADJUSTMENT,
             quantityChange: quantityAfter - quantityBefore,
             quantityBefore,
@@ -840,6 +841,7 @@ export class InventoryService {
             id: item.movementId ?? undefined,
             businessId,
             productId: item.productId,
+            variantId: item.variantId ?? null,
             type: MovementType.SALE,
             quantityChange: -item.quantity,
             quantityBefore,
@@ -938,6 +940,7 @@ export class InventoryService {
           movementRepo.create({
             businessId,
             productId: item.productId,
+            variantId: item.variantId ?? null,
             type: MovementType.VOID_REVERSAL,
             quantityChange: item.quantity,
             quantityBefore,
@@ -993,6 +996,10 @@ export class InventoryService {
 
     if (query.productId) {
       qb.andWhere('movement.product_id = :productId', { productId: query.productId })
+    }
+
+    if (query.variantId) {
+      qb.andWhere('movement.variant_id = :variantId', { variantId: query.variantId })
     }
 
     if (query.type) {
@@ -1328,6 +1335,7 @@ export class InventoryService {
               id: item.movementId ?? undefined,
               businessId: input.businessId,
               productId: product.id,
+              variantId: item.variantId ?? null,
               type: MovementType.RESTOCK_IN,
               quantityChange: created,
               quantityBefore: inStock - created,
@@ -1392,6 +1400,7 @@ export class InventoryService {
           id: item.movementId ?? undefined,
           businessId: input.businessId,
           productId: product.id,
+          variantId: item.variantId ?? null,
           type: MovementType.RESTOCK_IN,
           quantityChange: item.quantity,
           quantityBefore,

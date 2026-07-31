@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
+import { BrandMark, Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
@@ -73,7 +73,9 @@ export function SignIn() {
   return (
     <div className="auth-card">
       <div className="auth-logo">
-        <div className="mk">B</div>
+        <div className="mk">
+          <BrandMark size={22} />
+        </div>
         <div className="wm">BizTrack CM</div>
       </div>
       <div className="auth-h">
