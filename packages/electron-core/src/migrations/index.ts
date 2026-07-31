@@ -56,6 +56,8 @@ import { migration_0054 } from './0054_category_default_unit'
 import { migration_0055 } from './0055_product_image_variant'
 import { migration_0056 } from './0056_variant_seo'
 import { migration_0057 } from './0057_unique_serial_items'
+import { migration_0058 } from './0058_variant_reorder_point'
+import { migration_0059 } from './0059_inventory_movement_variant'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -119,6 +121,8 @@ export const MIGRATIONS: Migration[] = [
   migration_0055,
   migration_0056,
   migration_0057,
+  migration_0058,
+  migration_0059,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

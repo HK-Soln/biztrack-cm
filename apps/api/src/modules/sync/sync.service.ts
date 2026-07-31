@@ -246,6 +246,7 @@ type ProductVariantPayload = {
   sortOrder?: number | null
   openingStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   description?: string | null
   metaTitle?: string | null
   metaDescription?: string | null
@@ -1021,7 +1022,10 @@ export class SyncService {
 
       // Per-variant stock for the variant records being emitted (so the desktop's
       // denormalised variant stock stays correct across pulls).
-      const variantStock = new Map<string, { quantity: number; lowStockThreshold: number | null }>()
+      const variantStock = new Map<
+        string,
+        { quantity: number; lowStockThreshold: number | null; reorderPoint: number | null }
+      >()
       if (productVariants.length > 0) {
         const levels = await this.inventoryLevelsRepo.find({
           where: { businessId, variantId: In(productVariants.map((v) => v.id)) },
@@ -1031,6 +1035,7 @@ export class SyncService {
             variantStock.set(l.variantId, {
               quantity: l.quantity,
               lowStockThreshold: l.lowStockThreshold ?? null,
+              reorderPoint: l.reorderPoint ?? null,
             })
         }
       }
@@ -1193,6 +1198,7 @@ export class SyncService {
           isPublishedOnline: record.isPublishedOnline ?? false,
           stockQuantity: variantStock.get(record.id)?.quantity ?? 0,
           lowStockThreshold: variantStock.get(record.id)?.lowStockThreshold ?? null,
+          reorderPoint: variantStock.get(record.id)?.reorderPoint ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -2215,6 +2221,7 @@ export class SyncService {
     referenceId: string,
     notes: string,
     createdAt: Date,
+    variantId: string | null = null,
   ): Promise<void> {
     if (change === 0) return
     const hasHistory =
@@ -2225,6 +2232,7 @@ export class SyncService {
       this.inventoryMovementsRepo.create({
         businessId,
         productId,
+        variantId,
         type,
         quantityChange: change,
         quantityBefore: quantityAfter - change,
@@ -2294,6 +2302,8 @@ export class SyncService {
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
+      // Threshold edits on an existing variant land on its inventory level, not the variant row.
+      await this.updateVariantLevelThresholds(businessId, productId, operation.recordId, payload)
       await this.refreshHasVariants(businessId, productId)
       return { status: 'applied' }
     }
@@ -2322,6 +2332,7 @@ export class SyncService {
             variantId: operation.recordId,
             quantity: openingStock,
             lowStockThreshold: payload.lowStockThreshold ?? null,
+            reorderPoint: payload.reorderPoint ?? null,
           }),
         )
         // The variant's opening stock is a stock-in — mirror the desktop ledger entry.
@@ -2335,16 +2346,34 @@ export class SyncService {
             operation.recordId,
             `Added variant "${fields.name}" (+${openingStock})`,
             this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+            operation.recordId,
           )
         }
-      } else if (payload.lowStockThreshold !== undefined) {
-        await this.inventoryLevelsRepo.update(level.id, {
-          lowStockThreshold: payload.lowStockThreshold,
-        })
+      } else {
+        await this.updateVariantLevelThresholds(businessId, productId, operation.recordId, payload)
       }
     }
     await this.refreshHasVariants(businessId, productId)
     return { status: 'applied' }
+  }
+
+  /** Persist a variant's stock alert thresholds onto its inventory level. Only keys present in
+   * the payload are changed, so a catalog-only edit never wipes existing thresholds. */
+  private async updateVariantLevelThresholds(
+    businessId: string,
+    productId: string,
+    variantId: string,
+    payload: ProductVariantPayload,
+  ): Promise<void> {
+    if (payload.lowStockThreshold === undefined && payload.reorderPoint === undefined) return
+    const level = await this.inventoryLevelsRepo.findOne({
+      where: { businessId, productId, variantId },
+    })
+    if (!level) return
+    const patch: { lowStockThreshold?: number | null; reorderPoint?: number | null } = {}
+    if (payload.lowStockThreshold !== undefined) patch.lowStockThreshold = payload.lowStockThreshold
+    if (payload.reorderPoint !== undefined) patch.reorderPoint = payload.reorderPoint
+    await this.inventoryLevelsRepo.update(level.id, patch)
   }
 
   private async applyProductVariantOptionOperation(
@@ -2437,6 +2466,7 @@ export class SyncService {
             operation.recordId,
             'Retired serial unit',
             operation.recordUpdatedAt,
+            existing.variantId ?? null,
           )
         }
       }
@@ -2490,6 +2520,7 @@ export class SyncService {
           productId,
           change > 0 ? 'Added serial unit' : 'Removed serial unit',
           this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          variantId,
         )
       }
       return { status: 'applied' }
@@ -2523,6 +2554,7 @@ export class SyncService {
         productId,
         'Added serial unit',
         this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        variantId,
       )
     }
     return { status: 'applied' }
@@ -3378,6 +3410,7 @@ export class SyncService {
           id: operation.recordId,
           businessId,
           productId: payload.productId,
+          variantId,
           type: MovementType.MANUAL_ADJUSTMENT,
           quantityChange: quantityAfter - quantityBefore,
           quantityBefore,
@@ -4310,6 +4343,7 @@ export class SyncService {
       id: record.id,
       businessId: record.businessId,
       productId: record.productId,
+      variantId: record.variantId ?? null,
       type: record.type as unknown as InventoryMovementSyncRecord['type'],
       quantityChange: record.quantityChange,
       quantityBefore: record.quantityBefore,

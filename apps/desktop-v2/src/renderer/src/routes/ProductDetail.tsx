@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, Modal } from '@biztrack/ui/biztrack'
+import { BackButton, Button, ImageCarousel, Modal } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
+import { useBreakpoint } from '@/lib/useBreakpoint'
 import { ManageSerialUnits } from '@/components/products/ManageSerialUnits'
 import { ManageVariants } from '@/components/products/ManageVariants'
 import { useCurrency } from '@/lib/currency'
@@ -36,6 +37,9 @@ export function ProductDetail() {
   const [adjustOpen, setAdjustOpen] = useState(false)
   const [thresholdOpen, setThresholdOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  // Gallery lightbox: index of the open image, or null when closed.
+  const [carousel, setCarousel] = useState<number | null>(null)
+  const bp = useBreakpoint()
 
   const { data: product, isPending } = useQuery({
     queryKey: [...queryKeys.products, 'one', id],
@@ -447,8 +451,10 @@ export function ProductDetail() {
       {/* Variant management (movement-based): add / edit info / remove. */}
       {p.productType === 'SIMPLE' ? <ManageVariants product={p} /> : null}
 
-      {/* Serial units management (movement-based): add / retire / correct. */}
-      {p.isSerialized ? <ManageSerialUnits product={p} /> : null}
+      {/* Serial units management (movement-based): add / retire / correct. Only product-level
+          serials live here — for a variant product, serials belong to variants and are managed
+          on the variant detail page, so this section is hidden. */}
+      {p.isSerialized && !p.hasVariants ? <ManageSerialUnits product={p} /> : null}
 
       {/* Extra: online store & SEO (not in the base design, added per request). */}
       {p.isPublishedOnline ? (
@@ -491,22 +497,67 @@ export function ProductDetail() {
         </div>
       ) : null}
 
-      {/* Extra: gallery (not in the base design, added per request). */}
-      {images.length > 0 ? (
-        <div className="card" style={{ marginTop: 14 }}>
-          <div className="card-h">
-            <div>
-              <h3>{t('pdv.gallery')}</h3>
-            </div>
-            <span className="chip-tag">{images.length}</span>
-          </div>
-          <div className="detail-gallery">
-            {images.map((g) => (
-              <img key={g.id} src={g.url} alt="" />
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {/* Gallery: the product's own images only (variant_id IS NULL). For a variant product,
+          imagery is managed per-variant on the variant detail page, so the product gallery is
+          hidden here (mirrors how serial units are hidden for variant products). */}
+      {!p.hasVariants && images.length > 0
+        ? (() => {
+            const cols = bp === 'mobile' ? 3 : bp === 'tablet' ? 4 : 5
+            const maxTiles = cols // a single row
+            const overflow = images.length > maxTiles
+            const visible = overflow ? images.slice(0, maxTiles - 1) : images
+            const moreFrom = maxTiles - 1
+            const moreCount = images.length - moreFrom
+            return (
+              <div className="card" style={{ marginTop: 14 }}>
+                <div className="card-h">
+                  <div>
+                    <h3>{t('pdv.gallery')}</h3>
+                  </div>
+                  <span className="chip-tag">{images.length}</span>
+                </div>
+                <div
+                  className="detail-gallery"
+                  style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+                >
+                  {visible.map((g, i) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      className="dg-tile"
+                      onClick={() => setCarousel(i)}
+                    >
+                      <img src={g.url} alt="" />
+                    </button>
+                  ))}
+                  {overflow ? (
+                    <button
+                      type="button"
+                      className="dg-tile dg-more"
+                      onClick={() => setCarousel(moreFrom)}
+                    >
+                      <img src={images[moreFrom]!.url} alt="" />
+                      <span className="dg-more-ov">
+                        +{moreCount} {t('pdv.more')}
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })()
+        : null}
+
+      <ImageCarousel
+        images={images.map((g) => ({ url: g.url, altText: g.altText }))}
+        index={carousel ?? 0}
+        open={carousel !== null}
+        onIndexChange={setCarousel}
+        onClose={() => setCarousel(null)}
+        closeLabel={t('common.close')}
+        prevLabel={t('common.prev')}
+        nextLabel={t('common.next')}
+      />
 
       <Modal
         open={confirmOpen}

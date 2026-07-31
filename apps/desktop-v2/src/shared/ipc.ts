@@ -62,6 +62,7 @@ export const IPC = {
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
   productsList: 'products:list',
+  productsListSellable: 'products:list-sellable',
   productsGet: 'products:get',
   productsCreate: 'products:create',
   productsUpdate: 'products:update',
@@ -280,6 +281,11 @@ export interface ProductListQuery extends ListQueryT {
   brandId?: string
   isActive?: boolean
   stockStatus?: StockStatus
+}
+
+/** Serial-units page query — base list query optionally scoped to one variant. */
+export interface SerialUnitsPageQuery extends ListQueryT {
+  variantId?: string
 }
 
 /** Catalog KPI roll-up for the products list header (computed from local SQLite). */
@@ -842,6 +848,7 @@ export interface LocalVariant {
   /** Read-only per-variant stock (from the variant's inventory level). */
   stockQuantity: number
   lowStockThreshold: number | null
+  reorderPoint: number | null
   // A variant is a mini-product with its own description + SEO/online fields.
   description: string | null
   metaTitle: string | null
@@ -861,6 +868,7 @@ export interface VariantInput {
   /** Opening stock to seed the variant's inventory on create (non-serialised). */
   openingStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   description?: string | null
   metaTitle?: string | null
   metaDescription?: string | null
@@ -924,6 +932,8 @@ export interface MovementsQuery extends ListQueryT {
   type?: StockMovementType
   dateFrom?: string
   dateTo?: string
+  /** Scope to one variant's movements (variant detail page). */
+  variantId?: string
 }
 
 /** One row in the inventory (stock-levels) list. */
@@ -1471,6 +1481,12 @@ export type ScanHit =
   | { kind: 'variant'; product: LocalProduct; variant: LocalVariant }
   | { kind: 'serial'; product: LocalProduct; serial: LocalSerialUnit }
 
+/** A sellable catalog entry for the POS grid: a non-variant product, or one variant of a
+ * variant product (each variant is its own tile). */
+export type SellEntry =
+  | { kind: 'product'; product: LocalProduct }
+  | { kind: 'variant'; product: LocalProduct; variant: LocalVariant }
+
 /** Why a stock level changed (mirrors the API's MovementType). */
 export type StockMovementType =
   | 'OPENING_STOCK'
@@ -1488,6 +1504,8 @@ export interface LocalStockMovement {
   productId?: string
   /** Product display name — populated only by the all-products movements list (reports). */
   productName?: string | null
+  /** The variant this movement affected (null = product-level). */
+  variantId?: string | null
   type: StockMovementType
   quantityChange: number
   quantityBefore: number
@@ -1729,6 +1747,8 @@ export interface BridgeApi {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    /** Flattened sellable catalog for the POS grid: products + one entry per variant. */
+    listSellable: (query?: ProductListQuery) => Promise<PaginatedT<SellEntry>>
     stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
     create: (input: ProductInput) => Promise<LocalProduct>
@@ -1761,7 +1781,7 @@ export interface BridgeApi {
     /** Paginated serial units for the product-detail management section (default limit 5). */
     listSerialUnitsPage: (
       productId: string,
-      query?: ListQueryT,
+      query?: SerialUnitsPageQuery,
     ) => Promise<PaginatedT<LocalSerialUnit>>
     /** IN_STOCK serial units a sale can consume (optionally scoped to a variant + serial search). */
     listInStockSerials: (

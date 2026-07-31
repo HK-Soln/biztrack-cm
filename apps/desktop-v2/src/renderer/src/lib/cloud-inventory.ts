@@ -105,6 +105,7 @@ interface ApiMovement {
   id: string
   productId?: string
   productName?: string | null
+  variantId?: string | null
   type: LocalStockMovement['type']
   quantityChange: number
   quantityBefore: number
@@ -121,6 +122,7 @@ function toLocalStockMovement(m: ApiMovement): LocalStockMovement {
     id: m.id,
     productId: m.productId,
     productName: m.productName ?? null,
+    variantId: m.variantId ?? null,
     type: m.type,
     quantityChange: m.quantityChange,
     quantityBefore: m.quantityBefore,
@@ -135,27 +137,37 @@ function toLocalStockMovement(m: ApiMovement): LocalStockMovement {
 
 export const cloudInventory = {
   list: async (query?: InventoryListQuery): Promise<PaginatedResult<LocalInventoryItem>> => {
-    const res = await cget<PaginatedResult<ApiInventoryItem>>(`/inventory${qs(query as Record<string, unknown>)}`)
+    const res = await cget<PaginatedResult<ApiInventoryItem>>(
+      `/inventory${qs(query as Record<string, unknown>)}`,
+    )
     return { ...res, data: res.data.map(toLocalInventoryItem) }
   },
   stats: (): Promise<InventoryStats> => cget<InventoryStats>('/inventory/stats'),
   reorderSuggestions: async (): Promise<LocalReorderSuggestion[]> =>
     (await cgetAll<ApiInventoryAlert>('/inventory/alerts')).map(toLocalReorderSuggestion),
-  listMovements: async (productId: string, query?: MovementsQuery): Promise<PaginatedResult<LocalStockMovement>> => {
+  listMovements: async (
+    productId: string,
+    query?: MovementsQuery,
+  ): Promise<PaginatedResult<LocalStockMovement>> => {
     const res = await cget<PaginatedResult<ApiMovement>>(
       `/inventory/${productId}/movements${qs(query as Record<string, unknown>)}`,
     )
     return { ...res, data: res.data.map(toLocalStockMovement) }
   },
-  listAllMovements: async (query?: MovementsQuery): Promise<PaginatedResult<LocalStockMovement>> => {
-    const res = await cget<PaginatedResult<ApiMovement>>(`/inventory/movements${qs(query as Record<string, unknown>)}`)
+  listAllMovements: async (
+    query?: MovementsQuery,
+  ): Promise<PaginatedResult<LocalStockMovement>> => {
+    const res = await cget<PaginatedResult<ApiMovement>>(
+      `/inventory/movements${qs(query as Record<string, unknown>)}`,
+    )
     return { ...res, data: res.data.map(toLocalStockMovement) }
   },
   turnover: (query?: MovementsQuery): Promise<InventoryTurnoverRow[]> =>
     cget<InventoryTurnoverRow[]>(`/inventory/turnover${qs(query as Record<string, unknown>)}`),
   deadStock: (): Promise<{ rows: DeadStockRow[]; stockCostTotal: number }> =>
     cget<{ rows: DeadStockRow[]; stockCostTotal: number }>('/inventory/dead-stock'),
-  supplierPriceTrend: (): Promise<SupplierPriceRow[]> => cget<SupplierPriceRow[]>('/inventory/supplier-price-trend'),
+  supplierPriceTrend: (): Promise<SupplierPriceRow[]> =>
+    cget<SupplierPriceRow[]>('/inventory/supplier-price-trend'),
   // The backend derives the settlement from items/charges/discounts/payments and fulfils
   // the PO (received qty + status) when purchaseOrderId is set.
   restock: async (input: RestockInput): Promise<void> => {
@@ -172,7 +184,11 @@ export const cloudInventory = {
         invoiceFileUrl: input.invoiceFileUrl,
         payments: input.payments?.length
           ? input.payments.map((p) =>
-              clean({ method: p.method, amount: p.amount, mobileMoneyReference: p.mobileMoneyReference }),
+              clean({
+                method: p.method,
+                amount: p.amount,
+                mobileMoneyReference: p.mobileMoneyReference,
+              }),
             )
           : undefined,
         charges: input.charges?.length
@@ -189,7 +205,13 @@ export const cloudInventory = {
           : undefined,
         discounts: input.discounts?.length
           ? input.discounts.map((d) =>
-              clean({ id: d.id, description: d.description, discountType: d.discountType, rate: d.rate, amount: d.amount }),
+              clean({
+                id: d.id,
+                description: d.description,
+                discountType: d.discountType,
+                rate: d.rate,
+                amount: d.amount,
+              }),
             )
           : undefined,
         items: input.items.map((i) =>

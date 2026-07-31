@@ -26,6 +26,7 @@ import type { PurchaseOrderService } from './purchase-order.service'
 
 interface MovementRow {
   id: string
+  variant_id: string | null
   type: string
   quantity_change: number
   quantity_before: number
@@ -326,6 +327,7 @@ export class InventoryService {
         {
           referenceType: 'product_variant',
           referenceId: variantId,
+          variantId,
           notes,
           type: 'MANUAL_ADJUSTMENT',
         },
@@ -584,6 +586,7 @@ export class InventoryService {
             {
               referenceType: 'restock',
               referenceId: restockId,
+              variantId: line.variantId,
               notes: movementNote,
               type: 'RESTOCK_IN',
             },
@@ -770,6 +773,11 @@ export class InventoryService {
 
     let where = 'business_id = ? AND product_id = ?'
     const params: unknown[] = [businessId, productId]
+    // Scope to one variant's movements (variant detail page) when requested.
+    if (query.variantId) {
+      where += ' AND variant_id = ?'
+      params.push(query.variantId)
+    }
     if (query.type) {
       where += ' AND type = ?'
       params.push(query.type)
@@ -788,7 +796,7 @@ export class InventoryService {
       {
         from: 'inventory_movements',
         columns:
-          'id, type, quantity_change, quantity_before, quantity_after, reference_type, reference_id, notes, performed_by_name, created_at',
+          'id, variant_id, type, quantity_change, quantity_before, quantity_after, reference_type, reference_id, notes, performed_by_name, created_at',
         where,
         params,
         searchColumns: ['notes'],
@@ -800,6 +808,7 @@ export class InventoryService {
     return toPaginated(
       rows.map((r) => ({
         id: r.id,
+        variantId: r.variant_id,
         type: r.type as StockMovementType,
         quantityChange: r.quantity_change,
         quantityBefore: r.quantity_before,
@@ -845,7 +854,7 @@ export class InventoryService {
       {
         from: 'inventory_movements m LEFT JOIN products p ON p.id = m.product_id',
         columns:
-          'm.id, m.product_id, p.name AS product_name, m.type, m.quantity_change, m.quantity_before, m.quantity_after, m.reference_type, m.reference_id, m.notes, m.performed_by_name, m.created_at',
+          'm.id, m.product_id, m.variant_id, p.name AS product_name, m.type, m.quantity_change, m.quantity_before, m.quantity_after, m.reference_type, m.reference_id, m.notes, m.performed_by_name, m.created_at',
         where,
         params,
         searchColumns: ['m.notes', 'p.name'],
@@ -859,6 +868,7 @@ export class InventoryService {
         id: r.id,
         productId: r.product_id,
         productName: r.product_name,
+        variantId: r.variant_id,
         type: r.type as StockMovementType,
         quantityChange: r.quantity_change,
         quantityBefore: r.quantity_before,

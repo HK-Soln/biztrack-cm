@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Input, OtpInput, PhoneInput, isValidPhone, toast } from '@biztrack/ui/biztrack'
+import {
+  BrandMark,
+  Button,
+  Input,
+  OtpInput,
+  PhoneInput,
+  isValidPhone,
+  toast,
+} from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { OtpChannel } from '@shared/ipc'
@@ -161,7 +169,9 @@ export function ForgotPassword() {
   return (
     <div className="auth-card">
       <div className="auth-logo">
-        <div className="mk">B</div>
+        <div className="mk">
+          <BrandMark size={22} />
+        </div>
         <div className="wm">BizTrack CM</div>
       </div>
 

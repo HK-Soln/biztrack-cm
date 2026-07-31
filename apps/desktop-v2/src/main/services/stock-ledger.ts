@@ -57,17 +57,20 @@ export const DISPLAY_PRICE_EXPR = `(CASE
 
 /** Effective on-hand stock for one product (serial count / variant sum / own qty). */
 export function effectiveStock(db: DatabaseService, productId: string): number {
-  const row = db.get<{ s: number | null }>(`SELECT ${STOCK_EXPR} AS s FROM products p WHERE p.id = ?`, [productId])
+  const row = db.get<{ s: number | null }>(
+    `SELECT ${STOCK_EXPR} AS s FROM products p WHERE p.id = ?`,
+    [productId],
+  )
   return Math.max(0, row?.s ?? 0)
 }
 
 /** How many movements a product has (used to detect the opening one). */
 export function movementCount(db: DatabaseService, businessId: string, productId: string): number {
   return (
-    db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM inventory_movements WHERE business_id = ? AND product_id = ?`, [
-      businessId,
-      productId,
-    ])?.n ?? 0
+    db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM inventory_movements WHERE business_id = ? AND product_id = ?`,
+      [businessId, productId],
+    )?.n ?? 0
   )
 }
 
@@ -85,7 +88,11 @@ export function setInventoryLevel(
     [businessId, productId],
   )
   if (level) {
-    db.run(`UPDATE inventory_levels SET quantity = ?, updated_at = ? WHERE id = ?`, [qty, now, level.id])
+    db.run(`UPDATE inventory_levels SET quantity = ?, updated_at = ? WHERE id = ?`, [
+      qty,
+      now,
+      level.id,
+    ])
   } else {
     db.run(
       `INSERT INTO inventory_levels (id, business_id, product_id, variant_id, quantity, low_stock_threshold, reorder_point, last_restock_at, created_at, updated_at)
@@ -107,7 +114,14 @@ export function recordStockMovement(
   businessId: string,
   productId: string,
   change: number,
-  opts: { referenceType: string; referenceId: string; notes: string; type?: StockMovementType },
+  opts: {
+    referenceType: string
+    referenceId: string
+    notes: string
+    type?: StockMovementType
+    /** The variant this movement affected (null = product-level). */
+    variantId?: string | null
+  },
   now: string,
 ): string | null {
   if (change === 0) return null
@@ -115,14 +129,30 @@ export function recordStockMovement(
   const after = effectiveStock(db, productId)
   const before = after - change
   const type: StockMovementType =
-    opts.type ?? (change > 0 && movementCount(db, businessId, productId) === 0 ? 'OPENING_STOCK' : 'MANUAL_ADJUSTMENT')
+    opts.type ??
+    (change > 0 && movementCount(db, businessId, productId) === 0
+      ? 'OPENING_STOCK'
+      : 'MANUAL_ADJUSTMENT')
   setInventoryLevel(db, businessId, productId, after, now)
   db.run(
     `INSERT INTO inventory_movements
-      (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
+      (id, business_id, product_id, variant_id, type, quantity_change, quantity_before, quantity_after,
        reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
-    [id, businessId, productId, type, change, before, after, opts.referenceType, opts.referenceId, opts.notes, now],
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+    [
+      id,
+      businessId,
+      productId,
+      opts.variantId ?? null,
+      type,
+      change,
+      before,
+      after,
+      opts.referenceType,
+      opts.referenceId,
+      opts.notes,
+      now,
+    ],
   )
   return id
 }

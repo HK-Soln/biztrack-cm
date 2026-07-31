@@ -267,6 +267,7 @@ const INVENTORY_MOVEMENT_MAP: Record<string, string> = {
   id: 'id',
   business_id: 'businessId',
   product_id: 'productId',
+  variant_id: 'variantId',
   type: 'type',
   quantity_change: 'quantityChange',
   quantity_before: 'quantityBefore',
@@ -1436,16 +1437,17 @@ export class SyncService {
     return {
       sql: `INSERT INTO product_variants
         (id, business_id, product_id, name, display_name_override, price_override, cost_price_override,
-         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold,
+         sku, barcode, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point,
          description, meta_title, meta_description, online_description, is_published_online,
          is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           product_id = excluded.product_id, name = excluded.name,
           display_name_override = excluded.display_name_override, price_override = excluded.price_override,
           cost_price_override = excluded.cost_price_override, sku = excluded.sku, barcode = excluded.barcode,
           is_active = excluded.is_active, sort_order = excluded.sort_order,
           stock_quantity = excluded.stock_quantity, low_stock_threshold = excluded.low_stock_threshold,
+          reorder_point = excluded.reorder_point,
           description = excluded.description, meta_title = excluded.meta_title,
           meta_description = excluded.meta_description, online_description = excluded.online_description,
           is_published_online = excluded.is_published_online,
@@ -1464,6 +1466,7 @@ export class SyncService {
         asNum(c.sortOrder) ?? 0,
         asNum(c.stockQuantity) ?? 0,
         asNum(c.lowStockThreshold),
+        asNum(c.reorderPoint),
         asStr(c.description),
         asStr(c.metaTitle),
         asStr(c.metaDescription),

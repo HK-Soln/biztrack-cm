@@ -600,6 +600,12 @@ export const en = {
   'pdv.metaTitle': 'Meta title',
   'pdv.reserve': 'In-store reserve',
   'pdv.gallery': 'Gallery',
+  'pdv.more': 'More',
+  // Variant detail page.
+  'vdv.backToProduct': 'Back to product',
+  'vdv.related': 'Related variants',
+  'vdv.relatedSub': 'Other variants of {name}',
+  'vdv.relatedEmpty': 'No other variants yet.',
   'pdv.restock': 'Restock',
   'pdv.adjustStock': 'Adjust stock',
   'pdv.inventorySoon': 'Available with the Inventory module',
@@ -1544,6 +1550,42 @@ export const en = {
   'psu.description': 'Description',
   'psu.descriptionPh': 'Condition, accessories, distinguishing details…',
   'psu.detailsError': 'Could not save the unit details.',
+
+  // Product create wizard.
+  'pwiz.stepSellingModel': 'Selling model',
+  'pwiz.stepVariants': 'Variants',
+  'pwiz.stepSerials': 'Serial units',
+  'pwiz.stepMediaOnline': 'Media & Online',
+  'pwiz.back': 'Back',
+  'pwiz.next': 'Next',
+  'pwiz.create': 'Create product',
+  'pwiz.variants': 'Has variants',
+  'pwiz.variantsHint': 'Sold in options like size or colour — each with its own price and stock.',
+  'pwiz.variantsIntro':
+    'Add each variant. Each one is a mini-product with its own price and images.',
+  'pwiz.variantsSerialIntro':
+    'Add each variant, then its serial/IMEI units — a variant’s stock is the number of units you add.',
+  'pwiz.serialsIntro':
+    'Add each unit by its serial/IMEI number. Stock is the number of in-stock units.',
+  'pwiz.variantsEmpty': 'No variants yet — add at least one.',
+  'pwiz.variantsRequired': 'Add at least one variant, or turn off variants.',
+  'pwiz.variantPriceRequired': 'Enter a selling price for this variant.',
+  'pwiz.variantDuplicate': 'A variant with this name already exists.',
+  'pwiz.variantSerials': 'Serial units for this variant',
+  'pwiz.serialCount': '{n} unit(s) added',
+  'pwiz.colUnits': 'Units',
+  'pwiz.imagesN': '{n} image(s)',
+  'pwiz.pricingVariantNote':
+    'The base price is the average of your variants — each variant sells at its own price.',
+  'pwiz.avgPrice': 'Average selling price',
+  'pwiz.avgCost': 'Average cost',
+  'pwiz.totalOpening': 'Total opening stock',
+  'pwiz.totalUnits': 'Total units',
+  'pwiz.stockVariantNote': 'Stock and reorder levels are set per variant.',
+
+  // Image gallery uploader.
+  'gal.cta': 'Add photos',
+  'gal.hint': 'Click or drop images here · drag to reorder · first is the cover',
 
   'ct.title': 'Contacts',
   'ct.subtitle': 'Customers and suppliers you trade with.',
@@ -3549,6 +3591,12 @@ export const fr: Record<MessageKey, string> = {
   'pdv.metaTitle': 'Méta-titre',
   'pdv.reserve': 'Réserve en boutique',
   'pdv.gallery': 'Galerie',
+  'pdv.more': 'De plus',
+  // Page de détail de la variante.
+  'vdv.backToProduct': 'Retour au produit',
+  'vdv.related': 'Variantes associées',
+  'vdv.relatedSub': 'Autres variantes de {name}',
+  'vdv.relatedEmpty': 'Aucune autre variante pour l’instant.',
   'pdv.restock': 'Réapprovisionner',
   'pdv.adjustStock': 'Ajuster le stock',
   'pdv.inventorySoon': 'Disponible avec le module Inventaire',
@@ -4506,6 +4554,44 @@ export const fr: Record<MessageKey, string> = {
   'psu.description': 'Description',
   'psu.descriptionPh': 'État, accessoires, détails distinctifs…',
   'psu.detailsError': 'Impossible d’enregistrer les détails de l’unité.',
+
+  // Assistant de création de produit.
+  'pwiz.stepSellingModel': 'Modèle de vente',
+  'pwiz.stepVariants': 'Variantes',
+  'pwiz.stepSerials': 'Unités sérialisées',
+  'pwiz.stepMediaOnline': 'Médias et en ligne',
+  'pwiz.back': 'Retour',
+  'pwiz.next': 'Suivant',
+  'pwiz.create': 'Créer le produit',
+  'pwiz.variants': 'A des variantes',
+  'pwiz.variantsHint':
+    'Vendu en options comme la taille ou la couleur — chacune avec son prix et son stock.',
+  'pwiz.variantsIntro':
+    'Ajoutez chaque variante. Chacune est un mini-produit avec son propre prix et ses images.',
+  'pwiz.variantsSerialIntro':
+    'Ajoutez chaque variante, puis ses unités série/IMEI — le stock d’une variante est le nombre d’unités ajoutées.',
+  'pwiz.serialsIntro':
+    'Ajoutez chaque unité par son numéro de série/IMEI. Le stock est le nombre d’unités disponibles.',
+  'pwiz.variantsEmpty': 'Aucune variante — ajoutez-en au moins une.',
+  'pwiz.variantsRequired': 'Ajoutez au moins une variante, ou désactivez les variantes.',
+  'pwiz.variantPriceRequired': 'Saisissez un prix de vente pour cette variante.',
+  'pwiz.variantDuplicate': 'Une variante portant ce nom existe déjà.',
+  'pwiz.variantSerials': 'Unités sérialisées pour cette variante',
+  'pwiz.serialCount': '{n} unité(s) ajoutée(s)',
+  'pwiz.colUnits': 'Unités',
+  'pwiz.imagesN': '{n} image(s)',
+  'pwiz.pricingVariantNote':
+    'Le prix de base est la moyenne de vos variantes — chaque variante se vend à son propre prix.',
+  'pwiz.avgPrice': 'Prix de vente moyen',
+  'pwiz.avgCost': 'Coût moyen',
+  'pwiz.totalOpening': 'Stock initial total',
+  'pwiz.totalUnits': 'Total des unités',
+  'pwiz.stockVariantNote': 'Le stock et les seuils de réappro sont définis par variante.',
+
+  // Téléversement de la galerie d'images.
+  'gal.cta': 'Ajouter des photos',
+  'gal.hint':
+    'Cliquez ou déposez des images ici · glissez pour réordonner · la première est la couverture',
 
   'ct.title': 'Contacts',
   'ct.subtitle': 'Clients et fournisseurs avec qui vous échangez.',

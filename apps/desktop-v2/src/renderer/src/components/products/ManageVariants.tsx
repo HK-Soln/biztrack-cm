@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, Modal, Pagination } from '@biztrack/ui/biztrack'
+import {
+  Button,
+  CommandSelect,
+  ImageGallery,
+  Input,
+  Modal,
+  Pagination,
+} from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
@@ -10,6 +18,7 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
 import { AdjustStockModal } from '@/components/inventory/AdjustStockModal'
+import { VariantEditModal } from './VariantEditModal'
 import type { LocalProduct, LocalVariant, ProductImageInput, VariantInput } from '@shared/ipc'
 
 const num = (s: string) => (s.trim() ? Number(s.replace(/\s/g, '')) : null)
@@ -26,7 +35,10 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const qc = useQueryClient()
   const bp = useBreakpoint()
   const money = useCurrency()
+  const navigate = useNavigate()
   const id = product.id
+  // A variant is managed on its own detail page.
+  const openVariant = (variantId: string) => navigate(`/products/${id}/variants/${variantId}`)
 
   // Variant management works in both builds — the cloud data-client mirrors the local calls.
   // The displayed list is paginated + searched by the BFF/API (5 per page); the renderer
@@ -62,32 +74,26 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
   const [addName, setAddName] = useState('')
   const [addPrice, setAddPrice] = useState('')
   const [addCost, setAddCost] = useState('')
+  const [addLowStock, setAddLowStock] = useState('')
+  const [addReorder, setAddReorder] = useState('')
+  // The variant being edited — the form itself lives in the shared VariantEditModal.
   const [edit, setEdit] = useState<LocalVariant | null>(null)
-  const [editFields, setEditFields] = useState({
-    name: '',
-    price: '',
-    cost: '',
-    sku: '',
-    active: true,
-    description: '',
-    metaTitle: '',
-    metaDescription: '',
-    onlineDescription: '',
-    publishOnline: false,
-  })
   const [addSku, setAddSku] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [remove, setRemove] = useState<LocalVariant | null>(null)
   const [reason, setReason] = useState('')
   const [adjust, setAdjust] = useState<LocalVariant | null>(null)
-  // Per-variant image gallery (a variant is a mini-product with its own images).
-  const [editGallery, setEditGallery] = useState<ProductImageInput[]>([])
-  const [editImgUploading, setEditImgUploading] = useState(false)
-  const editFileRef = useRef<HTMLInputElement>(null)
-  const editImgLoadedRef = useRef<string | null>(null)
+  // New variant's images — a variant is a mini-product, so images can be attached at creation
+  // (mirrors the create wizard). Committed after the variant row exists.
+  const [addGallery, setAddGallery] = useState<ProductImageInput[]>([])
+  const [addImgUploading, setAddImgUploading] = useState(false)
 
   const addM = useMutation({
-    mutationFn: (input: VariantInput) => dataClient.products.addVariant(id, input),
+    mutationFn: async (input: VariantInput) => {
+      const created = await dataClient.products.addVariant(id, input)
+      if (addGallery.length > 0) await dataClient.products.setImages(id, addGallery, created.id)
+      return created
+    },
     onSuccess: () => {
       setSel({})
       setOpening('')
@@ -95,37 +101,14 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
       setAddName('')
       setAddPrice('')
       setAddCost('')
+      setAddLowStock('')
+      setAddReorder('')
+      setAddGallery([])
       setAddErr(null)
       setAddOpen(false)
       invalidate()
     },
     onError: (e) => setAddErr(errorMessage(e, t('pvar.addError'))),
-  })
-  // The editing variant's own gallery — seeded once per open, edited locally, saved with it.
-  const editImages = useQuery({
-    queryKey: [...queryKeys.products, 'variant-images', id, edit?.id],
-    queryFn: () => dataClient.products.listImages(id, edit!.id),
-    enabled: !!edit,
-  })
-  useEffect(() => {
-    if (!edit || !editImages.data || editImgLoadedRef.current === edit.id) return
-    editImgLoadedRef.current = edit.id
-    setEditGallery(editImages.data.map((i) => ({ id: i.id, url: i.url, altText: i.altText })))
-  }, [edit, editImages.data])
-
-  const updateM = useMutation({
-    mutationFn: async (input: {
-      variantId: string
-      data: VariantInput
-      images: ProductImageInput[]
-    }) => {
-      await dataClient.products.updateVariant(id, input.variantId, input.data)
-      await dataClient.products.setImages(id, input.images, input.variantId)
-    },
-    onSuccess: () => {
-      setEdit(null)
-      invalidate()
-    },
   })
   const removeM = useMutation({
     mutationFn: (input: { variantId: string; reason: string }) =>
@@ -144,6 +127,9 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
     setAddName('')
     setAddPrice('')
     setAddCost('')
+    setAddLowStock('')
+    setAddReorder('')
+    setAddGallery([])
     setAddErr(null)
     setAddMode(links.length > 0 ? 'attributes' : 'custom')
     setAddOpen(true)
@@ -155,6 +141,8 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
       priceOverride: num(addPrice),
       costPriceOverride: num(addCost),
       openingStock: product.isSerialized ? 0 : (num(opening) ?? 0),
+      lowStockThreshold: num(addLowStock),
+      reorderPoint: num(addReorder),
       isActive: true,
     }
     if (addMode === 'attributes') {
@@ -175,64 +163,17 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
       addM.mutate({ ...common, name: addName.trim(), options: [] })
     }
   }
-  const openEdit = (v: LocalVariant) => {
-    editImgLoadedRef.current = null
-    setEditGallery([])
-    setEdit(v)
-    setEditFields({
-      name: v.name,
-      price: v.priceOverride != null ? String(v.priceOverride) : '',
-      cost: v.costPriceOverride != null ? String(v.costPriceOverride) : '',
-      sku: v.sku ?? '',
-      active: v.isActive,
-      description: v.description ?? '',
-      metaTitle: v.metaTitle ?? '',
-      metaDescription: v.metaDescription ?? '',
-      onlineDescription: v.onlineDescription ?? '',
-      publishOnline: v.isPublishedOnline,
-    })
-  }
-  const saveEdit = () => {
-    if (!edit) return
-    updateM.mutate({
-      variantId: edit.id,
-      data: {
-        name: editFields.name.trim() || edit.name,
-        sku: editFields.sku.trim() || null,
-        priceOverride: num(editFields.price),
-        costPriceOverride: num(editFields.cost),
-        isActive: editFields.active,
-        description: editFields.description.trim() || null,
-        metaTitle: editFields.metaTitle.trim() || null,
-        metaDescription: editFields.metaDescription.trim() || null,
-        onlineDescription: editFields.onlineDescription.trim() || null,
-        isPublishedOnline: editFields.publishOnline,
-        options: edit.options,
-      },
-      images: editGallery,
-    })
-  }
+  const openEdit = (v: LocalVariant) => setEdit(v)
 
-  async function onPickVariantImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
-    e.target.value = ''
-    const valid = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type))
-    if (valid.length === 0) return
-    setEditImgUploading(true)
-    try {
-      for (const file of valid) {
-        const bytes = await file.arrayBuffer()
-        const res = await dataClient.uploads.file({
-          bytes,
-          filename: file.name,
-          contentType: file.type,
-          folder: 'products',
-        })
-        setEditGallery((g) => [...g, { url: res.url }])
-      }
-    } finally {
-      setEditImgUploading(false)
-    }
+  const uploadImage = async (file: File): Promise<string> => {
+    const bytes = await file.arrayBuffer()
+    const res = await dataClient.uploads.file({
+      bytes,
+      filename: file.name,
+      contentType: file.type,
+      folder: 'products',
+    })
+    return res.url
   }
 
   const editIcon = (
@@ -332,10 +273,10 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
                   gap: 8,
                 }}
               >
-                <span className="nm">
+                <button type="button" className="nm vlink" onClick={() => openVariant(v.id)}>
                   {v.name}
                   {v.sku ? <span className="vcode"> · {v.sku}</span> : null}
-                </span>
+                </button>
                 {statusPill(v)}
               </div>
               <div
@@ -373,7 +314,9 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             {variants.map((v) => (
               <tr key={v.id}>
                 <td>
-                  <span className="nm">{v.name}</span>
+                  <button type="button" className="nm vlink" onClick={() => openVariant(v.id)}>
+                    {v.name}
+                  </button>
                 </td>
                 <td>
                   {v.sku ? (
@@ -416,7 +359,12 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             <Button variant="soft" onClick={() => setAddOpen(false)} disabled={addM.isPending}>
               {t('pvar.cancel')}
             </Button>
-            <Button variant="primary" loading={addM.isPending} onClick={submitAdd}>
+            <Button
+              variant="primary"
+              loading={addM.isPending}
+              disabled={addImgUploading}
+              onClick={submitAdd}
+            >
               {t('pvar.add')}
             </Button>
           </>
@@ -514,7 +462,7 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
           </div>
         </div>
         {!product.isSerialized ? (
-          <div className="ff">
+          <div className="ff" style={{ marginBottom: 10 }}>
             <label className="lbl2">{t('pvar.opening')}</label>
             <Input
               value={opening}
@@ -524,8 +472,52 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
             />
           </div>
         ) : (
-          <div className="hint">{t('pvar.serializedNote')}</div>
+          <div className="hint" style={{ marginBottom: 10 }}>
+            {t('pvar.serializedNote')}
+          </div>
         )}
+        <div className="form-2col">
+          <div className="ff">
+            <label className="lbl2">{t('prodf.lowStock')}</label>
+            <Input
+              value={addLowStock}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(e) => setAddLowStock(e.target.value)}
+            />
+          </div>
+          <div className="ff">
+            <label className="lbl2">{t('prodf.reorderPoint')}</label>
+            <Input
+              value={addReorder}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(e) => setAddReorder(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Variant images — first image is the cover; drag to reorder. */}
+        <div className="ff" style={{ marginTop: 10 }}>
+          <label className="lbl2">{t('pvar.images')}</label>
+          <ImageGallery
+            items={addGallery}
+            onChange={setAddGallery}
+            onUpload={uploadImage}
+            onUploadingChange={setAddImgUploading}
+            allowedTypes={ALLOWED_IMAGE_TYPES}
+            labels={{
+              cta: t('gal.cta'),
+              hint: t('gal.hint'),
+              uploading: t('prodf.imageUploading'),
+              remove: t('prodf.galleryRemove'),
+              setMain: t('prodf.setMain'),
+              main: t('prodf.main'),
+              typeError: t('prodf.imageTypeError'),
+            }}
+          />
+        </div>
+
         {addErr ? (
           <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
             {addErr}
@@ -533,178 +525,14 @@ export function ManageVariants({ product }: { product: LocalProduct }) {
         ) : null}
       </Modal>
 
-      {/* Edit info modal. */}
-      <Modal
+      {/* Edit — the form lives in the shared VariantEditModal (also used by the variant page). */}
+      <VariantEditModal
+        productId={id}
+        product={product}
+        variant={edit}
         open={!!edit}
         onClose={() => setEdit(null)}
-        title={t('pvar.editTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setEdit(null)} disabled={updateM.isPending}>
-              {t('pvar.cancel')}
-            </Button>
-            <Button variant="primary" loading={updateM.isPending} onClick={saveEdit}>
-              {t('pvar.save')}
-            </Button>
-          </>
-        }
-      >
-        <div className="ff">
-          <label className="lbl2">{t('pvar.name')}</label>
-          <Input
-            value={editFields.name}
-            onChange={(e) => setEditFields((f) => ({ ...f, name: e.target.value }))}
-          />
-        </div>
-        <div className="ff" style={{ marginTop: 10 }}>
-          <label className="lbl2">
-            {t('prodf.description')} <span className="opt">{t('prodf.optional')}</span>
-          </label>
-          <textarea
-            className="input"
-            rows={2}
-            style={{ resize: 'vertical', paddingTop: 10 }}
-            placeholder={t('prodf.descriptionPh')}
-            value={editFields.description}
-            onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))}
-          />
-        </div>
-        <div className="ff" style={{ marginTop: 10 }}>
-          <label className="lbl2">{t('pvar.code')}</label>
-          <Input
-            value={editFields.sku}
-            placeholder={t('pvar.codePh')}
-            onChange={(e) => setEditFields((f) => ({ ...f, sku: e.target.value }))}
-          />
-        </div>
-        <div className="form-2col" style={{ marginTop: 10 }}>
-          <div className="ff">
-            <label className="lbl2">{t('pvar.price')}</label>
-            <Input
-              value={editFields.price}
-              inputMode="decimal"
-              placeholder={String(product.sellingPrice)}
-              onChange={(e) => setEditFields((f) => ({ ...f, price: e.target.value }))}
-            />
-          </div>
-          <div className="ff">
-            <label className="lbl2">{t('pvar.cost')}</label>
-            <Input
-              value={editFields.cost}
-              inputMode="decimal"
-              placeholder="0"
-              onChange={(e) => setEditFields((f) => ({ ...f, cost: e.target.value }))}
-            />
-          </div>
-        </div>
-        <button
-          type="button"
-          className={`switch-line${editFields.active ? ' on' : ''}`}
-          style={{ marginTop: 12 }}
-          onClick={() => setEditFields((f) => ({ ...f, active: !f.active }))}
-          aria-pressed={editFields.active}
-        >
-          <span className={`switch${editFields.active ? ' on' : ''}`} />
-          <span>{t('pvar.active')}</span>
-        </button>
-
-        {/* Online store / SEO — a variant is a mini-product with its own online presence. */}
-        <div className="set-line" style={{ marginTop: 4 }}>
-          <div className="t">
-            <div className="nm">{t('prodf.publishOnline')}</div>
-            <div className="ds">{t('prodf.publishOnlineHint')}</div>
-          </div>
-          <button
-            type="button"
-            className={`switch${editFields.publishOnline ? ' on' : ''}`}
-            aria-pressed={editFields.publishOnline}
-            onClick={() => setEditFields((f) => ({ ...f, publishOnline: !f.publishOnline }))}
-          />
-        </div>
-        <div className="ff" style={{ marginTop: 10 }}>
-          <label className="lbl2">
-            {t('prodf.onlineDesc')} <span className="opt">SEO</span>
-          </label>
-          <textarea
-            className="input"
-            rows={2}
-            style={{ resize: 'vertical', paddingTop: 10 }}
-            placeholder={t('prodf.onlineDescPh')}
-            value={editFields.onlineDescription}
-            onChange={(e) => setEditFields((f) => ({ ...f, onlineDescription: e.target.value }))}
-          />
-        </div>
-        <div className="ff" style={{ marginTop: 10 }}>
-          <label className="lbl2">
-            {t('prodf.metaTitle')} <span className="opt">SEO</span>
-          </label>
-          <Input
-            value={editFields.metaTitle}
-            placeholder={editFields.name || t('prodf.metaTitlePh')}
-            onChange={(e) => setEditFields((f) => ({ ...f, metaTitle: e.target.value }))}
-          />
-        </div>
-        <div className="ff" style={{ marginTop: 10 }}>
-          <label className="lbl2">
-            {t('prodf.metaDescription')} <span className="opt">SEO</span>
-          </label>
-          <textarea
-            className="input"
-            rows={2}
-            style={{ resize: 'vertical', paddingTop: 10 }}
-            placeholder={t('prodf.metaDescriptionPh')}
-            value={editFields.metaDescription}
-            onChange={(e) => setEditFields((f) => ({ ...f, metaDescription: e.target.value }))}
-          />
-        </div>
-
-        {/* Per-variant image gallery. */}
-        <div className="ff" style={{ marginTop: 14 }}>
-          <div className="gallery-head">
-            <span>{t('pvar.images')}</span>
-            <button
-              type="button"
-              className="gallery-add"
-              onClick={() => editFileRef.current?.click()}
-              disabled={editImgUploading}
-            >
-              + {t('prodf.galleryAdd')}
-            </button>
-          </div>
-          <input
-            ref={editFileRef}
-            type="file"
-            accept={ALLOWED_IMAGE_TYPES.join(',')}
-            multiple
-            style={{ display: 'none' }}
-            onChange={onPickVariantImage}
-          />
-          {editGallery.length === 0 ? (
-            <div className="gallery-empty">
-              {editImgUploading ? t('prodf.imageUploading') : t('pvar.imagesEmpty')}
-            </div>
-          ) : (
-            <div className="gallery-grid">
-              {editGallery.map((g, i) => (
-                <div key={g.id ?? `new-${i}`} className="gallery-thumb">
-                  <img src={g.url} alt="" />
-                  <div className="gallery-acts">
-                    <button
-                      type="button"
-                      title={t('prodf.galleryRemove')}
-                      onClick={() => setEditGallery((gg) => gg.filter((_, idx) => idx !== i))}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path d="M6 6l12 12M18 6 6 18" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </Modal>
+      />
 
       {/* Remove (write-off) modal. */}
       <Modal

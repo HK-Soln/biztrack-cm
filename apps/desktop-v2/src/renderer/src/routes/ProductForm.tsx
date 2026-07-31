@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, CommandSelect, Input, ScanInput } from '@biztrack/ui/biztrack'
+import {
+  BackButton,
+  Button,
+  CommandSelect,
+  ImageGallery,
+  Input,
+  ScanInput,
+  Stepper,
+} from '@biztrack/ui/biztrack'
 import type { CommandSelectOption } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { SERIAL_TYPES } from '@/lib/serial'
 import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
+import { WizardVariants } from '@/components/products/WizardVariants'
+import { WizardSerials } from '@/components/products/WizardSerials'
+import { averageOf, type DraftVariant } from '@/components/products/wizardTypes'
 import type { ProductImageInput, ProductInput, ProductType, SerialType } from '@shared/ipc'
 
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
@@ -17,10 +29,10 @@ const TVA_RATE = 19.25
 const PRODUCT_TYPES: ProductType[] = ['SIMPLE', 'SERVICE']
 const DRAFT_KEY = 'biztrack:product-draft:new'
 
-// The product editor: a single, mostly-optional page. Only Name · Category · Price · Unit are
-// required — a sellable product exists in seconds. Options/variants, serial units, extra images
-// and full SEO are enriched afterward on the product page (create fast, enrich progressively).
-// New-product drafts persist to localStorage so a refresh resumes.
+// The product editor. Creating a product runs a dynamic multi-step wizard whose steps depend on
+// the product type and selling model (variants / serial units). Variants and serial units are
+// captured during creation. Editing keeps a single stacked form; variants/serials are managed on
+// the product detail page. New-product drafts persist to localStorage so a refresh resumes.
 interface Draft {
   name: string
   description: string
@@ -41,6 +53,10 @@ interface Draft {
   cost: string
   price: string
   taxable: boolean
+  /** Selling model: sold as distinct variants. Auto-on when the category has attribute groups. */
+  hasVariants: boolean
+  /** True once the user manually toggled variants — stops category auto-toggle from overriding. */
+  variantsTouched: boolean
   isSerialized: boolean
   serialType: SerialType
   warrantyMonths: string
@@ -53,8 +69,11 @@ interface Draft {
   onlineReserve: string
   metaTitle: string
   metaDescription: string
-  imageUrl: string | null
   gallery: ProductImageInput[]
+  /** Variants built in the wizard, committed after the product is created. */
+  variants: DraftVariant[]
+  /** Serial numbers for a serialized-only product (variants carry their own). */
+  serials: string[]
   isActive: boolean
   isFeatured: boolean
 }
@@ -77,6 +96,8 @@ const DEFAULT_DRAFT: Draft = {
   cost: '',
   price: '',
   taxable: true,
+  hasVariants: false,
+  variantsTouched: false,
   isSerialized: false,
   serialType: 'IMEI',
   warrantyMonths: '',
@@ -89,8 +110,9 @@ const DEFAULT_DRAFT: Draft = {
   onlineReserve: '',
   metaTitle: '',
   metaDescription: '',
-  imageUrl: null,
   gallery: [],
+  variants: [],
+  serials: [],
   isActive: true,
   isFeatured: false,
 }
@@ -110,6 +132,13 @@ function readDraft(): Draft | null {
   }
 }
 
+interface WizStep {
+  key: string
+  label: string
+  body: ReactNode
+  validate?: () => string | null
+}
+
 export function ProductForm() {
   const t = useT()
   const money = useCurrency()
@@ -121,6 +150,8 @@ export function ProductForm() {
   const initial = useRef<Draft>(editing ? DEFAULT_DRAFT : (readDraft() ?? DEFAULT_DRAFT)).current
   const [d, patch] = useReducer(reducer, initial)
   const [draftRestored, setDraftRestored] = useState(() => !editing && readDraft() != null)
+  const [step, setStep] = useState(0)
+  const [maxReached, setMaxReached] = useState(0)
 
   // Persist new-product drafts on every change so a refresh resumes seamlessly.
   useEffect(() => {
@@ -134,9 +165,6 @@ export function ProductForm() {
 
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [imageError, setImageError] = useState<string | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const galleryRef = useRef<HTMLInputElement>(null)
   const loadedRef = useRef(false)
   const galleryLoadedRef = useRef(false)
   // categoryId → its default unit id, cached from loadCategories so selecting a category
@@ -171,6 +199,12 @@ export function ProductForm() {
     queryKey: [...queryKeys.units, 'all-for-product'],
     queryFn: () => dataClient.units.list({ limit: 100 }),
   })
+  // Attribute groups of the selected category — drives the default of the Variants toggle.
+  const { data: catLinks = [] } = useQuery({
+    queryKey: queryKeys.categoryAttributeLinks(d.categoryId || 'none'),
+    queryFn: () => dataClient.attributes.listCategoryLinks(d.categoryId!),
+    enabled: !editing && !!d.categoryId && d.productType === 'SIMPLE',
+  })
   const unitLabelById = useMemo(
     () =>
       new Map(
@@ -178,6 +212,14 @@ export function ProductForm() {
           u.id,
           u.abbreviation ? `${u.name} (${u.abbreviation})` : u.name,
         ]),
+      ),
+    [unitsPage],
+  )
+  // The seeded "Service" unit (name "Service" / abbr "svc"), auto-selected for service products.
+  const serviceUnit = useMemo(
+    () =>
+      (unitsPage?.data ?? []).find(
+        (u) => u.abbreviation?.toLowerCase() === 'svc' || u.name.toLowerCase() === 'service',
       ),
     [unitsPage],
   )
@@ -202,9 +244,10 @@ export function ProductForm() {
       productType: existing.productType,
       unitId: existing.unitOfMeasureId ?? '',
       unitLabel: existing.unitAbbr,
-      imageUrl: existing.imageUrl,
       isActive: existing.isActive,
       isFeatured: existing.isFeatured,
+      hasVariants: existing.hasVariants ?? false,
+      variantsTouched: true,
       reorderPoint: existing.reorderPoint != null ? String(existing.reorderPoint) : '',
       lowStockThreshold:
         existing.lowStockThreshold != null ? String(existing.lowStockThreshold) : '',
@@ -220,21 +263,54 @@ export function ProductForm() {
     })
   }, [editing, existing])
 
-  // --- editing: seed gallery once -------------------------------------------
+  // --- editing: seed gallery once (primary image first) ---------------------
   useEffect(() => {
     if (!editing || galleryLoadedRef.current || !existingImages) return
     galleryLoadedRef.current = true
-    patch({ gallery: existingImages.map((g) => ({ id: g.id, url: g.url, altText: g.altText })) })
-  }, [editing, existingImages])
+    let imgs = existingImages.map((g) => ({ id: g.id, url: g.url, altText: g.altText }))
+    // Keep the product's current main image at the front so "primary = first" holds on re-save.
+    if (existing?.imageUrl) {
+      const idx = imgs.findIndex((g) => g.url === existing.imageUrl)
+      if (idx > 0) imgs = [imgs[idx]!, ...imgs.filter((_, i) => i !== idx)]
+    }
+    patch({ gallery: imgs })
+  }, [editing, existingImages, existing])
+
+  // --- create: default the Variants toggle from the category's attribute groups -------------
+  useEffect(() => {
+    if (editing || d.productType !== 'SIMPLE' || d.variantsTouched) return
+    const shouldHave = catLinks.length > 0
+    if (shouldHave !== d.hasVariants) patch({ hasVariants: shouldHave })
+  }, [editing, catLinks, d.productType, d.variantsTouched, d.hasVariants])
+
+  // --- create: a service product uses the "Service" unit. Fills it once the units load (or on a
+  // restored Service draft) when no unit is set, without overriding a unit the user later picks.
+  useEffect(() => {
+    if (editing || d.productType !== 'SERVICE' || d.unitId || !serviceUnit) return
+    patch({
+      unitId: serviceUnit.id,
+      unitLabel: unitLabelById.get(serviceUnit.id) ?? serviceUnit.name,
+      unitAutoFilled: true,
+    })
+  }, [editing, d.productType, d.unitId, serviceUnit, unitLabelById])
 
   // --- derived --------------------------------------------------------------
   const costN = Number(d.cost.replace(/\s/g, '')) || 0
   const priceN = Number(d.price.replace(/\s/g, '')) || 0
   const marginPct = priceN > 0 && costN > 0 ? ((priceN - costN) / priceN) * 100 : null
-  const tracksInventory = d.productType === 'SIMPLE' || d.productType === 'VARIABLE_QUANTITY'
-  // Only discrete stock items can be serial-tracked (weight/volume + services + bundles cannot).
-  const canSerialize = d.productType === 'SIMPLE'
+  const isSimple = d.productType === 'SIMPLE'
+  const tracksInventory = isSimple
+  const hasVariants = isSimple && d.hasVariants
+  const serialized = isSimple && d.isSerialized
+  // Variant aggregates (average price, cumulative stock) are a create-only view — on edit the
+  // wizard doesn't load the variants, so we never recompute the base from an empty list.
+  const aggregateView = hasVariants && !editing
   const numOrU = (v: string) => (v.trim() ? Number(v.replace(/\s/g, '')) : undefined)
+  const num = (v: string) => Number(v.replace(/\s/g, '')) || 0
+
+  // The variant product's base price/cost = the average across its variants (computed at save).
+  const avgPrice = averageOf(d.variants.map((v) => v.price))
+  const avgCost = averageOf(d.variants.map((v) => v.cost))
 
   // --- loaders (search reaches SQLite/API, not just the loaded page) ---------
   const loadBrands = useCallback(
@@ -335,60 +411,16 @@ export function ProductForm() {
     unitLabelById,
   ])
 
-  // --- image upload ---------------------------------------------------------
-  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) return setImageError(t('prodf.imageTypeError'))
-    setImageError(null)
-    setUploading(true)
-    try {
-      const bytes = await file.arrayBuffer()
-      const res = await dataClient.uploads.file({
-        bytes,
-        filename: file.name,
-        contentType: file.type,
-        folder: 'products',
-      })
-      patch({ imageUrl: res.url })
-    } catch {
-      setImageError(t('prodf.imageError'))
-    } finally {
-      setUploading(false)
-    }
-  }
-  async function onPickGallery(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
-    e.target.value = ''
-    const valid = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type))
-    if (valid.length === 0) return
-    setUploading(true)
-    try {
-      for (const file of valid) {
-        const bytes = await file.arrayBuffer()
-        const res = await dataClient.uploads.file({
-          bytes,
-          filename: file.name,
-          contentType: file.type,
-          folder: 'products',
-        })
-        patch((s) => ({ gallery: [...s.gallery, { url: res.url }] }))
-      }
-    } catch {
-      setImageError(t('prodf.imageError'))
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  // --- validation + save ----------------------------------------------------
-  function validate(): string | null {
-    if (!d.name.trim()) return t('prodf.nameRequired')
-    if (!d.unitId) return t('prodf.unitRequired')
-    // Services often have no fixed price (e.g. repairs) → allowed 0. Everything else needs one.
-    if (d.productType !== 'SERVICE' && priceN <= 0) return t('prodf.priceRequired')
-    return null
+  // --- gallery upload -------------------------------------------------------
+  const uploadImage = async (file: File): Promise<string> => {
+    const bytes = await file.arrayBuffer()
+    const res = await dataClient.uploads.file({
+      bytes,
+      filename: file.name,
+      contentType: file.type,
+      folder: 'products',
+    })
+    return res.url
   }
 
   const discardDraft = () => {
@@ -398,19 +430,26 @@ export function ProductForm() {
       /* ignore */
     }
     patch(DEFAULT_DRAFT)
+    setStep(0)
+    setMaxReached(0)
     setDraftRestored(false)
   }
 
+  // --- save -----------------------------------------------------------------
   const save = useMutation({
     mutationFn: async () => {
-      const serialized = canSerialize && d.isSerialized
+      // Product base price/cost: when creating a variant product it is the average across the
+      // variants; otherwise (plain, serialized, or any edit) it is the entered/existing price.
+      const baseSelling = aggregateView ? (avgPrice ?? 0) : priceN
+      const baseCost = aggregateView ? avgCost : d.cost.trim() ? costN : null
+      const useUnique = serialized && !hasVariants && d.uniqueItems
       const input: ProductInput = {
         name: d.name.trim(),
         description: d.description.trim() || null,
         sku: d.sku.trim() || null,
         barcode: d.barcode.trim() || null,
-        sellingPrice: priceN,
-        costPrice: d.cost.trim() ? costN : null,
+        sellingPrice: baseSelling,
+        costPrice: baseCost,
         taxRate: d.taxable ? TVA_RATE : 0,
         unitOfMeasureId: d.unitId,
         categoryId: d.categoryId || null,
@@ -418,7 +457,8 @@ export function ProductForm() {
         modelId: d.modelId || null,
         metaTitle: d.metaTitle.trim() || null,
         metaDescription: d.metaDescription.trim() || null,
-        imageUrl: d.imageUrl,
+        // Primary image = first gallery image. Variant products display each variant's own images.
+        imageUrl: hasVariants ? null : (d.gallery[0]?.url ?? null),
         productType: d.productType,
         isService: d.productType === 'SERVICE',
         isActive: d.isActive,
@@ -429,18 +469,64 @@ export function ProductForm() {
         isSerialized: serialized,
         serialType: serialized ? d.serialType : null,
         warrantyMonths: serialized ? (numOrU(d.warrantyMonths) ?? null) : null,
-        uniqueItems: serialized ? d.uniqueItems : false,
-        // A serialized product's stock is its serial-unit count; variants own their own stock.
-        // Both are added on the product page after saving, so opening stock is product-level only.
-        openingStock: tracksInventory && !serialized ? (numOrU(d.openingStock) ?? 0) : 0,
-        lowStockThreshold: tracksInventory ? (numOrU(d.lowStockThreshold) ?? null) : null,
-        reorderPoint: tracksInventory ? (numOrU(d.reorderPoint) ?? null) : null,
+        uniqueItems: useUnique,
+        // Plain simple: product-level opening quantity. Variants/serialized derive their own.
+        openingStock:
+          tracksInventory && !serialized && !hasVariants ? (numOrU(d.openingStock) ?? 0) : 0,
+        // Thresholds are product-level for plain + serialized-only; variants set their own.
+        lowStockThreshold:
+          tracksInventory && !hasVariants ? (numOrU(d.lowStockThreshold) ?? null) : null,
+        reorderPoint: tracksInventory && !hasVariants ? (numOrU(d.reorderPoint) ?? null) : null,
       }
-      const saved =
-        editing && id
-          ? await dataClient.products.update(id, input)
-          : await dataClient.products.create(input)
-      await dataClient.products.setImages(saved.id, d.gallery)
+
+      if (editing && id) {
+        const saved = await dataClient.products.update(id, input)
+        await dataClient.products.setImages(saved.id, hasVariants ? [] : d.gallery)
+        return saved
+      }
+
+      const saved = await dataClient.products.create(input)
+      if (hasVariants) {
+        for (const v of d.variants) {
+          const created = await dataClient.products.addVariant(saved.id, {
+            name: v.name.trim(),
+            sku: v.sku.trim() || null,
+            priceOverride: num(v.price) || null,
+            costPriceOverride: v.cost.trim() ? num(v.cost) : null,
+            lowStockThreshold: v.lowStockThreshold.trim() ? num(v.lowStockThreshold) : null,
+            reorderPoint: v.reorderPoint.trim() ? num(v.reorderPoint) : null,
+            openingStock: serialized ? 0 : num(v.openingStock),
+            isActive: true,
+            options: v.options,
+          })
+          if (v.gallery.length > 0)
+            await dataClient.products.setImages(saved.id, v.gallery, created.id)
+          if (serialized && v.serials.length > 0) {
+            await dataClient.products.addSerialUnits(
+              saved.id,
+              v.serials.map((sn) => ({
+                serialNumber: sn,
+                serialType: d.serialType,
+                variantId: created.id,
+              })),
+            )
+          }
+        }
+      } else if (serialized) {
+        if (d.serials.length > 0) {
+          await dataClient.products.addSerialUnits(
+            saved.id,
+            d.serials.map((sn) => ({
+              serialNumber: sn,
+              serialType: d.serialType,
+              variantId: null,
+            })),
+          )
+        }
+        await dataClient.products.setImages(saved.id, d.gallery)
+      } else {
+        await dataClient.products.setImages(saved.id, d.gallery)
+      }
       return saved
     },
     onSuccess: (saved) => {
@@ -452,7 +538,6 @@ export function ProductForm() {
         }
       }
       void qc.invalidateQueries({ queryKey: queryKeys.products })
-      // Land on the product page — the enrichment surface for options, serials, images & SEO.
       navigate(`/products/${saved.id}`)
     },
     onError: (err) => {
@@ -461,9 +546,592 @@ export function ProductForm() {
     },
   })
 
-  const submit = () => {
-    const err = validate()
+  // --- section render helpers (shared by wizard steps + edit stacked view) ---
+  const basicsBody = (
+    <div className="fform">
+      <div className="ff">
+        <label className="lbl2">
+          {t('prodf.name')} <span className="req">*</span>
+        </label>
+        <Input
+          value={d.name}
+          placeholder={t('prodf.namePh')}
+          onChange={(e) => {
+            patch({ name: e.target.value })
+            setError(null)
+          }}
+          error={!!error && !d.name.trim()}
+        />
+      </div>
+      <div className="ff">
+        <label className="lbl2">{t('prodf.type')}</label>
+        <div className="seg-pick">
+          {PRODUCT_TYPES.map((pt) => (
+            <button
+              key={pt}
+              type="button"
+              aria-pressed={pt === d.productType}
+              disabled={editing}
+              onClick={() => {
+                if (editing) return
+                if (pt === 'SERVICE' && serviceUnit) {
+                  // Services are billed as one "Service" unit — auto-fill it.
+                  patch({
+                    productType: pt,
+                    unitId: serviceUnit.id,
+                    unitLabel: unitLabelById.get(serviceUnit.id) ?? serviceUnit.name,
+                    unitAutoFilled: true,
+                  })
+                } else if (pt !== 'SERVICE' && d.productType === 'SERVICE' && d.unitAutoFilled) {
+                  // Leaving Service: drop the auto-filled Service unit so a real unit is chosen.
+                  patch({ productType: pt, unitId: '', unitLabel: null, unitAutoFilled: false })
+                } else {
+                  patch({ productType: pt })
+                }
+              }}
+            >
+              {t(`prodf.type_${pt}` as Parameters<typeof t>[0])}
+            </button>
+          ))}
+        </div>
+        <div className="hint">
+          {t(`prodf.typeDesc_${d.productType}` as Parameters<typeof t>[0])}
+        </div>
+      </div>
+      <div className="form-2col">
+        <div className="ff">
+          <label className="lbl2">{t('prodf.brand')}</label>
+          <CommandSelect
+            value={d.brandId || null}
+            valueLabel={d.brandLabel}
+            onChange={onBrandChange}
+            loadOptions={loadBrands}
+            placeholder={t('prodf.brandNone')}
+            searchPlaceholder={t('prodf.searchBrands')}
+            clearLabel={t('prodf.brandNone')}
+          />
+        </div>
+        <div className="ff">
+          <label className="lbl2">{t('prodf.category')}</label>
+          <CommandSelect
+            value={d.categoryId || null}
+            valueLabel={d.categoryLabel}
+            onChange={onCategoryChange}
+            loadOptions={loadCategories}
+            placeholder={t('prodf.categoryNone')}
+            searchPlaceholder={t('prodf.searchCategories')}
+            clearLabel={t('prodf.categoryNone')}
+          />
+        </div>
+      </div>
+      <div className="form-2col">
+        <div className="ff">
+          <label className="lbl2">{t('prodf.model')}</label>
+          <CommandSelect
+            value={d.modelId || null}
+            valueLabel={d.modelLabel}
+            onChange={(v, o) => patch({ modelId: v ?? '', modelLabel: o?.label ?? null })}
+            loadOptions={loadModels}
+            placeholder={selectedBrand ? t('prodf.modelPick') : t('prodf.modelNoBrand')}
+            searchPlaceholder={t('prodf.searchModels')}
+            emptyText={t('prodf.modelNone')}
+            clearLabel={t('prodf.modelClear')}
+            disabled={!selectedBrand}
+          />
+        </div>
+        <div className="ff">
+          <label className="lbl2">
+            {t('prodf.unit')} <span className="req">*</span>
+          </label>
+          <CommandSelect
+            value={d.unitId || null}
+            valueLabel={d.unitLabel}
+            onChange={(v, o) => {
+              patch({ unitId: v ?? '', unitLabel: o?.label ?? null, unitAutoFilled: false })
+              setError(null)
+            }}
+            loadOptions={loadUnits}
+            placeholder={t('prodf.unitPick')}
+            searchPlaceholder={t('prodf.searchUnits')}
+            invalid={!!error && !d.unitId}
+          />
+        </div>
+      </div>
+      <div className="form-2col">
+        <div className="ff">
+          <label className="lbl2">{t('prodf.sku')}</label>
+          <Input
+            value={d.sku}
+            placeholder={t('prodf.skuPh')}
+            onChange={(e) => patch({ sku: e.target.value })}
+          />
+        </div>
+        <div className="ff">
+          <label className="lbl2">{t('prodf.barcode')}</label>
+          <ScanInput
+            value={d.barcode}
+            placeholder={t('prodf.barcodePh')}
+            onChange={(e) => patch({ barcode: e.target.value })}
+            onScan={(v) => patch({ barcode: v })}
+            scanTitle={t('scan.title')}
+            cameraTitle={t('scan.camTitle')}
+            cameraHint={t('scan.camHint')}
+            cameraError={t('scan.camError')}
+          />
+        </div>
+      </div>
+      <div className="ff">
+        <label className="lbl2">
+          {t('prodf.description')} <span className="opt">{t('prodf.optional')}</span>
+        </label>
+        <textarea
+          className="input"
+          rows={2}
+          style={{ resize: 'vertical', paddingTop: 10 }}
+          placeholder={t('prodf.descriptionPh')}
+          value={d.description}
+          onChange={(e) => patch({ description: e.target.value })}
+        />
+      </div>
+    </div>
+  )
+
+  const sellingModelBody = (
+    <div className="fform">
+      <div className="set-line" style={{ paddingTop: 0 }}>
+        <div className="t">
+          <div className="nm">{t('pwiz.variants')}</div>
+          <div className="ds">{t('pwiz.variantsHint')}</div>
+        </div>
+        <button
+          type="button"
+          className={`switch${d.hasVariants ? ' on' : ''}`}
+          aria-pressed={d.hasVariants}
+          onClick={() => patch({ hasVariants: !d.hasVariants, variantsTouched: true })}
+        />
+      </div>
+      <div
+        className="set-line"
+        style={{ borderBottom: d.isSerialized ? '1px solid var(--border)' : 0 }}
+      >
+        <div className="t">
+          <div className="nm">{t('prodf.serialized')}</div>
+          <div className="ds">{t('prodf.serializedHint')}</div>
+        </div>
+        <button
+          type="button"
+          className={`switch${d.isSerialized ? ' on' : ''}`}
+          aria-pressed={d.isSerialized}
+          onClick={() => patch({ isSerialized: !d.isSerialized })}
+        />
+      </div>
+      {d.isSerialized ? (
+        <div className="form-2col" style={{ marginTop: 12 }}>
+          <div className="ff">
+            <label className="lbl2">{t('prodf.serialType')}</label>
+            <div className="seg-pick">
+              {SERIAL_TYPES.map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  aria-pressed={st === d.serialType}
+                  onClick={() => patch({ serialType: st })}
+                >
+                  {t(`prodf.serial_${st}` as Parameters<typeof t>[0])}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="ff">
+            <label className="lbl2">{t('prodf.warranty')}</label>
+            <Input
+              value={d.warrantyMonths}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(e) => patch({ warrantyMonths: e.target.value })}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+
+  // Taxable toggle — reused inline on the Pricing step (simple) and the Variants step (variants).
+  const taxableToggle = (
+    <button
+      type="button"
+      className={`switch-line${d.taxable ? ' on' : ''}`}
+      onClick={() => patch({ taxable: !d.taxable })}
+      aria-pressed={d.taxable}
+    >
+      <span className={`switch${d.taxable ? ' on' : ''}`} />
+      <span>{t('prodf.taxable')}</span>
+    </button>
+  )
+
+  const variantsBody = (
+    <div className="fform">
+      <p className="hint">{serialized ? t('pwiz.variantsSerialIntro') : t('pwiz.variantsIntro')}</p>
+      <WizardVariants
+        categoryId={d.categoryId || null}
+        serialized={serialized}
+        serialType={d.serialType}
+        variants={d.variants}
+        onChange={(next) => patch({ variants: next })}
+      />
+      {/* Base price is the average of the variants (computed on save); only tax is set here. */}
+      <p className="hint">{t('pwiz.pricingVariantNote')}</p>
+      {taxableToggle}
+    </div>
+  )
+
+  const serialsBody = (
+    <div className="fform">
+      <p className="hint">{t('pwiz.serialsIntro')}</p>
+      <WizardSerials
+        serialType={d.serialType}
+        serials={d.serials}
+        onChange={(next) => patch({ serials: next })}
+      />
+    </div>
+  )
+
+  const pricingBody = (
+    <div className="fform">
+      <div className="form-2col">
+        <div className="ff">
+          <label className="lbl2">{t('prodf.cost')}</label>
+          <Input
+            value={d.cost}
+            inputMode="decimal"
+            placeholder="0"
+            onChange={(e) => patch({ cost: e.target.value })}
+          />
+        </div>
+        <div className="ff">
+          <label className="lbl2">
+            {t('prodf.price')} <span className="req">*</span>
+          </label>
+          <Input
+            value={d.price}
+            inputMode="decimal"
+            placeholder="0"
+            onChange={(e) => {
+              patch({ price: e.target.value })
+              setError(null)
+            }}
+            error={!!error && d.productType !== 'SERVICE' && priceN <= 0}
+          />
+        </div>
+      </div>
+      <div className="calc-row">
+        <span>{t('prodf.margin')}</span>
+        <span>
+          <span className="big">{marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}</span>
+          {marginPct != null ? <> · {money.format(priceN - costN)}</> : null}
+        </span>
+      </div>
+      {taxableToggle}
+    </div>
+  )
+
+  const stockBody = (
+    <div className="fform">
+      {serialized ? (
+        // Serialized-only: quantity is the serial-unit count; only thresholds are set here.
+        <>
+          <div className="calc-row">
+            <span>{t('pwiz.totalUnits')}</span>
+            <span className="big">{d.serials.length}</span>
+          </div>
+          <div className="form-2col">
+            <div className="ff">
+              <label className="lbl2">{t('prodf.lowStock')}</label>
+              <Input
+                value={d.lowStockThreshold}
+                inputMode="numeric"
+                placeholder="0"
+                onChange={(e) => patch({ lowStockThreshold: e.target.value })}
+              />
+            </div>
+            <div className="ff">
+              <label className="lbl2">{t('prodf.reorderPoint')}</label>
+              <Input
+                value={d.reorderPoint}
+                inputMode="numeric"
+                placeholder="0"
+                onChange={(e) => patch({ reorderPoint: e.target.value })}
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="ff" style={{ maxWidth: 260 }}>
+            <label className="lbl2">{t('prodf.openingStock')}</label>
+            <Input
+              value={d.openingStock}
+              inputMode="numeric"
+              placeholder="0"
+              onChange={(e) => patch({ openingStock: e.target.value })}
+              disabled={editing}
+            />
+            {editing ? <div className="hint">{t('prodf.openingStockLocked')}</div> : null}
+          </div>
+          <div className="form-2col">
+            <div className="ff">
+              <label className="lbl2">{t('prodf.lowStock')}</label>
+              <Input
+                value={d.lowStockThreshold}
+                inputMode="numeric"
+                placeholder="0"
+                onChange={(e) => patch({ lowStockThreshold: e.target.value })}
+              />
+            </div>
+            <div className="ff">
+              <label className="lbl2">{t('prodf.reorderPoint')}</label>
+              <Input
+                value={d.reorderPoint}
+                inputMode="numeric"
+                placeholder="0"
+                onChange={(e) => patch({ reorderPoint: e.target.value })}
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  // The single image gallery (primary = first). No separate main-image field.
+  const galleryBlock = (
+    <div className="ff">
+      <label className="lbl2">{t('prodf.gallery')}</label>
+      <ImageGallery
+        items={d.gallery}
+        onChange={(next) => patch({ gallery: next })}
+        onUpload={uploadImage}
+        onUploadingChange={setUploading}
+        allowedTypes={ALLOWED_IMAGE_TYPES}
+        labels={{
+          cta: t('gal.cta'),
+          hint: t('gal.hint'),
+          uploading: t('prodf.imageUploading'),
+          remove: t('prodf.galleryRemove'),
+          setMain: t('prodf.setMain'),
+          main: t('prodf.main'),
+          typeError: t('prodf.imageTypeError'),
+        }}
+      />
+    </div>
+  )
+
+  const activeFeaturedBlock = (
+    <>
+      <div className="set-line">
+        <div className="t">
+          <div className="nm">{t('prodf.active')}</div>
+          <div className="ds">{t('prodf.activeHint')}</div>
+        </div>
+        <button
+          type="button"
+          className={`switch${d.isActive ? ' on' : ''}`}
+          aria-pressed={d.isActive}
+          onClick={() => patch({ isActive: !d.isActive })}
+        />
+      </div>
+      <div className="set-line" style={{ borderBottom: 0 }}>
+        <div className="t">
+          <div className="nm">{t('prodf.featured')}</div>
+          <div className="ds">{t('prodf.featuredHint')}</div>
+        </div>
+        <button
+          type="button"
+          className={`switch${d.isFeatured ? ' on' : ''}`}
+          aria-pressed={d.isFeatured}
+          onClick={() => patch({ isFeatured: !d.isFeatured })}
+        />
+      </div>
+    </>
+  )
+
+  const onlineBlock = (
+    <>
+      <div className="set-line" style={{ paddingTop: 0 }}>
+        <div className="t">
+          <div className="nm">{t('prodf.publishOnline')}</div>
+          <div className="ds">{t('prodf.publishOnlineHint')}</div>
+        </div>
+        <button
+          type="button"
+          className={`switch${d.publishOnline ? ' on' : ''}`}
+          aria-pressed={d.publishOnline}
+          onClick={() => patch({ publishOnline: !d.publishOnline })}
+        />
+      </div>
+      <div className="ff">
+        <label className="lbl2">
+          {t('prodf.onlineDesc')} <span className="opt">SEO</span>
+        </label>
+        <textarea
+          className="input"
+          rows={2}
+          style={{ resize: 'vertical', paddingTop: 10 }}
+          placeholder={t('prodf.onlineDescPh')}
+          value={d.onlineDescription}
+          onChange={(e) => patch({ onlineDescription: e.target.value })}
+        />
+      </div>
+      {tracksInventory && !hasVariants ? (
+        <div className="ff" style={{ maxWidth: 200 }}>
+          <label className="lbl2">{t('prodf.reserve')}</label>
+          <Input
+            value={d.onlineReserve}
+            inputMode="numeric"
+            placeholder="0"
+            onChange={(e) => patch({ onlineReserve: e.target.value })}
+          />
+          <div className="hint">{t('prodf.reserveHint')}</div>
+        </div>
+      ) : null}
+      <div className="ff">
+        <label className="lbl2">
+          {t('prodf.metaTitle')} <span className="opt">SEO</span>
+        </label>
+        <Input
+          value={d.metaTitle}
+          placeholder={d.name || t('prodf.metaTitlePh')}
+          onChange={(e) => patch({ metaTitle: e.target.value })}
+        />
+        <div className="hint">{t('prodf.metaTitleHint')}</div>
+      </div>
+      <div className="ff">
+        <label className="lbl2">
+          {t('prodf.metaDescription')} <span className="opt">SEO</span>
+        </label>
+        <textarea
+          className="input"
+          rows={2}
+          style={{ resize: 'vertical', paddingTop: 10 }}
+          placeholder={t('prodf.metaDescriptionPh')}
+          value={d.metaDescription}
+          onChange={(e) => patch({ metaDescription: e.target.value })}
+        />
+        <div className="hint">{t('prodf.metaDescriptionHint')}</div>
+      </div>
+    </>
+  )
+
+  // --- steps (create wizard) ------------------------------------------------
+  const steps: WizStep[] = useMemo(() => {
+    const validateBasics = () => {
+      if (!d.name.trim()) return t('prodf.nameRequired')
+      if (!d.unitId) return t('prodf.unitRequired')
+      return null
+    }
+    const validatePricing = () => {
+      if (!hasVariants && d.productType !== 'SERVICE' && priceN <= 0)
+        return t('prodf.priceRequired')
+      return null
+    }
+    if (d.productType === 'SERVICE') {
+      return [
+        { key: 'basics', label: t('prodf.stepBasics'), body: basicsBody, validate: validateBasics },
+        {
+          key: 'pricing',
+          label: t('prodf.stepPricing'),
+          body: pricingBody,
+          validate: validatePricing,
+        },
+        {
+          key: 'media',
+          label: t('pwiz.stepMediaOnline'),
+          body: (
+            <div className="fform">
+              {galleryBlock}
+              {activeFeaturedBlock}
+              {onlineBlock}
+            </div>
+          ),
+        },
+      ]
+    }
+    const list: WizStep[] = [
+      { key: 'basics', label: t('prodf.stepBasics'), body: basicsBody, validate: validateBasics },
+      { key: 'model', label: t('pwiz.stepSellingModel'), body: sellingModelBody },
+    ]
+    if (hasVariants) {
+      // Variants own their pricing, stock and images — the product-level Pricing/Stock/Images
+      // steps would be read-only, so we drop them to keep the flow lean. Tax + base-price note
+      // live inside the Variants step.
+      list.push({
+        key: 'variants',
+        label: t('pwiz.stepVariants'),
+        body: variantsBody,
+        validate: () => (d.variants.length === 0 ? t('pwiz.variantsRequired') : null),
+      })
+    } else {
+      if (serialized) {
+        list.push({ key: 'serials', label: t('pwiz.stepSerials'), body: serialsBody })
+      }
+      list.push({
+        key: 'pricing',
+        label: t('prodf.stepPricing'),
+        body: pricingBody,
+        validate: validatePricing,
+      })
+      list.push({ key: 'stock', label: t('prodf.stepStock'), body: stockBody })
+      list.push({
+        key: 'media',
+        label: t('prodf.stepMedia'),
+        body: (
+          <div className="fform">
+            {galleryBlock}
+            {activeFeaturedBlock}
+          </div>
+        ),
+      })
+    }
+    list.push({
+      key: 'online',
+      label: t('prodf.stepOnline'),
+      body: (
+        <div className="fform">
+          {/* Variant flow has no Media step, so Active/Featured live here instead. */}
+          {hasVariants ? activeFeaturedBlock : null}
+          {onlineBlock}
+        </div>
+      ),
+    })
+    return list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d, error, hasVariants, serialized, priceN, costN, marginPct, avgPrice, avgCost, uploading])
+
+  const clampedStep = Math.min(step, steps.length - 1)
+  const current = steps[clampedStep]!
+  const isLast = clampedStep === steps.length - 1
+
+  const goNext = () => {
+    const err = current.validate?.() ?? null
     if (err) return setError(err)
+    setError(null)
+    const next = clampedStep + 1
+    setStep(next)
+    setMaxReached((m) => Math.max(m, next))
+  }
+  const goStep = (i: number) => {
+    if (i <= maxReached) {
+      setError(null)
+      setStep(i)
+    }
+  }
+
+  const submit = () => {
+    // Run every step's validation before committing.
+    for (const s of steps) {
+      const err = s.validate?.() ?? null
+      if (err) return setError(err)
+    }
     setError(null)
     save.mutate()
   }
@@ -482,9 +1150,11 @@ export function ProductForm() {
           >
             {t('prodf.cancel')}
           </Button>
-          <Button variant="primary" type="button" loading={save.isPending} onClick={submit}>
-            {editing ? t('prodf.save') : t('prodf.saveAndOpen')}
-          </Button>
+          {editing ? (
+            <Button variant="primary" type="button" loading={save.isPending} onClick={submit}>
+              {t('prodf.save')}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -495,7 +1165,7 @@ export function ProductForm() {
         </div>
       </div>
 
-      {draftRestored ? (
+      {draftRestored && !editing ? (
         <div className="form-note" style={{ marginBottom: 16, justifyContent: 'space-between' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -510,543 +1180,53 @@ export function ProductForm() {
         </div>
       ) : null}
 
-      {/* Essentials — the only required part. */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="fsec-h">{t('prodf.stepBasics')}</div>
-        <div className="fform">
-          <div className="ff">
-            <label className="lbl2">
-              {t('prodf.name')} <span className="req">*</span>
-            </label>
-            <Input
-              value={d.name}
-              placeholder={t('prodf.namePh')}
-              onChange={(e) => {
-                patch({ name: e.target.value })
-                setError(null)
-              }}
-              error={!!error && !d.name.trim()}
-            />
+      {editing ? (
+        // Edit: stacked sections. Variants/serial units are managed on the product detail page.
+        <>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="fsec-h">{t('prodf.stepBasics')}</div>
+            {basicsBody}
           </div>
-          <div className="form-2col">
-            <div className="ff">
-              <label className="lbl2">{t('prodf.brand')}</label>
-              <CommandSelect
-                value={d.brandId || null}
-                valueLabel={d.brandLabel}
-                onChange={onBrandChange}
-                loadOptions={loadBrands}
-                placeholder={t('prodf.brandNone')}
-                searchPlaceholder={t('prodf.searchBrands')}
-                clearLabel={t('prodf.brandNone')}
-              />
-            </div>
-            <div className="ff">
-              <label className="lbl2">{t('prodf.category')}</label>
-              <CommandSelect
-                value={d.categoryId || null}
-                valueLabel={d.categoryLabel}
-                onChange={onCategoryChange}
-                loadOptions={loadCategories}
-                placeholder={t('prodf.categoryNone')}
-                searchPlaceholder={t('prodf.searchCategories')}
-                clearLabel={t('prodf.categoryNone')}
-              />
-            </div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="fsec-h">{t('prodf.stepPricing')}</div>
+            {pricingBody}
           </div>
-          <div className="form-2col">
-            <div className="ff">
-              <label className="lbl2">{t('prodf.model')}</label>
-              <CommandSelect
-                value={d.modelId || null}
-                valueLabel={d.modelLabel}
-                onChange={(v, o) => patch({ modelId: v ?? '', modelLabel: o?.label ?? null })}
-                loadOptions={loadModels}
-                placeholder={selectedBrand ? t('prodf.modelPick') : t('prodf.modelNoBrand')}
-                searchPlaceholder={t('prodf.searchModels')}
-                emptyText={t('prodf.modelNone')}
-                clearLabel={t('prodf.modelClear')}
-                disabled={!selectedBrand}
-              />
-            </div>
-            <div className="ff">
-              <label className="lbl2">
-                {t('prodf.unit')} <span className="req">*</span>
-              </label>
-              <CommandSelect
-                value={d.unitId || null}
-                valueLabel={d.unitLabel}
-                onChange={(v, o) => {
-                  patch({ unitId: v ?? '', unitLabel: o?.label ?? null, unitAutoFilled: false })
-                  setError(null)
-                }}
-                loadOptions={loadUnits}
-                placeholder={t('prodf.unitPick')}
-                searchPlaceholder={t('prodf.searchUnits')}
-                invalid={!!error && !d.unitId}
-              />
-            </div>
-          </div>
-          <div className="form-2col">
-            <div className="ff">
-              <label className="lbl2">{t('prodf.sku')}</label>
-              <Input
-                value={d.sku}
-                placeholder={t('prodf.skuPh')}
-                onChange={(e) => patch({ sku: e.target.value })}
-              />
-            </div>
-            <div className="ff">
-              <label className="lbl2">{t('prodf.barcode')}</label>
-              <ScanInput
-                value={d.barcode}
-                placeholder={t('prodf.barcodePh')}
-                onChange={(e) => patch({ barcode: e.target.value })}
-                onScan={(v) => patch({ barcode: v })}
-                scanTitle={t('scan.title')}
-                cameraTitle={t('scan.camTitle')}
-                cameraHint={t('scan.camHint')}
-                cameraError={t('scan.camError')}
-              />
-            </div>
-          </div>
-          <div className="ff">
-            <label className="lbl2">
-              {t('prodf.description')} <span className="opt">{t('prodf.optional')}</span>
-            </label>
-            <textarea
-              className="input"
-              rows={2}
-              style={{ resize: 'vertical', paddingTop: 10 }}
-              placeholder={t('prodf.descriptionPh')}
-              value={d.description}
-              onChange={(e) => patch({ description: e.target.value })}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Pricing. */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="fsec-h">{t('prodf.stepPricing')}</div>
-        <div className="fform">
-          <div className="form-2col">
-            <div className="ff">
-              <label className="lbl2">{t('prodf.cost')}</label>
-              <Input
-                value={d.cost}
-                inputMode="decimal"
-                placeholder="0"
-                onChange={(e) => patch({ cost: e.target.value })}
-              />
-            </div>
-            <div className="ff">
-              <label className="lbl2">
-                {t('prodf.price')} <span className="req">*</span>
-              </label>
-              <Input
-                value={d.price}
-                inputMode="decimal"
-                placeholder="0"
-                onChange={(e) => {
-                  patch({ price: e.target.value })
-                  setError(null)
-                }}
-                error={!!error && d.productType !== 'SERVICE' && priceN <= 0}
-              />
-            </div>
-          </div>
-          <div className="calc-row">
-            <span>{t('prodf.margin')}</span>
-            <span>
-              <span className="big">{marginPct != null ? `${marginPct.toFixed(1)}%` : '—'}</span>
-              {marginPct != null ? <> · {money.format(priceN - costN)}</> : null}
-            </span>
-          </div>
-          <button
-            type="button"
-            className={`switch-line${d.taxable ? ' on' : ''}`}
-            onClick={() => patch({ taxable: !d.taxable })}
-            aria-pressed={d.taxable}
-          >
-            <span className={`switch${d.taxable ? ' on' : ''}`} />
-            <span>{t('prodf.taxable')}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Selling model — how the product is sold. Changeable anytime (except serialization,
-          which is fixed after create). */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="fsec-h">{t('prodf.sellingModel')}</div>
-        <div className="fform">
-          <div className="ff">
-            <label className="lbl2">{t('prodf.type')}</label>
-            <div className="seg-pick">
-              {PRODUCT_TYPES.map((pt) => (
-                <button
-                  key={pt}
-                  type="button"
-                  aria-pressed={pt === d.productType}
-                  onClick={() => patch({ productType: pt })}
-                >
-                  {t(`prodf.type_${pt}` as Parameters<typeof t>[0])}
-                </button>
-              ))}
-            </div>
-            <div className="hint">
-              {t(`prodf.typeDesc_${d.productType}` as Parameters<typeof t>[0])}
-            </div>
-          </div>
-
-          {canSerialize ? (
-            <>
-              <div
-                className="set-line"
-                style={{ borderBottom: d.isSerialized ? '1px solid var(--border)' : 0 }}
-              >
-                <div className="t">
-                  <div className="nm">{t('prodf.serialized')}</div>
-                  <div className="ds">
-                    {editing ? t('prodf.serializedLocked') : t('prodf.serializedHint')}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className={`switch${d.isSerialized ? ' on' : ''}`}
-                  aria-pressed={d.isSerialized}
-                  disabled={editing}
-                  title={editing ? t('prodf.serializedLocked') : undefined}
-                  onClick={() => {
-                    if (!editing) patch({ isSerialized: !d.isSerialized })
-                  }}
-                />
-              </div>
-              {d.isSerialized ? (
-                <div className="form-2col" style={{ marginTop: 12 }}>
-                  <div className="ff">
-                    <label className="lbl2">{t('prodf.serialType')}</label>
-                    <div className="seg-pick">
-                      {SERIAL_TYPES.map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          aria-pressed={st === d.serialType}
-                          disabled={editing}
-                          onClick={() => {
-                            if (!editing) patch({ serialType: st })
-                          }}
-                        >
-                          {t(`prodf.serial_${st}` as Parameters<typeof t>[0])}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="ff">
-                    <label className="lbl2">{t('prodf.warranty')}</label>
-                    <Input
-                      value={d.warrantyMonths}
-                      inputMode="numeric"
-                      placeholder="0"
-                      onChange={(e) => patch({ warrantyMonths: e.target.value })}
-                    />
-                  </div>
-                </div>
-              ) : null}
-              {d.isSerialized ? (
-                <div className="set-line" style={{ marginTop: 12 }}>
-                  <div className="t">
-                    <div className="nm">{t('prodf.uniqueItems')}</div>
-                    <div className="ds">{t('prodf.uniqueItemsHint')}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className={`switch${d.uniqueItems ? ' on' : ''}`}
-                    aria-pressed={d.uniqueItems}
-                    onClick={() => patch({ uniqueItems: !d.uniqueItems })}
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : null}
-
-          {/* Options/serials are enriched on the product page after saving. */}
-          {d.productType === 'SIMPLE' ? (
-            <div className="form-note" style={{ marginTop: 4 }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 11v5M12 8h.01" />
-              </svg>
-              <span>{d.isSerialized ? t('prodf.enrichSerials') : t('prodf.enrichOptions')}</span>
+          {isSimple ? (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="fsec-h">{t('prodf.stepStock')}</div>
+              {stockBody}
             </div>
           ) : null}
-        </div>
-      </div>
-
-      {/* Stock — plain quantity for non-serialized stock items. */}
-      {tracksInventory ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="fsec-h">{t('prodf.stepStock')}</div>
-          <div className="fform">
-            {!canSerialize || !d.isSerialized ? (
-              <div className="ff" style={{ maxWidth: 260 }}>
-                <label className="lbl2">{t('prodf.openingStock')}</label>
-                <Input
-                  value={d.openingStock}
-                  inputMode="numeric"
-                  placeholder="0"
-                  onChange={(e) => patch({ openingStock: e.target.value })}
-                  disabled={editing}
-                />
-                {editing ? <div className="hint">{t('prodf.openingStockLocked')}</div> : null}
+          {!hasVariants ? (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="fsec-h">{t('prodf.stepMedia')}</div>
+              <div className="fform">
+                {galleryBlock}
+                {activeFeaturedBlock}
               </div>
-            ) : (
-              <div className="form-note">
-                <span>{t('prodf.enrichSerials')}</span>
-              </div>
-            )}
-            <div className="form-2col">
-              <div className="ff">
-                <label className="lbl2">{t('prodf.lowStock')}</label>
-                <Input
-                  value={d.lowStockThreshold}
-                  inputMode="numeric"
-                  placeholder="0"
-                  onChange={(e) => patch({ lowStockThreshold: e.target.value })}
-                />
-              </div>
-              <div className="ff">
-                <label className="lbl2">{t('prodf.reorderPoint')}</label>
-                <Input
-                  value={d.reorderPoint}
-                  inputMode="numeric"
-                  placeholder="0"
-                  onChange={(e) => patch({ reorderPoint: e.target.value })}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Media. */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="fsec-h">{t('prodf.stepMedia')}</div>
-        <div className="fform">
-          <div className="ff">
-            <label className="lbl2">{t('prodf.image')}</label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept={ALLOWED_IMAGE_TYPES.join(',')}
-              style={{ display: 'none' }}
-              onChange={onPickImage}
-            />
-            {d.imageUrl ? (
-              <>
-                <div className="imgpreview">
-                  <img src={d.imageUrl} alt={d.name || t('prodf.image')} />
-                  {uploading ? (
-                    <div className="imgpreview-overlay">{t('prodf.imageUploading')}</div>
-                  ) : null}
-                </div>
-                <div className="img-acts">
-                  <Button
-                    variant="soft"
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    disabled={uploading}
-                  >
-                    {t('prodf.imageReplace')}
-                  </Button>
-                  <Button
-                    variant="soft"
-                    type="button"
-                    onClick={() => patch({ imageUrl: null })}
-                    disabled={uploading}
-                  >
-                    {t('prodf.imageRemove')}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="imgdrop"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="9" cy="9" r="2" />
-                  <path d="m21 15-5-5L5 21" />
-                </svg>
-                <div className="t">
-                  {uploading ? t('prodf.imageUploading') : t('prodf.imageUpload')}
-                </div>
-                <div className="s">{t('prodf.imageHint')}</div>
-              </button>
-            )}
-            {imageError ? (
-              <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
-                {imageError}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="ff">
-            <div className="gallery-head">
-              <span>{t('prodf.gallery')}</span>
-              <button
-                type="button"
-                className="gallery-add"
-                onClick={() => galleryRef.current?.click()}
-                disabled={uploading}
-              >
-                + {t('prodf.galleryAdd')}
-              </button>
-            </div>
-            <input
-              ref={galleryRef}
-              type="file"
-              accept={ALLOWED_IMAGE_TYPES.join(',')}
-              multiple
-              style={{ display: 'none' }}
-              onChange={onPickGallery}
-            />
-            {d.gallery.length === 0 ? (
-              <div className="gallery-empty">{t('prodf.galleryEmpty')}</div>
-            ) : (
-              <div className="gallery-grid">
-                {d.gallery.map((g, i) => (
-                  <div key={g.id ?? `new-${i}`} className="gallery-thumb">
-                    <img src={g.url} alt="" />
-                    <div className="gallery-acts">
-                      <button
-                        type="button"
-                        title={t('prodf.setMain')}
-                        onClick={() => patch({ imageUrl: g.url })}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                          <path d="m12 3 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.3 6.8 19l1-5.8L3.6 9.1l5.8-.8L12 3Z" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        title={t('prodf.galleryRemove')}
-                        onClick={() =>
-                          patch((s) => ({ gallery: s.gallery.filter((_, idx) => idx !== i) }))
-                        }
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                          <path d="M6 6l12 12M18 6 6 18" />
-                        </svg>
-                      </button>
-                    </div>
-                    {d.imageUrl === g.url ? (
-                      <span className="gallery-main-tag">{t('prodf.main')}</span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="set-line">
-            <div className="t">
-              <div className="nm">{t('prodf.active')}</div>
-              <div className="ds">{t('prodf.activeHint')}</div>
-            </div>
-            <button
-              type="button"
-              className={`switch${d.isActive ? ' on' : ''}`}
-              aria-pressed={d.isActive}
-              onClick={() => patch({ isActive: !d.isActive })}
-            />
-          </div>
-          <div className="set-line" style={{ borderBottom: 0 }}>
-            <div className="t">
-              <div className="nm">{t('prodf.featured')}</div>
-              <div className="ds">{t('prodf.featuredHint')}</div>
-            </div>
-            <button
-              type="button"
-              className={`switch${d.isFeatured ? ' on' : ''}`}
-              aria-pressed={d.isFeatured}
-              onClick={() => patch({ isFeatured: !d.isFeatured })}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Online store — optional. */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="fsec-h">{t('prodf.stepOnline')}</div>
-        <div className="fform">
-          <div className="set-line" style={{ paddingTop: 0 }}>
-            <div className="t">
-              <div className="nm">{t('prodf.publishOnline')}</div>
-              <div className="ds">{t('prodf.publishOnlineHint')}</div>
-            </div>
-            <button
-              type="button"
-              className={`switch${d.publishOnline ? ' on' : ''}`}
-              aria-pressed={d.publishOnline}
-              onClick={() => patch({ publishOnline: !d.publishOnline })}
-            />
-          </div>
-          <div className="ff">
-            <label className="lbl2">
-              {t('prodf.onlineDesc')} <span className="opt">SEO</span>
-            </label>
-            <textarea
-              className="input"
-              rows={2}
-              style={{ resize: 'vertical', paddingTop: 10 }}
-              placeholder={t('prodf.onlineDescPh')}
-              value={d.onlineDescription}
-              onChange={(e) => patch({ onlineDescription: e.target.value })}
-            />
-          </div>
-          {tracksInventory ? (
-            <div className="ff" style={{ maxWidth: 200 }}>
-              <label className="lbl2">{t('prodf.reserve')}</label>
-              <Input
-                value={d.onlineReserve}
-                inputMode="numeric"
-                placeholder="0"
-                onChange={(e) => patch({ onlineReserve: e.target.value })}
-              />
-              <div className="hint">{t('prodf.reserveHint')}</div>
             </div>
           ) : null}
-          <div className="ff">
-            <label className="lbl2">
-              {t('prodf.metaTitle')} <span className="opt">SEO</span>
-            </label>
-            <Input
-              value={d.metaTitle}
-              placeholder={d.name || t('prodf.metaTitlePh')}
-              onChange={(e) => patch({ metaTitle: e.target.value })}
-            />
-            <div className="hint">{t('prodf.metaTitleHint')}</div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="fsec-h">{t('prodf.stepOnline')}</div>
+            <div className="fform">{onlineBlock}</div>
           </div>
-          <div className="ff">
-            <label className="lbl2">
-              {t('prodf.metaDescription')} <span className="opt">SEO</span>
-            </label>
-            <textarea
-              className="input"
-              rows={2}
-              style={{ resize: 'vertical', paddingTop: 10 }}
-              placeholder={t('prodf.metaDescriptionPh')}
-              value={d.metaDescription}
-              onChange={(e) => patch({ metaDescription: e.target.value })}
-            />
-            <div className="hint">{t('prodf.metaDescriptionHint')}</div>
+        </>
+      ) : (
+        // Create: dynamic multi-step wizard.
+        <>
+          <Stepper
+            steps={steps.map((s) => ({ key: s.key, label: s.label }))}
+            current={clampedStep}
+            maxReached={maxReached}
+            onStepClick={goStep}
+            className="prodf-stepper"
+          />
+          <div className="card" style={{ marginTop: 16, marginBottom: 16 }}>
+            <div className="fsec-h">{current.label}</div>
+            {current.body}
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {error ? (
         <p style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 14 }} role="alert">
@@ -1054,19 +1234,41 @@ export function ProductForm() {
         </p>
       ) : null}
 
-      <div className="fp-actions">
-        <Button
-          variant="soft"
-          type="button"
-          onClick={() => navigate('/products')}
-          disabled={save.isPending}
-        >
-          {t('prodf.cancel')}
-        </Button>
-        <Button variant="primary" type="button" loading={save.isPending} onClick={submit}>
-          {editing ? t('prodf.save') : t('prodf.saveAndOpen')}
-        </Button>
-      </div>
+      {editing ? (
+        <div className="fp-actions">
+          <Button
+            variant="soft"
+            type="button"
+            onClick={() => navigate('/products')}
+            disabled={save.isPending}
+          >
+            {t('prodf.cancel')}
+          </Button>
+          <Button variant="primary" type="button" loading={save.isPending} onClick={submit}>
+            {t('prodf.save')}
+          </Button>
+        </div>
+      ) : (
+        <div className="fp-actions">
+          <Button
+            variant="soft"
+            type="button"
+            onClick={() => (clampedStep === 0 ? navigate('/products') : setStep(clampedStep - 1))}
+            disabled={save.isPending}
+          >
+            {clampedStep === 0 ? t('prodf.cancel') : t('pwiz.back')}
+          </Button>
+          {isLast ? (
+            <Button variant="primary" type="button" loading={save.isPending} onClick={submit}>
+              {t('pwiz.create')}
+            </Button>
+          ) : (
+            <Button variant="primary" type="button" onClick={goNext}>
+              {t('pwiz.next')}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

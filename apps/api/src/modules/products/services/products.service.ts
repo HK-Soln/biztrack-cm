@@ -12,6 +12,7 @@ import {
   type PreviewVariantsRequest,
   type PreviewVariantsResponse,
   type ProductsQuery,
+  type ProductVariant as ProductVariantModel,
   type UpdateProductRequest,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
@@ -346,8 +347,8 @@ export class ProductsService {
 
       // Apply search
       if (query.search) {
-        // Match the product's own name/sku/barcode OR any of its variants' sku/name — so a
-        // scanned/typed variant code (the tile "code") surfaces its product.
+        // Robust match: product name/sku/barcode, OR any variant's name/sku/barcode, OR any
+        // in-stock serial number — so a scanned/typed variant code or serial surfaces its product.
         qb.andWhere(
           `(LOWER(product.name) LIKE LOWER(:search)
             OR LOWER(product.sku) LIKE LOWER(:search)
@@ -355,7 +356,13 @@ export class ProductsService {
             OR EXISTS (
               SELECT 1 FROM product_variants pv
               WHERE pv.product_id = product.id AND pv.deleted_at IS NULL
-                AND (LOWER(pv.sku) LIKE LOWER(:search) OR LOWER(pv.name) LIKE LOWER(:search))
+                AND (LOWER(pv.sku) LIKE LOWER(:search) OR LOWER(pv.name) LIKE LOWER(:search)
+                  OR LOWER(pv.barcode) LIKE LOWER(:search))
+            )
+            OR EXISTS (
+              SELECT 1 FROM product_serial_units su
+              WHERE su.product_id = product.id AND su.deleted_at IS NULL
+                AND su.status = 'IN_STOCK' AND LOWER(su.serial_number) LIKE LOWER(:search)
             ))`,
           { search: `%${query.search}%` },
         )
@@ -386,6 +393,126 @@ export class ProductsService {
     } catch (error) {
       return this.handleServiceError('findAll', error, { businessId })
     }
+  }
+
+  /**
+   * Flattened sellable catalog for the POS grid: a non-variant product is one entry; a variant
+   * product is expanded into one entry per active variant. Robust search matches product/variant
+   * name·sku·barcode and in-stock serial numbers. Paginated over a UNION so counts/paging are
+   * correct; entries are hydrated with the existing product + variant hydrators.
+   */
+  async listSellable(
+    businessId: string,
+    query: ProductsQuery & { categoryId?: string },
+  ): Promise<{
+    data: Array<
+      | { kind: 'product'; product: Product }
+      | { kind: 'variant'; product: Product; variant: ProductVariantModel }
+    >
+    total: number
+    page: number
+    limit: number
+    totalPages: number
+  }> {
+    const page = Math.max(query.page ?? 1, 1)
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
+
+    const params: unknown[] = []
+    const ref = (v: unknown) => {
+      params.push(v)
+      return `$${params.length}`
+    }
+    const bp = ref(businessId)
+    const cat = query.categoryId ? ref(query.categoryId) : null
+    const search = query.search?.trim()
+    const lk = search ? ref(`%${search}%`) : null
+
+    const prodWhere = [
+      `p.business_id = ${bp}`,
+      `p.deleted_at IS NULL`,
+      `NOT EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.deleted_at IS NULL)`,
+      cat ? `p.category_id = ${cat}` : null,
+      lk
+        ? `(p.name ILIKE ${lk} OR p.sku ILIKE ${lk} OR p.barcode ILIKE ${lk}
+            OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.product_id = p.id
+              AND su.deleted_at IS NULL AND su.status = 'IN_STOCK' AND su.serial_number ILIKE ${lk}))`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' AND ')
+
+    const varWhere = [
+      `p.business_id = ${bp}`,
+      `p.deleted_at IS NULL`,
+      `v.deleted_at IS NULL`,
+      `v.is_active = true`,
+      cat ? `p.category_id = ${cat}` : null,
+      lk
+        ? `(v.name ILIKE ${lk} OR v.sku ILIKE ${lk} OR v.barcode ILIKE ${lk} OR p.name ILIKE ${lk}
+            OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.variant_id = v.id
+              AND su.deleted_at IS NULL AND su.status = 'IN_STOCK' AND su.serial_number ILIKE ${lk}))`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' AND ')
+
+    const union = `
+      SELECT p.id AS pid, NULL::uuid AS vid, p.name AS sname, -1 AS ssort FROM products p WHERE ${prodWhere}
+      UNION ALL
+      SELECT p.id AS pid, v.id AS vid, p.name AS sname, v.sort_order AS ssort
+        FROM product_variants v JOIN products p ON p.id = v.product_id WHERE ${varWhere}`
+
+    const countRows = (await this.dataSource.query(
+      `SELECT COUNT(*)::int AS n FROM (${union}) s`,
+      params,
+    )) as Array<{ n: number }>
+    const total = countRows[0]?.n ?? 0
+
+    const lim = ref(limit)
+    const off = ref((page - 1) * limit)
+    const pageRows = (await this.dataSource.query(
+      `SELECT pid, vid FROM (${union}) s
+       ORDER BY sname ASC, ssort ASC, vid ASC
+       LIMIT ${lim} OFFSET ${off}`,
+      params,
+    )) as Array<{ pid: string; vid: string | null }>
+
+    // Hydrate: each distinct product once; each product with variant entries contributes its
+    // hydrated variants once.
+    const productIds = [...new Set(pageRows.map((r) => r.pid))]
+    const products = productIds.length
+      ? await this.productsRepo.find({
+          where: { id: In(productIds), businessId },
+          relations: ['category', 'unitOfMeasure'],
+        })
+      : []
+    const hydrated = await this.attachInventoryAndImages(products, businessId)
+    const productById = new Map(hydrated.map((p) => [p.id, p]))
+
+    const variantById = new Map<string, ProductVariantModel>()
+    const productsWithVariantEntries = [...new Set(pageRows.filter((r) => r.vid).map((r) => r.pid))]
+    for (const pid of productsWithVariantEntries) {
+      for (const v of await this.variantsService.listVariantsForProduct(businessId, pid)) {
+        variantById.set(v.id, v)
+      }
+    }
+
+    const data: Array<
+      | { kind: 'product'; product: Product }
+      | { kind: 'variant'; product: Product; variant: ProductVariantModel }
+    > = []
+    for (const r of pageRows) {
+      const product = productById.get(r.pid)
+      if (!product) continue
+      if (r.vid) {
+        const variant = variantById.get(r.vid)
+        if (variant) data.push({ kind: 'variant', product, variant })
+      } else {
+        data.push({ kind: 'product', product })
+      }
+    }
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
   private validateSortField(field?: string): string {

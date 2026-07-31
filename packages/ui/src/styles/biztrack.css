@@ -2011,6 +2011,14 @@ body {
   display: flex;
   color: var(--success);
 }
+/* Small descriptive helper text. Base rule so a bare `.hint` (e.g. a step intro placed directly
+   in a `.fform`) is styled too, not just `.ff .hint`. Spacing comes from the parent flex `gap`. */
+.hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
 .ff .hint {
   font-size: 11.5px;
   color: var(--text-muted);
@@ -4097,6 +4105,412 @@ button.imgdrop:disabled {
   color: #fff;
   padding: 2px 6px;
   border-radius: 5px;
+}
+
+/* ImageGallery — drop-zone + reorderable thumbnails (packages/ui) ---------- */
+.img-gal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.img-gal-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 18px 14px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  background: var(--inset);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: center;
+  font: inherit;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+.img-gal-drop:hover,
+.img-gal-drop.drag {
+  border-color: var(--brand-int);
+  background: var(--brand-soft);
+  color: var(--brand-int);
+}
+.img-gal-drop.drag {
+  border-style: solid;
+}
+.img-gal-drop.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.img-gal-drop svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 2px;
+}
+.img-gal-drop .t {
+  font-size: 13px;
+  font-weight: 650;
+}
+.img-gal-drop .s {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 34ch;
+}
+.img-gal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 8px;
+}
+.img-gal-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--inset);
+  cursor: grab;
+}
+.img-gal-thumb:active {
+  cursor: grabbing;
+}
+.img-gal-thumb.dragging {
+  opacity: 0.4;
+}
+.img-gal-thumb.over {
+  outline: 2px solid var(--brand-int);
+  outline-offset: -1px;
+}
+.img-gal-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.img-gal-acts {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.img-gal-thumb:hover .img-gal-acts,
+.img-gal-thumb:focus-within .img-gal-acts {
+  opacity: 1;
+}
+.img-gal-acts button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+}
+.img-gal-acts button:hover {
+  background: rgba(0, 0, 0, 0.78);
+}
+.img-gal-acts svg {
+  width: 12px;
+  height: 12px;
+}
+.img-gal-main {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--brand-int);
+  color: #fff;
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+.img-gal-err {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* Link-styled button — e.g. a variant name that navigates to its detail page. */
+.vlink {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--brand-int);
+  cursor: pointer;
+}
+.vlink:hover {
+  text-decoration: underline;
+}
+.vlink:focus-visible {
+  outline: 2px solid var(--brand-int);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Product-detail gallery — 2-row grid with a "+N more" tile → carousel ----- */
+.detail-gallery {
+  display: grid;
+  gap: 8px;
+}
+.dg-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--inset);
+  padding: 0;
+  cursor: pointer;
+}
+.dg-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.18s ease;
+}
+.dg-tile:hover img {
+  transform: scale(1.05);
+}
+.dg-tile:focus-visible {
+  outline: 2px solid var(--brand-int);
+  outline-offset: 2px;
+}
+.dg-more::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 20, 35, 0.55);
+}
+.dg-more-ov {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* Related-variants card grid (variant detail page) ------------------------ */
+.variant-related-grid {
+  display: grid;
+  gap: 10px;
+}
+.vr-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.vr-card:hover {
+  border-color: var(--brand-int);
+}
+.vr-card.current {
+  border-color: var(--brand-int);
+  box-shadow: 0 0 0 1px var(--brand-int);
+}
+.vr-card:focus-visible {
+  outline: 2px solid var(--brand-int);
+  outline-offset: 2px;
+}
+.vr-av {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand-int);
+  font-weight: 700;
+  font-size: 13px;
+}
+.vr-body {
+  min-width: 0;
+  flex: 1;
+}
+.vr-name {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vr-meta {
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.vr-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--inset);
+  border-radius: 5px;
+  padding: 2px 5px;
+}
+
+/* Image carousel / lightbox (packages/ui ImageCarousel) ------------------- */
+.img-carousel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 14, 24, 0.92);
+  padding: 24px;
+  gap: 12px;
+  /* The overlay covers the app's draggable title-bar band; without this the OS treats the top
+     strip as a window-drag region and swallows clicks on the controls (e.g. the close button). */
+  -webkit-app-region: no-drag;
+}
+.img-carousel-overlay button {
+  -webkit-app-region: no-drag;
+}
+.img-carousel-close {
+  /* Top-left, not top-right: on Windows the OS draws the native window controls (− □ ×) on top of
+     the web content in a reserved top-right zone, so a close button there is physically unreachable
+     no matter the app-region. Keep it on the left. */
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+.img-carousel-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.img-carousel-close svg {
+  width: 20px;
+  height: 20px;
+}
+.img-carousel-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.img-carousel-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.img-carousel-nav {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+.img-carousel-nav:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.img-carousel-nav svg {
+  width: 22px;
+  height: 22px;
+}
+.img-carousel-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.img-carousel-count {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.img-carousel-strip {
+  display: flex;
+  gap: 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.img-carousel-thumb {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.6;
+  transition:
+    opacity 0.15s,
+    border-color 0.15s;
+}
+.img-carousel-thumb.active {
+  opacity: 1;
+  border-color: #fff;
+}
+.img-carousel-thumb:hover {
+  opacity: 1;
+}
+.img-carousel-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dg-tile img {
+    transition: none;
+  }
 }
 
 /* Variant matrix (product form) ------------------------------------------- */

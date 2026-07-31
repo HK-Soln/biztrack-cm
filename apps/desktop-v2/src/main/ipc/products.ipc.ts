@@ -7,12 +7,16 @@ import {
   type ProductListQuery,
   type SerialUnitInput,
   type SerialUnitUpdateInput,
+  type SerialUnitsPageQuery,
   type VariantInput,
 } from '../../shared/ipc'
 import type { ProductsService } from '../services/products.service'
 
 export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsList, (_e, query?: ProductListQuery) => products.list(query))
+  ipcMain.handle(IPC.productsListSellable, (_e, query?: ProductListQuery) =>
+    products.listSellable(query),
+  )
   ipcMain.handle(IPC.productsStats, () => products.stats())
   ipcMain.handle(IPC.productsGet, (_e, id: string) => products.get(id))
   ipcMain.handle(IPC.productsCreate, (_e, input: ProductInput) => products.create(input))
@@ -53,8 +57,10 @@ export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsListSerialUnits, (_e, productId: string) =>
     products.listSerialUnits(productId),
   )
-  ipcMain.handle(IPC.productsListSerialUnitsPage, (_e, productId: string, query?: ListQuery) =>
-    products.listSerialUnitsPage(productId, query),
+  ipcMain.handle(
+    IPC.productsListSerialUnitsPage,
+    (_e, productId: string, query?: SerialUnitsPageQuery) =>
+      products.listSerialUnitsPage(productId, query),
   )
   ipcMain.handle(
     IPC.productsListInStockSerials,

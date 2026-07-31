@@ -11,9 +11,11 @@ import type {
   ProductImageInput,
   ProductInput,
   ProductListQuery,
+  SerialUnitsPageQuery,
   ProductStats,
   ProductType,
   ScanHit,
+  SellEntry,
   SerialUnitInput,
   SerialUnitUpdateInput,
   StockMovementType,
@@ -93,6 +95,7 @@ interface VariantRow {
   sort_order: number
   stock_quantity: number | null
   low_stock_threshold: number | null
+  reorder_point: number | null
   description: string | null
   meta_title: string | null
   meta_description: string | null
@@ -122,6 +125,7 @@ interface SerialUnitRow {
 
 interface MovementRow {
   id: string
+  variant_id: string | null
   type: string
   quantity_change: number
   quantity_before: number
@@ -257,17 +261,19 @@ export class ProductsService {
       }
     }
 
-    // Search matches the product's name/sku/barcode OR any of its variants' sku/name, so a
-    // scanned/typed variant code (the tile "code") surfaces its product. Built here (not via
-    // paginateRows.searchColumns) because it needs a variant EXISTS sub-select.
+    // Robust search: the product's name/sku/barcode, OR any variant's name/sku/barcode, OR any
+    // in-stock serial number — so a typed/scanned variant code or serial surfaces its product.
+    // Built here (not via paginateRows.searchColumns) because it needs EXISTS sub-selects.
     const search = query.search?.trim()
     if (search) {
       where +=
         ` AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?` +
         ` OR EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.is_deleted = 0` +
-        ` AND (v.sku LIKE ? OR v.name LIKE ?)))`
+        ` AND (v.sku LIKE ? OR v.name LIKE ? OR v.barcode LIKE ?))` +
+        ` OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.product_id = p.id` +
+        ` AND su.is_deleted = 0 AND su.status = 'IN_STOCK' AND su.serial_number LIKE ?))`
       const like = `%${search}%`
-      params.push(like, like, like, like, like)
+      params.push(like, like, like, like, like, like, like)
     }
 
     const { rows, ...meta } = paginateRows<ProductRow>(
@@ -288,6 +294,102 @@ export class ProductsService {
       query,
     )
     return toPaginated(rows.map(toLocalProduct), meta)
+  }
+
+  /**
+   * Flattened sellable catalog for the POS grid: a non-variant product is one entry; a variant
+   * product is expanded into one entry per active variant (its base is not sellable). Robust
+   * search matches product/variant name·sku·barcode and in-stock serial numbers. Paginated over a
+   * UNION so counts/paging are correct; entries are hydrated with the existing product/variant
+   * mappers.
+   */
+  listSellable(query: ProductListQuery = {}): PaginatedResult<SellEntry> {
+    const businessId = this.getBusinessId()
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
+    const page = Math.max(query.page ?? 1, 1)
+    if (!businessId) return toPaginated<SellEntry>([], { total: 0, page, limit, totalPages: 1 })
+
+    const search = query.search?.trim()
+    const like = search ? `%${search}%` : null
+
+    // Branch 1 — products with no variants.
+    let prodWhere = `p.business_id = ? AND p.is_deleted = 0
+       AND NOT EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)`
+    const prodParams: unknown[] = [businessId]
+    if (query.categoryId) {
+      prodWhere += ' AND p.category_id = ?'
+      prodParams.push(query.categoryId)
+    }
+    if (like) {
+      prodWhere += ` AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?
+        OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.product_id = p.id
+          AND su.is_deleted = 0 AND su.status = 'IN_STOCK' AND su.serial_number LIKE ?))`
+      prodParams.push(like, like, like, like)
+    }
+
+    // Branch 2 — one entry per active variant (matched on variant cols, parent name, or its serials).
+    let varWhere = `p.business_id = ? AND p.is_deleted = 0 AND v.is_deleted = 0 AND v.is_active = 1`
+    const varParams: unknown[] = [businessId]
+    if (query.categoryId) {
+      varWhere += ' AND p.category_id = ?'
+      varParams.push(query.categoryId)
+    }
+    if (like) {
+      varWhere += ` AND (v.name LIKE ? OR v.sku LIKE ? OR v.barcode LIKE ? OR p.name LIKE ?
+        OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.variant_id = v.id
+          AND su.is_deleted = 0 AND su.status = 'IN_STOCK' AND su.serial_number LIKE ?))`
+      varParams.push(like, like, like, like, like)
+    }
+
+    const union = `
+      SELECT p.id AS pid, NULL AS vid, p.name AS sname, -1 AS ssort FROM products p WHERE ${prodWhere}
+      UNION ALL
+      SELECT p.id AS pid, v.id AS vid, p.name AS sname, v.sort_order AS ssort
+        FROM product_variants v JOIN products p ON p.id = v.product_id WHERE ${varWhere}`
+    const unionParams = [...prodParams, ...varParams]
+
+    const total =
+      this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM (${union})`, unionParams)?.n ?? 0
+    const totalPages = Math.max(1, Math.ceil(total / limit))
+
+    const pageRows = this.db.query<{ pid: string; vid: string | null }>(
+      `SELECT pid, vid FROM (${union})
+       ORDER BY sname COLLATE NOCASE ASC, ssort ASC, vid ASC
+       LIMIT ? OFFSET ?`,
+      [...unionParams, limit, (page - 1) * limit],
+    )
+
+    // Hydrate: each product once; each product that appears as a variant entry contributes its
+    // (already-hydrated) variants once.
+    const productIds = [...new Set(pageRows.map((r) => r.pid))]
+    const productById = new Map<string, LocalProduct>()
+    for (const pid of productIds) {
+      const prod = this.getOne(pid)
+      if (prod) productById.set(pid, prod)
+    }
+    const variantById = new Map<string, LocalVariant>()
+    const wantedVariants = new Set(pageRows.filter((r) => r.vid).map((r) => r.vid as string))
+    if (wantedVariants.size > 0) {
+      for (const pid of productIds) {
+        if (!pageRows.some((r) => r.pid === pid && r.vid)) continue
+        for (const v of this.listVariants(pid)) {
+          if (wantedVariants.has(v.id)) variantById.set(v.id, v)
+        }
+      }
+    }
+
+    const entries: SellEntry[] = []
+    for (const r of pageRows) {
+      const product = productById.get(r.pid)
+      if (!product) continue
+      if (r.vid) {
+        const variant = variantById.get(r.vid)
+        if (variant) entries.push({ kind: 'variant', product, variant })
+      } else {
+        entries.push({ kind: 'product', product })
+      }
+    }
+    return toPaginated(entries, { total, page, limit, totalPages })
   }
 
   /** Catalog KPI roll-up for the list header. Aggregated over local SQLite so it
@@ -698,7 +800,7 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const variants = this.db.query<VariantRow>(
-      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold,
+      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point,
               description, meta_title, meta_description, online_description, is_published_online
        FROM product_variants WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY sort_order ASC`,
@@ -723,7 +825,7 @@ export class ProductsService {
       {
         from: 'product_variants',
         columns:
-          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, description, meta_title, meta_description, online_description, is_published_online',
+          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point, description, meta_title, meta_description, online_description, is_published_online',
         where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
         params: [businessId, productId],
         searchColumns: ['name', 'sku'],
@@ -782,6 +884,7 @@ export class ProductsService {
       sortOrder: v.sort_order,
       stockQuantity: isSerialized ? (serialStock.get(v.id) ?? 0) : (v.stock_quantity ?? 0),
       lowStockThreshold: v.low_stock_threshold,
+      reorderPoint: v.reorder_point,
       description: v.description,
       metaTitle: v.meta_title,
       metaDescription: v.meta_description,
@@ -849,7 +952,7 @@ export class ProductsService {
       if (prior) {
         // Stock is owned by inventory after create — only the threshold is editable here.
         this.db.run(
-          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, low_stock_threshold = ?, updated_at = ?
+          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
            WHERE id = ? AND business_id = ?`,
           [
             v.name,
@@ -859,6 +962,7 @@ export class ProductsService {
             v.isActive === false ? 0 : 1,
             index,
             v.lowStockThreshold ?? null,
+            v.reorderPoint ?? null,
             now,
             id,
             businessId,
@@ -887,8 +991,8 @@ export class ProductsService {
         }
       } else {
         this.db.run(
-          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             id,
             businessId,
@@ -901,6 +1005,7 @@ export class ProductsService {
             index,
             Math.max(v.openingStock ?? 0, 0),
             v.lowStockThreshold ?? null,
+            v.reorderPoint ?? null,
             now,
             now,
           ],
@@ -942,6 +1047,7 @@ export class ProductsService {
           sortOrder: index,
           openingStock: prior ? undefined : (v.openingStock ?? 0),
           lowStockThreshold: v.lowStockThreshold ?? null,
+          reorderPoint: v.reorderPoint ?? null,
         },
         now,
       )
@@ -1006,8 +1112,8 @@ export class ProductsService {
     const sortOrder = this.listVariants(productId).length
     const stock = product.isSerialized ? 0 : Math.max(input.openingStock ?? 0, 0)
     this.db.run(
-      `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -1020,6 +1126,7 @@ export class ProductsService {
         sortOrder,
         stock,
         input.lowStockThreshold ?? null,
+        input.reorderPoint ?? null,
         now,
         now,
       ],
@@ -1059,6 +1166,7 @@ export class ProductsService {
         sortOrder,
         openingStock: stock,
         lowStockThreshold: input.lowStockThreshold ?? null,
+        reorderPoint: input.reorderPoint ?? null,
       },
       now,
     )
@@ -1070,6 +1178,7 @@ export class ProductsService {
         {
           referenceType: 'product_variant',
           referenceId: id,
+          variantId: id,
           notes: `Added variant "${input.name}" (+${stock})`,
         },
         now,
@@ -1101,8 +1210,14 @@ export class ProductsService {
     const metaDescription = keep(input.metaDescription, prior.metaDescription)
     const onlineDescription = keep(input.onlineDescription, prior.onlineDescription)
     const isPublishedOnline = input.isPublishedOnline ?? prior.isPublishedOnline
+    // Thresholds: an explicit value (incl. null) sets it; undefined keeps the prior value — so a
+    // caller that doesn't touch thresholds (e.g. an SEO-only edit) never wipes them.
+    const keepNum = (v: number | null | undefined, p: number | null) =>
+      v === undefined ? p : (v ?? null)
+    const lowStockThreshold = keepNum(input.lowStockThreshold, prior.lowStockThreshold)
+    const reorderPoint = keepNum(input.reorderPoint, prior.reorderPoint)
     this.db.run(
-      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?,
+      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, reorder_point = ?,
               description = ?, meta_title = ?, meta_description = ?, online_description = ?, is_published_online = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
@@ -1111,7 +1226,8 @@ export class ProductsService {
         input.costPriceOverride ?? null,
         input.sku ?? null,
         input.isActive === false ? 0 : 1,
-        input.lowStockThreshold ?? null,
+        lowStockThreshold,
+        reorderPoint,
         description,
         metaTitle,
         metaDescription,
@@ -1135,7 +1251,8 @@ export class ProductsService {
         sku: input.sku ?? null,
         isActive: input.isActive !== false,
         sortOrder: prior.sortOrder,
-        lowStockThreshold: input.lowStockThreshold ?? null,
+        lowStockThreshold,
+        reorderPoint,
         description,
         metaTitle,
         metaDescription,
@@ -1222,7 +1339,7 @@ export class ProductsService {
         productId,
         businessId,
         -writeOff,
-        { referenceType: 'product_variant', referenceId: variantId, notes: trimmed },
+        { referenceType: 'product_variant', referenceId: variantId, variantId, notes: trimmed },
         now,
       )
     }
@@ -1252,7 +1369,10 @@ export class ProductsService {
 
   /** Paginated serial units for the product-detail management section. Server-side (BFF)
    * LIMIT/OFFSET + COUNT so the renderer never slices the full list. */
-  listSerialUnitsPage(productId: string, query: ListQuery = {}): PaginatedResult<LocalSerialUnit> {
+  listSerialUnitsPage(
+    productId: string,
+    query: SerialUnitsPageQuery = {},
+  ): PaginatedResult<LocalSerialUnit> {
     const businessId = this.getBusinessId()
     if (!businessId)
       return toPaginated<LocalSerialUnit>([], {
@@ -1261,14 +1381,21 @@ export class ProductsService {
         limit: query.limit ?? 20,
         totalPages: 1,
       })
+    // Optionally scope to a single variant (the variant detail page); otherwise all product units.
+    let where = 'business_id = ? AND product_id = ? AND is_deleted = 0'
+    const params: unknown[] = [businessId, productId]
+    if (query.variantId) {
+      where += ' AND variant_id = ?'
+      params.push(query.variantId)
+    }
     const { rows, ...meta } = paginateRows<SerialUnitRow>(
       this.db,
       {
         from: 'product_serial_units',
         columns:
           'id, product_id, variant_id, serial_number, serial_type, status, description, image_url, meta_title, meta_description',
-        where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
-        params: [businessId, productId],
+        where,
+        params,
         searchColumns: ['serial_number'],
         defaultSort: 'created_at ASC',
       },
@@ -1466,6 +1593,10 @@ export class ProductsService {
     }
 
     if (created.length > 0) {
+      // The batch is one variant's units when scoped to a variant (variant page / add flow);
+      // if it spans variants the aggregate movement stays product-level (null).
+      const variantIds = new Set(created.map((u) => u.variantId ?? null))
+      const moveVariantId = variantIds.size === 1 ? (created[0]!.variantId ?? null) : null
       this.recordStockMovement(
         productId,
         businessId,
@@ -1473,6 +1604,7 @@ export class ProductsService {
         {
           referenceType: 'serial_unit',
           referenceId: productId,
+          variantId: moveVariantId,
           notes: notes?.trim() || `Added ${created.length} serial unit(s)`,
           type: movementType,
         },
@@ -1523,7 +1655,12 @@ export class ProductsService {
       productId,
       businessId,
       -1,
-      { referenceType: 'serial_unit', referenceId: unitId, notes: trimmed },
+      {
+        referenceType: 'serial_unit',
+        referenceId: unitId,
+        variantId: unit.variant_id ?? null,
+        notes: trimmed,
+      },
       now,
     )
     this.audit?.log({
@@ -1639,7 +1776,7 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const rows = this.db.query<MovementRow>(
-      `SELECT id, type, quantity_change, quantity_before, quantity_after,
+      `SELECT id, variant_id, type, quantity_change, quantity_before, quantity_after,
               reference_type, reference_id, notes, performed_by_name, created_at
        FROM inventory_movements
        WHERE business_id = ? AND product_id = ?
@@ -1649,6 +1786,7 @@ export class ProductsService {
     )
     return rows.map((r) => ({
       id: r.id,
+      variantId: r.variant_id,
       type: r.type as StockMovementType,
       quantityChange: r.quantity_change,
       quantityBefore: r.quantity_before,
@@ -1724,7 +1862,13 @@ export class ProductsService {
     productId: string,
     businessId: string,
     change: number,
-    opts: { referenceType: string; referenceId: string; notes: string; type?: StockMovementType },
+    opts: {
+      referenceType: string
+      referenceId: string
+      notes: string
+      type?: StockMovementType
+      variantId?: string | null
+    },
     now: string,
   ): void {
     recordStockMovementFn(this.db, businessId, productId, change, opts, now)

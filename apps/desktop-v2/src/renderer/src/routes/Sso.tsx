@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Input, OtpInput, PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
+import { BrandMark, Button, Input, OtpInput, PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { OtpChannel } from '@shared/ipc'
@@ -134,14 +134,28 @@ export function Sso() {
     setResendIn(30)
   }
 
-  const sentVia: MessageKey = isEmail ? 'sso.sentEmail' : channel === 'SMS' ? 'sso.sentSms' : 'sso.sentWhatsapp'
-  const contactLabel: MessageKey = isEmail ? 'sso.emailLabel' : channel === 'WHATSAPP' ? 'sso.whatsappLabel' : 'sso.phoneLabel'
-  const contactHint: MessageKey = isEmail ? 'sso.emailHint' : channel === 'SMS' ? 'sso.smsHint' : 'sso.whatsappHint'
+  const sentVia: MessageKey = isEmail
+    ? 'sso.sentEmail'
+    : channel === 'SMS'
+      ? 'sso.sentSms'
+      : 'sso.sentWhatsapp'
+  const contactLabel: MessageKey = isEmail
+    ? 'sso.emailLabel'
+    : channel === 'WHATSAPP'
+      ? 'sso.whatsappLabel'
+      : 'sso.phoneLabel'
+  const contactHint: MessageKey = isEmail
+    ? 'sso.emailHint'
+    : channel === 'SMS'
+      ? 'sso.smsHint'
+      : 'sso.whatsappHint'
 
   return (
     <div className="auth-card">
       <div className="auth-logo">
-        <div className="mk">B</div>
+        <div className="mk">
+          <BrandMark size={22} />
+        </div>
         <div className="wm">BizTrack CM</div>
       </div>
 
@@ -179,7 +193,13 @@ export function Sso() {
               </label>
               {isEmail ? (
                 <div className="inwrap has-lead">
-                  <svg className="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <svg
+                    className="lead"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
                     <rect x="3" y="5" width="18" height="14" rx="2" />
                     <path d="m3 7 9 6 9-6" />
                   </svg>
@@ -232,7 +252,14 @@ export function Sso() {
           <div className="or">{t('auth.or')}</div>
           <div className="oauth">
             <button type="button" onClick={() => navigate('/signin')}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <rect x="4" y="11" width="16" height="9" rx="2" />
                 <path d="M8 11V8a4 4 0 0 1 8 0v3" />
               </svg>
@@ -267,7 +294,12 @@ export function Sso() {
               void verify()
             }}
           >
-            <OtpInput value={code} onChange={setCode} onComplete={(v) => void verify(v)} error={!!error} />
+            <OtpInput
+              value={code}
+              onChange={setCode}
+              onComplete={(v) => void verify(v)}
+              error={!!error}
+            />
             {error ? (
               <div className="ff invalid">
                 <div className="msg err" style={{ justifyContent: 'center' }}>
@@ -279,7 +311,13 @@ export function Sso() {
                 </div>
               </div>
             ) : null}
-            <Button type="submit" variant="primary" block loading={busy} disabled={code.length !== 6}>
+            <Button
+              type="submit"
+              variant="primary"
+              block
+              loading={busy}
+              disabled={code.length !== 6}
+            >
               {t('sso.verify')}
             </Button>
           </form>

@@ -139,6 +139,7 @@ import type {
   SaleInput,
   SalesListQuery,
   ScanHit,
+  SellEntry,
   ThresholdInput,
   ModelInput,
   ListQuery,
@@ -149,6 +150,7 @@ import type {
   ProductStats,
   SerialUnitInput,
   SerialUnitUpdateInput,
+  SerialUnitsPageQuery,
   VariantInput,
   SkeletonCheckDTO,
   SkeletonHealthDTO,
@@ -217,6 +219,7 @@ export interface DataClient {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    listSellable: (query?: ProductListQuery) => Promise<PaginatedResult<SellEntry>>
     stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
     create: (input: ProductInput) => Promise<LocalProduct>
@@ -244,7 +247,7 @@ export interface DataClient {
     listSerialUnits: (productId: string) => Promise<LocalSerialUnit[]>
     listSerialUnitsPage: (
       productId: string,
-      query?: ListQuery,
+      query?: SerialUnitsPageQuery,
     ) => Promise<PaginatedResult<LocalSerialUnit>>
     listInStockSerials: (
       productId: string,
@@ -578,6 +581,7 @@ function electronAdapter(): DataClient {
     },
     products: {
       list: (query) => window.api.products.list(query),
+      listSellable: (query) => window.api.products.listSellable(query),
       stats: () => window.api.products.stats(),
       get: (id) => window.api.products.get(id),
       create: (input) => window.api.products.create(input),

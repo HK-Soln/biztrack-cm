@@ -192,6 +192,7 @@ export class ProductVariantsService {
         })),
         currentStock,
         lowStockThreshold: level?.lowStockThreshold ?? null,
+        reorderPoint: level?.reorderPoint ?? null,
       }
     })
   }
@@ -290,6 +291,7 @@ export class ProductVariantsService {
             variantId: variant.id,
             quantity,
             lowStockThreshold: null,
+            reorderPoint: null,
           }),
         )
         if (quantity > 0) {

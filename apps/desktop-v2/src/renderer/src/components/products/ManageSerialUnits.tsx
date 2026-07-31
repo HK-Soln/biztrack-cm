@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination, ScanInput, Select } from '@biztrack/ui/biztrack'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Modal, Pagination, ScanInput } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
@@ -20,13 +20,23 @@ const PAGE_SIZE = 5
  *  - edit the number  → correction (no movement)
  * Responsive: table on desktop/tablet, stacked cards on mobile.
  */
-export function ManageSerialUnits({ product }: { product: LocalProduct }) {
+export function ManageSerialUnits({
+  product,
+  variant,
+}: {
+  product: LocalProduct
+  /** When set, this section manages only this variant's serial units (variant detail page). */
+  variant?: { id: string; name: string; stock: number }
+}) {
   const t = useT()
   const qc = useQueryClient()
   const bp = useBreakpoint()
   const id = product.id
   const type = product.serialType ?? 'SERIAL_NUMBER'
   const typeLabel = t(`prodf.serial_${type}` as Parameters<typeof t>[0])
+  // Serials are either product-level (variantId null) or scoped to one variant — never mixed
+  // with a picker: a variant product's serials are managed per-variant on the variant page.
+  const scopedVariantId = variant?.id ?? null
 
   // The displayed units are paginated + searched by the BFF/API (5 per page); the renderer
   // never holds the full set. Existing-duplicate/format enforcement happens server-side.
@@ -39,20 +49,18 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     setPage,
     search,
     setSearch,
-  } = usePaged<LocalSerialUnit>([...queryKeys.products, 'serials-page', id], (q) =>
-    dataClient.products.listSerialUnitsPage(id, { ...q, limit: PAGE_SIZE }),
+  } = usePaged<LocalSerialUnit>(
+    [...queryKeys.products, 'serials-page', id, scopedVariantId ?? 'all'],
+    (q) =>
+      dataClient.products.listSerialUnitsPage(id, {
+        ...q,
+        limit: PAGE_SIZE,
+        variantId: scopedVariantId ?? undefined,
+      }),
   )
-  const { data: variants = [] } = useQuery({
-    queryKey: [...queryKeys.products, 'variants', id],
-    queryFn: () => dataClient.products.listVariants(id),
-  })
-  const hasVariants = variants.length > 0
-  const variantName = (vid: string | null) =>
-    vid ? (variants.find((v) => v.id === vid)?.name ?? null) : null
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.products })
 
   const [serial, setSerial] = useState('')
-  const [variantId, setVariantId] = useState('')
   const [addErr, setAddErr] = useState<string | null>(null)
   const [bulkMode, setBulkMode] = useState(false)
   const [bulkText, setBulkText] = useState('')
@@ -81,7 +89,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       ]),
     onSuccess: () => {
       setSerial('')
-      setVariantId('')
       setAddErr(null)
       invalidate()
     },
@@ -145,9 +152,8 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     const v = raw.trim()
     if (!v) return
     if (!validateSerial(v, type)) return setAddErr(t('psu.invalid').replace('{type}', typeLabel))
-    if (hasVariants && !variantId) return setAddErr(t('psu.variantRequired'))
     // Existing duplicates are enforced server-side (the renderer only holds the current page).
-    addM.mutate({ serialNumber: v, variantId: hasVariants ? variantId : null })
+    addM.mutate({ serialNumber: v, variantId: scopedVariantId })
   }
   const submitAdd = () => addSerial(serial)
 
@@ -182,13 +188,12 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
         validTokens.map((tk) => ({
           serialNumber: tk.value,
           serialType: type,
-          variantId: hasVariants ? variantId : null,
+          variantId: scopedVariantId,
         })),
         'Bulk add',
       ),
     onSuccess: () => {
       setBulkText('')
-      setVariantId('')
       setBulkErr(null)
       setBulkMode(false)
       invalidate()
@@ -196,7 +201,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     onError: (e) => setBulkErr(errorMessage(e, t('psu.addError'))),
   })
   const submitBulk = () => {
-    if (hasVariants && !variantId) return setBulkErr(t('psu.bulkVariantRequired'))
     if (validTokens.length === 0) return setBulkErr(t('psu.bulkNone'))
     bulkM.mutate()
   }
@@ -320,7 +324,7 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
         {/* Available (in-stock) count — sold/returned/damaged units are on record (and paged
             below) but are not available, so the header reflects only IN_STOCK units. */}
         <span className="chip-tag">
-          {t('psu.count').replace('{n}', String(product.currentStock))}
+          {t('psu.count').replace('{n}', String(variant ? variant.stock : product.currentStock))}
         </span>
       </div>
 
@@ -378,18 +382,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                 cameraError={t('scan.camError')}
               />
             </div>
-            {hasVariants ? (
-              <div style={{ flex: '0 1 180px' }}>
-                <Select value={variantId} onChange={(e) => setVariantId(e.target.value)}>
-                  <option value="">{t('psu.variantPick')}</option>
-                  {variants.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            ) : null}
             <Button variant="primary" onClick={submitAdd} loading={addM.isPending}>
               + {t('psu.add')}
             </Button>
@@ -408,24 +400,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           <p style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 8 }}>
             {t('psu.bulkHint')}
           </p>
-          {hasVariants ? (
-            <div style={{ marginBottom: 8, maxWidth: 240 }}>
-              <Select
-                value={variantId}
-                onChange={(e) => {
-                  setVariantId(e.target.value)
-                  setBulkErr(null)
-                }}
-              >
-                <option value="">{t('psu.variantPick')}</option>
-                {variants.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          ) : null}
           <textarea
             className="ta"
             rows={6}
@@ -561,9 +535,7 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                   marginTop: 10,
                 }}
               >
-                <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                  {variantName(u.variantId) ?? '—'}
-                </span>
+                <span />
                 {canModify(u) ? (
                   <span className="acts" style={{ display: 'inline-flex', gap: 4 }}>
                     {uniqueItems ? (
@@ -594,7 +566,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           <thead>
             <tr>
               <th>{t('psu.colSerial')}</th>
-              {hasVariants ? <th>{t('psu.colVariant')}</th> : null}
               <th>{t('psu.colStatus')}</th>
               <th className="right">{t('psu.colActions')}</th>
             </tr>
@@ -617,7 +588,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                     <span className="serial-pill">{u.serialNumber}</span>
                   )}
                 </td>
-                {hasVariants ? <td>{variantName(u.variantId) ?? '—'}</td> : null}
                 <td>{statusPill(u.status)}</td>
                 <td className="right">
                   {canModify(u) ? (

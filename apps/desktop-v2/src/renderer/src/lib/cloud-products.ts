@@ -13,7 +13,9 @@ import type {
   VariantInput,
   SerialUnitInput,
   SerialUnitUpdateInput,
+  SerialUnitsPageQuery,
   ScanHit,
+  SellEntry,
 } from '@shared/ipc'
 import type { ProductVariant } from '@biztrack/types'
 import { SerialUnitStatus } from '@biztrack/types'
@@ -32,7 +34,6 @@ function clean<T extends Record<string, unknown>>(o: T): Record<string, unknown>
   return out
 }
 
-// AddProductVariantDto accepts these (not lowStockThreshold).
 function variantCreatePayload(v: VariantInput): Record<string, unknown> {
   return clean({
     name: v.name,
@@ -41,6 +42,8 @@ function variantCreatePayload(v: VariantInput): Record<string, unknown> {
     sku: v.sku,
     isActive: v.isActive,
     openingStock: v.openingStock,
+    lowStockThreshold: v.lowStockThreshold,
+    reorderPoint: v.reorderPoint,
     description: v.description,
     metaTitle: v.metaTitle,
     metaDescription: v.metaDescription,
@@ -194,6 +197,7 @@ function toLocalVariant(v: ProductVariant): LocalVariant {
     sortOrder: v.sortOrder,
     stockQuantity: v.currentStock ?? 0,
     lowStockThreshold: v.lowStockThreshold ?? null,
+    reorderPoint: v.reorderPoint ?? null,
     description: v.description ?? null,
     metaTitle: v.metaTitle ?? null,
     metaDescription: v.metaDescription ?? null,
@@ -254,6 +258,7 @@ function toLocalProductImage(i: ApiProductImage): LocalProductImage {
 
 interface ApiMovement {
   id: string
+  variantId?: string | null
   type: LocalStockMovement['type']
   quantityChange: number
   quantityBefore: number
@@ -267,6 +272,7 @@ interface ApiMovement {
 function toLocalStockMovement(m: ApiMovement): LocalStockMovement {
   return {
     id: m.id,
+    variantId: m.variantId ?? null,
     type: m.type,
     quantityChange: m.quantityChange,
     quantityBefore: m.quantityBefore,
@@ -279,10 +285,31 @@ function toLocalStockMovement(m: ApiMovement): LocalStockMovement {
   }
 }
 
+type ApiSellEntry =
+  | { kind: 'product'; product: ApiProduct }
+  | { kind: 'variant'; product: ApiProduct; variant: ProductVariant }
+
 export const cloudProducts = {
   list: async (query?: ProductListQuery): Promise<PaginatedResult<LocalProduct>> => {
     const res = await cget<PaginatedResult<ApiProduct>>(`/products${qs(productQuery(query))}`)
     return { ...res, data: res.data.map(toLocalProduct) }
+  },
+  listSellable: async (query?: ProductListQuery): Promise<PaginatedResult<SellEntry>> => {
+    const res = await cget<PaginatedResult<ApiSellEntry>>(
+      `/products/sellable${qs(productQuery(query))}`,
+    )
+    return {
+      ...res,
+      data: res.data.map((e) =>
+        e.kind === 'variant'
+          ? {
+              kind: 'variant' as const,
+              product: toLocalProduct(e.product),
+              variant: toLocalVariant(e.variant),
+            }
+          : { kind: 'product' as const, product: toLocalProduct(e.product) },
+      ),
+    }
   },
   stats: (): Promise<ProductStats> => cget<ProductStats>('/products/stats'),
   get: async (id: string): Promise<LocalProduct | null> => {
@@ -368,6 +395,8 @@ export const cloudProducts = {
           costPriceOverride: input.costPriceOverride,
           sku: input.sku,
           isActive: input.isActive,
+          lowStockThreshold: input.lowStockThreshold,
+          reorderPoint: input.reorderPoint,
           description: input.description,
           metaTitle: input.metaTitle,
           metaDescription: input.metaDescription,
@@ -382,10 +411,10 @@ export const cloudProducts = {
     (await cgetAll<ApiSerialUnit>(`/products/${productId}/serial-units`)).map(toLocalSerialUnit),
   listSerialUnitsPage: async (
     productId: string,
-    query?: ListQuery,
+    query?: SerialUnitsPageQuery,
   ): Promise<PaginatedResult<LocalSerialUnit>> => {
     const res = await cget<PaginatedResult<ApiSerialUnit>>(
-      `/products/${productId}/serial-units${qs({ page: query?.page, limit: query?.limit, search: query?.search })}`,
+      `/products/${productId}/serial-units${qs({ page: query?.page, limit: query?.limit, search: query?.search, variantId: query?.variantId })}`,
     )
     return { ...res, data: res.data.map(toLocalSerialUnit) }
   },

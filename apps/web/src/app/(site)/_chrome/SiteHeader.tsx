@@ -1,6 +1,8 @@
 /* Server-rendered marketing header + mobile drawer (ported from the design's buildHeader).
    Plain <a> full-page nav (multi-page site); interactivity is wired imperatively in SiteChrome. */
 
+import { BrandMark } from '@biztrack/ui/brand-mark'
+
 const NAV: Array<[en: string, fr: string, href: string]> = [
   ['Features', 'Fonctionnalités', '/features'],
   ['Pricing', 'Tarifs', '/pricing'],
@@ -14,7 +16,7 @@ function Brand() {
   return (
     <a className="brand" href="/" aria-label="BizTrack CM home">
       <span className="mk">
-        B<span className="pip" />
+        <BrandMark size={22} />
       </span>
       <span>
         <span className="bt">BizTrack CM</span>

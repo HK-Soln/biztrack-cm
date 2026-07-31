@@ -441,7 +441,13 @@ export class SalesService {
         businessId,
         d.productId,
         -d.quantity,
-        { referenceType: 'sale', referenceId: saleId, notes: `Sale ${saleNumber}`, type: 'SALE' },
+        {
+          referenceType: 'sale',
+          referenceId: saleId,
+          variantId: d.variantId ?? null,
+          notes: `Sale ${saleNumber}`,
+          type: 'SALE',
+        },
         now,
       )
       if (movementId) movementById.set(`${d.productId}:${d.variantId ?? ''}`, movementId)
@@ -618,6 +624,7 @@ export class SalesService {
         {
           referenceType: 'sale',
           referenceId: saleId,
+          variantId,
           notes: `Void ${sale.sale_number}`,
           type: 'VOID_REVERSAL',
         },

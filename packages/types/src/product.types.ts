@@ -181,6 +181,7 @@ export interface ProductVariant {
   // Enriched stock (optional — populated by sell-screen / detail responses).
   currentStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
   createdAt?: IsoDateString
   updatedAt?: IsoDateString
 }
@@ -365,6 +366,9 @@ export interface AddProductVariantRequest {
   isPublishedOnline?: boolean
   /** Opening stock for the new variant (non-serialised only) → stock-in movement. */
   openingStock?: number | null
+  /** Per-variant stock alert thresholds (stored on the variant's inventory level). */
+  lowStockThreshold?: number | null
+  reorderPoint?: number | null
 }
 
 /** Edit a variant's catalog info. No quantity change → no movement. */
@@ -379,6 +383,9 @@ export interface UpdateProductVariantRequest {
   metaDescription?: string | null
   onlineDescription?: string | null
   isPublishedOnline?: boolean
+  /** Per-variant stock alert thresholds (stored on the variant's inventory level). */
+  lowStockThreshold?: number | null
+  reorderPoint?: number | null
 }
 
 /** Remove a variant from the catalog; writes off its remaining stock. */

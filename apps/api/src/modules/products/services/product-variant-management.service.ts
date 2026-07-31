@@ -170,7 +170,8 @@ export class ProductVariantManagementService {
               productId,
               variantId: variant.id,
               quantity,
-              lowStockThreshold: null,
+              lowStockThreshold: dto.lowStockThreshold ?? null,
+              reorderPoint: dto.reorderPoint ?? null,
             }),
           )
           if (quantity > 0) {
@@ -255,6 +256,19 @@ export class ProductVariantManagementService {
           isPublishedOnline: dto.isPublishedOnline ?? variant.isPublishedOnline,
         },
       )
+
+      // Stock alert thresholds live on the variant's inventory level, not the variant row.
+      if (dto.lowStockThreshold !== undefined || dto.reorderPoint !== undefined) {
+        const invRepo = this.dataSource.getRepository(InventoryLevel)
+        const level = await invRepo.findOne({ where: { businessId, productId, variantId } })
+        if (level) {
+          const patch: Partial<InventoryLevel> = {}
+          if (dto.lowStockThreshold !== undefined)
+            patch.lowStockThreshold = dto.lowStockThreshold ?? null
+          if (dto.reorderPoint !== undefined) patch.reorderPoint = dto.reorderPoint ?? null
+          await invRepo.update({ id: level.id }, patch)
+        }
+      }
 
       const updated = await this.requireVariantModel(productId, businessId, variantId)
       this.auditService.log(context, {
