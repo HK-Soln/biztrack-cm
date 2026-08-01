@@ -94,6 +94,7 @@ export interface I18nTranslations {
     variant_required: string
     variant_not_found: string
     variant_options_required: string
+    variant_name_or_options_required: string
     variant_duplicate_combination: string
     variant_duplicate_sku: string
     brand_not_found: string

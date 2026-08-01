@@ -10,6 +10,7 @@ import { useLangStore, useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
+import { BrandMark } from '@biztrack/ui/biztrack'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { NotificationToasts } from '@/components/notifications/NotificationToasts'
 import { useNotificationsStore } from '@/stores/notifications.store'
@@ -192,7 +193,7 @@ function Sidebar({
       ) : null}
       <div className="brandmark app-drag">
         <div className="logo">
-          B<span className="pip" />
+          <BrandMark size={22} />
         </div>
         <div>
           <div className="bt">BizTrack CM</div>
@@ -569,7 +570,7 @@ function MobileTopBar() {
   return (
     <header className="m-topbar app-drag">
       <div className="logo">
-        B<span className="pip" />
+        <BrandMark size={20} />
       </div>
       <div className="m-tt">
         <div className="m-title">{businessName || 'BizTrack CM'}</div>

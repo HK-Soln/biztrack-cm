@@ -11,10 +11,13 @@ import type {
   ProductImageInput,
   ProductInput,
   ProductListQuery,
+  SerialUnitsPageQuery,
   ProductStats,
   ProductType,
   ScanHit,
+  SellEntry,
   SerialUnitInput,
+  SerialUnitUpdateInput,
   StockMovementType,
   VariantInput,
 } from '../../shared/ipc'
@@ -60,6 +63,7 @@ interface ProductRow {
   is_serialized: number
   serial_type: string | null
   warranty_months: number | null
+  unique_items: number
   low_stock_threshold: number | null
   reorder_point: number | null
   stock_quantity: number | null
@@ -75,6 +79,7 @@ interface ProductRow {
 interface ProductImageRow {
   id: string
   product_id: string
+  variant_id: string | null
   url: string
   alt_text: string | null
   sort_order: number
@@ -90,6 +95,12 @@ interface VariantRow {
   sort_order: number
   stock_quantity: number | null
   low_stock_threshold: number | null
+  reorder_point: number | null
+  description: string | null
+  meta_title: string | null
+  meta_description: string | null
+  online_description: string | null
+  is_published_online: number
 }
 
 interface VariantOptionRow {
@@ -106,10 +117,15 @@ interface SerialUnitRow {
   serial_number: string
   serial_type: string
   status: string
+  description?: string | null
+  image_url?: string | null
+  meta_title?: string | null
+  meta_description?: string | null
 }
 
 interface MovementRow {
   id: string
+  variant_id: string | null
   type: string
   quantity_change: number
   quantity_before: number
@@ -132,7 +148,7 @@ const COLS = `p.id, p.name, p.slug, p.description, p.sku, p.barcode, p.price, p.
    p.product_type, p.is_service, p.track_inventory, p.category_id, p.brand_id, p.model_id,
    p.unit_of_measure_id, p.image_url, p.is_active, p.is_featured, p.is_published_online,
    p.online_description, p.online_stock_reserve, p.meta_title, p.meta_description,
-   p.is_serialized, p.serial_type, p.warranty_months,
+   p.is_serialized, p.serial_type, p.warranty_months, p.unique_items,
    p.low_stock_threshold, p.reorder_point, p.stock_quantity, ${STOCK_EXPR} AS effective_stock,
    ${DISPLAY_PRICE_EXPR} AS effective_price, ${COST_EXPR} AS effective_cost,
    EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0) AS has_variants,
@@ -245,17 +261,19 @@ export class ProductsService {
       }
     }
 
-    // Search matches the product's name/sku/barcode OR any of its variants' sku/name, so a
-    // scanned/typed variant code (the tile "code") surfaces its product. Built here (not via
-    // paginateRows.searchColumns) because it needs a variant EXISTS sub-select.
+    // Robust search: the product's name/sku/barcode, OR any variant's name/sku/barcode, OR any
+    // in-stock serial number — so a typed/scanned variant code or serial surfaces its product.
+    // Built here (not via paginateRows.searchColumns) because it needs EXISTS sub-selects.
     const search = query.search?.trim()
     if (search) {
       where +=
         ` AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?` +
         ` OR EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.is_deleted = 0` +
-        ` AND (v.sku LIKE ? OR v.name LIKE ?)))`
+        ` AND (v.sku LIKE ? OR v.name LIKE ? OR v.barcode LIKE ?))` +
+        ` OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.product_id = p.id` +
+        ` AND su.is_deleted = 0 AND su.status = 'IN_STOCK' AND su.serial_number LIKE ?))`
       const like = `%${search}%`
-      params.push(like, like, like, like, like)
+      params.push(like, like, like, like, like, like, like)
     }
 
     const { rows, ...meta } = paginateRows<ProductRow>(
@@ -276,6 +294,102 @@ export class ProductsService {
       query,
     )
     return toPaginated(rows.map(toLocalProduct), meta)
+  }
+
+  /**
+   * Flattened sellable catalog for the POS grid: a non-variant product is one entry; a variant
+   * product is expanded into one entry per active variant (its base is not sellable). Robust
+   * search matches product/variant name·sku·barcode and in-stock serial numbers. Paginated over a
+   * UNION so counts/paging are correct; entries are hydrated with the existing product/variant
+   * mappers.
+   */
+  listSellable(query: ProductListQuery = {}): PaginatedResult<SellEntry> {
+    const businessId = this.getBusinessId()
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
+    const page = Math.max(query.page ?? 1, 1)
+    if (!businessId) return toPaginated<SellEntry>([], { total: 0, page, limit, totalPages: 1 })
+
+    const search = query.search?.trim()
+    const like = search ? `%${search}%` : null
+
+    // Branch 1 — products with no variants.
+    let prodWhere = `p.business_id = ? AND p.is_deleted = 0
+       AND NOT EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)`
+    const prodParams: unknown[] = [businessId]
+    if (query.categoryId) {
+      prodWhere += ' AND p.category_id = ?'
+      prodParams.push(query.categoryId)
+    }
+    if (like) {
+      prodWhere += ` AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?
+        OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.product_id = p.id
+          AND su.is_deleted = 0 AND su.status = 'IN_STOCK' AND su.serial_number LIKE ?))`
+      prodParams.push(like, like, like, like)
+    }
+
+    // Branch 2 — one entry per active variant (matched on variant cols, parent name, or its serials).
+    let varWhere = `p.business_id = ? AND p.is_deleted = 0 AND v.is_deleted = 0 AND v.is_active = 1`
+    const varParams: unknown[] = [businessId]
+    if (query.categoryId) {
+      varWhere += ' AND p.category_id = ?'
+      varParams.push(query.categoryId)
+    }
+    if (like) {
+      varWhere += ` AND (v.name LIKE ? OR v.sku LIKE ? OR v.barcode LIKE ? OR p.name LIKE ?
+        OR EXISTS (SELECT 1 FROM product_serial_units su WHERE su.variant_id = v.id
+          AND su.is_deleted = 0 AND su.status = 'IN_STOCK' AND su.serial_number LIKE ?))`
+      varParams.push(like, like, like, like, like)
+    }
+
+    const union = `
+      SELECT p.id AS pid, NULL AS vid, p.name AS sname, -1 AS ssort FROM products p WHERE ${prodWhere}
+      UNION ALL
+      SELECT p.id AS pid, v.id AS vid, p.name AS sname, v.sort_order AS ssort
+        FROM product_variants v JOIN products p ON p.id = v.product_id WHERE ${varWhere}`
+    const unionParams = [...prodParams, ...varParams]
+
+    const total =
+      this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM (${union})`, unionParams)?.n ?? 0
+    const totalPages = Math.max(1, Math.ceil(total / limit))
+
+    const pageRows = this.db.query<{ pid: string; vid: string | null }>(
+      `SELECT pid, vid FROM (${union})
+       ORDER BY sname COLLATE NOCASE ASC, ssort ASC, vid ASC
+       LIMIT ? OFFSET ?`,
+      [...unionParams, limit, (page - 1) * limit],
+    )
+
+    // Hydrate: each product once; each product that appears as a variant entry contributes its
+    // (already-hydrated) variants once.
+    const productIds = [...new Set(pageRows.map((r) => r.pid))]
+    const productById = new Map<string, LocalProduct>()
+    for (const pid of productIds) {
+      const prod = this.getOne(pid)
+      if (prod) productById.set(pid, prod)
+    }
+    const variantById = new Map<string, LocalVariant>()
+    const wantedVariants = new Set(pageRows.filter((r) => r.vid).map((r) => r.vid as string))
+    if (wantedVariants.size > 0) {
+      for (const pid of productIds) {
+        if (!pageRows.some((r) => r.pid === pid && r.vid)) continue
+        for (const v of this.listVariants(pid)) {
+          if (wantedVariants.has(v.id)) variantById.set(v.id, v)
+        }
+      }
+    }
+
+    const entries: SellEntry[] = []
+    for (const r of pageRows) {
+      const product = productById.get(r.pid)
+      if (!product) continue
+      if (r.vid) {
+        const variant = variantById.get(r.vid)
+        if (variant) entries.push({ kind: 'variant', product, variant })
+      } else {
+        entries.push({ kind: 'product', product })
+      }
+    }
+    return toPaginated(entries, { total, page, limit, totalPages })
   }
 
   /** Catalog KPI roll-up for the list header. Aggregated over local SQLite so it
@@ -334,9 +448,9 @@ export class ProductsService {
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
          product_type, is_service, track_inventory, category_id, brand_id, model_id, unit_of_measure_id,
          image_url, is_active, is_featured, is_published_online, online_description, online_stock_reserve,
-         meta_title, meta_description, is_serialized, serial_type, warranty_months, low_stock_threshold, reorder_point,
+         meta_title, meta_description, is_serialized, serial_type, warranty_months, unique_items, low_stock_threshold, reorder_point,
          stock_quantity, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -367,6 +481,7 @@ export class ProductsService {
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
+        input.uniqueItems ? 1 : 0,
         input.lowStockThreshold ?? 0, // column is NOT NULL; 0 = no low-stock alert
         input.reorderPoint ?? null,
         tracks ? (input.openingStock ?? 0) : 0,
@@ -403,7 +518,7 @@ export class ProductsService {
         unit_of_measure_id = ?, image_url = ?, is_active = ?, is_featured = ?, is_published_online = ?,
         online_description = ?, online_stock_reserve = ?, meta_title = ?, meta_description = ?,
         is_serialized = ?, serial_type = ?,
-        warranty_months = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
+        warranty_months = ?, unique_items = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
@@ -432,6 +547,7 @@ export class ProductsService {
         input.isSerialized ? 1 : 0,
         input.serialType ?? null,
         input.warrantyMonths ?? null,
+        input.uniqueItems ? 1 : 0,
         input.lowStockThreshold ?? 0, // column is NOT NULL; 0 = no low-stock alert
         input.reorderPoint ?? null,
         now,
@@ -567,14 +683,7 @@ export class ProductsService {
         return {
           kind: 'serial',
           product,
-          serial: {
-            id: su.id,
-            productId: su.product_id,
-            variantId: su.variant_id,
-            serialNumber: su.serial_number,
-            serialType: su.serial_type as LocalSerialUnit['serialType'],
-            status: su.status as LocalSerialUnit['status'],
-          },
+          serial: this.toLocalSerialUnit(su),
         }
       }
     }
@@ -605,32 +714,42 @@ export class ProductsService {
 
   // ---- gallery images ------------------------------------------------------
 
-  listImages(productId: string): LocalProductImage[] {
+  // Images belong to a product (variantId null) or a specific variant. The scope is passed
+  // through so a variant's gallery is independent of the product's.
+  listImages(productId: string, variantId: string | null = null): LocalProductImage[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    const scope = variantId ? 'variant_id = ?' : 'variant_id IS NULL'
+    const params: unknown[] = [businessId, productId]
+    if (variantId) params.push(variantId)
     const rows = this.db.query<ProductImageRow>(
-      `SELECT id, product_id, url, alt_text, sort_order FROM product_images
-       WHERE business_id = ? AND product_id = ? AND is_deleted = 0
+      `SELECT id, product_id, variant_id, url, alt_text, sort_order FROM product_images
+       WHERE business_id = ? AND product_id = ? AND ${scope} AND is_deleted = 0
        ORDER BY sort_order ASC`,
-      [businessId, productId],
+      params,
     )
     return rows.map((r) => ({
       id: r.id,
       productId: r.product_id,
+      variantId: r.variant_id,
       url: r.url,
       altText: r.alt_text,
       sortOrder: r.sort_order,
     }))
   }
 
-  /** Replace a product's gallery with `images` (diff: add new, soft-delete removed, reindex). */
-  setImages(productId: string, images: ProductImageInput[]): void {
+  /** Replace a product's — or a variant's — gallery with `images` (diff: add new, soft-delete
+   * removed, reindex), scoped by variantId (null = product-level). */
+  setImages(productId: string, images: ProductImageInput[], variantId: string | null = null): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    const scope = variantId ? 'variant_id = ?' : 'variant_id IS NULL'
+    const scopeParams: unknown[] = [businessId, productId]
+    if (variantId) scopeParams.push(variantId)
     const existing = this.db.query<ProductImageRow>(
-      `SELECT id, product_id, url, alt_text, sort_order FROM product_images
-       WHERE business_id = ? AND product_id = ? AND is_deleted = 0`,
-      [businessId, productId],
+      `SELECT id, product_id, variant_id, url, alt_text, sort_order FROM product_images
+       WHERE business_id = ? AND product_id = ? AND ${scope} AND is_deleted = 0`,
+      scopeParams,
     )
     const keepIds = new Set(images.map((i) => i.id).filter(Boolean) as string[])
 
@@ -643,16 +762,16 @@ export class ProductsService {
         )
       } else {
         this.db.run(
-          `INSERT INTO product_images (id, business_id, product_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, businessId, productId, img.url, img.altText ?? null, index, now, now],
+          `INSERT INTO product_images (id, business_id, product_id, variant_id, url, alt_text, sort_order, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, businessId, productId, variantId, img.url, img.altText ?? null, index, now, now],
         )
       }
       this.enqueueImage(
         id,
         'UPSERT',
         businessId,
-        { productId, url: img.url, altText: img.altText ?? null, sortOrder: index },
+        { productId, variantId, url: img.url, altText: img.altText ?? null, sortOrder: index },
         now,
       )
     })
@@ -671,7 +790,7 @@ export class ProductsService {
       entityType: 'product',
       entityId: productId,
       entityLabel: this.getOne(productId)?.name ?? null,
-      changes: { before: null, after: { gallery: images.length } },
+      changes: { before: null, after: { gallery: images.length, variantId } },
     })
   }
 
@@ -681,7 +800,8 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const variants = this.db.query<VariantRow>(
-      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold
+      `SELECT id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point,
+              description, meta_title, meta_description, online_description, is_published_online
        FROM product_variants WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY sort_order ASC`,
       [businessId, productId],
@@ -705,7 +825,7 @@ export class ProductsService {
       {
         from: 'product_variants',
         columns:
-          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold',
+          'id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point, description, meta_title, meta_description, online_description, is_published_online',
         where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
         params: [businessId, productId],
         searchColumns: ['name', 'sku'],
@@ -764,6 +884,12 @@ export class ProductsService {
       sortOrder: v.sort_order,
       stockQuantity: isSerialized ? (serialStock.get(v.id) ?? 0) : (v.stock_quantity ?? 0),
       lowStockThreshold: v.low_stock_threshold,
+      reorderPoint: v.reorder_point,
+      description: v.description,
+      metaTitle: v.meta_title,
+      metaDescription: v.meta_description,
+      onlineDescription: v.online_description,
+      isPublishedOnline: v.is_published_online === 1,
       options: (optsByVariant.get(v.id) ?? []).map((o) => ({
         attributeGroupId: o.attribute_group_id,
         attributeOptionId: o.attribute_option_id,
@@ -826,7 +952,7 @@ export class ProductsService {
       if (prior) {
         // Stock is owned by inventory after create — only the threshold is editable here.
         this.db.run(
-          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, low_stock_threshold = ?, updated_at = ?
+          `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, sort_order = ?, low_stock_threshold = ?, reorder_point = ?, updated_at = ?
            WHERE id = ? AND business_id = ?`,
           [
             v.name,
@@ -836,6 +962,7 @@ export class ProductsService {
             v.isActive === false ? 0 : 1,
             index,
             v.lowStockThreshold ?? null,
+            v.reorderPoint ?? null,
             now,
             id,
             businessId,
@@ -864,8 +991,8 @@ export class ProductsService {
         }
       } else {
         this.db.run(
-          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point, is_deleted, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             id,
             businessId,
@@ -878,6 +1005,7 @@ export class ProductsService {
             index,
             Math.max(v.openingStock ?? 0, 0),
             v.lowStockThreshold ?? null,
+            v.reorderPoint ?? null,
             now,
             now,
           ],
@@ -919,6 +1047,7 @@ export class ProductsService {
           sortOrder: index,
           openingStock: prior ? undefined : (v.openingStock ?? 0),
           lowStockThreshold: v.lowStockThreshold ?? null,
+          reorderPoint: v.reorderPoint ?? null,
         },
         now,
       )
@@ -959,21 +1088,32 @@ export class ProductsService {
     const product = this.getOne(productId)
     if (!product) throw new Error('Product not found.')
     const now = new Date().toISOString()
-    const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
-    if (
-      this.listVariants(productId).some(
-        (v) => variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
-      )
-    ) {
-      throw new Error('A variant with this combination already exists.')
+    // Variants are attribute-based (options) OR free-form (a manually named option).
+    // Combination-dedupe only applies to attribute-based variants; a free-form variant
+    // just needs a name.
+    const hasOptions = input.options.length > 0
+    if (!hasOptions && !input.name?.trim()) {
+      throw new Error('Give the variant a name or select at least one option.')
+    }
+    if (hasOptions) {
+      const sig = variantSignature(input.options.map((o) => o.attributeOptionId))
+      if (
+        this.listVariants(productId).some(
+          (v) =>
+            v.options.length > 0 &&
+            variantSignature(v.options.map((o) => o.attributeOptionId)) === sig,
+        )
+      ) {
+        throw new Error('A variant with this combination already exists.')
+      }
     }
     this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null }])
     const id = randomUUID()
     const sortOrder = this.listVariants(productId).length
     const stock = product.isSerialized ? 0 : Math.max(input.openingStock ?? 0, 0)
     this.db.run(
-      `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      `INSERT INTO product_variants (id, business_id, product_id, name, price_override, cost_price_override, sku, is_active, sort_order, stock_quantity, low_stock_threshold, reorder_point, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -986,6 +1126,7 @@ export class ProductsService {
         sortOrder,
         stock,
         input.lowStockThreshold ?? null,
+        input.reorderPoint ?? null,
         now,
         now,
       ],
@@ -1025,6 +1166,7 @@ export class ProductsService {
         sortOrder,
         openingStock: stock,
         lowStockThreshold: input.lowStockThreshold ?? null,
+        reorderPoint: input.reorderPoint ?? null,
       },
       now,
     )
@@ -1036,6 +1178,7 @@ export class ProductsService {
         {
           referenceType: 'product_variant',
           referenceId: id,
+          variantId: id,
           notes: `Added variant "${input.name}" (+${stock})`,
         },
         now,
@@ -1059,8 +1202,23 @@ export class ProductsService {
     if (!prior) throw new Error('Variant not found.')
     this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null, keepId: variantId }])
     const now = new Date().toISOString()
+    // Descriptive/SEO fields: an explicit value (incl. null) sets it; undefined keeps the prior.
+    const keep = (v: string | null | undefined, p: string | null) =>
+      v === undefined ? p : (v ?? null)
+    const description = keep(input.description, prior.description)
+    const metaTitle = keep(input.metaTitle, prior.metaTitle)
+    const metaDescription = keep(input.metaDescription, prior.metaDescription)
+    const onlineDescription = keep(input.onlineDescription, prior.onlineDescription)
+    const isPublishedOnline = input.isPublishedOnline ?? prior.isPublishedOnline
+    // Thresholds: an explicit value (incl. null) sets it; undefined keeps the prior value — so a
+    // caller that doesn't touch thresholds (e.g. an SEO-only edit) never wipes them.
+    const keepNum = (v: number | null | undefined, p: number | null) =>
+      v === undefined ? p : (v ?? null)
+    const lowStockThreshold = keepNum(input.lowStockThreshold, prior.lowStockThreshold)
+    const reorderPoint = keepNum(input.reorderPoint, prior.reorderPoint)
     this.db.run(
-      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, updated_at = ?
+      `UPDATE product_variants SET name = ?, price_override = ?, cost_price_override = ?, sku = ?, is_active = ?, low_stock_threshold = ?, reorder_point = ?,
+              description = ?, meta_title = ?, meta_description = ?, online_description = ?, is_published_online = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
         input.name,
@@ -1068,7 +1226,13 @@ export class ProductsService {
         input.costPriceOverride ?? null,
         input.sku ?? null,
         input.isActive === false ? 0 : 1,
-        input.lowStockThreshold ?? null,
+        lowStockThreshold,
+        reorderPoint,
+        description,
+        metaTitle,
+        metaDescription,
+        onlineDescription,
+        isPublishedOnline ? 1 : 0,
         now,
         variantId,
         businessId,
@@ -1087,7 +1251,13 @@ export class ProductsService {
         sku: input.sku ?? null,
         isActive: input.isActive !== false,
         sortOrder: prior.sortOrder,
-        lowStockThreshold: input.lowStockThreshold ?? null,
+        lowStockThreshold,
+        reorderPoint,
+        description,
+        metaTitle,
+        metaDescription,
+        onlineDescription,
+        isPublishedOnline,
       },
       now,
     )
@@ -1169,7 +1339,7 @@ export class ProductsService {
         productId,
         businessId,
         -writeOff,
-        { referenceType: 'product_variant', referenceId: variantId, notes: trimmed },
+        { referenceType: 'product_variant', referenceId: variantId, variantId, notes: trimmed },
         now,
       )
     }
@@ -1187,7 +1357,8 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const rows = this.db.query<SerialUnitRow>(
-      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status,
+              description, image_url, meta_title, meta_description
        FROM product_serial_units
        WHERE business_id = ? AND product_id = ? AND is_deleted = 0
        ORDER BY created_at ASC`,
@@ -1198,7 +1369,10 @@ export class ProductsService {
 
   /** Paginated serial units for the product-detail management section. Server-side (BFF)
    * LIMIT/OFFSET + COUNT so the renderer never slices the full list. */
-  listSerialUnitsPage(productId: string, query: ListQuery = {}): PaginatedResult<LocalSerialUnit> {
+  listSerialUnitsPage(
+    productId: string,
+    query: SerialUnitsPageQuery = {},
+  ): PaginatedResult<LocalSerialUnit> {
     const businessId = this.getBusinessId()
     if (!businessId)
       return toPaginated<LocalSerialUnit>([], {
@@ -1207,13 +1381,21 @@ export class ProductsService {
         limit: query.limit ?? 20,
         totalPages: 1,
       })
+    // Optionally scope to a single variant (the variant detail page); otherwise all product units.
+    let where = 'business_id = ? AND product_id = ? AND is_deleted = 0'
+    const params: unknown[] = [businessId, productId]
+    if (query.variantId) {
+      where += ' AND variant_id = ?'
+      params.push(query.variantId)
+    }
     const { rows, ...meta } = paginateRows<SerialUnitRow>(
       this.db,
       {
         from: 'product_serial_units',
-        columns: 'id, product_id, variant_id, serial_number, serial_type, status',
-        where: 'business_id = ? AND product_id = ? AND is_deleted = 0',
-        params: [businessId, productId],
+        columns:
+          'id, product_id, variant_id, serial_number, serial_type, status, description, image_url, meta_title, meta_description',
+        where,
+        params,
         searchColumns: ['serial_number'],
         defaultSort: 'created_at ASC',
       },
@@ -1233,6 +1415,10 @@ export class ProductsService {
       serialNumber: r.serial_number,
       serialType: r.serial_type as LocalSerialUnit['serialType'],
       status: r.status,
+      description: r.description ?? null,
+      imageUrl: r.image_url ?? null,
+      metaTitle: r.meta_title ?? null,
+      metaDescription: r.meta_description ?? null,
     }
   }
 
@@ -1261,14 +1447,7 @@ export class ProductsService {
        FROM product_serial_units WHERE ${where} ORDER BY created_at ASC LIMIT 200`,
       params,
     )
-    return rows.map((r) => ({
-      id: r.id,
-      productId: r.product_id,
-      variantId: r.variant_id,
-      serialNumber: r.serial_number,
-      serialType: r.serial_type as LocalSerialUnit['serialType'],
-      status: r.status,
-    }))
+    return rows.map((r) => this.toLocalSerialUnit(r))
   }
 
   /** Replace a product's serial units. Matches live units by serialNumber so their
@@ -1406,10 +1585,18 @@ export class ProductsService {
         serialNumber: serial,
         serialType: u.serialType,
         status: 'IN_STOCK',
+        description: null,
+        imageUrl: null,
+        metaTitle: null,
+        metaDescription: null,
       })
     }
 
     if (created.length > 0) {
+      // The batch is one variant's units when scoped to a variant (variant page / add flow);
+      // if it spans variants the aggregate movement stays product-level (null).
+      const variantIds = new Set(created.map((u) => u.variantId ?? null))
+      const moveVariantId = variantIds.size === 1 ? (created[0]!.variantId ?? null) : null
       this.recordStockMovement(
         productId,
         businessId,
@@ -1417,6 +1604,7 @@ export class ProductsService {
         {
           referenceType: 'serial_unit',
           referenceId: productId,
+          variantId: moveVariantId,
           notes: notes?.trim() || `Added ${created.length} serial unit(s)`,
           type: movementType,
         },
@@ -1467,7 +1655,12 @@ export class ProductsService {
       productId,
       businessId,
       -1,
-      { referenceType: 'serial_unit', referenceId: unitId, notes: trimmed },
+      {
+        referenceType: 'serial_unit',
+        referenceId: unitId,
+        variantId: unit.variant_id ?? null,
+        notes: trimmed,
+      },
       now,
     )
     this.audit?.log({
@@ -1485,28 +1678,54 @@ export class ProductsService {
 
   /** Correct a unit's serial number (a typo fix). No quantity change → no movement. */
   updateSerialNumber(productId: string, unitId: string, serialNumber: string): LocalSerialUnit {
+    return this.updateSerialUnit(productId, unitId, { serialNumber })
+  }
+
+  /** Edit a serial unit's catalog info — serial number and, for unique-item mode,
+   * its own description / image / SEO. No quantity change → no movement. */
+  updateSerialUnit(
+    productId: string,
+    unitId: string,
+    input: SerialUnitUpdateInput,
+  ): LocalSerialUnit {
     const businessId = this.requireBusinessId()
     const unit = this.db.get<SerialUnitRow>(
-      `SELECT id, product_id, variant_id, serial_number, serial_type, status
+      `SELECT id, product_id, variant_id, serial_number, serial_type, status,
+              description, image_url, meta_title, meta_description
        FROM product_serial_units WHERE id = ? AND product_id = ? AND business_id = ? AND is_deleted = 0`,
       [unitId, productId, businessId],
     )
     if (!unit) throw new Error('Serial unit not found.')
-    const serial = serialNumber.trim()
-    if (!serial) throw new Error('Serial number is required.')
-    if (serial !== unit.serial_number) {
-      const clash = this.db.get<{ id: string }>(
-        `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
-        [businessId, serial],
-      )
-      if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
+    if (unit.status !== 'IN_STOCK') throw new Error('Sold or retired units cannot be edited.')
+
+    let serial = unit.serial_number
+    if (input.serialNumber !== undefined) {
+      serial = input.serialNumber.trim()
+      if (!serial) throw new Error('Serial number is required.')
+      if (serial !== unit.serial_number) {
+        const clash = this.db.get<{ id: string }>(
+          `SELECT id FROM product_serial_units WHERE business_id = ? AND serial_number = ? LIMIT 1`,
+          [businessId, serial],
+        )
+        if (clash && clash.id !== unitId) throw new Error(`${serial} is already in use.`)
+      }
     }
+
+    const description =
+      input.description !== undefined ? input.description : (unit.description ?? null)
+    const imageUrl = input.imageUrl !== undefined ? input.imageUrl : (unit.image_url ?? null)
+    const metaTitle = input.metaTitle !== undefined ? input.metaTitle : (unit.meta_title ?? null)
+    const metaDescription =
+      input.metaDescription !== undefined ? input.metaDescription : (unit.meta_description ?? null)
+
     const now = new Date().toISOString()
-    this.db.run(`UPDATE product_serial_units SET serial_number = ?, updated_at = ? WHERE id = ?`, [
-      serial,
-      now,
-      unitId,
-    ])
+    this.db.run(
+      `UPDATE product_serial_units
+         SET serial_number = ?, description = ?, image_url = ?, meta_title = ?, meta_description = ?,
+             updated_at = ?
+       WHERE id = ?`,
+      [serial, description, imageUrl, metaTitle, metaDescription, now, unitId],
+    )
     this.enqueueSerialUnit(
       unitId,
       'UPSERT',
@@ -1517,6 +1736,10 @@ export class ProductsService {
         serialNumber: serial,
         serialType: unit.serial_type,
         status: unit.status,
+        description,
+        imageUrl,
+        metaTitle,
+        metaDescription,
       },
       now,
     )
@@ -1525,7 +1748,10 @@ export class ProductsService {
       entityType: 'product_serial_unit',
       entityId: unitId,
       entityLabel: serial,
-      changes: { before: { serialNumber: unit.serial_number }, after: { serialNumber: serial } },
+      changes: {
+        before: { serialNumber: unit.serial_number },
+        after: { serialNumber: serial },
+      },
     })
     this.onMutated()
     return {
@@ -1535,6 +1761,10 @@ export class ProductsService {
       serialNumber: serial,
       serialType: unit.serial_type as LocalSerialUnit['serialType'],
       status: unit.status,
+      description,
+      imageUrl,
+      metaTitle,
+      metaDescription,
     }
   }
 
@@ -1546,7 +1776,7 @@ export class ProductsService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const rows = this.db.query<MovementRow>(
-      `SELECT id, type, quantity_change, quantity_before, quantity_after,
+      `SELECT id, variant_id, type, quantity_change, quantity_before, quantity_after,
               reference_type, reference_id, notes, performed_by_name, created_at
        FROM inventory_movements
        WHERE business_id = ? AND product_id = ?
@@ -1556,6 +1786,7 @@ export class ProductsService {
     )
     return rows.map((r) => ({
       id: r.id,
+      variantId: r.variant_id,
       type: r.type as StockMovementType,
       quantityChange: r.quantity_change,
       quantityBefore: r.quantity_before,
@@ -1631,7 +1862,13 @@ export class ProductsService {
     productId: string,
     businessId: string,
     change: number,
-    opts: { referenceType: string; referenceId: string; notes: string; type?: StockMovementType },
+    opts: {
+      referenceType: string
+      referenceId: string
+      notes: string
+      type?: StockMovementType
+      variantId?: string | null
+    },
     now: string,
   ): void {
     recordStockMovementFn(this.db, businessId, productId, change, opts, now)
@@ -1785,6 +2022,7 @@ export class ProductsService {
       isSerialized: input.isSerialized === true,
       serialType: input.serialType ?? null,
       warrantyMonths: input.warrantyMonths ?? null,
+      uniqueItems: input.uniqueItems === true,
       // Inventory fields — the API uses these to seed the inventory level on create.
       openingStock: input.openingStock ?? 0,
       lowStockThreshold: input.lowStockThreshold ?? null,
@@ -1849,6 +2087,7 @@ function toLocalProduct(row: ProductRow): LocalProduct {
     isSerialized: row.is_serialized === 1,
     serialType: (row.serial_type as LocalProduct['serialType']) ?? null,
     warrantyMonths: row.warranty_months,
+    uniqueItems: row.unique_items === 1,
     lowStockThreshold: row.low_stock_threshold,
     reorderPoint: row.reorder_point,
     currentStock: row.effective_stock ?? row.stock_quantity ?? 0,

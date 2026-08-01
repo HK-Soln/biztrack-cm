@@ -159,6 +159,7 @@ type CategorySyncPayload = {
   icon?: string | null
   imageUrl?: string | null
   sortOrder?: number | null
+  defaultUnitOfMeasureId?: string | null
   parentId?: string | null
   depth?: number | null
   createdAt?: string
@@ -225,6 +226,7 @@ type BrandCategoryPayload = {
 
 type ProductImagePayload = {
   productId?: string
+  variantId?: string | null
   url?: string
   altText?: string | null
   sortOrder?: number | null
@@ -244,6 +246,12 @@ type ProductVariantPayload = {
   sortOrder?: number | null
   openingStock?: number | null
   lowStockThreshold?: number | null
+  reorderPoint?: number | null
+  description?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
+  onlineDescription?: string | null
+  isPublishedOnline?: boolean
   createdAt?: string
   isDeleted?: boolean
 }
@@ -262,6 +270,10 @@ type ProductSerialUnitPayload = {
   serialNumber?: string
   serialType?: string
   status?: string | null
+  description?: string | null
+  imageUrl?: string | null
+  metaTitle?: string | null
+  metaDescription?: string | null
   createdAt?: string
   isDeleted?: boolean
 }
@@ -324,6 +336,7 @@ type ProductSyncPayload = {
   isSerialized?: boolean
   serialType?: string | null
   warrantyMonths?: number | null
+  uniqueItems?: boolean
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
@@ -1009,7 +1022,10 @@ export class SyncService {
 
       // Per-variant stock for the variant records being emitted (so the desktop's
       // denormalised variant stock stays correct across pulls).
-      const variantStock = new Map<string, { quantity: number; lowStockThreshold: number | null }>()
+      const variantStock = new Map<
+        string,
+        { quantity: number; lowStockThreshold: number | null; reorderPoint: number | null }
+      >()
       if (productVariants.length > 0) {
         const levels = await this.inventoryLevelsRepo.find({
           where: { businessId, variantId: In(productVariants.map((v) => v.id)) },
@@ -1019,6 +1035,7 @@ export class SyncService {
             variantStock.set(l.variantId, {
               quantity: l.quantity,
               lowStockThreshold: l.lowStockThreshold ?? null,
+              reorderPoint: l.reorderPoint ?? null,
             })
         }
       }
@@ -1154,6 +1171,7 @@ export class SyncService {
           id: record.id,
           businessId: record.businessId ?? null,
           productId: record.productId,
+          variantId: record.variantId ?? null,
           url: record.url,
           altText: record.altText ?? null,
           sortOrder: record.sortOrder,
@@ -1173,8 +1191,14 @@ export class SyncService {
           barcode: record.barcode ?? null,
           isActive: record.isActive,
           sortOrder: record.sortOrder,
+          description: record.description ?? null,
+          metaTitle: record.metaTitle ?? null,
+          metaDescription: record.metaDescription ?? null,
+          onlineDescription: record.onlineDescription ?? null,
+          isPublishedOnline: record.isPublishedOnline ?? false,
           stockQuantity: variantStock.get(record.id)?.quantity ?? 0,
           lowStockThreshold: variantStock.get(record.id)?.lowStockThreshold ?? null,
+          reorderPoint: variantStock.get(record.id)?.reorderPoint ?? null,
           createdAt: record.createdAt?.toISOString?.() ?? null,
           updatedAt: record.updatedAt?.toISOString?.() ?? null,
           isDeleted: record.deletedAt != null,
@@ -1208,6 +1232,10 @@ export class SyncService {
           serialNumber: record.serialNumber,
           serialType: record.serialType,
           status: record.status,
+          description: record.description ?? null,
+          imageUrl: record.imageUrl ?? null,
+          metaTitle: record.metaTitle ?? null,
+          metaDescription: record.metaDescription ?? null,
           warrantyExpiresAt: record.warrantyExpiresAt?.toISOString() ?? null,
           reservedAt: record.reservedAt?.toISOString() ?? null,
           reservedBy: record.reservedBy ?? null,
@@ -1655,6 +1683,7 @@ export class SyncService {
       imageUrl: payload.imageUrl ?? undefined,
       sortOrder: payload.sortOrder ?? undefined,
       showOnline: payload.showOnline ?? undefined,
+      defaultUnitOfMeasureId: payload.defaultUnitOfMeasureId ?? undefined,
     })
     await this.ensureValidDto(dto)
 
@@ -1696,6 +1725,7 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        defaultUnitOfMeasureId: this.normalizeOptionalString(payload.defaultUnitOfMeasureId),
         parentId,
         depth,
         deletedAt: null,
@@ -1721,6 +1751,7 @@ export class SyncService {
         icon: this.normalizeOptionalString(payload.icon),
         imageUrl: this.sanitizeStoredImageUrl(payload.imageUrl),
         sortOrder: payload.sortOrder ?? 0,
+        defaultUnitOfMeasureId: this.normalizeOptionalString(payload.defaultUnitOfMeasureId),
         parentId,
         depth,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -2115,9 +2146,12 @@ export class SyncService {
       )
     }
 
+    const variantId = this.normalizeOptionalString(payload.variantId)
+
     if (existing) {
       await this.productImagesRepo.update(operation.recordId, {
         productId,
+        variantId,
         url: payload.url!.trim(),
         altText: this.normalizeOptionalString(payload.altText),
         sortOrder: payload.sortOrder ?? existing.sortOrder,
@@ -2132,6 +2166,7 @@ export class SyncService {
         id: operation.recordId,
         businessId,
         productId,
+        variantId,
         url: payload.url!.trim(),
         altText: this.normalizeOptionalString(payload.altText),
         sortOrder: payload.sortOrder ?? 0,
@@ -2186,6 +2221,7 @@ export class SyncService {
     referenceId: string,
     notes: string,
     createdAt: Date,
+    variantId: string | null = null,
   ): Promise<void> {
     if (change === 0) return
     const hasHistory =
@@ -2196,6 +2232,7 @@ export class SyncService {
       this.inventoryMovementsRepo.create({
         businessId,
         productId,
+        variantId,
         type,
         quantityChange: change,
         quantityBefore: quantityAfter - change,
@@ -2252,6 +2289,11 @@ export class SyncService {
       barcode: this.normalizeOptionalString(payload.barcode),
       isActive: payload.isActive ?? existing?.isActive ?? true,
       sortOrder: payload.sortOrder ?? existing?.sortOrder ?? 0,
+      description: this.normalizeOptionalString(payload.description),
+      metaTitle: this.normalizeOptionalString(payload.metaTitle),
+      metaDescription: this.normalizeOptionalString(payload.metaDescription),
+      onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
+      isPublishedOnline: payload.isPublishedOnline ?? existing?.isPublishedOnline ?? false,
     }
 
     if (existing) {
@@ -2260,6 +2302,8 @@ export class SyncService {
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
+      // Threshold edits on an existing variant land on its inventory level, not the variant row.
+      await this.updateVariantLevelThresholds(businessId, productId, operation.recordId, payload)
       await this.refreshHasVariants(businessId, productId)
       return { status: 'applied' }
     }
@@ -2288,6 +2332,7 @@ export class SyncService {
             variantId: operation.recordId,
             quantity: openingStock,
             lowStockThreshold: payload.lowStockThreshold ?? null,
+            reorderPoint: payload.reorderPoint ?? null,
           }),
         )
         // The variant's opening stock is a stock-in — mirror the desktop ledger entry.
@@ -2301,16 +2346,34 @@ export class SyncService {
             operation.recordId,
             `Added variant "${fields.name}" (+${openingStock})`,
             this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+            operation.recordId,
           )
         }
-      } else if (payload.lowStockThreshold !== undefined) {
-        await this.inventoryLevelsRepo.update(level.id, {
-          lowStockThreshold: payload.lowStockThreshold,
-        })
+      } else {
+        await this.updateVariantLevelThresholds(businessId, productId, operation.recordId, payload)
       }
     }
     await this.refreshHasVariants(businessId, productId)
     return { status: 'applied' }
+  }
+
+  /** Persist a variant's stock alert thresholds onto its inventory level. Only keys present in
+   * the payload are changed, so a catalog-only edit never wipes existing thresholds. */
+  private async updateVariantLevelThresholds(
+    businessId: string,
+    productId: string,
+    variantId: string,
+    payload: ProductVariantPayload,
+  ): Promise<void> {
+    if (payload.lowStockThreshold === undefined && payload.reorderPoint === undefined) return
+    const level = await this.inventoryLevelsRepo.findOne({
+      where: { businessId, productId, variantId },
+    })
+    if (!level) return
+    const patch: { lowStockThreshold?: number | null; reorderPoint?: number | null } = {}
+    if (payload.lowStockThreshold !== undefined) patch.lowStockThreshold = payload.lowStockThreshold
+    if (payload.reorderPoint !== undefined) patch.reorderPoint = payload.reorderPoint
+    await this.inventoryLevelsRepo.update(level.id, patch)
   }
 
   private async applyProductVariantOptionOperation(
@@ -2403,6 +2466,7 @@ export class SyncService {
             operation.recordId,
             'Retired serial unit',
             operation.recordUpdatedAt,
+            existing.variantId ?? null,
           )
         }
       }
@@ -2434,6 +2498,13 @@ export class SyncService {
         serialNumber,
         serialType,
         status,
+        description: payload.description === undefined ? existing.description : payload.description,
+        imageUrl: payload.imageUrl === undefined ? existing.imageUrl : payload.imageUrl,
+        metaTitle: payload.metaTitle === undefined ? existing.metaTitle : payload.metaTitle,
+        metaDescription:
+          payload.metaDescription === undefined
+            ? existing.metaDescription
+            : payload.metaDescription,
         deletedAt: null,
         updatedAt: operation.recordUpdatedAt,
       })
@@ -2449,6 +2520,7 @@ export class SyncService {
           productId,
           change > 0 ? 'Added serial unit' : 'Removed serial unit',
           this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          variantId,
         )
       }
       return { status: 'applied' }
@@ -2463,6 +2535,10 @@ export class SyncService {
         serialNumber,
         serialType,
         status,
+        description: payload.description ?? null,
+        imageUrl: payload.imageUrl ?? null,
+        metaTitle: payload.metaTitle ?? null,
+        metaDescription: payload.metaDescription ?? null,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -2478,6 +2554,7 @@ export class SyncService {
         productId,
         'Added serial unit',
         this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+        variantId,
       )
     }
     return { status: 'applied' }
@@ -3097,6 +3174,7 @@ export class SyncService {
           isSerialized: payload.isSerialized ?? existing.isSerialized,
           serialType: this.normalizeOptionalString(payload.serialType),
           warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
+          uniqueItems: payload.uniqueItems ?? existing.uniqueItems,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           deletedAt: null,
           updatedAt: operation.recordUpdatedAt,
@@ -3174,6 +3252,7 @@ export class SyncService {
           isSerialized: payload.isSerialized ?? false,
           serialType: this.normalizeOptionalString(payload.serialType),
           warrantyMonths: payload.warrantyMonths ?? null,
+          uniqueItems: payload.uniqueItems ?? false,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),
           createdById: payload.createdById ?? null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
@@ -3331,6 +3410,7 @@ export class SyncService {
           id: operation.recordId,
           businessId,
           productId: payload.productId,
+          variantId,
           type: MovementType.MANUAL_ADJUSTMENT,
           quantityChange: quantityAfter - quantityBefore,
           quantityBefore,
@@ -4111,6 +4191,7 @@ export class SyncService {
       isSerialized: record.isSerialized,
       serialType: record.serialType ?? null,
       warrantyMonths: record.warrantyMonths ?? null,
+      uniqueItems: record.uniqueItems,
       categoryId: record.categoryId ?? null,
       brandId: record.brandId ?? null,
       modelId: record.modelId ?? null,
@@ -4197,6 +4278,7 @@ export class SyncService {
       icon: record.icon ?? null,
       imageUrl: record.imageUrl ?? null,
       sortOrder: record.sortOrder,
+      defaultUnitOfMeasureId: record.defaultUnitOfMeasureId ?? null,
       parentId: record.parentId ?? null,
       depth: record.depth,
       createdAt: record.createdAt.toISOString(),
@@ -4261,6 +4343,7 @@ export class SyncService {
       id: record.id,
       businessId: record.businessId,
       productId: record.productId,
+      variantId: record.variantId ?? null,
       type: record.type as unknown as InventoryMovementSyncRecord['type'],
       quantityChange: record.quantityChange,
       quantityBefore: record.quantityBefore,

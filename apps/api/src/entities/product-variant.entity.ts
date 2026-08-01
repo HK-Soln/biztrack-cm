@@ -54,6 +54,22 @@ export class ProductVariant extends BaseEntity {
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number
 
+  // A variant is a mini-product with its own description + SEO/online fields.
+  @Column({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Column({ name: 'meta_title', type: 'varchar', length: 200, nullable: true })
+  metaTitle?: string | null
+
+  @Column({ name: 'meta_description', type: 'varchar', length: 500, nullable: true })
+  metaDescription?: string | null
+
+  @Column({ name: 'online_description', type: 'text', nullable: true })
+  onlineDescription?: string | null
+
+  @Column({ name: 'is_published_online', default: false })
+  isPublishedOnline!: boolean
+
   @OneToMany(() => ProductVariantOption, (option) => option.variant)
   options?: ProductVariantOption[]
 }

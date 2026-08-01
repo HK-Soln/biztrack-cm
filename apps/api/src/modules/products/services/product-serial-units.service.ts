@@ -227,33 +227,47 @@ export class ProductSerialUnitsService {
       const product = await this.requireSerializedProduct(productId, businessId)
       const serialType = (product.serialType ?? SerialType.SERIAL_NUMBER) as SerialType
       const unit = await this.requireUnit(productId, unitId, businessId)
-      const serialNumber = dto.serialNumber.trim()
 
-      if (serialNumber !== unit.serialNumber) {
-        if (!validateSerialNumber(serialNumber, serialType)) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.serial_invalid_format', {
-              args: { serial: serialNumber, type: serialType },
-            }),
-            'SERIAL_INVALID_FORMAT',
-          )
+      const patch: Partial<ProductSerialUnit> = {}
+      let serialNumber = unit.serialNumber
+
+      if (dto.serialNumber !== undefined) {
+        serialNumber = dto.serialNumber.trim()
+        if (serialNumber !== unit.serialNumber) {
+          if (!validateSerialNumber(serialNumber, serialType)) {
+            throw new AppBadRequestException(
+              await this.i18n.translate('errors.serial_invalid_format', {
+                args: { serial: serialNumber, type: serialType },
+              }),
+              'SERIAL_INVALID_FORMAT',
+            )
+          }
+          const clash = await this.serialUnitsRepo.findOne({
+            where: { businessId, serialNumber },
+            withDeleted: true,
+          })
+          if (clash && clash.id !== unit.id) {
+            throw new AppBadRequestException(
+              await this.i18n.translate('errors.serial_duplicate_in_stock', {
+                args: { serial: serialNumber },
+              }),
+              'SERIAL_DUPLICATE_IN_STOCK',
+            )
+          }
         }
-        const clash = await this.serialUnitsRepo.findOne({
-          where: { businessId, serialNumber },
-          withDeleted: true,
-        })
-        if (clash && clash.id !== unit.id) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.serial_duplicate_in_stock', {
-              args: { serial: serialNumber },
-            }),
-            'SERIAL_DUPLICATE_IN_STOCK',
-          )
-        }
+        patch.serialNumber = serialNumber
       }
 
+      // Unique-item mode: the unit carries its own description / image / SEO.
+      if (dto.description !== undefined) patch.description = dto.description
+      if (dto.imageUrl !== undefined) patch.imageUrl = dto.imageUrl
+      if (dto.metaTitle !== undefined) patch.metaTitle = dto.metaTitle
+      if (dto.metaDescription !== undefined) patch.metaDescription = dto.metaDescription
+
       const before = unit.serialNumber
-      await this.serialUnitsRepo.update({ id: unit.id }, { serialNumber })
+      if (Object.keys(patch).length > 0) {
+        await this.serialUnitsRepo.update({ id: unit.id }, patch)
+      }
       const updated = await this.requireUnit(productId, unitId, businessId)
 
       this.auditService.log(context, {

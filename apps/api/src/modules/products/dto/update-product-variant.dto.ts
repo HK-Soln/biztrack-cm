@@ -35,4 +35,47 @@ export class UpdateProductVariantDto implements UpdateProductVariantRequest {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  metaTitle?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  metaDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  onlineDescription?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isPublishedOnline?: boolean
+
+  @ApiPropertyOptional({ description: 'Per-variant low-stock alert threshold.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  lowStockThreshold?: number | null
+
+  @ApiPropertyOptional({ description: 'Per-variant reorder point.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  reorderPoint?: number | null
 }

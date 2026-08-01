@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom'
+import { BrandMark } from '@biztrack/ui/biztrack'
 import { useLangStore, useT } from '@/i18n'
 
 // Non-authenticated shell (sign in / sign up / OTP …). Split layout: a brand
@@ -16,7 +17,9 @@ export function AuthShell() {
         <span className="bcorner" />
         <span className="bcorner2" />
         <div className="blogo">
-          <div className="mk">B</div>
+          <div className="mk">
+            <BrandMark size={26} />
+          </div>
           <div className="wm">
             BizTrack CM<small>Point of Sale</small>
           </div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal, Pagination, ScanInput, Select } from '@biztrack/ui/biztrack'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Modal, Pagination, ScanInput } from '@biztrack/ui/biztrack'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { usePaged } from '@/lib/usePaged'
@@ -8,6 +8,7 @@ import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { validateSerial } from '@/lib/serial'
+import { FileUpload } from '@/components/FileUpload'
 import type { LocalProduct, LocalSerialUnit } from '@shared/ipc'
 
 const PAGE_SIZE = 5
@@ -19,13 +20,23 @@ const PAGE_SIZE = 5
  *  - edit the number  → correction (no movement)
  * Responsive: table on desktop/tablet, stacked cards on mobile.
  */
-export function ManageSerialUnits({ product }: { product: LocalProduct }) {
+export function ManageSerialUnits({
+  product,
+  variant,
+}: {
+  product: LocalProduct
+  /** When set, this section manages only this variant's serial units (variant detail page). */
+  variant?: { id: string; name: string; stock: number }
+}) {
   const t = useT()
   const qc = useQueryClient()
   const bp = useBreakpoint()
   const id = product.id
   const type = product.serialType ?? 'SERIAL_NUMBER'
   const typeLabel = t(`prodf.serial_${type}` as Parameters<typeof t>[0])
+  // Serials are either product-level (variantId null) or scoped to one variant — never mixed
+  // with a picker: a variant product's serials are managed per-variant on the variant page.
+  const scopedVariantId = variant?.id ?? null
 
   // The displayed units are paginated + searched by the BFF/API (5 per page); the renderer
   // never holds the full set. Existing-duplicate/format enforcement happens server-side.
@@ -38,20 +49,18 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     setPage,
     search,
     setSearch,
-  } = usePaged<LocalSerialUnit>([...queryKeys.products, 'serials-page', id], (q) =>
-    dataClient.products.listSerialUnitsPage(id, { ...q, limit: PAGE_SIZE }),
+  } = usePaged<LocalSerialUnit>(
+    [...queryKeys.products, 'serials-page', id, scopedVariantId ?? 'all'],
+    (q) =>
+      dataClient.products.listSerialUnitsPage(id, {
+        ...q,
+        limit: PAGE_SIZE,
+        variantId: scopedVariantId ?? undefined,
+      }),
   )
-  const { data: variants = [] } = useQuery({
-    queryKey: [...queryKeys.products, 'variants', id],
-    queryFn: () => dataClient.products.listVariants(id),
-  })
-  const hasVariants = variants.length > 0
-  const variantName = (vid: string | null) =>
-    vid ? (variants.find((v) => v.id === vid)?.name ?? null) : null
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.products })
 
   const [serial, setSerial] = useState('')
-  const [variantId, setVariantId] = useState('')
   const [addErr, setAddErr] = useState<string | null>(null)
   const [bulkMode, setBulkMode] = useState(false)
   const [bulkText, setBulkText] = useState('')
@@ -61,6 +70,17 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
   const [editErr, setEditErr] = useState<string | null>(null)
   const [retire, setRetire] = useState<LocalSerialUnit | null>(null)
   const [reason, setReason] = useState('')
+  // Unique-item mode: each unit is a mini-product with its own photo/description/SEO.
+  const uniqueItems = product.uniqueItems === true
+  const [details, setDetails] = useState<LocalSerialUnit | null>(null)
+  const [detailFields, setDetailFields] = useState({
+    serialNumber: '',
+    description: '',
+    imageUrl: null as string | null,
+    metaTitle: '',
+    metaDescription: '',
+  })
+  const [detailErr, setDetailErr] = useState<string | null>(null)
 
   const addM = useMutation({
     mutationFn: (input: { serialNumber: string; variantId: string | null }) =>
@@ -69,7 +89,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       ]),
     onSuccess: () => {
       setSerial('')
-      setVariantId('')
       setAddErr(null)
       invalidate()
     },
@@ -94,14 +113,47 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       invalidate()
     },
   })
+  const detailsM = useMutation({
+    mutationFn: (unitId: string) =>
+      dataClient.products.updateSerialUnit(id, unitId, {
+        serialNumber: detailFields.serialNumber.trim() || undefined,
+        description: detailFields.description.trim() || null,
+        imageUrl: detailFields.imageUrl,
+        metaTitle: detailFields.metaTitle.trim() || null,
+        metaDescription: detailFields.metaDescription.trim() || null,
+      }),
+    onSuccess: () => {
+      setDetails(null)
+      setDetailErr(null)
+      invalidate()
+    },
+    onError: (e) => setDetailErr(errorMessage(e, t('psu.detailsError'))),
+  })
+  const openDetails = (u: LocalSerialUnit) => {
+    setDetails(u)
+    setDetailErr(null)
+    setDetailFields({
+      serialNumber: u.serialNumber,
+      description: u.description ?? '',
+      imageUrl: u.imageUrl,
+      metaTitle: u.metaTitle ?? '',
+      metaDescription: u.metaDescription ?? '',
+    })
+  }
+  const saveDetails = () => {
+    if (!details) return
+    const v = detailFields.serialNumber.trim()
+    if (!v) return setDetailErr(t('psu.invalid').replace('{type}', typeLabel))
+    if (!validateSerial(v, type)) return setDetailErr(t('psu.invalid').replace('{type}', typeLabel))
+    detailsM.mutate(details.id)
+  }
 
   const addSerial = (raw: string) => {
     const v = raw.trim()
     if (!v) return
     if (!validateSerial(v, type)) return setAddErr(t('psu.invalid').replace('{type}', typeLabel))
-    if (hasVariants && !variantId) return setAddErr(t('psu.variantRequired'))
     // Existing duplicates are enforced server-side (the renderer only holds the current page).
-    addM.mutate({ serialNumber: v, variantId: hasVariants ? variantId : null })
+    addM.mutate({ serialNumber: v, variantId: scopedVariantId })
   }
   const submitAdd = () => addSerial(serial)
 
@@ -136,13 +188,12 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
         validTokens.map((tk) => ({
           serialNumber: tk.value,
           serialType: type,
-          variantId: hasVariants ? variantId : null,
+          variantId: scopedVariantId,
         })),
         'Bulk add',
       ),
     onSuccess: () => {
       setBulkText('')
-      setVariantId('')
       setBulkErr(null)
       setBulkMode(false)
       invalidate()
@@ -150,7 +201,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
     onError: (e) => setBulkErr(errorMessage(e, t('psu.addError'))),
   })
   const submitBulk = () => {
-    if (hasVariants && !variantId) return setBulkErr(t('psu.bulkVariantRequired'))
     if (validTokens.length === 0) return setBulkErr(t('psu.bulkNone'))
     bulkM.mutate()
   }
@@ -257,6 +307,12 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
       <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
     </svg>
   )
+  const detailsIcon = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </svg>
+  )
 
   return (
     <div className="card" style={{ marginTop: 14 }}>
@@ -268,7 +324,7 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
         {/* Available (in-stock) count — sold/returned/damaged units are on record (and paged
             below) but are not available, so the header reflects only IN_STOCK units. */}
         <span className="chip-tag">
-          {t('psu.count').replace('{n}', String(product.currentStock))}
+          {t('psu.count').replace('{n}', String(variant ? variant.stock : product.currentStock))}
         </span>
       </div>
 
@@ -326,18 +382,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                 cameraError={t('scan.camError')}
               />
             </div>
-            {hasVariants ? (
-              <div style={{ flex: '0 1 180px' }}>
-                <Select value={variantId} onChange={(e) => setVariantId(e.target.value)}>
-                  <option value="">{t('psu.variantPick')}</option>
-                  {variants.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            ) : null}
             <Button variant="primary" onClick={submitAdd} loading={addM.isPending}>
               + {t('psu.add')}
             </Button>
@@ -356,24 +400,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           <p style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 8 }}>
             {t('psu.bulkHint')}
           </p>
-          {hasVariants ? (
-            <div style={{ marginBottom: 8, maxWidth: 240 }}>
-              <Select
-                value={variantId}
-                onChange={(e) => {
-                  setVariantId(e.target.value)
-                  setBulkErr(null)
-                }}
-              >
-                <option value="">{t('psu.variantPick')}</option>
-                {variants.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          ) : null}
           <textarea
             className="ta"
             rows={6}
@@ -509,11 +535,14 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                   marginTop: 10,
                 }}
               >
-                <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                  {variantName(u.variantId) ?? '—'}
-                </span>
+                <span />
                 {canModify(u) ? (
                   <span className="acts" style={{ display: 'inline-flex', gap: 4 }}>
+                    {uniqueItems ? (
+                      <button type="button" title={t('psu.details')} onClick={() => openDetails(u)}>
+                        {detailsIcon}
+                      </button>
+                    ) : null}
                     <button type="button" title={t('psu.edit')} onClick={() => startEdit(u)}>
                       {editIcon}
                     </button>
@@ -537,7 +566,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           <thead>
             <tr>
               <th>{t('psu.colSerial')}</th>
-              {hasVariants ? <th>{t('psu.colVariant')}</th> : null}
               <th>{t('psu.colStatus')}</th>
               <th className="right">{t('psu.colActions')}</th>
             </tr>
@@ -560,7 +588,6 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                     <span className="serial-pill">{u.serialNumber}</span>
                   )}
                 </td>
-                {hasVariants ? <td>{variantName(u.variantId) ?? '—'}</td> : null}
                 <td>{statusPill(u.status)}</td>
                 <td className="right">
                   {canModify(u) ? (
@@ -568,6 +595,15 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
                       className="acts"
                       style={{ display: 'inline-flex', gap: 4, justifyContent: 'flex-end' }}
                     >
+                      {uniqueItems ? (
+                        <button
+                          type="button"
+                          title={t('psu.details')}
+                          onClick={() => openDetails(u)}
+                        >
+                          {detailsIcon}
+                        </button>
+                      ) : null}
                       <button type="button" title={t('psu.edit')} onClick={() => startEdit(u)}>
                         {editIcon}
                       </button>
@@ -635,6 +671,92 @@ export function ManageSerialUnits({ product }: { product: LocalProduct }) {
           placeholder={t('psu.reasonPh')}
           onChange={(e) => setReason(e.target.value)}
         />
+      </Modal>
+
+      {/* Unique-item editor — a unit is a mini-product with its own photo/description/SEO. */}
+      <Modal
+        open={!!details}
+        onClose={() => setDetails(null)}
+        title={t('psu.detailsTitle')}
+        footer={
+          <>
+            <Button variant="soft" onClick={() => setDetails(null)} disabled={detailsM.isPending}>
+              {t('psu.cancel')}
+            </Button>
+            <Button variant="primary" loading={detailsM.isPending} onClick={saveDetails}>
+              {t('psu.save')}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 14 }}>
+          {t('psu.detailsSub')}
+        </p>
+        <label className="lbl2">{t('psu.serialLabel')}</label>
+        <ScanInput
+          value={detailFields.serialNumber}
+          inputMode={type === 'IMEI' ? 'numeric' : 'text'}
+          onChange={(e) => {
+            setDetailFields((f) => ({ ...f, serialNumber: e.target.value }))
+            setDetailErr(null)
+          }}
+          onScan={(v) => {
+            setDetailFields((f) => ({ ...f, serialNumber: v }))
+            setDetailErr(null)
+          }}
+          scanTitle={t('scan.title')}
+          cameraTitle={t('scan.camTitle')}
+          cameraHint={t('scan.camHint')}
+          cameraError={t('scan.camError')}
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('psu.image')}
+        </label>
+        <FileUpload
+          value={detailFields.imageUrl}
+          onChange={(url) => setDetailFields((f) => ({ ...f, imageUrl: url }))}
+          folder="products"
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('psu.description')}
+        </label>
+        <textarea
+          className="ta"
+          rows={3}
+          value={detailFields.description}
+          placeholder={t('psu.descriptionPh')}
+          onChange={(e) => setDetailFields((f) => ({ ...f, description: e.target.value }))}
+          style={{ width: '100%', resize: 'vertical' }}
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('prodf.metaTitle')} <span className="opt">SEO</span>
+        </label>
+        <Input
+          value={detailFields.metaTitle}
+          placeholder={detailFields.serialNumber || t('prodf.metaTitlePh')}
+          onChange={(e) => setDetailFields((f) => ({ ...f, metaTitle: e.target.value }))}
+        />
+
+        <label className="lbl2" style={{ marginTop: 14 }}>
+          {t('prodf.metaDescription')} <span className="opt">SEO</span>
+        </label>
+        <textarea
+          className="ta"
+          rows={2}
+          value={detailFields.metaDescription}
+          placeholder={t('prodf.metaDescriptionPh')}
+          onChange={(e) => setDetailFields((f) => ({ ...f, metaDescription: e.target.value }))}
+          style={{ width: '100%', resize: 'vertical' }}
+        />
+
+        {detailErr ? (
+          <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
+            {detailErr}
+          </p>
+        ) : null}
       </Modal>
     </div>
   )

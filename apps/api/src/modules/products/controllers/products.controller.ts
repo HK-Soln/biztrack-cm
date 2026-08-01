@@ -21,6 +21,7 @@ import type {
   PreviewVariantsResponse,
   Product,
   ProductScanResult,
+  ProductVariant,
 } from '@biztrack/types'
 import { serializeDto, serializeDtos, serializePaginatedResult } from '@/common/http/serialization'
 import type { ProductStats } from '@/common/stats/stock-stats'
@@ -83,6 +84,33 @@ export class ProductsController {
     return serializePaginatedResult(result, (product) => ProductResponseDto.fromModel(product))
   }
 
+  @Get('sellable')
+  @RequireResource(Resource.PRODUCTS_VIEW)
+  @ApiOperation({ summary: 'Flattened sellable catalog (products + variants) for the POS grid' })
+  async listSellable(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListProductsQueryDto,
+  ): Promise<
+    PaginatedResult<
+      | { kind: 'product'; product: ProductResponseDto }
+      | { kind: 'variant'; product: ProductResponseDto; variant: ProductVariant }
+    >
+  > {
+    const result = await this.productsService.listSellable(user.businessId as string, query)
+    return {
+      ...result,
+      data: result.data.map((e) =>
+        e.kind === 'variant'
+          ? {
+              kind: 'variant' as const,
+              product: ProductResponseDto.fromModel(e.product),
+              variant: e.variant,
+            }
+          : { kind: 'product' as const, product: ProductResponseDto.fromModel(e.product) },
+      ),
+    }
+  }
+
   @Get('low-stock')
   @RequireResource(Resource.PRODUCTS_VIEW)
   @ApiOperation({ summary: 'Get low stock products' })
@@ -138,7 +166,9 @@ export class ProductsController {
 
   @Get('scan')
   @RequireResource(Resource.PRODUCTS_VIEW)
-  @ApiOperation({ summary: 'Resolve a scanned code (serial/barcode/SKU) to a product, variant, or serial' })
+  @ApiOperation({
+    summary: 'Resolve a scanned code (serial/barcode/SKU) to a product, variant, or serial',
+  })
   async scan(
     @CurrentUser() user: JwtPayload,
     @Query('code') code?: string,

@@ -99,6 +99,7 @@ export class CategoriesService {
         icon: dto.icon?.trim() ?? null,
         imageUrl: dto.imageUrl?.trim() ?? null,
         sortOrder: dto.sortOrder ?? 0,
+        defaultUnitOfMeasureId: dto.defaultUnitOfMeasureId ?? null,
         parentId,
         depth,
       })
@@ -246,13 +247,17 @@ export class CategoriesService {
         name: dto.name?.trim() ?? category.name,
         slug,
         description:
-          dto.description === undefined ? category.description : (dto.description?.trim() || null),
+          dto.description === undefined ? category.description : dto.description?.trim() || null,
         isActive: dto.isActive ?? category.isActive,
         showOnline: dto.showOnline ?? category.showOnline,
         color: dto.color === undefined ? category.color : (dto.color?.trim() ?? null),
         icon: dto.icon === undefined ? category.icon : (dto.icon?.trim() ?? null),
         imageUrl: dto.imageUrl === undefined ? category.imageUrl : (dto.imageUrl?.trim() ?? null),
         sortOrder: dto.sortOrder ?? category.sortOrder,
+        defaultUnitOfMeasureId:
+          dto.defaultUnitOfMeasureId === undefined
+            ? category.defaultUnitOfMeasureId
+            : (dto.defaultUnitOfMeasureId ?? null),
         parentId,
         depth,
         updatedAt: new Date(),
@@ -345,7 +350,10 @@ export class CategoriesService {
     }
   }
 
-  private async assertParentHasNoVariantOptions(parentId: string, businessId: string): Promise<void> {
+  private async assertParentHasNoVariantOptions(
+    parentId: string,
+    businessId: string,
+  ): Promise<void> {
     if (await this.hasVariantOptions(parentId, businessId)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.category_parent_has_variant_options'),
@@ -376,7 +384,9 @@ export class CategoriesService {
         where: { businessId, deletedAt: IsNull() },
         order: { sortOrder: 'ASC', name: 'ASC' },
       })
-      const parentIds = new Set(categories.filter((c) => c.parentId).map((c) => c.parentId as string))
+      const parentIds = new Set(
+        categories.filter((c) => c.parentId).map((c) => c.parentId as string),
+      )
       let leaves = categories.filter((c) => c.isActive && !parentIds.has(c.id))
 
       if (query.brandId) {
@@ -540,7 +550,9 @@ export class CategoriesService {
 function filterCategoriesBySearch(rows: ProductCategory[], search?: string): ProductCategory[] {
   const q = search?.trim().toLowerCase()
   if (!q) return rows
-  return rows.filter((r) => r.name.toLowerCase().includes(q) || (r.slug ?? '').toLowerCase().includes(q))
+  return rows.filter(
+    (r) => r.name.toLowerCase().includes(q) || (r.slug ?? '').toLowerCase().includes(q),
+  )
 }
 
 /** Leaf-descendant ids under each root id (a root that is itself a leaf maps to itself). */

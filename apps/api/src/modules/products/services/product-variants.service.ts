@@ -175,6 +175,11 @@ export class ProductVariantsService {
         barcode: variant.barcode ?? null,
         isActive: variant.isActive,
         sortOrder: variant.sortOrder,
+        description: variant.description ?? null,
+        metaTitle: variant.metaTitle ?? null,
+        metaDescription: variant.metaDescription ?? null,
+        onlineDescription: variant.onlineDescription ?? null,
+        isPublishedOnline: variant.isPublishedOnline ?? false,
         options: (linksByVariant.get(variant.id) ?? []).map((link) => ({
           id: link.id,
           variantId: link.variantId,
@@ -187,6 +192,7 @@ export class ProductVariantsService {
         })),
         currentStock,
         lowStockThreshold: level?.lowStockThreshold ?? null,
+        reorderPoint: level?.reorderPoint ?? null,
       }
     })
   }
@@ -285,6 +291,7 @@ export class ProductVariantsService {
             variantId: variant.id,
             quantity,
             lowStockThreshold: null,
+            reorderPoint: null,
           }),
         )
         if (quantity > 0) {

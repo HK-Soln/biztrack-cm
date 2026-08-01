@@ -17,6 +17,7 @@ export class CategoryDto implements ProductCategory {
   isLeaf?: boolean
   isActive?: boolean
   showOnline?: boolean
+  defaultUnitOfMeasureId?: string | null
   createdAt!: string
   updatedAt!: string
 
@@ -38,6 +39,7 @@ export class CategoryDto implements ProductCategory {
     dto.isLeaf = entity.isLeaf
     dto.isActive = entity.isActive
     dto.showOnline = entity.showOnline
+    dto.defaultUnitOfMeasureId = entity.defaultUnitOfMeasureId ?? null
     dto.createdAt = toIsoString(entity.createdAt) ?? ''
     dto.updatedAt = toIsoString(entity.updatedAt) ?? ''
     return dto

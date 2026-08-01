@@ -7,7 +7,7 @@ import type {
   UpdateProductImageRequest,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
-import { Repository } from 'typeorm'
+import { IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
@@ -39,8 +39,10 @@ export class ProductImagesService {
       const limit = Math.min(Math.max(query.limit ?? 20, 1), 100)
       const skip = (page - 1) * limit
 
+      // Scope to the product-level gallery (no variantId) or a specific variant's gallery.
+      const variantId = query.variantId ?? null
       const [data, total] = await this.imagesRepo.findAndCount({
-        where: { productId },
+        where: { productId, variantId: variantId ? variantId : IsNull() },
         order: { sortOrder: 'ASC', createdAt: 'ASC' },
         skip,
         take: limit,
@@ -61,7 +63,10 @@ export class ProductImagesService {
   async create(productId: string, businessId: string, dto: CreateProductImageRequest) {
     try {
       await this.productsService.findById(productId, businessId)
-      const count = await this.imagesRepo.count({ where: { productId } })
+      // The 10-image cap applies per gallery (product-level or a given variant).
+      const variantId = dto.variantId ?? null
+      const scope = { productId, variantId: variantId ? variantId : IsNull() }
+      const count = await this.imagesRepo.count({ where: scope })
       if (count >= 10) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.product_images_limit_reached'),
@@ -71,6 +76,8 @@ export class ProductImagesService {
 
       const image = this.imagesRepo.create({
         productId,
+        variantId,
+        businessId,
         url: dto.url.trim(),
         altText: dto.altText?.trim() ?? null,
         sortOrder: dto.sortOrder ?? count,

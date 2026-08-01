@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
+import { BrandMark, Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { BusinessSetupPayload } from '@shared/ipc'
@@ -11,7 +11,15 @@ import { dataClient } from '@/lib/data-client'
 
 const STEPS: MessageKey[] = ['setup.stepIdentity', 'setup.stepContact', 'setup.stepFiscal']
 
-const BUSINESS_TYPES = ['EPICERIE', 'BOUTIQUE', 'RESTAURANT', 'PHARMACIE', 'SALON', 'ELECTRONIQUE', 'AUTRE'] as const
+const BUSINESS_TYPES = [
+  'EPICERIE',
+  'BOUTIQUE',
+  'RESTAURANT',
+  'PHARMACIE',
+  'SALON',
+  'ELECTRONIQUE',
+  'AUTRE',
+] as const
 const REGIMES = ['IMPOT_LIBERATOIRE', 'SIMPLIFIE', 'REEL'] as const
 
 // Phase 1 onboarding: a multi-step business-setup form (identity → contact → fiscal).
@@ -98,13 +106,17 @@ export function SetupBusiness() {
     void submit()
   }
 
-  const titleKey: MessageKey = step === 0 ? 'setup.identityTitle' : step === 1 ? 'setup.contactTitle' : 'setup.fiscalTitle'
-  const subKey: MessageKey = step === 0 ? 'setup.identitySub' : step === 1 ? 'setup.contactSub' : 'setup.fiscalSub'
+  const titleKey: MessageKey =
+    step === 0 ? 'setup.identityTitle' : step === 1 ? 'setup.contactTitle' : 'setup.fiscalTitle'
+  const subKey: MessageKey =
+    step === 0 ? 'setup.identitySub' : step === 1 ? 'setup.contactSub' : 'setup.fiscalSub'
 
   return (
     <div className="auth-card" style={{ maxWidth: 480 }}>
       <div className="auth-logo">
-        <div className="mk">B</div>
+        <div className="mk">
+          <BrandMark size={22} />
+        </div>
         <div className="wm">BizTrack CM</div>
       </div>
 
@@ -113,7 +125,13 @@ export function SetupBusiness() {
           <div key={s} className={`st${i < step ? ' done' : i === step ? ' active' : ''}`}>
             <div className="dot">
               {i < step ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} style={{ width: 14, height: 14 }}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  style={{ width: 14, height: 14 }}
+                >
                   <path d="m5 12 4 4L19 6" />
                 </svg>
               ) : (
@@ -159,14 +177,24 @@ export function SetupBusiness() {
             </div>
             <div className="ff">
               <label className="lbl2">{t('setup.businessType')}</label>
-              <Select value={type} onChange={(e) => setType(e.target.value)}
-                options={BUSINESS_TYPES.map((v) => ({ value: v, label: t(`bizType.${v}` as MessageKey) }))} />
+              <Select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                options={BUSINESS_TYPES.map((v) => ({
+                  value: v,
+                  label: t(`bizType.${v}` as MessageKey),
+                }))}
+              />
             </div>
             <div className="ff">
               <label className="lbl2">
                 {t('setup.slogan')} <span className="opt">{t('setup.optional')}</span>
               </label>
-              <Input value={slogan} placeholder={t('setup.sloganPh')} onChange={(e) => setSlogan(e.target.value)} />
+              <Input
+                value={slogan}
+                placeholder={t('setup.sloganPh')}
+                onChange={(e) => setSlogan(e.target.value)}
+              />
             </div>
           </>
         ) : null}
@@ -207,13 +235,21 @@ export function SetupBusiness() {
               <label className="lbl2">
                 {t('setup.address')} <span className="opt">{t('setup.optional')}</span>
               </label>
-              <Input value={address} placeholder={t('setup.addressPh')} onChange={(e) => setAddress(e.target.value)} />
+              <Input
+                value={address}
+                placeholder={t('setup.addressPh')}
+                onChange={(e) => setAddress(e.target.value)}
+              />
             </div>
             <div className="ff">
               <label className="lbl2">
                 {t('setup.city')} <span className="opt">{t('setup.optional')}</span>
               </label>
-              <Input value={city} placeholder={t('setup.cityPh')} onChange={(e) => setCity(e.target.value)} />
+              <Input
+                value={city}
+                placeholder={t('setup.cityPh')}
+                onChange={(e) => setCity(e.target.value)}
+              />
             </div>
           </>
         ) : null}
@@ -225,17 +261,29 @@ export function SetupBusiness() {
                 <label className="lbl2">
                   {t('setup.niu')} <span className="opt">{t('setup.optional')}</span>
                 </label>
-                <Input value={niu} placeholder={t('setup.niuPh')} onChange={(e) => setNiu(e.target.value)} />
+                <Input
+                  value={niu}
+                  placeholder={t('setup.niuPh')}
+                  onChange={(e) => setNiu(e.target.value)}
+                />
               </div>
               <div className="ff">
                 <label className="lbl2">
                   {t('setup.rccm')} <span className="opt">{t('setup.optional')}</span>
                 </label>
-                <Input value={rccm} placeholder={t('setup.rccmPh')} onChange={(e) => setRccm(e.target.value)} />
+                <Input
+                  value={rccm}
+                  placeholder={t('setup.rccmPh')}
+                  onChange={(e) => setRccm(e.target.value)}
+                />
               </div>
             </div>
             <label className="chk">
-              <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={vatRegistered}
+                onChange={(e) => setVatRegistered(e.target.checked)}
+              />
               <span className="bx">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
                   <path d="m5 12 4 4L19 6" />
@@ -248,8 +296,19 @@ export function SetupBusiness() {
                 <div className="ff">
                   <label className="lbl2">{t('setup.vatRate')}</label>
                   <div className="ff-prefix">
-                    <Input value={vatRate} inputMode="decimal" onChange={(e) => setVatRate(e.target.value)} />
-                    <span className="pfx" style={{ borderLeft: 0, borderRight: '1px solid var(--border)', borderRadius: '0 10px 10px 0' }}>
+                    <Input
+                      value={vatRate}
+                      inputMode="decimal"
+                      onChange={(e) => setVatRate(e.target.value)}
+                    />
+                    <span
+                      className="pfx"
+                      style={{
+                        borderLeft: 0,
+                        borderRight: '1px solid var(--border)',
+                        borderRadius: '0 10px 10px 0',
+                      }}
+                    >
                       %
                     </span>
                   </div>
@@ -257,8 +316,14 @@ export function SetupBusiness() {
               ) : null}
               <div className="ff">
                 <label className="lbl2">{t('setup.fiscalRegime')}</label>
-                <Select value={fiscalRegime} onChange={(e) => setFiscalRegime(e.target.value)}
-                  options={REGIMES.map((v) => ({ value: v, label: t(`regime.${v}` as MessageKey) }))} />
+                <Select
+                  value={fiscalRegime}
+                  onChange={(e) => setFiscalRegime(e.target.value)}
+                  options={REGIMES.map((v) => ({
+                    value: v,
+                    label: t(`regime.${v}` as MessageKey),
+                  }))}
+                />
               </div>
             </div>
           </>
@@ -272,11 +337,21 @@ export function SetupBusiness() {
 
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
           {step > 0 ? (
-            <Button type="button" variant="soft" onClick={() => setStep((s) => s - 1)} disabled={busy}>
+            <Button
+              type="button"
+              variant="soft"
+              onClick={() => setStep((s) => s - 1)}
+              disabled={busy}
+            >
               {t('setup.back')}
             </Button>
           ) : null}
-          <Button type="submit" variant="primary" loading={busy} style={{ flex: 1, justifyContent: 'center' }}>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={busy}
+            style={{ flex: 1, justifyContent: 'center' }}
+          >
             {step < STEPS.length - 1 ? t('setup.continue') : t('setup.finish')}
           </Button>
         </div>

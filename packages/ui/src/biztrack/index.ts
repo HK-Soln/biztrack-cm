@@ -3,6 +3,12 @@
 // Pair with the stylesheet: import '@biztrack/ui/styles.css'.
 export { Button } from './Button'
 export type { ButtonProps } from './Button'
+export { BrandMark } from './BrandMark'
+export type { BrandMarkProps } from './BrandMark'
+export { ImageGallery } from './ImageGallery'
+export type { ImageGalleryProps, ImageGalleryItem, ImageGalleryLabels } from './ImageGallery'
+export { ImageCarousel } from './ImageCarousel'
+export type { ImageCarouselProps, ImageCarouselItem } from './ImageCarousel'
 export { BackButton } from './BackButton'
 export type { BackButtonProps } from './BackButton'
 export { Input } from './Input'
