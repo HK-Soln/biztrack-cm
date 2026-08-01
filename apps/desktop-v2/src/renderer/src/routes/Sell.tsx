@@ -237,6 +237,9 @@ export function Sell() {
   const [customer, setCustomer] = useState<Cust | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [custOpen, setCustOpen] = useState(false)
+  // When the customer picker is opened from the payment modal, return to payment once it closes
+  // (pick, walk-in, or cancel) instead of dropping the cashier back to the cart.
+  const [custFromPay, setCustFromPay] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
@@ -517,10 +520,13 @@ export function Sell() {
       }
       return false
     }
-    // A specific serial/variant code adds directly; a product code routes through the same
-    // path as a tap — +1 for a simple product, or the variant/serial picker otherwise.
+    // A specific serial code adds that exact unit directly. Everything else routes through the
+    // same path as a tap so serialization is respected: a variant of a serialized product opens
+    // the serial picker (scoped to the variant) rather than adding a plain line; a product code
+    // does +1 for a simple product, or opens the variant/serial/service picker otherwise.
     if (hit.kind === 'serial') addSerials(hit.product, [hit.serial])
-    else if (hit.kind === 'variant') addVariant(hit.product, hit.variant)
+    else if (hit.kind === 'variant')
+      onEntryClick({ kind: 'variant', product: hit.product, variant: hit.variant })
     else await onProductClick(hit.product)
     return true
   }
@@ -747,14 +753,28 @@ export function Sell() {
       {custOpen ? (
         <CustomerPicker
           currentId={customer?.id ?? null}
-          onClose={() => setCustOpen(false)}
+          onClose={() => {
+            setCustOpen(false)
+            if (custFromPay) {
+              setCustFromPay(false)
+              setPayOpen(true)
+            }
+          }}
           onPick={(c) => {
             setCustomer(c)
             setCustOpen(false)
+            if (custFromPay) {
+              setCustFromPay(false)
+              setPayOpen(true)
+            }
           }}
           onWalkIn={() => {
             setCustomer(null)
             setCustOpen(false)
+            if (custFromPay) {
+              setCustFromPay(false)
+              setPayOpen(true)
+            }
           }}
         />
       ) : null}
@@ -771,6 +791,7 @@ export function Sell() {
           onClose={() => setPayOpen(false)}
           onPickCustomer={() => {
             setPayOpen(false)
+            setCustFromPay(true)
             setCustOpen(true)
           }}
           busy={checkout.isPending}
