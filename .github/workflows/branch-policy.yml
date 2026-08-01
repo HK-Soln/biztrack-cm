@@ -2,7 +2,9 @@ name: Branch policy
 
 # Enforces the PR-source rules that GitHub branch protection can't express natively:
 #   - PRs into `main` may only come from `staging`
-#   - PRs into `staging` may only come from `dev` or `hotfix/*`
+#   - PRs into `staging` may only come from `dev`, `main`, or `hotfix/*`
+#     (`main` is allowed so release merge commits can be synced back into staging,
+#      which keeps a staging->main PR up to date with the strict status-check policy)
 # Mark this job ("PR source branch") as a REQUIRED status check on main + staging so
 # non-conforming PRs are blocked from merging.
 
@@ -28,9 +30,9 @@ jobs:
             fi
           elif [ "$BASE" = "staging" ]; then
             case "$HEAD" in
-              dev|hotfix/*) : ;;
+              dev|main|hotfix/*) : ;;
               *)
-                echo "::error::PRs into 'staging' must come from 'dev' or 'hotfix/*' (got '$HEAD')."
+                echo "::error::PRs into 'staging' must come from 'dev', 'main', or 'hotfix/*' (got '$HEAD')."
                 exit 1
                 ;;
             esac
