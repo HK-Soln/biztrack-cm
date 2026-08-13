@@ -201,6 +201,7 @@ export const IPC = {
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
   salesCreate: 'sales:create',
+  salesMyDiscountLimits: 'sales:my-discount-limits',
   salesList: 'sales:list',
   salesListAll: 'sales:list-all',
   salesSummary: 'sales:summary',
@@ -225,6 +226,8 @@ export const IPC = {
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
 export type { ChargeType } from '@biztrack/types'
+import type { RoleDiscountLimits } from '@biztrack/utils'
+export type { RoleDiscountLimits }
 export type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
 export type {
   SalesByProductRow,
@@ -1112,6 +1115,8 @@ export interface SaleInput {
   payments: SalePaymentLineInput[]
   charges?: SaleChargeLineInput[]
   discounts?: SaleDiscountLineInput[]
+  /** Manager userId who authorized an over-limit discount via step-up (BIZ-1.4). */
+  authorizedByUserId?: string | null
 }
 /** An opening balance brought forward for a contact (one per direction). */
 export interface OpeningBalanceInput {
@@ -1985,6 +1990,8 @@ export interface BridgeApi {
   sales: {
     /** Ring up a checkout (idempotent on clientId). Returns the saved sale + lines. */
     create: (input: SaleInput) => Promise<LocalSaleDetail>
+    /** The current cashier's role discount limits (to prompt step-up when exceeded). */
+    myDiscountLimits: () => Promise<RoleDiscountLimits>
     list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
     /** All sales matching the filters (no pagination) — for CSV export. */
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>

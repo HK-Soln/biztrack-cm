@@ -296,4 +296,9 @@ export class CreateSaleDto implements CreateSaleRequest {
   @ValidateNested({ each: true })
   @Type(() => CreateSaleItemDto)
   items!: CreateSaleItemDto[]
+
+  @ApiPropertyOptional({ description: 'Manager userId who authorized an over-limit discount.' })
+  @IsOptional()
+  @IsUUID()
+  authorizedByUserId?: string | null
 }

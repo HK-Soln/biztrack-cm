@@ -1,6 +1,11 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod } from '@biztrack/types'
-import { allocateProRata, toWholeXaf } from '@biztrack/utils'
+import {
+  allocateProRata,
+  evaluateDiscountAuthorization,
+  toWholeXaf,
+  type RoleDiscountLimits,
+} from '@biztrack/utils'
 import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -314,6 +319,21 @@ export class SalesService {
       })
     }
 
+    // BIZ-1.4: evaluate the cashier's role discount limits (offline, from the synced
+    // roles table). Over-limit discounts still complete (APPROVE) but are flagged
+    // unauthorized unless a manager authorized them via step-up. Same shared evaluator
+    // as the API, so both runtimes agree.
+    const authorizedBy = input.authorizedByUserId ?? null
+    const { overLimit } = evaluateDiscountAuthorization(this.roleLimits(businessId, cashierId), {
+      lines: emits.map((e) => ({
+        discountAmount: e.discountAmount,
+        listedLineValue: toWholeXaf(e.unitPriceListed * e.quantity),
+      })),
+      cartDiscount: discountAmount,
+      subtotal,
+    })
+    const discountUnauthorized = overLimit && !authorizedBy
+
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
     )
@@ -452,8 +472,8 @@ export class SalesService {
       this.db.run(
         `INSERT INTO sale_discounts
           (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
-           reason_code, reason_note, applied_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reason_code, reason_note, applied_by, authorized_by, unauthorized, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           d.id,
           saleId,
@@ -466,6 +486,8 @@ export class SalesService {
           d.reasonCode ?? null,
           d.reasonNote ?? null,
           cashierId,
+          authorizedBy,
+          discountUnauthorized ? 1 : 0,
           now,
         ],
       )
@@ -474,8 +496,8 @@ export class SalesService {
       this.db.run(
         `INSERT INTO sale_discounts
           (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
-           reason_code, reason_note, applied_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?)`,
+           reason_code, reason_note, applied_by, authorized_by, unauthorized, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?)`,
         [
           d.id,
           saleId,
@@ -486,6 +508,8 @@ export class SalesService {
           d.amount,
           d.reasonCode,
           cashierId,
+          authorizedBy,
+          discountUnauthorized ? 1 : 0,
           now,
         ],
       )
@@ -616,6 +640,8 @@ export class SalesService {
             reasonCode: d.reasonCode ?? null,
             reasonNote: d.reasonNote ?? null,
             appliedBy: cashierId,
+            authorizedBy,
+            unauthorized: discountUnauthorized,
           })),
           ...lineDiscountRows.map((d) => ({
             id: d.id,
@@ -627,6 +653,8 @@ export class SalesService {
             reasonCode: d.reasonCode,
             reasonNote: null,
             appliedBy: cashierId,
+            authorizedBy,
+            unauthorized: discountUnauthorized,
           })),
         ],
       },
@@ -1461,6 +1489,41 @@ export class SalesService {
         businessId,
       ])?.currency ?? 'XAF'
     )
+  }
+
+  /** The current cashier's role discount limits — for the renderer to detect an
+   * over-limit discount at checkout and prompt manager step-up before submitting. */
+  myDiscountLimits(): RoleDiscountLimits {
+    return this.roleLimits(this.requireBusinessId(), this.getActorId())
+  }
+
+  /** The cashier's role discount limits from the synced roles table (null = no limit,
+   * so a role-less member or a member on a limitless role is unrestricted). */
+  private roleLimits(businessId: string, userId: string | null): RoleDiscountLimits {
+    const none: RoleDiscountLimits = {
+      maxDiscountPercent: null,
+      maxCartDiscountPercent: null,
+      maxDiscountAmountXaf: null,
+    }
+    if (!userId) return none
+    const row = this.db.get<{
+      max_discount_percent: number | null
+      max_cart_discount_percent: number | null
+      max_discount_amount_xaf: number | null
+    }>(
+      `SELECT r.max_discount_percent, r.max_cart_discount_percent, r.max_discount_amount_xaf
+         FROM business_members m
+         JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0
+        LIMIT 1`,
+      [businessId, userId],
+    )
+    if (!row) return none
+    return {
+      maxDiscountPercent: row.max_discount_percent,
+      maxCartDiscountPercent: row.max_cart_discount_percent,
+      maxDiscountAmountXaf: row.max_discount_amount_xaf,
+    }
   }
 
   private requireBusinessId(): string {

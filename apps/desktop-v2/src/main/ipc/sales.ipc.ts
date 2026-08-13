@@ -21,6 +21,7 @@ export function registerSalesIpc(
   http: HttpClient,
 ): void {
   ipcMain.handle(IPC.salesCreate, (_e, input: SaleInput) => sales.createSale(input))
+  ipcMain.handle(IPC.salesMyDiscountLimits, () => sales.myDiscountLimits())
   ipcMain.handle(IPC.salesList, (_e, query?: SalesListQuery) => sales.list(query))
   ipcMain.handle(IPC.salesListAll, (_e, query?: SalesListQuery) => sales.listAll(query))
   ipcMain.handle(IPC.salesSummary, (_e, query?: SalesListQuery) => sales.summary(query))

@@ -175,6 +175,13 @@ function toLocalSalePayment(p: ApiSalePayment): LocalSalePayment {
 }
 
 export const cloudSales = {
+  // Cloud evaluates discount limits server-side on create; the browser build does not
+  // pre-prompt, so report no local limits.
+  myDiscountLimits: async () => ({
+    maxDiscountPercent: null,
+    maxCartDiscountPercent: null,
+    maxDiscountAmountXaf: null,
+  }),
   list: async (query?: SalesListQuery): Promise<PaginatedResult<LocalSale>> => {
     const res = await cget<PaginatedResult<ApiSale>>(`/sales${qs(saleQuery(query))}`)
     return { ...res, data: res.data.map(toLocalSale) }

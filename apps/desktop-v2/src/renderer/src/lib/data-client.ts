@@ -170,6 +170,7 @@ import type {
   BusinessOption,
   SyncStatus,
   TitleBarOverlayColors,
+  RoleDiscountLimits,
 } from '@shared/ipc'
 
 // The renderer's single data dependency. In Electron it resolves to the IPC bridge
@@ -370,6 +371,7 @@ export interface DataClient {
   }
   sales: {
     create: (input: SaleInput) => Promise<LocalSaleDetail>
+    myDiscountLimits: () => Promise<RoleDiscountLimits>
     list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
     summary: (query?: SalesListQuery) => Promise<LocalSalesSummary>
@@ -710,6 +712,7 @@ function electronAdapter(): DataClient {
     },
     sales: {
       create: (input) => window.api.sales.create(input),
+      myDiscountLimits: () => window.api.sales.myDiscountLimits(),
       list: (query) => window.api.sales.list(query),
       listAll: (query) => window.api.sales.listAll(query),
       summary: (query) => window.api.sales.summary(query),

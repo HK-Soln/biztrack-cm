@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
+import { evaluateDiscountAuthorization } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
+import { requestManagerStepUp } from '@/stores/step-up.store'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { useBreakpoint } from '@/lib/useBreakpoint'
@@ -701,6 +703,42 @@ export function Sell() {
     },
   })
 
+  // The cashier's role discount limits (offline). Used to prompt manager step-up
+  // when a discount exceeds them before the sale is rung up (BIZ-1.4).
+  const limitsQ = useQuery({
+    queryKey: ['sales', 'my-discount-limits'],
+    queryFn: () => dataClient.sales.myDiscountLimits(),
+    staleTime: 5 * 60_000,
+  })
+
+  /**
+   * Ring up the sale, first prompting for manager authorization if the discount is
+   * over the cashier's role limit. APPROVE semantics: if the manager cancels, the
+   * sale still completes but its discount is flagged unauthorized on the backend.
+   */
+  const submitSale = async (payments: SaleInput['payments']) => {
+    let authorizedByUserId: string | null = null
+    const limits = limitsQ.data
+    if (limits) {
+      const over = evaluateDiscountAuthorization(limits, {
+        lines: cart.map((l) => {
+          const listed = l.unitPriceListed ?? l.unitPrice
+          return {
+            discountAmount: Math.max(0, (listed - l.unitPrice) * l.quantity),
+            listedLineValue: listed * l.quantity,
+          }
+        }),
+        cartDiscount: calc.disc,
+        subtotal: calc.subtotal,
+      }).overLimit
+      if (over) {
+        const result = await requestManagerStepUp()
+        authorizedByUserId = result?.authorizedByUserId ?? null
+      }
+    }
+    checkout.mutate({ ...buildInput(payments), authorizedByUserId })
+  }
+
   const startNew = () => {
     setCart([])
     setCharges([])
@@ -840,7 +878,7 @@ export function Sell() {
             setCustOpen(true)
           }}
           busy={checkout.isPending}
-          onConfirm={(payments) => checkout.mutate(buildInput(payments))}
+          onConfirm={(payments) => void submitSale(payments)}
         />
       ) : null}
 

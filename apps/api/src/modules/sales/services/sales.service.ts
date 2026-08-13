@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
-import { allocateProRata, toWholeXaf } from '@biztrack/utils'
+import { allocateProRata, evaluateDiscountAuthorization, toWholeXaf } from '@biztrack/utils'
 import {
   BusinessMemberRole,
   DebtDirection,
@@ -44,6 +44,7 @@ import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
 import { SaleDiscount } from '@/entities/sale-discount.entity'
+import { Role } from '@/entities/role.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
 import { SaleReturn } from '@/entities/sale-return.entity'
@@ -282,6 +283,30 @@ export class SalesService {
           ),
         )
 
+        // BIZ-1.4: evaluate the cashier's role discount limits. Over-limit discounts
+        // still complete (APPROVE) but are flagged unauthorized unless a manager
+        // authorized them via step-up (dto.authorizedByUserId).
+        const role = user.roleId
+          ? await manager.getRepository(Role).findOne({ where: { id: user.roleId } })
+          : null
+        const authorizedBy = dto.authorizedByUserId ?? null
+        const { overLimit } = evaluateDiscountAuthorization(
+          {
+            maxDiscountPercent: role?.maxDiscountPercent ?? null,
+            maxCartDiscountPercent: role?.maxCartDiscountPercent ?? null,
+            maxDiscountAmountXaf: role?.maxDiscountAmountXaf ?? null,
+          },
+          {
+            lines: computed.items.map((it) => ({
+              discountAmount: it.discountAmount,
+              listedLineValue: toWholeXaf((it.unitPriceListed ?? it.unitPrice) * it.quantity),
+            })),
+            cartDiscount: computed.saleDiscountAmount,
+            subtotal: computed.subtotal,
+          },
+        )
+        const discountUnauthorized = overLimit && !authorizedBy
+
         // LINE-scoped discounts (OVERRIDE / explicit) so each line's discount_amount
         // reconciles with its sale_discounts rows (BIZ-1.2 invariant).
         const lineDiscountRepo = manager.getRepository(SaleDiscount)
@@ -301,6 +326,8 @@ export class SalesService {
                 amount: d.amount,
                 reasonCode: d.reasonCode,
                 appliedBy: user.sub,
+                authorizedBy,
+                unauthorized: discountUnauthorized,
               }),
             )
           }
@@ -354,6 +381,8 @@ export class SalesService {
                 reasonCode: d.reasonCode ?? null,
                 reasonNote: d.reasonNote ?? null,
                 appliedBy: user.sub,
+                authorizedBy,
+                unauthorized: discountUnauthorized,
               }),
             ),
           )
