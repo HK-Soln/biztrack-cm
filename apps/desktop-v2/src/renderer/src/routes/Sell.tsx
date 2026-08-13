@@ -719,22 +719,31 @@ export function Sell() {
   const submitSale = async (payments: SaleInput['payments']) => {
     let authorizedByUserId: string | null = null
     const limits = limitsQ.data
-    if (limits) {
-      const over = evaluateDiscountAuthorization(limits, {
-        lines: cart.map((l) => {
-          const listed = l.unitPriceListed ?? l.unitPrice
-          return {
-            discountAmount: Math.max(0, (listed - l.unitPrice) * l.quantity),
-            listedLineValue: listed * l.quantity,
-          }
-        }),
-        cartDiscount: calc.disc,
-        subtotal: calc.subtotal,
-      }).overLimit
-      if (over) {
-        const result = await requestManagerStepUp()
-        authorizedByUserId = result?.authorizedByUserId ?? null
-      }
+    const overLimit = limits
+      ? evaluateDiscountAuthorization(limits, {
+          lines: cart.map((l) => {
+            const listed = l.unitPriceListed ?? l.unitPrice
+            return {
+              discountAmount: Math.max(0, (listed - l.unitPrice) * l.quantity),
+              listedLineValue: listed * l.quantity,
+            }
+          }),
+          cartDiscount: calc.disc,
+          subtotal: calc.subtotal,
+        }).overLimit
+      : false
+    // Below-cost is resolved in the main process (cost never reaches the cashier) —
+    // it returns only whether authorization is required.
+    const belowCost = await dataClient.sales.belowCostCheck(
+      cart.map((l) => ({
+        productId: l.productId,
+        variantId: l.variantId ?? null,
+        unitPrice: l.unitPrice,
+      })),
+    )
+    if (overLimit || belowCost) {
+      const result = await requestManagerStepUp()
+      authorizedByUserId = result?.authorizedByUserId ?? null
     }
     checkout.mutate({ ...buildInput(payments), authorizedByUserId })
   }

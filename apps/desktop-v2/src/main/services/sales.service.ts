@@ -3,6 +3,7 @@ import { PaymentMethod } from '@biztrack/types'
 import {
   allocateProRata,
   evaluateDiscountAuthorization,
+  isBelowCost,
   toWholeXaf,
   type RoleDiscountLimits,
 } from '@biztrack/utils'
@@ -332,7 +333,19 @@ export class SalesService {
       cartDiscount: discountAmount,
       subtotal,
     })
-    const discountUnauthorized = overLimit && !authorizedBy
+    // BIZ-1.5: a line sold below its cost needs the same authorization unless the role
+    // may sell below cost. The effective charged unit price nets the line discount; a
+    // null cost is skipped. Cost stays in main — it never reaches the renderer.
+    const belowCost = isBelowCost(
+      emits.map((e) => ({
+        chargedUnitPrice:
+          e.quantity > 0 ? (e.unitPrice * e.quantity - e.discountAmount) / e.quantity : 0,
+        cost: e.costPrice,
+      })),
+    )
+    const discountUnauthorized =
+      (overLimit || (belowCost && !this.roleAllowsBelowCost(businessId, cashierId))) &&
+      !authorizedBy
 
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
@@ -472,8 +485,8 @@ export class SalesService {
       this.db.run(
         `INSERT INTO sale_discounts
           (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
-           reason_code, reason_note, applied_by, authorized_by, unauthorized, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reason_code, reason_note, applied_by, authorized_by, unauthorized, below_cost, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           d.id,
           saleId,
@@ -488,6 +501,7 @@ export class SalesService {
           cashierId,
           authorizedBy,
           discountUnauthorized ? 1 : 0,
+          belowCost ? 1 : 0,
           now,
         ],
       )
@@ -496,8 +510,8 @@ export class SalesService {
       this.db.run(
         `INSERT INTO sale_discounts
           (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
-           reason_code, reason_note, applied_by, authorized_by, unauthorized, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?)`,
+           reason_code, reason_note, applied_by, authorized_by, unauthorized, below_cost, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?)`,
         [
           d.id,
           saleId,
@@ -510,6 +524,7 @@ export class SalesService {
           cashierId,
           authorizedBy,
           discountUnauthorized ? 1 : 0,
+          belowCost ? 1 : 0,
           now,
         ],
       )
@@ -642,6 +657,7 @@ export class SalesService {
             appliedBy: cashierId,
             authorizedBy,
             unauthorized: discountUnauthorized,
+            belowCost,
           })),
           ...lineDiscountRows.map((d) => ({
             id: d.id,
@@ -655,6 +671,7 @@ export class SalesService {
             appliedBy: cashierId,
             authorizedBy,
             unauthorized: discountUnauthorized,
+            belowCost,
           })),
         ],
       },
@@ -1495,6 +1512,50 @@ export class SalesService {
    * over-limit discount at checkout and prompt manager step-up before submitting. */
   myDiscountLimits(): RoleDiscountLimits {
     return this.roleLimits(this.requireBusinessId(), this.getActorId())
+  }
+
+  /**
+   * Whether any cart line would sell below cost AND the cashier's role may not — i.e.
+   * the sale needs manager authorization on margin grounds (BIZ-1.5). Resolves cost
+   * entirely in the main process and returns only a boolean, so the cost figure NEVER
+   * reaches the renderer/cashier. Returns false when the role allows below-cost sales.
+   */
+  belowCostNeedsAuth(
+    lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
+  ): boolean {
+    const businessId = this.requireBusinessId()
+    if (this.roleAllowsBelowCost(businessId, this.getActorId())) return false
+    const withCost = lines.map((l) => {
+      const product = this.db.get<{ cost_price: number | null }>(
+        `SELECT cost_price FROM products WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+        [l.productId, businessId],
+      )
+      let cost = product?.cost_price ?? null
+      if (l.variantId) {
+        const v = this.db.get<{ cost_price_override: number | null }>(
+          `SELECT cost_price_override FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`,
+          [l.variantId, l.productId],
+        )
+        if (v?.cost_price_override != null) cost = v.cost_price_override
+      }
+      return { chargedUnitPrice: l.unitPrice, cost }
+    })
+    return isBelowCost(withCost)
+  }
+
+  /** Whether the cashier's role may sell below cost without a manager PIN (BIZ-1.5).
+   * Resolved in main from the synced roles table; cost never reaches the renderer. */
+  private roleAllowsBelowCost(businessId: string, userId: string | null): boolean {
+    if (!userId) return false
+    const row = this.db.get<{ allow_below_cost: number }>(
+      `SELECT r.allow_below_cost
+         FROM business_members m
+         JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0
+        LIMIT 1`,
+      [businessId, userId],
+    )
+    return !!row?.allow_below_cost
   }
 
   /** The cashier's role discount limits from the synced roles table (null = no limit,

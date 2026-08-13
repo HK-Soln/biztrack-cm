@@ -2,7 +2,12 @@ import { randomUUID } from 'crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
-import { allocateProRata, evaluateDiscountAuthorization, toWholeXaf } from '@biztrack/utils'
+import {
+  allocateProRata,
+  evaluateDiscountAuthorization,
+  isBelowCost,
+  toWholeXaf,
+} from '@biztrack/utils'
 import {
   BusinessMemberRole,
   DebtDirection,
@@ -305,7 +310,18 @@ export class SalesService {
             subtotal: computed.subtotal,
           },
         )
-        const discountUnauthorized = overLimit && !authorizedBy
+        // BIZ-1.5: a line sold below cost needs the same manager authorization, unless
+        // the role may sell below cost. Cost is the per-line snapshot; a null cost is
+        // skipped silently. The effective charged unit price nets the line discount.
+        const belowCost = isBelowCost(
+          computed.items.map((it) => ({
+            chargedUnitPrice:
+              it.quantity > 0 ? (it.unitPrice * it.quantity - it.discountAmount) / it.quantity : 0,
+            cost: it.costPrice,
+          })),
+        )
+        const needsAuthorization = overLimit || (belowCost && !(role?.allowBelowCost ?? false))
+        const discountUnauthorized = needsAuthorization && !authorizedBy
 
         // LINE-scoped discounts (OVERRIDE / explicit) so each line's discount_amount
         // reconciles with its sale_discounts rows (BIZ-1.2 invariant).
@@ -328,6 +344,7 @@ export class SalesService {
                 appliedBy: user.sub,
                 authorizedBy,
                 unauthorized: discountUnauthorized,
+                belowCost,
               }),
             )
           }
@@ -383,6 +400,7 @@ export class SalesService {
                 appliedBy: user.sub,
                 authorizedBy,
                 unauthorized: discountUnauthorized,
+                belowCost,
               }),
             ),
           )

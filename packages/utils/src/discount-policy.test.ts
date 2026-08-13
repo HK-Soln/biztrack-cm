@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateDiscountAuthorization, type RoleDiscountLimits } from './discount-policy'
+import {
+  evaluateDiscountAuthorization,
+  isBelowCost,
+  type RoleDiscountLimits,
+} from './discount-policy'
 
 const NO_LIMITS: RoleDiscountLimits = {
   maxDiscountPercent: null,
@@ -85,5 +89,30 @@ describe('evaluateDiscountAuthorization', () => {
       { lines: [{ discountAmount: 500, listedLineValue: 0 }], cartDiscount: 0, subtotal: 0 },
     )
     expect(r.overLimit).toBe(false)
+  })
+})
+
+describe('isBelowCost', () => {
+  it('is true when a line is charged below its cost', () => {
+    expect(isBelowCost([{ chargedUnitPrice: 800, cost: 1000 }])).toBe(true)
+  })
+
+  it('is false when every line is at or above cost', () => {
+    expect(isBelowCost([{ chargedUnitPrice: 1000, cost: 1000 }])).toBe(false)
+    expect(isBelowCost([{ chargedUnitPrice: 1200, cost: 1000 }])).toBe(false)
+  })
+
+  it('skips null/undefined cost silently', () => {
+    expect(isBelowCost([{ chargedUnitPrice: 1, cost: null }])).toBe(false)
+    expect(isBelowCost([{ chargedUnitPrice: 1, cost: undefined }])).toBe(false)
+  })
+
+  it('flags the sale when any single line is below cost', () => {
+    expect(
+      isBelowCost([
+        { chargedUnitPrice: 2000, cost: 1000 },
+        { chargedUnitPrice: 500, cost: 1000 }, // this one
+      ]),
+    ).toBe(true)
   })
 })

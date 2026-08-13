@@ -229,6 +229,7 @@ const api: BridgeApi = {
   sales: {
     create: (input) => ipcRenderer.invoke(IPC.salesCreate, input),
     myDiscountLimits: () => ipcRenderer.invoke(IPC.salesMyDiscountLimits),
+    belowCostCheck: (lines) => ipcRenderer.invoke(IPC.salesBelowCostCheck, lines),
     list: (query) => ipcRenderer.invoke(IPC.salesList, query),
     listAll: (query) => ipcRenderer.invoke(IPC.salesListAll, query),
     summary: (query) => ipcRenderer.invoke(IPC.salesSummary, query),

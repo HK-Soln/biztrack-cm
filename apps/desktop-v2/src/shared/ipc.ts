@@ -202,6 +202,7 @@ export const IPC = {
   chargesListActive: 'charges:list-active',
   salesCreate: 'sales:create',
   salesMyDiscountLimits: 'sales:my-discount-limits',
+  salesBelowCostCheck: 'sales:below-cost-check',
   salesList: 'sales:list',
   salesListAll: 'sales:list-all',
   salesSummary: 'sales:summary',
@@ -1992,6 +1993,11 @@ export interface BridgeApi {
     create: (input: SaleInput) => Promise<LocalSaleDetail>
     /** The current cashier's role discount limits (to prompt step-up when exceeded). */
     myDiscountLimits: () => Promise<RoleDiscountLimits>
+    /** Whether the cart needs manager auth on margin grounds (below cost + role
+     * disallows). Returns only a boolean — the cost figure never leaves the main process. */
+    belowCostCheck: (
+      lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
+    ) => Promise<boolean>
     list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
     /** All sales matching the filters (no pagination) — for CSV export. */
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>

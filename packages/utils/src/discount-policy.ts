@@ -32,6 +32,18 @@ export interface DiscountEvaluation {
   reasons: Array<'LINE_PERCENT' | 'CART_PERCENT' | 'TOTAL_AMOUNT'>
 }
 
+/**
+ * True when any line is sold below its cost. A null cost is skipped silently (many
+ * catalogue items have no cost history). The caller (API / desktop main, never the
+ * renderer — cost must not reach a cashier) combines this with the role's
+ * allowBelowCost flag to decide whether manager authorization is required.
+ */
+export function isBelowCost(
+  lines: Array<{ chargedUnitPrice: number; cost: number | null | undefined }>,
+): boolean {
+  return lines.some((l) => l.cost != null && l.chargedUnitPrice < l.cost)
+}
+
 const pct = (part: number, whole: number): number => (whole > 0 ? (part / whole) * 100 : 0)
 
 /**

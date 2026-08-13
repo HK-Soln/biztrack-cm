@@ -372,6 +372,9 @@ export interface DataClient {
   sales: {
     create: (input: SaleInput) => Promise<LocalSaleDetail>
     myDiscountLimits: () => Promise<RoleDiscountLimits>
+    belowCostCheck: (
+      lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
+    ) => Promise<boolean>
     list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
     summary: (query?: SalesListQuery) => Promise<LocalSalesSummary>
@@ -713,6 +716,7 @@ function electronAdapter(): DataClient {
     sales: {
       create: (input) => window.api.sales.create(input),
       myDiscountLimits: () => window.api.sales.myDiscountLimits(),
+      belowCostCheck: (lines) => window.api.sales.belowCostCheck(lines),
       list: (query) => window.api.sales.list(query),
       listAll: (query) => window.api.sales.listAll(query),
       summary: (query) => window.api.sales.summary(query),
