@@ -136,6 +136,18 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @Min(0)
   @Max(MAX_MONEY)
   costPrice?: number
+
+  @ApiPropertyOptional({ description: 'Reason for a price override on this line.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  reasonCode?: string | null
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reasonNote?: string | null
 }
 
 export class CreateSaleChargeDto implements CreateSaleChargeRequest {

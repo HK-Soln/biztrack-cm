@@ -1067,6 +1067,9 @@ export interface SaleLineInput {
   unitPriceListed?: number
   discountAmount?: number
   costPrice?: number | null
+  /** Reason for a price override on this line (BIZ-1.6); defaults to NEGOTIATED. */
+  reasonCode?: string | null
+  reasonNote?: string | null
 }
 /** A charge line on the sale (transport, service, payment fee…). Mirrors restock. */
 export interface SaleChargeLineInput {
@@ -1246,6 +1249,7 @@ export interface LocalSaleItem {
   serialNumber: string | null
   quantity: number
   unitPrice: number
+  unitPriceListed: number | null
   discountAmount: number
   lineTotal: number
 }

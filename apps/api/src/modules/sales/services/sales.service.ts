@@ -125,6 +125,7 @@ type DerivedLineDiscount = {
   amount: number
   description: string
   reasonCode: string | null
+  reasonNote: string | null
 }
 
 type SaleComputationInput = {
@@ -141,6 +142,8 @@ type SaleComputationInput = {
     unitPriceListed?: number
     discountAmount?: number
     costPrice?: number
+    reasonCode?: string | null
+    reasonNote?: string | null
   }>
 }
 
@@ -341,6 +344,7 @@ export class SalesService {
                 discountType: d.discountType,
                 amount: d.amount,
                 reasonCode: d.reasonCode,
+                reasonNote: d.reasonNote,
                 appliedBy: user.sub,
                 authorizedBy,
                 unauthorized: discountUnauthorized,
@@ -2252,7 +2256,8 @@ export class SalesService {
           discountType: 'OVERRIDE',
           amount: overrideGap,
           description: 'Negotiated price',
-          reasonCode: 'NEGOTIATED',
+          reasonCode: input.reasonCode ?? 'NEGOTIATED',
+          reasonNote: input.reasonNote ?? null,
         })
       }
       if (explicitDiscount > 0) {
@@ -2261,6 +2266,7 @@ export class SalesService {
           amount: explicitDiscount,
           description: 'Line discount',
           reasonCode: null,
+          reasonNote: null,
         })
       }
       const lineTotal = Math.max(

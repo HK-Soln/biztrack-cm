@@ -140,6 +140,7 @@ interface ApiSaleItem {
   serialNumber?: string | null
   quantity: number
   unitPrice: number
+  unitPriceListed?: number | null
   discountAmount: number
   lineTotal: number
 }
@@ -161,6 +162,7 @@ function toLocalSaleItem(i: ApiSaleItem): LocalSaleItem {
     serialNumber: i.serialNumber ?? null,
     quantity: i.quantity,
     unitPrice: i.unitPrice,
+    unitPriceListed: i.unitPriceListed ?? null,
     discountAmount: i.discountAmount,
     lineTotal: i.lineTotal,
   }

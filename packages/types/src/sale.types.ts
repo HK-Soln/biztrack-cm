@@ -142,6 +142,11 @@ export interface CreateSaleItemRequest {
   unitPriceListed?: number
   discountAmount?: number
   costPrice?: number
+  /** Reason for a price override on this line (BIZ-1.6); a DiscountReasonCode value.
+   * Defaults to NEGOTIATED when the price is below listed and no reason is given. */
+  reasonCode?: string | null
+  /** Free text; required by the UI when reasonCode = OTHER. */
+  reasonNote?: string | null
 }
 
 // A sale-level charge line (e.g. delivery, packaging). The backend persists each line
@@ -228,6 +233,9 @@ export interface SaleReceiptItem {
   unitPrice: number
   total: number
   discountAmount?: number | null
+  /** Catalogue price at sale time; when it exceeds unitPrice the receipt prints
+   * "Prix {listed} → {charged}" so the customer sees the discount (BIZ-1.6). */
+  unitPriceListed?: number | null
 }
 
 export interface SaleReceiptPayment {

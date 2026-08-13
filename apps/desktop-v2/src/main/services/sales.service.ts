@@ -131,6 +131,8 @@ export class SalesService {
       discountAmount: number
       lineTotal: number
       costPrice: number | null
+      reasonCode: string | null
+      reasonNote: string | null
     }
     const emits: Emit[] = []
     // stock to decrement per (product, variant): qty
@@ -197,6 +199,8 @@ export class SalesService {
             discountAmount: 0,
             lineTotal: unitPrice,
             costPrice: cost,
+            reasonCode: line.reasonCode ?? null,
+            reasonNote: line.reasonNote ?? null,
           })
           soldSerialIds.push(su.id)
         }
@@ -232,6 +236,8 @@ export class SalesService {
           discountAmount: lineDiscount,
           lineTotal,
           costPrice: cost,
+          reasonCode: line.reasonCode ?? null,
+          reasonNote: line.reasonNote ?? null,
         })
         if (meta.trackInventory)
           decrements.push({
@@ -254,6 +260,7 @@ export class SalesService {
       discountType: string
       amount: number
       reasonCode: string | null
+      reasonNote: string | null
     }> = []
     for (const e of emits) {
       const explicit = e.discountAmount
@@ -270,7 +277,8 @@ export class SalesService {
           description: 'Prix négocié',
           discountType: 'OVERRIDE',
           amount: overrideGap,
-          reasonCode: 'NEGOTIATED',
+          reasonCode: e.reasonCode ?? 'NEGOTIATED',
+          reasonNote: e.reasonNote,
         })
       }
       if (explicit > 0) {
@@ -281,6 +289,7 @@ export class SalesService {
           discountType: 'FIXED_AMOUNT',
           amount: explicit,
           reasonCode: null,
+          reasonNote: null,
         })
       }
     }
@@ -511,7 +520,7 @@ export class SalesService {
         `INSERT INTO sale_discounts
           (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
            reason_code, reason_note, applied_by, authorized_by, unauthorized, below_cost, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           d.id,
           saleId,
@@ -521,6 +530,7 @@ export class SalesService {
           d.discountType,
           d.amount,
           d.reasonCode,
+          d.reasonNote,
           cashierId,
           authorizedBy,
           discountUnauthorized ? 1 : 0,
@@ -667,7 +677,7 @@ export class SalesService {
             amount: d.amount,
             saleItemId: d.saleItemId,
             reasonCode: d.reasonCode,
-            reasonNote: null,
+            reasonNote: d.reasonNote,
             appliedBy: cashierId,
             authorizedBy,
             unauthorized: discountUnauthorized,
@@ -1360,10 +1370,11 @@ export class SalesService {
       serial_number: string | null
       quantity: number
       unit_price: number
+      unit_price_listed: number | null
       discount_amount: number
       line_total: number
     }>(
-      `SELECT id, product_id, product_name, variant_id, variant_name, serial_number, quantity, unit_price, discount_amount, line_total
+      `SELECT id, product_id, product_name, variant_id, variant_name, serial_number, quantity, unit_price, unit_price_listed, discount_amount, line_total
        FROM sale_items WHERE sale_id = ? AND is_deleted = 0 ORDER BY created_at ASC`,
       [id],
     )
@@ -1387,6 +1398,7 @@ export class SalesService {
         serialNumber: i.serial_number,
         quantity: i.quantity,
         unitPrice: i.unit_price,
+        unitPriceListed: i.unit_price_listed,
         discountAmount: i.discount_amount,
         lineTotal: i.line_total,
       })),
@@ -1437,6 +1449,8 @@ export class SalesService {
         name: `${i.productName}${i.variantName ? ' · ' + i.variantName : ''}${i.serialNumber ? ' · ' + i.serialNumber : ''}`,
         qty: i.quantity,
         unitPrice: i.unitPrice,
+        unitPriceListed: i.unitPriceListed,
+        discountAmount: i.discountAmount,
         total: i.lineTotal,
       })),
       subtotal: sale.subtotal,

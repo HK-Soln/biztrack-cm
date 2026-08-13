@@ -11,6 +11,7 @@ import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
+import { PriceOverrideSheet, type PriceOverrideResult } from '@/components/sell/PriceOverrideSheet'
 import type {
   LocalProduct,
   LocalSaleDetail,
@@ -190,6 +191,9 @@ export interface CartLine {
    * later edits unitPrice (bargaining), so history keeps the true listed price.
    * Optional so held carts parked before this field existed still resume. */
   unitPriceListed?: number
+  /** Reason for a price override on this line (BIZ-1.6), set via the price-edit sheet. */
+  reasonCode?: string | null
+  reasonNote?: string | null
   quantity: number
   variantId?: string | null
   variantName?: string | null
@@ -471,6 +475,17 @@ export function Sell() {
         l.key === key ? (l.quantity + d <= 0 ? [] : [{ ...l, quantity: l.quantity + d }]) : [l],
       ),
     )
+  // Price-override sheet (BIZ-1.6): tap a cart line's price to edit it + pick a reason.
+  const [priceEditKey, setPriceEditKey] = useState<string | null>(null)
+  const priceEditLine = cart.find((l) => l.key === priceEditKey) ?? null
+  const applyPriceOverride = (key: string, r: PriceOverrideResult) =>
+    setCart((prev) =>
+      prev.map((l) =>
+        l.key === key
+          ? { ...l, unitPrice: r.unitPrice, reasonCode: r.reasonCode, reasonNote: r.reasonNote }
+          : l,
+      ),
+    )
   // Direct quantity entry — clamp to a positive integer (never serialized; those are 1/line).
   const setQtyValue = (key: string, n: number) =>
     setCart((prev) =>
@@ -663,6 +678,8 @@ export function Sell() {
             unitPriceListed: l.unitPriceListed ?? l.unitPrice,
             quantity: 1,
             serialUnitIds: [l.serialUnitId],
+            reasonCode: l.reasonCode ?? null,
+            reasonNote: l.reasonNote ?? null,
           }
         : {
             productId: l.productId,
@@ -671,6 +688,8 @@ export function Sell() {
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             unitPriceListed: l.unitPriceListed ?? l.unitPrice,
+            reasonCode: l.reasonCode ?? null,
+            reasonNote: l.reasonNote ?? null,
           },
     ),
     payments,
@@ -898,6 +917,25 @@ export function Sell() {
           onNew={startNew}
         />
       ) : null}
+
+      <PriceOverrideSheet
+        open={priceEditKey !== null}
+        line={
+          priceEditLine
+            ? {
+                name: priceEditLine.name,
+                listed: priceEditLine.unitPriceListed ?? priceEditLine.unitPrice,
+                unitPrice: priceEditLine.unitPrice,
+                quantity: priceEditLine.quantity,
+              }
+            : null
+        }
+        onClose={() => setPriceEditKey(null)}
+        onConfirm={(r) => {
+          if (priceEditKey) applyPriceOverride(priceEditKey, r)
+          setPriceEditKey(null)
+        }}
+      />
     </>
   )
 
@@ -1030,6 +1068,7 @@ export function Sell() {
             setQty={setQty}
             setQtyValue={setQtyValue}
             onEditSerial={editSerials}
+            onEditPrice={setPriceEditKey}
             removeLine={removeLine}
             onClose={() => setSheetOpen(false)}
             onCharge={() => {
@@ -1179,9 +1218,17 @@ export function Sell() {
                 <div key={l.key} className="tl-row">
                   <div className="tn">
                     <div className="nm">{l.name}</div>
-                    <div className="up">
+                    <button
+                      type="button"
+                      className="up up-edit"
+                      title={t('priceEdit.title')}
+                      onClick={() => setPriceEditKey(l.key)}
+                    >
+                      {(l.unitPriceListed ?? l.unitPrice) > l.unitPrice ? (
+                        <span className="up-was">{money.format(l.unitPriceListed ?? 0)}</span>
+                      ) : null}
                       {money.format(l.unitPrice)} × {l.quantity}
-                    </div>
+                    </button>
                   </div>
                   {l.serialUnitId ? (
                     // No delete here — the row's hover-× (.trm) already removes it. Edit swaps units.
@@ -1403,6 +1450,7 @@ function MobileTicketSheet({
   setQty,
   setQtyValue,
   onEditSerial,
+  onEditPrice,
   removeLine,
   onClose,
   onCharge,
@@ -1421,6 +1469,7 @@ function MobileTicketSheet({
   setQty: (key: string, d: number) => void
   setQtyValue: (key: string, n: number) => void
   onEditSerial: (l: CartLine) => void
+  onEditPrice: (key: string) => void
   removeLine: (key: string) => void
   onClose: () => void
   onCharge: () => void
@@ -1444,9 +1493,17 @@ function MobileTicketSheet({
               <div className="th">{l.name.trim().charAt(0).toUpperCase()}</div>
               <div className="li">
                 <div className="nm">{l.name}</div>
-                <div className="up">
+                <button
+                  type="button"
+                  className="up up-edit"
+                  title={t('priceEdit.title')}
+                  onClick={() => onEditPrice(l.key)}
+                >
+                  {(l.unitPriceListed ?? l.unitPrice) > l.unitPrice ? (
+                    <span className="up-was">{money.format(l.unitPriceListed ?? 0)}</span>
+                  ) : null}
                   {money.format(l.unitPrice)} × {l.quantity}
-                </div>
+                </button>
               </div>
               {l.serialUnitId ? (
                 <div className="sh-qty serial">

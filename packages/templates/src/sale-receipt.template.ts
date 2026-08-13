@@ -17,6 +17,8 @@ export interface SaleReceiptLabels {
   cashier: string
   customer: string
   thankYou: string
+  /** Prefix before a discounted line's original price, e.g. "Prix 2 500 → 2 200". */
+  priceWas: string
   methods: Record<string, string>
 }
 
@@ -25,11 +27,51 @@ export interface SaleReceiptLabels {
 export function saleReceiptLabels(locale: string): SaleReceiptLabels {
   const fr = (locale || 'fr').toLowerCase().startsWith('fr')
   const methods = fr
-    ? { CASH: 'Espèces', MTN_MOMO: 'MTN MoMo', ORANGE_MONEY: 'Orange Money', CARD: 'Carte', SAVINGS: 'Dépôt', MIXED: 'Partagé' }
-    : { CASH: 'Cash', MTN_MOMO: 'MTN MoMo', ORANGE_MONEY: 'Orange Money', CARD: 'Card', SAVINGS: 'Deposit', MIXED: 'Split' }
+    ? {
+        CASH: 'Espèces',
+        MTN_MOMO: 'MTN MoMo',
+        ORANGE_MONEY: 'Orange Money',
+        CARD: 'Carte',
+        SAVINGS: 'Dépôt',
+        MIXED: 'Partagé',
+      }
+    : {
+        CASH: 'Cash',
+        MTN_MOMO: 'MTN MoMo',
+        ORANGE_MONEY: 'Orange Money',
+        CARD: 'Card',
+        SAVINGS: 'Deposit',
+        MIXED: 'Split',
+      }
   return fr
-    ? { subtotal: 'Sous-total', discounts: 'Remises', charges: 'Frais', total: 'Total', paid: 'Payé', credit: 'Crédit', change: 'Monnaie rendue', cashier: 'Caissier', customer: 'Client', thankYou: 'Merci pour votre achat !', methods }
-    : { subtotal: 'Subtotal', discounts: 'Discounts', charges: 'Charges', total: 'Total', paid: 'Paid', credit: 'Credit', change: 'Change given', cashier: 'Cashier', customer: 'Customer', thankYou: 'Thank you for your purchase!', methods }
+    ? {
+        subtotal: 'Sous-total',
+        discounts: 'Remises',
+        charges: 'Frais',
+        total: 'Total',
+        paid: 'Payé',
+        credit: 'Crédit',
+        change: 'Monnaie rendue',
+        cashier: 'Caissier',
+        customer: 'Client',
+        thankYou: 'Merci pour votre achat !',
+        priceWas: 'Prix',
+        methods,
+      }
+    : {
+        subtotal: 'Subtotal',
+        discounts: 'Discounts',
+        charges: 'Charges',
+        total: 'Total',
+        paid: 'Paid',
+        credit: 'Credit',
+        change: 'Change given',
+        cashier: 'Cashier',
+        customer: 'Customer',
+        thankYou: 'Thank you for your purchase!',
+        priceWas: 'Price',
+        methods,
+      }
 }
 
 export interface SaleReceiptOptions {
@@ -58,10 +100,23 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
 
   const items = receipt.items
     .map((it) => {
-      const sub = `${m(it.unitPrice)} × ${formatQty(it.qty, locale)}`
+      // When the line was rung below its listed price, print "Prix {listed} → {charged}"
+      // so the customer sees the discount (BIZ-1.6) — the effective charged unit price
+      // nets any line discount off the listed price.
+      const listed = it.unitPriceListed ?? null
+      const charged = it.qty > 0 ? Math.round(it.total / it.qty) : it.unitPrice
+      const sub =
+        listed != null && listed > charged
+          ? `${L.priceWas} ${m(listed)} → ${m(charged)} × ${formatQty(it.qty, locale)}`
+          : `${m(it.unitPrice)} × ${formatQty(it.qty, locale)}`
       return `<div class="it"><div class="r b"><span>${escapeHtml(it.name)}</span><span>${escapeHtml(m(it.total))}</span></div><div class="sub">${escapeHtml(sub)}</div></div>`
     })
     .join('')
+
+  // Total discounts = the cart-level discount plus every line's own discount, so the
+  // "Total remises" line reflects overrides too, not just cart-wide discounts.
+  const totalDiscounts =
+    receipt.discountAmount + receipt.items.reduce((s, it) => s + (it.discountAmount ?? 0), 0)
 
   const pays = receipt.payments
     .map((p) => row(L.methods[p.method] ?? p.method, m(p.amount)))
@@ -84,7 +139,7 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
     ${items}
     <div class="d"></div>
     ${row(L.subtotal, m(receipt.subtotal))}
-    ${receipt.discountAmount > 0 ? row(L.discounts, `- ${m(receipt.discountAmount)}`) : ''}
+    ${totalDiscounts > 0 ? row(L.discounts, `- ${m(totalDiscounts)}`) : ''}
     ${receipt.chargesAmount > 0 ? row(L.charges, `+ ${m(receipt.chargesAmount)}`) : ''}
     ${row(L.total, m(receipt.totalAmount), 'big')}
     <div class="d"></div>
