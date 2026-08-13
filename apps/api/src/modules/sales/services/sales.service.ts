@@ -109,6 +109,16 @@ type ComputedSaleItem = {
   discountAmount: number
   lineTotal: number
   costPrice: number | null
+  // Line-scoped discounts derived from an OVERRIDE (charged < listed) and/or an
+  // explicit line discount. Σ(amounts) === discountAmount (the BIZ-1.2 invariant).
+  lineDiscounts: DerivedLineDiscount[]
+}
+
+type DerivedLineDiscount = {
+  discountType: string
+  amount: number
+  description: string
+  reasonCode: string | null
 }
 
 type SaleComputationInput = {
@@ -271,6 +281,31 @@ export class SalesService {
             }),
           ),
         )
+
+        // LINE-scoped discounts (OVERRIDE / explicit) so each line's discount_amount
+        // reconciles with its sale_discounts rows (BIZ-1.2 invariant).
+        const lineDiscountRepo = manager.getRepository(SaleDiscount)
+        const lineDiscountRows: SaleDiscount[] = []
+        computed.items.forEach((item, i) => {
+          const savedItem = saleItems[i]
+          if (!savedItem) return
+          for (const d of item.lineDiscounts) {
+            lineDiscountRows.push(
+              lineDiscountRepo.create({
+                id: randomUUID(),
+                saleId: sale.id,
+                saleItemId: savedItem.id,
+                businessId,
+                description: d.description,
+                discountType: d.discountType,
+                amount: d.amount,
+                reasonCode: d.reasonCode,
+                appliedBy: user.sub,
+              }),
+            )
+          }
+        })
+        if (lineDiscountRows.length) await lineDiscountRepo.save(lineDiscountRows)
 
         const paymentRepo = manager.getRepository(SalePayment)
         const salePayments = await paymentRepo.save(
@@ -2151,12 +2186,36 @@ export class SalesService {
       }
 
       const quantity = this.roundQuantity(input.quantity)
-      const unitPrice = toWholeXaf(input.unitPrice)
-      // Catalogue price snapshot; defaults to the charged price when the caller does
-      // not supply it (e.g. a non-POS write). cart_discount_alloc is 0 until BIZ-1.3.
-      const unitPriceListed = toWholeXaf(input.unitPriceListed ?? input.unitPrice)
       const cartDiscountAlloc = 0
-      const discountAmount = toWholeXaf(input.discountAmount ?? 0)
+      // BIZ-1.2 OVERRIDE model: rung at the catalogue (listed) price, with any bargain
+      // captured as a line discount. When the charged price is below listed, store
+      // unit_price = listed and fold the gap into discount_amount + an OVERRIDE row, so
+      // discount_amount always reconciles with the line's discount rows. A charged price
+      // at/above listed keeps that price (a markup) with no negative discount.
+      const chargedRung = toWholeXaf(input.unitPrice)
+      const unitPriceListed = toWholeXaf(input.unitPriceListed ?? input.unitPrice)
+      const explicitDiscount = toWholeXaf(input.discountAmount ?? 0)
+      const overrideGap =
+        chargedRung < unitPriceListed ? toWholeXaf((unitPriceListed - chargedRung) * quantity) : 0
+      const unitPrice = overrideGap > 0 ? unitPriceListed : chargedRung
+      const discountAmount = toWholeXaf(overrideGap + explicitDiscount)
+      const lineDiscounts: DerivedLineDiscount[] = []
+      if (overrideGap > 0) {
+        lineDiscounts.push({
+          discountType: 'OVERRIDE',
+          amount: overrideGap,
+          description: 'Negotiated price',
+          reasonCode: 'NEGOTIATED',
+        })
+      }
+      if (explicitDiscount > 0) {
+        lineDiscounts.push({
+          discountType: 'FIXED_AMOUNT',
+          amount: explicitDiscount,
+          description: 'Line discount',
+          reasonCode: null,
+        })
+      }
       const lineTotal = Math.max(
         0,
         toWholeXaf(unitPrice * quantity - discountAmount - cartDiscountAlloc),
@@ -2164,7 +2223,8 @@ export class SalesService {
       const costPrice =
         input.costPrice !== undefined ? toWholeXaf(input.costPrice) : (product.costPrice ?? null)
 
-      if (this.hasPriceDrift(unitPrice, product.sellingPrice)) {
+      // Drift reflects what the cashier actually charged, not the rung listed price.
+      if (this.hasPriceDrift(chargedRung, product.sellingPrice)) {
         priceDriftWarning = true
       }
 
@@ -2186,6 +2246,7 @@ export class SalesService {
         discountAmount,
         lineTotal,
         costPrice,
+        lineDiscounts,
       })
     }
 

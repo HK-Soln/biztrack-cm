@@ -237,6 +237,48 @@ export class SalesService {
       }
     }
 
+    // BIZ-1.2 OVERRIDE model: rung at the listed price, with any bargain folded into
+    // discount_amount + a LINE-scoped sale_discounts row, so each line's discount_amount
+    // reconciles with its discount rows. lineTotal is unchanged (listed*qty − discount ===
+    // charged*qty − explicit). A charged price at/above listed stays a markup, no override.
+    const lineDiscountRows: Array<{
+      id: string
+      saleItemId: string
+      description: string
+      discountType: string
+      amount: number
+      reasonCode: string | null
+    }> = []
+    for (const e of emits) {
+      const explicit = e.discountAmount
+      const overrideGap =
+        e.unitPrice < e.unitPriceListed
+          ? toWholeXaf((e.unitPriceListed - e.unitPrice) * e.quantity)
+          : 0
+      if (overrideGap > 0) {
+        e.unitPrice = e.unitPriceListed
+        e.discountAmount = toWholeXaf(overrideGap + explicit)
+        lineDiscountRows.push({
+          id: randomUUID(),
+          saleItemId: e.id,
+          description: 'Prix négocié',
+          discountType: 'OVERRIDE',
+          amount: overrideGap,
+          reasonCode: 'NEGOTIATED',
+        })
+      }
+      if (explicit > 0) {
+        lineDiscountRows.push({
+          id: randomUUID(),
+          saleItemId: e.id,
+          description: 'Remise',
+          discountType: 'FIXED_AMOUNT',
+          amount: explicit,
+          reasonCode: null,
+        })
+      }
+    }
+
     // --- settlement (tax 0; matches the API computeSale) ----------------------
     const subtotal = toWholeXaf(emits.reduce((s, e) => s + e.lineTotal, 0))
     const discountLines = (input.discounts ?? []).map((d) => ({
@@ -414,6 +456,26 @@ export class SalesService {
         ],
       )
     }
+    for (const d of lineDiscountRows) {
+      this.db.run(
+        `INSERT INTO sale_discounts
+          (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
+           reason_code, reason_note, applied_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?)`,
+        [
+          d.id,
+          saleId,
+          d.saleItemId,
+          businessId,
+          d.description,
+          d.discountType,
+          d.amount,
+          d.reasonCode,
+          cashierId,
+          now,
+        ],
+      )
+    }
     for (const p of paymentLines) {
       this.db.run(
         `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, mobile_money_reference, created_at)
@@ -529,17 +591,30 @@ export class SalesService {
           rateValue: c.rateValue,
           amount: c.amount,
         })),
-        discounts: discountLines.map((d) => ({
-          id: d.id,
-          description: d.description,
-          discountType: d.discountType,
-          rate: d.rate ?? null,
-          amount: d.amount,
-          saleItemId: d.saleItemId ?? null,
-          reasonCode: d.reasonCode ?? null,
-          reasonNote: d.reasonNote ?? null,
-          appliedBy: cashierId,
-        })),
+        discounts: [
+          ...discountLines.map((d) => ({
+            id: d.id,
+            description: d.description,
+            discountType: d.discountType,
+            rate: d.rate ?? null,
+            amount: d.amount,
+            saleItemId: d.saleItemId ?? null,
+            reasonCode: d.reasonCode ?? null,
+            reasonNote: d.reasonNote ?? null,
+            appliedBy: cashierId,
+          })),
+          ...lineDiscountRows.map((d) => ({
+            id: d.id,
+            description: d.description,
+            discountType: d.discountType,
+            rate: null,
+            amount: d.amount,
+            saleItemId: d.saleItemId,
+            reasonCode: d.reasonCode,
+            reasonNote: null,
+            appliedBy: cashierId,
+          })),
+        ],
       },
       now,
     )

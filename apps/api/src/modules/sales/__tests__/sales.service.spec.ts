@@ -321,13 +321,43 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(plain.items[0].unitPriceListed).toBe(1000)
     expect(plain.items[0].cartDiscountAlloc).toBe(0)
 
-    // A bargained-down price keeps the true catalogue price on the line.
+    // A bargained-down price rungs at listed with the gap as a discount (BIZ-1.2);
+    // the catalogue price is preserved and the line total still nets to the agreed price.
     const overridden = service.computeSale([p], new Map(), new Map(), {
       items: [{ productId: 'p1', quantity: 1, unitPrice: 900, unitPriceListed: 1000 }],
     })
-    expect(overridden.items[0].unitPrice).toBe(900)
+    expect(overridden.items[0].unitPrice).toBe(1000)
     expect(overridden.items[0].unitPriceListed).toBe(1000)
+    expect(overridden.items[0].discountAmount).toBe(100)
     expect(overridden.items[0].lineTotal).toBe(900)
+  })
+
+  it('rungs a bargained line at the listed price and reconciles the OVERRIDE discount', () => {
+    const service = makeService()
+    const p = product({ id: 'p1', sellingPrice: 1000 }) as Product
+    // Agreed 900 on a 1000-listed line, qty 2 → 200 override discount.
+    const r = service.computeSale([p], new Map(), new Map(), {
+      items: [{ productId: 'p1', quantity: 2, unitPrice: 900, unitPriceListed: 1000 }],
+    })
+    const item = r.items[0]
+    expect(item.unitPrice).toBe(1000) // rung at listed
+    expect(item.discountAmount).toBe(200) // the bargain folded in
+    expect(item.lineTotal).toBe(1800) // 1000*2 − 200 = 900*2
+    // The per-line invariant: discount_amount === Σ that line's line discounts.
+    expect(item.lineDiscounts.map((d) => d.discountType)).toEqual(['OVERRIDE'])
+    expect(item.lineDiscounts.reduce((s, d) => s + d.amount, 0)).toBe(item.discountAmount)
+  })
+
+  it('keeps a price above listed as a markup, never a negative discount', () => {
+    const service = makeService()
+    const p = product({ id: 'p1', sellingPrice: 1000 }) as Product
+    const r = service.computeSale([p], new Map(), new Map(), {
+      items: [{ productId: 'p1', quantity: 1, unitPrice: 1100, unitPriceListed: 1000 }],
+    })
+    const item = r.items[0]
+    expect(item.unitPrice).toBe(1100)
+    expect(item.discountAmount).toBe(0)
+    expect(item.lineDiscounts).toEqual([])
   })
 
   it('applies sale-level discount and charges to the total', () => {
