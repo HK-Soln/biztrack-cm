@@ -13,11 +13,16 @@ export interface PinHttp {
 // (pulled into local business_members). Setting a PIN requires connectivity;
 // verifying it for manager step-up works fully offline.
 
-/** A PIN is 4–8 digits. Kept deliberately simple; the hash never leaves as plaintext. */
-const PIN_PATTERN = /^\d{4,8}$/
-/** bcrypt cost. Matches the password path; the security review should weigh this
- * against the small PIN keyspace (an attacker with the local hash can brute-force). */
-const BCRYPT_COST = 10
+/**
+ * A PIN is 6–8 digits. The manager's PIN hash is distributed to every in-business
+ * device (offline verification), so a device holder can attempt to brute-force it
+ * offline. A 6-digit minimum (1e6 keyspace) plus the raised bcrypt cost below keeps
+ * that attack impractical; 4-digit PINs were too small a keyspace to distribute.
+ */
+const PIN_PATTERN = /^\d{6,8}$/
+/** bcrypt cost. Higher than the password path (10) specifically because the PIN
+ * keyspace is small and the hash is distributed to devices an attacker may control. */
+const BCRYPT_COST = 12
 /** A device that has not synced within this window refuses manager step-up and
  * demands a fresh sync — so a revoked/rotated PIN cannot be used indefinitely offline. */
 const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000
@@ -50,7 +55,7 @@ export class PinService {
   async setPin(pin: string): Promise<{ pinVersion: number }> {
     const { businessId, userId } = this.getContext()
     if (!businessId || !userId) throw new Error('No active business session.')
-    if (!PIN_PATTERN.test(pin)) throw new Error('PIN must be 4 to 8 digits.')
+    if (!PIN_PATTERN.test(pin)) throw new Error('PIN must be 6 to 8 digits.')
 
     const pinHash = await bcrypt.hash(pin, BCRYPT_COST)
     const res = await this.http.patch<{ data: SetMemberPinResponse }>(

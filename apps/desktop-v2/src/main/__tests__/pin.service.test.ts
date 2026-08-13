@@ -52,13 +52,13 @@ describe('PinService.verifyManagerPin', () => {
       userId: 'u-mgr',
       role: 'MANAGER',
       name: 'Mercy Manager',
-      pinHash: await bcrypt.hash('1234', 10),
+      pinHash: await bcrypt.hash('123456', 12),
     })
   })
 
   it('authorizes a correct manager PIN and identifies the authorizer', async () => {
     const svc = makeService(db, FRESH)
-    const result = await svc.verifyManagerPin('1234')
+    const result = await svc.verifyManagerPin('123456')
     expect(result.authorized).toBe(true)
     expect(result.authorizedByUserId).toBe('u-mgr')
     expect(result.authorizedByName).toBe('Mercy Manager')
@@ -66,7 +66,7 @@ describe('PinService.verifyManagerPin', () => {
 
   it('rejects a wrong PIN as NO_MATCH without naming a manager', async () => {
     const svc = makeService(db, FRESH)
-    const result = await svc.verifyManagerPin('9999')
+    const result = await svc.verifyManagerPin('999999')
     expect(result).toEqual({
       authorized: false,
       reason: 'NO_MATCH',
@@ -80,32 +80,32 @@ describe('PinService.verifyManagerPin', () => {
       id: 'm-cash',
       userId: 'u-cash',
       role: 'CASHIER',
-      pinHash: await bcrypt.hash('4321', 10),
+      pinHash: await bcrypt.hash('654321', 12),
     })
     const svc = makeService(db, FRESH)
-    expect((await svc.verifyManagerPin('4321')).authorized).toBe(false)
+    expect((await svc.verifyManagerPin('654321')).authorized).toBe(false)
   })
 
   it('ignores managers with no PIN set', async () => {
     seedMember(db, { id: 'm-mgr2', userId: 'u-mgr2', role: 'MANAGER', pinHash: null })
     const svc = makeService(db, FRESH)
     // The only matching PIN belongs to the seeded manager; the PIN-less one is skipped.
-    expect((await svc.verifyManagerPin('1234')).authorizedByUserId).toBe('u-mgr')
+    expect((await svc.verifyManagerPin('123456')).authorizedByUserId).toBe('u-mgr')
   })
 
   it('refuses on a stale device and demands a sync', async () => {
     const svc = makeService(db, STALE)
-    expect((await svc.verifyManagerPin('1234')).reason).toBe('STALE_DEVICE')
+    expect((await svc.verifyManagerPin('123456')).reason).toBe('STALE_DEVICE')
   })
 
   it('refuses when the device has never synced', async () => {
     const svc = makeService(db, () => null)
-    expect((await svc.verifyManagerPin('1234')).reason).toBe('STALE_DEVICE')
+    expect((await svc.verifyManagerPin('123456')).reason).toBe('STALE_DEVICE')
   })
 
   it('rejects a malformed PIN as INVALID_FORMAT', async () => {
     const svc = makeService(db, FRESH)
-    expect((await svc.verifyManagerPin('12')).reason).toBe('INVALID_FORMAT')
+    expect((await svc.verifyManagerPin('12345')).reason).toBe('INVALID_FORMAT')
     expect((await svc.verifyManagerPin('abcd')).reason).toBe('INVALID_FORMAT')
   })
 })
@@ -122,18 +122,18 @@ describe('PinService.setPin', () => {
     }
     const svc = new PinService({ patch }, db, () => ({ businessId: BIZ, userId: 'u-self' }), FRESH)
 
-    const { pinVersion } = await svc.setPin('2468')
+    const { pinVersion } = await svc.setPin('246810')
     expect(pinVersion).toBe(3)
     // The server received a bcrypt hash, never the plaintext PIN.
     expect(sentHash).toMatch(/^\$2[aby]\$/)
-    expect(sentHash).not.toContain('2468')
+    expect(sentHash).not.toContain('246810')
 
     const row = db.get<{ pin_hash: string; pin_version: number }>(
       'SELECT pin_hash, pin_version FROM business_members WHERE user_id = ?',
       ['u-self'],
     )
     expect(row?.pin_version).toBe(3)
-    expect(await bcrypt.compare('2468', row!.pin_hash)).toBe(true)
+    expect(await bcrypt.compare('246810', row!.pin_hash)).toBe(true)
   })
 
   it('rejects a non-numeric or too-short PIN before any network call', async () => {
@@ -144,7 +144,7 @@ describe('PinService.setPin', () => {
       return { data: { data: { memberId: 'x', pinVersion: 1, pinSetAt: FRESH() } } } as never
     }
     const svc = new PinService({ patch }, db, () => ({ businessId: BIZ, userId: 'u-self' }), FRESH)
-    await expect(svc.setPin('12')).rejects.toThrow(/4 to 8 digits/)
+    await expect(svc.setPin('12')).rejects.toThrow(/6 to 8 digits/)
     expect(called).toBe(false)
   })
 })
