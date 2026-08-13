@@ -100,13 +100,14 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
 
   const items = receipt.items
     .map((it) => {
-      // When the line was rung below its listed price, print "Prix {listed} → {charged}"
-      // so the customer sees the discount (BIZ-1.6) — the effective charged unit price
-      // nets any line discount off the listed price.
+      // When the line itself was discounted (an override / line discount, not a cart-wide
+      // allocation), print "Prix {listed} → {charged}" so the customer sees it (BIZ-1.6).
+      // Charged nets only the line's own discount off the listed price.
       const listed = it.unitPriceListed ?? null
-      const charged = it.qty > 0 ? Math.round(it.total / it.qty) : it.unitPrice
+      const lineDiscount = it.discountAmount ?? 0
+      const charged = it.qty > 0 && listed != null ? Math.round(listed - lineDiscount / it.qty) : 0
       const sub =
-        listed != null && listed > charged
+        listed != null && lineDiscount > 0 && listed > charged
           ? `${L.priceWas} ${m(listed)} → ${m(charged)} × ${formatQty(it.qty, locale)}`
           : `${m(it.unitPrice)} × ${formatQty(it.qty, locale)}`
       return `<div class="it"><div class="r b"><span>${escapeHtml(it.name)}</span><span>${escapeHtml(m(it.total))}</span></div><div class="sub">${escapeHtml(sub)}</div></div>`
