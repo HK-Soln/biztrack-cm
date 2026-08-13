@@ -29,6 +29,7 @@ export const IPC = {
   authLogout: 'auth:logout',
   pinSet: 'pin:set',
   pinVerify: 'pin:verify',
+  pinCanManage: 'pin:can-manage',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -1728,6 +1729,8 @@ export interface BridgeApi {
     set: (pin: string) => Promise<{ pinVersion: number }>
     /** Verify a manager PIN offline for step-up authorization. */
     verify: (pin: string) => Promise<PinVerifyResult>
+    /** Whether the current user's role may set a PIN and authorize step-up. */
+    canManage: () => Promise<boolean>
   }
   sync: {
     /** Run a push+pull cycle now. */

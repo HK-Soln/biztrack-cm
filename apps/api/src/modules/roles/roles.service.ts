@@ -83,6 +83,7 @@ export class RolesService {
         description: r.description,
         isSystem: r.isSystem,
         isOwnerRole: r.isOwnerRole,
+        canAuthorize: r.canAuthorize,
         colour: r.colour,
         userCount: countMap.get(r.id) ?? 0,
       })),
@@ -109,6 +110,7 @@ export class RolesService {
       description: role.description,
       isSystem: role.isSystem,
       isOwnerRole: role.isOwnerRole,
+      canAuthorize: role.canAuthorize,
       colour: role.colour,
       userCount: memberCount,
       permissions: perms.map((p) => p.permission),
@@ -211,6 +213,7 @@ export class RolesService {
       description: dto.description ?? null,
       isSystem: false,
       isOwnerRole: false,
+      canAuthorize: dto.canAuthorize ?? false,
       colour: dto.colour ?? null,
       createdBy: actor.sub,
     })
@@ -255,6 +258,7 @@ export class RolesService {
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.description !== undefined && { description: dto.description }),
       ...(dto.colour !== undefined && { colour: dto.colour }),
+      ...(dto.canAuthorize !== undefined && { canAuthorize: dto.canAuthorize }),
     })
 
     return this.getRole(id, businessId)

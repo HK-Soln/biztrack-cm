@@ -360,6 +360,7 @@ export interface DataClient {
   pin: {
     set: (pin: string) => Promise<{ pinVersion: number }>
     verify: (pin: string) => Promise<PinVerifyResult>
+    canManage: () => Promise<boolean>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -699,6 +700,7 @@ function electronAdapter(): DataClient {
     pin: {
       set: (pin) => window.api.pin.set(pin),
       verify: (pin) => window.api.pin.verify(pin),
+      canManage: () => window.api.pin.canManage(),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -869,7 +871,7 @@ function cloudAdapter(): DataClient {
     documents: cloudDocuments,
     audit: cloudAudit,
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
-    pin: { set: notWired, verify: notWired },
+    pin: { set: notWired, verify: notWired, canManage: async () => false },
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,

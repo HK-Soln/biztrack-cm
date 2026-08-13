@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Input, OtpInput } from '@biztrack/ui/biztrack'
 import { isStrongPin } from '@biztrack/utils'
 import { useT } from '@/i18n'
 import { dataClient } from '@/lib/data-client'
-import { useSessionStore } from '@/stores/session.store'
 
 // Password & 2FA — PROTOTYPE. No backend wiring yet (password change + TOTP enrolment
 // are auth flows). Everything is local so the flow can be reviewed.
@@ -49,9 +48,19 @@ export function UserSecuritySection() {
   const [setup, setSetup] = useState(false)
   const [code, setCode] = useState('')
   const [toast, setToast] = useState<string | null>(null)
-  const role = useSessionStore((s) => s.status.user?.role ?? null)
-  // Only OWNER/MANAGER PINs are honoured for till step-up (see verifyManagerPin).
-  const canManagePin = role === 'OWNER' || role === 'MANAGER'
+  // Shown only to roles flagged can_authorize (resolved in the main process from the
+  // synced role record, so it works offline). Null while loading → render nothing.
+  const [canManagePin, setCanManagePin] = useState<boolean | null>(null)
+  useEffect(() => {
+    let alive = true
+    void dataClient.pin
+      .canManage()
+      .then((ok) => alive && setCanManagePin(ok))
+      .catch(() => alive && setCanManagePin(false))
+    return () => {
+      alive = false
+    }
+  }, [])
   const [pin, setPin] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
   const [pinBusy, setPinBusy] = useState(false)

@@ -3063,6 +3063,9 @@ export const en = {
   'roles.optional': 'Optional',
   'roles.descPh': 'Manages inventory and restocking only',
   'roles.colour': 'Colour',
+  'roles.authTitle': 'Authorization',
+  'roles.authHint':
+    'Members with this role can set a manager PIN and approve discounts, price overrides and over-limit actions at the till.',
   'roles.selectAll': 'Select all',
   'roles.clear': 'Clear',
   'roles.permCount': '{n} of {total} permissions granted.',
@@ -6181,6 +6184,9 @@ export const fr: Record<MessageKey, string> = {
   'roles.optional': 'Optionnel',
   'roles.descPh': 'Gère uniquement l’inventaire et le réapprovisionnement',
   'roles.colour': 'Couleur',
+  'roles.authTitle': 'Autorisation',
+  'roles.authHint':
+    'Les membres de ce rôle peuvent définir un code PIN et approuver les remises, les changements de prix et les actions hors limite en caisse.',
   'roles.selectAll': 'Tout sélectionner',
   'roles.clear': 'Effacer',
   'roles.permCount': '{n} sur {total} permissions accordées.',

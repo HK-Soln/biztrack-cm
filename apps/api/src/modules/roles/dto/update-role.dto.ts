@@ -1,6 +1,19 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { ArrayMaxSize, IsArray, IsHexColor, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
-import type { AddRolePermissionRequest, SetRolePermissionsRequest, UpdateRoleRequest } from '@biztrack/types'
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsHexColor,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator'
+import type {
+  AddRolePermissionRequest,
+  SetRolePermissionsRequest,
+  UpdateRoleRequest,
+} from '@biztrack/types'
 
 export class UpdateRoleDto implements UpdateRoleRequest {
   @ApiProperty({ required: false })
@@ -19,6 +32,11 @@ export class UpdateRoleDto implements UpdateRoleRequest {
   @IsOptional()
   @IsHexColor()
   colour?: string
+
+  @ApiProperty({ required: false, description: 'May set a PIN and authorize till step-up.' })
+  @IsOptional()
+  @IsBoolean()
+  canAuthorize?: boolean
 }
 
 export class SetRolePermissionsDto implements SetRolePermissionsRequest {

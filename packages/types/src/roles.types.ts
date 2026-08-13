@@ -5,6 +5,8 @@ export interface RoleItem {
   description: string | null
   isSystem: boolean
   isOwnerRole: boolean
+  /** Members with this role may set a manager PIN and authorize till step-up. */
+  canAuthorize: boolean
   colour: string | null
   userCount: number
 }
@@ -36,12 +38,14 @@ export interface CreateRoleRequest {
   description?: string
   permissions: string[]
   colour?: string
+  canAuthorize?: boolean
 }
 
 export interface UpdateRoleRequest {
   name?: string
   description?: string
   colour?: string
+  canAuthorize?: boolean
 }
 
 export interface SetRolePermissionsRequest {

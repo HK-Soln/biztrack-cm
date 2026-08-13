@@ -155,6 +155,29 @@ export class PinService {
     return { ...DENIED('NO_MATCH'), attemptsRemaining: MAX_ATTEMPTS - this.failedAttempts }
   }
 
+  /**
+   * Whether the CURRENT user may manage a PIN — i.e. their role is flagged
+   * can_authorize (or, for a role-less member, is OWNER/MANAGER). Used to show the
+   * "Manager PIN" settings card only to those it applies to.
+   */
+  canManage(): boolean {
+    const { businessId, userId } = this.getContext()
+    if (!businessId || !userId) return false
+    const row = this.db.get<{ ok: number }>(
+      `SELECT 1 AS ok
+         FROM business_members m
+         LEFT JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE m.business_id = ?
+          AND m.user_id = ?
+          AND m.is_deleted = 0
+          AND m.status = 'ACTIVE'
+          AND (r.can_authorize = 1 OR (m.role_id IS NULL AND m.role IN ('OWNER', 'MANAGER')))
+        LIMIT 1`,
+      [businessId, userId],
+    )
+    return !!row
+  }
+
   private lockedResult(): PinVerifyResult {
     return {
       ...DENIED('LOCKED_OUT'),

@@ -1,5 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { ArrayMaxSize, IsArray, IsHexColor, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsHexColor,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator'
 import type { CreateRoleRequest } from '@biztrack/types'
 
 export class CreateRoleDto implements CreateRoleRequest {
@@ -25,4 +34,9 @@ export class CreateRoleDto implements CreateRoleRequest {
   @IsOptional()
   @IsHexColor()
   colour?: string
+
+  @ApiProperty({ required: false, description: 'May set a PIN and authorize till step-up.' })
+  @IsOptional()
+  @IsBoolean()
+  canAuthorize?: boolean
 }
