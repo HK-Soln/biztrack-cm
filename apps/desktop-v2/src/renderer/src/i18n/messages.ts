@@ -2723,6 +2723,16 @@ export const en = {
   'sec.verifyEnable': 'Verify & enable',
   'sec.2faEnabled': 'Two-factor authentication enabled (preview)',
   'sec.2faDisabled': 'Two-factor authentication disabled (preview)',
+  'sec.pinTitle': 'Manager PIN',
+  'sec.pinSub':
+    'A 6-digit PIN you enter to authorize discounts and price overrides at the till — works even offline.',
+  'sec.pinNew': 'New PIN (6 digits)',
+  'sec.pinConfirm': 'Confirm PIN',
+  'sec.pinMismatch': 'PINs do not match.',
+  'sec.pinSet': 'Set PIN',
+  'sec.pinSaved': 'Manager PIN updated.',
+  'sec.pinError': 'Could not set the PIN. Connect to the internet and try again.',
+  'sec.pinOnlineNote': 'Setting or changing a PIN requires an internet connection.',
   'sec.recoveryNote':
     'Save your recovery codes somewhere safe — you’ll need them if you lose your device.',
   'sec.cancel': 'Cancel',
@@ -5820,6 +5830,17 @@ export const fr: Record<MessageKey, string> = {
   'sec.verifyEnable': 'Vérifier & activer',
   'sec.2faEnabled': 'Authentification à deux facteurs activée (aperçu)',
   'sec.2faDisabled': 'Authentification à deux facteurs désactivée (aperçu)',
+  'sec.pinTitle': 'Code PIN du responsable',
+  'sec.pinSub':
+    'Un code PIN à 6 chiffres que vous saisissez pour autoriser les remises et les changements de prix en caisse — fonctionne même hors ligne.',
+  'sec.pinNew': 'Nouveau code PIN (6 chiffres)',
+  'sec.pinConfirm': 'Confirmer le code PIN',
+  'sec.pinMismatch': 'Les codes PIN ne correspondent pas.',
+  'sec.pinSet': 'Définir le code PIN',
+  'sec.pinSaved': 'Code PIN mis à jour.',
+  'sec.pinError': 'Impossible de définir le code PIN. Connectez-vous à Internet et réessayez.',
+  'sec.pinOnlineNote':
+    'La définition ou la modification d’un code PIN nécessite une connexion Internet.',
   'sec.recoveryNote':
     'Conservez vos codes de récupération en lieu sûr — ils vous serviront si vous perdez votre appareil.',
   'sec.cancel': 'Annuler',
