@@ -1,4 +1,5 @@
 export * from './currency'
+export * from './discount-policy'
 export * from './pin'
 export * from './date'
 export * from './phone'

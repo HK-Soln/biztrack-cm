@@ -185,6 +185,9 @@ export interface CreateSaleRequest {
   discounts?: CreateSaleDiscountRequest[]
   payments: CreateSalePaymentRequest[]
   items: CreateSaleItemRequest[]
+  /** Manager userId who authorized an over-limit discount via step-up (BIZ-1.4).
+   * When present, the sale's discount rows are recorded authorized, not flagged. */
+  authorizedByUserId?: string | null
 }
 
 export interface VoidSaleRequest {
