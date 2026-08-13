@@ -10,11 +10,11 @@ import { errorMessage } from '@/lib/error'
 // URL via `onChange`. Keep this the single upload UI across the app.
 
 // Only known-safe URL forms may reach the href/src DOM sinks: absolute http(s), blob:,
-// image data: URIs, or app-relative paths. Anything else (a `javascript:` or
-// `data:text/html` URL, etc.) is dropped rather than rendered, so a poisoned stored URL
-// can neither execute script nor navigate somewhere hostile. The anchored scheme test is
-// the sanitizer — it also excludes non-image data: URIs.
-const SAFE_URL = /^(?:https?:|blob:|data:image\/|\/)/i
+// image data: URIs, or app-relative paths — AND the whole string must be free of HTML
+// meta-characters (`" ' < >` backtick, backslash, whitespace), so a poisoned stored value
+// can neither switch to a `javascript:`/`data:text/html` scheme nor break out of the
+// attribute into markup. Anything else is dropped rather than rendered.
+const SAFE_URL = /^(?:https?:|blob:|data:image\/|\/)[^"'<>`\\\s]*$/i
 function safeUrl(raw: string | null): string | undefined {
   return raw && SAFE_URL.test(raw) ? raw : undefined
 }
