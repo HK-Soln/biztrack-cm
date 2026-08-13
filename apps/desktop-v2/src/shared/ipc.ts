@@ -302,7 +302,7 @@ export interface ProductStats {
 }
 
 // ---- Audit trail ----------------------------------------------------------
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID'
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID' | 'PIN_FAILED' | 'PIN_LOCKED'
 
 /** One append-only audit row (who changed what, when). */
 export interface LocalAuditLog {
@@ -1656,7 +1656,7 @@ export interface SkeletonHealthDTO {
 }
 
 /** Why an offline manager-PIN verification was denied. */
-export type PinVerifyReason = 'STALE_DEVICE' | 'NO_MATCH' | 'INVALID_FORMAT'
+export type PinVerifyReason = 'STALE_DEVICE' | 'NO_MATCH' | 'INVALID_FORMAT' | 'LOCKED_OUT'
 
 /** Result of an offline manager-PIN step-up check. */
 export interface PinVerifyResult {
@@ -1665,6 +1665,10 @@ export interface PinVerifyResult {
   /** The manager whose PIN matched — recorded as `authorized_by` on the action. */
   authorizedByUserId: string | null
   authorizedByName: string | null
+  /** Failed attempts left before a lockout (present on a NO_MATCH). */
+  attemptsRemaining?: number
+  /** ISO time the device lockout ends (present on a LOCKED_OUT). */
+  lockedUntil?: string
 }
 
 /** The shape exposed on `window.api` by the preload bridge. */

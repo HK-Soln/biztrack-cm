@@ -2,11 +2,24 @@ import bcrypt from 'bcryptjs'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
+import type { AuditEntry, AuditLogger } from '../services/audit.service'
 import { PinService, type PinContext } from '../services/pin.service'
 
 const BIZ = 'biz-1'
 const FRESH = () => new Date().toISOString()
 const STALE = () => new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+
+/** An audit logger that records entries, for asserting PIN_FAILED/PIN_LOCKED. */
+class RecordingAudit implements AuditLogger {
+  entries: AuditEntry[] = []
+  log(entry: AuditEntry): void {
+    this.entries.push(entry)
+  }
+  actions(): string[] {
+    return this.entries.map((e) => e.action)
+  }
+}
+const noopAudit: AuditLogger = { log: () => {} }
 
 function seedMember(
   db: DatabaseService,
@@ -38,9 +51,10 @@ const defaultPatch: PatchFn = async () =>
 function makeService(
   db: DatabaseService,
   getLastSyncAt: () => string | null,
+  audit: AuditLogger = noopAudit,
   context: PinContext = { businessId: BIZ, userId: 'u-self' },
 ): PinService {
-  return new PinService({ patch: defaultPatch }, db, () => context, getLastSyncAt)
+  return new PinService({ patch: defaultPatch }, db, () => context, getLastSyncAt, audit)
 }
 
 describe('PinService.verifyManagerPin', () => {
@@ -72,6 +86,7 @@ describe('PinService.verifyManagerPin', () => {
       reason: 'NO_MATCH',
       authorizedByUserId: null,
       authorizedByName: null,
+      attemptsRemaining: 4,
     })
   })
 
@@ -120,7 +135,13 @@ describe('PinService.setPin', () => {
       sentHash = (body as { pinHash: string }).pinHash
       return { data: { data: { memberId: 'm-self', pinVersion: 3, pinSetAt: FRESH() } } } as never
     }
-    const svc = new PinService({ patch }, db, () => ({ businessId: BIZ, userId: 'u-self' }), FRESH)
+    const svc = new PinService(
+      { patch },
+      db,
+      () => ({ businessId: BIZ, userId: 'u-self' }),
+      FRESH,
+      noopAudit,
+    )
 
     const { pinVersion } = await svc.setPin('246810')
     expect(pinVersion).toBe(3)
@@ -143,8 +164,64 @@ describe('PinService.setPin', () => {
       called = true
       return { data: { data: { memberId: 'x', pinVersion: 1, pinSetAt: FRESH() } } } as never
     }
-    const svc = new PinService({ patch }, db, () => ({ businessId: BIZ, userId: 'u-self' }), FRESH)
+    const svc = new PinService(
+      { patch },
+      db,
+      () => ({ businessId: BIZ, userId: 'u-self' }),
+      FRESH,
+      noopAudit,
+    )
     await expect(svc.setPin('12')).rejects.toThrow(/6 to 8 digits/)
     expect(called).toBe(false)
+  })
+})
+
+describe('PinService step-up rate limiting', () => {
+  let db: DatabaseService
+  beforeEach(async () => {
+    db = createTestDatabase()
+    seedMember(db, {
+      id: 'm-mgr',
+      userId: 'u-mgr',
+      role: 'MANAGER',
+      name: 'Mercy Manager',
+      pinHash: await bcrypt.hash('123456', 12),
+    })
+  })
+
+  it('reports attempts remaining and audits each failure', async () => {
+    const audit = new RecordingAudit()
+    const svc = makeService(db, FRESH, audit)
+    expect((await svc.verifyManagerPin('000000')).attemptsRemaining).toBe(4)
+    expect((await svc.verifyManagerPin('000000')).attemptsRemaining).toBe(3)
+    expect(audit.actions()).toEqual(['PIN_FAILED', 'PIN_FAILED'])
+  })
+
+  it('locks the device after 5 failures and logs PIN_LOCKED', async () => {
+    const audit = new RecordingAudit()
+    const svc = makeService(db, FRESH, audit)
+    for (let i = 0; i < 4; i++) await svc.verifyManagerPin('000000')
+    const fifth = await svc.verifyManagerPin('000000')
+    expect(fifth.reason).toBe('LOCKED_OUT')
+    expect(fifth.lockedUntil).toBeTruthy()
+    // Even the correct PIN is refused while locked out.
+    expect((await svc.verifyManagerPin('123456')).reason).toBe('LOCKED_OUT')
+    expect(audit.actions()).toEqual([
+      'PIN_FAILED',
+      'PIN_FAILED',
+      'PIN_FAILED',
+      'PIN_FAILED',
+      'PIN_FAILED',
+      'PIN_LOCKED',
+    ])
+  })
+
+  it('resets the failure count after a correct PIN', async () => {
+    const svc = makeService(db, FRESH)
+    await svc.verifyManagerPin('000000')
+    await svc.verifyManagerPin('000000')
+    expect((await svc.verifyManagerPin('123456')).authorized).toBe(true)
+    // Counter was reset — a later failure starts from 4 remaining again.
+    expect((await svc.verifyManagerPin('000000')).attemptsRemaining).toBe(4)
   })
 })

@@ -210,23 +210,6 @@ app.whenReady().then(() => {
   registerSyncIpc(sync)
   app.on('before-quit', () => sync.stop())
 
-  // Offline manager-PIN: set/rotate (online) + verify for step-up (offline). Hash
-  // lives on the local membership (pulled from the server); business/user scope
-  // comes from the active session, never the renderer.
-  const pin = new PinService(
-    authHttp,
-    db,
-    () => {
-      const session = authService.getSession()
-      return {
-        businessId: session.businessId,
-        userId: session.user?.id ?? tokenStore.getLastUserId(),
-      }
-    },
-    () => tokenStore.getLastSyncAt(),
-  )
-  registerPinIpc(pin)
-
   // Realtime in-app notifications: one Socket.IO connection to the app-wide realtime
   // gateway, authenticated with the ACCESS token → the gateway auto-joins the user room.
   // Pushes arrive on the `notification` event and are forwarded to the renderer.
@@ -257,6 +240,24 @@ app.whenReady().then(() => {
     }
   })
   registerAuditIpc(audit)
+
+  // Offline manager-PIN: set/rotate (online) + verify for step-up (offline). Hash
+  // lives on the local membership (pulled from the server); business/user scope
+  // comes from the active session, never the renderer. Failed attempts are audited.
+  const pin = new PinService(
+    authHttp,
+    db,
+    () => {
+      const session = authService.getSession()
+      return {
+        businessId: session.businessId,
+        userId: session.user?.id ?? tokenStore.getLastUserId(),
+      }
+    },
+    () => tokenStore.getLastSyncAt(),
+    audit,
+  )
+  registerPinIpc(pin)
 
   // Categories: offline-first reads from local SQLite; writes go local + outbox and
   // nudge a sync. Business scope comes from the active session, never the renderer.
