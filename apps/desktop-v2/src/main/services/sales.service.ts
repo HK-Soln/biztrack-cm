@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod } from '@biztrack/types'
+import { toWholeXaf } from '@biztrack/utils'
 import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -135,7 +136,7 @@ export class SalesService {
 
     for (const line of input.items) {
       const meta = this.requireProduct(line.productId, businessId)
-      const unitPrice = round2(line.unitPrice)
+      const unitPrice = toWholeXaf(line.unitPrice)
       if (!Number.isFinite(unitPrice) || unitPrice < 0)
         throw new Error(`Invalid price for “${meta.name}”.`)
       const variantId = line.variantId ?? null
@@ -196,8 +197,8 @@ export class SalesService {
         const qty = line.quantity
         if (!Number.isFinite(qty) || qty <= 0)
           throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
-        const lineDiscount = round2(Math.max(0, line.discountAmount ?? 0))
-        const lineTotal = round2(Math.max(0, unitPrice * qty - lineDiscount))
+        const lineDiscount = toWholeXaf(Math.max(0, line.discountAmount ?? 0))
+        const lineTotal = toWholeXaf(Math.max(0, unitPrice * qty - lineDiscount))
         emits.push({
           id: randomUUID(),
           productId: line.productId,
@@ -225,32 +226,32 @@ export class SalesService {
     }
 
     // --- settlement (tax 0; matches the API computeSale) ----------------------
-    const subtotal = round2(emits.reduce((s, e) => s + e.lineTotal, 0))
+    const subtotal = toWholeXaf(emits.reduce((s, e) => s + e.lineTotal, 0))
     const discountLines = (input.discounts ?? []).map((d) => ({
       ...d,
       id: d.id ?? randomUUID(),
-      amount: round2(Math.max(0, d.amount)),
+      amount: toWholeXaf(Math.max(0, d.amount)),
     }))
     const chargeLines = (input.charges ?? []).map((c) => ({
       ...c,
       id: c.id ?? randomUUID(),
-      amount: round2(Math.max(0, c.amount)),
+      amount: toWholeXaf(Math.max(0, c.amount)),
     }))
-    const discountAmount = round2(
+    const discountAmount = toWholeXaf(
       Math.min(
         subtotal,
         discountLines.reduce((s, d) => s + d.amount, 0),
       ),
     )
-    const chargesAmount = round2(chargeLines.reduce((s, c) => s + c.amount, 0))
-    const totalAmount = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
+    const chargesAmount = toWholeXaf(chargeLines.reduce((s, c) => s + c.amount, 0))
+    const totalAmount = toWholeXaf(Math.max(0, subtotal - discountAmount + chargesAmount))
 
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
     )
-    const amountPaid = round2(paymentLines.reduce((s, p) => s + p.amount, 0))
-    const creditAmount = round2(Math.max(0, totalAmount - amountPaid))
-    const changeGiven = round2(Math.max(0, amountPaid - totalAmount))
+    const amountPaid = toWholeXaf(paymentLines.reduce((s, p) => s + p.amount, 0))
+    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
+    const changeGiven = toWholeXaf(Math.max(0, amountPaid - totalAmount))
 
     const customerId = input.customerId?.trim() || null
     if (creditAmount > 0 && !customerId)
@@ -264,7 +265,7 @@ export class SalesService {
         if (!p.savingsAccountId) throw new Error('Deposit payment is missing the savings account.')
         savingsNeed.set(
           p.savingsAccountId,
-          round2((savingsNeed.get(p.savingsAccountId) ?? 0) + p.amount),
+          toWholeXaf((savingsNeed.get(p.savingsAccountId) ?? 0) + p.amount),
         )
       }
     }
@@ -393,7 +394,7 @@ export class SalesService {
           saleId,
           businessId,
           p.method,
-          round2(p.amount),
+          toWholeXaf(p.amount),
           p.mobileMoneyReference ?? null,
           now,
         ],
@@ -406,7 +407,7 @@ export class SalesService {
         this.savings.recordSaleUsage({
           accountId: p.savingsAccountId,
           saleId,
-          amount: round2(p.amount),
+          amount: toWholeXaf(p.amount),
           now,
           recordedById: cashierId,
         })
@@ -474,7 +475,7 @@ export class SalesService {
         payments: paymentLines.map((p) => ({
           id: randomUUID(),
           method: p.method,
-          amount: round2(p.amount),
+          amount: toWholeXaf(p.amount),
           mobileMoneyReference: p.mobileMoneyReference ?? null,
           savingsAccountId: p.savingsAccountId ?? null,
         })),
@@ -758,7 +759,7 @@ export class SalesService {
       payments: payments.map((p) => ({
         id: p.id,
         method: p.method,
-        amount: round2(p.amount),
+        amount: toWholeXaf(p.amount),
         mobileMoneyReference: p.mobile_money_reference,
         savingsAccountId: null,
       })),
@@ -863,14 +864,14 @@ export class SalesService {
       params,
     )
     const transactions = agg?.txns ?? 0
-    const revenue = round2(agg?.revenue ?? 0)
+    const revenue = toWholeXaf(agg?.revenue ?? 0)
     return {
       revenue,
       transactions,
-      averageBasket: transactions > 0 ? round2(revenue / transactions) : 0,
+      averageBasket: transactions > 0 ? toWholeXaf(revenue / transactions) : 0,
       itemsSold: agg?.units ?? 0,
       refundCount: refunds?.n ?? 0,
-      refundAmount: round2(refunds?.amt ?? 0),
+      refundAmount: toWholeXaf(refunds?.amt ?? 0),
       currency,
     }
   }
@@ -929,11 +930,11 @@ export class SalesService {
     return rows.map((r) => ({
       date: String(r.date).slice(0, 10),
       transactions: Number(r.txns ?? 0),
-      total: round2(Number(r.total ?? 0)),
-      cash: round2(Number(r.cash ?? 0)),
-      momo: round2(Number(r.momo ?? 0)),
-      card: round2(Number(r.card ?? 0)),
-      credit: round2(Number(r.credit ?? 0)),
+      total: toWholeXaf(Number(r.total ?? 0)),
+      cash: toWholeXaf(Number(r.cash ?? 0)),
+      momo: toWholeXaf(Number(r.momo ?? 0)),
+      card: toWholeXaf(Number(r.card ?? 0)),
+      credit: toWholeXaf(Number(r.credit ?? 0)),
     }))
   }
 
@@ -982,9 +983,9 @@ export class SalesService {
       name: r.name || '—',
       shifts: Number(r.shifts ?? 0),
       transactions: Number(r.transactions ?? 0),
-      sales: round2(Number(r.sales ?? 0)),
-      refunds: round2(Number(r.refunds ?? 0)),
-      discounts: round2(Number(r.discounts ?? 0)),
+      sales: toWholeXaf(Number(r.sales ?? 0)),
+      refunds: toWholeXaf(Number(r.refunds ?? 0)),
+      discounts: toWholeXaf(Number(r.discounts ?? 0)),
     }))
   }
 
@@ -1040,8 +1041,8 @@ export class SalesService {
       name: r.name,
       category: r.category ?? null,
       quantity: Number(r.quantity ?? 0),
-      revenue: round2(Number(r.revenue ?? 0)),
-      cogs: round2(Number(r.cogs ?? 0)),
+      revenue: toWholeXaf(Number(r.revenue ?? 0)),
+      cogs: toWholeXaf(Number(r.cogs ?? 0)),
     }))
   }
 
@@ -1061,7 +1062,7 @@ export class SalesService {
     return rows.map((r) => ({
       method: r.method,
       transactions: Number(r.transactions ?? 0),
-      amount: round2(Number(r.amount ?? 0)),
+      amount: toWholeXaf(Number(r.amount ?? 0)),
     }))
   }
 
@@ -1104,15 +1105,15 @@ export class SalesService {
       byReason: byReason.map((r) => ({
         reason: r.reason ?? null,
         count: Number(r.count ?? 0),
-        amount: round2(Number(r.amount ?? 0)),
+        amount: toWholeXaf(Number(r.amount ?? 0)),
       })),
       byCashier: byCashier.map((r) => ({
         cashierId: r.cashierId,
         name: r.name || '—',
-        refunds: round2(Number(r.refunds ?? 0)),
-        sales: round2(Number(r.sales ?? 0)),
+        refunds: toWholeXaf(Number(r.refunds ?? 0)),
+        sales: toWholeXaf(Number(r.sales ?? 0)),
       })),
-      grossSales: round2(Number(gross?.gross ?? 0)),
+      grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
     }
   }
 
@@ -1128,7 +1129,10 @@ export class SalesService {
        WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0`,
       params,
     )
-    return { revenue: round2(Number(row?.revenue ?? 0)), cogs: round2(Number(row?.cogs ?? 0)) }
+    return {
+      revenue: toWholeXaf(Number(row?.revenue ?? 0)),
+      cogs: toWholeXaf(Number(row?.cogs ?? 0)),
+    }
   }
 
   /** Shared WHERE for list/listAll/summary (excludes free-text search, which list() adds). */
@@ -1391,8 +1395,4 @@ function toLocalSale(r: SaleRow): LocalSale {
     itemCount: r.item_count,
     syncStatus: r.sync_status === 'pending' ? 'pending' : 'synced',
   }
-}
-
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100
 }

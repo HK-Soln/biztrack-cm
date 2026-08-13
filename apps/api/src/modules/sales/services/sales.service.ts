@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
+import { toWholeXaf } from '@biztrack/utils'
 import {
   BusinessMemberRole,
   DebtDirection,
@@ -185,10 +186,10 @@ export class SalesService {
           ...dto,
           items: this.expandSerialItems(dto.items),
           chargesAmount: dto.charges?.length
-            ? this.roundMoney(dto.charges.reduce((sum, c) => sum + (c.amount || 0), 0))
+            ? toWholeXaf(dto.charges.reduce((sum, c) => sum + (c.amount || 0), 0))
             : dto.chargesAmount,
           discountAmount: dto.discounts?.length
-            ? this.roundMoney(dto.discounts.reduce((sum, d) => sum + (d.amount || 0), 0))
+            ? toWholeXaf(dto.discounts.reduce((sum, d) => sum + (d.amount || 0), 0))
             : dto.discountAmount,
         }
         const { products, variantsById, serialUnitsById } = await this.loadProductsForSale(
@@ -197,7 +198,7 @@ export class SalesService {
           computeDto,
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, computeDto)
-        const amountPaid = this.roundMoney(
+        const amountPaid = toWholeXaf(
           dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
@@ -210,7 +211,7 @@ export class SalesService {
         const paymentMethod = this.deriveStoredPaymentMethod(dto.payments)
         const momoReference = this.firstMobileMoneyReference(dto.payments)
 
-        const changeGiven = this.roundMoney(amountPaid - computed.totalAmount)
+        const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
         const now = new Date()
 
@@ -273,7 +274,7 @@ export class SalesService {
               saleId: sale.id,
               businessId,
               method: payment.method,
-              amount: this.roundMoney(payment.amount),
+              amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
             }),
@@ -292,7 +293,7 @@ export class SalesService {
                 name: c.name,
                 rateType: c.rateType,
                 rateValue: c.rateValue,
-                amount: this.roundMoney(c.amount),
+                amount: toWholeXaf(c.amount),
               }),
             ),
           )
@@ -307,7 +308,7 @@ export class SalesService {
                 description: d.description,
                 discountType: d.discountType,
                 rate: d.rate ?? null,
-                amount: this.roundMoney(d.amount),
+                amount: toWholeXaf(d.amount),
               }),
             ),
           )
@@ -322,7 +323,7 @@ export class SalesService {
               {
                 savingsId: payment.savingsAccountId,
                 saleId: sale.id,
-                amount: this.roundMoney(payment.amount),
+                amount: toWholeXaf(payment.amount),
                 recordedById: user.sub,
               },
               now,
@@ -443,7 +444,7 @@ export class SalesService {
           payload,
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, payload)
-        const amountPaid = this.roundMoney(
+        const amountPaid = toWholeXaf(
           payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
         )
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
@@ -458,7 +459,7 @@ export class SalesService {
         const momoReference = this.firstMobileMoneyReference(payload.payments)
 
         const cashierId = this.resolveSyncCashierId(payload)
-        const changeGiven = this.roundMoney(amountPaid - computed.totalAmount)
+        const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         let saleNumber = payload.saleNumber?.trim() || null
 
         if (!saleNumber) {
@@ -545,7 +546,7 @@ export class SalesService {
               saleId: sale.id,
               businessId,
               method: payment.method,
-              amount: this.roundMoney(payment.amount),
+              amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
             }),
@@ -566,7 +567,7 @@ export class SalesService {
                   name: c.name,
                   rateType: c.rateType,
                   rateValue: c.rateValue,
-                  amount: this.roundMoney(c.amount),
+                  amount: toWholeXaf(c.amount),
                 }),
               )
             }
@@ -586,7 +587,7 @@ export class SalesService {
                   description: d.description,
                   discountType: d.discountType,
                   rate: d.rate ?? null,
-                  amount: this.roundMoney(d.amount),
+                  amount: toWholeXaf(d.amount),
                 }),
               )
             }
@@ -860,15 +861,15 @@ export class SalesService {
         currency: string | null
       }>
 
-      const revenue = this.roundMoney(Number(tot?.revenue ?? 0))
+      const revenue = toWholeXaf(Number(tot?.revenue ?? 0))
       const transactions = Number(tot?.txns ?? 0)
       return {
         revenue,
         transactions,
-        averageBasket: transactions > 0 ? this.roundMoney(revenue / transactions) : 0,
+        averageBasket: transactions > 0 ? toWholeXaf(revenue / transactions) : 0,
         itemsSold: Number(units?.units ?? 0),
         refundCount: Number(ref?.n ?? 0),
-        refundAmount: this.roundMoney(Number(ref?.amt ?? 0)),
+        refundAmount: toWholeXaf(Number(ref?.amt ?? 0)),
         currency: biz?.currency ?? 'XAF',
       }
     } catch (error) {
@@ -935,11 +936,11 @@ export class SalesService {
             ? r.date.slice(0, 10)
             : new Date(r.date).toISOString().slice(0, 10),
         transactions: Number(r.txns ?? 0),
-        total: this.roundMoney(Number(r.total ?? 0)),
-        cash: this.roundMoney(Number(r.cash ?? 0)),
-        momo: this.roundMoney(Number(r.momo ?? 0)),
-        card: this.roundMoney(Number(r.card ?? 0)),
-        credit: this.roundMoney(Number(r.credit ?? 0)),
+        total: toWholeXaf(Number(r.total ?? 0)),
+        cash: toWholeXaf(Number(r.cash ?? 0)),
+        momo: toWholeXaf(Number(r.momo ?? 0)),
+        card: toWholeXaf(Number(r.card ?? 0)),
+        credit: toWholeXaf(Number(r.credit ?? 0)),
       }))
     } catch (error) {
       return this.handleServiceError('getDailySeries', error, { businessId })
@@ -994,9 +995,9 @@ export class SalesService {
         name: r.name || '—',
         shifts: Number(r.shifts ?? 0),
         transactions: Number(r.transactions ?? 0),
-        sales: this.roundMoney(Number(r.sales ?? 0)),
-        refunds: this.roundMoney(Number(r.refunds ?? 0)),
-        discounts: this.roundMoney(Number(r.discounts ?? 0)),
+        sales: toWholeXaf(Number(r.sales ?? 0)),
+        refunds: toWholeXaf(Number(r.refunds ?? 0)),
+        discounts: toWholeXaf(Number(r.discounts ?? 0)),
       }))
     } catch (error) {
       return this.handleServiceError('getCashierRoster', error, { businessId })
@@ -1059,8 +1060,8 @@ export class SalesService {
         name: r.name,
         category: r.category ?? null,
         quantity: Number(r.quantity ?? 0),
-        revenue: this.roundMoney(Number(r.revenue ?? 0)),
-        cogs: this.roundMoney(Number(r.cogs ?? 0)),
+        revenue: toWholeXaf(Number(r.revenue ?? 0)),
+        cogs: toWholeXaf(Number(r.cogs ?? 0)),
       }))
     } catch (error) {
       return this.handleServiceError('getSalesByProduct', error, { businessId })
@@ -1088,7 +1089,7 @@ export class SalesService {
       return rows.map((r) => ({
         method: r.method,
         transactions: Number(r.transactions ?? 0),
-        amount: this.roundMoney(Number(r.amount ?? 0)),
+        amount: toWholeXaf(Number(r.amount ?? 0)),
       }))
     } catch (error) {
       return this.handleServiceError('getSalesByPaymentMethod', error, { businessId })
@@ -1131,15 +1132,15 @@ export class SalesService {
         byReason: byReason.map((r) => ({
           reason: r.reason ?? null,
           count: Number(r.count ?? 0),
-          amount: this.roundMoney(Number(r.amount ?? 0)),
+          amount: toWholeXaf(Number(r.amount ?? 0)),
         })),
         byCashier: byCashier.map((r) => ({
           cashierId: r.cashierId,
           name: r.name || '—',
-          refunds: this.roundMoney(Number(r.refunds ?? 0)),
-          sales: this.roundMoney(Number(r.sales ?? 0)),
+          refunds: toWholeXaf(Number(r.refunds ?? 0)),
+          sales: toWholeXaf(Number(r.sales ?? 0)),
         })),
-        grossSales: this.roundMoney(Number(gross?.gross ?? 0)),
+        grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
       }
     } catch (error) {
       return this.handleServiceError('getRefundsSummary', error, { businessId })
@@ -1162,8 +1163,8 @@ export class SalesService {
         params,
       )) as Array<{ revenue: string; cogs: string }>
       return {
-        revenue: this.roundMoney(Number(row?.revenue ?? 0)),
-        cogs: this.roundMoney(Number(row?.cogs ?? 0)),
+        revenue: toWholeXaf(Number(row?.revenue ?? 0)),
+        cogs: toWholeXaf(Number(row?.cogs ?? 0)),
       }
     } catch (error) {
       return this.handleServiceError('getGrossProfit', error, { businessId })
@@ -1318,7 +1319,7 @@ export class SalesService {
           )
         }
 
-        const amount = this.roundMoney(input.amount)
+        const amount = toWholeXaf(input.amount)
         if (amount <= 0) {
           throw new AppBadRequestException(
             'Payment amount must be positive.',
@@ -1406,7 +1407,7 @@ export class SalesService {
                 }
                 return {
                   item,
-                  quantity: Math.min(this.roundMoney(r.quantity), item.quantity),
+                  quantity: Math.min(this.roundQuantity(r.quantity), item.quantity),
                   serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
                 }
               })
@@ -1428,15 +1429,15 @@ export class SalesService {
 
         // Money to return: default to the goods value of returned lines, capped at amountPaid
         // (fees are non-refundable by default). Unpaid COD returns refund 0 and write off the debt.
-        const goodsValue = this.roundMoney(
+        const goodsValue = toWholeXaf(
           returnedLines.reduce((sum, r) => {
             const perUnit =
               r.item.quantity > 0 ? r.item.lineTotal / r.item.quantity : r.item.lineTotal
             return sum + perUnit * r.quantity
           }, 0),
         )
-        const requested = input.amount != null ? this.roundMoney(input.amount) : goodsValue
-        const moneyRefund = this.roundMoney(Math.min(Math.max(0, requested), sale.amountPaid))
+        const requested = input.amount != null ? toWholeXaf(input.amount) : goodsValue
+        const moneyRefund = toWholeXaf(Math.min(Math.max(0, requested), sale.amountPaid))
         const restock = input.restock !== false
         const now = new Date()
 
@@ -1547,8 +1548,8 @@ export class SalesService {
       (sum, p) => sum + (p.kind === SalePaymentKind.REFUND ? -Number(p.amount) : Number(p.amount)),
       0,
     )
-    const amountPaid = this.roundMoney(Math.max(0, net))
-    const creditAmount = this.roundMoney(Math.max(0, totalAmount - amountPaid))
+    const amountPaid = toWholeXaf(Math.max(0, net))
+    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
     return { amountPaid, creditAmount }
   }
 
@@ -1585,7 +1586,7 @@ export class SalesService {
         grossProfit: summary.grossProfit,
         grossMarginPercent:
           summary.totalRevenue > 0
-            ? this.roundMoney((summary.grossProfit / summary.totalRevenue) * 100)
+            ? toWholeXaf((summary.grossProfit / summary.totalRevenue) * 100)
             : 0,
         totalDiscounts: summary.totalDiscounts,
         cashCollected: summary.cashCollected,
@@ -1653,10 +1654,10 @@ export class SalesService {
 
         if (isVoid) {
           voidCount += 1
-          voidAmount = this.roundMoney(voidAmount + saleTotal)
+          voidAmount = toWholeXaf(voidAmount + saleTotal)
         } else if (isCompleted) {
           transactionCount += 1
-          shiftRevenue = this.roundMoney(shiftRevenue + saleTotal)
+          shiftRevenue = toWholeXaf(shiftRevenue + saleTotal)
 
           const hour = new Date(sale.soldAt).getHours()
           hourlyMap.set(hour, (hourlyMap.get(hour) ?? 0) + 1)
@@ -1676,7 +1677,7 @@ export class SalesService {
           for (const payment of sale.payments ?? []) {
             paymentMap.set(
               payment.method,
-              this.roundMoney((paymentMap.get(payment.method) ?? 0) + payment.amount),
+              toWholeXaf((paymentMap.get(payment.method) ?? 0) + payment.amount),
             )
           }
         }
@@ -1695,7 +1696,7 @@ export class SalesService {
             id: sale.id,
             saleNumber: sale.saleNumber,
             type: isVoid ? 'void' : 'sale',
-            totalAmount: this.roundMoney(saleTotal),
+            totalAmount: toWholeXaf(saleTotal),
             soldAt: sale.soldAt.toISOString(),
             voidedAt: sale.voidedAt?.toISOString() ?? null,
             voidReason: sale.voidReason ?? null,
@@ -1724,7 +1725,7 @@ export class SalesService {
         date,
         shiftRevenue,
         transactionCount,
-        avgOrderValue: transactionCount > 0 ? this.roundMoney(shiftRevenue / transactionCount) : 0,
+        avgOrderValue: transactionCount > 0 ? toWholeXaf(shiftRevenue / transactionCount) : 0,
         voidCount,
         voidAmount,
         hourlyCounts,
@@ -2130,13 +2131,11 @@ export class SalesService {
       }
 
       const quantity = this.roundQuantity(input.quantity)
-      const unitPrice = this.roundMoney(input.unitPrice)
-      const discountAmount = this.roundMoney(input.discountAmount ?? 0)
-      const lineTotal = Math.max(0, this.roundMoney(unitPrice * quantity - discountAmount))
+      const unitPrice = toWholeXaf(input.unitPrice)
+      const discountAmount = toWholeXaf(input.discountAmount ?? 0)
+      const lineTotal = Math.max(0, toWholeXaf(unitPrice * quantity - discountAmount))
       const costPrice =
-        input.costPrice !== undefined
-          ? this.roundMoney(input.costPrice)
-          : (product.costPrice ?? null)
+        input.costPrice !== undefined ? toWholeXaf(input.costPrice) : (product.costPrice ?? null)
 
       if (this.hasPriceDrift(unitPrice, product.sellingPrice)) {
         priceDriftWarning = true
@@ -2144,7 +2143,7 @@ export class SalesService {
 
       const variant = input.variantId ? variantsById.get(input.variantId) : undefined
       const serialUnit = input.serialUnitId ? serialUnitsById.get(input.serialUnitId) : undefined
-      subtotal = this.roundMoney(subtotal + lineTotal)
+      subtotal = toWholeXaf(subtotal + lineTotal)
       items.push({
         product,
         // Serialised lines have no explicit variantId — derive it from the serial unit so the
@@ -2161,12 +2160,9 @@ export class SalesService {
       })
     }
 
-    const saleDiscountAmount = Math.min(this.roundMoney(dto.discountAmount ?? 0), subtotal)
-    const saleChargesAmount = this.roundMoney(Math.max(0, dto.chargesAmount ?? 0))
-    const totalAmount = Math.max(
-      0,
-      this.roundMoney(subtotal - saleDiscountAmount + saleChargesAmount),
-    )
+    const saleDiscountAmount = Math.min(toWholeXaf(dto.discountAmount ?? 0), subtotal)
+    const saleChargesAmount = toWholeXaf(Math.max(0, dto.chargesAmount ?? 0))
+    const totalAmount = Math.max(0, toWholeXaf(subtotal - saleDiscountAmount + saleChargesAmount))
 
     return {
       items,
@@ -2325,12 +2321,12 @@ export class SalesService {
     expectedCreditAmount?: number | null,
   ) {
     const customerId = this.normalizeOptionalUuid(rawCustomerId)
-    const creditAmount = this.roundMoney(Math.max(0, totalAmount - amountPaid))
+    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
 
     if (
       expectedCreditAmount !== undefined &&
       expectedCreditAmount !== null &&
-      this.roundMoney(expectedCreditAmount) !== creditAmount
+      toWholeXaf(expectedCreditAmount) !== creditAmount
     ) {
       throw new AppBadRequestException(
         'Sale credit amount does not match the unpaid balance.',
@@ -2367,10 +2363,6 @@ export class SalesService {
 
   private normalizeSyncSaleStatus(value?: SaleStatus | null) {
     return value === SaleStatus.VOIDED ? SaleStatus.VOIDED : SaleStatus.COMPLETED
-  }
-
-  private roundMoney(value: number) {
-    return Math.round(value * 100) / 100
   }
 
   private roundQuantity(value: number) {
