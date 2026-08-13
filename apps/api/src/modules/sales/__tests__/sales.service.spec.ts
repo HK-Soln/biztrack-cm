@@ -311,6 +311,25 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(result.totalAmount).toBe(1200)
   })
 
+  it('captures unit_price_listed (defaulting to the charged price) and a zero cart alloc', () => {
+    const service = makeService()
+    const p = product({ id: 'p1', sellingPrice: 1000 }) as Product
+    // No listed price supplied → defaults to the charged unitPrice.
+    const plain = service.computeSale([p], new Map(), new Map(), {
+      items: [{ productId: 'p1', quantity: 1, unitPrice: 1000 }],
+    })
+    expect(plain.items[0].unitPriceListed).toBe(1000)
+    expect(plain.items[0].cartDiscountAlloc).toBe(0)
+
+    // A bargained-down price keeps the true catalogue price on the line.
+    const overridden = service.computeSale([p], new Map(), new Map(), {
+      items: [{ productId: 'p1', quantity: 1, unitPrice: 900, unitPriceListed: 1000 }],
+    })
+    expect(overridden.items[0].unitPrice).toBe(900)
+    expect(overridden.items[0].unitPriceListed).toBe(1000)
+    expect(overridden.items[0].lineTotal).toBe(900)
+  })
+
   it('applies sale-level discount and charges to the total', () => {
     const service = makeService()
     const p = product({ id: 'p1', sellingPrice: 1000 }) as Product

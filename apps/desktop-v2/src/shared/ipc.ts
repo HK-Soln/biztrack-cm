@@ -1057,6 +1057,9 @@ export interface SaleLineInput {
   serialUnitIds?: string[]
   quantity: number
   unitPrice: number
+  /** Catalogue price at cart-add (variant override ?? product selling price). Snapshot
+   * so later catalogue changes never move history; defaults to unitPrice if omitted. */
+  unitPriceListed?: number
   discountAmount?: number
   costPrice?: number | null
 }

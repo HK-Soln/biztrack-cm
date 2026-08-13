@@ -136,6 +136,9 @@ export interface CreateSaleItemRequest {
   serialNumber?: string
   quantity: number
   unitPrice: number
+  /** Catalogue price at sale time (variant override ?? product selling price). Snapshot
+   * so later catalogue changes never move history; defaults to unitPrice when omitted. */
+  unitPriceListed?: number
   discountAmount?: number
   costPrice?: number
 }

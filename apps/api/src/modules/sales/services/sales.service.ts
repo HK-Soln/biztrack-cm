@@ -104,6 +104,8 @@ type ComputedSaleItem = {
   serialNumber: string | null
   quantity: number
   unitPrice: number
+  unitPriceListed: number
+  cartDiscountAlloc: number
   discountAmount: number
   lineTotal: number
   costPrice: number | null
@@ -120,6 +122,7 @@ type SaleComputationInput = {
     serialNumber?: string | null
     quantity: number
     unitPrice: number
+    unitPriceListed?: number
     discountAmount?: number
     costPrice?: number
   }>
@@ -259,6 +262,8 @@ export class SalesService {
               unitOfMeasure: item.product.unitOfMeasure?.abbreviation ?? null,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
+              unitPriceListed: item.unitPriceListed,
+              cartDiscountAlloc: item.cartDiscountAlloc,
               discountAmount: item.discountAmount,
               lineTotal: item.lineTotal,
               totalPrice: item.lineTotal,
@@ -530,6 +535,8 @@ export class SalesService {
               unitOfMeasure: item.product.unitOfMeasure?.abbreviation ?? null,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
+              unitPriceListed: item.unitPriceListed,
+              cartDiscountAlloc: item.cartDiscountAlloc,
               discountAmount: item.discountAmount,
               lineTotal: item.lineTotal,
               totalPrice: item.lineTotal,
@@ -2132,8 +2139,15 @@ export class SalesService {
 
       const quantity = this.roundQuantity(input.quantity)
       const unitPrice = toWholeXaf(input.unitPrice)
+      // Catalogue price snapshot; defaults to the charged price when the caller does
+      // not supply it (e.g. a non-POS write). cart_discount_alloc is 0 until BIZ-1.3.
+      const unitPriceListed = toWholeXaf(input.unitPriceListed ?? input.unitPrice)
+      const cartDiscountAlloc = 0
       const discountAmount = toWholeXaf(input.discountAmount ?? 0)
-      const lineTotal = Math.max(0, toWholeXaf(unitPrice * quantity - discountAmount))
+      const lineTotal = Math.max(
+        0,
+        toWholeXaf(unitPrice * quantity - discountAmount - cartDiscountAlloc),
+      )
       const costPrice =
         input.costPrice !== undefined ? toWholeXaf(input.costPrice) : (product.costPrice ?? null)
 
@@ -2154,6 +2168,8 @@ export class SalesService {
         serialNumber: serialUnit?.serialNumber ?? input.serialNumber ?? null,
         quantity,
         unitPrice,
+        unitPriceListed,
+        cartDiscountAlloc,
         discountAmount,
         lineTotal,
         costPrice,

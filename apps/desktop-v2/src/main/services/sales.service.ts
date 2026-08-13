@@ -120,6 +120,8 @@ export class SalesService {
       serialNumber: string | null
       quantity: number
       unitPrice: number
+      unitPriceListed: number
+      cartDiscountAlloc: number
       discountAmount: number
       lineTotal: number
       costPrice: number | null
@@ -139,6 +141,9 @@ export class SalesService {
       const unitPrice = toWholeXaf(line.unitPrice)
       if (!Number.isFinite(unitPrice) || unitPrice < 0)
         throw new Error(`Invalid price for “${meta.name}”.`)
+      // Catalogue price snapshot; the charged price is the fallback when the cart did
+      // not capture a separate listed price. cart_discount_alloc is 0 until BIZ-1.3.
+      const unitPriceListed = toWholeXaf(line.unitPriceListed ?? unitPrice)
       const variantId = line.variantId ?? null
       let variantName = line.variantName ?? null
       let cost = line.costPrice ?? meta.cost
@@ -181,6 +186,8 @@ export class SalesService {
             serialNumber: su.serial_number,
             quantity: 1,
             unitPrice,
+            unitPriceListed,
+            cartDiscountAlloc: 0,
             discountAmount: 0,
             lineTotal: unitPrice,
             costPrice: cost,
@@ -198,7 +205,10 @@ export class SalesService {
         if (!Number.isFinite(qty) || qty <= 0)
           throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
         const lineDiscount = toWholeXaf(Math.max(0, line.discountAmount ?? 0))
-        const lineTotal = toWholeXaf(Math.max(0, unitPrice * qty - lineDiscount))
+        const cartDiscountAlloc = 0
+        const lineTotal = toWholeXaf(
+          Math.max(0, unitPrice * qty - lineDiscount - cartDiscountAlloc),
+        )
         emits.push({
           id: randomUUID(),
           productId: line.productId,
@@ -211,6 +221,8 @@ export class SalesService {
           serialNumber: null,
           quantity: qty,
           unitPrice,
+          unitPriceListed,
+          cartDiscountAlloc,
           discountAmount: lineDiscount,
           lineTotal,
           costPrice: cost,
@@ -335,9 +347,9 @@ export class SalesService {
       this.db.run(
         `INSERT INTO sale_items
           (id, sale_id, business_id, product_id, product_name, product_sku, unit_of_measure, variant_id, variant_name,
-           serial_unit_id, serial_number, quantity, unit_price, discount_amount, line_total, total_price, cost_price,
-           is_deleted, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+           serial_unit_id, serial_number, quantity, unit_price, unit_price_listed, cart_discount_alloc, discount_amount,
+           line_total, total_price, cost_price, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
         [
           e.id,
           saleId,
@@ -352,6 +364,8 @@ export class SalesService {
           e.serialNumber,
           e.quantity,
           e.unitPrice,
+          e.unitPriceListed,
+          e.cartDiscountAlloc,
           e.discountAmount,
           e.lineTotal,
           e.lineTotal,

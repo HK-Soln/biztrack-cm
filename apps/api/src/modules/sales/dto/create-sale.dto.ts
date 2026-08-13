@@ -54,7 +54,9 @@ export class CreateSalePaymentDto implements CreateSalePaymentRequest {
   @MaxLength(100)
   mobileMoneyReference?: string
 
-  @ApiPropertyOptional({ description: 'Customer deposit/savings account drawn from (SAVINGS method).' })
+  @ApiPropertyOptional({
+    description: 'Customer deposit/savings account drawn from (SAVINGS method).',
+  })
   @IsOptional()
   @IsUUID()
   savingsAccountId?: string | null
@@ -81,7 +83,10 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @IsUUID()
   serialUnitId?: string
 
-  @ApiPropertyOptional({ type: [String], description: 'Serialised units sold; one sale item is created per unit.' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Serialised units sold; one sale item is created per unit.',
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(500)
@@ -107,6 +112,14 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @Min(0)
   @Max(MAX_MONEY)
   unitPrice!: number
+
+  @ApiPropertyOptional({ example: 500, description: 'Catalogue price at sale time' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(MAX_MONEY)
+  unitPriceListed?: number
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()

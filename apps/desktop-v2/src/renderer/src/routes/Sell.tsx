@@ -184,6 +184,10 @@ export interface CartLine {
   productId: string
   name: string
   unitPrice: number
+  /** Catalogue price captured when the line was added; preserved even if the cashier
+   * later edits unitPrice (bargaining), so history keeps the true listed price.
+   * Optional so held carts parked before this field existed still resume. */
+  unitPriceListed?: number
   quantity: number
   variantId?: string | null
   variantName?: string | null
@@ -371,6 +375,7 @@ export function Sell() {
         productId: p.id,
         name: p.name,
         unitPrice,
+        unitPriceListed: unitPrice,
         quantity: 1,
       },
     ])
@@ -387,6 +392,7 @@ export function Sell() {
           productId: p.id,
           name: p.name,
           unitPrice: p.effectiveSellingPrice,
+          unitPriceListed: p.effectiveSellingPrice,
           quantity: 1,
         },
       ]
@@ -405,6 +411,7 @@ export function Sell() {
           productId: p.id,
           name: `${p.name} · ${v.name}`,
           unitPrice,
+          unitPriceListed: unitPrice,
           quantity: 1,
           variantId: v.id,
           variantName: v.name,
@@ -419,6 +426,7 @@ export function Sell() {
     name: `${tgt.productName}${tgt.variantName ? ` · ${tgt.variantName}` : ''} · ${u.serialNumber}`,
     productName: tgt.productName,
     unitPrice: tgt.unitPrice,
+    unitPriceListed: tgt.unitPrice,
     quantity: 1,
     variantId: tgt.variantId ?? null,
     variantName: tgt.variantName ?? null,
@@ -650,6 +658,7 @@ export function Sell() {
         ? {
             productId: l.productId,
             unitPrice: l.unitPrice,
+            unitPriceListed: l.unitPriceListed ?? l.unitPrice,
             quantity: 1,
             serialUnitIds: [l.serialUnitId],
           }
@@ -659,6 +668,7 @@ export function Sell() {
             variantName: l.variantName ?? null,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
+            unitPriceListed: l.unitPriceListed ?? l.unitPrice,
           },
     ),
     payments,
