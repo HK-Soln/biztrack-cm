@@ -8,6 +8,7 @@ import type {
   ListTeamMembersResponse,
   RejectInvitationResponse,
   RemoveTeamMemberResponse,
+  SetMemberPinResponse,
   UpdateMemberRoleResponse,
 } from '@biztrack/types'
 import type { AuditContext } from '@biztrack/types'
@@ -27,6 +28,7 @@ import { UpdateBusinessDto } from './dto/update-business.dto'
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto'
 import { BulkUpdateMemberRoleDto } from './dto/bulk-update-member-role.dto'
 import { UpdateMemberStatusDto } from './dto/update-member-status.dto'
+import { SetMemberPinDto } from './dto/set-member-pin.dto'
 import { serializeDto, serializeDtos } from '@/common/http/serialization'
 
 @ApiTags('Businesses')
@@ -96,6 +98,22 @@ export class BusinessesController {
     )
   }
 
+  @Patch('members/me/pin')
+  @UseGuards(Phase2Guard)
+  @ApiOperation({ summary: "Set or rotate the caller's own offline manager PIN" })
+  setOwnPin(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SetMemberPinDto,
+    @CurrentAuditContext() auditContext: AuditContext,
+  ): Promise<SetMemberPinResponse> {
+    return this.businessService.setOwnPin(
+      user.businessId as string,
+      user.sub,
+      dto.pinHash,
+      auditContext,
+    )
+  }
+
   @Patch('members/:userId/role')
   @UseGuards(Phase2Guard)
   @ApiOperation({ summary: 'Update a team member role' })
@@ -106,7 +124,12 @@ export class BusinessesController {
   ): Promise<UpdateMemberRoleResponse> {
     return serializeDto(
       UpdateMemberRoleResponseDto.fromModel(
-        await this.businessService.updateMemberRole(user.businessId as string, user, targetUserId, dto),
+        await this.businessService.updateMemberRole(
+          user.businessId as string,
+          user,
+          targetUserId,
+          dto,
+        ),
       ),
     )
   }
@@ -120,7 +143,13 @@ export class BusinessesController {
     @Body() dto: UpdateMemberStatusDto,
     @CurrentAuditContext() auditContext: AuditContext,
   ) {
-    return this.businessService.setMemberActive(user.businessId as string, user.sub, targetUserId, dto.active, auditContext)
+    return this.businessService.setMemberActive(
+      user.businessId as string,
+      user.sub,
+      targetUserId,
+      dto.active,
+      auditContext,
+    )
   }
 
   @Patch('members/bulk-role')
@@ -142,13 +171,8 @@ export class BusinessesController {
   ): Promise<RemoveTeamMemberResponse> {
     return serializeDto(
       RemoveTeamMemberResponseDto.fromModel(
-        await this.businessService.removeMember(
-          user.businessId as string,
-          user.sub,
-          targetUserId,
-        ),
+        await this.businessService.removeMember(user.businessId as string, user.sub, targetUserId),
       ),
     )
   }
-
 }

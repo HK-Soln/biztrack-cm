@@ -156,7 +156,7 @@ export interface BusinessMembershipBusinessSummary {
   type?: BusinessType | null
   plan?: SubscriptionPlan | null
   businessStatus?: BusinessStatus | null
-  description?:string | null
+  description?: string | null
   phone?: string | null
   email?: string | null
   address?: string | null
@@ -208,6 +208,19 @@ export interface UpdateMemberStatusRequest {
 export interface UpdateMemberStatusResponse {
   memberId: string
   status: BusinessMemberStatus
+}
+
+/** Set/rotate the caller's own offline manager PIN (BIZ-3.1). The PIN is hashed
+ * on-device with bcrypt; only the hash is sent — the server never sees the PIN. */
+export interface SetMemberPinRequest {
+  /** A bcrypt hash of the PIN, produced on the device. */
+  pinHash: string
+}
+
+export interface SetMemberPinResponse {
+  memberId: string
+  pinVersion: number
+  pinSetAt: string
 }
 
 // --- Invitee side: an existing user's pending business invitations (accept/reject) ---

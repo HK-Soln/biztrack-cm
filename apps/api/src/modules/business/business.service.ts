@@ -14,6 +14,7 @@ import type {
   UpdateMemberRoleRequest,
   UpdateMemberRoleResponse,
   UpdateMemberStatusResponse,
+  SetMemberPinResponse,
 } from '@biztrack/types'
 import type { AuditContext } from '@biztrack/types'
 import { RedisService } from '@/common/redis/redis.service'
@@ -203,10 +204,7 @@ export class BusinessService {
         where: { businessId, userId: requestingUserId, status: BusinessMemberStatus.ACTIVE },
       })
       if (!requester || requester.role !== BusinessMemberRole.OWNER) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       if (requestingUserId === targetUserId) {
@@ -220,10 +218,7 @@ export class BusinessService {
         where: { businessId, userId: targetUserId },
       })
       if (!target) {
-        throw new AppNotFoundException(
-          await this.i18n.translate('errors.not_found'),
-          'NOT_FOUND',
-        )
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
       }
 
       await this.membersRepo.update(target.id, { status: BusinessMemberStatus.REMOVED })
@@ -261,7 +256,10 @@ export class BusinessService {
         throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
       if (requestingUserId === targetUserId) {
-        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'TEAM_CANNOT_SUSPEND_SELF')
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.forbidden'),
+          'TEAM_CANNOT_SUSPEND_SELF',
+        )
       }
       const target = await this.membersRepo.findOne({
         where: { businessId, userId: targetUserId },
@@ -271,7 +269,10 @@ export class BusinessService {
         throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
       }
       if (target.role === BusinessMemberRole.OWNER) {
-        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'TEAM_CANNOT_SUSPEND_OWNER')
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.forbidden'),
+          'TEAM_CANNOT_SUSPEND_OWNER',
+        )
       }
       const before = target.status
       const status = active ? BusinessMemberStatus.ACTIVE : BusinessMemberStatus.SUSPENDED
@@ -292,7 +293,50 @@ export class BusinessService {
 
       return { memberId: target.id, status }
     } catch (error) {
-      return this.handleServiceError('setMemberActive', error, { businessId, requestingUserId, targetUserId })
+      return this.handleServiceError('setMemberActive', error, {
+        businessId,
+        requestingUserId,
+        targetUserId,
+      })
+    }
+  }
+
+  /**
+   * Set or rotate the caller's own offline manager PIN (BIZ-3.1). The device has
+   * already hashed the PIN with bcrypt; we store the hash so it can be pulled to
+   * other devices for offline step-up. The server never verifies it. Each call
+   * bumps pin_version so devices can detect rotations.
+   */
+  async setOwnPin(
+    businessId: string,
+    userId: string,
+    pinHash: string,
+    context: AuditContext,
+  ): Promise<SetMemberPinResponse> {
+    this.logger.debug('Set own PIN', 'BusinessService', { businessId, userId })
+    try {
+      const member = await this.membersRepo.findOne({
+        where: { businessId, userId, status: BusinessMemberStatus.ACTIVE },
+      })
+      if (!member) {
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
+      }
+      const pinVersion = (member.pinVersion ?? 0) + 1
+      const pinSetAt = new Date()
+      await this.membersRepo.update(member.id, { pinHash, pinVersion, pinSetAt })
+
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'business_member',
+        entityId: member.id,
+        entityLabel: 'PIN',
+        // Never log the hash; record only that a PIN was set and its new version.
+        changes: { before: { pinVersion: member.pinVersion ?? 0 }, after: { pinVersion } },
+      })
+
+      return { memberId: member.id, pinVersion, pinSetAt: pinSetAt.toISOString() }
+    } catch (error) {
+      return this.handleServiceError('setOwnPin', error, { businessId, userId })
     }
   }
 
@@ -335,7 +379,10 @@ export class BusinessService {
         relations: ['business'],
       })
       if (!membership || membership.status !== BusinessMemberStatus.PENDING) {
-        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'INVITE_INVALID')
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.not_found'),
+          'INVITE_INVALID',
+        )
       }
       await this.membersRepo.update(membership.id, { status: BusinessMemberStatus.ACTIVE })
       await this.redis.del(memberStatusCacheKey(businessId, userId))
@@ -367,7 +414,10 @@ export class BusinessService {
         relations: ['business'],
       })
       if (!membership || membership.status !== BusinessMemberStatus.PENDING) {
-        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'INVITE_INVALID')
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.not_found'),
+          'INVITE_INVALID',
+        )
       }
       await this.membersRepo.update(membership.id, { status: BusinessMemberStatus.REMOVED })
       await this.redis.del(memberStatusCacheKey(businessId, userId))
@@ -417,18 +467,12 @@ export class BusinessService {
 
       // Cannot reassign the owner
       if (target.roleRecord?.isOwnerRole) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       const newRole = await this.rolesService.findByIdOrFail(dto.roleId, businessId)
       if (newRole.isOwnerRole) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       // Non-owners: must have roles:manage and pass containment on both current and new role
@@ -475,10 +519,7 @@ export class BusinessService {
     try {
       const newRole = await this.rolesService.findByIdOrFail(dto.roleId, businessId)
       if (newRole.isOwnerRole) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       let actorPerms: Set<string> | null = null
@@ -500,9 +541,7 @@ export class BusinessService {
 
       const eligibleMembers = members.filter(
         (m) =>
-          dto.userIds.includes(m.userId) &&
-          m.userId !== actor.sub &&
-          !m.roleRecord?.isOwnerRole,
+          dto.userIds.includes(m.userId) && m.userId !== actor.sub && !m.roleRecord?.isOwnerRole,
       )
 
       if (!actor.isOwner && actorPerms) {
