@@ -27,6 +27,8 @@ export const IPC = {
   authListBusinesses: 'auth:list-businesses',
   authOfflineLogin: 'auth:offline-login',
   authLogout: 'auth:logout',
+  pinSet: 'pin:set',
+  pinVerify: 'pin:verify',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -1653,6 +1655,18 @@ export interface SkeletonHealthDTO {
   source: 'local-sqlite'
 }
 
+/** Why an offline manager-PIN verification was denied. */
+export type PinVerifyReason = 'STALE_DEVICE' | 'NO_MATCH' | 'INVALID_FORMAT'
+
+/** Result of an offline manager-PIN step-up check. */
+export interface PinVerifyResult {
+  authorized: boolean
+  reason?: PinVerifyReason
+  /** The manager whose PIN matched — recorded as `authorized_by` on the action. */
+  authorizedByUserId: string | null
+  authorizedByName: string | null
+}
+
 /** The shape exposed on `window.api` by the preload bridge. */
 export interface BridgeApi {
   skeleton: {
@@ -1691,6 +1705,12 @@ export interface BridgeApi {
     listBusinesses: () => Promise<BusinessOption[]>
     offlineLogin: (password: string) => Promise<AuthFlowResult>
     logout: () => Promise<SessionStatus>
+  }
+  pin: {
+    /** Set or rotate the current user's manager PIN (requires connectivity). */
+    set: (pin: string) => Promise<{ pinVersion: number }>
+    /** Verify a manager PIN offline for step-up authorization. */
+    verify: (pin: string) => Promise<PinVerifyResult>
   }
   sync: {
     /** Run a push+pull cycle now. */

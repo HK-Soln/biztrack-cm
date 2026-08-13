@@ -15,6 +15,8 @@ import { LocalCache } from './services/local-cache'
 import { createAuthHttp } from './services/auth-http'
 import { AuthService } from './services/auth.service'
 import { registerAuthIpc } from './ipc/auth.ipc'
+import { PinService } from './services/pin.service'
+import { registerPinIpc } from './ipc/pin.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
 import { CategoriesService } from './services/categories.service'
 import { registerCategoriesIpc } from './ipc/categories.ipc'
@@ -198,12 +200,32 @@ app.whenReady().then(() => {
     getCursor: () => secureStore.get(SYNC_CURSOR_KEY),
     setCursor: (cursor) => secureStore.set(SYNC_CURSOR_KEY, cursor),
     onStatus: (status: SyncStatus) => {
+      // Persist the last successful sync time — the freshness reference for the
+      // offline manager-PIN stale-device rule (survives restarts).
+      if (status.lastSyncedAt) tokenStore.setLastSyncAt(status.lastSyncedAt)
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send(IPC.syncStatusEvent, status)
     },
   })
   sync.start()
   registerSyncIpc(sync)
   app.on('before-quit', () => sync.stop())
+
+  // Offline manager-PIN: set/rotate (online) + verify for step-up (offline). Hash
+  // lives on the local membership (pulled from the server); business/user scope
+  // comes from the active session, never the renderer.
+  const pin = new PinService(
+    authHttp,
+    db,
+    () => {
+      const session = authService.getSession()
+      return {
+        businessId: session.businessId,
+        userId: session.user?.id ?? tokenStore.getLastUserId(),
+      }
+    },
+    () => tokenStore.getLastSyncAt(),
+  )
+  registerPinIpc(pin)
 
   // Realtime in-app notifications: one Socket.IO connection to the app-wide realtime
   // gateway, authenticated with the ACCESS token → the gateway auto-joins the user room.

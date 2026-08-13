@@ -212,6 +212,10 @@ const api: BridgeApi = {
       ipcRenderer.invoke(IPC.documentsDownloadHtml, html, filename),
     shareHtmlPdf: (input) => ipcRenderer.invoke(IPC.documentsShareHtml, input),
   },
+  pin: {
+    set: (pin) => ipcRenderer.invoke(IPC.pinSet, pin),
+    verify: (pin) => ipcRenderer.invoke(IPC.pinVerify, pin),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
   },
