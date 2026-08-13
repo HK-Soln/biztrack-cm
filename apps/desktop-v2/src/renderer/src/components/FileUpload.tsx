@@ -9,19 +9,14 @@ import { errorMessage } from '@/lib/error'
 // quotations (`file`). Uploads through `dataClient.uploads.file` and reports the stored
 // URL via `onChange`. Keep this the single upload UI across the app.
 
-// Only let known-safe URL schemes reach the href/src DOM sinks. A stored value that
-// resolves to something else (e.g. a `javascript:` URL) is dropped rather than rendered,
-// so a poisoned URL can never execute or navigate somewhere hostile.
-const IMG_SCHEMES = ['http:', 'https:', 'data:', 'blob:']
-const LINK_SCHEMES = ['http:', 'https:', 'blob:']
-function safeUrl(raw: string | null, schemes: string[]): string | undefined {
-  if (!raw) return undefined
-  try {
-    const parsed = new URL(raw, window.location.origin)
-    return schemes.includes(parsed.protocol) ? raw : undefined
-  } catch {
-    return undefined
-  }
+// Only known-safe URL forms may reach the href/src DOM sinks: absolute http(s), blob:,
+// image data: URIs, or app-relative paths. Anything else (a `javascript:` or
+// `data:text/html` URL, etc.) is dropped rather than rendered, so a poisoned stored URL
+// can neither execute script nor navigate somewhere hostile. The anchored scheme test is
+// the sanitizer — it also excludes non-image data: URIs.
+const SAFE_URL = /^(?:https?:|blob:|data:image\/|\/)/i
+function safeUrl(raw: string | null): string | undefined {
+  return raw && SAFE_URL.test(raw) ? raw : undefined
 }
 export function FileUpload({
   value,
@@ -102,7 +97,7 @@ export function FileUpload({
         <>
           {isImage ? (
             <div className="imgpreview">
-              <img src={safeUrl(value, IMG_SCHEMES)} alt={cta} />
+              <img src={safeUrl(value)} alt={cta} />
               {uploading ? <div className="imgpreview-overlay">{t('upload.uploading')}</div> : null}
             </div>
           ) : (
@@ -112,7 +107,7 @@ export function FileUpload({
                 <path d="M14 2v6h6" />
               </svg>
               <a
-                href={safeUrl(value, LINK_SCHEMES)}
+                href={safeUrl(value)}
                 target="_blank"
                 rel="noreferrer"
                 className="filechip-name"
