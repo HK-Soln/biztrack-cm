@@ -23,23 +23,43 @@ const noopAudit: AuditLogger = { log: () => {} }
 
 function seedMember(
   db: DatabaseService,
-  opts: { id: string; userId: string; role: string; name?: string; pinHash?: string | null },
+  opts: {
+    id: string
+    userId: string
+    role: string
+    roleId?: string | null
+    name?: string
+    pinHash?: string | null
+  },
 ): void {
   db.run(
     `INSERT INTO business_members
-       (id, business_id, user_id, role, status, name, is_deleted, created_at, updated_at, pin_hash, pin_version)
-     VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, ?, ?, ?, ?)`,
+       (id, business_id, user_id, role, role_id, status, name, is_deleted, created_at, updated_at, pin_hash, pin_version)
+     VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, 0, ?, ?, ?, ?)`,
     [
       opts.id,
       BIZ,
       opts.userId,
       opts.role,
+      opts.roleId ?? null,
       opts.name ?? null,
       FRESH(),
       FRESH(),
       opts.pinHash ?? null,
       opts.pinHash ? 1 : 0,
     ],
+  )
+}
+
+function seedRole(
+  db: DatabaseService,
+  opts: { id: string; name: string; canAuthorize: boolean },
+): void {
+  db.run(
+    `INSERT INTO roles
+       (id, business_id, name, is_system, is_owner_role, can_authorize, is_deleted, created_at, updated_at)
+     VALUES (?, ?, ?, 0, 0, ?, 0, ?, ?)`,
+    [opts.id, BIZ, opts.name, opts.canAuthorize ? 1 : 0, FRESH(), FRESH()],
   )
 }
 
@@ -106,6 +126,35 @@ describe('PinService.verifyManagerPin', () => {
     const svc = makeService(db, FRESH)
     // The only matching PIN belongs to the seeded manager; the PIN-less one is skipped.
     expect((await svc.verifyManagerPin('123456')).authorizedByUserId).toBe('u-mgr')
+  })
+
+  it('authorizes a custom role flagged can_authorize (e.g. Supervisor)', async () => {
+    seedRole(db, { id: 'role-sup', name: 'Supervisor', canAuthorize: true })
+    seedMember(db, {
+      id: 'm-sup',
+      userId: 'u-sup',
+      role: 'STAFF',
+      roleId: 'role-sup',
+      name: 'Sam Supervisor',
+      pinHash: await bcrypt.hash('846201', 12),
+    })
+    const svc = makeService(db, FRESH)
+    const r = await svc.verifyManagerPin('846201')
+    expect(r.authorized).toBe(true)
+    expect(r.authorizedByUserId).toBe('u-sup')
+  })
+
+  it('does not authorize a role whose can_authorize is off, even with a PIN', async () => {
+    seedRole(db, { id: 'role-cash', name: 'Cashier', canAuthorize: false })
+    seedMember(db, {
+      id: 'm-c',
+      userId: 'u-c',
+      role: 'STAFF',
+      roleId: 'role-cash',
+      pinHash: await bcrypt.hash('846201', 12),
+    })
+    const svc = makeService(db, FRESH)
+    expect((await svc.verifyManagerPin('846201')).authorized).toBe(false)
   })
 
   it('refuses on a stale device and demands a sync', async () => {

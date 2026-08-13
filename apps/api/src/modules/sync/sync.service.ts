@@ -4635,6 +4635,7 @@ export class SyncService {
       description: record.description ?? null,
       isSystem: record.isSystem,
       isOwnerRole: record.isOwnerRole,
+      canAuthorize: record.canAuthorize ?? false,
       colour: record.colour ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),

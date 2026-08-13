@@ -46,6 +46,11 @@ export class Role extends TypeOrmBaseEntity {
   @Column({ name: 'is_owner_role', default: false })
   isOwnerRole!: boolean
 
+  // Members with this role may set a manager PIN and authorize till step-up
+  // (discounts/overrides/over-limit). Replaces the hard-coded OWNER/MANAGER check.
+  @Column({ name: 'can_authorize', default: false })
+  canAuthorize!: boolean
+
   @Column({ type: 'varchar', length: 7, nullable: true })
   colour!: string | null
 

@@ -118,7 +118,10 @@ export class RolesService {
   // ── Containment helpers ──────────────────────────────────────────────────────
 
   /** Return the permission set for a given roleId (empty set if no roleId). */
-  async getActorPermissions(roleId: string | null | undefined, businessId: string): Promise<Set<string>> {
+  async getActorPermissions(
+    roleId: string | null | undefined,
+    businessId: string,
+  ): Promise<Set<string>> {
     if (!roleId) return new Set()
     const perms = await this.rolePermsRepo.find({ where: { roleId, businessId } })
     return new Set(perms.map((p) => p.permission))
@@ -176,12 +179,19 @@ export class RolesService {
 
   // ── Mutations ─────────────────────────────────────────────────────────────────
 
-  async createRole(actor: JwtPayload, businessId: string, dto: CreateRoleRequest): Promise<RoleWithPermissions> {
+  async createRole(
+    actor: JwtPayload,
+    businessId: string,
+    dto: CreateRoleRequest,
+  ): Promise<RoleWithPermissions> {
     await this.requireRolesManageAccess(actor)
 
     const invalid = dto.permissions.filter((p) => !PERMISSION_KEYS.includes(p))
     if (invalid.length) {
-      throw new AppBadRequestException(`Unknown permissions: ${invalid.join(', ')}`, 'INVALID_PERMISSIONS')
+      throw new AppBadRequestException(
+        `Unknown permissions: ${invalid.join(', ')}`,
+        'INVALID_PERMISSIONS',
+      )
     }
 
     // Non-owners cannot grant permissions they don't hold
@@ -222,16 +232,23 @@ export class RolesService {
     return this.getRole(role.id, businessId)
   }
 
-  async updateRole(actor: JwtPayload, id: string, businessId: string, dto: UpdateRoleRequest): Promise<RoleWithPermissions> {
+  async updateRole(
+    actor: JwtPayload,
+    id: string,
+    businessId: string,
+    dto: UpdateRoleRequest,
+  ): Promise<RoleWithPermissions> {
     await this.requireRolesManageAccess(actor, id)
 
     const role = await this.rolesRepo.findOne({ where: { id, businessId } })
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
-    if (role.isSystem) throw new AppForbiddenException('System roles cannot be edited', 'ROLE_SYSTEM_IMMUTABLE')
+    if (role.isSystem)
+      throw new AppForbiddenException('System roles cannot be edited', 'ROLE_SYSTEM_IMMUTABLE')
 
     if (dto.name && dto.name !== role.name) {
       const conflict = await this.rolesRepo.findOne({ where: { businessId, name: dto.name } })
-      if (conflict) throw new AppConflictException('A role with this name already exists', 'ROLE_NAME_CONFLICT')
+      if (conflict)
+        throw new AppConflictException('A role with this name already exists', 'ROLE_NAME_CONFLICT')
     }
 
     await this.rolesRepo.update(id, {
@@ -243,12 +260,17 @@ export class RolesService {
     return this.getRole(id, businessId)
   }
 
-  async deleteRole(actor: JwtPayload, id: string, businessId: string): Promise<{ deleted: boolean }> {
+  async deleteRole(
+    actor: JwtPayload,
+    id: string,
+    businessId: string,
+  ): Promise<{ deleted: boolean }> {
     await this.requireRolesManageAccess(actor, id)
 
     const role = await this.rolesRepo.findOne({ where: { id, businessId } })
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
-    if (role.isSystem) throw new AppForbiddenException('System roles cannot be deleted', 'ROLE_SYSTEM_IMMUTABLE')
+    if (role.isSystem)
+      throw new AppForbiddenException('System roles cannot be deleted', 'ROLE_SYSTEM_IMMUTABLE')
 
     const memberCount = await this.membersRepo.count({ where: { businessId, roleId: id } })
     if (memberCount > 0) {
@@ -262,15 +284,28 @@ export class RolesService {
     return { deleted: true }
   }
 
-  async setRolePermissions(actor: JwtPayload, id: string, businessId: string, permissions: string[]): Promise<RoleWithPermissions> {
+  async setRolePermissions(
+    actor: JwtPayload,
+    id: string,
+    businessId: string,
+    permissions: string[],
+  ): Promise<RoleWithPermissions> {
     await this.requireRolesManageAccess(actor, id)
 
     const role = await this.rolesRepo.findOne({ where: { id, businessId } })
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
-    if (role.isOwnerRole) throw new AppForbiddenException('Owner role permissions cannot be changed', 'ROLE_OWNER_IMMUTABLE')
+    if (role.isOwnerRole)
+      throw new AppForbiddenException(
+        'Owner role permissions cannot be changed',
+        'ROLE_OWNER_IMMUTABLE',
+      )
 
     const invalid = permissions.filter((p) => !PERMISSION_KEYS.includes(p))
-    if (invalid.length) throw new AppBadRequestException(`Unknown permissions: ${invalid.join(', ')}`, 'INVALID_PERMISSIONS')
+    if (invalid.length)
+      throw new AppBadRequestException(
+        `Unknown permissions: ${invalid.join(', ')}`,
+        'INVALID_PERMISSIONS',
+      )
 
     if (!actor.isOwner) {
       const actorPerms = await this.getActorPermissions(actor.roleId, businessId)
@@ -281,7 +316,13 @@ export class RolesService {
 
     if (permissions.length) {
       const perms = permissions.map((perm) =>
-        this.rolePermsRepo.create({ roleId: id, businessId, permission: perm, grantedAt: new Date(), grantedBy: actor.sub }),
+        this.rolePermsRepo.create({
+          roleId: id,
+          businessId,
+          permission: perm,
+          grantedAt: new Date(),
+          grantedBy: actor.sub,
+        }),
       )
       await this.rolePermsRepo.save(perms)
     }
@@ -289,13 +330,23 @@ export class RolesService {
     return this.getRole(id, businessId)
   }
 
-  async addPermission(actor: JwtPayload, id: string, businessId: string, permission: string): Promise<RoleWithPermissions> {
+  async addPermission(
+    actor: JwtPayload,
+    id: string,
+    businessId: string,
+    permission: string,
+  ): Promise<RoleWithPermissions> {
     await this.requireRolesManageAccess(actor, id)
 
     const role = await this.rolesRepo.findOne({ where: { id, businessId } })
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
-    if (role.isOwnerRole) throw new AppForbiddenException('Owner role permissions cannot be changed', 'ROLE_OWNER_IMMUTABLE')
-    if (!PERMISSION_KEYS.includes(permission)) throw new AppBadRequestException(`Unknown permission: ${permission}`, 'INVALID_PERMISSIONS')
+    if (role.isOwnerRole)
+      throw new AppForbiddenException(
+        'Owner role permissions cannot be changed',
+        'ROLE_OWNER_IMMUTABLE',
+      )
+    if (!PERMISSION_KEYS.includes(permission))
+      throw new AppBadRequestException(`Unknown permission: ${permission}`, 'INVALID_PERMISSIONS')
 
     if (!actor.isOwner) {
       const actorPerms = await this.getActorPermissions(actor.roleId, businessId)
@@ -305,19 +356,34 @@ export class RolesService {
     const existing = await this.rolePermsRepo.findOne({ where: { roleId: id, permission } })
     if (!existing) {
       await this.rolePermsRepo.save(
-        this.rolePermsRepo.create({ roleId: id, businessId, permission, grantedAt: new Date(), grantedBy: actor.sub }),
+        this.rolePermsRepo.create({
+          roleId: id,
+          businessId,
+          permission,
+          grantedAt: new Date(),
+          grantedBy: actor.sub,
+        }),
       )
     }
 
     return this.getRole(id, businessId)
   }
 
-  async removePermission(actor: JwtPayload, id: string, businessId: string, permission: string): Promise<RoleWithPermissions> {
+  async removePermission(
+    actor: JwtPayload,
+    id: string,
+    businessId: string,
+    permission: string,
+  ): Promise<RoleWithPermissions> {
     await this.requireRolesManageAccess(actor, id)
 
     const role = await this.rolesRepo.findOne({ where: { id, businessId } })
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
-    if (role.isOwnerRole) throw new AppForbiddenException('Owner role permissions cannot be changed', 'ROLE_OWNER_IMMUTABLE')
+    if (role.isOwnerRole)
+      throw new AppForbiddenException(
+        'Owner role permissions cannot be changed',
+        'ROLE_OWNER_IMMUTABLE',
+      )
 
     await this.rolePermsRepo.delete({ roleId: id, permission })
     return this.getRole(id, businessId)
@@ -330,10 +396,30 @@ export class RolesService {
   /** Seed the 4 default system roles for a newly created business */
   async seedDefaultRoles(businessId: string, ownerUserId: string): Promise<void> {
     const defaultRoles = [
-      { name: 'OWNER', description: 'Full access — cannot be edited', isOwnerRole: true },
-      { name: 'MANAGER', description: 'Can manage most operations', isOwnerRole: false },
-      { name: 'CASHIER', description: 'Can process sales', isOwnerRole: false },
-      { name: 'ACCOUNTANT', description: 'Can view financial reports', isOwnerRole: false },
+      {
+        name: 'OWNER',
+        description: 'Full access — cannot be edited',
+        isOwnerRole: true,
+        canAuthorize: true,
+      },
+      {
+        name: 'MANAGER',
+        description: 'Can manage most operations',
+        isOwnerRole: false,
+        canAuthorize: true,
+      },
+      {
+        name: 'CASHIER',
+        description: 'Can process sales',
+        isOwnerRole: false,
+        canAuthorize: false,
+      },
+      {
+        name: 'ACCOUNTANT',
+        description: 'Can view financial reports',
+        isOwnerRole: false,
+        canAuthorize: false,
+      },
     ]
 
     for (const def of defaultRoles) {
@@ -343,6 +429,7 @@ export class RolesService {
         description: def.description,
         isSystem: true,
         isOwnerRole: def.isOwnerRole,
+        canAuthorize: def.canAuthorize,
         colour: null,
         createdBy: null,
       })

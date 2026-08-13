@@ -618,6 +618,8 @@ export interface RoleSyncRecord extends SyncRecord {
   description: string | null
   isSystem: boolean
   isOwnerRole: boolean
+  /** Members with this role may set a PIN and authorize till step-up. */
+  canAuthorize: boolean
   colour: string | null
   createdAt: string
 }

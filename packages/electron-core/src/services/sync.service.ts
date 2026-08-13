@@ -319,6 +319,7 @@ const ROLE_MAP: Record<string, string> = {
   description: 'description',
   is_system: 'isSystem',
   is_owner_role: 'isOwnerRole',
+  can_authorize: 'canAuthorize',
   colour: 'colour',
   created_at: 'createdAt',
   updated_at: 'updatedAt',

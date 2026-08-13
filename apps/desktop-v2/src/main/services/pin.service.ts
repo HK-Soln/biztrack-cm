@@ -108,14 +108,17 @@ export class PinService {
     if (this.isDeviceStale()) return DENIED('STALE_DEVICE')
     if (!PIN_PATTERN.test(pin)) return DENIED('INVALID_FORMAT')
 
+    // Any ACTIVE member whose role is flagged can_authorize (Supervisor, Manager,
+    // Owner…) may authorize; role-less members fall back to the OWNER/MANAGER enum.
     const managers = this.db.query<{ user_id: string; name: string | null; pin_hash: string }>(
-      `SELECT user_id, name, pin_hash
-         FROM business_members
-        WHERE business_id = ?
-          AND is_deleted = 0
-          AND status = 'ACTIVE'
-          AND role IN ('OWNER', 'MANAGER')
-          AND pin_hash IS NOT NULL`,
+      `SELECT m.user_id, m.name, m.pin_hash
+         FROM business_members m
+         LEFT JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE m.business_id = ?
+          AND m.is_deleted = 0
+          AND m.status = 'ACTIVE'
+          AND m.pin_hash IS NOT NULL
+          AND (r.can_authorize = 1 OR (m.role_id IS NULL AND m.role IN ('OWNER', 'MANAGER')))`,
       [businessId],
     )
 
