@@ -8,6 +8,21 @@ import { errorMessage } from '@/lib/error'
 // Used for category/product images (`image`) and document uploads such as supplier
 // quotations (`file`). Uploads through `dataClient.uploads.file` and reports the stored
 // URL via `onChange`. Keep this the single upload UI across the app.
+
+// Only let known-safe URL schemes reach the href/src DOM sinks. A stored value that
+// resolves to something else (e.g. a `javascript:` URL) is dropped rather than rendered,
+// so a poisoned URL can never execute or navigate somewhere hostile.
+const IMG_SCHEMES = ['http:', 'https:', 'data:', 'blob:']
+const LINK_SCHEMES = ['http:', 'https:', 'blob:']
+function safeUrl(raw: string | null, schemes: string[]): string | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = new URL(raw, window.location.origin)
+    return schemes.includes(parsed.protocol) ? raw : undefined
+  } catch {
+    return undefined
+  }
+}
 export function FileUpload({
   value,
   onChange,
@@ -76,12 +91,18 @@ export function FileUpload({
 
   return (
     <div>
-      <input ref={inputRef} type="file" accept={acceptAttr} style={{ display: 'none' }} onChange={onPick} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={acceptAttr}
+        style={{ display: 'none' }}
+        onChange={onPick}
+      />
       {value ? (
         <>
           {isImage ? (
             <div className="imgpreview">
-              <img src={value} alt={cta} />
+              <img src={safeUrl(value, IMG_SCHEMES)} alt={cta} />
               {uploading ? <div className="imgpreview-overlay">{t('upload.uploading')}</div> : null}
             </div>
           ) : (
@@ -90,13 +111,24 @@ export function FileUpload({
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <path d="M14 2v6h6" />
               </svg>
-              <a href={value} target="_blank" rel="noreferrer" className="filechip-name" title={fileName}>
+              <a
+                href={safeUrl(value, LINK_SCHEMES)}
+                target="_blank"
+                rel="noreferrer"
+                className="filechip-name"
+                title={fileName}
+              >
                 {uploading ? t('upload.uploading') : fileName || t('upload.view')}
               </a>
             </div>
           )}
           <div className="img-acts">
-            <Button variant="soft" type="button" onClick={() => inputRef.current?.click()} disabled={uploading || disabled}>
+            <Button
+              variant="soft"
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading || disabled}
+            >
               {t('upload.replace')}
             </Button>
             <Button
@@ -113,7 +145,12 @@ export function FileUpload({
           </div>
         </>
       ) : (
-        <button type="button" className="imgdrop" onClick={() => inputRef.current?.click()} disabled={uploading || disabled}>
+        <button
+          type="button"
+          className="imgdrop"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading || disabled}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <path d="M17 8l-5-5-5 5" />
