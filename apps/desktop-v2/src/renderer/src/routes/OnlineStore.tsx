@@ -672,7 +672,13 @@ function StoreConfig({
           </span>
           <h2>
             {ICO.globe}
-            <span>{host}</span>
+            {form.storeSlug ? (
+              <a href={`https://${host}`} target="_blank" rel="noopener noreferrer" title={host}>
+                {host}
+              </a>
+            ) : (
+              <span>{host}</span>
+            )}
           </h2>
           <p>
             {published && store.publishedAt

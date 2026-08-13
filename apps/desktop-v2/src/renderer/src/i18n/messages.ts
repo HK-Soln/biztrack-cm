@@ -2031,6 +2031,74 @@ export const en = {
   'recv.addVariant': '+ Add variant…',
   'recv.removeVariant': 'Remove variant',
 
+  // --- Receive Stock wizard ---
+  'recv.wizSub':
+    'Add everything you received — restock what you already sell and create new products on the fly — then settle payment.',
+  'recv.stepItems': 'Items',
+  'recv.stepItemsHint': 'What came in',
+  'recv.stepSettle': 'Supplier & payment',
+  'recv.stepSettleHint': 'Who supplied it, how you paid',
+  'recv.stepReview': 'Review',
+  'recv.stepReviewHint': 'Confirm & receive',
+  'recv.next': 'Next',
+  'recv.keysHint': 'Tip: Alt + ← / → move between steps · Ctrl + Enter confirms.',
+  'recv.draftFound': 'We restored your unfinished receipt.',
+  'recv.draftDiscard': 'Start over',
+  'recv.itemsTitle': 'What did you receive?',
+  'recv.itemsDesc':
+    'Search to add a product you already sell, or create a new one. Enter the quantity received (or scan serials) and the unit cost you paid.',
+  'recv.addExisting': 'Add a product you sell',
+  'recv.createNew': '+ Create new product',
+  'recv.createNewHint':
+    'Bought something you don’t sell yet? Add it to your catalogue and receive it in the same step.',
+  'recv.poBanner':
+    'Receiving against order {number}. Quantities are pre-filled to what’s still expected — adjust as needed.',
+  'recv.poDetach': 'Remove order link',
+  'recv.itemsEmpty': 'No items yet. Add a product above to get started.',
+  'recv.itemsCount': '{n} item(s)',
+  // Quick-create
+  'recv.qcTitle': 'New product',
+  'recv.qcDesc':
+    'Create a simple product and add it straight to this receipt. You can add more details (variants, images, SEO) later from the product page.',
+  'recv.qcName': 'Product name',
+  'recv.qcNamePh': 'e.g. Nescafé Classic 100g',
+  'recv.qcCategory': 'Category',
+  'recv.qcCategoryHint': 'Optional — helps organise your catalogue and reports.',
+  'recv.qcUnit': 'Unit of measure',
+  'recv.qcUnitHint': 'How you count it — piece, kg, carton…',
+  'recv.qcCost': 'Unit cost',
+  'recv.qcCostHint': 'What you pay your supplier per unit. Pre-fills this receipt.',
+  'recv.qcPrice': 'Selling price',
+  'recv.qcPriceHint': 'What your customers pay per unit.',
+  'recv.qcSku': 'SKU / code',
+  'recv.qcBarcode': 'Barcode',
+  'recv.qcOptional': 'optional',
+  'recv.qcCreate': 'Create & add',
+  'recv.qcNameRequired': 'Enter a product name.',
+  'recv.qcUnitRequired': 'Pick a unit of measure.',
+  'recv.qcPriceRequired': 'Enter a selling price.',
+  'recv.qcPickCategory': 'Select a category',
+  'recv.qcPickUnit': 'Select a unit',
+  'recv.qcSearchCategories': 'Search categories…',
+  'recv.qcSearchUnits': 'Search units…',
+  'recv.qcError': 'Could not create the product.',
+  // Settlement + review descriptions
+  'recv.settleTitle': 'Supplier & payment',
+  'recv.settleDesc':
+    'Record who supplied the goods and how you’re paying. Pay less than the total to keep the balance as a supplier credit (a payable).',
+  'recv.supplierHint':
+    'Required when paying on credit — the unpaid balance becomes money you owe this supplier.',
+  'recv.adjustmentsHint':
+    'Delivery fees, taxes, or a supplier discount that apply to the whole receipt.',
+  'recv.paymentsHint': 'Split across cash and mobile money if needed.',
+  'recv.reviewTitle': 'Review & receive',
+  'recv.reviewDesc':
+    'Check everything below, then confirm to add the stock and record the payment.',
+  'recv.reviewItems': 'Items received',
+  'recv.reviewNoSupplier': 'No supplier',
+  'recv.reviewUnits': '{n} unit(s)',
+  'recv.reviewCreditWarn': '{amount} will be recorded as a credit you owe {supplier}.',
+
   'inv.adjustTitle': 'Adjust stock',
   'inv.adjustSub': 'Manually correct on-hand stock for “{name}”. This writes a stock movement.',
   'inv.adjustType': 'Adjustment',
@@ -5038,6 +5106,74 @@ export const fr: Record<MessageKey, string> = {
   'recv.variant': 'Variante',
   'recv.addVariant': '+ Ajouter une variante…',
   'recv.removeVariant': 'Retirer la variante',
+
+  // --- Assistant de réception de stock ---
+  'recv.wizSub':
+    'Ajoutez tout ce que vous avez reçu — réapprovisionnez vos produits et créez-en de nouveaux au passage — puis réglez le paiement.',
+  'recv.stepItems': 'Articles',
+  'recv.stepItemsHint': 'Ce qui est arrivé',
+  'recv.stepSettle': 'Fournisseur & paiement',
+  'recv.stepSettleHint': 'Qui a fourni, comment payé',
+  'recv.stepReview': 'Vérification',
+  'recv.stepReviewHint': 'Confirmer & réceptionner',
+  'recv.next': 'Suivant',
+  'recv.keysHint': 'Astuce : Alt + ← / → pour changer d’étape · Ctrl + Entrée pour confirmer.',
+  'recv.draftFound': 'Nous avons restauré votre réception en cours.',
+  'recv.draftDiscard': 'Recommencer',
+  'recv.itemsTitle': 'Qu’avez-vous reçu ?',
+  'recv.itemsDesc':
+    'Recherchez un produit que vous vendez déjà, ou créez-en un nouveau. Saisissez la quantité reçue (ou scannez les numéros de série) et le coût unitaire payé.',
+  'recv.addExisting': 'Ajouter un produit que vous vendez',
+  'recv.createNew': '+ Créer un nouveau produit',
+  'recv.createNewHint':
+    'Vous avez acheté un article que vous ne vendez pas encore ? Ajoutez-le au catalogue et réceptionnez-le dans la même étape.',
+  'recv.poBanner':
+    'Réception sur le bon {number}. Les quantités sont pré-remplies selon le restant attendu — ajustez si besoin.',
+  'recv.poDetach': 'Retirer le lien au bon',
+  'recv.itemsEmpty': 'Aucun article pour l’instant. Ajoutez un produit ci-dessus pour commencer.',
+  'recv.itemsCount': '{n} article(s)',
+  // Création rapide
+  'recv.qcTitle': 'Nouveau produit',
+  'recv.qcDesc':
+    'Créez un produit simple et ajoutez-le directement à cette réception. Vous pourrez compléter les détails (variantes, images, SEO) plus tard depuis la fiche produit.',
+  'recv.qcName': 'Nom du produit',
+  'recv.qcNamePh': 'ex. Nescafé Classic 100g',
+  'recv.qcCategory': 'Catégorie',
+  'recv.qcCategoryHint': 'Facultatif — aide à organiser votre catalogue et vos rapports.',
+  'recv.qcUnit': 'Unité de mesure',
+  'recv.qcUnitHint': 'Comment vous le comptez — pièce, kg, carton…',
+  'recv.qcCost': 'Coût unitaire',
+  'recv.qcCostHint': 'Ce que vous payez au fournisseur par unité. Pré-remplit cette réception.',
+  'recv.qcPrice': 'Prix de vente',
+  'recv.qcPriceHint': 'Ce que vos clients paient par unité.',
+  'recv.qcSku': 'SKU / code',
+  'recv.qcBarcode': 'Code-barres',
+  'recv.qcOptional': 'facultatif',
+  'recv.qcCreate': 'Créer & ajouter',
+  'recv.qcNameRequired': 'Saisissez un nom de produit.',
+  'recv.qcUnitRequired': 'Choisissez une unité de mesure.',
+  'recv.qcPriceRequired': 'Saisissez un prix de vente.',
+  'recv.qcPickCategory': 'Choisir une catégorie',
+  'recv.qcPickUnit': 'Choisir une unité',
+  'recv.qcSearchCategories': 'Rechercher des catégories…',
+  'recv.qcSearchUnits': 'Rechercher des unités…',
+  'recv.qcError': 'Impossible de créer le produit.',
+  // Descriptions règlement + vérification
+  'recv.settleTitle': 'Fournisseur & paiement',
+  'recv.settleDesc':
+    'Indiquez qui a fourni la marchandise et comment vous payez. Payez moins que le total pour garder le solde en crédit fournisseur (une dette).',
+  'recv.supplierHint':
+    'Obligatoire en cas de paiement à crédit — le solde impayé devient une somme due à ce fournisseur.',
+  'recv.adjustmentsHint':
+    'Frais de livraison, taxes ou remise fournisseur qui s’appliquent à toute la réception.',
+  'recv.paymentsHint': 'Répartissez entre espèces et mobile money si nécessaire.',
+  'recv.reviewTitle': 'Vérifier & réceptionner',
+  'recv.reviewDesc':
+    'Vérifiez tout ci-dessous, puis confirmez pour ajouter le stock et enregistrer le paiement.',
+  'recv.reviewItems': 'Articles reçus',
+  'recv.reviewNoSupplier': 'Aucun fournisseur',
+  'recv.reviewUnits': '{n} unité(s)',
+  'recv.reviewCreditWarn': '{amount} sera enregistré comme crédit dû à {supplier}.',
 
   'inv.adjustTitle': 'Ajuster le stock',
   'inv.adjustSub': 'Corrigez manuellement le stock de « {name} ». Cela crée un mouvement de stock.',
