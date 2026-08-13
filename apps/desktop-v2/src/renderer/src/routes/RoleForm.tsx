@@ -30,6 +30,10 @@ export function RoleForm() {
   const [description, setDescription] = useState('')
   const [colour, setColour] = useState(COLOURS[0])
   const [canAuthorize, setCanAuthorize] = useState(false)
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState('')
+  const [maxCartDiscountPercent, setMaxCartDiscountPercent] = useState('')
+  const [maxDiscountAmountXaf, setMaxDiscountAmountXaf] = useState('')
+  const [allowBelowCost, setAllowBelowCost] = useState(false)
   const [perms, setPerms] = useState<Set<string>>(new Set())
   const [copyFrom, setCopyFrom] = useState('')
   const [copyLabel, setCopyLabel] = useState('')
@@ -43,6 +47,16 @@ export function RoleForm() {
       setDescription(roleQ.data.description ?? '')
       setColour(roleQ.data.colour || COLOURS[0])
       setCanAuthorize(!!roleQ.data.canAuthorize)
+      setMaxDiscountPercent(
+        roleQ.data.maxDiscountPercent != null ? String(roleQ.data.maxDiscountPercent) : '',
+      )
+      setMaxCartDiscountPercent(
+        roleQ.data.maxCartDiscountPercent != null ? String(roleQ.data.maxCartDiscountPercent) : '',
+      )
+      setMaxDiscountAmountXaf(
+        roleQ.data.maxDiscountAmountXaf != null ? String(roleQ.data.maxDiscountAmountXaf) : '',
+      )
+      setAllowBelowCost(!!roleQ.data.allowBelowCost)
       setPerms(new Set(roleQ.data.permissions))
     }
   }, [editing, roleQ.data])
@@ -69,6 +83,20 @@ export function RoleForm() {
     }
   }
 
+  // Empty input → null (no limit); otherwise a non-negative number.
+  const parseLimit = (s: string): number | null => {
+    const v = s.trim()
+    if (!v) return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  const limits = {
+    maxDiscountPercent: parseLimit(maxDiscountPercent),
+    maxCartDiscountPercent: parseLimit(maxCartDiscountPercent),
+    maxDiscountAmountXaf: parseLimit(maxDiscountAmountXaf),
+    allowBelowCost,
+  }
+
   const save = useMutation({
     mutationFn: async () => {
       if (editing) {
@@ -77,6 +105,7 @@ export function RoleForm() {
           description: description.trim() || undefined,
           colour,
           canAuthorize,
+          ...limits,
         })
         await dataClient.roles.setPermissions(id as string, [...perms])
       } else {
@@ -86,6 +115,7 @@ export function RoleForm() {
           colour,
           permissions: [...perms],
           canAuthorize,
+          ...limits,
         })
       }
     },
@@ -245,6 +275,68 @@ export function RoleForm() {
                   />
                   <span className="help" style={{ margin: 0 }}>
                     {t('roles.authHint')}
+                  </span>
+                </label>
+              </div>
+              <div className="ff">
+                <label className="lbl2">{t('roles.limitsTitle')}</label>
+                <div className="help" style={{ marginTop: -2, marginBottom: 8 }}>
+                  {t('roles.limitsHint')}
+                </div>
+                <div className="ff-row">
+                  <div className="ff">
+                    <label className="lbl2">{t('roles.maxLinePct')}</label>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={100}
+                      placeholder={t('roles.noLimit')}
+                      value={maxDiscountPercent}
+                      onChange={(e) => setMaxDiscountPercent(e.target.value)}
+                    />
+                  </div>
+                  <div className="ff">
+                    <label className="lbl2">{t('roles.maxCartPct')}</label>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={100}
+                      placeholder={t('roles.noLimit')}
+                      value={maxCartDiscountPercent}
+                      onChange={(e) => setMaxCartDiscountPercent(e.target.value)}
+                    />
+                  </div>
+                  <div className="ff">
+                    <label className="lbl2">{t('roles.maxAmount')}</label>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      placeholder={t('roles.noLimit')}
+                      value={maxDiscountAmountXaf}
+                      onChange={(e) => setMaxDiscountAmountXaf(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    cursor: 'pointer',
+                    marginTop: 10,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={allowBelowCost}
+                    onChange={(e) => setAllowBelowCost(e.target.checked)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span className="help" style={{ margin: 0 }}>
+                    {t('roles.allowBelowCost')}
                   </span>
                 </label>
               </div>

@@ -3066,6 +3066,14 @@ export const en = {
   'roles.authTitle': 'Authorization',
   'roles.authHint':
     'Members with this role can set a manager PIN and approve discounts, price overrides and over-limit actions at the till.',
+  'roles.limitsTitle': 'Discount limits',
+  'roles.limitsHint':
+    'A discount beyond these still completes but is flagged until a manager approves it. Leave blank for no limit.',
+  'roles.maxLinePct': 'Max line discount %',
+  'roles.maxCartPct': 'Max cart discount %',
+  'roles.maxAmount': 'Max discount (XAF)',
+  'roles.noLimit': 'No limit',
+  'roles.allowBelowCost': 'May sell below cost without needing approval.',
   'roles.selectAll': 'Select all',
   'roles.clear': 'Clear',
   'roles.permCount': '{n} of {total} permissions granted.',
@@ -6187,6 +6195,14 @@ export const fr: Record<MessageKey, string> = {
   'roles.authTitle': 'Autorisation',
   'roles.authHint':
     'Les membres de ce rôle peuvent définir un code PIN et approuver les remises, les changements de prix et les actions hors limite en caisse.',
+  'roles.limitsTitle': 'Limites de remise',
+  'roles.limitsHint':
+    'Une remise au-delà de ces limites est tout de même appliquée mais signalée jusqu’à l’approbation d’un responsable. Laisser vide pour aucune limite.',
+  'roles.maxLinePct': 'Remise ligne max %',
+  'roles.maxCartPct': 'Remise panier max %',
+  'roles.maxAmount': 'Remise max (XAF)',
+  'roles.noLimit': 'Aucune limite',
+  'roles.allowBelowCost': 'Peut vendre à perte sans approbation.',
   'roles.selectAll': 'Tout sélectionner',
   'roles.clear': 'Effacer',
   'roles.permCount': '{n} sur {total} permissions accordées.',

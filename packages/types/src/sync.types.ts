@@ -620,6 +620,11 @@ export interface RoleSyncRecord extends SyncRecord {
   isOwnerRole: boolean
   /** Members with this role may set a PIN and authorize till step-up. */
   canAuthorize: boolean
+  /** Per-role discount limits (BIZ-1.4); null = no limit. */
+  maxDiscountPercent: number | null
+  maxCartDiscountPercent: number | null
+  maxDiscountAmountXaf: number | null
+  allowBelowCost: boolean
   colour: string | null
   createdAt: string
 }

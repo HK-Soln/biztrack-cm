@@ -84,6 +84,10 @@ export class RolesService {
         isSystem: r.isSystem,
         isOwnerRole: r.isOwnerRole,
         canAuthorize: r.canAuthorize,
+        maxDiscountPercent: r.maxDiscountPercent,
+        maxCartDiscountPercent: r.maxCartDiscountPercent,
+        maxDiscountAmountXaf: r.maxDiscountAmountXaf,
+        allowBelowCost: r.allowBelowCost,
         colour: r.colour,
         userCount: countMap.get(r.id) ?? 0,
       })),
@@ -111,6 +115,10 @@ export class RolesService {
       isSystem: role.isSystem,
       isOwnerRole: role.isOwnerRole,
       canAuthorize: role.canAuthorize,
+      maxDiscountPercent: role.maxDiscountPercent,
+      maxCartDiscountPercent: role.maxCartDiscountPercent,
+      maxDiscountAmountXaf: role.maxDiscountAmountXaf,
+      allowBelowCost: role.allowBelowCost,
       colour: role.colour,
       userCount: memberCount,
       permissions: perms.map((p) => p.permission),
@@ -214,6 +222,10 @@ export class RolesService {
       isSystem: false,
       isOwnerRole: false,
       canAuthorize: dto.canAuthorize ?? false,
+      maxDiscountPercent: dto.maxDiscountPercent ?? null,
+      maxCartDiscountPercent: dto.maxCartDiscountPercent ?? null,
+      maxDiscountAmountXaf: dto.maxDiscountAmountXaf ?? null,
+      allowBelowCost: dto.allowBelowCost ?? false,
       colour: dto.colour ?? null,
       createdBy: actor.sub,
     })
@@ -259,6 +271,14 @@ export class RolesService {
       ...(dto.description !== undefined && { description: dto.description }),
       ...(dto.colour !== undefined && { colour: dto.colour }),
       ...(dto.canAuthorize !== undefined && { canAuthorize: dto.canAuthorize }),
+      ...(dto.maxDiscountPercent !== undefined && { maxDiscountPercent: dto.maxDiscountPercent }),
+      ...(dto.maxCartDiscountPercent !== undefined && {
+        maxCartDiscountPercent: dto.maxCartDiscountPercent,
+      }),
+      ...(dto.maxDiscountAmountXaf !== undefined && {
+        maxDiscountAmountXaf: dto.maxDiscountAmountXaf,
+      }),
+      ...(dto.allowBelowCost !== undefined && { allowBelowCost: dto.allowBelowCost }),
     })
 
     return this.getRole(id, businessId)
@@ -405,24 +425,28 @@ export class RolesService {
         description: 'Full access — cannot be edited',
         isOwnerRole: true,
         canAuthorize: true,
+        allowBelowCost: true,
       },
       {
         name: 'MANAGER',
         description: 'Can manage most operations',
         isOwnerRole: false,
         canAuthorize: true,
+        allowBelowCost: true,
       },
       {
         name: 'CASHIER',
         description: 'Can process sales',
         isOwnerRole: false,
         canAuthorize: false,
+        allowBelowCost: false,
       },
       {
         name: 'ACCOUNTANT',
         description: 'Can view financial reports',
         isOwnerRole: false,
         canAuthorize: false,
+        allowBelowCost: false,
       },
     ]
 
@@ -434,6 +458,7 @@ export class RolesService {
         isSystem: true,
         isOwnerRole: def.isOwnerRole,
         canAuthorize: def.canAuthorize,
+        allowBelowCost: def.allowBelowCost,
         colour: null,
         createdBy: null,
       })
