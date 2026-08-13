@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import { isStrongPin } from '@biztrack/utils'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { SetMemberPinResponse } from '@biztrack/types'
 import type { PinVerifyReason, PinVerifyResult } from '../../shared/ipc'
@@ -15,12 +16,12 @@ export interface PinHttp {
 // verifying it for manager step-up works fully offline.
 
 /**
- * A PIN is 6–8 digits. The manager's PIN hash is distributed to every in-business
- * device (offline verification), so a device holder can attempt to brute-force it
- * offline. A 6-digit minimum (1e6 keyspace) plus the raised bcrypt cost below keeps
- * that attack impractical; 4-digit PINs were too small a keyspace to distribute.
+ * A PIN is exactly 6 digits (1e6 keyspace) and must pass the strength rules in
+ * @biztrack/utils (no ≥3-in-a-row, no sequences, no well-known patterns). The hash is
+ * distributed to every in-business device, so weak PINs are trivially brute-forced;
+ * the raised bcrypt cost below plus these rules keep that attack impractical.
  */
-const PIN_PATTERN = /^\d{6,8}$/
+const PIN_PATTERN = /^\d{6}$/
 /** bcrypt cost. Higher than the password path (10) specifically because the PIN
  * keyspace is small and the hash is distributed to devices an attacker may control. */
 const BCRYPT_COST = 12
@@ -66,7 +67,9 @@ export class PinService {
   async setPin(pin: string): Promise<{ pinVersion: number }> {
     const { businessId, userId } = this.getContext()
     if (!businessId || !userId) throw new Error('No active business session.')
-    if (!PIN_PATTERN.test(pin)) throw new Error('PIN must be 6 to 8 digits.')
+    // Enforce strength server-of-record-side too: the renderer guides the user, but
+    // the main process must never store a weak PIN even if the UI is bypassed.
+    if (!isStrongPin(pin)) throw new Error('PIN is too easy to guess.')
 
     const pinHash = await bcrypt.hash(pin, BCRYPT_COST)
     const res = await this.http.patch<{ data: SetMemberPinResponse }>(

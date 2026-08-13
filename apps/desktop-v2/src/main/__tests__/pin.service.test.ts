@@ -157,7 +157,7 @@ describe('PinService.setPin', () => {
     expect(await bcrypt.compare('246810', row!.pin_hash)).toBe(true)
   })
 
-  it('rejects a non-numeric or too-short PIN before any network call', async () => {
+  it('rejects a malformed or weak PIN before any network call', async () => {
     const db = createTestDatabase()
     let called = false
     const patch: PatchFn = async () => {
@@ -171,7 +171,9 @@ describe('PinService.setPin', () => {
       FRESH,
       noopAudit,
     )
-    await expect(svc.setPin('12')).rejects.toThrow(/6 to 8 digits/)
+    await expect(svc.setPin('12')).rejects.toThrow(/too easy to guess/) // too short
+    await expect(svc.setPin('111111')).rejects.toThrow(/too easy to guess/) // repeated
+    await expect(svc.setPin('123456')).rejects.toThrow(/too easy to guess/) // sequential
     expect(called).toBe(false)
   })
 })

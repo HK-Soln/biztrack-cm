@@ -1,4 +1,5 @@
 export * from './currency'
+export * from './pin'
 export * from './date'
 export * from './phone'
 export * from './barcode'

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button, Input, OtpInput } from '@biztrack/ui/biztrack'
+import { isStrongPin } from '@biztrack/utils'
 import { useT } from '@/i18n'
 import { dataClient } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
@@ -61,7 +62,9 @@ export function UserSecuritySection() {
   }
 
   const pinMismatch = pinConfirm.length === 6 && pin !== pinConfirm
-  const pinValid = /^\d{6}$/.test(pin) && pin === pinConfirm
+  // Weak = a full 6 digits that fail the shared strength rules (repeats/sequences/common).
+  const pinWeak = pin.length === 6 && !isStrongPin(pin)
+  const pinValid = isStrongPin(pin) && pin === pinConfirm
 
   async function savePin() {
     if (!pinValid || pinBusy) return
@@ -108,18 +111,33 @@ export function UserSecuritySection() {
               <p>{t('sec.pinSub')}</p>
             </div>
           </div>
-          <div className="ff">
+          <div className={`ff${pinWeak ? ' invalid' : ''}`}>
             <label className="lbl2">{t('sec.pinNew')}</label>
-            <OtpInput value={pin} onChange={setPin} autoFocus={false} />
+            <div style={{ maxWidth: 300 }}>
+              <OtpInput value={pin} onChange={setPin} error={pinWeak} autoFocus={false} />
+            </div>
+            {pinWeak ? (
+              <div className="msg err">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 8v5M12 16h.01" />
+                </svg>
+                <span>{t('sec.pinWeak')}</span>
+              </div>
+            ) : (
+              <div className="help">{t('sec.pinWeakHint')}</div>
+            )}
           </div>
           <div className={`ff${pinMismatch ? ' invalid' : ''}`} style={{ marginTop: 12 }}>
             <label className="lbl2">{t('sec.pinConfirm')}</label>
-            <OtpInput
-              value={pinConfirm}
-              onChange={setPinConfirm}
-              error={pinMismatch}
-              autoFocus={false}
-            />
+            <div style={{ maxWidth: 300 }}>
+              <OtpInput
+                value={pinConfirm}
+                onChange={setPinConfirm}
+                error={pinMismatch}
+                autoFocus={false}
+              />
+            </div>
             {pinMismatch ? (
               <div className="msg err">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

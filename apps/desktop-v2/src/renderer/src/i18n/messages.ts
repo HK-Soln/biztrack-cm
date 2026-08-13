@@ -2729,6 +2729,9 @@ export const en = {
   'sec.pinNew': 'New PIN (6 digits)',
   'sec.pinConfirm': 'Confirm PIN',
   'sec.pinMismatch': 'PINs do not match.',
+  'sec.pinWeak':
+    'Too easy to guess — avoid repeats (111111), sequences (123456), or 3 same digits in a row.',
+  'sec.pinWeakHint': 'Pick 6 digits that aren’t a repeat, a sequence, or an obvious pattern.',
   'sec.pinSet': 'Set PIN',
   'sec.pinSaved': 'Manager PIN updated.',
   'sec.pinError': 'Could not set the PIN. Connect to the internet and try again.',
@@ -5836,6 +5839,10 @@ export const fr: Record<MessageKey, string> = {
   'sec.pinNew': 'Nouveau code PIN (6 chiffres)',
   'sec.pinConfirm': 'Confirmer le code PIN',
   'sec.pinMismatch': 'Les codes PIN ne correspondent pas.',
+  'sec.pinWeak':
+    'Trop facile à deviner — évitez les répétitions (111111), les séquences (123456) ou 3 chiffres identiques de suite.',
+  'sec.pinWeakHint':
+    'Choisissez 6 chiffres qui ne sont ni une répétition, ni une séquence, ni un motif évident.',
   'sec.pinSet': 'Définir le code PIN',
   'sec.pinSaved': 'Code PIN mis à jour.',
   'sec.pinError': 'Impossible de définir le code PIN. Connectez-vous à Internet et réessayez.',
