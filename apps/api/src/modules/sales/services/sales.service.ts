@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
-import { toWholeXaf } from '@biztrack/utils'
+import { allocateProRata, toWholeXaf } from '@biztrack/utils'
 import {
   BusinessMemberRole,
   DebtDirection,
@@ -2253,6 +2253,20 @@ export class SalesService {
     const saleDiscountAmount = Math.min(toWholeXaf(dto.discountAmount ?? 0), subtotal)
     const saleChargesAmount = toWholeXaf(Math.max(0, dto.chargesAmount ?? 0))
     const totalAmount = Math.max(0, toWholeXaf(subtotal - saleDiscountAmount + saleChargesAmount))
+
+    // BIZ-1.3: allocate the cart-level discount across lines (weight = line total),
+    // rounding remainder to the largest line, and fold each share into that line's
+    // total. Σ(cart_discount_alloc) === saleDiscountAmount, so totals never drift.
+    if (saleDiscountAmount > 0 && items.length > 0) {
+      const allocations = allocateProRata(
+        saleDiscountAmount,
+        items.map((it) => it.lineTotal),
+      )
+      items.forEach((it, i) => {
+        it.cartDiscountAlloc = allocations[i] ?? 0
+        it.lineTotal = Math.max(0, toWholeXaf(it.lineTotal - it.cartDiscountAlloc))
+      })
+    }
 
     return {
       items,

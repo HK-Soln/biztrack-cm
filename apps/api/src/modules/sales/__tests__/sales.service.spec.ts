@@ -344,8 +344,13 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(item.discountAmount).toBe(200) // the bargain folded in
     expect(item.lineTotal).toBe(1800) // 1000*2 − 200 = 900*2
     // The per-line invariant: discount_amount === Σ that line's line discounts.
-    expect(item.lineDiscounts.map((d) => d.discountType)).toEqual(['OVERRIDE'])
-    expect(item.lineDiscounts.reduce((s, d) => s + d.amount, 0)).toBe(item.discountAmount)
+    expect(item.lineDiscounts.map((d: { discountType: string }) => d.discountType)).toEqual([
+      'OVERRIDE',
+    ])
+    const lineDiscountSum = item.lineDiscounts
+      .map((d: { amount: number }) => d.amount)
+      .reduce((s: number, n: number) => s + n, 0)
+    expect(lineDiscountSum).toBe(item.discountAmount)
   })
 
   it('keeps a price above listed as a markup, never a negative discount', () => {
@@ -372,6 +377,24 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(result.saleDiscountAmount).toBe(200)
     expect(result.saleChargesAmount).toBe(50)
     expect(result.totalAmount).toBe(1850)
+  })
+
+  it('allocates the cart-level discount across lines into cart_discount_alloc (BIZ-1.3)', () => {
+    const service = makeService()
+    const p1 = product({ id: 'p1', sellingPrice: 1000 }) as Product
+    const p2 = product({ id: 'p2', sellingPrice: 1000 }) as Product
+    const r = service.computeSale([p1, p2], new Map(), new Map(), {
+      discountAmount: 300,
+      items: [
+        { productId: 'p1', quantity: 2, unitPrice: 1000 }, // line 2000
+        { productId: 'p2', quantity: 1, unitPrice: 1000 }, // line 1000
+      ],
+    })
+    const allocs = r.items.map((i: { cartDiscountAlloc: number }) => i.cartDiscountAlloc)
+    expect(allocs).toEqual([200, 100]) // 2:1 weight, exact
+    expect(allocs[0] + allocs[1]).toBe(300)
+    expect(r.items.map((i: { lineTotal: number }) => i.lineTotal)).toEqual([1800, 900]) // reduced by their share
+    expect(r.totalAmount).toBe(2700) // 3000 − 300, unchanged by the split
   })
 })
 

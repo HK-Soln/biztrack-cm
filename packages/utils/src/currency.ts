@@ -34,6 +34,39 @@ export function roundToCashUnit(amount: number, unit: CashRoundingUnit = 1): num
   return toWholeXaf(amount / unit) * unit
 }
 
+/**
+ * Distribute a whole-XAF `total` across lines in proportion to `weights`, returning
+ * a whole-XAF amount per line whose sum is EXACTLY `total`. Each share is rounded to
+ * whole XAF and the rounding remainder is given to the largest-weight line, so no
+ * sub-unit is lost or invented (used to allocate a cart-level discount across sale
+ * lines — BIZ-1.3). Non-positive weights get 0; a zero total or all-zero weights
+ * yields all zeros.
+ */
+export function allocateProRata(total: number, weights: number[]): number[] {
+  const n = weights.length
+  if (n === 0) return []
+  const whole = toWholeXaf(total)
+  const weight = weights.map((w) => (w > 0 ? w : 0))
+  const totalWeight = weight.reduce((sum, w) => sum + w, 0)
+  if (whole === 0 || totalWeight <= 0) return weight.map(() => 0)
+
+  const alloc = weight.map((w) => toWholeXaf((whole * w) / totalWeight))
+  const remainder = whole - alloc.reduce((sum, a) => sum + a, 0)
+
+  // Give the rounding remainder to the largest-weight line so the sum is exact.
+  let maxIdx = 0
+  let maxWeight = weight[0] ?? 0
+  for (let i = 1; i < n; i++) {
+    const w = weight[i] ?? 0
+    if (w > maxWeight) {
+      maxWeight = w
+      maxIdx = i
+    }
+  }
+  alloc[maxIdx] = (alloc[maxIdx] ?? 0) + remainder
+  return alloc
+}
+
 export function formatCurrency(amount: number, currency = 'XAF', locale = 'fr-CM'): string {
   return new Intl.NumberFormat(locale, {
     style: 'currency',

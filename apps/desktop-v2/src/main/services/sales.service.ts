@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod } from '@biztrack/types'
-import { toWholeXaf } from '@biztrack/utils'
+import { allocateProRata, toWholeXaf } from '@biztrack/utils'
 import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -299,6 +299,20 @@ export class SalesService {
     )
     const chargesAmount = toWholeXaf(chargeLines.reduce((s, c) => s + c.amount, 0))
     const totalAmount = toWholeXaf(Math.max(0, subtotal - discountAmount + chargesAmount))
+
+    // BIZ-1.3: allocate the cart-level discount across lines (weight = line total),
+    // remainder to the largest line, folding each share into that line's total. Uses
+    // the same shared helper as the API so both runtimes agree.
+    if (discountAmount > 0 && emits.length > 0) {
+      const allocations = allocateProRata(
+        discountAmount,
+        emits.map((e) => e.lineTotal),
+      )
+      emits.forEach((e, i) => {
+        e.cartDiscountAlloc = allocations[i] ?? 0
+        e.lineTotal = toWholeXaf(Math.max(0, e.lineTotal - e.cartDiscountAlloc))
+      })
+    }
 
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
