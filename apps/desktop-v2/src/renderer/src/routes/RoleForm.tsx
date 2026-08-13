@@ -61,6 +61,9 @@ export function RoleForm() {
     }
   }, [editing, roleQ.data])
 
+  // System roles are editable except their name; the owner role's permissions are fixed.
+  const isSystemRole = !!roleQ.data?.isSystem
+  const isOwnerRole = !!roleQ.data?.isOwnerRole
   const catalogue = permsQ.data?.permissions ?? []
   const toggle = (key: string) =>
     setPerms((s) => {
@@ -101,13 +104,16 @@ export function RoleForm() {
     mutationFn: async () => {
       if (editing) {
         await dataClient.roles.update(id as string, {
+          // The server ignores a name change on a system role; sending the existing
+          // name is harmless. Everything else (limits, authorization, colour) applies.
           name: name.trim(),
           description: description.trim() || undefined,
           colour,
           canAuthorize,
           ...limits,
         })
-        await dataClient.roles.setPermissions(id as string, [...perms])
+        // The owner role's permissions are immutable — don't attempt to set them.
+        if (!isOwnerRole) await dataClient.roles.setPermissions(id as string, [...perms])
       } else {
         await dataClient.roles.create({
           name: name.trim(),
@@ -198,11 +204,13 @@ export function RoleForm() {
                     value={name}
                     error={nameErr}
                     placeholder={t('roles.namePh')}
+                    disabled={isSystemRole}
                     onChange={(e) => {
                       setName(e.target.value)
                       if (nameErr) setNameErr(false)
                     }}
                   />
+                  {isSystemRole ? <div className="help">{t('roles.systemNameLocked')}</div> : null}
                   {nameErr ? (
                     <div className="msg err">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -349,26 +357,34 @@ export function RoleForm() {
                 <span className="n">2</span>
                 {t('roles.permissions')}
               </span>
-              <span style={{ display: 'flex', gap: 6 }}>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={selectAll}
-                  style={{ padding: '6px 11px', fontSize: 12 }}
-                >
-                  {t('roles.selectAll')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={clearAll}
-                  style={{ padding: '6px 11px', fontSize: 12 }}
-                >
-                  {t('roles.clear')}
-                </Button>
-              </span>
+              {isOwnerRole ? null : (
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={selectAll}
+                    style={{ padding: '6px 11px', fontSize: 12 }}
+                  >
+                    {t('roles.selectAll')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={clearAll}
+                    style={{ padding: '6px 11px', fontSize: 12 }}
+                  >
+                    {t('roles.clear')}
+                  </Button>
+                </span>
+              )}
             </div>
-            <PermissionEditor catalogue={catalogue} value={perms} onToggle={toggle} />
+            {isOwnerRole ? <div className="help">{t('roles.ownerPermsLocked')}</div> : null}
+            <PermissionEditor
+              catalogue={catalogue}
+              value={perms}
+              onToggle={toggle}
+              disabled={isOwnerRole}
+            />
             <div className="form-note" style={{ marginTop: 14 }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <circle cx="12" cy="12" r="9" />

@@ -3074,6 +3074,9 @@ export const en = {
   'roles.details': 'Role details',
   'roles.name': 'Role name',
   'roles.namePh': 'e.g. Stock keeper',
+  'roles.systemNameLocked': 'Built-in role — the name is fixed, but everything else is editable.',
+  'roles.ownerPermsLocked':
+    'The Owner role always has full access; its permissions can’t be changed.',
   'roles.nameRequired': 'Role name is required',
   'roles.copyFrom': 'Copy permissions from',
   'roles.startBlank': 'Start blank',
@@ -6221,6 +6224,9 @@ export const fr: Record<MessageKey, string> = {
   'roles.details': 'Détails du rôle',
   'roles.name': 'Nom du rôle',
   'roles.namePh': 'ex. Magasinier',
+  'roles.systemNameLocked': 'Rôle intégré — le nom est fixe, mais tout le reste est modifiable.',
+  'roles.ownerPermsLocked':
+    'Le rôle Propriétaire a toujours un accès complet ; ses permissions ne peuvent pas être modifiées.',
   'roles.nameRequired': 'Le nom du rôle est obligatoire',
   'roles.copyFrom': 'Copier les permissions depuis',
   'roles.startBlank': 'Vierge',

@@ -257,17 +257,20 @@ export class RolesService {
 
     const role = await this.rolesRepo.findOne({ where: { id, businessId } })
     if (!role) throw new AppNotFoundException('Role not found', 'ROLE_NOT_FOUND')
-    if (role.isSystem)
-      throw new AppForbiddenException('System roles cannot be edited', 'ROLE_SYSTEM_IMMUTABLE')
 
-    if (dto.name && dto.name !== role.name) {
+    // System roles are editable (discount limits, authorization, colour, description…)
+    // but their NAME is fixed — code and reports key off the system role name, so a
+    // rename would break that mapping. Ignore a name change on a system role rather
+    // than reject the whole update.
+    const canRename = !role.isSystem
+    if (canRename && dto.name && dto.name !== role.name) {
       const conflict = await this.rolesRepo.findOne({ where: { businessId, name: dto.name } })
       if (conflict)
         throw new AppConflictException('A role with this name already exists', 'ROLE_NAME_CONFLICT')
     }
 
     await this.rolesRepo.update(id, {
-      ...(dto.name !== undefined && { name: dto.name }),
+      ...(canRename && dto.name !== undefined && { name: dto.name }),
       ...(dto.description !== undefined && { description: dto.description }),
       ...(dto.colour !== undefined && { colour: dto.colour }),
       ...(dto.canAuthorize !== undefined && { canAuthorize: dto.canAuthorize }),
