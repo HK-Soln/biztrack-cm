@@ -1076,9 +1076,19 @@ export interface SaleChargeLineInput {
 export interface SaleDiscountLineInput {
   id?: string
   description: string
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  discountType:
+    | 'PERCENTAGE'
+    | 'FIXED_AMOUNT'
+    | 'OVERRIDE'
+    | 'ROUNDING'
+    | 'DAMAGE'
+    | 'STAFF_PURCHASE'
   rate?: number | null
   amount: number
+  /** LINE-scoped when set (reconciles with that line's discount_amount); null = cart-level. */
+  saleItemId?: string | null
+  reasonCode?: string | null
+  reasonNote?: string | null
 }
 /** A split-payment line. `SAVINGS` draws from the customer's deposit balance. */
 export interface SalePaymentLineInput {

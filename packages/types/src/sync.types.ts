@@ -7,6 +7,7 @@ import type {
   IdDocumentType,
 } from './credit.types'
 import type { SubscriptionPlan } from './business.types'
+import type { SaleDiscountTypeValue } from './charge.types'
 import type {
   CreateSaleItemRequest,
   CreateSalePaymentRequest,
@@ -826,9 +827,18 @@ export interface SaleSyncChargeLinePayload {
 export interface SaleSyncDiscountLinePayload {
   id: string
   description: string
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  discountType: SaleDiscountTypeValue
   rate?: number | null
   amount: number
+  /** LINE-scoped when set (reconciles with that line's discount_amount); null = cart-level. */
+  saleItemId?: string | null
+  reasonCode?: string | null
+  reasonNote?: string | null
+  /** Who applied it (cashier) and, when a step-up occurred, who authorized it. */
+  appliedBy?: string | null
+  authorizedBy?: string | null
+  unauthorized?: boolean
+  belowCost?: boolean
 }
 
 export interface SaleSyncPayload {

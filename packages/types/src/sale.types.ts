@@ -1,4 +1,5 @@
 import type { Currency } from './business.types'
+import type { SaleDiscountTypeValue } from './charge.types'
 import type { IsoDateString, ListQuery } from './http.types'
 import type { ProductUserSummary } from './product.types'
 
@@ -157,9 +158,16 @@ export interface CreateSaleChargeRequest {
 // discountAmount from their sum.
 export interface CreateSaleDiscountRequest {
   description: string
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  discountType: SaleDiscountTypeValue
   rate?: number | null
   amount: number
+  /** Set for a LINE-scoped discount (reconciles with that line's discount_amount);
+   * null/omitted = a cart-level discount. */
+  saleItemId?: string | null
+  /** A DiscountReasonCode value (business-editable later, so stored as a free string). */
+  reasonCode?: string | null
+  /** Free text; required by the UI when reasonCode = OTHER. */
+  reasonNote?: string | null
 }
 
 export interface CreateSaleRequest {

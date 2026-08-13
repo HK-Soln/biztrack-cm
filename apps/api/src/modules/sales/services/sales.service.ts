@@ -308,12 +308,17 @@ export class SalesService {
           await discountRepo.save(
             dto.discounts.map((d) =>
               discountRepo.create({
+                id: randomUUID(),
                 saleId: sale.id,
+                saleItemId: d.saleItemId ?? null,
                 businessId,
                 description: d.description,
                 discountType: d.discountType,
                 rate: d.rate ?? null,
                 amount: toWholeXaf(d.amount),
+                reasonCode: d.reasonCode ?? null,
+                reasonNote: d.reasonNote ?? null,
+                appliedBy: user.sub,
               }),
             ),
           )
@@ -590,11 +595,19 @@ export class SalesService {
                 discountRepo.create({
                   id: d.id,
                   saleId: sale.id,
+                  saleItemId: d.saleItemId ?? null,
                   businessId,
                   description: d.description,
                   discountType: d.discountType,
                   rate: d.rate ?? null,
                   amount: toWholeXaf(d.amount),
+                  reasonCode: d.reasonCode ?? null,
+                  reasonNote: d.reasonNote ?? null,
+                  // Client-authoritative for synced sales (the device computed authz).
+                  appliedBy: d.appliedBy ?? cashierId,
+                  authorizedBy: d.authorizedBy ?? null,
+                  unauthorized: d.unauthorized ?? false,
+                  belowCost: d.belowCost ?? false,
                 }),
               )
             }

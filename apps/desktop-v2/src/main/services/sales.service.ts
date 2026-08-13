@@ -394,9 +394,24 @@ export class SalesService {
     }
     for (const d of discountLines) {
       this.db.run(
-        `INSERT INTO sale_discounts (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount, created_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
-        [d.id, saleId, businessId, d.description, d.discountType, d.rate ?? null, d.amount, now],
+        `INSERT INTO sale_discounts
+          (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
+           reason_code, reason_note, applied_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          d.id,
+          saleId,
+          d.saleItemId ?? null,
+          businessId,
+          d.description,
+          d.discountType,
+          d.rate ?? null,
+          d.amount,
+          d.reasonCode ?? null,
+          d.reasonNote ?? null,
+          cashierId,
+          now,
+        ],
       )
     }
     for (const p of paymentLines) {
@@ -520,6 +535,10 @@ export class SalesService {
           discountType: d.discountType,
           rate: d.rate ?? null,
           amount: d.amount,
+          saleItemId: d.saleItemId ?? null,
+          reasonCode: d.reasonCode ?? null,
+          reasonNote: d.reasonNote ?? null,
+          appliedBy: cashierId,
         })),
       },
       now,

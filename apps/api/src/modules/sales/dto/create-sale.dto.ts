@@ -167,15 +167,24 @@ export class CreateSaleChargeDto implements CreateSaleChargeRequest {
   amount!: number
 }
 
+const DISCOUNT_TYPES = [
+  'PERCENTAGE',
+  'FIXED_AMOUNT',
+  'OVERRIDE',
+  'ROUNDING',
+  'DAMAGE',
+  'STAFF_PURCHASE',
+] as const
+
 export class CreateSaleDiscountDto implements CreateSaleDiscountRequest {
   @ApiProperty({ maxLength: 200 })
   @IsString()
   @MaxLength(200)
   description!: string
 
-  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'] })
-  @IsIn(['PERCENTAGE', 'FIXED_AMOUNT'])
-  discountType!: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  @ApiProperty({ enum: DISCOUNT_TYPES })
+  @IsIn(DISCOUNT_TYPES)
+  discountType!: (typeof DISCOUNT_TYPES)[number]
 
   @ApiPropertyOptional({ example: 10 })
   @IsOptional()
@@ -190,6 +199,23 @@ export class CreateSaleDiscountDto implements CreateSaleDiscountRequest {
   @Min(0)
   @Max(MAX_MONEY)
   amount!: number
+
+  @ApiPropertyOptional({ description: 'Set for a LINE-scoped discount; omit for cart-level.' })
+  @IsOptional()
+  @IsUUID()
+  saleItemId?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  reasonCode?: string | null
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reasonNote?: string | null
 }
 
 export class CreateSaleDto implements CreateSaleRequest {
