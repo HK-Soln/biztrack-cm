@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@biztrack/ui/biztrack'
 import '@biztrack/ui/styles.css'
 import { router } from './router'
+import { ManagerStepUpModal } from './components/ManagerStepUpModal'
 import { queryClient } from '@/lib/query'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore } from '@/i18n'
@@ -24,6 +25,7 @@ ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <ManagerStepUpModal />
       <Toaster />
     </QueryClientProvider>
   </React.StrictMode>,

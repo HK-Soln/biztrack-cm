@@ -3061,6 +3061,17 @@ export const en = {
   'roles.grp.debts': 'Debts',
   'roles.grp.reports': 'Reports',
   'roles.grp.admin': 'Administration',
+  'stepUp.title': 'Manager authorization',
+  'stepUp.subtitle': 'A manager must enter their PIN to approve this action.',
+  'stepUp.pinLabel': 'Manager PIN',
+  'stepUp.authorize': 'Authorize',
+  'stepUp.cancel': 'Cancel',
+  'stepUp.wrongPin': 'Incorrect PIN.',
+  'stepUp.attemptsLeft': 'attempts left',
+  'stepUp.lockedOut': 'Too many attempts. Try again in a few minutes.',
+  'stepUp.staleDevice':
+    'This device must sync before it can authorize. Connect to the internet and try again.',
+  'stepUp.verifying': 'Checking…',
 }
 
 export type MessageKey = keyof typeof en
@@ -6152,6 +6163,17 @@ export const fr: Record<MessageKey, string> = {
   'roles.grp.debts': 'Dettes',
   'roles.grp.reports': 'Rapports',
   'roles.grp.admin': 'Administration',
+  'stepUp.title': 'Autorisation du responsable',
+  'stepUp.subtitle': 'Un responsable doit saisir son code PIN pour approuver cette action.',
+  'stepUp.pinLabel': 'Code PIN du responsable',
+  'stepUp.authorize': 'Autoriser',
+  'stepUp.cancel': 'Annuler',
+  'stepUp.wrongPin': 'Code PIN incorrect.',
+  'stepUp.attemptsLeft': 'tentatives restantes',
+  'stepUp.lockedOut': 'Trop de tentatives. Réessayez dans quelques minutes.',
+  'stepUp.staleDevice':
+    'Cet appareil doit se synchroniser avant d’autoriser. Connectez-vous à Internet et réessayez.',
+  'stepUp.verifying': 'Vérification…',
 }
 
 export const catalogs = { en, fr }

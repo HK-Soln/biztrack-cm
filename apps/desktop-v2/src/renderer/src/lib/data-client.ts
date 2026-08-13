@@ -50,6 +50,7 @@ import type {
   LocalModel,
   AuditListQuery,
   LocalAuditLog,
+  PinVerifyResult,
   AdjustStockInput,
   InventoryListQuery,
   InventoryStats,
@@ -355,6 +356,10 @@ export interface DataClient {
   }
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
+  }
+  pin: {
+    set: (pin: string) => Promise<{ pinVersion: number }>
+    verify: (pin: string) => Promise<PinVerifyResult>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -691,6 +696,10 @@ function electronAdapter(): DataClient {
     audit: {
       list: (query) => window.api.audit.list(query),
     },
+    pin: {
+      set: (pin) => window.api.pin.set(pin),
+      verify: (pin) => window.api.pin.verify(pin),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -859,6 +868,8 @@ function cloudAdapter(): DataClient {
     purchaseOrders: cloudPurchaseOrders,
     documents: cloudDocuments,
     audit: cloudAudit,
+    // Manager PIN is a device-local offline credential; there is no cloud path yet.
+    pin: { set: notWired, verify: notWired },
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,
