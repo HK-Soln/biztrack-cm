@@ -1358,8 +1358,14 @@ export class InventoryService {
         continue
       }
 
+      // Stock is tracked per (business, product, variant): a variant restock must hit that
+      // variant's own level row, not the product-level (variant_id IS NULL) row.
       const level = await inventoryRepo.findOne({
-        where: { businessId: input.businessId, productId: product.id },
+        where: {
+          businessId: input.businessId,
+          productId: product.id,
+          variantId: item.variantId ?? IsNull(),
+        },
       })
       const quantityBefore = Number(level?.quantity ?? 0)
       const quantityAfter = this.roundQuantity(quantityBefore + item.quantity)
@@ -1369,6 +1375,7 @@ export class InventoryService {
           inventoryRepo.create({
             businessId: input.businessId,
             productId: product.id,
+            variantId: item.variantId ?? null,
             quantity: quantityAfter,
             lastRestockAt: input.createdAt,
             createdAt: input.createdAt,

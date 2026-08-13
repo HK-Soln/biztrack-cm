@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
@@ -29,6 +29,41 @@ interface SellTile {
 }
 
 const PAGE = 20
+
+// Product thumbnail: the photo when present, otherwise a striped placeholder with a dashed
+// "IMG" chip (mirrors the storefront's product-card / hero placeholder). Styles are inline so
+// the placeholder is fully self-contained — it fills + centers regardless of the parent tile's
+// styling or the shared stylesheet, and a broken photo URL falls back to it too.
+const THUMB_PH_WRAP: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background:
+    'repeating-linear-gradient(45deg, var(--stripe, rgba(0,0,0,0.05)), var(--stripe, rgba(0,0,0,0.05)) 9px, transparent 9px, transparent 18px)',
+}
+const THUMB_PH_CHIP: CSSProperties = {
+  fontFamily: 'ui-monospace, Menlo, monospace',
+  fontSize: 10.5,
+  letterSpacing: '0.04em',
+  color: 'var(--text-muted)',
+  border: '1px dashed var(--border-strong)',
+  borderRadius: 7,
+  padding: '4px 9px',
+  background: 'var(--surface)',
+}
+function Thumb({ src, imgClassName = 'ava-img' }: { src: string | null; imgClassName?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (src && !failed) {
+    return <img src={src} alt="" className={imgClassName} onError={() => setFailed(true)} />
+  }
+  return (
+    <span style={THUMB_PH_WRAP}>
+      <span style={THUMB_PH_CHIP}>IMG</span>
+    </span>
+  )
+}
 
 // --- tiny icon set (matches the approved design) ---------------------------
 const I = {
@@ -884,11 +919,7 @@ export function Sell() {
               >
                 <span className="padd">{I.plus}</span>
                 <div className="pth">
-                  {tile.imageUrl ? (
-                    <img src={tile.imageUrl} alt="" />
-                  ) : (
-                    tile.name.trim().charAt(0).toUpperCase()
-                  )}
+                  <Thumb src={tile.imageUrl} />
                 </div>
                 <div className="pn" title={tile.name}>
                   {tile.name}
@@ -1031,11 +1062,7 @@ export function Sell() {
                   onClick={() => onEntryClick(e)}
                 >
                   <div className="thumb">
-                    {tile.imageUrl ? (
-                      <img src={tile.imageUrl} alt="" className="ava-img" />
-                    ) : (
-                      tile.name.trim().charAt(0).toUpperCase()
-                    )}
+                    <Thumb src={tile.imageUrl} imgClassName="ava-img" />
                   </div>
                   <div className="pn" title={tile.name}>
                     {tile.name}
