@@ -36,4 +36,15 @@ export class BusinessMember extends BaseEntity {
 
   @Column({ type: 'enum', enum: BusinessMemberStatus, default: BusinessMemberStatus.ACTIVE })
   status!: BusinessMemberStatus
+
+  // Offline manager-PIN credential (BIZ-3.1). Hashed on-device with bcrypt at
+  // set-time; the server stores the hash for distribution but never verifies it.
+  @Column({ name: 'pin_hash', type: 'text', nullable: true })
+  pinHash!: string | null
+
+  @Column({ name: 'pin_version', type: 'int', default: 0 })
+  pinVersion!: number
+
+  @Column({ name: 'pin_set_at', type: 'timestamptz', nullable: true })
+  pinSetAt!: Date | null
 }

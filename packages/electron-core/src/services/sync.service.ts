@@ -332,6 +332,9 @@ const TEAM_MEMBER_MAP: Record<string, string> = {
   name: 'name',
   email: 'email',
   phone: 'phone',
+  pin_hash: 'pinHash',
+  pin_version: 'pinVersion',
+  pin_set_at: 'pinSetAt',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }

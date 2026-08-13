@@ -31,6 +31,17 @@ describe('local SQLite test harness', () => {
     })
   })
 
+  it('adds the offline PIN columns to business_members (0061)', () => {
+    return withTestDatabase((db) => {
+      const columns = db
+        .query<{ name: string }>('PRAGMA table_info(business_members)')
+        .map((c) => c.name)
+      for (const col of ['pin_hash', 'pin_version', 'pin_set_at']) {
+        expect(columns, `expected column "${col}"`).toContain(col)
+      }
+    })
+  })
+
   it('enforces foreign keys on the connection', () => {
     return withTestDatabase((db) => {
       expect(db.get<{ foreign_keys: number }>('PRAGMA foreign_keys')?.foreign_keys).toBe(1)

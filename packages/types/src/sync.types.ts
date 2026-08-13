@@ -602,6 +602,12 @@ export interface TeamMemberSyncRecord extends SyncRecord {
   name: string | null
   email: string | null
   phone: string | null
+  /** bcrypt hash of the member's manager PIN, hashed on-device; null = no PIN set.
+   * Rides the pull so a manager's PIN can be verified offline on a cashier device. */
+  pinHash: string | null
+  /** Bumped on every PIN set/rotation; 0 = never set. */
+  pinVersion: number
+  pinSetAt: string | null
   createdAt: string
 }
 
