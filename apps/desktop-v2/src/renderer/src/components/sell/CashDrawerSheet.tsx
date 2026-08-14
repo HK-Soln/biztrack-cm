@@ -12,9 +12,11 @@ import { useT } from '@/i18n'
  * count is blind. Desktop-only (the till lives on the device).
  */
 
+// Only drawer-native movements that have no other home. Supplier/customer payments,
+// expenses and deposits are entered in their own modules; when those are paid in cash
+// they feed the drawer automatically (they record a cash_movement of the right kind).
 const MOVEMENT_KINDS: CashMovementKind[] = [
   CashMovementKind.OWNER_DRAW,
-  CashMovementKind.SUPPLIER_PAYMENT,
   CashMovementKind.CHANGE_IN,
   CashMovementKind.CHANGE_OUT,
   CashMovementKind.DROP,
