@@ -44,6 +44,8 @@ export type SyncEntity =
   | 'savings_transaction'
   | 'rfq'
   | 'purchase_order'
+  | 'cash_session'
+  | 'cash_count_line'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -109,6 +111,8 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   savings_transaction: 3,
   rfq: 2,
   purchase_order: 2,
+  cash_session: 2,
+  cash_count_line: 3,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -138,6 +142,8 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   savings_transaction: 23,
   rfq: 24,
   purchase_order: 25,
+  cash_session: 26,
+  cash_count_line: 27,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -195,6 +201,11 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   savings_transaction: ['savings'],
   rfq: ['contact', 'product'],
   purchase_order: ['contact', 'product', 'rfq'],
+  // A cash session references only business/user (non-sync roots); its count lines
+  // reference the session. Sales/expenses carry a soft (FK-less) cash_session_id, so
+  // they need no dependency edge here.
+  cash_session: [],
+  cash_count_line: ['cash_session'],
 }
 
 /**
@@ -664,6 +675,42 @@ export interface SavingsTransactionSyncRecord extends SyncRecord {
   createdAt: string
 }
 
+export interface CashSessionSyncRecord extends SyncRecord {
+  businessId: string
+  outletId?: string | null
+  deviceId: string
+  userId: string
+  status: string
+  openedAt: string
+  closedAt?: string | null
+  openingFloat: number
+  expectedCash?: number | null
+  countedCash?: number | null
+  varianceCash?: number | null
+  expectedMtnMomo?: number | null
+  confirmedMtnMomo?: number | null
+  expectedOrangeMoney?: number | null
+  confirmedOrangeMoney?: number | null
+  creditIssued: number
+  discountTotal: number
+  salesCount: number
+  voidCount: number
+  closedReason?: string | null
+  recountUsed: boolean
+  closingNote?: string | null
+  reviewedBy?: string | null
+  reviewedAt?: string | null
+  reviewNote?: string | null
+  createdAt: string
+}
+
+export interface CashCountLineSyncRecord extends SyncRecord {
+  cashSessionId: string
+  denomination: number
+  quantity: number
+  createdAt: string
+}
+
 export interface OpeningBalanceSyncPayload {
   contactId: string
   direction: DebtDirection
@@ -713,6 +760,8 @@ export interface ChangeSet {
   roles?: RoleSyncRecord[]
   savingsAccounts?: SavingsAccountSyncRecord[]
   savingsTransactions?: SavingsTransactionSyncRecord[]
+  cashSessions?: CashSessionSyncRecord[]
+  cashCountLines?: CashCountLineSyncRecord[]
 }
 
 export interface InventoryThresholdSyncPayload {

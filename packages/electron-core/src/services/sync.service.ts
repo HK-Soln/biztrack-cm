@@ -91,6 +91,8 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   expenses: 'expense',
   savings: 'savings',
   savingsTransactions: 'savings_transaction',
+  cashSessions: 'cash_session',
+  cashCountLines: 'cash_count_line',
 }
 
 const TERMINAL_BATCH_STATUSES: SyncBatchStatus[] = [
@@ -344,6 +346,44 @@ const TEAM_MEMBER_MAP: Record<string, string> = {
   pin_hash: 'pinHash',
   pin_version: 'pinVersion',
   pin_set_at: 'pinSetAt',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const CASH_SESSION_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  outlet_id: 'outletId',
+  device_id: 'deviceId',
+  user_id: 'userId',
+  status: 'status',
+  opened_at: 'openedAt',
+  closed_at: 'closedAt',
+  opening_float: 'openingFloat',
+  expected_cash: 'expectedCash',
+  counted_cash: 'countedCash',
+  variance_cash: 'varianceCash',
+  expected_mtn_momo: 'expectedMtnMomo',
+  confirmed_mtn_momo: 'confirmedMtnMomo',
+  expected_orange_money: 'expectedOrangeMoney',
+  confirmed_orange_money: 'confirmedOrangeMoney',
+  credit_issued: 'creditIssued',
+  discount_total: 'discountTotal',
+  sales_count: 'salesCount',
+  void_count: 'voidCount',
+  closed_reason: 'closedReason',
+  recount_used: 'recountUsed',
+  closing_note: 'closingNote',
+  reviewed_by: 'reviewedBy',
+  reviewed_at: 'reviewedAt',
+  review_note: 'reviewNote',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const CASH_COUNT_LINE_MAP: Record<string, string> = {
+  id: 'id',
+  cash_session_id: 'cashSessionId',
+  denomination: 'denomination',
+  quantity: 'quantity',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -768,6 +808,8 @@ export class SyncService {
     pushAll(changes.rfqSuppliers, 'rfq_suppliers', RFQ_SUPPLIER_MAP)
     pushAll(changes.purchaseOrders, 'purchase_orders', PURCHASE_ORDER_MAP)
     pushAll(changes.purchaseOrderItems, 'purchase_order_items', PURCHASE_ORDER_ITEM_MAP)
+    pushAll(changes.cashSessions, 'cash_sessions', CASH_SESSION_MAP)
+    pushAll(changes.cashCountLines, 'cash_count_lines', CASH_COUNT_LINE_MAP)
 
     if (ops.length > 0) {
       try {

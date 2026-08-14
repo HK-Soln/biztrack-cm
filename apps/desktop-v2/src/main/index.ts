@@ -34,6 +34,8 @@ import { InventoryService } from './services/inventory.service'
 import { SalesService } from './services/sales.service'
 import { SavingsService } from './services/savings.service'
 import { registerDepositsIpc } from './ipc/deposits.ipc'
+import { CashSessionsService } from './services/cash-sessions.service'
+import { registerCashSessionsIpc } from './ipc/cash-sessions.ipc'
 import { registerInventoryIpc } from './ipc/inventory.ipc'
 import { registerSalesIpc } from './ipc/sales.ipc'
 import { ContactsService } from './services/contacts.service'
@@ -416,6 +418,18 @@ app.whenReady().then(() => {
     audit,
   )
   registerDepositsIpc(savings)
+
+  // Cash sessions (till shifts): offline-first; open/transition + read. Local write +
+  // outbox (entity `cashSessions` → server `cash_session`). BIZ-2.1 foundation.
+  const cashSessions = new CashSessionsService(
+    db,
+    () => authService.getSession().businessId,
+    () => authService.getSession().user?.id ?? null,
+    () => tokenStore.ensureDeviceId(),
+    () => void sync.sync(),
+  )
+  registerCashSessionsIpc(cashSessions)
+
   const sales = new SalesService(
     db,
     () => authService.getSession().businessId,

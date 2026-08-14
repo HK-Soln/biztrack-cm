@@ -35,6 +35,8 @@ import type {
   SavingsAccountSyncRecord,
   SavingsTransactionSyncPayload,
   SavingsTransactionSyncRecord,
+  CashSessionSyncRecord,
+  CashCountLineSyncRecord,
   SyncBatchStatus,
   SyncBatchStatusResponse,
   SyncEntity,
@@ -98,6 +100,8 @@ import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
+import { CashSession } from '@/entities/cash-session.entity'
+import { CashCountLine } from '@/entities/cash-count-line.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -133,6 +137,7 @@ import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { DepositsService } from '@/modules/savings/services/savings.service'
+import { CashSessionsService } from '@/modules/cash-sessions/services/cash-sessions.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import {
   SYNC_BATCH_MAX_OPERATIONS,
@@ -536,6 +541,7 @@ export class SyncService {
     private readonly inventoryService: InventoryService,
     private readonly salesService: SalesService,
     private readonly savingsService: DepositsService,
+    private readonly cashSessionsService: CashSessionsService,
     private readonly quotaService: QuotaService,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
@@ -1010,6 +1016,7 @@ export class SyncService {
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
+      const cashData = await this.cashSessionsService.findByBusiness(businessId, since, pulledAt)
 
       const restockQuantityMap = new Map(
         inventoryMovements
@@ -1099,6 +1106,8 @@ export class SyncService {
         savingsTransactions: savingsData.transactions.map((record) =>
           this.toSavingsTransactionSyncRecord(record),
         ),
+        cashSessions: cashData.sessions.map((record) => this.toCashSessionSyncRecord(record)),
+        cashCountLines: cashData.countLines.map((record) => this.toCashCountLineSyncRecord(record)),
         attributeGroups: attributeGroups.map((record) => ({
           id: record.id,
           businessId: record.businessId,
@@ -1544,6 +1553,8 @@ export class SyncService {
       expense: (b, o) => this.applyExpenseOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
+      cash_session: (b, o) => this.applyCashSessionOperation(b, o),
+      cash_count_line: (b, o) => this.applyCashCountLineOperation(b, o),
     }
   }
 
@@ -3678,6 +3689,55 @@ export class SyncService {
     return payload as unknown as SavingsAccountSyncPayload
   }
 
+  private async applyCashSessionOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return { status: 'failed', errorMessage: 'Deleting synced cash sessions is not supported.' }
+    }
+    const payload = this.readCashSessionPayload(operation.payload)
+    await this.cashSessionsService.applyCashSessionOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private async applyCashCountLineOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced cash count lines is not supported.',
+      }
+    }
+    const payload = this.readCashCountLinePayload(operation.payload)
+    await this.cashSessionsService.applyCashCountLineOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private readCashSessionPayload(payload: Record<string, unknown> | null): CashSessionSyncRecord {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Cash session sync payload is required.',
+        'SYNC_CASH_SESSION_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as unknown as CashSessionSyncRecord
+  }
+
+  private readCashCountLinePayload(
+    payload: Record<string, unknown> | null,
+  ): CashCountLineSyncRecord {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Cash count line sync payload is required.',
+        'SYNC_CASH_COUNT_LINE_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as unknown as CashCountLineSyncRecord
+  }
+
   private readSavingsTransactionPayload(
     payload: Record<string, unknown> | null,
   ): SavingsTransactionSyncPayload {
@@ -4692,6 +4752,54 @@ export class SyncService {
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
       isDeleted: record.isDeleted,
+    }
+  }
+
+  private toCashSessionSyncRecord(record: CashSession): CashSessionSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      outletId: record.outletId ?? null,
+      deviceId: record.deviceId,
+      userId: record.userId,
+      status: record.status,
+      openedAt: record.openedAt.toISOString(),
+      closedAt: record.closedAt?.toISOString() ?? null,
+      openingFloat: record.openingFloat,
+      expectedCash: record.expectedCash ?? null,
+      countedCash: record.countedCash ?? null,
+      varianceCash: record.varianceCash ?? null,
+      expectedMtnMomo: record.expectedMtnMomo ?? null,
+      confirmedMtnMomo: record.confirmedMtnMomo ?? null,
+      expectedOrangeMoney: record.expectedOrangeMoney ?? null,
+      confirmedOrangeMoney: record.confirmedOrangeMoney ?? null,
+      creditIssued: record.creditIssued,
+      discountTotal: record.discountTotal,
+      salesCount: record.salesCount,
+      voidCount: record.voidCount,
+      closedReason: record.closedReason ?? null,
+      recountUsed: record.recountUsed,
+      closingNote: record.closingNote ?? null,
+      reviewedBy: record.reviewedBy ?? null,
+      reviewedAt: record.reviewedAt?.toISOString() ?? null,
+      reviewNote: record.reviewNote ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toCashCountLineSyncRecord(record: CashCountLine): CashCountLineSyncRecord {
+    return {
+      id: record.id,
+      cashSessionId: record.cashSessionId,
+      denomination: record.denomination,
+      quantity: record.quantity,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
     }
   }
 

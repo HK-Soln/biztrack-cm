@@ -134,6 +134,11 @@ export const IPC = {
   depositsClose: 'deposits:close',
   depositsReceiptHtml: 'deposits:receipt-html',
   depositsReportHtml: 'deposits:report-html',
+  cashSessionsList: 'cash-sessions:list',
+  cashSessionsGet: 'cash-sessions:get',
+  cashSessionsCurrent: 'cash-sessions:current',
+  cashSessionsOpen: 'cash-sessions:open',
+  cashSessionsTransition: 'cash-sessions:transition',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -1335,10 +1340,24 @@ import type {
   CreateDepositInput as CreateDepositInputT,
   AddDepositPaymentInput as AddDepositPaymentInputT,
   CloseDepositInput as CloseDepositInputT,
+  CashSession as CashSessionT,
+  CashSessionStatus as CashSessionStatusT,
 } from '@biztrack/types'
 
 export interface DepositsListQuery extends ListQueryT {
   status?: 'OPEN' | 'CLOSED'
+}
+
+export interface CashSessionsListQuery extends ListQueryT {
+  status?: CashSessionStatusT
+}
+export interface OpenCashSessionInput {
+  id?: string
+  openingFloat?: number
+}
+export interface TransitionCashSessionInput {
+  status: CashSessionStatusT
+  closingNote?: string
 }
 /** A session plus its transactions (for the detail pane). */
 export interface LocalDepositDetail extends CustomerDepositT {
@@ -2081,6 +2100,15 @@ export interface BridgeApi {
     receiptHtml: (transactionId: string, locale: string) => Promise<string | null>
     /** Compiled full-session report HTML (fed to the shared share dialog). */
     reportHtml: (id: string, locale: string) => Promise<string | null>
+  }
+  /** Cash sessions (till shifts) — offline-first; open/transition + read (BIZ-2.1). */
+  cashSessions: {
+    list: (query?: CashSessionsListQuery) => Promise<PaginatedT<CashSessionT>>
+    get: (id: string) => Promise<CashSessionT | null>
+    /** This device's live session (OPEN/COUNTING) or null — drives the POS shift banner. */
+    current: () => Promise<CashSessionT | null>
+    open: (input?: OpenCashSessionInput) => Promise<CashSessionT>
+    transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSessionT>
   }
   /** Online store / orders — API-only (proxied through main); requires connectivity. */
   online: {

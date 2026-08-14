@@ -267,6 +267,13 @@ const api: BridgeApi = {
       ipcRenderer.invoke(IPC.depositsReceiptHtml, transactionId, locale),
     reportHtml: (id, locale) => ipcRenderer.invoke(IPC.depositsReportHtml, id, locale),
   },
+  cashSessions: {
+    list: (query) => ipcRenderer.invoke(IPC.cashSessionsList, query),
+    get: (id) => ipcRenderer.invoke(IPC.cashSessionsGet, id),
+    current: () => ipcRenderer.invoke(IPC.cashSessionsCurrent),
+    open: (input) => ipcRenderer.invoke(IPC.cashSessionsOpen, input),
+    transition: (id, input) => ipcRenderer.invoke(IPC.cashSessionsTransition, id, input),
+  },
   online: {
     getStore: () => ipcRenderer.invoke(IPC.onlineStoreGet),
     createStore: (input) => ipcRenderer.invoke(IPC.onlineStoreCreate, input),

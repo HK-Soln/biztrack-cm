@@ -25,6 +25,7 @@ import { RfqsModule } from '@/modules/rfqs/rfqs.module'
 import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
+import { CashSessionsModule } from '@/modules/cash-sessions/cash-sessions.module'
 import { LoggerModule } from './logger/logger.module'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
@@ -111,6 +112,7 @@ function resolveI18nPath() {
     SalesModule,
     SyncModule,
     DepositsModule,
+    CashSessionsModule,
     RolesModule,
     PermissionsModule,
     PlansModule,

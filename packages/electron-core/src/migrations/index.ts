@@ -64,6 +64,7 @@ import { migration_0062 } from './0062_sale_item_listed_price_cart_alloc'
 import { migration_0063 } from './0063_sale_discount_reason_authz'
 import { migration_0064 } from './0064_role_can_authorize'
 import { migration_0065 } from './0065_role_discount_limits'
+import { migration_0066 } from './0066_cash_sessions'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -135,6 +136,7 @@ export const MIGRATIONS: Migration[] = [
   migration_0063,
   migration_0064,
   migration_0065,
+  migration_0066,
 ]
 
 export { runMigrations, ensureColumn } from './runner'
