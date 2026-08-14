@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import type { JwtPayload, PaginatedResult } from '@biztrack/types'
+import type { CashSessionExpectedCash, JwtPayload, PaginatedResult } from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import type { CashSession } from '@/entities/cash-session.entity'
@@ -48,6 +48,15 @@ export class CashSessionsController {
   @ApiOperation({ summary: 'Get a cash session' })
   get(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<CashSession> {
     return this.cashSessions.findById(id, user.businessId as string)
+  }
+
+  @Get(':id/expected-cash')
+  @ApiOperation({ summary: 'Expected drawer cash + breakdown for a session' })
+  expectedCash(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<CashSessionExpectedCash> {
+    return this.cashSessions.expectedCash(user.businessId as string, id)
   }
 
   @Patch(':id/status')

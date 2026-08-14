@@ -19,4 +19,5 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
   ipcMain.handle(IPC.cashSessionsTransition, (_e, id: string, input: TransitionCashSessionInput) =>
     cashSessions.transition(id, input),
   )
+  ipcMain.handle(IPC.cashSessionsExpectedCash, (_e, id: string) => cashSessions.expectedCash(id))
 }

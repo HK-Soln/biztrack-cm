@@ -164,6 +164,7 @@ const SALE_MAP: Record<string, string> = {
   currency: 'currency',
   sale_date: 'saleDate',
   sold_at: 'soldAt',
+  cash_session_id: 'cashSessionId',
   synced_at: 'syncedAt',
   voided_at: 'voidedAt',
   voided_by: 'voidedById',

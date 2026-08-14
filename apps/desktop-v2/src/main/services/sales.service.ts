@@ -96,6 +96,9 @@ export class SalesService {
     private readonly debts: DebtsService,
     private readonly savings: SavingsService,
     private readonly audit?: AuditLogger,
+    /** The device's live cash session id, for tagging the sale to a shift (BIZ-2.2).
+     * Null when no shift is open ("vente hors caisse"). */
+    private readonly getOpenCashSessionId: () => string | null = () => null,
   ) {}
 
   createSale(input: SaleInput): LocalSaleDetail {
@@ -116,6 +119,9 @@ export class SalesService {
     const soldAt = input.soldAt?.trim() || now
     const saleId = randomUUID()
     const currency = this.businessCurrency(businessId)
+    // Tag the sale to the open shift (BIZ-2.2). NULL = rung outside a session
+    // ("vente hors caisse"). Drives the expected-cash reconciliation.
+    const cashSessionId = this.getOpenCashSessionId()
 
     // --- expand cart lines into persisted sale items (one per serial unit) ----
     type Emit = {
@@ -413,8 +419,8 @@ export class SalesService {
         (id, business_id, client_id, cashier_id, cashier_name, sale_number, receipt_number, subtotal, total_amount,
          discount_amount, charges_amount, tax_amount, net_amount, amount_paid, credit_amount, change_given,
          payment_method, momo_reference, customer_id, customer_name, customer_phone, notes, currency, sale_date,
-         sold_at, status, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+         sold_at, cash_session_id, status, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
       [
         saleId,
         businessId,
@@ -440,6 +446,7 @@ export class SalesService {
         currency,
         soldAt.slice(0, 10),
         soldAt,
+        cashSessionId,
         now,
         now,
       ],
@@ -620,6 +627,7 @@ export class SalesService {
         clientId: input.clientId,
         saleNumber,
         soldAt,
+        cashSessionId,
         cashierId,
         cashierName: this.getActorName(),
         customerId,

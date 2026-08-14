@@ -602,6 +602,7 @@ export class SalesService {
             priceDriftWarning: computed.priceDriftWarning,
             saleDate,
             soldAt,
+            cashSessionId: payload.cashSessionId ?? null,
             syncedAt: now,
             voidedAt: null,
             voidedById: null,

@@ -108,3 +108,21 @@ export interface CashCountLine {
   denomination: CashDenomination | number
   quantity: number
 }
+
+/**
+ * Expected-cash breakdown for a session (BIZ-2.2) — the drawer reconciliation figure
+ * plus its components, so the close screen can explain the number. `cashIn`/`cashOut`
+ * are 0 until cash movements land (BIZ-2.3). All whole XAF.
+ */
+export interface CashSessionExpectedCash {
+  sessionId: string
+  openingFloat: number
+  /** Σ tendered CASH payments on non-voided sales in the session. */
+  cashPayments: number
+  /** Σ change_given on those sales (dispensed from the drawer). */
+  changeGiven: number
+  cashIn: number
+  cashOut: number
+  /** opening_float + cashPayments − changeGiven + cashIn − cashOut. */
+  expectedCash: number
+}

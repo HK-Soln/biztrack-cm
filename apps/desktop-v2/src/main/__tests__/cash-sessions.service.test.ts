@@ -105,7 +105,110 @@ describe('CashSessionsService', () => {
 
     const open = svc.list({ status: CashSessionStatus.OPEN })
     expect(open.total).toBe(1)
-    expect(open.data[0].status).toBe(CashSessionStatus.OPEN)
+    expect(open.data[0]?.status).toBe(CashSessionStatus.OPEN)
+  })
+
+  it('computes expected cash: float + cash taken − change given (BIZ-2.2)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+    const now = new Date().toISOString()
+
+    // Two COMPLETED cash sales tagged to the session, both discounted (heavy-discount
+    // AC): the cash tendered is already net of the discount.
+    //   A: total 4500, tendered 5000 cash, change 500 → net 4500
+    //   B: total 3000, tendered 3000 cash, change 0   → net 3000
+    const addCashSale = (id: string, total: number, tendered: number, change: number): void => {
+      db.run(
+        `INSERT INTO sales
+          (id, business_id, client_id, cashier_id, sale_number, receipt_number, subtotal,
+           total_amount, discount_amount, charges_amount, tax_amount, net_amount, amount_paid,
+           credit_amount, change_given, payment_method, currency, sale_date, sold_at,
+           cash_session_id, status, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, 'u-1', ?, ?, ?, ?, 0, 0, 0, ?, ?, 0, ?, 'CASH', 'XAF', ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+        [
+          id,
+          BIZ,
+          id,
+          id,
+          id,
+          total,
+          total,
+          total,
+          tendered,
+          change,
+          now.slice(0, 10),
+          now,
+          session.id,
+          now,
+          now,
+        ],
+      )
+      db.run(
+        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, created_at)
+         VALUES (?, ?, ?, 'CASH', ?, ?)`,
+        [`p-${id}`, id, BIZ, tendered, now],
+      )
+    }
+    addCashSale('sale-a', 4500, 5000, 500)
+    addCashSale('sale-b', 3000, 3000, 0)
+
+    const result = svc.expectedCash(session.id)
+    expect(result).not.toBeNull()
+    expect(result?.openingFloat).toBe(10000)
+    expect(result?.cashPayments).toBe(8000)
+    expect(result?.changeGiven).toBe(500)
+    // 10000 + 8000 − 500 = 17500, despite 2500 XAF of discounts.
+    expect(result?.expectedCash).toBe(17500)
+  })
+
+  it('excludes a non-CASH sale and an untagged sale from expected cash', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 5000 })
+    const now = new Date().toISOString()
+    const addSale = (
+      id: string,
+      method: string,
+      amount: number,
+      sessionId: string | null,
+    ): void => {
+      db.run(
+        `INSERT INTO sales
+          (id, business_id, client_id, cashier_id, sale_number, receipt_number, subtotal,
+           total_amount, discount_amount, charges_amount, tax_amount, net_amount, amount_paid,
+           credit_amount, change_given, payment_method, currency, sale_date, sold_at,
+           cash_session_id, status, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, 'u-1', ?, ?, ?, ?, 0, 0, 0, ?, ?, 0, 0, ?, 'XAF', ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+        [
+          id,
+          BIZ,
+          id,
+          id,
+          id,
+          amount,
+          amount,
+          amount,
+          amount,
+          method,
+          now.slice(0, 10),
+          now,
+          sessionId,
+          now,
+          now,
+        ],
+      )
+      db.run(
+        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [`p-${id}`, id, BIZ, method, amount, now],
+      )
+    }
+    addSale('cash-in', 'CASH', 2000, session.id) // counts
+    addSale('momo-in', 'MTN_MOMO', 9000, session.id) // not cash → excluded
+    addSale('cash-out', 'CASH', 7000, null) // untagged → excluded
+
+    const result = svc.expectedCash(session.id)
+    expect(result?.cashPayments).toBe(2000)
+    expect(result?.expectedCash).toBe(7000) // 5000 float + 2000 cash
   })
 
   it('rejects a non-whole money write at the DB guard', () => {

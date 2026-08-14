@@ -439,6 +439,7 @@ app.whenReady().then(() => {
     debts,
     savings,
     audit,
+    () => cashSessions.getCurrent()?.id ?? null,
   )
   registerSalesIpc(sales, savings, documents, authHttp)
 

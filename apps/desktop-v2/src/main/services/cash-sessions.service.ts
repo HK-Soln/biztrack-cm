@@ -4,7 +4,9 @@ import {
   canTransitionCashSession,
   isCashSessionLocked,
   type CashSession,
+  type CashSessionExpectedCash,
 } from '@biztrack/types'
+import { computeExpectedCash } from '@biztrack/utils'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   CashSessionsListQuery,
@@ -114,6 +116,52 @@ export class CashSessionsService {
       query,
     )
     return toPaginated(rows.map(toCashSession), meta)
+  }
+
+  /**
+   * Expected-cash breakdown for a session (BIZ-2.2) — what the drawer should hold at
+   * close. Cash movements (cashIn/cashOut) are 0 until BIZ-2.3 lands. Uses the shared
+   * `computeExpectedCash` so the desktop and API agree by construction.
+   */
+  expectedCash(sessionId: string): CashSessionExpectedCash | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const session = this.get(sessionId)
+    if (!session) return null
+
+    const cash = this.db.get<{ v: number }>(
+      `SELECT COALESCE(SUM(sp.amount), 0) AS v
+       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+       WHERE s.cash_session_id = ? AND s.business_id = ? AND sp.method = 'CASH'
+         AND s.status = 'COMPLETED' AND s.is_deleted = 0`,
+      [sessionId, businessId],
+    )
+    const change = this.db.get<{ v: number }>(
+      `SELECT COALESCE(SUM(s.change_given), 0) AS v
+       FROM sales s
+       WHERE s.cash_session_id = ? AND s.business_id = ? AND s.status = 'COMPLETED'
+         AND s.is_deleted = 0`,
+      [sessionId, businessId],
+    )
+    const cashPayments = cash?.v ?? 0
+    const changeGiven = change?.v ?? 0
+    const cashIn = 0 // BIZ-2.3
+    const cashOut = 0 // BIZ-2.3
+    return {
+      sessionId,
+      openingFloat: session.openingFloat,
+      cashPayments,
+      changeGiven,
+      cashIn,
+      cashOut,
+      expectedCash: computeExpectedCash({
+        openingFloat: session.openingFloat,
+        cashPayments,
+        changeGiven,
+        cashIn,
+        cashOut,
+      }),
+    }
   }
 
   /** Open a shift. Refuses a second live session on the same till. */

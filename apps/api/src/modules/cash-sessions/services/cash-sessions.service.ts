@@ -6,10 +6,12 @@ import {
   canTransitionCashSession,
   isCashSessionLocked,
   type CashCountLineSyncRecord,
+  type CashSessionExpectedCash,
   type CashSessionSyncRecord,
   type JwtPayload,
   type PaginatedResult,
 } from '@biztrack/types'
+import { computeExpectedCash } from '@biztrack/utils'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
@@ -135,6 +137,57 @@ export class CashSessionsService {
 
     const [data, total] = await qb.getManyAndCount()
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
+  }
+
+  /**
+   * Expected-cash breakdown for a session (BIZ-2.2). Uses the shared
+   * `computeExpectedCash` so it matches the desktop by construction. Cash movements
+   * (cashIn/cashOut) are 0 until BIZ-2.3.
+   */
+  async expectedCash(businessId: string, sessionId: string): Promise<CashSessionExpectedCash> {
+    const session = await this.findById(sessionId, businessId)
+
+    const cashRow = await this.sessionsRepo.manager
+      .createQueryBuilder()
+      .select('COALESCE(SUM(sp.amount), 0)', 'v')
+      .from('sale_payments', 'sp')
+      .innerJoin('sales', 's', 's.id = sp.sale_id')
+      .where('s.cash_session_id = :sessionId', { sessionId })
+      .andWhere('s.business_id = :businessId', { businessId })
+      .andWhere("sp.method = 'CASH'")
+      .andWhere("s.status = 'COMPLETED'")
+      .andWhere('s.deleted_at IS NULL')
+      .getRawOne<{ v: string }>()
+
+    const changeRow = await this.sessionsRepo.manager
+      .createQueryBuilder()
+      .select('COALESCE(SUM(s.change_given), 0)', 'v')
+      .from('sales', 's')
+      .where('s.cash_session_id = :sessionId', { sessionId })
+      .andWhere('s.business_id = :businessId', { businessId })
+      .andWhere("s.status = 'COMPLETED'")
+      .andWhere('s.deleted_at IS NULL')
+      .getRawOne<{ v: string }>()
+
+    const cashPayments = Number(cashRow?.v ?? 0)
+    const changeGiven = Number(changeRow?.v ?? 0)
+    const cashIn = 0 // BIZ-2.3
+    const cashOut = 0 // BIZ-2.3
+    return {
+      sessionId,
+      openingFloat: session.openingFloat,
+      cashPayments,
+      changeGiven,
+      cashIn,
+      cashOut,
+      expectedCash: computeExpectedCash({
+        openingFloat: session.openingFloat,
+        cashPayments,
+        changeGiven,
+        cashIn,
+        cashOut,
+      }),
+    }
   }
 
   // --- Sync apply (device → server) -----------------------------------------

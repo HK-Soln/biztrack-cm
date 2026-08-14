@@ -4488,6 +4488,7 @@ export class SyncService {
       priceDriftWarning: record.priceDriftWarning,
       saleDate: record.saleDate,
       soldAt: record.soldAt.toISOString(),
+      cashSessionId: record.cashSessionId ?? null,
       syncedAt: record.syncedAt?.toISOString() ?? null,
       voidedAt: record.voidedAt?.toISOString() ?? null,
       voidedById: record.voidedById ?? null,

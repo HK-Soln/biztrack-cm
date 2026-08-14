@@ -397,6 +397,8 @@ export interface SaleSyncRecord extends SyncRecord {
   priceDriftWarning: boolean
   saleDate: string
   soldAt: string
+  /** The cash session (shift) this sale was rung in, or null ("vente hors caisse"). BIZ-2.2. */
+  cashSessionId?: string | null
   syncedAt?: string | null
   voidedAt?: string | null
   voidedById?: string | null
@@ -902,6 +904,8 @@ export interface SaleSyncPayload {
   clientId: string
   saleNumber: string
   soldAt: string
+  /** The cash session (shift) this sale was rung in, or null. BIZ-2.2. */
+  cashSessionId?: string | null
   cashierId?: string | null
   cashierName?: string | null
   fallbackCashierId?: string | null

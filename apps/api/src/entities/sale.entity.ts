@@ -151,6 +151,11 @@ export class Sale extends BaseEntity {
   @Column({ name: 'sale_date', type: 'date' })
   saleDate!: string
 
+  // The cash session (shift) this sale was rung in, or null ("vente hors caisse").
+  // Soft ref (no FK) — tags the sale to a shift for cash reconciliation (BIZ-2.2).
+  @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })
+  cashSessionId?: string | null
+
   @Column({ name: 'sold_at', type: 'timestamptz', transformer: dateTransformer })
   soldAt!: Date
 
