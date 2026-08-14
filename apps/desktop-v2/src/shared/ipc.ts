@@ -212,6 +212,10 @@ export const IPC = {
   salesByPayment: 'sales:by-payment-method',
   salesRefunds: 'sales:refunds',
   salesGrossProfit: 'sales:gross-profit',
+  salesDiscountSummary: 'sales:discount-summary',
+  salesDiscountsByCashier: 'sales:discounts-by-cashier',
+  salesDiscountsByProduct: 'sales:discounts-by-product',
+  salesFlaggedDiscounts: 'sales:flagged-discounts',
   salesGet: 'sales:get',
   salesVoid: 'sales:void',
   salesSendReceipt: 'sales:send-receipt',
@@ -237,8 +241,20 @@ export type {
   RefundCashierRow,
 } from '@biztrack/types'
 export type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
+export type {
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
+} from '@biztrack/types'
 import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
 import type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
+import type {
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
+} from '@biztrack/types'
 import type {
   SalesByProductRow,
   SalesByPaymentRow,
@@ -2021,6 +2037,14 @@ export interface BridgeApi {
     ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     /** Product revenue + COGS over the range (feeds the Income Statement). */
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
+    /** Headline discount numbers over the range (Discount Summary report). */
+    discountSummary: (query?: SalesListQuery) => Promise<DiscountSummary>
+    /** Discount total + rate ranked per cashier (Discounts by Cashier report). */
+    discountsByCashier: (query?: SalesListQuery) => Promise<DiscountByCashierRow[]>
+    /** Discount total + margin-after-discount per product (Discounts by Product report). */
+    discountsByProduct: (query?: SalesListQuery) => Promise<DiscountByProductRow[]>
+    /** Over-limit + below-cost discount rows, most recent first (Flagged Discounts report). */
+    flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>

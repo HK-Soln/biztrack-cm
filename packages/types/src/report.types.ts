@@ -80,7 +80,13 @@ export interface ReportKeyValueSection {
   title?: string
   titleFr?: string
   /** `strong` → grand-total styling, `subtotal` → intermediate-total styling, else a plain row. */
-  rows: Array<{ label: string; value: string; strong?: boolean; subtotal?: boolean; tone?: ReportTone }>
+  rows: Array<{
+    label: string
+    value: string
+    strong?: boolean
+    subtotal?: boolean
+    tone?: ReportTone
+  }>
 }
 
 export interface ReportNoteSection {
@@ -257,6 +263,72 @@ export interface SalesByProductRow {
 }
 export interface SalesByProductReportData {
   rows: SalesByProductRow[]
+  currency: string
+}
+
+// ─── Discount reports (BIZ-1.7) ──────────────────────────────────────────────
+export interface DiscountByReasonRow {
+  reasonCode: string | null
+  count: number
+  amount: number
+}
+/** Headline discount numbers for the owner's daily glance. */
+export interface DiscountSummary {
+  totalDiscount: number
+  /** Net sales revenue (booked) — the base for the discount rate. */
+  grossSales: number
+  saleCount: number
+  discountedSaleCount: number
+  unauthorizedCount: number
+  belowCostCount: number
+  byReason: DiscountByReasonRow[]
+}
+export interface DiscountSummaryReportData extends DiscountSummary {
+  currency: string
+}
+
+export interface DiscountByCashierRow {
+  cashierId: string
+  cashierName: string
+  discountTotal: number
+  grossSales: number
+  unauthorizedCount: number
+  discountCount: number
+}
+export interface DiscountByCashierReportData {
+  rows: DiscountByCashierRow[]
+  currency: string
+}
+
+export interface DiscountByProductRow {
+  productId: string
+  name: string
+  category: string | null
+  discountTotal: number
+  discountCount: number
+  revenue: number
+  cogs: number
+}
+export interface DiscountByProductReportData {
+  rows: DiscountByProductRow[]
+  currency: string
+}
+
+/** One flagged discount row — an over-limit (unauthorized) or below-cost sale line. */
+export interface FlaggedDiscountRow {
+  id: string
+  saleId: string
+  saleNumber: string
+  soldAt: string
+  cashierName: string | null
+  amount: number
+  reasonCode: string | null
+  unauthorized: boolean
+  belowCost: boolean
+  authorized: boolean
+}
+export interface FlaggedDiscountReportData {
+  rows: FlaggedDiscountRow[]
   currency: string
 }
 

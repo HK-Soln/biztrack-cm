@@ -26,6 +26,10 @@ export {
   buildInventoryTurnoverReport,
   buildDeadStockReport,
   buildSupplierPriceReport,
+  buildDiscountSummaryReport,
+  buildDiscountByCashierReport,
+  buildDiscountByProductReport,
+  buildFlaggedDiscountsReport,
 } from './report-builders'
 export { purchaseOrderMessageText, rfqMessageText } from './message'
 export { renderOrderStatusEmail } from './order-status-email.template'

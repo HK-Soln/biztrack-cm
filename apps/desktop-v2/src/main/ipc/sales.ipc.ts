@@ -36,6 +36,18 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesByPayment, (_e, query?: SalesListQuery) => sales.byPaymentMethod(query))
   ipcMain.handle(IPC.salesRefunds, (_e, query?: SalesListQuery) => sales.refunds(query))
   ipcMain.handle(IPC.salesGrossProfit, (_e, query?: SalesListQuery) => sales.grossProfit(query))
+  ipcMain.handle(IPC.salesDiscountSummary, (_e, query?: SalesListQuery) =>
+    sales.discountSummary(query),
+  )
+  ipcMain.handle(IPC.salesDiscountsByCashier, (_e, query?: SalesListQuery) =>
+    sales.discountsByCashier(query),
+  )
+  ipcMain.handle(IPC.salesDiscountsByProduct, (_e, query?: SalesListQuery) =>
+    sales.discountsByProduct(query),
+  )
+  ipcMain.handle(IPC.salesFlaggedDiscounts, (_e, query?: SalesListQuery) =>
+    sales.flaggedDiscounts(query),
+  )
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
   ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) =>
     sales.voidSale(saleId, reason),

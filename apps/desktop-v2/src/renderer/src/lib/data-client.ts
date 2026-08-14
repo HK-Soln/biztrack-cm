@@ -171,6 +171,10 @@ import type {
   SyncStatus,
   TitleBarOverlayColors,
   RoleDiscountLimits,
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
 } from '@shared/ipc'
 
 // The renderer's single data dependency. In Electron it resolves to the IPC bridge
@@ -386,6 +390,10 @@ export interface DataClient {
       query?: SalesListQuery,
     ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
+    discountSummary: (query?: SalesListQuery) => Promise<DiscountSummary>
+    discountsByCashier: (query?: SalesListQuery) => Promise<DiscountByCashierRow[]>
+    discountsByProduct: (query?: SalesListQuery) => Promise<DiscountByProductRow[]>
+    flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
     sendReceipt: (
@@ -726,6 +734,10 @@ function electronAdapter(): DataClient {
       byPaymentMethod: (query) => window.api.sales.byPaymentMethod(query),
       refunds: (query) => window.api.sales.refunds(query),
       grossProfit: (query) => window.api.sales.grossProfit(query),
+      discountSummary: (query) => window.api.sales.discountSummary(query),
+      discountsByCashier: (query) => window.api.sales.discountsByCashier(query),
+      discountsByProduct: (query) => window.api.sales.discountsByProduct(query),
+      flaggedDiscounts: (query) => window.api.sales.flaggedDiscounts(query),
       get: (id) => window.api.sales.get(id),
       void: (saleId, reason) => window.api.sales.void(saleId, reason),
       sendReceipt: (saleId, channel, locale, opts) =>

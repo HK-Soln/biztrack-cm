@@ -12,6 +12,10 @@ import type { DatabaseService } from '@biztrack/electron-core'
 import type {
   CashierPerformanceRow,
   DailySalesRow,
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
   LocalSale,
   LocalSaleDetail,
   LocalSaleItem,
@@ -1220,6 +1224,203 @@ export class SalesService {
       quantity: Number(r.quantity ?? 0),
       revenue: toWholeXaf(Number(r.revenue ?? 0)),
       cogs: toWholeXaf(Number(r.cogs ?? 0)),
+    }))
+  }
+
+  // ── Discount reports (BIZ-1.7) ────────────────────────────────────────────
+  // All read the LOCAL sale_discounts rows written at checkout, joined to sales for
+  // the sale_date period filter (parity with the other report methods). Gross sales
+  // is booked net revenue (SUM(total_amount)); the discount rate is discount / gross.
+
+  /** Headline discount figures for the range (Discount Summary report). */
+  discountSummary(query: SalesListQuery = {}): DiscountSummary {
+    const empty: DiscountSummary = {
+      totalDiscount: 0,
+      grossSales: 0,
+      saleCount: 0,
+      discountedSaleCount: 0,
+      unauthorizedCount: 0,
+      belowCostCount: 0,
+      byReason: [],
+    }
+    const businessId = this.getBusinessId()
+    if (!businessId) return empty
+    const { where, params } = this.reportWhere(businessId, query)
+
+    const disc = this.db.get<{
+      total: number
+      discountedSales: number
+      unauthorized: number
+      belowCost: number
+    }>(
+      `SELECT COALESCE(SUM(sd.amount), 0) AS total,
+              COUNT(DISTINCT sd.sale_id) AS discountedSales,
+              COALESCE(SUM(sd.unauthorized), 0) AS unauthorized,
+              COALESCE(SUM(sd.below_cost), 0) AS belowCost
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'`,
+      params,
+    )
+    const gross = this.db.get<{ gross: number; saleCount: number }>(
+      `SELECT COALESCE(SUM(s.total_amount), 0) AS gross, COUNT(*) AS saleCount
+       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+      params,
+    )
+    const byReason = this.db.query<{ reasonCode: string | null; count: number; amount: number }>(
+      `SELECT sd.reason_code AS reasonCode, COUNT(*) AS count, COALESCE(SUM(sd.amount), 0) AS amount
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY sd.reason_code
+       ORDER BY amount DESC`,
+      params,
+    )
+    return {
+      totalDiscount: toWholeXaf(Number(disc?.total ?? 0)),
+      grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
+      saleCount: Number(gross?.saleCount ?? 0),
+      discountedSaleCount: Number(disc?.discountedSales ?? 0),
+      unauthorizedCount: Number(disc?.unauthorized ?? 0),
+      belowCostCount: Number(disc?.belowCost ?? 0),
+      byReason: byReason.map((r) => ({
+        reasonCode: r.reasonCode ?? null,
+        count: Number(r.count ?? 0),
+        amount: toWholeXaf(Number(r.amount ?? 0)),
+      })),
+    }
+  }
+
+  /** Discount total + gross + flagged count per cashier (Discounts by Cashier report). */
+  discountsByCashier(query: SalesListQuery = {}): DiscountByCashierRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    // Discount and gross are aggregated separately to avoid a join fan-out (a sale
+    // with N discount rows would multiply its total_amount N times), then merged.
+    const disc = this.db.query<{
+      cashierId: string
+      cashierName: string | null
+      discountTotal: number
+      unauthorized: number
+      discountCount: number
+    }>(
+      `SELECT s.cashier_id AS cashierId, s.cashier_name AS cashierName,
+              COALESCE(SUM(sd.amount), 0) AS discountTotal,
+              COALESCE(SUM(sd.unauthorized), 0) AS unauthorized,
+              COUNT(*) AS discountCount
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY s.cashier_id, s.cashier_name`,
+      params,
+    )
+    const gross = this.db.query<{ cashierId: string; grossSales: number }>(
+      `SELECT s.cashier_id AS cashierId, COALESCE(SUM(s.total_amount), 0) AS grossSales
+       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY s.cashier_id`,
+      params,
+    )
+    const grossBy = new Map(gross.map((g) => [g.cashierId, toWholeXaf(Number(g.grossSales ?? 0))]))
+    return disc.map((r) => ({
+      cashierId: r.cashierId,
+      cashierName: r.cashierName ?? '—',
+      discountTotal: toWholeXaf(Number(r.discountTotal ?? 0)),
+      grossSales: grossBy.get(r.cashierId) ?? 0,
+      unauthorizedCount: Number(r.unauthorized ?? 0),
+      discountCount: Number(r.discountCount ?? 0),
+    }))
+  }
+
+  /** Discount total + margin-after-discount per product (Discounts by Product report).
+   * Only LINE-scoped discounts map to a product (sale_item_id → sale_items → products);
+   * cart-level discounts have no product and are excluded. */
+  discountsByProduct(query: SalesListQuery = {}): DiscountByProductRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    // Discount per product from the line-scoped discount rows…
+    const disc = this.db.query<{
+      productId: string
+      name: string
+      category: string | null
+      discountTotal: number
+      discountCount: number
+    }>(
+      `SELECT si.product_id AS productId, si.product_name AS name, c.name AS category,
+              COALESCE(SUM(sd.amount), 0) AS discountTotal, COUNT(*) AS discountCount
+       FROM sale_discounts sd
+         JOIN sale_items si ON si.id = sd.sale_item_id
+         JOIN sales s ON s.id = sd.sale_id
+         LEFT JOIN products p ON p.id = si.product_id
+         LEFT JOIN product_categories c ON c.id = p.category_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND sd.sale_item_id IS NOT NULL
+       GROUP BY si.product_id, si.product_name, c.name`,
+      params,
+    )
+    // …and revenue/COGS per product from the line totals, merged in for margin.
+    const rev = this.db.query<{ productId: string; revenue: number; cogs: number }>(
+      `SELECT si.product_id AS productId,
+              COALESCE(SUM(si.line_total), 0) AS revenue,
+              COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0
+       GROUP BY si.product_id`,
+      params,
+    )
+    const revBy = new Map(
+      rev.map((r) => [
+        r.productId,
+        { revenue: toWholeXaf(Number(r.revenue ?? 0)), cogs: toWholeXaf(Number(r.cogs ?? 0)) },
+      ]),
+    )
+    return disc.map((r) => ({
+      productId: r.productId,
+      name: r.name,
+      category: r.category ?? null,
+      discountTotal: toWholeXaf(Number(r.discountTotal ?? 0)),
+      discountCount: Number(r.discountCount ?? 0),
+      revenue: revBy.get(r.productId)?.revenue ?? 0,
+      cogs: revBy.get(r.productId)?.cogs ?? 0,
+    }))
+  }
+
+  /** Over-limit (unauthorized) and below-cost discount rows, most recent first
+   * (Flagged Discounts report — the owner's red list). */
+  flaggedDiscounts(query: SalesListQuery = {}): FlaggedDiscountRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    const rows = this.db.query<{
+      id: string
+      saleId: string
+      saleNumber: string
+      soldAt: string
+      cashierName: string | null
+      amount: number
+      reasonCode: string | null
+      unauthorized: number
+      belowCost: number
+      authorizedBy: string | null
+    }>(
+      `SELECT sd.id AS id, s.id AS saleId, s.sale_number AS saleNumber, s.sold_at AS soldAt,
+              s.cashier_name AS cashierName, sd.amount AS amount, sd.reason_code AS reasonCode,
+              sd.unauthorized AS unauthorized, sd.below_cost AS belowCost,
+              sd.authorized_by AS authorizedBy
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND (sd.unauthorized = 1 OR sd.below_cost = 1)
+       ORDER BY s.sold_at DESC
+       LIMIT 300`,
+      params,
+    )
+    return rows.map((r) => ({
+      id: r.id,
+      saleId: r.saleId,
+      saleNumber: r.saleNumber,
+      soldAt: r.soldAt,
+      cashierName: r.cashierName ?? null,
+      amount: toWholeXaf(Number(r.amount ?? 0)),
+      reasonCode: r.reasonCode ?? null,
+      unauthorized: !!r.unauthorized,
+      belowCost: !!r.belowCost,
+      authorized: !!r.authorizedBy,
     }))
   }
 

@@ -209,6 +209,20 @@ export const cloudSales = {
     ),
   grossProfit: (query?: SalesListQuery): Promise<{ revenue: number; cogs: number }> =>
     cget<{ revenue: number; cogs: number }>(`/sales/gross-profit${qs(saleQuery(query))}`),
+  // Discount reports (BIZ-1.7) are computed from local sale_discounts on the desktop.
+  // No cloud API endpoint yet — return empties so the browser build doesn't 404.
+  discountSummary: async () => ({
+    totalDiscount: 0,
+    grossSales: 0,
+    saleCount: 0,
+    discountedSaleCount: 0,
+    unauthorizedCount: 0,
+    belowCostCount: 0,
+    byReason: [],
+  }),
+  discountsByCashier: async () => [],
+  discountsByProduct: async () => [],
+  flaggedDiscounts: async () => [],
   // The API now mirrors the desktop sale model: serialised lines (serialUnitIds[]),
   // SAVINGS/deposit payments (savingsAccountId), and per-line charges/discounts. The
   // backend derives the sale totals from the lines and persists the breakdown.
