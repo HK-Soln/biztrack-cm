@@ -12,6 +12,7 @@ import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
 import { BrandMark } from '@biztrack/ui/biztrack'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { ShiftChip } from '@/components/layout/ShiftChip'
 import { NotificationToasts } from '@/components/notifications/NotificationToasts'
 import { useNotificationsStore } from '@/stores/notifications.store'
 
@@ -390,6 +391,7 @@ function TopBar() {
       </button>
       <PlanChip now={now} />
       <div className="tb-right">
+        {isElectron && <ShiftChip />}
         {isElectron && <SyncIndicator />}
         <NotificationBell />
         <LanguageToggle />

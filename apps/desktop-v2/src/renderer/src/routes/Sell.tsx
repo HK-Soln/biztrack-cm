@@ -12,7 +12,6 @@ import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
 import { PriceOverrideSheet, type PriceOverrideResult } from '@/components/sell/PriceOverrideSheet'
-import { CashDrawerSheet } from '@/components/sell/CashDrawerSheet'
 import type {
   LocalProduct,
   LocalSaleDetail,
@@ -282,7 +281,6 @@ export function Sell() {
   const [charges, setCharges] = useState<ChargeLine[]>([])
   const [customer, setCustomer] = useState<Cust | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [cashOpen, setCashOpen] = useState(false)
   const [custOpen, setCustOpen] = useState(false)
   // When the customer picker is opened from the payment modal, return to payment once it closes
   // (pick, walk-in, or cancel) instead of dropping the cashier back to the cart.
@@ -920,8 +918,6 @@ export function Sell() {
         />
       ) : null}
 
-      <CashDrawerSheet open={cashOpen} onClose={() => setCashOpen(false)} />
-
       <PriceOverrideSheet
         open={priceEditKey !== null}
         line={
@@ -1352,9 +1348,6 @@ export function Sell() {
           ) : null}
 
           <div className="addcharge">
-            <button type="button" className="ab" onClick={() => setCashOpen(true)}>
-              {t('cash.title')}
-            </button>
             <button type="button" className="ab" onClick={() => setMenuOpen((v) => !v)}>
               {I.plus}
               {t('sell.addCharge')}
