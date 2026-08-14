@@ -13,8 +13,10 @@ export class RoleTracksCashDrawer1785100000000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "roles" ADD COLUMN IF NOT EXISTS "tracks_cash_drawer" boolean NOT NULL DEFAULT false`,
     )
+    // Bump updated_at so offline devices re-pull the flag (LWW skips unchanged rows).
     await queryRunner.query(
-      `UPDATE "roles" SET "tracks_cash_drawer" = true WHERE "is_system" = true AND "name" = 'CASHIER'`,
+      `UPDATE "roles" SET "tracks_cash_drawer" = true, "updated_at" = now()
+       WHERE "is_system" = true AND "name" = 'CASHIER'`,
     )
   }
 
