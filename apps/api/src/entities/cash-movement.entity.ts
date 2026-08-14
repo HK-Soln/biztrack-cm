@@ -40,7 +40,7 @@ export class CashMovement extends BaseEntity {
   @JoinColumn({ name: 'user_id', foreignKeyConstraintName: 'fk_cash_movements_user_id' })
   user?: User
 
-  @Column({ type: 'varchar', length: 20 })
+  @Column({ type: 'varchar', length: 40 })
   kind!: CashMovementKind
 
   @Column({ type: 'varchar', length: 10 })

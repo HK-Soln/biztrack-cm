@@ -1,28 +1,26 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Button, Modal } from '@biztrack/ui/biztrack'
-import {
-  CASH_DENOMINATIONS,
-  CashMovementKind,
-  type CashMovement,
-  type CashSession,
-  type CashSessionExpectedCash,
-} from '@biztrack/types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
+import { CASH_DENOMINATIONS, CashMovementKind, type CashSession } from '@biztrack/types'
 import { formatCurrency } from '@biztrack/utils'
 import { useT } from '@/i18n'
 
 /**
  * Cash-drawer sheet (BIZ-2.3 / 2.4), opened from the nav shift chip. Open a shift with a
- * float, record off-book cash movements (owner draw, drop, change, supplier payment) so
- * the drawer reconciles, see the live expected cash, and close with a blind denomination
- * count that reveals the variance. Desktop-only (the till lives on the device).
+ * float, record off-book cash movements (owner draw, drop, change, supplier payment,
+ * transfers to MoMo/Orange/bank), and close with a blind denomination count that reveals
+ * the variance. The operate view deliberately shows NO expected/running total — the
+ * count is blind. Desktop-only (the till lives on the device).
  */
 
 const MOVEMENT_KINDS: CashMovementKind[] = [
   CashMovementKind.OWNER_DRAW,
-  CashMovementKind.DROP,
+  CashMovementKind.SUPPLIER_PAYMENT,
   CashMovementKind.CHANGE_IN,
   CashMovementKind.CHANGE_OUT,
-  CashMovementKind.SUPPLIER_PAYMENT,
+  CashMovementKind.DROP,
+  CashMovementKind.TRANSFER_TO_MTN_MOMO,
+  CashMovementKind.TRANSFER_TO_ORANGE_MONEY,
+  CashMovementKind.TRANSFER_TO_BANK,
 ]
 
 type Mode = 'operate' | 'count' | 'result'
@@ -31,8 +29,6 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   const t = useT()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<CashSession | null>(null)
-  const [expected, setExpected] = useState<CashSessionExpectedCash | null>(null)
-  const [movements, setMovements] = useState<CashMovement[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -42,12 +38,32 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   const [kind, setKind] = useState<CashMovementKind>(CashMovementKind.OWNER_DRAW)
   const [amountInput, setAmountInput] = useState('')
   const [note, setNote] = useState('')
+  const [recorded, setRecorded] = useState<string | null>(null)
   // Close flow
   const [mode, setMode] = useState<Mode>('operate')
   const [counts, setCounts] = useState<Record<number, string>>({})
   const [closed, setClosed] = useState<CashSession | null>(null)
 
   const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+
+  const kindOptions = useMemo(
+    () =>
+      MOVEMENT_KINDS.map((k) => ({
+        value: k,
+        label: t(`cash.kind.${k}`),
+        sublabel: t(`cash.desc.${k}`),
+      })),
+    [t],
+  )
+  const loadKindOptions = useCallback(
+    async (search: string) => {
+      const s = search.trim().toLowerCase()
+      return kindOptions.filter(
+        (o) => !s || o.label.toLowerCase().includes(s) || o.sublabel.toLowerCase().includes(s),
+      )
+    },
+    [kindOptions],
+  )
 
   const countedTotal = CASH_DENOMINATIONS.reduce(
     (sum, d) => sum + d * Math.max(0, Math.floor(Number(counts[d]) || 0)),
@@ -61,19 +77,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
     }
     setLoading(true)
     try {
-      const current = await api.current()
-      setSession(current)
-      if (current) {
-        const [exp, moves] = await Promise.all([
-          api.expectedCash(current.id),
-          api.listMovements(current.id),
-        ])
-        setExpected(exp)
-        setMovements(moves)
-      } else {
-        setExpected(null)
-        setMovements([])
-      }
+      setSession(await api.current())
     } finally {
       setLoading(false)
     }
@@ -82,31 +86,13 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   useEffect(() => {
     if (open) {
       setError(null)
+      setRecorded(null)
       setMode('operate')
       setCounts({})
       setClosed(null)
       void refresh()
     }
   }, [open, refresh])
-
-  const submitClose = async () => {
-    if (!api || !session || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      const entries = CASH_DENOMINATIONS.map((d) => ({
-        denomination: d,
-        quantity: Math.max(0, Math.floor(Number(counts[d]) || 0)),
-      })).filter((e) => e.quantity > 0)
-      const result = await api.close(session.id, { counts: entries })
-      setClosed(result)
-      setMode('result')
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const openShift = async () => {
     if (!api || busy) return
@@ -136,9 +122,9 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
     setError(null)
     try {
       await api.recordMovement({ kind, amount, note: note.trim() || undefined })
+      setRecorded(`${t(`cash.kind.${kind}`)} · ${formatCurrency(amount)}`)
       setAmountInput('')
       setNote('')
-      await refresh()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -146,10 +132,27 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
     }
   }
 
-  const kindLabel = (k: CashMovementKind): string => t(`cash.kind.${k}`)
+  const submitClose = async () => {
+    if (!api || !session || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const entries = CASH_DENOMINATIONS.map((d) => ({
+        denomination: d,
+        quantity: Math.max(0, Math.floor(Number(counts[d]) || 0)),
+      })).filter((e) => e.quantity > 0)
+      const result = await api.close(session.id, { counts: entries })
+      setClosed(result)
+      setMode('result')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <Modal open={open} onClose={onClose} title={t('cash.title')}>
+    <Modal open={open} onClose={onClose} title={t('cash.title')} dismissable={false}>
       {loading ? (
         <p className="cash-muted">{t('cash.loading')}</p>
       ) : !api ? (
@@ -158,8 +161,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
         <div className="cash-open">
           <p style={{ marginBottom: 12 }}>{t('cash.noShift')}</p>
           <label className="lbl2">{t('cash.openingFloat')}</label>
-          <input
-            className="cash-in"
+          <Input
             type="number"
             min={0}
             inputMode="numeric"
@@ -221,18 +223,15 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
       ) : mode === 'count' ? (
         <div className="cash-shift">
           <label className="lbl2">{t('cash.countTitle')}</label>
-          <p className="cash-muted" style={{ marginTop: -2, marginBottom: 10 }}>
-            {t('cash.countHint')}
-          </p>
-          <div className="denom-grid">
+          <div className="denom-grid" style={{ marginTop: 8 }}>
             {CASH_DENOMINATIONS.map((d) => {
               const qty = Math.max(0, Math.floor(Number(counts[d]) || 0))
               return (
                 <div className="denom-row" key={d}>
                   <span className="denom-face">{formatCurrency(d)}</span>
                   <span className="denom-x">×</span>
-                  <input
-                    className="cash-in denom-qty"
+                  <Input
+                    className="denom-qty"
                     type="number"
                     min={0}
                     inputMode="numeric"
@@ -265,57 +264,20 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
         </div>
       ) : (
         <div className="cash-shift">
-          {expected ? (
-            <div className="cash-expected">
-              <div className="ce-row">
-                <span>{t('cash.openingFloat')}</span>
-                <span>{formatCurrency(expected.openingFloat)}</span>
-              </div>
-              <div className="ce-row">
-                <span>{t('cash.cashSales')}</span>
-                <span>+ {formatCurrency(expected.cashPayments)}</span>
-              </div>
-              {expected.changeGiven > 0 ? (
-                <div className="ce-row">
-                  <span>{t('cash.changeGiven')}</span>
-                  <span>− {formatCurrency(expected.changeGiven)}</span>
-                </div>
-              ) : null}
-              {expected.cashIn > 0 ? (
-                <div className="ce-row">
-                  <span>{t('cash.cashIn')}</span>
-                  <span>+ {formatCurrency(expected.cashIn)}</span>
-                </div>
-              ) : null}
-              {expected.cashOut > 0 ? (
-                <div className="ce-row">
-                  <span>{t('cash.cashOut')}</span>
-                  <span>− {formatCurrency(expected.cashOut)}</span>
-                </div>
-              ) : null}
-              <div className="ce-row grand">
-                <span>{t('cash.expectedCash')}</span>
-                <span>{formatCurrency(expected.expectedCash)}</span>
-              </div>
-            </div>
-          ) : null}
-
           <div className="cash-record">
             <label className="lbl2">{t('cash.recordMovement')}</label>
-            <div className="chips">
-              {MOVEMENT_KINDS.map((k) => (
-                <button
-                  type="button"
-                  key={k}
-                  className={`chip${kind === k ? ' on' : ''}`}
-                  onClick={() => setKind(k)}
-                >
-                  {kindLabel(k)}
-                </button>
-              ))}
-            </div>
-            <input
-              className="cash-in"
+            <CommandSelect
+              value={kind}
+              valueLabel={t(`cash.kind.${kind}`)}
+              onChange={(v) => {
+                if (v) setKind(v as CashMovementKind)
+                setRecorded(null)
+              }}
+              loadOptions={loadKindOptions}
+              placeholder={t('cash.pickKind')}
+              searchPlaceholder={t('cash.searchKind')}
+            />
+            <Input
               type="number"
               min={1}
               inputMode="numeric"
@@ -324,14 +286,18 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               placeholder={t('cash.amount')}
               style={{ marginTop: 10 }}
             />
-            <input
-              className="cash-in"
+            <Input
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder={t('cash.notePlaceholder')}
               style={{ marginTop: 8 }}
             />
+            {recorded ? (
+              <p className="cash-recorded" role="status">
+                ✓ {recorded}
+              </p>
+            ) : null}
             {error ? (
               <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
                 {error}
@@ -343,21 +309,6 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               </Button>
             </div>
           </div>
-
-          {movements.length > 0 ? (
-            <div className="cash-moves">
-              <label className="lbl2">{t('cash.recent')}</label>
-              {movements.slice(0, 8).map((m) => (
-                <div className="cm-row" key={m.id}>
-                  <span className="cm-kind">{kindLabel(m.kind as CashMovementKind)}</span>
-                  {m.note ? <span className="cm-note">{m.note}</span> : null}
-                  <span className={`cm-amt ${m.direction === 'IN' ? 'in' : 'out'}`}>
-                    {m.direction === 'IN' ? '+' : '−'} {formatCurrency(m.amount)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
 
           <div
             style={{
@@ -372,6 +323,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               variant="soft"
               onClick={() => {
                 setError(null)
+                setRecorded(null)
                 setCounts({})
                 setMode('count')
               }}

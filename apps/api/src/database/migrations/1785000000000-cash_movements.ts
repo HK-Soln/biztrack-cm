@@ -20,7 +20,7 @@ export class CashMovements1785000000000 implements MigrationInterface {
         "business_id" uuid NOT NULL,
         "cash_session_id" uuid NOT NULL,
         "user_id" uuid NOT NULL,
-        "kind" character varying(20) NOT NULL,
+        "kind" character varying(40) NOT NULL,
         "direction" character varying(10) NOT NULL,
         "amount" bigint NOT NULL,
         "note" text,

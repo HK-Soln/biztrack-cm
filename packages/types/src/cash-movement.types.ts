@@ -28,6 +28,12 @@ export enum CashMovementKind {
   CHANGE_OUT = 'CHANGE_OUT',
   /** A customer repays a credit/debt in cash — cash into the drawer. */
   CREDIT_REPAYMENT = 'CREDIT_REPAYMENT',
+  /** Cash from the till deposited into the MTN MoMo account. */
+  TRANSFER_TO_MTN_MOMO = 'TRANSFER_TO_MTN_MOMO',
+  /** Cash from the till deposited into the Orange Money account. */
+  TRANSFER_TO_ORANGE_MONEY = 'TRANSFER_TO_ORANGE_MONEY',
+  /** Cash from the till deposited to the bank. */
+  TRANSFER_TO_BANK = 'TRANSFER_TO_BANK',
 }
 
 /** Whether a movement adds to, removes from, or does not affect the drawer. */
@@ -42,6 +48,11 @@ export const CASH_MOVEMENT_DIRECTION: Record<CashMovementKind, CashMovementDirec
   [CashMovementKind.CHANGE_IN]: 'IN',
   [CashMovementKind.CHANGE_OUT]: 'OUT',
   [CashMovementKind.CREDIT_REPAYMENT]: 'IN',
+  // Cash leaves the drawer into another account (the destination-account credit is the
+  // treasury phase; here it is simply cash out of the till).
+  [CashMovementKind.TRANSFER_TO_MTN_MOMO]: 'OUT',
+  [CashMovementKind.TRANSFER_TO_ORANGE_MONEY]: 'OUT',
+  [CashMovementKind.TRANSFER_TO_BANK]: 'OUT',
 }
 
 export function cashMovementDirection(kind: CashMovementKind): CashMovementDirection {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal } from '@biztrack/ui/biztrack'
+import { Button, Input, Modal } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
 
 /**
@@ -61,6 +61,7 @@ export function StartShiftPrompt() {
       open={open}
       onClose={() => setOpen(false)}
       title={t('cash.startPromptTitle')}
+      dismissable={false}
       footer={
         <>
           <Button variant="soft" type="button" onClick={() => setOpen(false)} disabled={busy}>
@@ -74,8 +75,7 @@ export function StartShiftPrompt() {
     >
       <p style={{ marginBottom: 12 }}>{t('cash.startPromptBody')}</p>
       <label className="lbl2">{t('cash.openingFloat')}</label>
-      <input
-        className="cash-in"
+      <Input
         type="number"
         min={0}
         inputMode="numeric"

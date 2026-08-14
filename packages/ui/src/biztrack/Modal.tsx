@@ -13,6 +13,9 @@ export interface ModalProps {
   /** Extra class on the overlay — e.g. to raise its stacking layer above another
    * open modal (a manager step-up prompt must sit above the payment sheet). */
   overlayClassName?: string
+  /** When false, a backdrop click and Escape do NOT close the modal — the user must use
+   * the close icon or an explicit action. Default true. */
+  dismissable?: boolean
   /** When set, body + footer are wrapped in a <form> so Enter submits. Pair the
    * primary footer action with type="submit". */
   onSubmit?: () => void
@@ -26,20 +29,24 @@ export function Modal({
   footer,
   className,
   overlayClassName,
+  dismissable = true,
   onSubmit,
 }: ModalProps) {
   useEffect(() => {
-    if (!open) return
+    if (!open || !dismissable) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, dismissable])
 
   if (!open) return null
   return (
-    <div className={clsx('modal-overlay', overlayClassName)} onMouseDown={onClose}>
+    <div
+      className={clsx('modal-overlay', overlayClassName)}
+      onMouseDown={dismissable ? onClose : undefined}
+    >
       <div
         className={clsx('modal', className)}
         role="dialog"

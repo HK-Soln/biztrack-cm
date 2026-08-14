@@ -9056,19 +9056,11 @@ textarea.input {
   color: var(--text-muted);
   font-size: 13px;
 }
-.cash-in {
-  width: 100%;
-  font: inherit;
-  font-size: 15px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-}
-.cash-in:focus {
-  outline: none;
-  border-color: var(--brand-int);
+.cash-recorded {
+  color: var(--success, #16a34a);
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 8px;
 }
 .cash-expected {
   display: flex;
