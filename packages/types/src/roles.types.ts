@@ -7,6 +7,8 @@ export interface RoleItem {
   isOwnerRole: boolean
   /** Members with this role may set a manager PIN and authorize till step-up. */
   canAuthorize: boolean
+  /** Members with this role run a till — prompted to open a shift at login (BIZ-2.4). */
+  tracksCashDrawer: boolean
   /** Per-role discount limits (BIZ-1.4); null = no limit. */
   maxDiscountPercent: number | null
   maxCartDiscountPercent: number | null
@@ -52,6 +54,7 @@ export interface CreateRoleRequest extends RoleDiscountLimits {
   permissions: string[]
   colour?: string
   canAuthorize?: boolean
+  tracksCashDrawer?: boolean
 }
 
 export interface UpdateRoleRequest extends RoleDiscountLimits {
@@ -59,6 +62,7 @@ export interface UpdateRoleRequest extends RoleDiscountLimits {
   description?: string
   colour?: string
   canAuthorize?: boolean
+  tracksCashDrawer?: boolean
 }
 
 export interface SetRolePermissionsRequest {

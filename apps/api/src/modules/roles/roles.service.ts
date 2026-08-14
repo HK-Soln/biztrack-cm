@@ -84,6 +84,7 @@ export class RolesService {
         isSystem: r.isSystem,
         isOwnerRole: r.isOwnerRole,
         canAuthorize: r.canAuthorize,
+        tracksCashDrawer: r.tracksCashDrawer,
         maxDiscountPercent: r.maxDiscountPercent,
         maxCartDiscountPercent: r.maxCartDiscountPercent,
         maxDiscountAmountXaf: r.maxDiscountAmountXaf,
@@ -115,6 +116,7 @@ export class RolesService {
       isSystem: role.isSystem,
       isOwnerRole: role.isOwnerRole,
       canAuthorize: role.canAuthorize,
+      tracksCashDrawer: role.tracksCashDrawer,
       maxDiscountPercent: role.maxDiscountPercent,
       maxCartDiscountPercent: role.maxCartDiscountPercent,
       maxDiscountAmountXaf: role.maxDiscountAmountXaf,
@@ -222,6 +224,7 @@ export class RolesService {
       isSystem: false,
       isOwnerRole: false,
       canAuthorize: dto.canAuthorize ?? false,
+      tracksCashDrawer: dto.tracksCashDrawer ?? false,
       maxDiscountPercent: dto.maxDiscountPercent ?? null,
       maxCartDiscountPercent: dto.maxCartDiscountPercent ?? null,
       maxDiscountAmountXaf: dto.maxDiscountAmountXaf ?? null,
@@ -274,6 +277,7 @@ export class RolesService {
       ...(dto.description !== undefined && { description: dto.description }),
       ...(dto.colour !== undefined && { colour: dto.colour }),
       ...(dto.canAuthorize !== undefined && { canAuthorize: dto.canAuthorize }),
+      ...(dto.tracksCashDrawer !== undefined && { tracksCashDrawer: dto.tracksCashDrawer }),
       ...(dto.maxDiscountPercent !== undefined && { maxDiscountPercent: dto.maxDiscountPercent }),
       ...(dto.maxCartDiscountPercent !== undefined && {
         maxCartDiscountPercent: dto.maxCartDiscountPercent,
@@ -429,6 +433,7 @@ export class RolesService {
         isOwnerRole: true,
         canAuthorize: true,
         allowBelowCost: true,
+        tracksCashDrawer: false,
       },
       {
         name: 'MANAGER',
@@ -436,6 +441,7 @@ export class RolesService {
         isOwnerRole: false,
         canAuthorize: true,
         allowBelowCost: true,
+        tracksCashDrawer: false,
       },
       {
         name: 'CASHIER',
@@ -443,6 +449,7 @@ export class RolesService {
         isOwnerRole: false,
         canAuthorize: false,
         allowBelowCost: false,
+        tracksCashDrawer: true,
       },
       {
         name: 'ACCOUNTANT',
@@ -450,6 +457,7 @@ export class RolesService {
         isOwnerRole: false,
         canAuthorize: false,
         allowBelowCost: false,
+        tracksCashDrawer: false,
       },
     ]
 
@@ -462,6 +470,7 @@ export class RolesService {
         isOwnerRole: def.isOwnerRole,
         canAuthorize: def.canAuthorize,
         allowBelowCost: def.allowBelowCost,
+        tracksCashDrawer: def.tracksCashDrawer,
         colour: null,
         createdBy: null,
       })

@@ -51,6 +51,11 @@ export class Role extends TypeOrmBaseEntity {
   @Column({ name: 'can_authorize', default: false })
   canAuthorize!: boolean
 
+  // Members of this role run a till: prompt to open a shift at login, show the shift
+  // control in the nav, tag their sales to the open cash session (BIZ-2.4).
+  @Column({ name: 'tracks_cash_drawer', default: false })
+  tracksCashDrawer!: boolean
+
   // Per-role discount limits (BIZ-1.4). NULL = no limit. A discount beyond these
   // still completes but is flagged unauthorized until a manager PIN clears it.
   @Column({

@@ -30,6 +30,7 @@ export function RoleForm() {
   const [description, setDescription] = useState('')
   const [colour, setColour] = useState(COLOURS[0])
   const [canAuthorize, setCanAuthorize] = useState(false)
+  const [tracksCashDrawer, setTracksCashDrawer] = useState(false)
   const [maxDiscountPercent, setMaxDiscountPercent] = useState('')
   const [maxCartDiscountPercent, setMaxCartDiscountPercent] = useState('')
   const [maxDiscountAmountXaf, setMaxDiscountAmountXaf] = useState('')
@@ -47,6 +48,7 @@ export function RoleForm() {
       setDescription(roleQ.data.description ?? '')
       setColour(roleQ.data.colour || COLOURS[0])
       setCanAuthorize(!!roleQ.data.canAuthorize)
+      setTracksCashDrawer(!!roleQ.data.tracksCashDrawer)
       setMaxDiscountPercent(
         roleQ.data.maxDiscountPercent != null ? String(roleQ.data.maxDiscountPercent) : '',
       )
@@ -110,6 +112,7 @@ export function RoleForm() {
           description: description.trim() || undefined,
           colour,
           canAuthorize,
+          tracksCashDrawer,
           ...limits,
         })
         // The owner role's permissions are immutable — don't attempt to set them.
@@ -121,6 +124,7 @@ export function RoleForm() {
           colour,
           permissions: [...perms],
           canAuthorize,
+          tracksCashDrawer,
           ...limits,
         })
       }
@@ -283,6 +287,22 @@ export function RoleForm() {
                   />
                   <span className="help" style={{ margin: 0 }}>
                     {t('roles.authHint')}
+                  </span>
+                </label>
+              </div>
+              <div className="ff">
+                <label className="lbl2">{t('roles.drawerTitle')}</label>
+                <label
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={tracksCashDrawer}
+                    onChange={(e) => setTracksCashDrawer(e.target.checked)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span className="help" style={{ margin: 0 }}>
+                    {t('roles.drawerHint')}
                   </span>
                 </label>
               </div>

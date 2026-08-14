@@ -42,6 +42,11 @@ export class UpdateRoleDto implements UpdateRoleRequest {
   @IsBoolean()
   canAuthorize?: boolean
 
+  @ApiProperty({ required: false, description: 'Members run a till (prompt to open a shift).' })
+  @IsOptional()
+  @IsBoolean()
+  tracksCashDrawer?: boolean
+
   @ApiProperty({ required: false, description: 'Max line discount % (null = no limit).' })
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)

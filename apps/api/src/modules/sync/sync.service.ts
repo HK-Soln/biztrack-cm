@@ -4723,6 +4723,7 @@ export class SyncService {
       isSystem: record.isSystem,
       isOwnerRole: record.isOwnerRole,
       canAuthorize: record.canAuthorize ?? false,
+      tracksCashDrawer: record.tracksCashDrawer ?? false,
       maxDiscountPercent: record.maxDiscountPercent ?? null,
       maxCartDiscountPercent: record.maxCartDiscountPercent ?? null,
       maxDiscountAmountXaf: record.maxDiscountAmountXaf ?? null,

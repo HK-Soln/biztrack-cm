@@ -3087,6 +3087,9 @@ export const en = {
   'roles.authTitle': 'Authorization',
   'roles.authHint':
     'Members with this role can set a manager PIN and approve discounts, price overrides and over-limit actions at the till.',
+  'roles.drawerTitle': 'Cash drawer',
+  'roles.drawerHint':
+    'Members with this role run a till — they are prompted to open a shift at login and see the shift control in the nav.',
   'roles.limitsTitle': 'Discount limits',
   'roles.limitsHint':
     'A discount beyond these still completes but is flagged until a manager approves it. Leave blank for no limit.',
@@ -6262,6 +6265,9 @@ export const fr: Record<MessageKey, string> = {
   'roles.authTitle': 'Autorisation',
   'roles.authHint':
     'Les membres de ce rôle peuvent définir un code PIN et approuver les remises, les changements de prix et les actions hors limite en caisse.',
+  'roles.drawerTitle': 'Caisse',
+  'roles.drawerHint':
+    'Les membres de ce rôle tiennent une caisse — ils sont invités à ouvrir une session à la connexion et voient le contrôle de caisse dans la barre de navigation.',
   'roles.limitsTitle': 'Limites de remise',
   'roles.limitsHint':
     'Une remise au-delà de ces limites est tout de même appliquée mais signalée jusqu’à l’approbation d’un responsable. Laisser vide pour aucune limite.',

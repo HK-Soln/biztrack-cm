@@ -324,6 +324,7 @@ const ROLE_MAP: Record<string, string> = {
   is_system: 'isSystem',
   is_owner_role: 'isOwnerRole',
   can_authorize: 'canAuthorize',
+  tracks_cash_drawer: 'tracksCashDrawer',
   max_discount_percent: 'maxDiscountPercent',
   max_cart_discount_percent: 'maxCartDiscountPercent',
   max_discount_amount_xaf: 'maxDiscountAmountXaf',
