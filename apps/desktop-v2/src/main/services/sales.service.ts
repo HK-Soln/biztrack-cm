@@ -1782,6 +1782,29 @@ export class SalesService {
       maxDiscountAmountXaf: null,
     }
     if (!userId) return none
+    // TEMP DIAGNOSTIC (remove after) — dump each link so we can see where the chain breaks.
+    try {
+      const member = this.db.get(
+        `SELECT id, user_id, role_id, role, status, is_deleted FROM business_members WHERE business_id = ? AND user_id = ?`,
+        [businessId, userId],
+      )
+      const roleId = (member as { role_id?: string } | undefined)?.role_id ?? null
+      const role = roleId
+        ? this.db.get(
+            `SELECT id, name, is_deleted, max_discount_percent, max_cart_discount_percent, max_discount_amount_xaf, allow_below_cost, can_authorize FROM roles WHERE id = ?`,
+            [roleId],
+          )
+        : null
+      const rolesInDb = this.db.query(
+        `SELECT id, name, max_discount_percent AS pct, max_cart_discount_percent AS cartpct, max_discount_amount_xaf AS amt FROM roles WHERE business_id = ?`,
+        [businessId],
+      )
+      // eslint-disable-next-line no-console
+      console.warn('[roleLimits] diag', { businessId, userId, member, role, rolesInDb })
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[roleLimits] diag error', e)
+    }
     const row = this.db.get<{
       max_discount_percent: number | null
       max_cart_discount_percent: number | null
