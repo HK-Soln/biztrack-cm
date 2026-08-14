@@ -332,6 +332,10 @@ const TEAM_MEMBER_MAP: Record<string, string> = {
   id: 'id',
   business_id: 'businessId',
   user_id: 'userId',
+  // The FK to the member's role row. Without it the local business_members.role_id is
+  // NULL, so the roles join in discount-limit / below-cost / PIN checks finds no role
+  // and silently enforces nothing (BIZ-1.4/1.5). Must ride the team-member pull.
+  role_id: 'roleId',
   role: 'role',
   status: 'status',
   name: 'name',
