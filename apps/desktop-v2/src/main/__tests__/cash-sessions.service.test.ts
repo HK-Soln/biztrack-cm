@@ -234,6 +234,48 @@ describe('CashSessionsService', () => {
     expect(svc.listMovements(session.id)).toHaveLength(2)
   })
 
+  it('closes a shift with a blind count and computes the variance (BIZ-2.4)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+    svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 2000 }) // expected = 8000
+
+    // Count exactly 8 000 → zero variance.
+    const closed = svc.closeSession(session.id, {
+      counts: [
+        { denomination: 5000, quantity: 1 },
+        { denomination: 2000, quantity: 1 },
+        { denomination: 1000, quantity: 1 },
+      ],
+    })
+    expect(closed.status).toBe(CashSessionStatus.CLOSED)
+    expect(closed.expectedCash).toBe(8000)
+    expect(closed.countedCash).toBe(8000)
+    expect(closed.varianceCash).toBe(0)
+    expect(closed.closedAt).toBeTruthy()
+
+    // Count lines persisted.
+    const lines = db.query(
+      `SELECT denomination, quantity FROM cash_count_lines WHERE cash_session_id = ?`,
+      [session.id],
+    )
+    expect(lines).toHaveLength(3)
+
+    // A closed shift can't be closed again.
+    expect(() => svc.closeSession(session.id, { counts: [] })).toThrow(/already closed/i)
+  })
+
+  it('flags a short drawer as a negative variance', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+    const closed = svc.closeSession(session.id, {
+      counts: [
+        { denomination: 5000, quantity: 1 },
+        { denomination: 2000, quantity: 2 },
+      ], // 9 000
+    })
+    expect(closed.varianceCash).toBe(-1000) // counted 9 000 vs expected 10 000
+  })
+
   it('refuses a movement when no shift is open', () => {
     const svc = makeService(db)
     expect(() => svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 1000 })).toThrow(

@@ -7,6 +7,7 @@ import {
   type CashMovement,
   type CashSession,
   type CashSessionExpectedCash,
+  type CloseCashSessionInput,
   type RecordCashMovementInput,
 } from '@biztrack/types'
 import { computeExpectedCash } from '@biztrack/utils'
@@ -173,6 +174,114 @@ export class CashSessionsService {
         cashOut,
       }),
     }
+  }
+
+  /**
+   * Close a shift (BIZ-2.4). The cashier submits a blind denomination count for cash and,
+   * optionally, the confirmed MoMo/Orange balances read off the phone. Persists the count
+   * lines, snapshots expected cash, computes the variance (counted − expected), and moves
+   * the session to CLOSED. A closed session is immutable to every role thereafter.
+   */
+  closeSession(sessionId: string, input: CloseCashSessionInput): CashSession {
+    const businessId = this.getBusinessId()
+    if (!businessId) throw new Error('No active business.')
+    const session = this.get(sessionId)
+    if (!session) throw new Error('Cash session not found.')
+    if (isCashSessionLocked(session.status)) {
+      throw new Error('This cash session is already closed.')
+    }
+
+    const expectedCashTotal = this.expectedCash(sessionId)?.expectedCash ?? session.openingFloat
+    const counted = input.counts.reduce(
+      (sum, c) => sum + Math.round(c.denomination) * Math.max(0, Math.round(c.quantity)),
+      0,
+    )
+    const variance = counted - expectedCashTotal
+
+    // Expected MoMo/Orange for the shift (reconciled per tender, never blended with cash).
+    const tender = this.db.get<{ momo: number; orange: number }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN sp.method = 'MTN_MOMO' THEN sp.amount ELSE 0 END), 0) AS momo,
+         COALESCE(SUM(CASE WHEN sp.method = 'ORANGE_MONEY' THEN sp.amount ELSE 0 END), 0) AS orange
+       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+       WHERE s.cash_session_id = ? AND s.business_id = ? AND s.status = 'COMPLETED' AND s.is_deleted = 0`,
+      [sessionId, businessId],
+    )
+
+    const now = new Date().toISOString()
+    for (const c of input.counts) {
+      const qty = Math.max(0, Math.round(c.quantity))
+      if (qty <= 0) continue
+      const lineId = randomUUID()
+      this.db.run(
+        `INSERT INTO cash_count_lines
+          (id, cash_session_id, denomination, quantity, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?)`,
+        [lineId, sessionId, Math.round(c.denomination), qty, now, now],
+      )
+      this.pushCountLine(lineId)
+    }
+
+    this.db.run(
+      `UPDATE cash_sessions SET
+         status = 'CLOSED', closed_at = ?, closed_reason = 'NORMAL',
+         expected_cash = ?, counted_cash = ?, variance_cash = ?,
+         expected_mtn_momo = ?, confirmed_mtn_momo = ?,
+         expected_orange_money = ?, confirmed_orange_money = ?,
+         closing_note = COALESCE(?, closing_note), recount_used = ?, updated_at = ?
+       WHERE id = ? AND business_id = ?`,
+      [
+        now,
+        expectedCashTotal,
+        counted,
+        variance,
+        tender?.momo ?? 0,
+        input.confirmedMtnMomo ?? null,
+        tender?.orange ?? 0,
+        input.confirmedOrangeMoney ?? null,
+        input.closingNote ?? null,
+        input.recountUsed ? 1 : 0,
+        now,
+        sessionId,
+        businessId,
+      ],
+    )
+    this.push(sessionId, businessId)
+    this.onMutated()
+    return this.get(sessionId) as CashSession
+  }
+
+  private pushCountLine(id: string): void {
+    const row = this.db.get<{
+      id: string
+      cash_session_id: string
+      denomination: number
+      quantity: number
+      created_at: string
+      updated_at: string
+    }>(
+      `SELECT id, cash_session_id, denomination, quantity, created_at, updated_at
+       FROM cash_count_lines WHERE id = ?`,
+      [id],
+    )
+    if (!row) return
+    const rec = {
+      id: row.id,
+      cashSessionId: row.cash_session_id,
+      denomination: row.denomination,
+      quantity: row.quantity,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+    const now = new Date().toISOString()
+    this.db.run(
+      `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
+       VALUES (?, 'cashCountLines', ?, 'UPSERT', ?, 'pending', 0, ?, ?)
+       ON CONFLICT(entity, record_id) DO UPDATE SET
+         operation = excluded.operation, payload = excluded.payload, status = 'pending',
+         attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+      [randomUUID(), id, JSON.stringify(rec), now, now],
+    )
   }
 
   /**

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import {
+  CashSessionClosedReason,
   CashSessionStatus,
   canTransitionCashSession,
   cashMovementDirection,
@@ -11,6 +12,7 @@ import {
   type CashMovementSyncRecord,
   type CashSessionExpectedCash,
   type CashSessionSyncRecord,
+  type CloseCashSessionInput,
   type JwtPayload,
   type PaginatedResult,
   type RecordCashMovementInput,
@@ -107,6 +109,70 @@ export class CashSessionsService {
     session.status = dto.status
     if (dto.closingNote !== undefined) session.closingNote = dto.closingNote
     if (dto.status === CashSessionStatus.CLOSED) session.closedAt = new Date()
+    return this.sessionsRepo.save(session)
+  }
+
+  async closeSession(
+    businessId: string,
+    sessionId: string,
+    input: CloseCashSessionInput,
+  ): Promise<CashSession> {
+    const session = await this.findById(sessionId, businessId)
+    if (isCashSessionLocked(session.status)) {
+      throw new AppBadRequestException(
+        'This cash session is already closed.',
+        'CASH_SESSION_LOCKED',
+      )
+    }
+
+    const expected = (await this.expectedCash(businessId, sessionId)).expectedCash
+    const counted = input.counts.reduce(
+      (sum, c) => sum + Math.round(c.denomination) * Math.max(0, Math.round(c.quantity)),
+      0,
+    )
+
+    const tender = await this.sessionsRepo.manager
+      .createQueryBuilder()
+      .select(
+        `COALESCE(SUM(CASE WHEN sp.method = 'MTN_MOMO' THEN sp.amount ELSE 0 END), 0)`,
+        'momo',
+      )
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN sp.method = 'ORANGE_MONEY' THEN sp.amount ELSE 0 END), 0)`,
+        'orange',
+      )
+      .from('sale_payments', 'sp')
+      .innerJoin('sales', 's', 's.id = sp.sale_id')
+      .where('s.cash_session_id = :sessionId', { sessionId })
+      .andWhere('s.business_id = :businessId', { businessId })
+      .andWhere("s.status = 'COMPLETED'")
+      .andWhere('s.deleted_at IS NULL')
+      .getRawOne<{ momo: string; orange: string }>()
+
+    for (const c of input.counts) {
+      const qty = Math.max(0, Math.round(c.quantity))
+      if (qty <= 0) continue
+      await this.countLinesRepo.save(
+        this.countLinesRepo.create({
+          cashSessionId: sessionId,
+          denomination: Math.round(c.denomination),
+          quantity: qty,
+        }),
+      )
+    }
+
+    session.status = CashSessionStatus.CLOSED
+    session.closedAt = new Date()
+    session.closedReason = CashSessionClosedReason.NORMAL
+    session.expectedCash = expected
+    session.countedCash = counted
+    session.varianceCash = counted - expected
+    session.expectedMtnMomo = Number(tender?.momo ?? 0)
+    session.confirmedMtnMomo = input.confirmedMtnMomo ?? null
+    session.expectedOrangeMoney = Number(tender?.orange ?? 0)
+    session.confirmedOrangeMoney = input.confirmedOrangeMoney ?? null
+    if (input.closingNote !== undefined) session.closingNote = input.closingNote
+    session.recountUsed = input.recountUsed ?? false
     return this.sessionsRepo.save(session)
   }
 

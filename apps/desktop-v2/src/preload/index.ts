@@ -276,6 +276,7 @@ const api: BridgeApi = {
     expectedCash: (id) => ipcRenderer.invoke(IPC.cashSessionsExpectedCash, id),
     recordMovement: (input) => ipcRenderer.invoke(IPC.cashSessionsRecordMovement, input),
     listMovements: (sessionId) => ipcRenderer.invoke(IPC.cashSessionsListMovements, sessionId),
+    close: (id, input) => ipcRenderer.invoke(IPC.cashSessionsClose, id, input),
   },
   online: {
     getStore: () => ipcRenderer.invoke(IPC.onlineStoreGet),

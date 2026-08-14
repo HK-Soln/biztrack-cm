@@ -6,6 +6,7 @@ import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import type { CashSession } from '@/entities/cash-session.entity'
 import type { CashMovement } from '@/entities/cash-movement.entity'
 import {
+  CloseCashSessionDto,
   ListCashSessionsQueryDto,
   OpenCashSessionDto,
   RecordCashMovementDto,
@@ -69,6 +70,16 @@ export class CashSessionsController {
     @Body() dto: TransitionCashSessionDto,
   ): Promise<CashSession> {
     return this.cashSessions.transition(user.businessId as string, id, dto)
+  }
+
+  @Post(':id/close')
+  @ApiOperation({ summary: 'Close a shift with a blind denomination count' })
+  close(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CloseCashSessionDto,
+  ): Promise<CashSession> {
+    return this.cashSessions.closeSession(user.businessId as string, id, dto)
   }
 
   @Post(':id/movements')

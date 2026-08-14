@@ -109,6 +109,26 @@ export interface CashCountLine {
   quantity: number
 }
 
+/** One denomination the cashier counted at close (BIZ-2.4). */
+export interface CashCountEntry {
+  denomination: CashDenomination | number
+  quantity: number
+}
+
+/**
+ * Close-a-shift input (BIZ-2.4). The cashier submits a blind denomination count for cash
+ * and (optionally) the confirmed MoMo/Orange balances read off the phone. The expected
+ * total is never shown before submission; the service reveals the variance in the result.
+ */
+export interface CloseCashSessionInput {
+  counts: CashCountEntry[]
+  confirmedMtnMomo?: number | null
+  confirmedOrangeMoney?: number | null
+  closingNote?: string
+  /** True if the cashier used their one allowed re-count before submitting. */
+  recountUsed?: boolean
+}
+
 /**
  * Expected-cash breakdown for a session (BIZ-2.2) — the drawer reconciliation figure
  * plus its components, so the close screen can explain the number. `cashIn`/`cashOut`

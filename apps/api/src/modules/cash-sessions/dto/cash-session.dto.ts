@@ -1,5 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator'
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import { Type } from 'class-transformer'
 import { CashMovementKind, CashSessionStatus } from '@biztrack/types'
 
@@ -61,6 +70,47 @@ export class RecordCashMovementDto {
   @IsOptional()
   @IsUUID()
   referenceId?: string
+}
+
+export class CashCountEntryDto {
+  @ApiPropertyOptional()
+  @IsInt()
+  @Min(1)
+  denomination!: number
+
+  @ApiPropertyOptional()
+  @IsInt()
+  @Min(0)
+  quantity!: number
+}
+
+export class CloseCashSessionDto {
+  @ApiPropertyOptional({ type: [CashCountEntryDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CashCountEntryDto)
+  counts!: CashCountEntryDto[]
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  confirmedMtnMomo?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  confirmedOrangeMoney?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  closingNote?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  recountUsed?: boolean
 }
 
 export class ListCashSessionsQueryDto {
