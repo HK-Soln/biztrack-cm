@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import { ContactStatementEntryType } from '@biztrack/types'
+import { CashMovementKind, ContactStatementEntryType } from '@biztrack/types'
 import type {
   AgeingEntry,
   AgeingReport,
@@ -67,6 +67,14 @@ export class DebtsService {
     private readonly onMutated: () => void,
     private readonly getActorId: () => string | null,
     private readonly audit?: AuditLogger,
+    /** Records a cash_movement against the open shift when a debt is paid in cash
+     * (BIZ-2.3) — so the drawer reconciles against debt payments, not just sales. */
+    private readonly recordCashMovement: (input: {
+      kind: CashMovementKind
+      amount: number
+      referenceType?: string | null
+      referenceId?: string | null
+    }) => void = () => {},
   ) {}
 
   /** Create a debt from a source transaction (e.g. a credit restock → supplier payable).
@@ -209,6 +217,21 @@ export class DebtsService {
     ])
 
     this.enqueue(debtId, businessId, now)
+
+    // A cash payment moves the physical drawer: a customer settling a receivable is cash
+    // IN (CREDIT_REPAYMENT); paying a supplier payable is cash OUT (SUPPLIER_PAYMENT).
+    if (input.method === 'CASH') {
+      this.recordCashMovement({
+        kind:
+          debt.direction === 'PAYABLE'
+            ? CashMovementKind.SUPPLIER_PAYMENT
+            : CashMovementKind.CREDIT_REPAYMENT,
+        amount,
+        referenceType: 'debt',
+        referenceId: debtId,
+      })
+    }
+
     this.onMutated()
     this.audit?.log({
       action: 'UPDATE',

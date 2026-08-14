@@ -331,6 +331,9 @@ app.whenReady().then(() => {
     () => void sync.sync(),
     () => authService.getSession().user?.id ?? null,
     audit,
+    // Cash debt payments feed the open shift's drawer (BIZ-2.3). `cashSessions` is created
+    // below; this closure only runs at payment time, by which point it is initialised.
+    (input) => void cashSessions.recordAutoMovement(input),
   )
   registerDebtsIpc(debts)
 

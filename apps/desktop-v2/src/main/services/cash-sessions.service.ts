@@ -3,6 +3,7 @@ import {
   CashSessionStatus,
   canTransitionCashSession,
   cashMovementDirection,
+  CashMovementKind,
   isCashSessionLocked,
   type CashMovement,
   type CashSession,
@@ -342,6 +343,53 @@ export class CashSessionsService {
     this.pushMovement(id)
     this.onMutated()
     return this.getMovement(id) as CashMovement
+  }
+
+  /**
+   * Record a cash_movement for the CURRENT open shift from another flow (a debt/expense/
+   * deposit paid in cash), so the drawer reconciles against ALL cash — not just sales.
+   * No-op (returns null) when no shift is open or the amount is not positive.
+   */
+  recordAutoMovement(input: {
+    kind: CashMovementKind
+    amount: number
+    note?: string | null
+    referenceType?: string | null
+    referenceId?: string | null
+  }): CashMovement | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const session = this.getCurrent()
+    if (!session) return null
+    const amount = Math.round(input.amount)
+    if (!Number.isFinite(amount) || amount <= 0) return null
+
+    const id = randomUUID()
+    const direction = cashMovementDirection(input.kind)
+    const now = new Date().toISOString()
+    this.db.run(
+      `INSERT INTO cash_movements
+        (id, business_id, cash_session_id, user_id, kind, direction, amount, note,
+         reference_type, reference_id, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        id,
+        businessId,
+        session.id,
+        this.getUserId(),
+        input.kind,
+        direction,
+        amount,
+        input.note ?? null,
+        input.referenceType ?? null,
+        input.referenceId ?? null,
+        now,
+        now,
+      ],
+    )
+    this.pushMovement(id)
+    this.onMutated()
+    return this.getMovement(id)
   }
 
   /** Cash movements for a session, newest first. */

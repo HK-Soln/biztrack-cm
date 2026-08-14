@@ -276,6 +276,34 @@ describe('CashSessionsService', () => {
     expect(closed.varianceCash).toBe(-1000) // counted 9 000 vs expected 10 000
   })
 
+  it('auto-records a cash movement from another flow (debt/expense paid in cash)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+
+    // A customer settling a receivable in cash → cash IN.
+    const inMv = svc.recordAutoMovement({
+      kind: CashMovementKind.CREDIT_REPAYMENT,
+      amount: 3000,
+      referenceType: 'debt',
+      referenceId: 'debt-1',
+    })
+    expect(inMv?.direction).toBe('IN')
+    // Paying a supplier payable in cash → cash OUT.
+    svc.recordAutoMovement({ kind: CashMovementKind.SUPPLIER_PAYMENT, amount: 1000 })
+
+    const result = svc.expectedCash(session.id)
+    expect(result?.cashIn).toBe(3000)
+    expect(result?.cashOut).toBe(1000)
+    expect(result?.expectedCash).toBe(12000) // 10000 + 3000 − 1000
+  })
+
+  it('auto-record is a no-op when no shift is open', () => {
+    const svc = makeService(db)
+    expect(
+      svc.recordAutoMovement({ kind: CashMovementKind.CREDIT_REPAYMENT, amount: 3000 }),
+    ).toBeNull()
+  })
+
   it('refuses a movement when no shift is open', () => {
     const svc = makeService(db)
     expect(() => svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 1000 })).toThrow(
