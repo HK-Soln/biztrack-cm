@@ -73,6 +73,7 @@ export function ManagerStepUpModal() {
       open={open}
       onClose={cancel}
       title={t('stepUp.title')}
+      overlayClassName="modal-overlay-top"
       onSubmit={() => void submit(pin)}
       footer={
         <>

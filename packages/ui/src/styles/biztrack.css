@@ -2459,6 +2459,11 @@ body {
   place-items: center;
   padding: 24px;
 }
+/* A modal that must sit above another open modal (e.g. a manager step-up prompt
+   over the payment sheet at z-index 300). */
+.modal-overlay.modal-overlay-top {
+  z-index: 500;
+}
 .modal {
   width: 100%;
   max-width: 460px;
