@@ -9051,6 +9051,90 @@ textarea.input {
   color: var(--on-brand);
 }
 
+/* Cash-drawer sheet (BIZ-2.3) */
+.cash-muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.cash-in {
+  width: 100%;
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.cash-in:focus {
+  outline: none;
+  border-color: var(--brand-int);
+}
+.cash-expected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  margin-bottom: 16px;
+}
+.ce-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.ce-row.grand {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.cash-record .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 2px;
+}
+.cash-moves {
+  margin-top: 16px;
+}
+.cm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-soft, var(--border));
+  font-size: 13.5px;
+}
+.cm-kind {
+  font-weight: 600;
+  color: var(--text);
+}
+.cm-note {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-amt {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.cm-amt.in {
+  color: var(--success, #16a34a);
+}
+.cm-amt.out {
+  color: var(--danger);
+}
+
 .cat-chips .chip {
   flex-shrink: 0;
   font: inherit;
