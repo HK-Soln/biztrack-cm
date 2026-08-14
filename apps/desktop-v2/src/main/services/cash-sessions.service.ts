@@ -2,9 +2,12 @@ import { randomUUID } from 'crypto'
 import {
   CashSessionStatus,
   canTransitionCashSession,
+  cashMovementDirection,
   isCashSessionLocked,
+  type CashMovement,
   type CashSession,
   type CashSessionExpectedCash,
+  type RecordCashMovementInput,
 } from '@biztrack/types'
 import { computeExpectedCash } from '@biztrack/utils'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -143,10 +146,18 @@ export class CashSessionsService {
          AND s.is_deleted = 0`,
       [sessionId, businessId],
     )
+    const movements = this.db.get<{ cin: number; cout: number }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE 0 END), 0) AS cin,
+         COALESCE(SUM(CASE WHEN direction = 'OUT' THEN amount ELSE 0 END), 0) AS cout
+       FROM cash_movements
+       WHERE cash_session_id = ? AND business_id = ? AND is_deleted = 0`,
+      [sessionId, businessId],
+    )
     const cashPayments = cash?.v ?? 0
     const changeGiven = change?.v ?? 0
-    const cashIn = 0 // BIZ-2.3
-    const cashOut = 0 // BIZ-2.3
+    const cashIn = movements?.cin ?? 0
+    const cashOut = movements?.cout ?? 0
     return {
       sessionId,
       openingFloat: session.openingFloat,
@@ -162,6 +173,86 @@ export class CashSessionsService {
         cashOut,
       }),
     }
+  }
+
+  /**
+   * Record a cash movement against the open shift (BIZ-2.3) — owner draw, drop, change
+   * in/out, credit repayment, expense, supplier payment. Requires an open session (the
+   * drawer belongs to a shift). The EXPENSE→Expense P&L bridge is wired in slice 2.
+   */
+  recordMovement(input: RecordCashMovementInput): CashMovement {
+    const businessId = this.getBusinessId()
+    if (!businessId) throw new Error('No active business.')
+    const session = this.getCurrent()
+    if (!session) throw new Error('Open a cash session before recording a cash movement.')
+
+    const amount = Math.round(input.amount)
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be greater than 0.')
+
+    const id = input.id ?? randomUUID()
+    const direction = cashMovementDirection(input.kind)
+    const now = new Date().toISOString()
+    this.db.run(
+      `INSERT INTO cash_movements
+        (id, business_id, cash_session_id, user_id, kind, direction, amount, note,
+         reference_type, reference_id, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        id,
+        businessId,
+        session.id,
+        this.getUserId(),
+        input.kind,
+        direction,
+        amount,
+        input.note ?? null,
+        input.referenceType ?? null,
+        input.referenceId ?? null,
+        now,
+        now,
+      ],
+    )
+    this.pushMovement(id)
+    this.onMutated()
+    return this.getMovement(id) as CashMovement
+  }
+
+  /** Cash movements for a session, newest first. */
+  listMovements(sessionId: string): CashMovement[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    return this.db
+      .query<MovementRow>(
+        `SELECT ${MOVE_COLS} FROM cash_movements
+         WHERE cash_session_id = ? AND business_id = ? AND is_deleted = 0
+         ORDER BY created_at DESC`,
+        [sessionId, businessId],
+      )
+      .map(toCashMovement)
+  }
+
+  private getMovement(id: string): CashMovement | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const row = this.db.get<MovementRow>(
+      `SELECT ${MOVE_COLS} FROM cash_movements WHERE id = ? AND business_id = ?`,
+      [id, businessId],
+    )
+    return row ? toCashMovement(row) : null
+  }
+
+  private pushMovement(id: string): void {
+    const rec = this.getMovement(id)
+    if (!rec) return
+    const now = new Date().toISOString()
+    this.db.run(
+      `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
+       VALUES (?, 'cashMovements', ?, 'UPSERT', ?, 'pending', 0, ?, ?)
+       ON CONFLICT(entity, record_id) DO UPDATE SET
+         operation = excluded.operation, payload = excluded.payload, status = 'pending',
+         attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
+      [randomUUID(), id, JSON.stringify(rec), now, now],
+    )
   }
 
   /** Open a shift. Refuses a second live session on the same till. */
@@ -238,6 +329,41 @@ export class CashSessionsService {
          attempt_count = 0, next_attempt_at = NULL, last_error = NULL, updated_at = excluded.updated_at`,
       [randomUUID(), id, JSON.stringify(rec), now, now],
     )
+  }
+}
+
+interface MovementRow {
+  id: string
+  business_id: string
+  cash_session_id: string
+  user_id: string
+  kind: string
+  direction: string
+  amount: number
+  note: string | null
+  reference_type: string | null
+  reference_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+const MOVE_COLS = `id, business_id, cash_session_id, user_id, kind, direction, amount, note,
+  reference_type, reference_id, created_at, updated_at`
+
+function toCashMovement(r: MovementRow): CashMovement {
+  return {
+    id: r.id,
+    businessId: r.business_id,
+    cashSessionId: r.cash_session_id,
+    userId: r.user_id,
+    kind: r.kind as CashMovement['kind'],
+    direction: r.direction as CashMovement['direction'],
+    amount: r.amount,
+    note: r.note,
+    referenceType: r.reference_type,
+    referenceId: r.reference_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   }
 }
 

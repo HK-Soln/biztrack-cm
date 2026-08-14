@@ -4,17 +4,22 @@ import { Repository } from 'typeorm'
 import {
   CashSessionStatus,
   canTransitionCashSession,
+  cashMovementDirection,
   isCashSessionLocked,
   type CashCountLineSyncRecord,
+  type CashMovement as CashMovementDto,
+  type CashMovementSyncRecord,
   type CashSessionExpectedCash,
   type CashSessionSyncRecord,
   type JwtPayload,
   type PaginatedResult,
+  type RecordCashMovementInput,
 } from '@biztrack/types'
 import { computeExpectedCash } from '@biztrack/utils'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
+import { CashMovement } from '@/entities/cash-movement.entity'
 import {
   OpenCashSessionDto,
   ListCashSessionsQueryDto,
@@ -37,6 +42,8 @@ export class CashSessionsService {
     private readonly sessionsRepo: Repository<CashSession>,
     @InjectRepository(CashCountLine)
     private readonly countLinesRepo: Repository<CashCountLine>,
+    @InjectRepository(CashMovement)
+    private readonly movementsRepo: Repository<CashMovement>,
   ) {}
 
   async openSession(
@@ -169,10 +176,19 @@ export class CashSessionsService {
       .andWhere('s.deleted_at IS NULL')
       .getRawOne<{ v: string }>()
 
+    const moveRow = await this.movementsRepo
+      .createQueryBuilder('m')
+      .select(`COALESCE(SUM(CASE WHEN m.direction = 'IN' THEN m.amount ELSE 0 END), 0)`, 'cin')
+      .addSelect(`COALESCE(SUM(CASE WHEN m.direction = 'OUT' THEN m.amount ELSE 0 END), 0)`, 'cout')
+      .where('m.cash_session_id = :sessionId', { sessionId })
+      .andWhere('m.business_id = :businessId', { businessId })
+      .andWhere('m.deleted_at IS NULL')
+      .getRawOne<{ cin: string; cout: string }>()
+
     const cashPayments = Number(cashRow?.v ?? 0)
     const changeGiven = Number(changeRow?.v ?? 0)
-    const cashIn = 0 // BIZ-2.3
-    const cashOut = 0 // BIZ-2.3
+    const cashIn = Number(moveRow?.cin ?? 0)
+    const cashOut = Number(moveRow?.cout ?? 0)
     return {
       sessionId,
       openingFloat: session.openingFloat,
@@ -188,6 +204,83 @@ export class CashSessionsService {
         cashOut,
       }),
     }
+  }
+
+  // --- Cash movements (BIZ-2.3) ---------------------------------------------
+
+  async recordMovement(
+    businessId: string,
+    user: JwtPayload,
+    sessionId: string,
+    input: RecordCashMovementInput,
+  ): Promise<CashMovement> {
+    const session = await this.findById(sessionId, businessId)
+    if (isCashSessionLocked(session.status)) {
+      throw new AppBadRequestException(
+        'This cash session is closed; no movements can be recorded.',
+        'CASH_SESSION_LOCKED',
+      )
+    }
+    const amount = Math.round(input.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new AppBadRequestException('Amount must be greater than 0.', 'CASH_MOVEMENT_AMOUNT')
+    }
+    return this.movementsRepo.save(
+      this.movementsRepo.create({
+        id: input.id,
+        businessId,
+        cashSessionId: sessionId,
+        userId: user.sub,
+        kind: input.kind,
+        direction: cashMovementDirection(input.kind),
+        amount,
+        note: input.note ?? null,
+        referenceType: input.referenceType ?? null,
+        referenceId: input.referenceId ?? null,
+      }),
+    )
+  }
+
+  async listMovements(businessId: string, sessionId: string): Promise<CashMovement[]> {
+    return this.movementsRepo.find({
+      where: { businessId, cashSessionId: sessionId },
+      order: { createdAt: 'DESC' },
+    })
+  }
+
+  async applyCashMovementOperation(
+    businessId: string,
+    payload: CashMovementSyncRecord,
+  ): Promise<void> {
+    // Movements are append-only; a re-push of the same id is a no-op.
+    const existing = await this.movementsRepo.findOne({ where: { id: payload.id, businessId } })
+    if (existing) return
+    // The parent session must exist first (FK) — a missing parent defers on the client.
+    const parent = await this.sessionsRepo.findOne({
+      where: { id: payload.cashSessionId, businessId },
+    })
+    if (!parent) {
+      throw new AppNotFoundException(
+        'Cash session for this movement was not found.',
+        'CASH_SESSION_NOT_FOUND',
+      )
+    }
+    await this.movementsRepo.save(
+      this.movementsRepo.create({
+        id: payload.id,
+        businessId,
+        cashSessionId: payload.cashSessionId,
+        userId: payload.userId,
+        kind: payload.kind as CashMovementDto['kind'],
+        direction: payload.direction as CashMovementDto['direction'],
+        amount: payload.amount,
+        note: payload.note ?? null,
+        referenceType: payload.referenceType ?? null,
+        referenceId: payload.referenceId ?? null,
+        createdAt: new Date(payload.createdAt),
+        updatedAt: new Date(payload.updatedAt),
+      }),
+    )
   }
 
   // --- Sync apply (device → server) -----------------------------------------
@@ -283,7 +376,7 @@ export class CashSessionsService {
     businessId: string,
     cursor: Date,
     pulledAt: Date,
-  ): Promise<{ sessions: CashSession[]; countLines: CashCountLine[] }> {
+  ): Promise<{ sessions: CashSession[]; countLines: CashCountLine[]; movements: CashMovement[] }> {
     const sessions = await this.sessionsRepo
       .createQueryBuilder('cs')
       .where('cs.business_id = :businessId', { businessId })
@@ -302,6 +395,14 @@ export class CashSessionsService {
       .orderBy('ccl.updated_at', 'ASC')
       .getMany()
 
-    return { sessions, countLines }
+    const movements = await this.movementsRepo
+      .createQueryBuilder('m')
+      .where('m.business_id = :businessId', { businessId })
+      .andWhere('m.updated_at > :cursor', { cursor })
+      .andWhere('m.updated_at <= :pulledAt', { pulledAt })
+      .orderBy('m.updated_at', 'ASC')
+      .getMany()
+
+    return { sessions, countLines, movements }
   }
 }

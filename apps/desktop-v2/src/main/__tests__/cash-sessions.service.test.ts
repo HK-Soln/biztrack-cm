@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { CashSessionStatus } from '@biztrack/types'
+import { CashMovementKind, CashSessionStatus } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
 import { CashSessionsService } from '../services/cash-sessions.service'
@@ -209,6 +209,36 @@ describe('CashSessionsService', () => {
     const result = svc.expectedCash(session.id)
     expect(result?.cashPayments).toBe(2000)
     expect(result?.expectedCash).toBe(7000) // 5000 float + 2000 cash
+  })
+
+  it('records cash movements and folds them into expected cash (BIZ-2.3)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+
+    const draw = svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 3000 })
+    expect(draw.direction).toBe('OUT')
+    svc.recordMovement({ kind: CashMovementKind.CREDIT_REPAYMENT, amount: 1500 }) // cash IN
+
+    const outbox = db.get<{ entity: string }>(
+      `SELECT entity FROM sync_outbox WHERE record_id = ?`,
+      [draw.id],
+    )
+    expect(outbox?.entity).toBe('cashMovements')
+
+    // 10000 float − 3000 owner draw + 1500 repayment = 8500 (no sales).
+    const result = svc.expectedCash(session.id)
+    expect(result?.cashOut).toBe(3000)
+    expect(result?.cashIn).toBe(1500)
+    expect(result?.expectedCash).toBe(8500)
+
+    expect(svc.listMovements(session.id)).toHaveLength(2)
+  })
+
+  it('refuses a movement when no shift is open', () => {
+    const svc = makeService(db)
+    expect(() => svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 1000 })).toThrow(
+      /open a cash session/i,
+    )
   })
 
   it('rejects a non-whole money write at the DB guard', () => {

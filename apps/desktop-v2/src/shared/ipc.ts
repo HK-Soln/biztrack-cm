@@ -140,6 +140,8 @@ export const IPC = {
   cashSessionsOpen: 'cash-sessions:open',
   cashSessionsTransition: 'cash-sessions:transition',
   cashSessionsExpectedCash: 'cash-sessions:expected-cash',
+  cashSessionsRecordMovement: 'cash-sessions:record-movement',
+  cashSessionsListMovements: 'cash-sessions:list-movements',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -1344,6 +1346,8 @@ import type {
   CashSession as CashSessionT,
   CashSessionStatus as CashSessionStatusT,
   CashSessionExpectedCash as CashSessionExpectedCashT,
+  CashMovement as CashMovementT,
+  RecordCashMovementInput as RecordCashMovementInputT,
 } from '@biztrack/types'
 
 export interface DepositsListQuery extends ListQueryT {
@@ -2113,6 +2117,10 @@ export interface BridgeApi {
     transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSessionT>
     /** Expected drawer cash + its breakdown for a session (BIZ-2.2). */
     expectedCash: (id: string) => Promise<CashSessionExpectedCashT | null>
+    /** Record a cash movement against the open shift (BIZ-2.3). */
+    recordMovement: (input: RecordCashMovementInputT) => Promise<CashMovementT>
+    /** Cash movements for a session, newest first. */
+    listMovements: (sessionId: string) => Promise<CashMovementT[]>
   }
   /** Online store / orders — API-only (proxied through main); requires connectivity. */
   online: {

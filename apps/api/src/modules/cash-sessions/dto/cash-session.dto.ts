@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator'
 import { Type } from 'class-transformer'
-import { CashSessionStatus } from '@biztrack/types'
+import { CashMovementKind, CashSessionStatus } from '@biztrack/types'
 
 export class OpenCashSessionDto {
   @ApiPropertyOptional({ description: 'Client-generated UUID (device-first idempotency).' })
@@ -30,6 +30,37 @@ export class TransitionCashSessionDto {
   @IsOptional()
   @IsString()
   closingNote?: string
+}
+
+export class RecordCashMovementDto {
+  @ApiPropertyOptional({ description: 'Client-generated UUID (device-first idempotency).' })
+  @IsOptional()
+  @IsUUID()
+  id?: string
+
+  @ApiPropertyOptional({ enum: CashMovementKind })
+  @IsEnum(CashMovementKind)
+  kind!: CashMovementKind
+
+  @ApiPropertyOptional({ description: 'Positive whole XAF.' })
+  @IsInt()
+  @Min(1)
+  amount!: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  note?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  referenceType?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  referenceId?: string
 }
 
 export class ListCashSessionsQueryDto {

@@ -46,6 +46,7 @@ export type SyncEntity =
   | 'purchase_order'
   | 'cash_session'
   | 'cash_count_line'
+  | 'cash_movement'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -113,6 +114,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   purchase_order: 2,
   cash_session: 2,
   cash_count_line: 3,
+  cash_movement: 3,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -144,6 +146,7 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   purchase_order: 25,
   cash_session: 26,
   cash_count_line: 27,
+  cash_movement: 28,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -206,6 +209,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   // they need no dependency edge here.
   cash_session: [],
   cash_count_line: ['cash_session'],
+  cash_movement: ['cash_session'],
 }
 
 /**
@@ -713,6 +717,19 @@ export interface CashCountLineSyncRecord extends SyncRecord {
   createdAt: string
 }
 
+export interface CashMovementSyncRecord extends SyncRecord {
+  businessId: string
+  cashSessionId: string
+  userId: string
+  kind: string
+  direction: string
+  amount: number
+  note?: string | null
+  referenceType?: string | null
+  referenceId?: string | null
+  createdAt: string
+}
+
 export interface OpeningBalanceSyncPayload {
   contactId: string
   direction: DebtDirection
@@ -764,6 +781,7 @@ export interface ChangeSet {
   savingsTransactions?: SavingsTransactionSyncRecord[]
   cashSessions?: CashSessionSyncRecord[]
   cashCountLines?: CashCountLineSyncRecord[]
+  cashMovements?: CashMovementSyncRecord[]
 }
 
 export interface InventoryThresholdSyncPayload {

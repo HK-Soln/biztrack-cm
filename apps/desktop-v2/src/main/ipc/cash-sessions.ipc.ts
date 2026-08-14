@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import type { RecordCashMovementInput } from '@biztrack/types'
 import {
   IPC,
   type CashSessionsListQuery,
@@ -20,4 +21,10 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
     cashSessions.transition(id, input),
   )
   ipcMain.handle(IPC.cashSessionsExpectedCash, (_e, id: string) => cashSessions.expectedCash(id))
+  ipcMain.handle(IPC.cashSessionsRecordMovement, (_e, input: RecordCashMovementInput) =>
+    cashSessions.recordMovement(input),
+  )
+  ipcMain.handle(IPC.cashSessionsListMovements, (_e, sessionId: string) =>
+    cashSessions.listMovements(sessionId),
+  )
 }

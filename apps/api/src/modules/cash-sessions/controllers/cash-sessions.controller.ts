@@ -4,9 +4,11 @@ import type { CashSessionExpectedCash, JwtPayload, PaginatedResult } from '@bizt
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import type { CashSession } from '@/entities/cash-session.entity'
+import type { CashMovement } from '@/entities/cash-movement.entity'
 import {
   ListCashSessionsQueryDto,
   OpenCashSessionDto,
+  RecordCashMovementDto,
   TransitionCashSessionDto,
 } from '../dto/cash-session.dto'
 import { CashSessionsService } from '../services/cash-sessions.service'
@@ -67,5 +69,21 @@ export class CashSessionsController {
     @Body() dto: TransitionCashSessionDto,
   ): Promise<CashSession> {
     return this.cashSessions.transition(user.businessId as string, id, dto)
+  }
+
+  @Post(':id/movements')
+  @ApiOperation({ summary: 'Record a cash movement against a shift' })
+  recordMovement(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: RecordCashMovementDto,
+  ): Promise<CashMovement> {
+    return this.cashSessions.recordMovement(user.businessId as string, user, id, dto)
+  }
+
+  @Get(':id/movements')
+  @ApiOperation({ summary: 'List cash movements for a shift' })
+  listMovements(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<CashMovement[]> {
+    return this.cashSessions.listMovements(user.businessId as string, id)
   }
 }

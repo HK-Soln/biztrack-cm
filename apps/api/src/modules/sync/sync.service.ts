@@ -37,6 +37,7 @@ import type {
   SavingsTransactionSyncRecord,
   CashSessionSyncRecord,
   CashCountLineSyncRecord,
+  CashMovementSyncRecord,
   SyncBatchStatus,
   SyncBatchStatusResponse,
   SyncEntity,
@@ -102,6 +103,7 @@ import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
+import { CashMovement } from '@/entities/cash-movement.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -1108,6 +1110,7 @@ export class SyncService {
         ),
         cashSessions: cashData.sessions.map((record) => this.toCashSessionSyncRecord(record)),
         cashCountLines: cashData.countLines.map((record) => this.toCashCountLineSyncRecord(record)),
+        cashMovements: cashData.movements.map((record) => this.toCashMovementSyncRecord(record)),
         attributeGroups: attributeGroups.map((record) => ({
           id: record.id,
           businessId: record.businessId,
@@ -1555,6 +1558,7 @@ export class SyncService {
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
       cash_session: (b, o) => this.applyCashSessionOperation(b, o),
       cash_count_line: (b, o) => this.applyCashCountLineOperation(b, o),
+      cash_movement: (b, o) => this.applyCashMovementOperation(b, o),
     }
   }
 
@@ -3738,6 +3742,28 @@ export class SyncService {
     return payload as unknown as CashCountLineSyncRecord
   }
 
+  private async applyCashMovementOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return { status: 'failed', errorMessage: 'Deleting synced cash movements is not supported.' }
+    }
+    const payload = this.readCashMovementPayload(operation.payload)
+    await this.cashSessionsService.applyCashMovementOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private readCashMovementPayload(payload: Record<string, unknown> | null): CashMovementSyncRecord {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Cash movement sync payload is required.',
+        'SYNC_CASH_MOVEMENT_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as unknown as CashMovementSyncRecord
+  }
+
   private readSavingsTransactionPayload(
     payload: Record<string, unknown> | null,
   ): SavingsTransactionSyncPayload {
@@ -4797,6 +4823,25 @@ export class SyncService {
       cashSessionId: record.cashSessionId,
       denomination: record.denomination,
       quantity: record.quantity,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toCashMovementSyncRecord(record: CashMovement): CashMovementSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      cashSessionId: record.cashSessionId,
+      userId: record.userId,
+      kind: record.kind,
+      direction: record.direction,
+      amount: record.amount,
+      note: record.note ?? null,
+      referenceType: record.referenceType ?? null,
+      referenceId: record.referenceId ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,

@@ -93,6 +93,7 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   savingsTransactions: 'savings_transaction',
   cashSessions: 'cash_session',
   cashCountLines: 'cash_count_line',
+  cashMovements: 'cash_movement',
 }
 
 const TERMINAL_BATCH_STATUSES: SyncBatchStatus[] = [
@@ -385,6 +386,20 @@ const CASH_COUNT_LINE_MAP: Record<string, string> = {
   cash_session_id: 'cashSessionId',
   denomination: 'denomination',
   quantity: 'quantity',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const CASH_MOVEMENT_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  cash_session_id: 'cashSessionId',
+  user_id: 'userId',
+  kind: 'kind',
+  direction: 'direction',
+  amount: 'amount',
+  note: 'note',
+  reference_type: 'referenceType',
+  reference_id: 'referenceId',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -811,6 +826,7 @@ export class SyncService {
     pushAll(changes.purchaseOrderItems, 'purchase_order_items', PURCHASE_ORDER_ITEM_MAP)
     pushAll(changes.cashSessions, 'cash_sessions', CASH_SESSION_MAP)
     pushAll(changes.cashCountLines, 'cash_count_lines', CASH_COUNT_LINE_MAP)
+    pushAll(changes.cashMovements, 'cash_movements', CASH_MOVEMENT_MAP)
 
     if (ops.length > 0) {
       try {
