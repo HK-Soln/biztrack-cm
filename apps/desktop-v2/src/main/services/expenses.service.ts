@@ -52,11 +52,21 @@ export class ExpensesService {
     private readonly onMutated: () => void,
     private readonly getActorId: () => string | null,
     private readonly audit?: AuditLogger,
+    /** Records a cash-OUT movement against the open shift when an expense is paid in cash
+     * (BIZ-2.3) — so the drawer reconciles against expenses, not just sales. */
+    private readonly recordCashExpense: (input: {
+      amount: number
+      referenceId: string
+    }) => void = () => {},
   ) {}
 
   list(query: ExpensesListQuery = {}): PaginatedResult<LocalExpense> & { totalAmount: number } {
     const businessId = this.getBusinessId()
-    if (!businessId) return { ...toPaginated<LocalExpense>([], { total: 0, page: 1, limit: 20, totalPages: 1 }), totalAmount: 0 }
+    if (!businessId)
+      return {
+        ...toPaginated<LocalExpense>([], { total: 0, page: 1, limit: 20, totalPages: 1 }),
+        totalAmount: 0,
+      }
     const { where, params } = this.buildWhere(businessId, query)
     const { rows, ...meta } = paginateRows<ExpenseRow>(
       this.db,
@@ -86,23 +96,45 @@ export class ExpensesService {
   get(id: string): LocalExpense | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const row = this.db.get<ExpenseRow>(`SELECT ${E_COLS} FROM expenses e WHERE e.id = ? AND e.business_id = ?`, [id, businessId])
+    const row = this.db.get<ExpenseRow>(
+      `SELECT ${E_COLS} FROM expenses e WHERE e.id = ? AND e.business_id = ?`,
+      [id, businessId],
+    )
     return row ? toLocalExpense(row) : null
   }
 
   /** KPI strip + donut + trend inputs over the filtered period. */
   summary(query: ExpensesListQuery = {}): LocalExpenseSummary {
     const currency = this.businessCurrency()
-    const empty: LocalExpenseSummary = { total: 0, count: 0, previousTotal: 0, changePct: 0, avgPerDay: 0, pendingCount: 0, pendingAmount: 0, largest: null, byCategory: [], currency }
+    const empty: LocalExpenseSummary = {
+      total: 0,
+      count: 0,
+      previousTotal: 0,
+      changePct: 0,
+      avgPerDay: 0,
+      pendingCount: 0,
+      pendingAmount: 0,
+      largest: null,
+      byCategory: [],
+      currency,
+    }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
 
     const { where, params } = this.buildWhere(businessId, { ...query, status: undefined })
-    const agg = this.db.get<{ total: number; n: number }>(`SELECT COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS n FROM expenses e WHERE ${where}`, params)
+    const agg = this.db.get<{ total: number; n: number }>(
+      `SELECT COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS n FROM expenses e WHERE ${where}`,
+      params,
+    )
     const total = round2(agg?.total ?? 0)
     const count = agg?.n ?? 0
 
-    const cats = this.db.query<{ category_id: string | null; name: string | null; color: string | null; amount: number }>(
+    const cats = this.db.query<{
+      category_id: string | null
+      name: string | null
+      color: string | null
+      amount: number
+    }>(
       `SELECT e.category_id,
               (SELECT c.name FROM expense_categories c WHERE c.id = e.category_id) AS name,
               (SELECT c.color FROM expense_categories c WHERE c.id = e.category_id) AS color,
@@ -118,7 +150,10 @@ export class ExpensesService {
       percentage: total > 0 ? Math.round((c.amount / total) * 100) : 0,
     }))
 
-    const pending = this.db.get<{ n: number; amt: number }>(`SELECT COUNT(*) AS n, COALESCE(SUM(e.amount), 0) AS amt FROM expenses e WHERE ${where} AND e.status = 'PENDING'`, params)
+    const pending = this.db.get<{ n: number; amt: number }>(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(e.amount), 0) AS amt FROM expenses e WHERE ${where} AND e.status = 'PENDING'`,
+      params,
+    )
 
     // Previous equal-length period (for the % change badge).
     let previousTotal = 0
@@ -161,7 +196,10 @@ export class ExpensesService {
       [businessId, `${months[0]!.year}-${String(months[0]!.month).padStart(2, '0')}-01`],
     )
     const byYm = new Map(rows.map((r) => [r.ym, round2(r.total)]))
-    return months.map((m) => ({ ...m, total: byYm.get(`${m.year}-${String(m.month).padStart(2, '0')}`) ?? 0 }))
+    return months.map((m) => ({
+      ...m,
+      total: byYm.get(`${m.year}-${String(m.month).padStart(2, '0')}`) ?? 0,
+    }))
   }
 
   create(input: ExpenseInput): LocalExpense {
@@ -178,7 +216,10 @@ export class ExpensesService {
     const expenseDate = input.expenseDate?.trim() || now.slice(0, 10)
     const currency = this.businessCurrency()
     const status = input.status === 'PENDING' ? 'PENDING' : 'PAID'
-    const categoryName = this.db.get<{ name: string }>(`SELECT name FROM expense_categories WHERE id = ?`, [input.categoryId])?.name ?? ''
+    const categoryName =
+      this.db.get<{ name: string }>(`SELECT name FROM expense_categories WHERE id = ?`, [
+        input.categoryId,
+      ])?.name ?? ''
 
     this.db.run(
       `INSERT INTO expenses
@@ -186,20 +227,50 @@ export class ExpensesService {
          receipt_url, vendor, notes, is_recurring, status, date, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
-        id, businessId, recordedById, categoryName, input.categoryId, input.description.trim(), amount, currency,
-        status === 'PENDING' ? null : input.paymentMethod || 'CASH', input.receiptUrl ?? null, input.vendor?.trim() || null, input.notes?.trim() || null,
-        input.isRecurring ? 1 : 0, status, expenseDate, now, now,
+        id,
+        businessId,
+        recordedById,
+        categoryName,
+        input.categoryId,
+        input.description.trim(),
+        amount,
+        currency,
+        status === 'PENDING' ? null : input.paymentMethod || 'CASH',
+        input.receiptUrl ?? null,
+        input.vendor?.trim() || null,
+        input.notes?.trim() || null,
+        input.isRecurring ? 1 : 0,
+        status,
+        expenseDate,
+        now,
+        now,
       ],
     )
     this.enqueue(id, businessId, 'UPSERT', this.payloadFor(id, businessId), now)
+
+    // A cash-paid expense takes cash out of the open shift's drawer.
+    const paidMethod = status === 'PENDING' ? null : input.paymentMethod || 'CASH'
+    if (paidMethod === 'CASH') this.recordCashExpense({ amount, referenceId: id })
+
     this.onMutated()
-    this.audit?.log({ action: 'CREATE', entityType: 'expense', entityId: id, entityLabel: input.description.trim(), changes: { before: null, after: { amount, categoryId: input.categoryId, status } } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'expense',
+      entityId: id,
+      entityLabel: input.description.trim(),
+      changes: { before: null, after: { amount, categoryId: input.categoryId, status } },
+    })
     return this.get(id)!
   }
 
   update(id: string, input: ExpenseInput): LocalExpense {
     const businessId = this.requireBusinessId()
-    const existing = this.db.get<{ amount: number; status: string; category_id: string | null; description: string }>(
+    const existing = this.db.get<{
+      amount: number
+      status: string
+      category_id: string | null
+      description: string
+    }>(
       `SELECT amount, status, category_id, description FROM expenses WHERE id = ? AND business_id = ? AND is_deleted = 0`,
       [id, businessId],
     )
@@ -209,16 +280,30 @@ export class ExpensesService {
     const now = new Date().toISOString()
     const expenseDate = input.expenseDate?.trim() || now.slice(0, 10)
     const status = input.status === 'PENDING' ? 'PENDING' : 'PAID'
-    const categoryName = this.db.get<{ name: string }>(`SELECT name FROM expense_categories WHERE id = ?`, [input.categoryId])?.name ?? ''
+    const categoryName =
+      this.db.get<{ name: string }>(`SELECT name FROM expense_categories WHERE id = ?`, [
+        input.categoryId,
+      ])?.name ?? ''
 
     this.db.run(
       `UPDATE expenses SET category = ?, category_id = ?, description = ?, amount = ?, payment_method = ?,
          receipt_url = ?, vendor = ?, notes = ?, is_recurring = ?, status = ?, date = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
       [
-        categoryName, input.categoryId, input.description.trim(), amount, status === 'PENDING' ? null : input.paymentMethod || 'CASH',
-        input.receiptUrl ?? null, input.vendor?.trim() || null, input.notes?.trim() || null,
-        input.isRecurring ? 1 : 0, status, expenseDate, now, id, businessId,
+        categoryName,
+        input.categoryId,
+        input.description.trim(),
+        amount,
+        status === 'PENDING' ? null : input.paymentMethod || 'CASH',
+        input.receiptUrl ?? null,
+        input.vendor?.trim() || null,
+        input.notes?.trim() || null,
+        input.isRecurring ? 1 : 0,
+        status,
+        expenseDate,
+        now,
+        id,
+        businessId,
       ],
     )
     this.enqueue(id, businessId, 'UPSERT', this.payloadFor(id, businessId), now)
@@ -229,8 +314,18 @@ export class ExpensesService {
       entityId: id,
       entityLabel: input.description.trim(),
       changes: {
-        before: { amount: existing.amount, status: existing.status, categoryId: existing.category_id, description: existing.description },
-        after: { amount, status, categoryId: input.categoryId, description: input.description.trim() },
+        before: {
+          amount: existing.amount,
+          status: existing.status,
+          categoryId: existing.category_id,
+          description: existing.description,
+        },
+        after: {
+          amount,
+          status,
+          categoryId: input.categoryId,
+          description: input.description.trim(),
+        },
       },
     })
     return this.get(id)!
@@ -242,16 +337,24 @@ export class ExpensesService {
    */
   setStatus(id: string, status: string, paymentMethod?: string | null): LocalExpense {
     const businessId = this.requireBusinessId()
-    const existing = this.db.get<{ description: string; status: string; payment_method: string | null }>(
+    const existing = this.db.get<{
+      description: string
+      status: string
+      payment_method: string | null
+    }>(
       `SELECT description, status, payment_method FROM expenses WHERE id = ? AND business_id = ? AND is_deleted = 0`,
       [id, businessId],
     )
     if (!existing) throw new Error('Expense not found.')
     const next = status === 'PENDING' ? 'PENDING' : 'PAID'
-    if (next === 'PAID' && !paymentMethod) throw new Error('Select a payment method to mark this expense paid.')
-    const method = next === 'PENDING' ? null : paymentMethod ?? null
+    if (next === 'PAID' && !paymentMethod)
+      throw new Error('Select a payment method to mark this expense paid.')
+    const method = next === 'PENDING' ? null : (paymentMethod ?? null)
     const now = new Date().toISOString()
-    this.db.run(`UPDATE expenses SET status = ?, payment_method = ?, updated_at = ? WHERE id = ? AND business_id = ?`, [next, method, now, id, businessId])
+    this.db.run(
+      `UPDATE expenses SET status = ?, payment_method = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [next, method, now, id, businessId],
+    )
     this.enqueue(id, businessId, 'UPSERT', this.payloadFor(id, businessId), now)
     this.onMutated()
     this.audit?.log({
@@ -259,31 +362,67 @@ export class ExpensesService {
       entityType: 'expense',
       entityId: id,
       entityLabel: existing.description,
-      changes: { before: { status: existing.status, paymentMethod: existing.payment_method }, after: { status: next, paymentMethod: method } },
+      changes: {
+        before: { status: existing.status, paymentMethod: existing.payment_method },
+        after: { status: next, paymentMethod: method },
+      },
     })
     return this.get(id)!
   }
 
   remove(id: string): void {
     const businessId = this.requireBusinessId()
-    const existing = this.db.get<{ description: string }>(`SELECT description FROM expenses WHERE id = ? AND business_id = ?`, [id, businessId])
+    const existing = this.db.get<{ description: string }>(
+      `SELECT description FROM expenses WHERE id = ? AND business_id = ?`,
+      [id, businessId],
+    )
     if (!existing) return
     const now = new Date().toISOString()
-    this.db.run(`UPDATE expenses SET is_deleted = 1, updated_at = ? WHERE id = ? AND business_id = ?`, [now, id, businessId])
-    this.enqueue(id, businessId, 'DELETE', { ...this.payloadFor(id, businessId), isDeleted: true }, now)
+    this.db.run(
+      `UPDATE expenses SET is_deleted = 1, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [now, id, businessId],
+    )
+    this.enqueue(
+      id,
+      businessId,
+      'DELETE',
+      { ...this.payloadFor(id, businessId), isDeleted: true },
+      now,
+    )
     this.onMutated()
-    this.audit?.log({ action: 'DELETE', entityType: 'expense', entityId: id, entityLabel: existing.description, changes: { before: { description: existing.description }, after: null } })
+    this.audit?.log({
+      action: 'DELETE',
+      entityType: 'expense',
+      entityId: id,
+      entityLabel: existing.description,
+      changes: { before: { description: existing.description }, after: null },
+    })
   }
 
   // ---- internals -----------------------------------------------------------
 
-  private buildWhere(businessId: string, query: ExpensesListQuery): { where: string; params: unknown[] } {
+  private buildWhere(
+    businessId: string,
+    query: ExpensesListQuery,
+  ): { where: string; params: unknown[] } {
     let where = 'e.business_id = ? AND e.is_deleted = 0'
     const params: unknown[] = [businessId]
-    if (query.categoryId) { where += ' AND e.category_id = ?'; params.push(query.categoryId) }
-    if (query.status) { where += ' AND e.status = ?'; params.push(query.status) }
-    if (query.dateFrom) { where += ' AND e.date >= ?'; params.push(query.dateFrom) }
-    if (query.dateTo) { where += ' AND e.date <= ?'; params.push(query.dateTo) }
+    if (query.categoryId) {
+      where += ' AND e.category_id = ?'
+      params.push(query.categoryId)
+    }
+    if (query.status) {
+      where += ' AND e.status = ?'
+      params.push(query.status)
+    }
+    if (query.dateFrom) {
+      where += ' AND e.date >= ?'
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      where += ' AND e.date <= ?'
+      params.push(query.dateTo)
+    }
     return { where, params }
   }
 
@@ -311,7 +450,13 @@ export class ExpensesService {
     }
   }
 
-  private enqueue(recordId: string, businessId: string, operation: 'UPSERT' | 'DELETE', payload: Record<string, unknown>, now: string): void {
+  private enqueue(
+    recordId: string,
+    businessId: string,
+    operation: 'UPSERT' | 'DELETE',
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
        VALUES (?, 'expenses', ?, ?, ?, 'pending', 0, ?, ?)
@@ -325,7 +470,11 @@ export class ExpensesService {
   private businessCurrency(): string {
     const businessId = this.getBusinessId()
     if (!businessId) return 'XAF'
-    return this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [businessId])?.currency ?? 'XAF'
+    return (
+      this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [
+        businessId,
+      ])?.currency ?? 'XAF'
+    )
   }
 
   private requireBusinessId(): string {
@@ -347,7 +496,16 @@ export class ExpenseCategoriesService {
   listAll(): LocalExpenseCategory[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
-    const rows = this.db.query<{ id: string; business_id: string | null; name: string; slug: string | null; color: string | null; icon: string | null; sort_order: number; count: number }>(
+    const rows = this.db.query<{
+      id: string
+      business_id: string | null
+      name: string
+      slug: string | null
+      color: string | null
+      icon: string | null
+      sort_order: number
+      count: number
+    }>(
       `SELECT c.id, c.business_id, c.name, c.slug, c.color, c.icon, c.sort_order,
               (SELECT COUNT(*) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS count
        FROM expense_categories c
@@ -379,13 +537,45 @@ export class ExpenseCategoriesService {
        VALUES (?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?)`,
       [id, businessId, input.name.trim(), slug, input.color, input.icon ?? null, now, now],
     )
-    this.enqueue(id, businessId, { name: input.name.trim(), color: input.color, icon: input.icon ?? null, sortOrder: 0, createdAt: now, updatedAt: now }, now)
+    this.enqueue(
+      id,
+      businessId,
+      {
+        name: input.name.trim(),
+        color: input.color,
+        icon: input.icon ?? null,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      now,
+    )
     this.onMutated()
-    this.audit?.log({ action: 'CREATE', entityType: 'expense_category', entityId: id, entityLabel: input.name.trim(), changes: { before: null, after: { name: input.name.trim() } } })
-    return { id, name: input.name.trim(), slug, color: input.color, icon: input.icon ?? null, isSystem: false, sortOrder: 0, expenseCount: 0 }
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'expense_category',
+      entityId: id,
+      entityLabel: input.name.trim(),
+      changes: { before: null, after: { name: input.name.trim() } },
+    })
+    return {
+      id,
+      name: input.name.trim(),
+      slug,
+      color: input.color,
+      icon: input.icon ?? null,
+      isSystem: false,
+      sortOrder: 0,
+      expenseCount: 0,
+    }
   }
 
-  private enqueue(recordId: string, businessId: string, payload: Record<string, unknown>, now: string): void {
+  private enqueue(
+    recordId: string,
+    businessId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): void {
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)
        VALUES (?, 'expenseCategories', ?, 'UPSERT', ?, 'pending', 0, ?, ?)
@@ -420,16 +610,42 @@ function toLocalExpense(r: ExpenseRow): LocalExpense {
 }
 
 function slugify(name: string): string {
-  return name.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'category'
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'category'
+  )
 }
 
-const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_LABELS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
 function lastSixMonths(): ExpenseTrendItem[] {
   const now = new Date()
   const out: ExpenseTrendItem[] = []
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    out.push({ year: d.getFullYear(), month: d.getMonth() + 1, label: MONTH_LABELS[d.getMonth()]!, total: 0 })
+    out.push({
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      label: MONTH_LABELS[d.getMonth()]!,
+      total: 0,
+    })
   }
   return out
 }

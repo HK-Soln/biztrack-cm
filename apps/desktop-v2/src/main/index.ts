@@ -36,6 +36,7 @@ import { SavingsService } from './services/savings.service'
 import { registerDepositsIpc } from './ipc/deposits.ipc'
 import { CashSessionsService } from './services/cash-sessions.service'
 import { registerCashSessionsIpc } from './ipc/cash-sessions.ipc'
+import { CashMovementKind } from '@biztrack/types'
 import { registerInventoryIpc } from './ipc/inventory.ipc'
 import { registerSalesIpc } from './ipc/sales.ipc'
 import { ContactsService } from './services/contacts.service'
@@ -357,6 +358,13 @@ app.whenReady().then(() => {
     () => void sync.sync(),
     () => authService.getSession().user?.id ?? null,
     audit,
+    (input) =>
+      void cashSessions.recordAutoMovement({
+        kind: CashMovementKind.EXPENSE,
+        amount: input.amount,
+        referenceType: 'expense',
+        referenceId: input.referenceId,
+      }),
   )
   const expenseCategories = new ExpenseCategoriesService(
     db,
