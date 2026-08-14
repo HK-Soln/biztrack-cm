@@ -143,6 +143,7 @@ export const IPC = {
   cashSessionsRecordMovement: 'cash-sessions:record-movement',
   cashSessionsListMovements: 'cash-sessions:list-movements',
   cashSessionsClose: 'cash-sessions:close',
+  cashSessionsRoleTracksDrawer: 'cash-sessions:role-tracks-drawer',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -2119,6 +2120,8 @@ export interface BridgeApi {
     transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSessionT>
     /** Close a shift with a blind denomination count → variance (BIZ-2.4). */
     close: (id: string, input: CloseCashSessionInputT) => Promise<CashSessionT>
+    /** Whether the signed-in user's role runs a till (drives the login shift prompt). */
+    roleTracksDrawer: () => Promise<boolean>
     /** Expected drawer cash + its breakdown for a session (BIZ-2.2). */
     expectedCash: (id: string) => Promise<CashSessionExpectedCashT | null>
     /** Record a cash movement against the open shift (BIZ-2.3). */

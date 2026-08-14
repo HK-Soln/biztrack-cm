@@ -73,6 +73,24 @@ export class CashSessionsService {
     private readonly onMutated: () => void = () => {},
   ) {}
 
+  /**
+   * Whether the signed-in user's role runs a till (tracks_cash_drawer) — drives the
+   * login-time start-shift prompt. Reads the synced local roles table via the member's
+   * role_id, so it works offline.
+   */
+  roleTracksCashDrawer(): boolean {
+    const businessId = this.getBusinessId()
+    const userId = this.getUserId()
+    if (!businessId || !userId) return false
+    const row = this.db.get<{ tracks: number }>(
+      `SELECT r.tracks_cash_drawer AS tracks
+       FROM business_members m JOIN roles r ON r.id = m.role_id
+       WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0`,
+      [businessId, userId],
+    )
+    return row?.tracks === 1
+  }
+
   /** This till's live session (OPEN or COUNTING), or null — drives the POS shift banner. */
   getCurrent(): CashSession | null {
     const businessId = this.getBusinessId()

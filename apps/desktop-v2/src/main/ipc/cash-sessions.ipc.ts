@@ -30,4 +30,5 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
   ipcMain.handle(IPC.cashSessionsClose, (_e, id: string, input: CloseCashSessionInput) =>
     cashSessions.closeSession(id, input),
   )
+  ipcMain.handle(IPC.cashSessionsRoleTracksDrawer, () => cashSessions.roleTracksCashDrawer())
 }

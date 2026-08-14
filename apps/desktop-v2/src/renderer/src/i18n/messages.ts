@@ -3150,6 +3150,10 @@ export const en = {
   'cash.over': 'The drawer is over.',
   'cash.short': 'The drawer is short.',
   'cash.done': 'Done',
+  'cash.startPromptTitle': 'Start your shift?',
+  'cash.startPromptBody':
+    'You run a till. Open your cash drawer with a starting float, or skip — sales without a shift are recorded as “off-drawer”.',
+  'cash.notNow': 'Not now',
   'stepUp.title': 'Manager authorization',
   'stepUp.subtitle': 'A manager must enter their PIN to approve this action.',
   'stepUp.pinLabel': 'Manager PIN',
@@ -6343,6 +6347,10 @@ export const fr: Record<MessageKey, string> = {
   'cash.over': 'Excédent de caisse.',
   'cash.short': 'Manque en caisse.',
   'cash.done': 'Terminé',
+  'cash.startPromptTitle': 'Ouvrir votre caisse ?',
+  'cash.startPromptBody':
+    'Vous tenez une caisse. Ouvrez-la avec un fonds de départ, ou ignorez — les ventes sans session sont enregistrées « hors caisse ».',
+  'cash.notNow': 'Plus tard',
   'stepUp.title': 'Autorisation du responsable',
   'stepUp.subtitle': 'Un responsable doit saisir son code PIN pour approuver cette action.',
   'stepUp.pinLabel': 'Code PIN du responsable',
