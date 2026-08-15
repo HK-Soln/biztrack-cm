@@ -13,6 +13,7 @@ import type {
   DepositOutcome,
   DepositTransaction,
 } from '@biztrack/types'
+import { CashMovementKind } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { DepositsListQuery, PaginatedResult } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
@@ -68,6 +69,13 @@ export class SavingsService {
     private readonly onMutated: () => void = () => {},
     private readonly getActorId: () => string | null = () => null,
     private readonly audit?: AuditLogger,
+    /** Records a cash_movement against the open shift when a deposit is topped up or
+     * refunded in cash (BIZ-2.3) — so the drawer reconciles against deposits too. */
+    private readonly recordCashMovement: (input: {
+      kind: CashMovementKind
+      amount: number
+      referenceId: string
+    }) => void = () => {},
   ) {}
 
   /** The customer's OPEN deposit session (or null) — what the Sell deposit tender draws from. */
@@ -275,6 +283,13 @@ export class SavingsService {
         },
         now,
       )
+      if ((input.initialDeposit?.method ?? 'CASH') === 'CASH') {
+        this.recordCashMovement({
+          kind: CashMovementKind.CUSTOMER_DEPOSIT,
+          amount: initial,
+          referenceId: id,
+        })
+      }
     }
     this.pushSession(id, businessId, now)
     this.onMutated()
@@ -313,6 +328,9 @@ export class SavingsService {
       },
       now,
     )
+    if ((input.method ?? 'CASH') === 'CASH') {
+      this.recordCashMovement({ kind: CashMovementKind.CUSTOMER_DEPOSIT, amount, referenceId: id })
+    }
     this.pushSession(id, businessId, now)
     this.onMutated()
     this.audit?.log({
@@ -362,6 +380,13 @@ export class SavingsService {
         `UPDATE savings_accounts SET balance = 0, total_refunded = ?, updated_at = ? WHERE id = ?`,
         [round2(acc.total_refunded + leftover), now, id],
       )
+      if ((input.method ?? 'CASH') === 'CASH') {
+        this.recordCashMovement({
+          kind: CashMovementKind.DEPOSIT_REFUND,
+          amount: leftover,
+          referenceId: id,
+        })
+      }
     } else if (input.settlement === 'TRANSFER') {
       if (!hasSales)
         throw new Error(

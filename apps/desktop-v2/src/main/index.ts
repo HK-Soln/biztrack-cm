@@ -427,6 +427,13 @@ app.whenReady().then(() => {
     () => void sync.sync(),
     () => authService.getSession().user?.id ?? null,
     audit,
+    (input) =>
+      void cashSessions.recordAutoMovement({
+        kind: input.kind,
+        amount: input.amount,
+        referenceType: 'deposit',
+        referenceId: input.referenceId,
+      }),
   )
   registerDepositsIpc(savings)
 

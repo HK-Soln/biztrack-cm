@@ -34,6 +34,10 @@ export enum CashMovementKind {
   TRANSFER_TO_ORANGE_MONEY = 'TRANSFER_TO_ORANGE_MONEY',
   /** Cash from the till deposited to the bank. */
   TRANSFER_TO_BANK = 'TRANSFER_TO_BANK',
+  /** A customer tops up a deposit / savings in cash — cash into the drawer. */
+  CUSTOMER_DEPOSIT = 'CUSTOMER_DEPOSIT',
+  /** A customer deposit is refunded in cash — cash out of the drawer. */
+  DEPOSIT_REFUND = 'DEPOSIT_REFUND',
 }
 
 /** Whether a movement adds to, removes from, or does not affect the drawer. */
@@ -53,6 +57,8 @@ export const CASH_MOVEMENT_DIRECTION: Record<CashMovementKind, CashMovementDirec
   [CashMovementKind.TRANSFER_TO_MTN_MOMO]: 'OUT',
   [CashMovementKind.TRANSFER_TO_ORANGE_MONEY]: 'OUT',
   [CashMovementKind.TRANSFER_TO_BANK]: 'OUT',
+  [CashMovementKind.CUSTOMER_DEPOSIT]: 'IN',
+  [CashMovementKind.DEPOSIT_REFUND]: 'OUT',
 }
 
 export function cashMovementDirection(kind: CashMovementKind): CashMovementDirection {
