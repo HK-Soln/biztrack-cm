@@ -9,11 +9,7 @@ import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
-import {
-  InventoryMovementType,
-  PaymentMethod,
-  StockAdjustmentType,
-} from '@biztrack/types'
+import { InventoryMovementType, PaymentMethod, StockAdjustmentType } from '@biztrack/types'
 import { InventoryService } from '../services/inventory.service'
 
 const makeService = () => {
@@ -132,6 +128,7 @@ const makeService = () => {
     debtsService as any,
     i18n as any,
     logger as any,
+    { log: () => {} } as any,
   )
 
   return {
@@ -194,16 +191,14 @@ describe('InventoryService', () => {
         lastRestockAt: expect.any(Date),
       }),
     )
-    expect(result.items).toEqual([{ productId: 'product-1', variantId: null, quantity: 2, newQuantity: 2 }])
+    expect(result.items).toEqual([
+      { productId: 'product-1', variantId: null, quantity: 2, newQuantity: 2 },
+    ])
   })
 
   it('uses the saved restock id as the debt reference when credit restocks omit a reference number', async () => {
-    const {
-      debtsService,
-      service,
-      transactionProductRepo,
-      transactionInventoryRepo,
-    } = makeService()
+    const { debtsService, service, transactionProductRepo, transactionInventoryRepo } =
+      makeService()
 
     transactionProductRepo.findOne.mockResolvedValue({
       id: 'product-1',

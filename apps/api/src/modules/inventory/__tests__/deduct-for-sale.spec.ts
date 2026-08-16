@@ -40,6 +40,7 @@ const makeService = (opts: {
     {} as any,
     i18n as any,
     logger as any,
+    { log: () => {} } as any,
   )
 
   return { service, productsRepo, inventoryLevelsRepo, inventoryMovementsRepo, levelsQb }
@@ -58,7 +59,10 @@ describe('InventoryService.deductForSale (batched)', () => {
       levels: [{ id: 'lvl-1', productId: 'p1', quantity: 10 }],
     })
 
-    await service.deductForSale('biz-1', 'sale-1', 'S-001', 'user-1', [item('p1', 1), item('p1', 2)])
+    await service.deductForSale('biz-1', 'sale-1', 'S-001', 'user-1', [
+      item('p1', 1),
+      item('p1', 2),
+    ])
 
     expect(productsRepo.find).toHaveBeenCalledTimes(1)
     expect(levelsQb.getMany).toHaveBeenCalledTimes(1)
@@ -70,7 +74,10 @@ describe('InventoryService.deductForSale (batched)', () => {
       levels: [{ id: 'lvl-1', productId: 'p1', quantity: 10 }],
     })
 
-    await service.deductForSale('biz-1', 'sale-1', 'S-001', 'user-1', [item('p1', 3), item('p1', 4)])
+    await service.deductForSale('biz-1', 'sale-1', 'S-001', 'user-1', [
+      item('p1', 3),
+      item('p1', 4),
+    ])
 
     // one bulk movement insert, with correct running before/after per line
     expect(inventoryMovementsRepo.save).toHaveBeenCalledTimes(1)

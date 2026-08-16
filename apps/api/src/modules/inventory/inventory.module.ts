@@ -11,6 +11,7 @@ import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { AuditModule } from '@/modules/audit/audit.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { INVENTORY_ALERTS_QUEUE } from './constants/inventory.constants'
@@ -22,6 +23,7 @@ import { RedisModule } from '@/common/redis/redis.module'
 
 @Module({
   imports: [
+    AuditModule,
     PermissionsModule,
     DebtsModule,
     BullModule.registerQueue({
@@ -42,11 +44,7 @@ import { RedisModule } from '@/common/redis/redis.module'
     RedisModule,
   ],
   controllers: [InventoryController],
-  providers: [
-    InventoryService,
-    InventoryAlertsScheduler,
-    InventoryAlertsProcessor
-  ],
+  providers: [InventoryService, InventoryAlertsScheduler, InventoryAlertsProcessor],
   exports: [InventoryService],
 })
-export class InventoryModule { }
+export class InventoryModule {}

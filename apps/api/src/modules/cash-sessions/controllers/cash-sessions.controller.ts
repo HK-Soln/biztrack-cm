@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type {
+  AuditContext,
   CashDailyReportData,
   CashSessionExpectedCash,
   CashShiftReportData,
@@ -9,6 +10,7 @@ import type {
   PaginatedResult,
 } from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
+import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import type { CashSession } from '@/entities/cash-session.entity'
 import type { CashMovement } from '@/entities/cash-movement.entity'
@@ -39,8 +41,12 @@ export class CashSessionsController {
 
   @Post()
   @ApiOperation({ summary: 'Open a cash session (start a till shift)' })
-  open(@CurrentUser() user: JwtPayload, @Body() dto: OpenCashSessionDto): Promise<CashSession> {
-    return this.cashSessions.openSession(user.businessId as string, user, dto)
+  open(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: OpenCashSessionDto,
+    @CurrentAuditContext() context: AuditContext,
+  ): Promise<CashSession> {
+    return this.cashSessions.openSession(user.businessId as string, user, dto, context)
   }
 
   @Get()
@@ -119,8 +125,9 @@ export class CashSessionsController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: CloseCashSessionDto,
+    @CurrentAuditContext() context: AuditContext,
   ): Promise<CashSession> {
-    return this.cashSessions.closeSession(user.businessId as string, id, dto)
+    return this.cashSessions.closeSession(user.businessId as string, id, dto, context)
   }
 
   @Post(':id/variance-reason')
@@ -139,8 +146,9 @@ export class CashSessionsController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: RecordCashMovementDto,
+    @CurrentAuditContext() context: AuditContext,
   ): Promise<CashMovement> {
-    return this.cashSessions.recordMovement(user.businessId as string, user, id, dto)
+    return this.cashSessions.recordMovement(user.businessId as string, user, id, dto, context)
   }
 
   @Get(':id/movements')

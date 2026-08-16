@@ -25,6 +25,7 @@ import {
   type CashShiftReportData,
   type CashVarianceHistory,
   type CashVarianceHistoryQuery,
+  type AuditContext,
   type CloseCashSessionInput,
   type JwtPayload,
   type PaginatedResult,
@@ -36,6 +37,7 @@ import { AppBadRequestException, AppNotFoundException } from '@/common/exception
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
 import { CashMovement } from '@/entities/cash-movement.entity'
+import { AuditService } from '@/modules/audit/audit.service'
 import {
   OpenCashSessionDto,
   ListCashSessionsQueryDto,
@@ -65,12 +67,14 @@ export class CashSessionsService {
     private readonly countLinesRepo: Repository<CashCountLine>,
     @InjectRepository(CashMovement)
     private readonly movementsRepo: Repository<CashMovement>,
+    private readonly auditService: AuditService,
   ) {}
 
   async openSession(
     businessId: string,
     user: JwtPayload,
     dto: OpenCashSessionDto,
+    context?: AuditContext,
   ): Promise<CashSession> {
     const deviceId = dto.deviceId ?? user.deviceId ?? 'unknown'
     // One live session per till at a time.
@@ -88,7 +92,7 @@ export class CashSessionsService {
     }
 
     const now = new Date()
-    return this.sessionsRepo.save(
+    const saved = await this.sessionsRepo.save(
       this.sessionsRepo.create({
         id: dto.id,
         businessId,
@@ -104,6 +108,16 @@ export class CashSessionsService {
         recountUsed: false,
       }),
     )
+    if (context) {
+      this.auditService.log(context, {
+        action: 'SHIFT_OPENED',
+        entityType: 'cash_session',
+        entityId: saved.id,
+        amount: saved.openingFloat,
+        changes: { before: null, after: { openingFloat: saved.openingFloat } },
+      })
+    }
+    return saved
   }
 
   async transition(
@@ -135,6 +149,7 @@ export class CashSessionsService {
     businessId: string,
     sessionId: string,
     input: CloseCashSessionInput,
+    context?: AuditContext,
   ): Promise<CashSession> {
     const session = await this.findById(sessionId, businessId)
     if (isCashSessionLocked(session.status)) {
@@ -192,7 +207,24 @@ export class CashSessionsService {
     session.confirmedOrangeMoney = input.confirmedOrangeMoney ?? null
     if (input.closingNote !== undefined) session.closingNote = input.closingNote
     session.recountUsed = input.recountUsed ?? false
-    return this.sessionsRepo.save(session)
+    const saved = await this.sessionsRepo.save(session)
+    if (context) {
+      this.auditService.log(context, {
+        action: 'SHIFT_CLOSED',
+        entityType: 'cash_session',
+        entityId: saved.id,
+        amount: saved.countedCash ?? 0,
+        changes: {
+          before: null,
+          after: {
+            expectedCash: saved.expectedCash,
+            countedCash: saved.countedCash,
+            varianceCash: saved.varianceCash,
+          },
+        },
+      })
+    }
+    return saved
   }
 
   /**
@@ -723,6 +755,7 @@ export class CashSessionsService {
     user: JwtPayload,
     sessionId: string,
     input: RecordCashMovementInput,
+    context?: AuditContext,
   ): Promise<CashMovement> {
     const session = await this.findById(sessionId, businessId)
     if (isCashSessionLocked(session.status)) {
@@ -735,7 +768,7 @@ export class CashSessionsService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new AppBadRequestException('Amount must be greater than 0.', 'CASH_MOVEMENT_AMOUNT')
     }
-    return this.movementsRepo.save(
+    const saved = await this.movementsRepo.save(
       this.movementsRepo.create({
         id: input.id,
         businessId,
@@ -749,6 +782,19 @@ export class CashSessionsService {
         referenceId: input.referenceId ?? null,
       }),
     )
+    if (context) {
+      this.auditService.log(context, {
+        action: 'CASH_MOVEMENT',
+        entityType: 'cash_movement',
+        entityId: saved.id,
+        amount: saved.amount,
+        changes: {
+          before: null,
+          after: { kind: saved.kind, direction: saved.direction, amount: saved.amount },
+        },
+      })
+    }
+    return saved
   }
 
   async listMovements(businessId: string, sessionId: string): Promise<CashMovement[]> {

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
   AdjustInventoryRequest,
+  AuditContext,
   DeadStockRow,
   InventoryBinSummary,
   InventoryRestockSyncPayload,
@@ -54,6 +55,7 @@ import { Sale } from '@/entities/sale.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
+import { AuditService } from '@/modules/audit/audit.service'
 import type { InventoryLowStockAlertDigest } from '../constants/inventory.constants'
 import {
   stockExpr,
@@ -210,6 +212,7 @@ export class InventoryService {
     private readonly debtsService: DebtsService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
+    private readonly auditService: AuditService,
   ) {
     this.logger.setContext('InventoryService')
   }
@@ -532,13 +535,21 @@ export class InventoryService {
     }
   }
 
-  async adjust(productId: string, businessId: string, userId: string, dto: AdjustInventoryRequest) {
+  async adjust(
+    productId: string,
+    businessId: string,
+    userId: string,
+    dto: AdjustInventoryRequest,
+    context?: AuditContext,
+  ) {
     try {
       this.validateAdjustment(dto)
       await this.requireTrackedProduct(productId, businessId)
       const variantId = dto.variantId ?? null
+      let auditBefore = 0
+      let auditAfter = 0
 
-      return this.dataSource.transaction(async (manager) => {
+      const result = await this.dataSource.transaction(async (manager) => {
         const inventoryRepo = manager.getRepository(InventoryLevel)
         const movementRepo = manager.getRepository(InventoryMovement)
         // Variant products track stock per (product, variant) level; direct products use the
@@ -555,6 +566,8 @@ export class InventoryService {
 
         const quantityBefore = Number(current.quantity)
         const quantityAfter = this.calculateAdjustedQuantity(quantityBefore, dto)
+        auditBefore = quantityBefore
+        auditAfter = quantityAfter
 
         if (quantityAfter < 0) {
           throw new AppBadRequestException(
@@ -583,6 +596,20 @@ export class InventoryService {
 
         return this.findOne(productId, businessId)
       })
+
+      if (context) {
+        this.auditService.log(context, {
+          action: 'STOCK_ADJUSTED',
+          entityType: 'inventory',
+          entityId: productId,
+          entityLabel: (result as { name?: string }).name ?? productId,
+          changes: {
+            before: { quantity: auditBefore },
+            after: { quantity: auditAfter },
+          },
+        })
+      }
+      return result
     } catch (error) {
       return this.handleServiceError('adjust', error, { productId, businessId, userId })
     }
