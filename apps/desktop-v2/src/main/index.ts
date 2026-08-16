@@ -244,6 +244,33 @@ app.whenReady().then(() => {
   })
   registerAuditIpc(audit)
 
+  // BIZ-2.9: detect a device wall-clock change (back-dating is a fraud vector — it forges
+  // when a sale/void happened). Compare the wall clock against a monotonic timer each tick;
+  // a divergence beyond the tolerance means the clock jumped. Emits DEVICE_TIME_CHANGED
+  // (dropped when no business is active).
+  {
+    const CHECK_MS = 30_000
+    const TOLERANCE_MS = 5_000
+    let lastWall = Date.now()
+    let lastMono = performance.now()
+    const timer = setInterval(() => {
+      const wallDelta = Date.now() - lastWall
+      const monoDelta = performance.now() - lastMono
+      const driftMs = Math.round(wallDelta - monoDelta)
+      lastWall = Date.now()
+      lastMono = performance.now()
+      if (Math.abs(driftMs) > TOLERANCE_MS) {
+        audit.log({
+          action: 'DEVICE_TIME_CHANGED',
+          entityType: 'device',
+          entityId: tokenStore.ensureDeviceId(),
+          changes: { before: null, after: { driftMs } },
+        })
+      }
+    }, CHECK_MS)
+    timer.unref()
+  }
+
   // Offline manager-PIN: set/rotate (online) + verify for step-up (offline). Hash
   // lives on the local membership (pulled from the server); business/user scope
   // comes from the active session, never the renderer. Failed attempts are audited.

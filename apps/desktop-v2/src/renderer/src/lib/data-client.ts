@@ -406,6 +406,7 @@ export interface DataClient {
     printReceipt: (
       saleId: string,
       locale: string,
+      reprint?: boolean,
     ) => Promise<{ printed: boolean; pdfPath?: string }>
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
     receiptHtml: (saleId: string, locale: string) => Promise<string | null>
@@ -744,7 +745,8 @@ function electronAdapter(): DataClient {
       void: (saleId, reason) => window.api.sales.void(saleId, reason),
       sendReceipt: (saleId, channel, locale, opts) =>
         window.api.sales.sendReceipt(saleId, channel, locale, opts),
-      printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
+      printReceipt: (saleId, locale, reprint) =>
+        window.api.sales.printReceipt(saleId, locale, reprint),
       downloadReceipt: (saleId, locale) => window.api.sales.downloadReceipt(saleId, locale),
       receiptHtml: (saleId, locale) => window.api.sales.receiptHtml(saleId, locale),
     },

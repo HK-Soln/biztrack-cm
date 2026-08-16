@@ -1644,6 +1644,28 @@ export class SalesService {
   }
 
   /** Build the shareable receipt view-model + the customer's contact channels (for send). */
+  /**
+   * Record a receipt REPRINT (BIZ-2.9). Reprinting a completed sale's receipt is a known
+   * fraud vector (a second cash copy), so it's audited. The initial print at checkout passes
+   * reprint=false and does not reach here.
+   */
+  logReceiptReprint(saleId: string): void {
+    const businessId = this.getBusinessId()
+    if (!businessId) return
+    const row = this.db.get<{ sale_number: string; total_amount: number }>(
+      `SELECT sale_number, total_amount FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+      [saleId, businessId],
+    )
+    if (!row) return
+    this.audit?.log({
+      action: 'RECEIPT_REPRINTED',
+      entityType: 'sale',
+      entityId: saleId,
+      entityLabel: row.sale_number,
+      amount: row.total_amount,
+    })
+  }
+
   buildReceipt(
     saleId: string,
   ): { receipt: SaleReceipt; phone: string | null; email: string | null } | null {

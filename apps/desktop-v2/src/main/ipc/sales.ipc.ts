@@ -65,15 +65,24 @@ export function registerSalesIpc(
 
   // Print the receipt straight to the connected printer (no dialog); saves + reveals a
   // PDF if there's no printer or the job fails.
-  ipcMain.handle(IPC.salesPrintReceipt, async (_e, saleId: string, locale: string) => {
-    const built = sales.buildReceipt(saleId)
-    if (!built) throw new Error('Sale not found.')
-    const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
-    return documents.printReceipt(html, {
-      filename: `receipt-${built.receipt.saleNumber}`,
-      paperWidthMm: RECEIPT_WIDTH_MM,
-    })
-  })
+  ipcMain.handle(
+    IPC.salesPrintReceipt,
+    async (_e, saleId: string, locale: string, reprint?: boolean) => {
+      const built = sales.buildReceipt(saleId)
+      if (!built) throw new Error('Sale not found.')
+      const html = renderSaleReceiptHtml(built.receipt, {
+        labels: saleReceiptLabels(locale),
+        locale,
+      })
+      const result = await documents.printReceipt(html, {
+        filename: `receipt-${built.receipt.saleNumber}`,
+        paperWidthMm: RECEIPT_WIDTH_MM,
+      })
+      // A reprint (from sales history) is audited; the initial checkout print is not.
+      if (reprint) sales.logReceiptReprint(saleId)
+      return result
+    },
+  )
 
   // Render the receipt to a PDF and save it via the native dialog.
   ipcMain.handle(IPC.salesDownloadReceipt, async (_e, saleId: string, locale: string) => {

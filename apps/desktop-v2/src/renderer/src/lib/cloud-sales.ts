@@ -318,6 +318,7 @@ export const cloudSales = {
   printReceipt: async (
     saleId: string,
     locale: string,
+    _reprint?: boolean,
   ): Promise<{ printed: boolean; pdfPath?: string }> => {
     const html = await fetchReceiptHtml(saleId, locale)
     if (!html) return { printed: false }

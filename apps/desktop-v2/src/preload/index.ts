@@ -220,6 +220,7 @@ const api: BridgeApi = {
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
+    saleLineRemoved: (input) => ipcRenderer.invoke(IPC.auditSaleLineRemoved, input),
   },
   uploads: {
     file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
@@ -248,7 +249,8 @@ const api: BridgeApi = {
     void: (saleId, reason) => ipcRenderer.invoke(IPC.salesVoid, saleId, reason),
     sendReceipt: (saleId, channel, locale, opts) =>
       ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
-    printReceipt: (saleId, locale) => ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale),
+    printReceipt: (saleId, locale, reprint) =>
+      ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale, reprint),
     downloadReceipt: (saleId, locale) =>
       ipcRenderer.invoke(IPC.salesDownloadReceipt, saleId, locale),
     receiptHtml: (saleId, locale) => ipcRenderer.invoke(IPC.salesReceiptHtml, saleId, locale),

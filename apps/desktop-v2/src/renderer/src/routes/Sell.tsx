@@ -493,7 +493,20 @@ export function Sell() {
         l.key === key ? { ...l, quantity: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1 } : l,
       ),
     )
-  const removeLine = (key: string) => setCart((prev) => prev.filter((l) => l.key !== key))
+  const removeLine = (key: string) => {
+    // BIZ-2.9: ring-then-remove is a theft pattern. The held cart has no DB row, so this is
+    // captured in local_audit_logs only (desktop). Guarded — noop in the browser build.
+    const line = cart.find((l) => l.key === key)
+    if (line?.productId) {
+      void window.api?.audit?.saleLineRemoved?.({
+        productId: line.productId,
+        productName: line.name,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+      })
+    }
+    setCart((prev) => prev.filter((l) => l.key !== key))
+  }
   const editSerials = (l: CartLine) =>
     setSerialPick({
       productId: l.productId,

@@ -215,6 +215,7 @@ export const IPC = {
   documentsDownloadHtml: 'documents:download-html',
   documentsShareHtml: 'documents:share-html',
   auditList: 'audit:list',
+  auditSaleLineRemoved: 'audit:sale-line-removed',
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
   salesCreate: 'sales:create',
@@ -370,6 +371,15 @@ export interface AuditListQuery extends ListQueryT {
   entityType?: string
   entityId?: string
   action?: AuditActionT
+}
+
+/** A held-cart line rung then removed before checkout (BIZ-2.9, local-only audit). */
+export interface SaleLineRemovedInput {
+  productId: string
+  productName: string
+  quantity: number
+  /** Whole-XAF unit price at the time it was in the cart. */
+  unitPrice: number
 }
 
 // ---- Contacts (customers & suppliers) -------------------------------------
@@ -2058,6 +2068,9 @@ export interface BridgeApi {
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */
     list: (query?: AuditListQuery) => Promise<PaginatedT<LocalAuditLog>>
+    /** Record a held-cart line that was rung then removed before checkout (BIZ-2.9). This is
+     * local-only — a held cart has no DB row, so there is no server-side equivalent. */
+    saleLineRemoved: (input: SaleLineRemovedInput) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */
@@ -2114,10 +2127,12 @@ export interface BridgeApi {
       locale: string,
       opts?: { recipient?: DocumentRecipient; online?: boolean },
     ) => Promise<void>
-    /** Print the receipt directly to the connected printer; falls back to saving a PDF. */
+    /** Print the receipt directly to the connected printer; falls back to saving a PDF.
+     * Pass reprint=true from sales history so the reprint is audited (BIZ-2.9). */
     printReceipt: (
       saleId: string,
       locale: string,
+      reprint?: boolean,
     ) => Promise<{ printed: boolean; pdfPath?: string }>
     /** Render the receipt to a PDF and save it via the native dialog. */
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
