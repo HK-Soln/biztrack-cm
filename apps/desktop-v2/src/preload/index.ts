@@ -95,6 +95,7 @@ const api: BridgeApi = {
   },
   products: {
     list: (query) => ipcRenderer.invoke(IPC.productsList, query),
+    listAll: (query) => ipcRenderer.invoke(IPC.productsListAll, query),
     listSellable: (query) => ipcRenderer.invoke(IPC.productsListSellable, query),
     stats: () => ipcRenderer.invoke(IPC.productsStats),
     get: (id) => ipcRenderer.invoke(IPC.productsGet, id),

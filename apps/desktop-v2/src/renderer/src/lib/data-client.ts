@@ -225,6 +225,7 @@ export interface DataClient {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    listAll: (query?: ProductListQuery) => Promise<LocalProduct[]>
     listSellable: (query?: ProductListQuery) => Promise<PaginatedResult<SellEntry>>
     stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
@@ -600,6 +601,7 @@ function electronAdapter(): DataClient {
     },
     products: {
       list: (query) => window.api.products.list(query),
+      listAll: (query) => window.api.products.listAll(query),
       listSellable: (query) => window.api.products.listSellable(query),
       stats: () => window.api.products.stats(),
       get: (id) => window.api.products.get(id),

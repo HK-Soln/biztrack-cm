@@ -230,11 +230,12 @@ export class ProductsService {
     private readonly audit?: AuditLogger,
   ) {}
 
-  list(query: ProductListQuery = {}): PaginatedResult<LocalProduct> {
-    const businessId = this.getBusinessId()
-    if (!businessId)
-      return toPaginated<LocalProduct>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
-
+  /** Shared filter (category/brand/active/stock/search) for `list` and `listAll`, so the paged
+   * grid and the export always select the same rows. */
+  private buildListFilter(
+    businessId: string,
+    query: ProductListQuery,
+  ): { where: string; params: unknown[] } {
     let where = 'p.business_id = ? AND p.is_deleted = 0'
     const params: unknown[] = [businessId]
     if (query.categoryId) {
@@ -275,6 +276,15 @@ export class ProductsService {
       const like = `%${search}%`
       params.push(like, like, like, like, like, like, like)
     }
+    return { where, params }
+  }
+
+  list(query: ProductListQuery = {}): PaginatedResult<LocalProduct> {
+    const businessId = this.getBusinessId()
+    if (!businessId)
+      return toPaginated<LocalProduct>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+
+    const { where, params } = this.buildListFilter(businessId, query)
 
     const { rows, ...meta } = paginateRows<ProductRow>(
       this.db,
@@ -294,6 +304,18 @@ export class ProductsService {
       query,
     )
     return toPaginated(rows.map(toLocalProduct), meta)
+  }
+
+  /** Every product matching the filters, unpaginated — for CSV/PDF export of the catalogue. */
+  listAll(query: ProductListQuery = {}): LocalProduct[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.buildListFilter(businessId, query)
+    const rows = this.db.query<ProductRow>(
+      `SELECT ${COLS} FROM ${FROM} WHERE ${where} ORDER BY p.name ASC`,
+      params,
+    )
+    return rows.map(toLocalProduct)
   }
 
   /**

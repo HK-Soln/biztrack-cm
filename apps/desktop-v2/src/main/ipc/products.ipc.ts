@@ -14,6 +14,7 @@ import type { ProductsService } from '../services/products.service'
 
 export function registerProductsIpc(products: ProductsService): void {
   ipcMain.handle(IPC.productsList, (_e, query?: ProductListQuery) => products.list(query))
+  ipcMain.handle(IPC.productsListAll, (_e, query?: ProductListQuery) => products.listAll(query))
   ipcMain.handle(IPC.productsListSellable, (_e, query?: ProductListQuery) =>
     products.listSellable(query),
   )

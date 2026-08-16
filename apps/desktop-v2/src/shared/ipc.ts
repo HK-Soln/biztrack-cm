@@ -65,6 +65,7 @@ export const IPC = {
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
   productsList: 'products:list',
+  productsListAll: 'products:list-all',
   productsListSellable: 'products:list-sellable',
   productsGet: 'products:get',
   productsCreate: 'products:create',
@@ -1851,6 +1852,8 @@ export interface BridgeApi {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    /** Every product matching the filters, unpaginated — for CSV/PDF catalogue export. */
+    listAll: (query?: ProductListQuery) => Promise<LocalProduct[]>
     /** Flattened sellable catalog for the POS grid: products + one entry per variant. */
     listSellable: (query?: ProductListQuery) => Promise<PaginatedT<SellEntry>>
     stats: () => Promise<ProductStats>

@@ -943,6 +943,23 @@ body {
 .btn-danger-soft:hover {
   filter: brightness(0.97);
 }
+/* Small dropdown menu item (e.g. the products Export menu) */
+.xp-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.xp-item:hover {
+  background: var(--inset);
+}
 .btn-block {
   width: 100%;
 }
