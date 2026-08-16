@@ -14,6 +14,7 @@ import { BrandMark } from '@biztrack/ui/biztrack'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { ShiftChip } from '@/components/layout/ShiftChip'
 import { StartShiftPrompt } from '@/components/layout/StartShiftPrompt'
+import { StaleShiftRecovery } from '@/components/layout/StaleShiftRecovery'
 import { NotificationToasts } from '@/components/notifications/NotificationToasts'
 import { useNotificationsStore } from '@/stores/notifications.store'
 
@@ -709,6 +710,7 @@ export function AppShell() {
         </div>
       </div>
       <NotificationToasts />
+      <StaleShiftRecovery />
       <StartShiftPrompt />
     </div>
   )

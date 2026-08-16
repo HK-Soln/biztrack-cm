@@ -144,6 +144,8 @@ export const IPC = {
   cashSessionsListMovements: 'cash-sessions:list-movements',
   cashSessionsClose: 'cash-sessions:close',
   cashSessionsRoleTracksDrawer: 'cash-sessions:role-tracks-drawer',
+  cashSessionsStaleOpen: 'cash-sessions:stale-open',
+  cashSessionsRecover: 'cash-sessions:recover',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -2122,6 +2124,10 @@ export interface BridgeApi {
     close: (id: string, input: CloseCashSessionInputT) => Promise<CashSessionT>
     /** Whether the signed-in user's role runs a till (drives the login shift prompt). */
     roleTracksDrawer: () => Promise<boolean>
+    /** An OPEN session older than the max-shift window (orphan), or null (BIZ-2.5). */
+    staleOpen: () => Promise<CashSessionT | null>
+    /** Force-close an orphaned shift as RECOVERED (variance stays unknown). */
+    recover: (id: string) => Promise<CashSessionT>
     /** Expected drawer cash + its breakdown for a session (BIZ-2.2). */
     expectedCash: (id: string) => Promise<CashSessionExpectedCashT | null>
     /** Record a cash movement against the open shift (BIZ-2.3). */

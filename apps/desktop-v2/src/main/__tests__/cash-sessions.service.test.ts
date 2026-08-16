@@ -311,6 +311,24 @@ describe('CashSessionsService', () => {
     )
   })
 
+  it('offers an orphaned shift for recovery and closes it as RECOVERED, count unknown (BIZ-2.5)', () => {
+    const svc = makeService(db)
+    const s = svc.openSession({ openingFloat: 5000 })
+    expect(svc.findStaleOpenSession()).toBeNull() // just opened → not stale
+
+    // Backdate the open time to 20h ago (past the 16h default window).
+    const old = new Date(Date.now() - 20 * 3_600_000).toISOString()
+    db.run(`UPDATE cash_sessions SET opened_at = ? WHERE id = ?`, [old, s.id])
+    expect(svc.findStaleOpenSession()?.id).toBe(s.id)
+
+    const closed = svc.recoverAndClose(s.id)
+    expect(closed.status).toBe(CashSessionStatus.CLOSED)
+    expect(closed.closedReason).toBe('RECOVERED')
+    expect(closed.countedCash).toBeNull() // never counted → no fabricated variance
+    expect(closed.varianceCash).toBeNull()
+    expect(svc.getCurrent()).toBeNull() // a fresh shift can now open
+  })
+
   it('rejects a non-whole money write at the DB guard', () => {
     // The service always rounds, so poke the trigger directly to prove it guards.
     const now = new Date().toISOString()

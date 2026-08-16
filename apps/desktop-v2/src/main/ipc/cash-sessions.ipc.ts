@@ -31,4 +31,6 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
     cashSessions.closeSession(id, input),
   )
   ipcMain.handle(IPC.cashSessionsRoleTracksDrawer, () => cashSessions.roleTracksCashDrawer())
+  ipcMain.handle(IPC.cashSessionsStaleOpen, () => cashSessions.findStaleOpenSession())
+  ipcMain.handle(IPC.cashSessionsRecover, (_e, id: string) => cashSessions.recoverAndClose(id))
 }

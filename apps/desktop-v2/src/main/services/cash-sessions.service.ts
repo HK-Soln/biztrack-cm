@@ -4,6 +4,7 @@ import {
   canTransitionCashSession,
   cashMovementDirection,
   CashMovementKind,
+  DEFAULT_MAX_SHIFT_HOURS,
   isCashSessionLocked,
   type CashMovement,
   type CashSession,
@@ -113,6 +114,45 @@ export class CashSessionsService {
       [id, businessId],
     )
     return row ? toCashSession(row) : null
+  }
+
+  /**
+   * The till's live session if it was opened more than `maxHours` ago — an orphan from a
+   * crash/dead battery (BIZ-2.5). Returned on launch so the user can resume it or close it.
+   */
+  findStaleOpenSession(maxHours: number = DEFAULT_MAX_SHIFT_HOURS): CashSession | null {
+    const current = this.getCurrent()
+    if (!current) return null
+    const ageMs = Date.now() - new Date(current.openedAt).getTime()
+    return ageMs > maxHours * 3_600_000 ? current : null
+  }
+
+  /**
+   * Force-close an orphaned shift (BIZ-2.5). Stamps closed_reason=RECOVERED and leaves the
+   * count UNKNOWN — counted_cash/variance_cash stay NULL, because a drawer that was never
+   * counted at the time has no defensible variance (never fabricate one). Expected cash is
+   * snapshotted for information only.
+   */
+  recoverAndClose(sessionId: string): CashSession {
+    const businessId = this.getBusinessId()
+    if (!businessId) throw new Error('No active business.')
+    const session = this.get(sessionId)
+    if (!session) throw new Error('Cash session not found.')
+    if (isCashSessionLocked(session.status)) {
+      throw new Error('This cash session is already closed.')
+    }
+    const expected = this.expectedCash(sessionId)?.expectedCash ?? session.openingFloat
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE cash_sessions
+       SET status = 'CLOSED', closed_at = ?, closed_reason = 'RECOVERED',
+           expected_cash = ?, counted_cash = NULL, variance_cash = NULL, updated_at = ?
+       WHERE id = ? AND business_id = ?`,
+      [now, expected, now, sessionId, businessId],
+    )
+    this.push(sessionId, businessId)
+    this.onMutated()
+    return this.get(sessionId) as CashSession
   }
 
   list(query: CashSessionsListQuery = {}): PaginatedResult<CashSession> {

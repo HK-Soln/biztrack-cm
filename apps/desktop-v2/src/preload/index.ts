@@ -278,6 +278,8 @@ const api: BridgeApi = {
     listMovements: (sessionId) => ipcRenderer.invoke(IPC.cashSessionsListMovements, sessionId),
     close: (id, input) => ipcRenderer.invoke(IPC.cashSessionsClose, id, input),
     roleTracksDrawer: () => ipcRenderer.invoke(IPC.cashSessionsRoleTracksDrawer),
+    staleOpen: () => ipcRenderer.invoke(IPC.cashSessionsStaleOpen),
+    recover: (id) => ipcRenderer.invoke(IPC.cashSessionsRecover, id),
   },
   online: {
     getStore: () => ipcRenderer.invoke(IPC.onlineStoreGet),

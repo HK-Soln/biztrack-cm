@@ -3174,6 +3174,12 @@ export const en = {
   'cash.startPromptBody':
     'You run a till. Open your cash drawer with a starting float, or skip — sales without a shift are recorded as “off-drawer”.',
   'cash.notNow': 'Not now',
+  'cash.recoverTitle': 'Unfinished shift',
+  'cash.recoverBody':
+    'A till shift was left open — the app closed before it was reconciled. Resume it, or close it now. Closing leaves the count unknown, since a drawer that was never counted can’t be reconstructed.',
+  'cash.resume': 'Resume',
+  'cash.closeNow': 'Close it now',
+  'cash.openedAt': 'Opened',
   'stepUp.title': 'Manager authorization',
   'stepUp.subtitle': 'A manager must enter their PIN to approve this action.',
   'stepUp.pinLabel': 'Manager PIN',
@@ -6391,6 +6397,12 @@ export const fr: Record<MessageKey, string> = {
   'cash.startPromptBody':
     'Vous tenez une caisse. Ouvrez-la avec un fonds de départ, ou ignorez — les ventes sans session sont enregistrées « hors caisse ».',
   'cash.notNow': 'Plus tard',
+  'cash.recoverTitle': 'Session non clôturée',
+  'cash.recoverBody':
+    'Une session de caisse est restée ouverte — l’application s’est fermée avant la clôture. Reprenez-la, ou clôturez-la maintenant. La clôture laisse le comptage inconnu, car une caisse jamais comptée ne peut pas être reconstituée.',
+  'cash.resume': 'Reprendre',
+  'cash.closeNow': 'Clôturer maintenant',
+  'cash.openedAt': 'Ouverte',
   'stepUp.title': 'Autorisation du responsable',
   'stepUp.subtitle': 'Un responsable doit saisir son code PIN pour approuver cette action.',
   'stepUp.pinLabel': 'Code PIN du responsable',

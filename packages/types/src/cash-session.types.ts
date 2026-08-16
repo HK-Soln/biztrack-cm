@@ -30,6 +30,14 @@ export enum CashSessionClosedReason {
   RECOVERED = 'RECOVERED',
 }
 
+/** An OPEN session older than this many hours is treated as orphaned on next launch and
+ * offered for recovery (BIZ-2.5). Default 16h; a per-business setting can override later. */
+export const DEFAULT_MAX_SHIFT_HOURS = 16
+
+/** An OPEN session untouched for longer than this (hours) is marked ABANDONED by the
+ * server sweep and excluded from variance statistics (BIZ-2.5). */
+export const ABANDONED_SHIFT_HOURS = 72
+
 /**
  * Allowed status transitions. The service layer MUST reject any move not listed
  * here. Note CLOSED, RECONCILED and ABANDONED are terminal for the count — no
