@@ -18,6 +18,8 @@ export interface AuditEntry {
   entityId: string
   entityLabel?: string | null
   changes?: { before: unknown; after: unknown } | null
+  /** Money impact in whole XAF (BIZ-2.7), or null/absent when the event moves no money. */
+  amount?: number | null
 }
 
 /** Minimal logger surface other services depend on (keeps them decoupled). */
@@ -34,7 +36,10 @@ interface AuditRow {
   actor_name: string | null
   actor_role: string | null
   changes: string | null
+  amount: number | null
   created_at: string
+  device_time: string | null
+  server_time: string | null
 }
 
 /**
@@ -53,11 +58,15 @@ export class AuditService implements AuditLogger {
     try {
       const ctx = this.getContext()
       if (!ctx.businessId) return
+      // device_time = this device's clock (same as created_at on-device); server_time stays
+      // NULL until the server ingests the row (BIZ-2.7 / the audit bridge in a later phase).
+      const now = new Date().toISOString()
       this.db.run(
         `INSERT INTO local_audit_logs
           (id, business_id, actor_id, actor_type, actor_name, actor_role, action,
-           entity_type, entity_id, entity_label, changes, device_id, created_at, synced_at)
-         VALUES (?, ?, ?, 'USER', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+           entity_type, entity_id, entity_label, changes, device_id, amount, created_at,
+           device_time, server_time, synced_at)
+         VALUES (?, ?, ?, 'USER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
         [
           randomUUID(),
           ctx.businessId,
@@ -70,7 +79,9 @@ export class AuditService implements AuditLogger {
           entry.entityLabel ?? null,
           entry.changes ? JSON.stringify(entry.changes) : null,
           ctx.deviceId,
-          new Date().toISOString(),
+          entry.amount ?? null,
+          now,
+          now,
         ],
       )
     } catch {
@@ -80,7 +91,8 @@ export class AuditService implements AuditLogger {
 
   list(query: AuditListQuery = {}): PaginatedResult<LocalAuditLog> {
     const ctx = this.getContext()
-    if (!ctx.businessId) return toPaginated<LocalAuditLog>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!ctx.businessId)
+      return toPaginated<LocalAuditLog>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'business_id = ?'
     const params: unknown[] = [ctx.businessId]
@@ -101,7 +113,8 @@ export class AuditService implements AuditLogger {
       this.db,
       {
         from: 'local_audit_logs',
-        columns: 'id, action, entity_type, entity_id, entity_label, actor_name, actor_role, changes, created_at',
+        columns:
+          'id, action, entity_type, entity_id, entity_label, actor_name, actor_role, changes, amount, created_at, device_time, server_time',
         where,
         params,
         searchColumns: ['entity_label', 'actor_name'],
@@ -122,7 +135,10 @@ export class AuditService implements AuditLogger {
         actorName: r.actor_name,
         actorRole: r.actor_role,
         changes: r.changes ? (JSON.parse(r.changes) as LocalAuditLog['changes']) : null,
+        amount: r.amount,
         createdAt: r.created_at,
+        deviceTime: r.device_time,
+        serverTime: r.server_time,
       })),
       meta,
     )

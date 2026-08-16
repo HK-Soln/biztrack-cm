@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm'
 import type { AuditAction, AuditActorType, AuditChanges, AuditDeviceType } from '@biztrack/types'
-import { dateTransformer } from '@/common/entities/transformers'
+import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 
 /**
  * Immutable system audit trail (Phase 3H). Append-only — no updates/deletes.
@@ -61,6 +61,30 @@ export class AuditLog {
 
   @Column({ name: 'request_id', type: 'text', nullable: true })
   requestId!: string | null
+
+  /**
+   * The originating device's own clock reading (BIZ-2.7) — client-reported and NEVER trusted
+   * as authoritative. Compared against `serverTime` to detect clock skew / back-dating.
+   */
+  @Column({ name: 'device_time', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  deviceTime!: Date | null
+
+  /**
+   * Server-stamped ingest time (authoritative) — BIZ-2.7. Defaulted by the database (`now()`),
+   * so it's correct whether the row is written by the queue, the direct-write fallback, or a
+   * future sync-bridge ingest — the client can never set it.
+   */
+  @Column({
+    name: 'server_time',
+    type: 'timestamp',
+    default: () => 'now()',
+    transformer: dateTransformer,
+  })
+  serverTime!: Date
+
+  /** Money impact of the event in whole XAF (BIZ-2.7), or null when the event moves no money. */
+  @Column({ type: 'bigint', nullable: true, transformer: decimalTransformer })
+  amount!: number | null
 
   @CreateDateColumn({ name: 'created_at', transformer: dateTransformer })
   createdAt!: Date

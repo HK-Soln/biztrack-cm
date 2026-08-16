@@ -16,12 +16,7 @@ export type AuditAction =
   | 'PLAN_CHANGE'
   | 'PERMISSION_CHANGE'
 
-export type AuditDeviceType =
-  | 'DESKTOP_APP'
-  | 'MOBILE_APP'
-  | 'WEB_BROWSER'
-  | 'API'
-  | 'SYSTEM'
+export type AuditDeviceType = 'DESKTOP_APP' | 'MOBILE_APP' | 'WEB_BROWSER' | 'API' | 'SYSTEM'
 
 export interface AuditChanges {
   before: Record<string, unknown> | null
@@ -40,6 +35,9 @@ export interface AuditContext {
   deviceType?: AuditDeviceType | null
   deviceInfo?: Record<string, unknown> | null
   requestId?: string | null
+  /** The originating device's own clock reading (BIZ-2.7). Client-reported, NEVER trusted as
+   * authoritative — compared against the server-stamped `serverTime` to detect clock skew. */
+  deviceTime?: IsoDateString | null
 }
 
 /** The auditable event itself (what happened to which entity). */
@@ -49,6 +47,9 @@ export interface AuditData {
   entityId: string
   entityLabel?: string | null
   changes?: AuditChanges | null
+  /** Money impact of the event in whole XAF (BIZ-2.7), denormalised so money-impact queries
+   * don't have to reach into `changes`. Null for events that move no money. */
+  amount?: number | null
 }
 
 export interface AuditLog {
@@ -68,6 +69,13 @@ export interface AuditLog {
   deviceType: AuditDeviceType | null
   deviceInfo: Record<string, unknown> | null
   requestId: string | null
+  /** Device clock reading (client-reported, untrusted) — BIZ-2.7. */
+  deviceTime?: IsoDateString | null
+  /** Server-stamped ingest time (authoritative) — BIZ-2.7. Null on a device row until the
+   * server ingests it. */
+  serverTime?: IsoDateString | null
+  /** Money impact in whole XAF, or null — BIZ-2.7. */
+  amount?: number | null
   createdAt: IsoDateString
 }
 

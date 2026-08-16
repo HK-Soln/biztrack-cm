@@ -352,7 +352,13 @@ export interface LocalAuditLog {
   actorName: string | null
   actorRole: string | null
   changes: { before: unknown; after: unknown } | null
+  /** Money impact in whole XAF, or null (BIZ-2.7). */
+  amount?: number | null
   createdAt: string
+  /** Device clock reading (BIZ-2.7). */
+  deviceTime?: string | null
+  /** Server-stamped ingest time; null until the row reaches the server (BIZ-2.7). */
+  serverTime?: string | null
 }
 
 export interface AuditListQuery extends ListQueryT {

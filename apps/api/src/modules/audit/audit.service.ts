@@ -34,7 +34,11 @@ export class AuditService {
       .add(
         AUDIT_LOG_JOB,
         { context, data },
-        { attempts: 3, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: { count: 1000 } },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 1000 },
+          removeOnComplete: { count: 1000 },
+        },
       )
       .catch((error) => {
         this.logger.warn('Audit enqueue failed; writing directly', 'AuditService', {
@@ -96,5 +100,9 @@ export function buildAuditLog(context: AuditContext, data: AuditData): Partial<A
     deviceType: context.deviceType ?? null,
     deviceInfo: context.deviceInfo ?? null,
     requestId: context.requestId ?? null,
+    deviceTime: context.deviceTime ? new Date(context.deviceTime) : null,
+    amount: data.amount ?? null,
+    // serverTime is intentionally NOT set here — the DB `now()` default stamps it at ingest so
+    // the client (or a replayed job) can never influence the authoritative time.
   }
 }
