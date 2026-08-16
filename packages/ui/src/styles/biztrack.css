@@ -927,6 +927,22 @@ body {
 .btn-soft:hover {
   background: var(--border);
 }
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
+.btn-danger-soft {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+.btn-danger-soft:hover {
+  filter: brightness(0.97);
+}
 .btn-block {
   width: 100%;
 }

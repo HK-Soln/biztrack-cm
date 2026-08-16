@@ -373,6 +373,12 @@ export class SalesService {
     const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
     const changeGiven = toWholeXaf(Math.max(0, amountPaid - totalAmount))
 
+    // One stable id per payment, shared by the local sale_payments row AND the sync payload.
+    // If the payload minted fresh ids, the pushed sale echoing back on pull would upsert on
+    // an id the local row doesn't have and INSERT a second payment — double-counting the
+    // cash it represents in the drawer's expected total. Same id on both sides = idempotent.
+    const paymentRows = paymentLines.map((p) => ({ ...p, id: randomUUID() }))
+
     const customerId = input.customerId?.trim() || null
     if (creditAmount > 0 && !customerId)
       throw new Error('Credit sales must be linked to a registered customer.')
@@ -550,12 +556,12 @@ export class SalesService {
         ],
       )
     }
-    for (const p of paymentLines) {
+    for (const p of paymentRows) {
       this.db.run(
         `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, mobile_money_reference, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
-          randomUUID(),
+          p.id,
           saleId,
           businessId,
           p.method,
@@ -638,8 +644,8 @@ export class SalesService {
         chargesAmount,
         creditAmount,
         status: 'COMPLETED',
-        payments: paymentLines.map((p) => ({
-          id: randomUUID(),
+        payments: paymentRows.map((p) => ({
+          id: p.id,
           method: p.method,
           amount: toWholeXaf(p.amount),
           mobileMoneyReference: p.mobileMoneyReference ?? null,

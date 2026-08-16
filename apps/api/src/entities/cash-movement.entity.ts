@@ -55,6 +55,8 @@ export class CashMovement extends BaseEntity {
   @Column({ name: 'reference_type', type: 'varchar', length: 30, nullable: true })
   referenceType?: string | null
 
-  @Column({ name: 'reference_id', type: 'uuid', nullable: true })
+  // Not a uuid column: a debt's id can be a synthetic composite (e.g. "debt:sale:<uuid>")
+  // pulled from sync, so this holds any reference id, not just a bare uuid.
+  @Column({ name: 'reference_id', type: 'varchar', length: 80, nullable: true })
   referenceId?: string | null
 }

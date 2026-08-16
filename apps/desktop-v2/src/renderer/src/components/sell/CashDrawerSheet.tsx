@@ -47,8 +47,8 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Open-shift form
-  const [floatInput, setFloatInput] = useState('')
+  // Open-shift form — counted by denomination, same as the close count (#1).
+  const [openCounts, setOpenCounts] = useState<Record<number, string>>({})
   // Movement form
   const [kind, setKind] = useState<CashMovementKind>(CashMovementKind.OWNER_DRAW)
   const [amountInput, setAmountInput] = useState('')
@@ -86,6 +86,10 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
     (sum, d) => sum + d * Math.max(0, Math.floor(Number(counts[d]) || 0)),
     0,
   )
+  const openingFloatTotal = CASH_DENOMINATIONS.reduce(
+    (sum, d) => sum + d * Math.max(0, Math.floor(Number(openCounts[d]) || 0)),
+    0,
+  )
 
   const refresh = useCallback(async () => {
     if (!api) {
@@ -106,6 +110,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
       setRecorded(null)
       setMode('operate')
       setCounts({})
+      setOpenCounts({})
       setClosed(null)
       setVarReason(null)
       setVarNote('')
@@ -115,13 +120,13 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
 
   const openShift = async () => {
     if (!api || busy) return
-    const openingFloat = Math.round(Number(floatInput) || 0)
+    const openingFloat = openingFloatTotal
     if (openingFloat < 0) return
     setBusy(true)
     setError(null)
     try {
       await api.open({ openingFloat })
-      setFloatInput('')
+      setOpenCounts({})
       await refresh()
     } catch (e) {
       setError((e as Error).message)
@@ -205,14 +210,34 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
         <div className="cash-open">
           <p style={{ marginBottom: 12 }}>{t('cash.noShift')}</p>
           <label className="lbl2">{t('cash.openingFloat')}</label>
-          <Input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            value={floatInput}
-            onChange={(e) => setFloatInput(e.target.value)}
-            placeholder="0"
-          />
+          <p className="cash-muted" style={{ fontSize: 12.5, margin: '2px 0 8px' }}>
+            {t('cash.openingFloatHint')}
+          </p>
+          <div className="denom-grid">
+            {CASH_DENOMINATIONS.map((d) => {
+              const qty = Math.max(0, Math.floor(Number(openCounts[d]) || 0))
+              return (
+                <div className="denom-row" key={d}>
+                  <span className="denom-face">{formatCurrency(d)}</span>
+                  <span className="denom-x">×</span>
+                  <Input
+                    className="denom-qty"
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    value={openCounts[d] ?? ''}
+                    onChange={(e) => setOpenCounts((c) => ({ ...c, [d]: e.target.value }))}
+                    placeholder="0"
+                  />
+                  <span className="denom-sub">{qty > 0 ? formatCurrency(d * qty) : ''}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="ce-row grand" style={{ marginTop: 12 }}>
+            <span>{t('cash.floatTotal')}</span>
+            <span>{formatCurrency(openingFloatTotal)}</span>
+          </div>
           {error ? (
             <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
               {error}
@@ -394,11 +419,19 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               paddingTop: 14,
               borderTop: '1px solid var(--border)',
               display: 'flex',
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 10,
             }}
           >
+            {/* Just hides the panel — the shift keeps running. Separated from "Close shift"
+                so recording a withdrawal is never mistaken for ending the day (#4). */}
+            <Button variant="soft" onClick={onClose}>
+              {t('cash.dismiss')}
+            </Button>
             <Button
-              variant="soft"
+              variant="danger"
+              title={t('cash.closeShiftHint')}
               onClick={() => {
                 setError(null)
                 setRecorded(null)

@@ -25,7 +25,7 @@ export class CashMovements1785000000000 implements MigrationInterface {
         "amount" bigint NOT NULL,
         "note" text,
         "reference_type" character varying(30),
-        "reference_id" uuid,
+        "reference_id" character varying(80),
         "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "deleted_at" TIMESTAMP WITH TIME ZONE,
