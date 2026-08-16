@@ -505,9 +505,11 @@ export class ExpenseCategoriesService {
       icon: string | null
       sort_order: number
       count: number
+      default_recurring: number | null
     }>(
       `SELECT c.id, c.business_id, c.name, c.slug, c.color, c.icon, c.sort_order,
-              (SELECT COUNT(*) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS count
+              (SELECT COUNT(*) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS count,
+              (SELECT MAX(e.is_recurring) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS default_recurring
        FROM expense_categories c
        WHERE c.is_deleted = 0 AND (c.business_id IS NULL OR c.business_id = ?)
        ORDER BY c.sort_order ASC, c.name ASC`,
@@ -522,6 +524,7 @@ export class ExpenseCategoriesService {
       isSystem: !r.business_id,
       sortOrder: r.sort_order,
       expenseCount: r.count,
+      defaultRecurring: r.default_recurring === 1,
     }))
   }
 

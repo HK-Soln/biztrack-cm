@@ -816,12 +816,22 @@ function ExpenseFormModal({
   const [status, setStatus] = useState(expense?.status ?? 'PAID')
   const [notes, setNotes] = useState(expense?.notes ?? '')
   const [isRecurring, setIsRecurring] = useState(expense?.isRecurring ?? false)
+  // A category becomes "recurring" once any of its expenses is marked recurring; from then on
+  // new expenses in it default to recurring (#5) — unless the user overrides the toggle.
+  const [recurringTouched, setRecurringTouched] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(expense?.receiptUrl ?? null)
   const [newCat, setNewCat] = useState<{ name: string; color: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<ExpenseFieldErrors>({})
 
   const selectedCatName = categories.find((c) => c.id === categoryId)?.name ?? ''
+
+  // Default the recurring toggle from the picked category (new expenses only, until touched).
+  useEffect(() => {
+    if (editing || recurringTouched) return
+    const cat = categories.find((c) => c.id === categoryId)
+    setIsRecurring(cat?.defaultRecurring ?? false)
+  }, [categoryId, categories, editing, recurringTouched])
   const loadCatOptions = async (q: string) => {
     const s = q.trim().toLowerCase()
     return categories
@@ -1073,7 +1083,10 @@ function ExpenseFormModal({
               <input
                 type="checkbox"
                 checked={isRecurring}
-                onChange={(e) => setIsRecurring(e.target.checked)}
+                onChange={(e) => {
+                  setIsRecurring(e.target.checked)
+                  setRecurringTouched(true)
+                }}
                 style={{ width: 16, height: 16 }}
               />
               <span style={{ fontWeight: 600 }}>{t('expenses.recurring')}</span>

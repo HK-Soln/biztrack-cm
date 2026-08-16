@@ -1200,6 +1200,9 @@ export interface LocalExpenseCategory {
   isSystem: boolean
   sortOrder: number
   expenseCount?: number
+  /** Sticky default: true once any expense in this category was marked recurring, so new
+   * expenses in it default to recurring without re-marking (#5). */
+  defaultRecurring?: boolean
 }
 export interface LocalExpense {
   id: string
