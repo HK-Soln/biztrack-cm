@@ -432,7 +432,40 @@ export class DebtsService {
           )
         }
 
-        await paymentRepo.delete(payment.id)
+        // BIZ-2.8: never destroy a financial record. "Deleting" a payment appends a reversing
+        // entry (a negative-amount row) that nets against the original via SUM(amount); both the
+        // original and the reversal stay on the ledger.
+        if (payment.amount <= 0) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.debt_payment_not_found' as never),
+            'DEBT_PAYMENT_ALREADY_REVERSAL',
+          )
+        }
+        const marker = `[REVERSAL:${payment.id}]`
+        const alreadyReversed = await paymentRepo
+          .createQueryBuilder('p')
+          .where('p.debt_id = :debtId', { debtId })
+          .andWhere('p.business_id = :businessId', { businessId })
+          .andWhere('p.notes LIKE :marker', { marker: `%${marker}%` })
+          .getOne()
+        if (alreadyReversed) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.debt_payment_not_found' as never),
+            'DEBT_PAYMENT_ALREADY_REVERSED',
+          )
+        }
+        await paymentRepo.save(
+          paymentRepo.create({
+            businessId,
+            debtId: debt.id,
+            amount: -payment.amount,
+            method: payment.method,
+            mobileMoneyReference: payment.mobileMoneyReference ?? null,
+            paymentDate: this.toDateOnly(new Date()),
+            notes: `${marker}${payment.notes ? ` ${payment.notes}` : ''}`,
+            recordedById: user.sub,
+          }),
+        )
 
         if (debt.status !== DebtStatus.WRITTEN_OFF) {
           await this.recalculateStatus(debt.id, manager)
