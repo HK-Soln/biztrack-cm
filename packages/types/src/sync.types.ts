@@ -706,6 +706,8 @@ export interface CashSessionSyncRecord extends SyncRecord {
   closedReason?: string | null
   recountUsed: boolean
   closingNote?: string | null
+  varianceReason?: string | null
+  varianceNote?: string | null
   reviewedBy?: string | null
   reviewedAt?: string | null
   reviewNote?: string | null

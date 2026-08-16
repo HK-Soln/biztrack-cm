@@ -38,6 +38,27 @@ export const DEFAULT_MAX_SHIFT_HOURS = 16
  * server sweep and excluded from variance statistics (BIZ-2.5). */
 export const ABANDONED_SHIFT_HOURS = 72
 
+/** Default cash-variance tolerance band (whole XAF, ±). A close whose |variance| exceeds
+ * this requires a reason (BIZ-2.6). A per-business override lands with settings-sync. */
+export const DEFAULT_CASH_VARIANCE_TOLERANCE = 100
+
+/** Why a shift's cash count didn't match expected. Deliberately blame-free — a place to
+ * look, never an accusation of "missing" (BIZ-2.6). */
+export enum CashVarianceReason {
+  CHANGE_ERROR = 'CHANGE_ERROR',
+  UNRECORDED_SALE = 'UNRECORDED_SALE',
+  UNRECORDED_EXPENSE = 'UNRECORDED_EXPENSE',
+  UNKNOWN = 'UNKNOWN',
+}
+
+/** True when a variance is inside the tolerance band (no reason needed at close). */
+export function isCashVarianceWithinTolerance(
+  variance: number,
+  tolerance: number = DEFAULT_CASH_VARIANCE_TOLERANCE,
+): boolean {
+  return Math.abs(variance) <= Math.abs(tolerance)
+}
+
 /**
  * Allowed status transitions. The service layer MUST reject any move not listed
  * here. Note CLOSED, RECONCILED and ABANDONED are terminal for the count — no
@@ -103,6 +124,9 @@ export interface CashSession {
   closedReason?: CashSessionClosedReason | null
   recountUsed: boolean
   closingNote?: string | null
+  /** Why the count didn't match, when |variance| exceeded the tolerance band (BIZ-2.6). */
+  varianceReason?: CashVarianceReason | null
+  varianceNote?: string | null
   reviewedBy?: string | null
   reviewedAt?: IsoDateString | null
   reviewNote?: string | null
@@ -135,6 +159,12 @@ export interface CloseCashSessionInput {
   closingNote?: string
   /** True if the cashier used their one allowed re-count before submitting. */
   recountUsed?: boolean
+}
+
+/** Record why a shift's count missed, after an out-of-tolerance close (BIZ-2.6). */
+export interface SetCashVarianceReasonInput {
+  reason: CashVarianceReason
+  note?: string
 }
 
 /**

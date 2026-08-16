@@ -4808,6 +4808,8 @@ export class SyncService {
       closedReason: record.closedReason ?? null,
       recountUsed: record.recountUsed,
       closingNote: record.closingNote ?? null,
+      varianceReason: record.varianceReason ?? null,
+      varianceNote: record.varianceNote ?? null,
       reviewedBy: record.reviewedBy ?? null,
       reviewedAt: record.reviewedAt?.toISOString() ?? null,
       reviewNote: record.reviewNote ?? null,

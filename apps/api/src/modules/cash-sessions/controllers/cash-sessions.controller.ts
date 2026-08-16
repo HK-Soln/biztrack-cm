@@ -10,6 +10,7 @@ import {
   ListCashSessionsQueryDto,
   OpenCashSessionDto,
   RecordCashMovementDto,
+  SetCashVarianceReasonDto,
   TransitionCashSessionDto,
 } from '../dto/cash-session.dto'
 import { CashSessionsService } from '../services/cash-sessions.service'
@@ -80,6 +81,16 @@ export class CashSessionsController {
     @Body() dto: CloseCashSessionDto,
   ): Promise<CashSession> {
     return this.cashSessions.closeSession(user.businessId as string, id, dto)
+  }
+
+  @Post(':id/variance-reason')
+  @ApiOperation({ summary: 'Record why a closed shift was out of tolerance' })
+  setVarianceReason(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SetCashVarianceReasonDto,
+  ): Promise<CashSession> {
+    return this.cashSessions.setVarianceReason(user.businessId as string, id, dto)
   }
 
   @Post(':id/movements')

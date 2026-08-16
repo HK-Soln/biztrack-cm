@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { CashMovementKind, CashSessionStatus } from '@biztrack/types'
+import { CashMovementKind, CashSessionStatus, CashVarianceReason } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
 import { CashSessionsService } from '../services/cash-sessions.service'
@@ -327,6 +327,35 @@ describe('CashSessionsService', () => {
     expect(closed.countedCash).toBeNull() // never counted → no fabricated variance
     expect(closed.varianceCash).toBeNull()
     expect(svc.getCurrent()).toBeNull() // a fresh shift can now open
+  })
+
+  it('records a variance reason on an out-of-tolerance close (BIZ-2.6)', () => {
+    const svc = makeService(db)
+    const s = svc.openSession({ openingFloat: 10000 })
+    // Count 9 500 vs expected 10 000 → −500 variance (beyond the ±100 band).
+    const closed = svc.closeSession(s.id, {
+      counts: [
+        { denomination: 5000, quantity: 1 },
+        { denomination: 2000, quantity: 2 },
+        { denomination: 500, quantity: 1 },
+      ],
+    })
+    expect(closed.varianceCash).toBe(-500)
+
+    const reasoned = svc.setVarianceReason(s.id, {
+      reason: CashVarianceReason.CHANGE_ERROR,
+      note: 'gave wrong change',
+    })
+    expect(reasoned.varianceReason).toBe('CHANGE_ERROR')
+    expect(reasoned.varianceNote).toBe('gave wrong change')
+  })
+
+  it('rejects a variance reason on a shift that is not closed', () => {
+    const svc = makeService(db)
+    const s = svc.openSession({ openingFloat: 0 })
+    expect(() => svc.setVarianceReason(s.id, { reason: CashVarianceReason.UNKNOWN })).toThrow(
+      /just-closed/i,
+    )
   })
 
   it('rejects a non-whole money write at the DB guard', () => {

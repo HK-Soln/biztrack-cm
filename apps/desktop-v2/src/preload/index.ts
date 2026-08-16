@@ -277,6 +277,8 @@ const api: BridgeApi = {
     recordMovement: (input) => ipcRenderer.invoke(IPC.cashSessionsRecordMovement, input),
     listMovements: (sessionId) => ipcRenderer.invoke(IPC.cashSessionsListMovements, sessionId),
     close: (id, input) => ipcRenderer.invoke(IPC.cashSessionsClose, id, input),
+    setVarianceReason: (id, input) =>
+      ipcRenderer.invoke(IPC.cashSessionsSetVarianceReason, id, input),
     roleTracksDrawer: () => ipcRenderer.invoke(IPC.cashSessionsRoleTracksDrawer),
     staleOpen: () => ipcRenderer.invoke(IPC.cashSessionsStaleOpen),
     recover: (id) => ipcRenderer.invoke(IPC.cashSessionsRecover, id),

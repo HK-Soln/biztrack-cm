@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
-import { CASH_DENOMINATIONS, CashMovementKind, type CashSession } from '@biztrack/types'
+import {
+  CASH_DENOMINATIONS,
+  CashMovementKind,
+  CashVarianceReason,
+  isCashVarianceWithinTolerance,
+  type CashSession,
+} from '@biztrack/types'
 import { formatCurrency } from '@biztrack/utils'
 import { useT } from '@/i18n'
 
@@ -27,6 +33,13 @@ const MOVEMENT_KINDS: CashMovementKind[] = [
 
 type Mode = 'operate' | 'count' | 'result'
 
+const VARIANCE_REASONS: CashVarianceReason[] = [
+  CashVarianceReason.CHANGE_ERROR,
+  CashVarianceReason.UNRECORDED_SALE,
+  CashVarianceReason.UNRECORDED_EXPENSE,
+  CashVarianceReason.UNKNOWN,
+]
+
 export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
   const [loading, setLoading] = useState(true)
@@ -45,6 +58,8 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   const [mode, setMode] = useState<Mode>('operate')
   const [counts, setCounts] = useState<Record<number, string>>({})
   const [closed, setClosed] = useState<CashSession | null>(null)
+  const [varReason, setVarReason] = useState<CashVarianceReason | null>(null)
+  const [varNote, setVarNote] = useState('')
 
   const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
 
@@ -92,6 +107,8 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
       setMode('operate')
       setCounts({})
       setClosed(null)
+      setVarReason(null)
+      setVarNote('')
       void refresh()
     }
   }, [open, refresh])
@@ -151,6 +168,31 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
     } finally {
       setBusy(false)
     }
+  }
+
+  const finishClose = async () => {
+    if (!api || !closed || busy) return
+    const needsReason = !isCashVarianceWithinTolerance(closed.varianceCash ?? 0)
+    if (needsReason && !varReason) {
+      setError(t('cash.reasonRequired'))
+      return
+    }
+    if (needsReason && varReason) {
+      setBusy(true)
+      setError(null)
+      try {
+        await api.setVarianceReason(closed.id, {
+          reason: varReason,
+          note: varNote.trim() || undefined,
+        })
+      } catch (e) {
+        setError((e as Error).message)
+        setBusy(false)
+        return
+      }
+      setBusy(false)
+    }
+    onClose()
   }
 
   return (
@@ -216,8 +258,42 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
                 ? t('cash.over')
                 : t('cash.short')}
           </p>
+
+          {!isCashVarianceWithinTolerance(closed.varianceCash ?? 0) ? (
+            <div className="cash-record" style={{ marginTop: 14 }}>
+              <label className="lbl2">{t('cash.varianceReasonTitle')}</label>
+              <div className="chips" style={{ marginTop: 6 }}>
+                {VARIANCE_REASONS.map((r) => (
+                  <button
+                    type="button"
+                    key={r}
+                    className={`chip${varReason === r ? ' on' : ''}`}
+                    onClick={() => {
+                      setVarReason(r)
+                      setError(null)
+                    }}
+                  >
+                    {t(`cash.reason.${r}`)}
+                  </button>
+                ))}
+              </div>
+              <Input
+                type="text"
+                value={varNote}
+                onChange={(e) => setVarNote(e.target.value)}
+                placeholder={t('cash.notePlaceholder')}
+                style={{ marginTop: 10 }}
+              />
+            </div>
+          ) : null}
+
+          {error ? (
+            <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }} role="alert">
+              {error}
+            </p>
+          ) : null}
           <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="primary" onClick={onClose}>
+            <Button variant="primary" onClick={() => void finishClose()} loading={busy}>
               {t('cash.done')}
             </Button>
           </div>

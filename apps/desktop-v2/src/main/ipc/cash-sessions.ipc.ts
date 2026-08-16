@@ -1,5 +1,9 @@
 import { ipcMain } from 'electron'
-import type { CloseCashSessionInput, RecordCashMovementInput } from '@biztrack/types'
+import type {
+  CloseCashSessionInput,
+  RecordCashMovementInput,
+  SetCashVarianceReasonInput,
+} from '@biztrack/types'
 import {
   IPC,
   type CashSessionsListQuery,
@@ -33,4 +37,9 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
   ipcMain.handle(IPC.cashSessionsRoleTracksDrawer, () => cashSessions.roleTracksCashDrawer())
   ipcMain.handle(IPC.cashSessionsStaleOpen, () => cashSessions.findStaleOpenSession())
   ipcMain.handle(IPC.cashSessionsRecover, (_e, id: string) => cashSessions.recoverAndClose(id))
+  ipcMain.handle(
+    IPC.cashSessionsSetVarianceReason,
+    (_e, id: string, input: SetCashVarianceReasonInput) =>
+      cashSessions.setVarianceReason(id, input),
+  )
 }

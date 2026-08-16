@@ -146,6 +146,7 @@ export const IPC = {
   cashSessionsRoleTracksDrawer: 'cash-sessions:role-tracks-drawer',
   cashSessionsStaleOpen: 'cash-sessions:stale-open',
   cashSessionsRecover: 'cash-sessions:recover',
+  cashSessionsSetVarianceReason: 'cash-sessions:set-variance-reason',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -1353,6 +1354,7 @@ import type {
   CashMovement as CashMovementT,
   RecordCashMovementInput as RecordCashMovementInputT,
   CloseCashSessionInput as CloseCashSessionInputT,
+  SetCashVarianceReasonInput as SetCashVarianceReasonInputT,
 } from '@biztrack/types'
 
 export interface DepositsListQuery extends ListQueryT {
@@ -2122,6 +2124,8 @@ export interface BridgeApi {
     transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSessionT>
     /** Close a shift with a blind denomination count → variance (BIZ-2.4). */
     close: (id: string, input: CloseCashSessionInputT) => Promise<CashSessionT>
+    /** Record why a just-closed shift was out of tolerance (BIZ-2.6). */
+    setVarianceReason: (id: string, input: SetCashVarianceReasonInputT) => Promise<CashSessionT>
     /** Whether the signed-in user's role runs a till (drives the login shift prompt). */
     roleTracksDrawer: () => Promise<boolean>
     /** An OPEN session older than the max-shift window (orphan), or null (BIZ-2.5). */

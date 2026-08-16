@@ -11,6 +11,7 @@ import {
   type CashSessionExpectedCash,
   type CloseCashSessionInput,
   type RecordCashMovementInput,
+  type SetCashVarianceReasonInput,
 } from '@biztrack/types'
 import { computeExpectedCash } from '@biztrack/utils'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -46,6 +47,8 @@ interface SessionRow {
   closed_reason: string | null
   recount_used: number
   closing_note: string | null
+  variance_reason: string | null
+  variance_note: string | null
   reviewed_by: string | null
   reviewed_at: string | null
   review_note: string | null
@@ -56,8 +59,8 @@ interface SessionRow {
 const COLS = `id, business_id, outlet_id, device_id, user_id, status, opened_at, closed_at,
   opening_float, expected_cash, counted_cash, variance_cash, expected_mtn_momo, confirmed_mtn_momo,
   expected_orange_money, confirmed_orange_money, credit_issued, discount_total, sales_count,
-  void_count, closed_reason, recount_used, closing_note, reviewed_by, reviewed_at, review_note,
-  created_at, updated_at`
+  void_count, closed_reason, recount_used, closing_note, variance_reason, variance_note,
+  reviewed_by, reviewed_at, review_note, created_at, updated_at`
 
 /**
  * Offline-first cash sessions (BIZ-2.1) — a cashier's shift at a till. Open a session
@@ -304,6 +307,30 @@ export class CashSessionsService {
         sessionId,
         businessId,
       ],
+    )
+    this.push(sessionId, businessId)
+    this.onMutated()
+    return this.get(sessionId) as CashSession
+  }
+
+  /**
+   * Record why a just-closed shift's count missed (BIZ-2.6) — set after the blind close
+   * reveals an out-of-tolerance variance. Allowed on a CLOSED session (it's review
+   * metadata, like the owner reconciliation note; the count itself stays immutable).
+   */
+  setVarianceReason(sessionId: string, input: SetCashVarianceReasonInput): CashSession {
+    const businessId = this.getBusinessId()
+    if (!businessId) throw new Error('No active business.')
+    const session = this.get(sessionId)
+    if (!session) throw new Error('Cash session not found.')
+    if (session.status !== CashSessionStatus.CLOSED) {
+      throw new Error('A variance reason can only be set on a just-closed shift.')
+    }
+    const now = new Date().toISOString()
+    this.db.run(
+      `UPDATE cash_sessions SET variance_reason = ?, variance_note = ?, updated_at = ?
+       WHERE id = ? AND business_id = ?`,
+      [input.reason, input.note?.trim() || null, now, sessionId, businessId],
     )
     this.push(sessionId, businessId)
     this.onMutated()
@@ -607,6 +634,8 @@ function toCashSession(r: SessionRow): CashSession {
     closedReason: r.closed_reason as CashSession['closedReason'],
     recountUsed: r.recount_used === 1,
     closingNote: r.closing_note,
+    varianceReason: r.variance_reason as CashSession['varianceReason'],
+    varianceNote: r.variance_note,
     reviewedBy: r.reviewed_by,
     reviewedAt: r.reviewed_at,
     reviewNote: r.review_note,

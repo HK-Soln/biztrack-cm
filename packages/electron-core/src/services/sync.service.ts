@@ -376,6 +376,8 @@ const CASH_SESSION_MAP: Record<string, string> = {
   closed_reason: 'closedReason',
   recount_used: 'recountUsed',
   closing_note: 'closingNote',
+  variance_reason: 'varianceReason',
+  variance_note: 'varianceNote',
   reviewed_by: 'reviewedBy',
   reviewed_at: 'reviewedAt',
   review_note: 'reviewNote',

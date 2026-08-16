@@ -126,6 +126,12 @@ export class CashSession extends BaseEntity {
   @Column({ name: 'closing_note', type: 'text', nullable: true })
   closingNote?: string | null
 
+  @Column({ name: 'variance_reason', type: 'varchar', length: 30, nullable: true })
+  varianceReason?: string | null
+
+  @Column({ name: 'variance_note', type: 'text', nullable: true })
+  varianceNote?: string | null
+
   @Column({ name: 'reviewed_by', type: 'uuid', nullable: true })
   reviewedBy?: string | null
 

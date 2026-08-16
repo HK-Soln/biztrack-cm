@@ -10,7 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator'
 import { Type } from 'class-transformer'
-import { CashMovementKind, CashSessionStatus } from '@biztrack/types'
+import { CashMovementKind, CashSessionStatus, CashVarianceReason } from '@biztrack/types'
 
 export class OpenCashSessionDto {
   @ApiPropertyOptional({ description: 'Client-generated UUID (device-first idempotency).' })
@@ -111,6 +111,17 @@ export class CloseCashSessionDto {
   @ApiPropertyOptional()
   @IsOptional()
   recountUsed?: boolean
+}
+
+export class SetCashVarianceReasonDto {
+  @ApiPropertyOptional({ enum: CashVarianceReason })
+  @IsEnum(CashVarianceReason)
+  reason!: CashVarianceReason
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  note?: string
 }
 
 export class ListCashSessionsQueryDto {

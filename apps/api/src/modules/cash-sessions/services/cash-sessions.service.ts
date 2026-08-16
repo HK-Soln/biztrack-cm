@@ -17,6 +17,7 @@ import {
   type JwtPayload,
   type PaginatedResult,
   type RecordCashMovementInput,
+  type SetCashVarianceReasonInput,
 } from '@biztrack/types'
 import { computeExpectedCash } from '@biztrack/utils'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
@@ -196,6 +197,23 @@ export class CashSessionsService {
       .andWhere('updated_at < :cutoff', { cutoff })
       .execute()
     return result.affected ?? 0
+  }
+
+  async setVarianceReason(
+    businessId: string,
+    sessionId: string,
+    input: SetCashVarianceReasonInput,
+  ): Promise<CashSession> {
+    const session = await this.findById(sessionId, businessId)
+    if (session.status !== CashSessionStatus.CLOSED) {
+      throw new AppBadRequestException(
+        'A variance reason can only be set on a just-closed shift.',
+        'CASH_SESSION_NOT_CLOSED',
+      )
+    }
+    session.varianceReason = input.reason
+    session.varianceNote = input.note?.trim() || null
+    return this.sessionsRepo.save(session)
   }
 
   async findById(id: string, businessId: string): Promise<CashSession> {
@@ -404,6 +422,8 @@ export class CashSessionsService {
       closedReason: (payload.closedReason as CashSession['closedReason']) ?? null,
       recountUsed: payload.recountUsed,
       closingNote: payload.closingNote ?? null,
+      varianceReason: payload.varianceReason ?? null,
+      varianceNote: payload.varianceNote ?? null,
       reviewedBy: payload.reviewedBy ?? null,
       reviewedAt: payload.reviewedAt ? new Date(payload.reviewedAt) : null,
       reviewNote: payload.reviewNote ?? null,
