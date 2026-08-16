@@ -545,7 +545,7 @@ export class CashSessionsService {
       `SELECT ${COLS} FROM cash_sessions
        WHERE business_id = ? AND is_deleted = 0
          AND opened_at >= ? AND opened_at < ?
-       ORDER BY opened_at ASC`,
+       ORDER BY opened_at DESC`,
       [businessId, fromIso, toIso],
     )
 

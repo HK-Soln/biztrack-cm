@@ -590,7 +590,7 @@ export class CashSessionsService {
       .andWhere('cs.deleted_at IS NULL')
       .andWhere('cs.opened_at >= :from', { from: fromIso })
       .andWhere('cs.opened_at < :to', { to: toIso2 })
-      .orderBy('cs.opened_at', 'ASC')
+      .orderBy('cs.opened_at', 'DESC')
       .getMany()
 
     const shifts: CashDailyShiftLine[] = []
