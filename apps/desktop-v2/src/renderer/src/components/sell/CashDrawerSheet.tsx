@@ -22,6 +22,7 @@ import { formatCurrency } from '@biztrack/utils'
 import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
+import { useCanManage } from '@/lib/useCanManage'
 import { useLangStore, useT } from '@/i18n'
 
 /**
@@ -61,12 +62,13 @@ const VARIANCE_REASONS: CashVarianceReason[] = [
  */
 function CashierAccuracy({ t }: { t: ReturnType<typeof useT> }) {
   const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const canManage = useCanManage()
   const [hist, setHist] = useState<CashVarianceHistory | null>(null)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     let alive = true
-    if (!api?.varianceHistory) {
+    if (!api?.varianceHistory || !canManage) {
       setLoaded(true)
       return
     }
@@ -79,9 +81,10 @@ function CashierAccuracy({ t }: { t: ReturnType<typeof useT> }) {
     return () => {
       alive = false
     }
-  }, [api])
+  }, [api, canManage])
 
-  if (!api?.varianceHistory) return null
+  // Per-cashier accuracy is manager oversight — hide the whole panel from cashiers.
+  if (!api?.varianceHistory || !canManage) return null
   return (
     <div
       className="cash-accuracy"
@@ -187,6 +190,8 @@ function CashReportButton({
     filename: string
     title: string
     recipient: string
+    phone: string | null
+    email: string | null
   } | null>(null)
 
   const generate = async () => {
@@ -233,7 +238,16 @@ function CashReportButton({
         labels: reportLabels(lang),
         locale: lang,
       })
-      setDoc({ html, filename, title, recipient: business.name || title })
+      // Pre-address to the business's own contact — the report is filed to the owner, so
+      // there's no recipient to type each time.
+      setDoc({
+        html,
+        filename,
+        title,
+        recipient: business.name || title,
+        phone: business.phone ?? null,
+        email: business.email ?? null,
+      })
     } catch (e) {
       setError((e as Error).message || t('cash.reportError'))
     } finally {
@@ -260,6 +274,8 @@ function CashReportButton({
           message={doc.title}
           subject={doc.title}
           recipientName={doc.recipient}
+          defaultPhone={doc.phone}
+          defaultEmail={doc.email}
           onClose={() => setDoc(null)}
         />
       ) : null}
@@ -269,6 +285,9 @@ function CashReportButton({
 
 export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
+  // The daily close spans every cashier's shift → manager oversight only. Each cashier's own
+  // X/Z report stays available to them (it's their shift).
+  const canManage = useCanManage()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<CashSession | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -475,13 +494,15 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               {t('cash.openShift')}
             </Button>
           </div>
-          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-            <CashReportButton
-              target={{ kind: 'DAILY' }}
-              label={t('cash.dailyClose')}
-              hint={t('cash.dailyCloseHint')}
-            />
-          </div>
+          {canManage ? (
+            <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+              <CashReportButton
+                target={{ kind: 'DAILY' }}
+                label={t('cash.dailyClose')}
+                hint={t('cash.dailyCloseHint')}
+              />
+            </div>
+          ) : null}
           <CashierAccuracy t={t} />
         </div>
       ) : mode === 'result' && closed ? (
@@ -567,7 +588,9 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
                 target={{ kind: 'Z', sessionId: closed.id }}
                 label={t('cash.shareZReport')}
               />
-              <CashReportButton target={{ kind: 'DAILY' }} label={t('cash.dailyClose')} />
+              {canManage ? (
+                <CashReportButton target={{ kind: 'DAILY' }} label={t('cash.dailyClose')} />
+              ) : null}
             </div>
             <Button variant="primary" onClick={() => void finishClose()} loading={busy}>
               {t('cash.done')}
@@ -672,17 +695,19 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               flexWrap: 'wrap',
             }}
           >
-            {/* Read the drawer without closing (X-report), or review the whole day. */}
+            {/* Read the drawer without closing (X-report), or — managers only — review the day. */}
             <CashReportButton
               target={{ kind: 'X', sessionId: session.id }}
               label={t('cash.xReport')}
               hint={t('cash.xReportHint')}
             />
-            <CashReportButton
-              target={{ kind: 'DAILY' }}
-              label={t('cash.dailyClose')}
-              hint={t('cash.dailyCloseHint')}
-            />
+            {canManage ? (
+              <CashReportButton
+                target={{ kind: 'DAILY' }}
+                label={t('cash.dailyClose')}
+                hint={t('cash.dailyCloseHint')}
+              />
+            ) : null}
           </div>
 
           <div

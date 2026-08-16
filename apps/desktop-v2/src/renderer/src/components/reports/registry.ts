@@ -44,6 +44,9 @@ export interface ReportMeta {
   /** Desktop-only report (the data source is `window.api`, not the cloud DataClient). Hidden
    * in the browser build. */
   desktopOnly?: boolean
+  /** Manager-oversight report (aggregates across cashiers). Hidden from roles that can't
+   * authorize (a regular cashier). */
+  managerOnly?: boolean
 }
 
 export interface ReportLoadContext {
@@ -146,6 +149,7 @@ export const REPORTS: ReportMeta[] = [
     formats: ['pdf', 'csv'],
     built: true,
     desktopOnly: true,
+    managerOnly: true,
   },
   {
     id: 'sales-category',
