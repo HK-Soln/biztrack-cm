@@ -270,7 +270,7 @@ export class InventoryService {
       now,
     )
     this.audit?.log({
-      action: 'UPDATE',
+      action: 'STOCK_ADJUSTED',
       entityType: 'inventory',
       entityId: productId,
       entityLabel: meta.name,
@@ -342,7 +342,7 @@ export class InventoryService {
       now,
     )
     this.audit?.log({
-      action: 'UPDATE',
+      action: 'STOCK_ADJUSTED',
       entityType: 'inventory',
       entityId: productId,
       entityLabel: `${meta.name} — ${variant.name}`,

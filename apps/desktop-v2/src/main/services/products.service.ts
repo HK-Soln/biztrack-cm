@@ -587,6 +587,21 @@ export class ProductsService {
       entityLabel: after.name,
       changes: diffProduct(before, after),
     })
+    // BIZ-2.9: a selling-price change is its own auditable event (price manipulation), on top
+    // of the generic UPDATE above.
+    if (before && before.sellingPrice !== after.sellingPrice) {
+      this.audit?.log({
+        action: 'PRICE_CHANGED',
+        entityType: 'product',
+        entityId: id,
+        entityLabel: after.name,
+        amount: after.sellingPrice,
+        changes: {
+          before: { sellingPrice: before.sellingPrice },
+          after: { sellingPrice: after.sellingPrice },
+        },
+      })
+    }
     return after
   }
 

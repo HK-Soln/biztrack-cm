@@ -741,6 +741,17 @@ export class SalesService {
         },
       },
     })
+    // BIZ-2.9: a flagged discount (unauthorized or below-cost) is separately auditable.
+    if (discountUnauthorized || belowCost) {
+      this.audit?.log({
+        action: 'DISCOUNT_APPLIED',
+        entityType: 'sale',
+        entityId: saleId,
+        entityLabel: saleNumber,
+        amount: toWholeXaf(discountAmount + emits.reduce((sum, e) => sum + e.discountAmount, 0)),
+        changes: { before: null, after: { unauthorized: discountUnauthorized, belowCost } },
+      })
+    }
     this.onMutated()
     return this.get(saleId)!
   }
@@ -761,8 +772,13 @@ export class SalesService {
     const actorId = this.getActorId()
     if (!actorId) throw new Error('No active session.')
 
-    const sale = this.db.get<{ id: string; status: string; sale_number: string }>(
-      `SELECT id, status, sale_number FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+    const sale = this.db.get<{
+      id: string
+      status: string
+      sale_number: string
+      total_amount: number
+    }>(
+      `SELECT id, status, sale_number, total_amount FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
       [saleId, businessId],
     )
     if (!sale) throw new Error('Sale not found.')
@@ -849,10 +865,11 @@ export class SalesService {
     )
 
     this.audit?.log({
-      action: 'VOID',
+      action: 'SALE_VOIDED',
       entityType: 'sale',
       entityId: saleId,
       entityLabel: sale.sale_number,
+      amount: sale.total_amount,
       changes: {
         before: { status: 'COMPLETED' },
         after: { status: 'VOIDED', voidReason: trimmed },
