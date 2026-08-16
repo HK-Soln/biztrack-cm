@@ -351,7 +351,7 @@ export function buildCashDailyReport(
   const n = (x: number) => formatNumber(x, opts.locale)
   const L = fr
     ? {
-        title: 'Clôture journalière',
+        title: 'Clôture de caisse',
         netSales: 'Ventes nettes',
         txns: 'Transactions',
         shifts: 'Postes',
@@ -379,7 +379,7 @@ export function buildCashDailyReport(
         reconOff: 'Écart avec le résumé journalier — à vérifier.',
       }
     : {
-        title: 'Daily close',
+        title: 'Cash close',
         netSales: 'Net sales',
         txns: 'Transactions',
         shifts: 'Shifts',

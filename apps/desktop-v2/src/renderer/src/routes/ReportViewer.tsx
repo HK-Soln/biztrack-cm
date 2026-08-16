@@ -207,7 +207,10 @@ export function ReportViewer() {
     return REPORT_CATEGORIES.map((cat) => ({
       cat,
       reps: REPORTS.filter(
-        (r) => r.cat === cat.key && (!s || `${r.name} ${r.fr}`.toLowerCase().includes(s)),
+        (r) =>
+          r.cat === cat.key &&
+          (isElectron || !r.desktopOnly) &&
+          (!s || `${r.name} ${r.fr}`.toLowerCase().includes(s)),
       ),
     })).filter((g) => g.reps.length)
   }, [search])

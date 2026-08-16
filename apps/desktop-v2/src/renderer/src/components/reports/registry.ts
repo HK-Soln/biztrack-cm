@@ -4,6 +4,7 @@
 // Reports without a real data source are `built: false` — shown disabled and not routable.
 import {
   buildAgeingReport,
+  buildCashDailyReport,
   buildCashierPerformanceReport,
   buildDailySalesReport,
   buildDeadStockReport,
@@ -40,6 +41,9 @@ export interface ReportMeta {
   formats: ReportFormat[]
   built: boolean
   ohada?: boolean
+  /** Desktop-only report (the data source is `window.api`, not the cloud DataClient). Hidden
+   * in the browser build. */
+  desktopOnly?: boolean
 }
 
 export interface ReportLoadContext {
@@ -131,6 +135,17 @@ export const REPORTS: ReportMeta[] = [
     descFr: 'Ventes et postes par membre',
     formats: ['pdf'],
     built: true,
+  },
+  {
+    id: 'cash-close',
+    cat: 'sales',
+    name: 'Cash Close',
+    fr: 'Clôture de caisse',
+    desc: 'Shifts, drawer totals & variance for the period',
+    descFr: 'Postes, totaux de caisse & écarts sur la période',
+    formats: ['pdf', 'csv'],
+    built: true,
+    desktopOnly: true,
   },
   {
     id: 'sales-category',
@@ -415,6 +430,43 @@ export const LOADERS: Record<string, ReportLoader> = {
   'daily-sales': async ({ client, range, currency, opts }) => {
     const rows = await client.sales.dailySeries(range)
     return buildDailySalesReport({ rows, currency }, opts)
+  },
+  'cash-close': async ({ range, currency, opts }) => {
+    // Desktop-only: the till (cash sessions) lives on the device, not the cloud DataClient.
+    const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+    const fromIso = new Date(`${range.dateFrom}T00:00:00.000Z`).toISOString()
+    // dateTo is inclusive → extend to the end of that day (dailyReport filters [from, to)).
+    const toIso = new Date(
+      new Date(`${range.dateTo}T00:00:00.000Z`).getTime() + 86_400_000,
+    ).toISOString()
+    const data = api
+      ? await api.dailyReport({ fromIso, toIso })
+      : {
+          currency,
+          fromDate: fromIso,
+          toDate: toIso,
+          generatedAt: new Date().toISOString(),
+          shifts: [],
+          totals: {
+            shifts: 0,
+            salesCount: 0,
+            voidCount: 0,
+            grossSales: 0,
+            discountTotal: 0,
+            netSales: 0,
+            creditIssued: 0,
+            cash: 0,
+            mtnMomo: 0,
+            orangeMoney: 0,
+            card: 0,
+            openingFloat: 0,
+            expectedCash: 0,
+            countedCash: 0,
+            varianceCash: 0,
+          },
+          reconciliation: null,
+        }
+    return buildCashDailyReport(data, opts)
   },
   cashier: async ({ client, range, currency, opts }) => {
     const rows = await client.sales.cashierRoster(range)
