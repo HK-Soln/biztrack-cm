@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import type { CashSessionExpectedCash, JwtPayload, PaginatedResult } from '@biztrack/types'
+import type {
+  CashSessionExpectedCash,
+  CashVarianceHistory,
+  JwtPayload,
+  PaginatedResult,
+} from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import type { CashSession } from '@/entities/cash-session.entity'
@@ -12,6 +17,7 @@ import {
   RecordCashMovementDto,
   SetCashVarianceReasonDto,
   TransitionCashSessionDto,
+  VarianceHistoryQueryDto,
 } from '../dto/cash-session.dto'
 import { CashSessionsService } from '../services/cash-sessions.service'
 
@@ -46,6 +52,15 @@ export class CashSessionsController {
   @ApiOperation({ summary: "This device's live cash session (or null)" })
   current(@CurrentUser() user: JwtPayload): Promise<CashSession | null> {
     return this.cashSessions.getCurrent(user.businessId as string, user.deviceId ?? 'unknown')
+  }
+
+  @Get('variance-history')
+  @ApiOperation({ summary: 'Per-cashier drawer-accuracy history over the last N days' })
+  varianceHistory(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: VarianceHistoryQueryDto,
+  ): Promise<CashVarianceHistory> {
+    return this.cashSessions.varianceHistory(user.businessId as string, query)
   }
 
   @Get(':id')

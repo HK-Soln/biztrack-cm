@@ -4,11 +4,16 @@ import {
   canTransitionCashSession,
   cashMovementDirection,
   CashMovementKind,
+  DEFAULT_CASH_VARIANCE_TOLERANCE,
   DEFAULT_MAX_SHIFT_HOURS,
+  DEFAULT_VARIANCE_HISTORY_DAYS,
   isCashSessionLocked,
   type CashMovement,
   type CashSession,
   type CashSessionExpectedCash,
+  type CashierVarianceStats,
+  type CashVarianceHistory,
+  type CashVarianceHistoryQuery,
   type CloseCashSessionInput,
   type RecordCashMovementInput,
   type SetCashVarianceReasonInput,
@@ -236,6 +241,80 @@ export class CashSessionsService {
         cashOut,
       }),
     }
+  }
+
+  /**
+   * Per-cashier drawer-accuracy history over the last N days (BIZ-2.6) — the pattern, not
+   * the one-off gap. Only NORMAL-closed shifts with a real count (variance not null) count;
+   * RECOVERED/ABANDONED shifts are excluded (no trustworthy variance). Cashiers are ranked
+   * worst-first by total drawer error (Σ|variance|).
+   */
+  varianceHistory(query: CashVarianceHistoryQuery = {}): CashVarianceHistory {
+    const days = Math.max(1, Math.floor(query.days ?? DEFAULT_VARIANCE_HISTORY_DAYS))
+    const tolerance = DEFAULT_CASH_VARIANCE_TOLERANCE
+    const to = new Date()
+    const fromIso = new Date(to.getTime() - days * 86_400_000).toISOString()
+    const businessId = this.getBusinessId()
+    const empty: CashVarianceHistory = {
+      fromDate: fromIso,
+      toDate: to.toISOString(),
+      toleranceXaf: tolerance,
+      cashiers: [],
+    }
+    if (!businessId) return empty
+
+    const groups = this.db.query<{
+      user_id: string
+      cashier_name: string | null
+      shifts: number
+      mean_variance: number
+      net_variance: number
+      abs_variance: number
+      outside_count: number
+    }>(
+      `SELECT cs.user_id,
+              (SELECT bm.name FROM business_members bm
+                 WHERE bm.business_id = cs.business_id AND bm.user_id = cs.user_id
+                   AND bm.is_deleted = 0 LIMIT 1) AS cashier_name,
+              COUNT(*) AS shifts,
+              AVG(cs.variance_cash) AS mean_variance,
+              SUM(cs.variance_cash) AS net_variance,
+              SUM(ABS(cs.variance_cash)) AS abs_variance,
+              SUM(CASE WHEN ABS(cs.variance_cash) > ? THEN 1 ELSE 0 END) AS outside_count
+       FROM cash_sessions cs
+       WHERE cs.business_id = ? AND cs.is_deleted = 0
+         AND cs.status = 'CLOSED' AND cs.variance_cash IS NOT NULL
+         AND cs.closed_at IS NOT NULL AND cs.closed_at >= ?
+       GROUP BY cs.user_id
+       ORDER BY abs_variance DESC`,
+      [tolerance, businessId, fromIso],
+    )
+
+    const cashiers: CashierVarianceStats[] = groups.map((g) => {
+      const worst = this.db.get<{ id: string; variance_cash: number; closed_at: string }>(
+        `SELECT id, variance_cash, closed_at FROM cash_sessions
+         WHERE business_id = ? AND user_id = ? AND is_deleted = 0
+           AND status = 'CLOSED' AND variance_cash IS NOT NULL
+           AND closed_at IS NOT NULL AND closed_at >= ?
+         ORDER BY ABS(variance_cash) DESC, closed_at DESC LIMIT 1`,
+        [businessId, g.user_id, fromIso],
+      )
+      return {
+        userId: g.user_id,
+        cashierName: g.cashier_name,
+        shifts: g.shifts,
+        meanVarianceCash: Math.round(g.mean_variance ?? 0),
+        netVarianceCash: Math.round(g.net_variance ?? 0),
+        sumAbsVarianceCash: Math.round(g.abs_variance ?? 0),
+        outsideToleranceCount: g.outside_count,
+        pctOutsideTolerance: g.shifts > 0 ? Math.round((g.outside_count / g.shifts) * 100) : 0,
+        worstShift: worst
+          ? { sessionId: worst.id, varianceCash: worst.variance_cash, closedAt: worst.closed_at }
+          : null,
+      }
+    })
+
+    return { ...empty, cashiers }
   }
 
   /**

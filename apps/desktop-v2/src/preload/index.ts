@@ -279,6 +279,7 @@ const api: BridgeApi = {
     close: (id, input) => ipcRenderer.invoke(IPC.cashSessionsClose, id, input),
     setVarianceReason: (id, input) =>
       ipcRenderer.invoke(IPC.cashSessionsSetVarianceReason, id, input),
+    varianceHistory: (query) => ipcRenderer.invoke(IPC.cashSessionsVarianceHistory, query),
     roleTracksDrawer: () => ipcRenderer.invoke(IPC.cashSessionsRoleTracksDrawer),
     staleOpen: () => ipcRenderer.invoke(IPC.cashSessionsStaleOpen),
     recover: (id) => ipcRenderer.invoke(IPC.cashSessionsRecover, id),

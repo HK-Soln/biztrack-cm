@@ -5,14 +5,19 @@ import {
   ABANDONED_SHIFT_HOURS,
   CashSessionClosedReason,
   CashSessionStatus,
+  DEFAULT_CASH_VARIANCE_TOLERANCE,
+  DEFAULT_VARIANCE_HISTORY_DAYS,
   canTransitionCashSession,
   cashMovementDirection,
   isCashSessionLocked,
   type CashCountLineSyncRecord,
+  type CashierVarianceStats,
   type CashMovement as CashMovementDto,
   type CashMovementSyncRecord,
   type CashSessionExpectedCash,
   type CashSessionSyncRecord,
+  type CashVarianceHistory,
+  type CashVarianceHistoryQuery,
   type CloseCashSessionInput,
   type JwtPayload,
   type PaginatedResult,
@@ -310,6 +315,84 @@ export class CashSessionsService {
         cashOut,
       }),
     }
+  }
+
+  /**
+   * Per-cashier drawer-accuracy history over the last N days (BIZ-2.6) — mirrors the desktop
+   * `varianceHistory` (same filters, same ranking) so cloud and device agree. Only NORMAL-closed
+   * shifts with a real count (variance not null) count; RECOVERED/ABANDONED are excluded.
+   */
+  async varianceHistory(
+    businessId: string,
+    query: CashVarianceHistoryQuery = {},
+  ): Promise<CashVarianceHistory> {
+    const days = Math.max(1, Math.floor(query.days ?? DEFAULT_VARIANCE_HISTORY_DAYS))
+    const tolerance = DEFAULT_CASH_VARIANCE_TOLERANCE
+    const to = new Date()
+    const from = new Date(to.getTime() - days * 86_400_000)
+    const fromIso = from.toISOString()
+
+    const groups = (await this.sessionsRepo.manager.query(
+      `SELECT cs.user_id AS user_id, u.name AS cashier_name,
+              COUNT(*)::int AS shifts,
+              AVG(cs.variance_cash) AS mean_variance,
+              SUM(cs.variance_cash) AS net_variance,
+              SUM(ABS(cs.variance_cash)) AS abs_variance,
+              SUM(CASE WHEN ABS(cs.variance_cash) > $1 THEN 1 ELSE 0 END)::int AS outside_count
+       FROM cash_sessions cs
+       LEFT JOIN users u ON u.id = cs.user_id
+       WHERE cs.business_id = $2 AND cs.deleted_at IS NULL
+         AND cs.status = 'CLOSED' AND cs.variance_cash IS NOT NULL
+         AND cs.closed_at IS NOT NULL AND cs.closed_at >= $3
+       GROUP BY cs.user_id, u.name
+       ORDER BY abs_variance DESC`,
+      [tolerance, businessId, fromIso],
+    )) as Array<{
+      user_id: string
+      cashier_name: string | null
+      shifts: number
+      mean_variance: string | null
+      net_variance: string | null
+      abs_variance: string | null
+      outside_count: number
+    }>
+
+    const worst = (await this.sessionsRepo.manager.query(
+      `SELECT DISTINCT ON (cs.user_id) cs.user_id AS user_id, cs.id AS id,
+              cs.variance_cash AS variance_cash, cs.closed_at AS closed_at
+       FROM cash_sessions cs
+       WHERE cs.business_id = $1 AND cs.deleted_at IS NULL
+         AND cs.status = 'CLOSED' AND cs.variance_cash IS NOT NULL
+         AND cs.closed_at IS NOT NULL AND cs.closed_at >= $2
+       ORDER BY cs.user_id, ABS(cs.variance_cash) DESC, cs.closed_at DESC`,
+      [businessId, fromIso],
+    )) as Array<{ user_id: string; id: string; variance_cash: number; closed_at: Date | string }>
+    const worstByUser = new Map(worst.map((w) => [w.user_id, w]))
+
+    const cashiers: CashierVarianceStats[] = groups.map((g) => {
+      const w = worstByUser.get(g.user_id)
+      const shifts = Number(g.shifts)
+      const outside = Number(g.outside_count)
+      return {
+        userId: g.user_id,
+        cashierName: g.cashier_name,
+        shifts,
+        meanVarianceCash: Math.round(Number(g.mean_variance ?? 0)),
+        netVarianceCash: Math.round(Number(g.net_variance ?? 0)),
+        sumAbsVarianceCash: Math.round(Number(g.abs_variance ?? 0)),
+        outsideToleranceCount: outside,
+        pctOutsideTolerance: shifts > 0 ? Math.round((outside / shifts) * 100) : 0,
+        worstShift: w
+          ? {
+              sessionId: w.id,
+              varianceCash: Number(w.variance_cash),
+              closedAt: w.closed_at instanceof Date ? w.closed_at.toISOString() : w.closed_at,
+            }
+          : null,
+      }
+    })
+
+    return { fromDate: fromIso, toDate: to.toISOString(), toleranceXaf: tolerance, cashiers }
   }
 
   // --- Cash movements (BIZ-2.3) ---------------------------------------------

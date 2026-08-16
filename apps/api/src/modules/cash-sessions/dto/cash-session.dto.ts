@@ -6,11 +6,17 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator'
 import { Type } from 'class-transformer'
-import { CashMovementKind, CashSessionStatus, CashVarianceReason } from '@biztrack/types'
+import {
+  CashMovementKind,
+  CashSessionStatus,
+  CashVarianceReason,
+  type CashVarianceHistoryQuery,
+} from '@biztrack/types'
 
 export class OpenCashSessionDto {
   @ApiPropertyOptional({ description: 'Client-generated UUID (device-first idempotency).' })
@@ -143,4 +149,14 @@ export class ListCashSessionsQueryDto {
   @IsOptional()
   @IsEnum(CashSessionStatus)
   status?: CashSessionStatus
+}
+
+export class VarianceHistoryQueryDto implements CashVarianceHistoryQuery {
+  @ApiPropertyOptional({ default: 30, description: 'Look-back window in days (1–365).' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  days?: number
 }

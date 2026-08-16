@@ -6,6 +6,7 @@ import {
   CashVarianceReason,
   isCashVarianceWithinTolerance,
   type CashSession,
+  type CashVarianceHistory,
 } from '@biztrack/types'
 import { formatCurrency } from '@biztrack/utils'
 import { useT } from '@/i18n'
@@ -39,6 +40,110 @@ const VARIANCE_REASONS: CashVarianceReason[] = [
   CashVarianceReason.UNRECORDED_EXPENSE,
   CashVarianceReason.UNKNOWN,
 ]
+
+/**
+ * Per-cashier drawer-accuracy over the last 30 days (BIZ-2.6) — "a single gap means nothing;
+ * a pattern is everything". Ranked worst-first by total drawer error. Desktop-only; read from
+ * the local shift history so it works offline.
+ */
+function CashierAccuracy({ t }: { t: ReturnType<typeof useT> }) {
+  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const [hist, setHist] = useState<CashVarianceHistory | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    if (!api?.varianceHistory) {
+      setLoaded(true)
+      return
+    }
+    void api.varianceHistory().then((h) => {
+      if (alive) {
+        setHist(h)
+        setLoaded(true)
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [api])
+
+  if (!api?.varianceHistory) return null
+  return (
+    <div
+      className="cash-accuracy"
+      style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border)' }}
+    >
+      <div className="lbl2">{t('cash.accuracyTitle')}</div>
+      <p className="cash-muted" style={{ fontSize: 12, margin: '2px 0 10px' }}>
+        {t('cash.accuracySub').replace('{tol}', formatCurrency(hist?.toleranceXaf ?? 100))}
+      </p>
+      {!loaded ? (
+        <p className="cash-muted">{t('cash.loading')}</p>
+      ) : !hist || hist.cashiers.length === 0 ? (
+        <p className="cash-muted">{t('cash.accuracyEmpty')}</p>
+      ) : (
+        <div className="acc-list">
+          {hist.cashiers.map((c) => {
+            const mean = c.meanVarianceCash
+            const meanCls = mean === 0 ? 'var-ok' : mean > 0 ? 'var-over' : 'var-short'
+            const flagged = c.outsideToleranceCount > 0
+            return (
+              <div
+                className="acc-row"
+                key={c.userId}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '7px 0',
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {c.cashierName || '—'}
+                  </div>
+                  <div className="cash-muted" style={{ fontSize: 12 }}>
+                    {t('cash.accuracyShifts').replace('{n}', String(c.shifts))}
+                    {' · '}
+                    {t('cash.accuracyMean')}{' '}
+                    <span className={meanCls}>
+                      {mean > 0 ? '+' : ''}
+                      {formatCurrency(mean)}
+                    </span>
+                    {c.worstShift ? (
+                      <>
+                        {' · '}
+                        {t('cash.accuracyWorst')} {formatCurrency(c.worstShift.varianceCash)}
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                <span
+                  className="chip"
+                  style={
+                    flagged ? { color: 'var(--danger)', borderColor: 'var(--danger)' } : undefined
+                  }
+                >
+                  {t('cash.accuracyOutside').replace('{pct}', String(c.pctOutsideTolerance))}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
@@ -248,6 +353,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               {t('cash.openShift')}
             </Button>
           </div>
+          <CashierAccuracy t={t} />
         </div>
       ) : mode === 'result' && closed ? (
         <div className="cash-shift">
@@ -442,6 +548,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               {t('cash.closeShift')}
             </Button>
           </div>
+          <CashierAccuracy t={t} />
         </div>
       )}
     </Modal>

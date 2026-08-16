@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import type {
+  CashVarianceHistoryQuery,
   CloseCashSessionInput,
   RecordCashMovementInput,
   SetCashVarianceReasonInput,
@@ -41,5 +42,8 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
     IPC.cashSessionsSetVarianceReason,
     (_e, id: string, input: SetCashVarianceReasonInput) =>
       cashSessions.setVarianceReason(id, input),
+  )
+  ipcMain.handle(IPC.cashSessionsVarianceHistory, (_e, query?: CashVarianceHistoryQuery) =>
+    cashSessions.varianceHistory(query),
   )
 }

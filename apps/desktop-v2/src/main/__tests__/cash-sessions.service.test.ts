@@ -350,6 +350,88 @@ describe('CashSessionsService', () => {
     expect(reasoned.varianceNote).toBe('gave wrong change')
   })
 
+  it('aggregates per-cashier variance history, ranked worst-first, excluding uncounted/old (BIZ-2.6)', () => {
+    const svc = makeService(db)
+    const now = Date.now()
+    const iso = (msAgo: number): string => new Date(now - msAgo).toISOString()
+
+    const member = (userId: string, name: string): void => {
+      db.run(
+        `INSERT INTO business_members (id, business_id, user_id, role, status, name, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, 'CASHIER', 'ACTIVE', ?, 0, ?, ?)`,
+        [`bm-${userId}`, BIZ, userId, name, iso(0), iso(0)],
+      )
+    }
+    // variance null → a RECOVERED/uncounted shift that must be excluded.
+    const shift = (
+      id: string,
+      userId: string,
+      variance: number | null,
+      closedAt: string,
+      reason = 'NORMAL',
+    ): void => {
+      const counted = variance === null ? null : 10000 + variance
+      db.run(
+        `INSERT INTO cash_sessions
+          (id, business_id, device_id, user_id, status, opened_at, closed_at, opening_float,
+           expected_cash, counted_cash, variance_cash, closed_reason, credit_issued, discount_total,
+           sales_count, void_count, recount_used, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'CLOSED', ?, ?, 10000, 10000, ?, ?, ?, 0, 0, 0, 0, 0, 0, ?, ?)`,
+        [
+          id,
+          BIZ,
+          DEVICE,
+          userId,
+          closedAt,
+          closedAt,
+          counted,
+          variance,
+          reason,
+          closedAt,
+          closedAt,
+        ],
+      )
+    }
+
+    member('u-alice', 'Alice')
+    member('u-bob', 'Bob')
+    // Alice: 0, +200, −50 → 3 shifts, 1 outside ±100, mean 50, net 150, |Σ| 250, worst +200.
+    shift('a1', 'u-alice', 0, iso(1 * 86_400_000))
+    shift('a2', 'u-alice', 200, iso(2 * 86_400_000))
+    shift('a3', 'u-alice', -50, iso(3 * 86_400_000))
+    // Bob: −500, 0 → 2 shifts, 1 outside, mean −250, |Σ| 500, worst −500.
+    shift('b1', 'u-bob', -500, iso(1 * 86_400_000))
+    shift('b2', 'u-bob', 0, iso(2 * 86_400_000))
+    // Excluded: Alice recovered (variance null) + Bob shift older than the 30d window.
+    shift('a4', 'u-alice', null, iso(1 * 86_400_000), 'RECOVERED')
+    shift('b3', 'u-bob', 9999, iso(40 * 86_400_000))
+
+    const hist = svc.varianceHistory()
+    expect(hist.toleranceXaf).toBe(100)
+    expect(hist.cashiers).toHaveLength(2)
+
+    // Ranked worst-first by total drawer error → Bob (500) before Alice (250).
+    const [bob, alice] = hist.cashiers
+    expect(bob?.userId).toBe('u-bob')
+    expect(bob?.cashierName).toBe('Bob')
+    expect(bob?.shifts).toBe(2)
+    expect(bob?.sumAbsVarianceCash).toBe(500)
+    expect(bob?.meanVarianceCash).toBe(-250)
+    expect(bob?.outsideToleranceCount).toBe(1)
+    expect(bob?.pctOutsideTolerance).toBe(50)
+    expect(bob?.worstShift?.sessionId).toBe('b1')
+    expect(bob?.worstShift?.varianceCash).toBe(-500)
+
+    expect(alice?.userId).toBe('u-alice')
+    expect(alice?.shifts).toBe(3) // the recovered shift is excluded
+    expect(alice?.sumAbsVarianceCash).toBe(250)
+    expect(alice?.meanVarianceCash).toBe(50)
+    expect(alice?.netVarianceCash).toBe(150)
+    expect(alice?.outsideToleranceCount).toBe(1)
+    expect(alice?.pctOutsideTolerance).toBe(33)
+    expect(alice?.worstShift?.varianceCash).toBe(200)
+  })
+
   it('rejects a variance reason on a shift that is not closed', () => {
     const svc = makeService(db)
     const s = svc.openSession({ openingFloat: 0 })

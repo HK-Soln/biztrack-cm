@@ -184,3 +184,51 @@ export interface CashSessionExpectedCash {
   /** opening_float + cashPayments − changeGiven + cashIn − cashOut. */
   expectedCash: number
 }
+
+/** How many days of closed shifts the per-cashier variance history covers by default (BIZ-2.6). */
+export const DEFAULT_VARIANCE_HISTORY_DAYS = 30
+
+export interface CashVarianceHistoryQuery {
+  /** Look-back window in days (default DEFAULT_VARIANCE_HISTORY_DAYS). */
+  days?: number
+}
+
+/** The worst (largest-magnitude) single shift in a cashier's window. */
+export interface CashVarianceWorstShift {
+  sessionId: string
+  varianceCash: number
+  closedAt: IsoDateString
+}
+
+/**
+ * Per-cashier drawer accuracy over a window (BIZ-2.6). "A single gap means nothing; a
+ * pattern is everything" — so the unit of the report is the cashier, not the shift.
+ * Only NORMAL-closed shifts with a real count (variance not null) are counted; RECOVERED
+ * and ABANDONED shifts are excluded (they have no trustworthy variance). All whole XAF.
+ */
+export interface CashierVarianceStats {
+  userId: string
+  cashierName: string | null
+  /** Number of counted shifts in the window. */
+  shifts: number
+  /** Signed mean variance (over/short bias). */
+  meanVarianceCash: number
+  /** Signed sum of variances (net over/short across the window). */
+  netVarianceCash: number
+  /** Σ |variance| — total drawer error regardless of direction. */
+  sumAbsVarianceCash: number
+  /** Shifts whose |variance| exceeded the tolerance band. */
+  outsideToleranceCount: number
+  /** outsideToleranceCount / shifts × 100, rounded. */
+  pctOutsideTolerance: number
+  worstShift: CashVarianceWorstShift | null
+}
+
+export interface CashVarianceHistory {
+  fromDate: IsoDateString
+  toDate: IsoDateString
+  /** The ±band a shift must stay within to count as balanced. */
+  toleranceXaf: number
+  /** Cashiers ranked worst-first by total drawer error (sumAbsVarianceCash). */
+  cashiers: CashierVarianceStats[]
+}
