@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron'
 import type {
+  CashDailyReportQuery,
+  CashReportKind,
   CashVarianceHistoryQuery,
   CloseCashSessionInput,
   RecordCashMovementInput,
@@ -45,5 +47,11 @@ export function registerCashSessionsIpc(cashSessions: CashSessionsService): void
   )
   ipcMain.handle(IPC.cashSessionsVarianceHistory, (_e, query?: CashVarianceHistoryQuery) =>
     cashSessions.varianceHistory(query),
+  )
+  ipcMain.handle(IPC.cashSessionsShiftReport, (_e, id: string, kind?: CashReportKind) =>
+    cashSessions.shiftReport(id, kind),
+  )
+  ipcMain.handle(IPC.cashSessionsDailyReport, (_e, query?: CashDailyReportQuery) =>
+    cashSessions.dailyReport(query),
   )
 }

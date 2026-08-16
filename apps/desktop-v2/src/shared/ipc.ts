@@ -149,6 +149,8 @@ export const IPC = {
   cashSessionsRecover: 'cash-sessions:recover',
   cashSessionsSetVarianceReason: 'cash-sessions:set-variance-reason',
   cashSessionsVarianceHistory: 'cash-sessions:variance-history',
+  cashSessionsShiftReport: 'cash-sessions:shift-report',
+  cashSessionsDailyReport: 'cash-sessions:daily-report',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -1362,6 +1364,10 @@ import type {
   SetCashVarianceReasonInput as SetCashVarianceReasonInputT,
   CashVarianceHistory as CashVarianceHistoryT,
   CashVarianceHistoryQuery as CashVarianceHistoryQueryT,
+  CashReportKind as CashReportKindT,
+  CashShiftReportData as CashShiftReportDataT,
+  CashDailyReportData as CashDailyReportDataT,
+  CashDailyReportQuery as CashDailyReportQueryT,
 } from '@biztrack/types'
 
 export interface DepositsListQuery extends ListQueryT {
@@ -2137,6 +2143,10 @@ export interface BridgeApi {
     setVarianceReason: (id: string, input: SetCashVarianceReasonInputT) => Promise<CashSessionT>
     /** Per-cashier drawer-accuracy history over the last N days (BIZ-2.6). */
     varianceHistory: (query?: CashVarianceHistoryQueryT) => Promise<CashVarianceHistoryT>
+    /** Z-report (close) or X-report (mid-shift read) for a shift (BIZ-2.6). */
+    shiftReport: (id: string, kind?: CashReportKindT) => Promise<CashShiftReportDataT | null>
+    /** Daily close — every shift in a day + rolled-up totals (BIZ-2.6). */
+    dailyReport: (query?: CashDailyReportQueryT) => Promise<CashDailyReportDataT>
     /** Whether the signed-in user's role runs a till (drives the login shift prompt). */
     roleTracksDrawer: () => Promise<boolean>
     /** An OPEN session older than the max-shift window (orphan), or null (BIZ-2.5). */

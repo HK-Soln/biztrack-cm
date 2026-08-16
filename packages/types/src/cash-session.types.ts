@@ -1,3 +1,4 @@
+import type { Currency } from './business.types'
 import type { IsoDateString } from './http.types'
 
 /**
@@ -231,4 +232,147 @@ export interface CashVarianceHistory {
   toleranceXaf: number
   /** Cashiers ranked worst-first by total drawer error (sumAbsVarianceCash). */
   cashiers: CashierVarianceStats[]
+}
+
+// ─── Z / X reports + daily close (BIZ-2.6 Slice C) ──────────────────────────
+
+/** Which shift report: X = mid-shift read (session still OPEN), Z = end-of-shift close. */
+export type CashReportKind = 'X' | 'Z'
+
+/** One off-book cash movement, as it appears on a shift report. */
+export interface CashReportMovementLine {
+  kind: string
+  direction: 'IN' | 'OUT'
+  amount: number
+  note: string | null
+  createdAt: IsoDateString
+}
+
+/**
+ * Per-shift report payload (BIZ-2.6). Neutral money in whole XAF, computed by the main
+ * process from the shift's sales / payments / movements, then rendered to a branded Z/X
+ * document. An X-report reads an OPEN session (drawer count/variance are null — the count
+ * is only taken at close); a Z-report reads the CLOSED snapshot. All totals derive from
+ * COMPLETED sales except `sales.voidCount`.
+ */
+export interface CashShiftReportData {
+  kind: CashReportKind
+  currency: Currency | string
+  sessionId: string
+  status: string
+  cashierName: string | null
+  deviceId: string | null
+  openedAt: IsoDateString
+  closedAt: IsoDateString | null
+  closedReason: string | null
+  generatedAt: IsoDateString
+  sales: {
+    count: number
+    voidCount: number
+    grossSales: number
+    discountTotal: number
+    netSales: number
+    creditIssued: number
+  }
+  /** Tender mix collected on completed sales. */
+  tenders: {
+    cash: number
+    mtnMomo: number
+    orangeMoney: number
+    card: number
+  }
+  /** Cash-drawer reconciliation. `countedCash`/`varianceCash` are null until close. */
+  drawer: {
+    openingFloat: number
+    cashSales: number
+    changeGiven: number
+    movementsIn: number
+    movementsOut: number
+    expectedCash: number
+    countedCash: number | null
+    varianceCash: number | null
+  }
+  /** MoMo balances reconciled per tender, never blended with cash. */
+  momo: {
+    expectedMtn: number
+    confirmedMtn: number | null
+    expectedOrange: number
+    confirmedOrange: number | null
+  }
+  movements: CashReportMovementLine[]
+  varianceReason: string | null
+  varianceNote: string | null
+  closingNote: string | null
+}
+
+export interface CashDailyReportQuery {
+  /** Day window start (inclusive) — ISO; defaults to the current UTC calendar day. */
+  fromIso?: string
+  /** Day window end (exclusive) — ISO; defaults to fromIso + 24h. */
+  toIso?: string
+}
+
+/** One shift's line on the daily close. */
+export interface CashDailyShiftLine {
+  sessionId: string
+  cashierName: string | null
+  status: string
+  openedAt: IsoDateString
+  closedAt: IsoDateString | null
+  openingFloat: number
+  expectedCash: number
+  countedCash: number | null
+  varianceCash: number | null
+  cashSales: number
+  salesCount: number
+}
+
+export interface CashDailyTotals {
+  shifts: number
+  salesCount: number
+  voidCount: number
+  grossSales: number
+  discountTotal: number
+  netSales: number
+  creditIssued: number
+  cash: number
+  mtnMomo: number
+  orangeMoney: number
+  card: number
+  openingFloat: number
+  expectedCash: number
+  /** Σ counted cash across CLOSED shifts only (open shifts contribute nothing). */
+  countedCash: number
+  /** Σ variance across CLOSED shifts only. */
+  varianceCash: number
+}
+
+/**
+ * Server-side reconciliation against the `daily_sale_summaries` aggregate (the API fills
+ * this; the desktop leaves it null since that table lives only in Postgres). Confirms the
+ * shift-derived tender totals agree with the day's posted summary — no second aggregate.
+ */
+export interface CashDailyReconciliation {
+  totalRevenue: number
+  cashCollected: number
+  mtnMomoCollected: number
+  orangeMoneyCollected: number
+  cardCollected: number
+  creditIssued: number
+  /** True when the shift-derived tender totals match the daily summary (within 1 XAF). */
+  matches: boolean
+}
+
+/**
+ * Daily close (BIZ-2.6) — every shift for a business on a calendar day, plus rolled-up
+ * totals. A read-only review document, not a new stored aggregate.
+ */
+export interface CashDailyReportData {
+  currency: Currency | string
+  fromDate: IsoDateString
+  toDate: IsoDateString
+  generatedAt: IsoDateString
+  shifts: CashDailyShiftLine[]
+  totals: CashDailyTotals
+  reconciliation: CashDailyReconciliation | null
 }

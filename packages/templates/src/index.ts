@@ -31,6 +31,7 @@ export {
   buildDiscountByProductReport,
   buildFlaggedDiscountsReport,
 } from './report-builders'
+export { buildCashShiftReport, buildCashDailyReport } from './cash-report-builders'
 export { purchaseOrderMessageText, rfqMessageText } from './message'
 export { renderOrderStatusEmail } from './order-status-email.template'
 export type {

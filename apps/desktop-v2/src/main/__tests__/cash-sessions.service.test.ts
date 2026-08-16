@@ -432,6 +432,147 @@ describe('CashSessionsService', () => {
     expect(alice?.worstShift?.varianceCash).toBe(200)
   })
 
+  it('builds an X-report (mid-shift read) then a Z-report (close) with tenders + drawer (BIZ-2.6)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+    const now = new Date().toISOString()
+
+    const addSale = (
+      id: string,
+      o: {
+        subtotal: number
+        total: number
+        discount: number
+        method: string
+        tendered: number
+        change: number
+      },
+    ): void => {
+      db.run(
+        `INSERT INTO sales
+          (id, business_id, client_id, cashier_id, sale_number, receipt_number, subtotal,
+           total_amount, discount_amount, charges_amount, tax_amount, net_amount, amount_paid,
+           credit_amount, change_given, payment_method, currency, sale_date, sold_at,
+           cash_session_id, status, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, 'u-1', ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, ?, ?, 'XAF', ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+        [
+          id,
+          BIZ,
+          id,
+          id,
+          id,
+          o.subtotal,
+          o.total,
+          o.discount,
+          o.total,
+          o.tendered,
+          o.change,
+          o.method,
+          now.slice(0, 10),
+          now,
+          session.id,
+          now,
+          now,
+        ],
+      )
+      db.run(
+        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [`p-${id}`, id, BIZ, o.method, o.tendered, now],
+      )
+    }
+    // Cash sale: subtotal 5 000, 500 discount → total 4 500, tendered 5 000, change 500.
+    addSale('s-cash', {
+      subtotal: 5000,
+      total: 4500,
+      discount: 500,
+      method: 'CASH',
+      tendered: 5000,
+      change: 500,
+    })
+    // MoMo sale: 3 000 (no cash impact, but shows in the tender mix).
+    addSale('s-momo', {
+      subtotal: 3000,
+      total: 3000,
+      discount: 0,
+      method: 'MTN_MOMO',
+      tendered: 3000,
+      change: 0,
+    })
+    svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 2000 }) // cash OUT
+
+    const x = svc.shiftReport(session.id, 'X')
+    expect(x?.kind).toBe('X')
+    expect(x?.sales.count).toBe(2)
+    expect(x?.sales.grossSales).toBe(8000) // subtotals 5 000 + 3 000
+    expect(x?.sales.discountTotal).toBe(500)
+    expect(x?.sales.netSales).toBe(7500) // totals 4 500 + 3 000
+    expect(x?.tenders.cash).toBe(5000)
+    expect(x?.tenders.mtnMomo).toBe(3000)
+    // 10 000 float + 5 000 cash − 500 change − 2 000 draw = 12 500.
+    expect(x?.drawer.expectedCash).toBe(12500)
+    expect(x?.drawer.countedCash).toBeNull() // blind until close
+    expect(x?.drawer.varianceCash).toBeNull()
+    expect(x?.movements).toHaveLength(1)
+    expect(x?.movements[0]?.direction).toBe('OUT')
+
+    // Close with an exact 12 500 count → Z-report with zero variance.
+    svc.closeSession(session.id, {
+      counts: [
+        { denomination: 10000, quantity: 1 },
+        { denomination: 2000, quantity: 1 },
+        { denomination: 500, quantity: 1 },
+      ],
+    })
+    const z = svc.shiftReport(session.id, 'Z')
+    expect(z?.kind).toBe('Z')
+    expect(z?.drawer.expectedCash).toBe(12500)
+    expect(z?.drawer.countedCash).toBe(12500)
+    expect(z?.drawer.varianceCash).toBe(0)
+    expect(z?.momo.expectedMtn).toBe(3000)
+  })
+
+  it('rolls up the day’s shifts into a daily close (no reconciliation on device) (BIZ-2.6)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+    const now = new Date().toISOString()
+    db.run(
+      `INSERT INTO sales
+        (id, business_id, client_id, cashier_id, sale_number, receipt_number, subtotal,
+         total_amount, discount_amount, charges_amount, tax_amount, net_amount, amount_paid,
+         credit_amount, change_given, payment_method, currency, sale_date, sold_at,
+         cash_session_id, status, is_deleted, created_at, updated_at)
+       VALUES ('d-sale', ?, 'c', 'u-1', 'd-sale', 'd-sale', 4000, 4000, 0, 0, 0, 4000, 4000, 0, 0, 'CASH', 'XAF', ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+      [BIZ, now.slice(0, 10), now, session.id, now, now],
+    )
+    db.run(
+      `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, created_at)
+       VALUES ('p-d', 'd-sale', ?, 'CASH', 4000, ?)`,
+      [BIZ, now],
+    )
+    // Close counting 14 000 (10 000 float + 4 000 cash) → zero variance.
+    svc.closeSession(session.id, {
+      counts: [
+        { denomination: 10000, quantity: 1 },
+        { denomination: 2000, quantity: 2 },
+      ],
+    })
+
+    const daily = svc.dailyReport()
+    expect(daily.totals.shifts).toBe(1)
+    expect(daily.totals.salesCount).toBe(1)
+    expect(daily.totals.cash).toBe(4000)
+    expect(daily.totals.netSales).toBe(4000)
+    expect(daily.totals.openingFloat).toBe(10000)
+    expect(daily.totals.expectedCash).toBe(14000)
+    expect(daily.totals.countedCash).toBe(14000)
+    expect(daily.totals.varianceCash).toBe(0)
+    expect(daily.shifts).toHaveLength(1)
+    expect(daily.shifts[0]?.sessionId).toBe(session.id)
+    expect(daily.shifts[0]?.cashSales).toBe(4000)
+    expect(daily.reconciliation).toBeNull() // the server reconciles vs daily_sale_summaries
+  })
+
   it('rejects a variance reason on a shift that is not closed', () => {
     const svc = makeService(db)
     const s = svc.openSession({ openingFloat: 0 })

@@ -8,9 +8,14 @@ import {
   DEFAULT_MAX_SHIFT_HOURS,
   DEFAULT_VARIANCE_HISTORY_DAYS,
   isCashSessionLocked,
+  type CashDailyReportData,
+  type CashDailyReportQuery,
+  type CashDailyShiftLine,
   type CashMovement,
+  type CashReportKind,
   type CashSession,
   type CashSessionExpectedCash,
+  type CashShiftReportData,
   type CashierVarianceStats,
   type CashVarianceHistory,
   type CashVarianceHistoryQuery,
@@ -315,6 +320,282 @@ export class CashSessionsService {
     })
 
     return { ...empty, cashiers }
+  }
+
+  /**
+   * Cashier display name for a session's user (denormalised member name, offline-safe).
+   */
+  private cashierName(businessId: string, userId: string): string | null {
+    const row = this.db.get<{ name: string | null }>(
+      `SELECT name FROM business_members
+       WHERE business_id = ? AND user_id = ? AND is_deleted = 0 LIMIT 1`,
+      [businessId, userId],
+    )
+    return row?.name ?? null
+  }
+
+  /**
+   * Sales / tender / movement facts for a single shift, recomputed from the source rows
+   * (the denormalised session counters aren't maintained). Shared by the Z/X report and the
+   * daily close so both agree by construction. All whole XAF.
+   */
+  private shiftFacts(
+    businessId: string,
+    sessionId: string,
+  ): {
+    salesCount: number
+    voidCount: number
+    grossSales: number
+    discountTotal: number
+    netSales: number
+    creditIssued: number
+    changeGiven: number
+    cash: number
+    mtnMomo: number
+    orangeMoney: number
+    card: number
+    movementsIn: number
+    movementsOut: number
+  } {
+    const s = this.db.get<{
+      n: number
+      voids: number
+      gross: number
+      disc: number
+      net: number
+      credit: number
+      change_given: number
+    }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS n,
+         COALESCE(SUM(CASE WHEN status = 'VOIDED' THEN 1 ELSE 0 END), 0) AS voids,
+         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN subtotal ELSE 0 END), 0) AS gross,
+         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN discount_amount ELSE 0 END), 0) AS disc,
+         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_amount ELSE 0 END), 0) AS net,
+         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN credit_amount ELSE 0 END), 0) AS credit,
+         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN change_given ELSE 0 END), 0) AS change_given
+       FROM sales
+       WHERE cash_session_id = ? AND business_id = ? AND is_deleted = 0`,
+      [sessionId, businessId],
+    )
+    const t = this.db.get<{ cash: number; mtn: number; orange: number; card: number }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END), 0) AS cash,
+         COALESCE(SUM(CASE WHEN sp.method = 'MTN_MOMO' THEN sp.amount ELSE 0 END), 0) AS mtn,
+         COALESCE(SUM(CASE WHEN sp.method = 'ORANGE_MONEY' THEN sp.amount ELSE 0 END), 0) AS orange,
+         COALESCE(SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END), 0) AS card
+       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+       WHERE s.cash_session_id = ? AND s.business_id = ? AND s.status = 'COMPLETED' AND s.is_deleted = 0`,
+      [sessionId, businessId],
+    )
+    const m = this.db.get<{ cin: number; cout: number }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE 0 END), 0) AS cin,
+         COALESCE(SUM(CASE WHEN direction = 'OUT' THEN amount ELSE 0 END), 0) AS cout
+       FROM cash_movements
+       WHERE cash_session_id = ? AND business_id = ? AND is_deleted = 0`,
+      [sessionId, businessId],
+    )
+    return {
+      salesCount: s?.n ?? 0,
+      voidCount: s?.voids ?? 0,
+      grossSales: s?.gross ?? 0,
+      discountTotal: s?.disc ?? 0,
+      netSales: s?.net ?? 0,
+      creditIssued: s?.credit ?? 0,
+      changeGiven: s?.change_given ?? 0,
+      cash: t?.cash ?? 0,
+      mtnMomo: t?.mtn ?? 0,
+      orangeMoney: t?.orange ?? 0,
+      card: t?.card ?? 0,
+      movementsIn: m?.cin ?? 0,
+      movementsOut: m?.cout ?? 0,
+    }
+  }
+
+  /**
+   * Z-report (per shift, at close) or X-report (mid-shift read of an open session) — BIZ-2.6.
+   * A neutral money payload the renderer turns into a branded document to print / share on
+   * WhatsApp. For a CLOSED shift the drawer figures are the immutable close snapshot; for an
+   * open one, expected cash is live and the count/variance are null (the count is blind, only
+   * taken at close). Recomputes tenders/movements from source so it agrees with the drawer.
+   */
+  shiftReport(sessionId: string, kind: CashReportKind = 'Z'): CashShiftReportData | null {
+    const businessId = this.getBusinessId()
+    if (!businessId) return null
+    const session = this.get(sessionId)
+    if (!session) return null
+
+    const f = this.shiftFacts(businessId, sessionId)
+    const liveExpected = computeExpectedCash({
+      openingFloat: session.openingFloat,
+      cashPayments: f.cash,
+      changeGiven: f.changeGiven,
+      cashIn: f.movementsIn,
+      cashOut: f.movementsOut,
+    })
+    const closed = isCashSessionLocked(session.status)
+    const expectedCash = closed ? (session.expectedCash ?? liveExpected) : liveExpected
+
+    const moves = this.db.query<{
+      kind: string
+      direction: string
+      amount: number
+      note: string | null
+      created_at: string
+    }>(
+      `SELECT kind, direction, amount, note, created_at
+       FROM cash_movements
+       WHERE cash_session_id = ? AND business_id = ? AND is_deleted = 0
+       ORDER BY created_at ASC`,
+      [sessionId, businessId],
+    )
+
+    return {
+      kind,
+      currency: 'XAF',
+      sessionId: session.id,
+      status: session.status,
+      cashierName: this.cashierName(businessId, session.userId),
+      deviceId: session.deviceId,
+      openedAt: session.openedAt,
+      closedAt: session.closedAt ?? null,
+      closedReason: session.closedReason ?? null,
+      generatedAt: new Date().toISOString(),
+      sales: {
+        count: f.salesCount,
+        voidCount: f.voidCount,
+        grossSales: f.grossSales,
+        discountTotal: f.discountTotal,
+        netSales: f.netSales,
+        creditIssued: f.creditIssued,
+      },
+      tenders: { cash: f.cash, mtnMomo: f.mtnMomo, orangeMoney: f.orangeMoney, card: f.card },
+      drawer: {
+        openingFloat: session.openingFloat,
+        cashSales: f.cash,
+        changeGiven: f.changeGiven,
+        movementsIn: f.movementsIn,
+        movementsOut: f.movementsOut,
+        expectedCash,
+        countedCash: closed ? (session.countedCash ?? null) : null,
+        varianceCash: closed ? (session.varianceCash ?? null) : null,
+      },
+      momo: {
+        expectedMtn: closed ? (session.expectedMtnMomo ?? f.mtnMomo) : f.mtnMomo,
+        confirmedMtn: session.confirmedMtnMomo ?? null,
+        expectedOrange: closed ? (session.expectedOrangeMoney ?? f.orangeMoney) : f.orangeMoney,
+        confirmedOrange: session.confirmedOrangeMoney ?? null,
+      },
+      movements: moves.map((r) => ({
+        kind: r.kind,
+        direction: r.direction as 'IN' | 'OUT',
+        amount: r.amount,
+        note: r.note,
+        createdAt: r.created_at,
+      })),
+      varianceReason: session.varianceReason ?? null,
+      varianceNote: session.varianceNote ?? null,
+      closingNote: session.closingNote ?? null,
+    }
+  }
+
+  /**
+   * Daily close (BIZ-2.6) — every shift for the business that opened within the given day,
+   * plus rolled-up totals. A read-only review (no new stored aggregate); the server endpoint
+   * reconciles these totals against `daily_sale_summaries`. Defaults to the current UTC day.
+   */
+  dailyReport(query: CashDailyReportQuery = {}): CashDailyReportData {
+    const businessId = this.getBusinessId()
+    const now = new Date()
+    const startOfDay = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    ).toISOString()
+    const fromIso = query.fromIso ?? startOfDay
+    const toIso = query.toIso ?? new Date(new Date(fromIso).getTime() + 86_400_000).toISOString()
+    const generatedAt = now.toISOString()
+    const empty: CashDailyReportData = {
+      currency: 'XAF',
+      fromDate: fromIso,
+      toDate: toIso,
+      generatedAt,
+      shifts: [],
+      totals: {
+        shifts: 0,
+        salesCount: 0,
+        voidCount: 0,
+        grossSales: 0,
+        discountTotal: 0,
+        netSales: 0,
+        creditIssued: 0,
+        cash: 0,
+        mtnMomo: 0,
+        orangeMoney: 0,
+        card: 0,
+        openingFloat: 0,
+        expectedCash: 0,
+        countedCash: 0,
+        varianceCash: 0,
+      },
+      reconciliation: null,
+    }
+    if (!businessId) return empty
+
+    const rows = this.db.query<SessionRow>(
+      `SELECT ${COLS} FROM cash_sessions
+       WHERE business_id = ? AND is_deleted = 0
+         AND opened_at >= ? AND opened_at < ?
+       ORDER BY opened_at ASC`,
+      [businessId, fromIso, toIso],
+    )
+
+    const shifts: CashDailyShiftLine[] = []
+    const totals = empty.totals
+    for (const row of rows) {
+      const session = toCashSession(row)
+      const f = this.shiftFacts(businessId, session.id)
+      const closed = isCashSessionLocked(session.status)
+      const liveExpected = computeExpectedCash({
+        openingFloat: session.openingFloat,
+        cashPayments: f.cash,
+        changeGiven: f.changeGiven,
+        cashIn: f.movementsIn,
+        cashOut: f.movementsOut,
+      })
+      const expectedCash = closed ? (session.expectedCash ?? liveExpected) : liveExpected
+      shifts.push({
+        sessionId: session.id,
+        cashierName: this.cashierName(businessId, session.userId),
+        status: session.status,
+        openedAt: session.openedAt,
+        closedAt: session.closedAt ?? null,
+        openingFloat: session.openingFloat,
+        expectedCash,
+        countedCash: closed ? (session.countedCash ?? null) : null,
+        varianceCash: closed ? (session.varianceCash ?? null) : null,
+        cashSales: f.cash,
+        salesCount: f.salesCount,
+      })
+      totals.shifts += 1
+      totals.salesCount += f.salesCount
+      totals.voidCount += f.voidCount
+      totals.grossSales += f.grossSales
+      totals.discountTotal += f.discountTotal
+      totals.netSales += f.netSales
+      totals.creditIssued += f.creditIssued
+      totals.cash += f.cash
+      totals.mtnMomo += f.mtnMomo
+      totals.orangeMoney += f.orangeMoney
+      totals.card += f.card
+      totals.openingFloat += session.openingFloat
+      totals.expectedCash += expectedCash
+      if (closed) {
+        totals.countedCash += session.countedCash ?? 0
+        totals.varianceCash += session.varianceCash ?? 0
+      }
+    }
+
+    return { ...empty, shifts, totals }
   }
 
   /**

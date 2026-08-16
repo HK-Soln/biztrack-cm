@@ -1,15 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
 import {
+  buildCashDailyReport,
+  buildCashShiftReport,
+  renderReportDocumentHtml,
+  reportLabels,
+} from '@biztrack/templates'
+import {
   CASH_DENOMINATIONS,
   CashMovementKind,
   CashVarianceReason,
   isCashVarianceWithinTolerance,
+  type BuiltReportResult,
+  type CashReportKind,
   type CashSession,
   type CashVarianceHistory,
+  type ReportBuildOptions,
+  type ReportBusiness,
 } from '@biztrack/types'
 import { formatCurrency } from '@biztrack/utils'
-import { useT } from '@/i18n'
+import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
+import { dataClient } from '@/lib/data-client'
+import { useCurrency } from '@/lib/currency'
+import { useLangStore, useT } from '@/i18n'
 
 /**
  * Cash-drawer sheet (BIZ-2.3 / 2.4), opened from the nav shift chip. Open a shift with a
@@ -142,6 +155,115 @@ function CashierAccuracy({ t }: { t: ReturnType<typeof useT> }) {
         </div>
       )}
     </div>
+  )
+}
+
+type CashReportTarget = { kind: CashReportKind; sessionId: string } | { kind: 'DAILY' }
+
+/**
+ * Generate a shift Z/X report or the daily close (BIZ-2.6) and open the share dialog
+ * (download / WhatsApp / email). Builds the neutral report in the main process, renders the
+ * branded document with the shared templates, and reuses the same share pipeline as receipts.
+ */
+function CashReportButton({
+  target,
+  label,
+  hint,
+  variant = 'soft',
+}: {
+  target: CashReportTarget
+  label: string
+  hint?: string
+  variant?: 'soft' | 'primary'
+}) {
+  const t = useT()
+  const lang = useLangStore((s) => s.lang)
+  const money = useCurrency()
+  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [doc, setDoc] = useState<{
+    html: string
+    filename: string
+    title: string
+    recipient: string
+  } | null>(null)
+
+  const generate = async () => {
+    if (!api || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const profile = await dataClient.business.getProfile()
+      const business: ReportBusiness = {
+        name: profile?.name || '',
+        activity: profile?.description ?? undefined,
+        address: profile?.address ?? undefined,
+        city: profile?.city ?? undefined,
+        phone: profile?.phone ?? undefined,
+        email: profile?.email ?? undefined,
+        logoUrl: profile?.logoUrl ?? undefined,
+      }
+      const dateLabel = (iso: string) =>
+        new Date(iso).toLocaleDateString(lang, { dateStyle: 'long' })
+      const optsFor = (periodLabel: string): ReportBuildOptions => ({
+        business,
+        periodLabel,
+        generatedAt: new Date().toISOString(),
+        locale: lang,
+        currency: money.currency,
+      })
+
+      let built: BuiltReportResult
+      let filename: string
+      let title: string
+      if (target.kind === 'DAILY') {
+        const data = await api.dailyReport()
+        built = buildCashDailyReport(data, optsFor(dateLabel(data.fromDate)))
+        title = t('cash.dailyClose')
+        filename = `daily-close-${data.fromDate.slice(0, 10)}.pdf`
+      } else {
+        const data = await api.shiftReport(target.sessionId, target.kind)
+        if (!data) throw new Error(t('cash.reportError'))
+        built = buildCashShiftReport(data, optsFor(dateLabel(data.openedAt)))
+        title = target.kind === 'Z' ? t('cash.zReport') : t('cash.xReport')
+        filename = `${target.kind === 'Z' ? 'z' : 'x'}-report-${data.openedAt.slice(0, 10)}.pdf`
+      }
+      const html = renderReportDocumentHtml(built.document, {
+        labels: reportLabels(lang),
+        locale: lang,
+      })
+      setDoc({ html, filename, title, recipient: business.name || title })
+    } catch (e) {
+      setError((e as Error).message || t('cash.reportError'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!api) return null
+  return (
+    <>
+      <Button variant={variant} title={hint} onClick={() => void generate()} loading={busy}>
+        {label}
+      </Button>
+      {error ? (
+        <span style={{ color: 'var(--danger)', fontSize: 12 }} role="alert">
+          {error}
+        </span>
+      ) : null}
+      {doc ? (
+        <DocumentShareDialog
+          title={doc.title}
+          html={doc.html}
+          filename={doc.filename}
+          message={doc.title}
+          subject={doc.title}
+          recipientName={doc.recipient}
+          onClose={() => setDoc(null)}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -353,6 +475,13 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               {t('cash.openShift')}
             </Button>
           </div>
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+            <CashReportButton
+              target={{ kind: 'DAILY' }}
+              label={t('cash.dailyClose')}
+              hint={t('cash.dailyCloseHint')}
+            />
+          </div>
           <CashierAccuracy t={t} />
         </div>
       ) : mode === 'result' && closed ? (
@@ -423,7 +552,23 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
               {error}
             </p>
           ) : null}
-          <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+          <div
+            style={{
+              marginTop: 14,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <CashReportButton
+                target={{ kind: 'Z', sessionId: closed.id }}
+                label={t('cash.shareZReport')}
+              />
+              <CashReportButton target={{ kind: 'DAILY' }} label={t('cash.dailyClose')} />
+            </div>
             <Button variant="primary" onClick={() => void finishClose()} loading={busy}>
               {t('cash.done')}
             </Button>
@@ -521,7 +666,28 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
 
           <div
             style={{
-              marginTop: 18,
+              marginTop: 14,
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Read the drawer without closing (X-report), or review the whole day. */}
+            <CashReportButton
+              target={{ kind: 'X', sessionId: session.id }}
+              label={t('cash.xReport')}
+              hint={t('cash.xReportHint')}
+            />
+            <CashReportButton
+              target={{ kind: 'DAILY' }}
+              label={t('cash.dailyClose')}
+              hint={t('cash.dailyCloseHint')}
+            />
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
               paddingTop: 14,
               borderTop: '1px solid var(--border)',
               display: 'flex',
