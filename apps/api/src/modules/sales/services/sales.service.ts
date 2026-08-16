@@ -184,6 +184,11 @@ export class SalesService {
       }
 
       let saleId: string | null = null
+      // Hoisted for the post-commit DISCOUNT_APPLIED audit (BIZ-2.9) — only emitted when a
+      // discount was flagged unauthorized or below-cost.
+      let auditDiscountUnauthorized = false
+      let auditDiscountBelowCost = false
+      let auditDiscountTotal = 0
 
       await this.dataSource.transaction(async (manager) => {
         const saleRepo = manager.getRepository(Sale)
@@ -325,6 +330,12 @@ export class SalesService {
         )
         const needsAuthorization = overLimit || (belowCost && !(role?.allowBelowCost ?? false))
         const discountUnauthorized = needsAuthorization && !authorizedBy
+        auditDiscountUnauthorized = discountUnauthorized
+        auditDiscountBelowCost = belowCost
+        auditDiscountTotal = Math.round(
+          computed.saleDiscountAmount +
+            computed.items.reduce((sum, it) => sum + it.discountAmount, 0),
+        )
 
         // LINE-scoped discounts (OVERRIDE / explicit) so each line's discount_amount
         // reconciles with its sale_discounts rows (BIZ-1.2 invariant).
@@ -481,6 +492,24 @@ export class SalesService {
             after: { totalAmount: result.totalAmount, itemCount: result.items?.length ?? 0 },
           },
         })
+        // BIZ-2.9: a flagged discount (unauthorized or below-cost) is the financially sensitive
+        // event — record it distinctly so it's queryable without scanning every sale.
+        if (auditDiscountUnauthorized || auditDiscountBelowCost) {
+          this.auditService.log(context, {
+            action: 'DISCOUNT_APPLIED',
+            entityType: 'sale',
+            entityId: saleId,
+            entityLabel: result.saleNumber,
+            amount: auditDiscountTotal,
+            changes: {
+              before: null,
+              after: {
+                unauthorized: auditDiscountUnauthorized,
+                belowCost: auditDiscountBelowCost,
+              },
+            },
+          })
+        }
       }
       return result
     } catch (error) {
@@ -1381,10 +1410,11 @@ export class SalesService {
       const result = await this.findById(id, businessId)
       if (context) {
         this.auditService.log(context, {
-          action: 'VOID',
+          action: 'SALE_VOIDED',
           entityType: 'sale',
           entityId: id,
           entityLabel: result.saleNumber,
+          amount: result.totalAmount,
           changes: {
             before: { status: 'COMPLETED' },
             after: { status: 'VOIDED', voidReason: dto.reason.trim() },

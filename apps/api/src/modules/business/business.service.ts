@@ -442,6 +442,7 @@ export class BusinessService {
     actor: JwtPayload,
     targetUserId: string,
     dto: UpdateMemberRoleRequest,
+    context?: AuditContext,
   ): Promise<UpdateMemberRoleResponse> {
     this.logger.debug('Update member role', 'BusinessService', {
       businessId,
@@ -494,6 +495,19 @@ export class BusinessService {
 
       const enumRole = RolesService.toMemberRoleEnum(newRole.name)
       await this.membersRepo.update(target.id, { role: enumRole, roleId: newRole.id })
+
+      if (context) {
+        this.auditService.log(context, {
+          action: 'USER_ROLE_CHANGED',
+          entityType: 'business_member',
+          entityId: target.id,
+          entityLabel: target.user?.name ?? target.user?.email ?? targetUserId,
+          changes: {
+            before: { roleId: target.roleId, role: target.roleRecord?.name ?? target.role },
+            after: { roleId: newRole.id, role: newRole.name },
+          },
+        })
+      }
 
       return { memberId: target.id, roleId: newRole.id, roleName: newRole.name, role: enumRole }
     } catch (error) {

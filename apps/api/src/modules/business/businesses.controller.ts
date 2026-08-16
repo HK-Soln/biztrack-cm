@@ -121,6 +121,7 @@ export class BusinessesController {
     @CurrentUser() user: JwtPayload,
     @Param('userId') targetUserId: string,
     @Body() dto: UpdateMemberRoleDto,
+    @CurrentAuditContext() auditContext: AuditContext,
   ): Promise<UpdateMemberRoleResponse> {
     return serializeDto(
       UpdateMemberRoleResponseDto.fromModel(
@@ -129,6 +130,7 @@ export class BusinessesController {
           user,
           targetUserId,
           dto,
+          auditContext,
         ),
       ),
     )

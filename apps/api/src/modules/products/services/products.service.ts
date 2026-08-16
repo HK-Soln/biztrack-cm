@@ -917,6 +917,21 @@ export class ProductsService {
           entityLabel: updated.name,
           changes: computeChanges(beforeSnapshot, afterSnapshot),
         })
+        // BIZ-2.9: a selling-price change is separately auditable (price manipulation is a
+        // fraud vector), in addition to the generic UPDATE above.
+        if (beforeSnapshot.sellingPrice !== afterSnapshot.sellingPrice) {
+          this.auditService.log(context, {
+            action: 'PRICE_CHANGED',
+            entityType: 'product',
+            entityId: id,
+            entityLabel: updated.name,
+            amount: updated.sellingPrice,
+            changes: {
+              before: { sellingPrice: beforeSnapshot.sellingPrice },
+              after: { sellingPrice: afterSnapshot.sellingPrice },
+            },
+          })
+        }
       }
       return updated
     } catch (error) {
