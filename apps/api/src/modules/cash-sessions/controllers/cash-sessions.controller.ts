@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type {
+  CashDailyReportData,
   CashSessionExpectedCash,
+  CashShiftReportData,
   CashVarianceHistory,
   JwtPayload,
   PaginatedResult,
@@ -12,10 +14,12 @@ import type { CashSession } from '@/entities/cash-session.entity'
 import type { CashMovement } from '@/entities/cash-movement.entity'
 import {
   CloseCashSessionDto,
+  DailyReportQueryDto,
   ListCashSessionsQueryDto,
   OpenCashSessionDto,
   RecordCashMovementDto,
   SetCashVarianceReasonDto,
+  ShiftReportQueryDto,
   TransitionCashSessionDto,
   VarianceHistoryQueryDto,
 } from '../dto/cash-session.dto'
@@ -63,10 +67,31 @@ export class CashSessionsController {
     return this.cashSessions.varianceHistory(user.businessId as string, query)
   }
 
+  @Get('daily-report')
+  @ApiOperation({
+    summary: "Daily close — the day's shifts + totals, reconciled vs the daily summary",
+  })
+  dailyReport(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: DailyReportQueryDto,
+  ): Promise<CashDailyReportData> {
+    return this.cashSessions.dailyReport(user.businessId as string, query)
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a cash session' })
   get(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<CashSession> {
     return this.cashSessions.findById(id, user.businessId as string)
+  }
+
+  @Get(':id/report')
+  @ApiOperation({ summary: 'Z-report (close) or X-report (mid-shift read) for a shift' })
+  shiftReport(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Query() query: ShiftReportQueryDto,
+  ): Promise<CashShiftReportData> {
+    return this.cashSessions.shiftReport(user.businessId as string, id, query.kind ?? 'Z')
   }
 
   @Get(':id/expected-cash')

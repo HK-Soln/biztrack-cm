@@ -23,7 +23,7 @@ export class CashMovementColumnFixes1785300000000 implements MigrationInterface 
     )
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
+  public async down(): Promise<void> {
     // No revert — narrowing back could truncate existing data.
   }
 }

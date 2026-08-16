@@ -12,10 +12,17 @@ import {
   isCashSessionLocked,
   type CashCountLineSyncRecord,
   type CashierVarianceStats,
+  type CashDailyReconciliation,
+  type CashDailyReportData,
+  type CashDailyReportQuery,
+  type CashDailyShiftLine,
+  type CashDailyTotals,
   type CashMovement as CashMovementDto,
   type CashMovementSyncRecord,
+  type CashReportKind,
   type CashSessionExpectedCash,
   type CashSessionSyncRecord,
+  type CashShiftReportData,
   type CashVarianceHistory,
   type CashVarianceHistoryQuery,
   type CloseCashSessionInput,
@@ -34,6 +41,11 @@ import {
   ListCashSessionsQueryDto,
   TransitionCashSessionDto,
 } from '../dto/cash-session.dto'
+
+/** Normalise a timestamp column (Date or string) to an ISO-8601 string for report payloads. */
+function toIso(v: Date | string): string {
+  return v instanceof Date ? v.toISOString() : new Date(v).toISOString()
+}
 
 /**
  * Cash sessions (BIZ-2.1). Owns the shift lifecycle and the sync apply/pull path.
@@ -393,6 +405,315 @@ export class CashSessionsService {
     })
 
     return { fromDate: fromIso, toDate: to.toISOString(), toleranceXaf: tolerance, cashiers }
+  }
+
+  // --- Z / X reports + daily close (BIZ-2.6) --------------------------------
+
+  private async cashierName(userId: string): Promise<string | null> {
+    const row = (await this.sessionsRepo.manager.query(
+      `SELECT name FROM users WHERE id = $1 LIMIT 1`,
+      [userId],
+    )) as Array<{ name: string | null }>
+    return row[0]?.name ?? null
+  }
+
+  /**
+   * Sales / tender / movement facts for one shift, recomputed from source (the denormalised
+   * session counters aren't maintained). Mirrors the desktop `shiftFacts` so cloud and device
+   * agree. All whole XAF.
+   */
+  private async shiftFacts(
+    businessId: string,
+    sessionId: string,
+  ): Promise<{
+    salesCount: number
+    voidCount: number
+    grossSales: number
+    discountTotal: number
+    netSales: number
+    creditIssued: number
+    changeGiven: number
+    cash: number
+    mtnMomo: number
+    orangeMoney: number
+    card: number
+    movementsIn: number
+    movementsOut: number
+  }> {
+    const s = (await this.sessionsRepo.manager.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS n,
+         COUNT(*) FILTER (WHERE status = 'VOIDED')::int AS voids,
+         COALESCE(SUM(subtotal) FILTER (WHERE status = 'COMPLETED'), 0) AS gross,
+         COALESCE(SUM(discount_amount) FILTER (WHERE status = 'COMPLETED'), 0) AS disc,
+         COALESCE(SUM(total_amount) FILTER (WHERE status = 'COMPLETED'), 0) AS net,
+         COALESCE(SUM(credit_amount) FILTER (WHERE status = 'COMPLETED'), 0) AS credit,
+         COALESCE(SUM(change_given) FILTER (WHERE status = 'COMPLETED'), 0) AS change_given
+       FROM sales
+       WHERE cash_session_id = $1 AND business_id = $2 AND deleted_at IS NULL`,
+      [sessionId, businessId],
+    )) as Array<Record<string, string | number>>
+    const t = (await this.sessionsRepo.manager.query(
+      `SELECT
+         COALESCE(SUM(sp.amount) FILTER (WHERE sp.method = 'CASH'), 0) AS cash,
+         COALESCE(SUM(sp.amount) FILTER (WHERE sp.method = 'MTN_MOMO'), 0) AS mtn,
+         COALESCE(SUM(sp.amount) FILTER (WHERE sp.method = 'ORANGE_MONEY'), 0) AS orange,
+         COALESCE(SUM(sp.amount) FILTER (WHERE sp.method = 'CARD'), 0) AS card
+       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+       WHERE s.cash_session_id = $1 AND s.business_id = $2
+         AND s.status = 'COMPLETED' AND s.deleted_at IS NULL`,
+      [sessionId, businessId],
+    )) as Array<Record<string, string | number>>
+    const m = (await this.movementsRepo.manager.query(
+      `SELECT
+         COALESCE(SUM(amount) FILTER (WHERE direction = 'IN'), 0) AS cin,
+         COALESCE(SUM(amount) FILTER (WHERE direction = 'OUT'), 0) AS cout
+       FROM cash_movements
+       WHERE cash_session_id = $1 AND business_id = $2 AND deleted_at IS NULL`,
+      [sessionId, businessId],
+    )) as Array<Record<string, string | number>>
+    const num = (v: unknown): number => Number(v ?? 0)
+    return {
+      salesCount: num(s[0]?.n),
+      voidCount: num(s[0]?.voids),
+      grossSales: num(s[0]?.gross),
+      discountTotal: num(s[0]?.disc),
+      netSales: num(s[0]?.net),
+      creditIssued: num(s[0]?.credit),
+      changeGiven: num(s[0]?.change_given),
+      cash: num(t[0]?.cash),
+      mtnMomo: num(t[0]?.mtn),
+      orangeMoney: num(t[0]?.orange),
+      card: num(t[0]?.card),
+      movementsIn: num(m[0]?.cin),
+      movementsOut: num(m[0]?.cout),
+    }
+  }
+
+  /**
+   * Z-report (per shift, at close) or X-report (mid-shift read of an open session) — BIZ-2.6.
+   * Neutral money payload the client renders to a branded document. For a CLOSED shift the
+   * drawer figures are the immutable close snapshot; for an open one, expected cash is live and
+   * the count/variance are null (the count is blind, only taken at close).
+   */
+  async shiftReport(
+    businessId: string,
+    sessionId: string,
+    kind: CashReportKind = 'Z',
+  ): Promise<CashShiftReportData> {
+    const session = await this.findById(sessionId, businessId)
+    const f = await this.shiftFacts(businessId, sessionId)
+    const liveExpected = computeExpectedCash({
+      openingFloat: session.openingFloat,
+      cashPayments: f.cash,
+      changeGiven: f.changeGiven,
+      cashIn: f.movementsIn,
+      cashOut: f.movementsOut,
+    })
+    const closed = isCashSessionLocked(session.status)
+    const expectedCash = closed ? (session.expectedCash ?? liveExpected) : liveExpected
+
+    const moves = await this.movementsRepo.find({
+      where: { cashSessionId: sessionId, businessId },
+      order: { createdAt: 'ASC' },
+    })
+
+    return {
+      kind,
+      currency: 'XAF',
+      sessionId: session.id,
+      status: session.status,
+      cashierName: await this.cashierName(session.userId),
+      deviceId: session.deviceId ?? null,
+      openedAt: toIso(session.openedAt),
+      closedAt: session.closedAt ? toIso(session.closedAt) : null,
+      closedReason: session.closedReason ?? null,
+      generatedAt: new Date().toISOString(),
+      sales: {
+        count: f.salesCount,
+        voidCount: f.voidCount,
+        grossSales: f.grossSales,
+        discountTotal: f.discountTotal,
+        netSales: f.netSales,
+        creditIssued: f.creditIssued,
+      },
+      tenders: { cash: f.cash, mtnMomo: f.mtnMomo, orangeMoney: f.orangeMoney, card: f.card },
+      drawer: {
+        openingFloat: session.openingFloat,
+        cashSales: f.cash,
+        changeGiven: f.changeGiven,
+        movementsIn: f.movementsIn,
+        movementsOut: f.movementsOut,
+        expectedCash,
+        countedCash: closed ? (session.countedCash ?? null) : null,
+        varianceCash: closed ? (session.varianceCash ?? null) : null,
+      },
+      momo: {
+        expectedMtn: closed ? (session.expectedMtnMomo ?? f.mtnMomo) : f.mtnMomo,
+        confirmedMtn: session.confirmedMtnMomo ?? null,
+        expectedOrange: closed ? (session.expectedOrangeMoney ?? f.orangeMoney) : f.orangeMoney,
+        confirmedOrange: session.confirmedOrangeMoney ?? null,
+      },
+      movements: moves.map((mv) => ({
+        kind: mv.kind,
+        direction: mv.direction as 'IN' | 'OUT',
+        amount: mv.amount,
+        note: mv.note ?? null,
+        createdAt: toIso(mv.createdAt),
+      })),
+      varianceReason: session.varianceReason ?? null,
+      varianceNote: session.varianceNote ?? null,
+      closingNote: session.closingNote ?? null,
+    }
+  }
+
+  /**
+   * Daily close (BIZ-2.6) — every shift for the business that opened within the day, plus
+   * rolled-up totals, reconciled against the posted `daily_sale_summaries` (the one existing
+   * daily aggregate — this endpoint reads it, it never builds a second one). Defaults to the
+   * current UTC day.
+   */
+  async dailyReport(
+    businessId: string,
+    query: CashDailyReportQuery = {},
+  ): Promise<CashDailyReportData> {
+    const now = new Date()
+    const startOfDay = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    ).toISOString()
+    const fromIso = query.fromIso ?? startOfDay
+    const toIso2 = query.toIso ?? new Date(new Date(fromIso).getTime() + 86_400_000).toISOString()
+
+    const sessions = await this.sessionsRepo
+      .createQueryBuilder('cs')
+      .where('cs.business_id = :businessId', { businessId })
+      .andWhere('cs.deleted_at IS NULL')
+      .andWhere('cs.opened_at >= :from', { from: fromIso })
+      .andWhere('cs.opened_at < :to', { to: toIso2 })
+      .orderBy('cs.opened_at', 'ASC')
+      .getMany()
+
+    const shifts: CashDailyShiftLine[] = []
+    const totals: CashDailyTotals = {
+      shifts: 0,
+      salesCount: 0,
+      voidCount: 0,
+      grossSales: 0,
+      discountTotal: 0,
+      netSales: 0,
+      creditIssued: 0,
+      cash: 0,
+      mtnMomo: 0,
+      orangeMoney: 0,
+      card: 0,
+      openingFloat: 0,
+      expectedCash: 0,
+      countedCash: 0,
+      varianceCash: 0,
+    }
+    for (const session of sessions) {
+      const f = await this.shiftFacts(businessId, session.id)
+      const closed = isCashSessionLocked(session.status)
+      const liveExpected = computeExpectedCash({
+        openingFloat: session.openingFloat,
+        cashPayments: f.cash,
+        changeGiven: f.changeGiven,
+        cashIn: f.movementsIn,
+        cashOut: f.movementsOut,
+      })
+      const expectedCash = closed ? (session.expectedCash ?? liveExpected) : liveExpected
+      shifts.push({
+        sessionId: session.id,
+        cashierName: await this.cashierName(session.userId),
+        status: session.status,
+        openedAt: toIso(session.openedAt),
+        closedAt: session.closedAt ? toIso(session.closedAt) : null,
+        openingFloat: session.openingFloat,
+        expectedCash,
+        countedCash: closed ? (session.countedCash ?? null) : null,
+        varianceCash: closed ? (session.varianceCash ?? null) : null,
+        cashSales: f.cash,
+        salesCount: f.salesCount,
+      })
+      totals.shifts += 1
+      totals.salesCount += f.salesCount
+      totals.voidCount += f.voidCount
+      totals.grossSales += f.grossSales
+      totals.discountTotal += f.discountTotal
+      totals.netSales += f.netSales
+      totals.creditIssued += f.creditIssued
+      totals.cash += f.cash
+      totals.mtnMomo += f.mtnMomo
+      totals.orangeMoney += f.orangeMoney
+      totals.card += f.card
+      totals.openingFloat += session.openingFloat
+      totals.expectedCash += expectedCash
+      if (closed) {
+        totals.countedCash += session.countedCash ?? 0
+        totals.varianceCash += session.varianceCash ?? 0
+      }
+    }
+
+    const reconciliation = await this.reconcileDaily(businessId, fromIso, toIso2, totals)
+
+    return {
+      currency: 'XAF',
+      fromDate: fromIso,
+      toDate: toIso2,
+      generatedAt: now.toISOString(),
+      shifts,
+      totals,
+      reconciliation,
+    }
+  }
+
+  /**
+   * Reconcile the shift-derived tender totals against the posted `daily_sale_summaries` for
+   * the same day(s). `matches` is false when they diverge — typically because sales were rung
+   * outside a cash session, which is exactly the gap a daily close should surface.
+   */
+  private async reconcileDaily(
+    businessId: string,
+    fromIso: string,
+    toIso2: string,
+    totals: CashDailyTotals,
+  ): Promise<CashDailyReconciliation> {
+    const row = (await this.sessionsRepo.manager.query(
+      `SELECT
+         COALESCE(SUM(total_revenue), 0) AS revenue,
+         COALESCE(SUM(cash_collected), 0) AS cash,
+         COALESCE(SUM(mtn_momo_collected), 0) AS mtn,
+         COALESCE(SUM(orange_money_collected), 0) AS orange,
+         COALESCE(SUM(card_collected), 0) AS card,
+         COALESCE(SUM(credit_issued), 0) AS credit
+       FROM daily_sale_summaries
+       WHERE business_id = $1 AND summary_date >= $2::date AND summary_date < $3::date`,
+      [businessId, fromIso, toIso2],
+    )) as Array<Record<string, string | number>>
+    const num = (v: unknown): number => Number(v ?? 0)
+    const totalRevenue = num(row[0]?.revenue)
+    const cashCollected = num(row[0]?.cash)
+    const mtnMomoCollected = num(row[0]?.mtn)
+    const orangeMoneyCollected = num(row[0]?.orange)
+    const cardCollected = num(row[0]?.card)
+    const creditIssued = num(row[0]?.credit)
+    const close = (a: number, b: number): boolean => Math.abs(a - b) <= 1
+    const matches =
+      close(totals.netSales, totalRevenue) &&
+      close(totals.cash, cashCollected) &&
+      close(totals.mtnMomo, mtnMomoCollected) &&
+      close(totals.orangeMoney, orangeMoneyCollected) &&
+      close(totals.card, cardCollected) &&
+      close(totals.creditIssued, creditIssued)
+    return {
+      totalRevenue,
+      cashCollected,
+      mtnMomoCollected,
+      orangeMoneyCollected,
+      cardCollected,
+      creditIssued,
+      matches,
+    }
   }
 
   // --- Cash movements (BIZ-2.3) ---------------------------------------------

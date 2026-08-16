@@ -2,7 +2,9 @@ import { ApiPropertyOptional } from '@nestjs/swagger'
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   IsUUID,
@@ -15,6 +17,7 @@ import {
   CashMovementKind,
   CashSessionStatus,
   CashVarianceReason,
+  type CashDailyReportQuery,
   type CashVarianceHistoryQuery,
 } from '@biztrack/types'
 
@@ -159,4 +162,27 @@ export class VarianceHistoryQueryDto implements CashVarianceHistoryQuery {
   @Min(1)
   @Max(365)
   days?: number
+}
+
+export class ShiftReportQueryDto {
+  @ApiPropertyOptional({
+    enum: ['X', 'Z'],
+    default: 'Z',
+    description: 'Z = close, X = mid-shift read.',
+  })
+  @IsOptional()
+  @IsIn(['X', 'Z'])
+  kind?: 'X' | 'Z'
+}
+
+export class DailyReportQueryDto implements CashDailyReportQuery {
+  @ApiPropertyOptional({ description: 'Day window start (ISO); defaults to today (UTC).' })
+  @IsOptional()
+  @IsISO8601()
+  fromIso?: string
+
+  @ApiPropertyOptional({ description: 'Day window end (ISO, exclusive); defaults to start + 24h.' })
+  @IsOptional()
+  @IsISO8601()
+  toIso?: string
 }
