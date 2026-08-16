@@ -8,12 +8,30 @@ const BIZ = 'biz-1'
 const USER = 'u-1'
 const DEVICE = 'device-1'
 
-function makeService(db: DatabaseService, businessId: string | null = BIZ): CashSessionsService {
+interface AuditEntryLite {
+  action: string
+  entityType: string
+  amount?: number | null
+}
+class RecordingAudit {
+  entries: AuditEntryLite[] = []
+  log(entry: AuditEntryLite): void {
+    this.entries.push(entry)
+  }
+}
+
+function makeService(
+  db: DatabaseService,
+  businessId: string | null = BIZ,
+  audit?: RecordingAudit,
+): CashSessionsService {
   return new CashSessionsService(
     db,
     () => businessId,
     () => USER,
     () => DEVICE,
+    () => {},
+    audit,
   )
 }
 
@@ -302,6 +320,29 @@ describe('CashSessionsService', () => {
     expect(
       svc.recordAutoMovement({ kind: CashMovementKind.CREDIT_REPAYMENT, amount: 3000 }),
     ).toBeNull()
+  })
+
+  it('emits SHIFT_OPENED / CASH_MOVEMENT / SHIFT_CLOSED to the audit log (BIZ-2.9)', () => {
+    const audit = new RecordingAudit()
+    const svc = makeService(db, BIZ, audit)
+    const session = svc.openSession({ openingFloat: 10000 })
+    svc.recordMovement({ kind: CashMovementKind.OWNER_DRAW, amount: 2000 }) // expected = 8000
+    svc.closeSession(session.id, {
+      counts: [
+        { denomination: 5000, quantity: 1 },
+        { denomination: 2000, quantity: 1 },
+        { denomination: 1000, quantity: 1 },
+      ], // 8 000 → zero variance
+    })
+
+    expect(audit.entries.map((e) => e.action)).toEqual([
+      'SHIFT_OPENED',
+      'CASH_MOVEMENT',
+      'SHIFT_CLOSED',
+    ])
+    expect(audit.entries[0]?.amount).toBe(10000) // opening float
+    expect(audit.entries[1]?.amount).toBe(2000) // movement
+    expect(audit.entries[2]?.amount).toBe(8000) // counted cash
   })
 
   it('refuses a movement when no shift is open', () => {

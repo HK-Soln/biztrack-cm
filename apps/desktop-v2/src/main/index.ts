@@ -445,6 +445,7 @@ app.whenReady().then(() => {
     () => authService.getSession().user?.id ?? null,
     () => tokenStore.ensureDeviceId(),
     () => void sync.sync(),
+    audit,
   )
   registerCashSessionsIpc(cashSessions)
 

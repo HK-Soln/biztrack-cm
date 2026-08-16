@@ -32,6 +32,7 @@ import type {
   TransitionCashSessionInput,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import type { AuditLogger } from './audit.service'
 
 interface SessionRow {
   id: string
@@ -86,6 +87,7 @@ export class CashSessionsService {
     private readonly getUserId: () => string | null,
     private readonly getDeviceId: () => string,
     private readonly onMutated: () => void = () => {},
+    private readonly audit?: AuditLogger,
   ) {}
 
   /**
@@ -669,6 +671,16 @@ export class CashSessionsService {
       ],
     )
     this.push(sessionId, businessId)
+    this.audit?.log({
+      action: 'SHIFT_CLOSED',
+      entityType: 'cash_session',
+      entityId: sessionId,
+      amount: counted,
+      changes: {
+        before: null,
+        after: { expectedCash: expectedCashTotal, countedCash: counted, varianceCash: variance },
+      },
+    })
     this.onMutated()
     return this.get(sessionId) as CashSession
   }
@@ -768,6 +780,13 @@ export class CashSessionsService {
       ],
     )
     this.pushMovement(id)
+    this.audit?.log({
+      action: 'CASH_MOVEMENT',
+      entityType: 'cash_movement',
+      entityId: id,
+      amount,
+      changes: { before: null, after: { kind: input.kind, direction, amount } },
+    })
     this.onMutated()
     return this.getMovement(id) as CashMovement
   }
@@ -880,7 +899,13 @@ export class CashSessionsService {
     )
 
     this.push(id, businessId)
-    // Audit emit for SHIFT_OPENED is wired in BIZ-2.9 (broaden emit coverage).
+    this.audit?.log({
+      action: 'SHIFT_OPENED',
+      entityType: 'cash_session',
+      entityId: id,
+      amount: openingFloat,
+      changes: { before: null, after: { openingFloat } },
+    })
     this.onMutated()
     return this.get(id) as CashSession
   }
