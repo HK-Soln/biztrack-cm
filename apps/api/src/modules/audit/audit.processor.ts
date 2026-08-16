@@ -23,7 +23,9 @@ export class AuditProcessor extends WorkerHost {
 
   async process(job: Job<{ context: AuditContext; data: AuditData }>): Promise<void> {
     const { context, data } = job.data
-    if (!context?.businessId) {
+    // BIZ-2.9: a null businessId is recorded (business_id NULL), not dropped. Only skip a job
+    // with no event payload at all.
+    if (!data?.action || !data?.entityType) {
       return
     }
     await this.auditRepo.save(this.auditRepo.create(buildAuditLog(context, data)))

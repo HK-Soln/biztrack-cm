@@ -27,7 +27,9 @@ export class AuditService {
    * the queue is unavailable.
    */
   log(context: AuditContext, data: AuditData): void {
-    if (!context.businessId) {
+    // BIZ-2.9: a null businessId (a pre-business/system event) is NO LONGER dropped — it's
+    // recorded with business_id NULL. We only skip a genuinely empty event.
+    if (!data.action || !data.entityType) {
       return
     }
     void this.auditQueue
@@ -85,7 +87,7 @@ export class AuditService {
 /** Build a persistable audit row from context + data (shared by service + processor). */
 export function buildAuditLog(context: AuditContext, data: AuditData): Partial<AuditLog> {
   return {
-    businessId: context.businessId as string,
+    businessId: context.businessId ?? null,
     actorId: context.actorId ?? null,
     actorType: context.actorType,
     actorName: context.actorName ?? null,
@@ -102,6 +104,7 @@ export function buildAuditLog(context: AuditContext, data: AuditData): Partial<A
     requestId: context.requestId ?? null,
     deviceTime: context.deviceTime ? new Date(context.deviceTime) : null,
     amount: data.amount ?? null,
+    sequence: context.sequence ?? null,
     // serverTime is intentionally NOT set here — the DB `now()` default stamps it at ingest so
     // the client (or a replayed job) can never influence the authoritative time.
   }

@@ -37,6 +37,7 @@ interface AuditRow {
   actor_role: string | null
   changes: string | null
   amount: number | null
+  sequence: number | null
   created_at: string
   device_time: string | null
   server_time: string | null
@@ -61,12 +62,18 @@ export class AuditService implements AuditLogger {
       // device_time = this device's clock (same as created_at on-device); server_time stays
       // NULL until the server ingests the row (BIZ-2.7 / the audit bridge in a later phase).
       const now = new Date().toISOString()
+      // Monotonic per-device counter (BIZ-2.9) — MAX+1 for this device (better-sqlite3 is
+      // synchronous/single-threaded, so no race). A gap later reveals a dropped/tampered row.
+      const seqRow = this.db.get<{ n: number }>(
+        `SELECT COALESCE(MAX(sequence), 0) + 1 AS n FROM local_audit_logs WHERE device_id IS ?`,
+        [ctx.deviceId],
+      )
       this.db.run(
         `INSERT INTO local_audit_logs
           (id, business_id, actor_id, actor_type, actor_name, actor_role, action,
-           entity_type, entity_id, entity_label, changes, device_id, amount, created_at,
+           entity_type, entity_id, entity_label, changes, device_id, amount, sequence, created_at,
            device_time, server_time, synced_at)
-         VALUES (?, ?, ?, 'USER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+         VALUES (?, ?, ?, 'USER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
         [
           randomUUID(),
           ctx.businessId,
@@ -80,6 +87,7 @@ export class AuditService implements AuditLogger {
           entry.changes ? JSON.stringify(entry.changes) : null,
           ctx.deviceId,
           entry.amount ?? null,
+          seqRow?.n ?? 1,
           now,
           now,
         ],
@@ -114,7 +122,7 @@ export class AuditService implements AuditLogger {
       {
         from: 'local_audit_logs',
         columns:
-          'id, action, entity_type, entity_id, entity_label, actor_name, actor_role, changes, amount, created_at, device_time, server_time',
+          'id, action, entity_type, entity_id, entity_label, actor_name, actor_role, changes, amount, sequence, created_at, device_time, server_time',
         where,
         params,
         searchColumns: ['entity_label', 'actor_name'],
@@ -136,6 +144,7 @@ export class AuditService implements AuditLogger {
         actorRole: r.actor_role,
         changes: r.changes ? (JSON.parse(r.changes) as LocalAuditLog['changes']) : null,
         amount: r.amount,
+        sequence: r.sequence,
         createdAt: r.created_at,
         deviceTime: r.device_time,
         serverTime: r.server_time,

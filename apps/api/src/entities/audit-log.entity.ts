@@ -17,8 +17,10 @@ export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string
 
-  @Column({ name: 'business_id' })
-  businessId!: string
+  // Nullable (BIZ-2.9): pre-business / system events (e.g. FAILED_LOGIN before a business is
+  // selected) are recorded rather than silently dropped.
+  @Column({ name: 'business_id', type: 'uuid', nullable: true })
+  businessId!: string | null
 
   @Column({ name: 'actor_id', type: 'uuid', nullable: true })
   actorId!: string | null
@@ -85,6 +87,22 @@ export class AuditLog {
   /** Money impact of the event in whole XAF (BIZ-2.7), or null when the event moves no money. */
   @Column({ type: 'bigint', nullable: true, transformer: decimalTransformer })
   amount!: number | null
+
+  /**
+   * Monotonic per-device event counter (BIZ-2.9) — a gap or rewind in a device's sequence
+   * reveals dropped or reordered events. Populated from the device via the audit bridge; null
+   * for server-native events that don't carry a device sequence.
+   */
+  @Column({ type: 'bigint', nullable: true, transformer: decimalTransformer })
+  sequence!: number | null
+
+  /**
+   * Clock-skew flag (BIZ-2.9) — true when the device clock ran ahead of the server ingest time.
+   * A generated column (`device_time > server_time`), computed by the DB; never written by the
+   * app (insert/update disabled).
+   */
+  @Column({ name: 'clock_skew', type: 'boolean', nullable: true, insert: false, update: false })
+  clockSkew!: boolean | null
 
   @CreateDateColumn({ name: 'created_at', transformer: dateTransformer })
   createdAt!: Date

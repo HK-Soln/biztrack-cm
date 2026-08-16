@@ -340,12 +340,15 @@ export interface ProductStats {
 }
 
 // ---- Audit trail ----------------------------------------------------------
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID' | 'PIN_FAILED' | 'PIN_LOCKED'
+// Single source of truth — the shared union (reconciled with the desktop's older narrow one
+// in BIZ-2.9). Includes CREATE/UPDATE/DELETE/VOID/PIN_FAILED/PIN_LOCKED plus the new domain
+// events (SHIFT_*, CASH_MOVEMENT, DISCOUNT_APPLIED, …).
+export type { AuditAction } from '@biztrack/types'
 
 /** One append-only audit row (who changed what, when). */
 export interface LocalAuditLog {
   id: string
-  action: AuditAction
+  action: AuditActionT
   entityType: string
   entityId: string
   entityLabel: string | null
@@ -354,6 +357,8 @@ export interface LocalAuditLog {
   changes: { before: unknown; after: unknown } | null
   /** Money impact in whole XAF, or null (BIZ-2.7). */
   amount?: number | null
+  /** Monotonic per-device event counter (BIZ-2.9). */
+  sequence?: number | null
   createdAt: string
   /** Device clock reading (BIZ-2.7). */
   deviceTime?: string | null
@@ -364,7 +369,7 @@ export interface LocalAuditLog {
 export interface AuditListQuery extends ListQueryT {
   entityType?: string
   entityId?: string
-  action?: AuditAction
+  action?: AuditActionT
 }
 
 // ---- Contacts (customers & suppliers) -------------------------------------
@@ -1374,6 +1379,7 @@ import type {
   CashShiftReportData as CashShiftReportDataT,
   CashDailyReportData as CashDailyReportDataT,
   CashDailyReportQuery as CashDailyReportQueryT,
+  AuditAction as AuditActionT,
 } from '@biztrack/types'
 
 export interface DepositsListQuery extends ListQueryT {

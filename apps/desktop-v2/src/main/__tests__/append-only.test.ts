@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { createTestDatabase } from '@biztrack/electron-core/testing'
+import { AuditService, type AuditContext } from '../services/audit.service'
 
 /**
  * BIZ-2.8 — DB-level append-only guards on local_audit_logs + sale_payments. These assert
@@ -66,5 +67,32 @@ describe('append-only guards (BIZ-2.8)', () => {
     expect(() => db.run(`DELETE FROM sale_payments WHERE id = 'pay-1'`)).toThrow(/append-only/i)
     // The idempotent sync echo (re-writing the same row) must still be allowed.
     expect(() => db.run(`UPDATE sale_payments SET amount = 5000 WHERE id = 'pay-1'`)).not.toThrow()
+  })
+
+  it('stamps a monotonic sequence per device (BIZ-2.9)', () => {
+    const ctxFor =
+      (deviceId: string): (() => AuditContext) =>
+      () => ({
+        businessId: 'biz-1',
+        actorId: 'u-1',
+        actorName: 'Alice',
+        actorRole: 'OWNER',
+        deviceId,
+      })
+    const svcA = new AuditService(db, ctxFor('dev-1'))
+    const svcB = new AuditService(db, ctxFor('dev-2'))
+    svcA.log({ action: 'CREATE', entityType: 'sale', entityId: 's1' })
+    svcA.log({ action: 'SALE_VOIDED', entityType: 'sale', entityId: 's1' })
+    svcB.log({ action: 'CREATE', entityType: 'sale', entityId: 's2' })
+
+    const seq = (deviceId: string): number[] =>
+      db
+        .query<{
+          sequence: number
+        }>(`SELECT sequence FROM local_audit_logs WHERE device_id = ? ORDER BY sequence`, [deviceId])
+        .map((r) => r.sequence)
+    // Each device counts independently from 1.
+    expect(seq('dev-1')).toEqual([1, 2])
+    expect(seq('dev-2')).toEqual([1])
   })
 })
