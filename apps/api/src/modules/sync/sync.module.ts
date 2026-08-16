@@ -59,6 +59,7 @@ import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
 import { CashSessionsModule } from '@/modules/cash-sessions/cash-sessions.module'
+import { AuditModule } from '@/modules/audit/audit.module'
 import type { AppConfig } from '@/config/configuration'
 import { SYNC_BATCHES_QUEUE } from './constants/sync.constants'
 import { SyncController } from './sync.controller'
@@ -81,6 +82,7 @@ import { SyncService } from './sync.service'
     PermissionsModule,
     DepositsModule,
     CashSessionsModule,
+    AuditModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig>) => ({

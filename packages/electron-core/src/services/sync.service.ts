@@ -541,6 +541,12 @@ export class SyncService {
     try {
       await this.push()
       await this.pull()
+      // Best-effort audit bridge — a failure here must not fail the sync cycle (retried next).
+      try {
+        await this.auditPush()
+      } catch {
+        /* retried next cycle */
+      }
       this.setStatus({ state: 'idle', lastSyncedAt: new Date().toISOString(), lastError: null })
     } catch (e) {
       this.setStatus({ state: 'error', lastError: e instanceof Error ? e.message : String(e) })
@@ -1609,6 +1615,74 @@ export class SyncService {
         asStr(r.updatedAt) ?? now,
       ],
     }
+  }
+
+  // ---- audit bridge (BIZ-2.10) ---------------------------------------------
+
+  /**
+   * Push local audit rows to the server (append-only, one-way) and prune synced rows older
+   * than 90 days. Idempotent — the server ingests ON CONFLICT DO NOTHING keyed on the row id,
+   * so a re-push after a crash is safe. server_time / actor_type are set authoritatively by
+   * the server. Best-effort: called from the sync cycle and retried next tick on failure.
+   */
+  private async auditPush(): Promise<void> {
+    const rows = this.opts.db.query<{
+      id: string
+      actor_id: string | null
+      actor_name: string | null
+      actor_role: string | null
+      action: string
+      entity_type: string
+      entity_id: string
+      entity_label: string | null
+      changes: string | null
+      amount: number | null
+      sequence: number | null
+      cash_session_id: string | null
+      created_at: string
+      device_time: string | null
+    }>(
+      `SELECT id, actor_id, actor_name, actor_role, action, entity_type, entity_id, entity_label,
+              changes, amount, sequence, cash_session_id, created_at, device_time
+       FROM local_audit_logs WHERE synced_at IS NULL
+       ORDER BY sequence ASC, created_at ASC
+       LIMIT 500`,
+    )
+    if (rows.length > 0) {
+      await this.request('POST', '/sync/audit', {
+        deviceId: this.opts.getDeviceId(),
+        rows: rows.map((r) => ({
+          id: r.id,
+          actorId: r.actor_id,
+          actorName: r.actor_name,
+          actorRole: r.actor_role,
+          action: r.action,
+          entityType: r.entity_type,
+          entityId: r.entity_id,
+          entityLabel: r.entity_label,
+          changes: r.changes ? (JSON.parse(r.changes) as Record<string, unknown>) : null,
+          amount: r.amount,
+          sequence: r.sequence,
+          cashSessionId: r.cash_session_id,
+          createdAt: r.created_at,
+          deviceTime: r.device_time,
+        })),
+      })
+      const now = new Date().toISOString()
+      const ids = rows.map((r) => r.id)
+      const placeholders = ids.map(() => '?').join(', ')
+      // Only synced_at changes → permitted by the append-only update guard (0072).
+      this.opts.db.run(`UPDATE local_audit_logs SET synced_at = ? WHERE id IN (${placeholders})`, [
+        now,
+        ...ids,
+      ])
+    }
+    // Prune rows already pushed and older than 90 days (the server retains everything).
+    const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString()
+    this.opts.db.run(
+      `DELETE FROM local_audit_logs WHERE synced_at IS NOT NULL AND created_at < ?`,
+      [cutoff],
+    )
   }
 
   // ---- http ----------------------------------------------------------------

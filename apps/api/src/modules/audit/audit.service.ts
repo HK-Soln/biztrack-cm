@@ -8,6 +8,7 @@ import type { AuditContext, AuditData, QueryAuditLogRequest } from '@biztrack/ty
 import { AuditLog } from '@/entities/audit-log.entity'
 import { LOGGER } from '@/logger/logger.module'
 import { AUDIT_LOG_JOB, AUDIT_QUEUE } from './constants/audit.constants'
+import type { AuditIngestRowDto } from './dto/audit-ingest.dto'
 
 @Injectable()
 export class AuditService {
@@ -54,6 +55,48 @@ export class AuditService {
             })
           })
       })
+  }
+
+  /**
+   * Ingest a batch of device-originated audit rows (BIZ-2.10) — the desktop→server bridge.
+   * The trail is append-only, so this is INSERT-only and idempotent (ON CONFLICT DO NOTHING on
+   * the device-generated id), letting a device safely re-push. server_time is stamped by the DB
+   * default (never trusted from the device); actor_type is normalised 'USER' → 'BUSINESS_USER'.
+   */
+  async ingestBatch(
+    businessId: string | null,
+    deviceId: string | null,
+    rows: AuditIngestRowDto[],
+  ): Promise<{ ingested: number }> {
+    if (rows.length === 0) return { ingested: 0 }
+    const values = rows.map((r) => ({
+      id: r.id,
+      businessId,
+      actorId: r.actorId ?? null,
+      actorType: 'BUSINESS_USER' as const,
+      actorName: r.actorName ?? null,
+      actorRole: r.actorRole ?? null,
+      action: r.action as AuditLog['action'],
+      entityType: r.entityType,
+      entityId: r.entityId,
+      entityLabel: r.entityLabel ?? null,
+      changes: r.changes ?? null,
+      deviceId,
+      deviceType: 'DESKTOP_APP' as const,
+      // Preserve the device's clock reading; created_at + server_time are the server ingest
+      // time (DB default now()), never trusted from the device.
+      deviceTime: new Date(r.deviceTime ?? r.createdAt),
+      amount: r.amount ?? null,
+      sequence: r.sequence ?? null,
+    }))
+    await this.auditRepo
+      .createQueryBuilder()
+      .insert()
+      .into(AuditLog)
+      .values(values)
+      .orIgnore() // ON CONFLICT (id) DO NOTHING — idempotent re-push
+      .execute()
+    return { ingested: rows.length }
   }
 
   /** Paginated audit query for the admin activity log / entity history. */

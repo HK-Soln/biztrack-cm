@@ -28,6 +28,22 @@ describe('append-only guards (BIZ-2.8)', () => {
     expect(() => db.run(`DELETE FROM local_audit_logs WHERE id = 'a1'`)).toThrow(/append-only/i)
   })
 
+  it('allows deleting a SYNCED audit row (prune) but still blocks an unsynced one (BIZ-2.10)', () => {
+    const now = new Date().toISOString()
+    db.run(
+      `INSERT INTO local_audit_logs
+        (id, business_id, actor_type, action, entity_type, entity_id, created_at, device_time, synced_at)
+       VALUES ('synced', 'biz-1', 'USER', 'CREATE', 'sale', 'x', ?, ?, ?)`,
+      [now, now, now],
+    )
+    insertAudit('unsynced') // synced_at stays NULL
+    // Unsynced rows remain append-only; only pushed rows may be pruned.
+    expect(() => db.run(`DELETE FROM local_audit_logs WHERE id = 'unsynced'`)).toThrow(
+      /append-only/i,
+    )
+    expect(() => db.run(`DELETE FROM local_audit_logs WHERE id = 'synced'`)).not.toThrow()
+  })
+
   it('rejects UPDATE of audit content, but allows the sync bookkeeping columns', () => {
     insertAudit('a2')
     // Tampering with the recorded event is rejected.
@@ -89,7 +105,9 @@ describe('append-only guards (BIZ-2.8)', () => {
       db
         .query<{
           sequence: number
-        }>(`SELECT sequence FROM local_audit_logs WHERE device_id = ? ORDER BY sequence`, [deviceId])
+        }>(`SELECT sequence FROM local_audit_logs WHERE device_id = ? ORDER BY sequence`, [
+          deviceId,
+        ])
         .map((r) => r.sequence)
     // Each device counts independently from 1.
     expect(seq('dev-1')).toEqual([1, 2])
