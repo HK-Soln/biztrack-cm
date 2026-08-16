@@ -353,6 +353,7 @@ export interface LocalAuditLog {
   entityType: string
   entityId: string
   entityLabel: string | null
+  actorId?: string | null
   actorName: string | null
   actorRole: string | null
   changes: { before: unknown; after: unknown } | null
@@ -371,6 +372,11 @@ export interface AuditListQuery extends ListQueryT {
   entityType?: string
   entityId?: string
   action?: AuditActionT
+  /** Filter to one actor (cashier) by user id — BIZ-2.11. */
+  actorId?: string
+  /** ISO lower/upper bounds on created_at (the caller computes the local-day window) — BIZ-2.11. */
+  dateFrom?: string
+  dateTo?: string
 }
 
 /** A held-cart line rung then removed before checkout (BIZ-2.9, local-only audit). */

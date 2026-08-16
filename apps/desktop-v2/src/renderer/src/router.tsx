@@ -37,6 +37,7 @@ import { PoDetail } from '@/routes/PoDetail'
 import { ReceivePo } from '@/routes/ReceivePo'
 import { Sell } from '@/routes/Sell'
 import { Sales } from '@/routes/Sales'
+import { Activity } from '@/routes/Activity'
 import { Expenses } from '@/routes/Expenses'
 import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
@@ -102,6 +103,7 @@ export const router = createHashRouter([
           { path: '/inventory', element: <Inventory /> },
           { path: '/inventory/restock', element: <ReceiveStock /> },
           { path: '/sales', element: <Sales /> },
+          { path: '/activity', element: <Activity /> },
           { path: '/online/orders', element: <OnlineOrders /> },
           { path: '/online/products', element: <OnlineProducts /> },
           { path: '/online/store', element: <OnlineStore /> },

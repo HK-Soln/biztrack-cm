@@ -152,6 +152,8 @@ export type NavLeaf = {
   icon?: keyof typeof Icon
   badge?: MessageKey
   owner?: boolean
+  /** Manager-oversight item — shown only to roles that can authorize (can_authorize). */
+  manager?: boolean
 }
 export type NavEntry = NavLeaf | { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] }
 
@@ -203,6 +205,7 @@ export const NAV: NavEntry[] = [
     label: 'nav.organization',
     icon: 'org',
     children: [
+      { to: '/activity', label: 'nav.activity', icon: 'shield', manager: true },
       { to: '/team', label: 'nav.team', icon: 'contacts' },
       { to: '/roles', label: 'nav.roles', icon: 'shield', owner: true },
     ],
@@ -210,9 +213,10 @@ export const NAV: NavEntry[] = [
   { to: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
 
-/** NAV with owner-only items removed for non-owners (and empty groups dropped). */
-export function filterNav(isOwner: boolean): NavEntry[] {
-  const keepLeaf = (l: NavLeaf) => isOwner || !l.owner
+/** NAV with owner-only + manager-only items removed for those who lack the role (and empty
+ * groups dropped). */
+export function filterNav(isOwner: boolean, canManage = false): NavEntry[] {
+  const keepLeaf = (l: NavLeaf) => (isOwner || !l.owner) && (isOwner || canManage || !l.manager)
   return NAV.flatMap<NavEntry>((entry) => {
     if (isGroup(entry)) {
       const children = entry.children.filter(keepLeaf)

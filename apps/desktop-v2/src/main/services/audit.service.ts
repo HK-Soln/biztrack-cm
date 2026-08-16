@@ -33,6 +33,7 @@ interface AuditRow {
   entity_type: string
   entity_id: string
   entity_label: string | null
+  actor_id: string | null
   actor_name: string | null
   actor_role: string | null
   changes: string | null
@@ -116,13 +117,25 @@ export class AuditService implements AuditLogger {
       where += ' AND action = ?'
       params.push(query.action)
     }
+    if (query.actorId) {
+      where += ' AND actor_id = ?'
+      params.push(query.actorId)
+    }
+    if (query.dateFrom) {
+      where += ' AND created_at >= ?'
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      where += ' AND created_at <= ?'
+      params.push(query.dateTo)
+    }
 
     const { rows, ...meta } = paginateRows<AuditRow>(
       this.db,
       {
         from: 'local_audit_logs',
         columns:
-          'id, action, entity_type, entity_id, entity_label, actor_name, actor_role, changes, amount, sequence, created_at, device_time, server_time',
+          'id, action, entity_type, entity_id, entity_label, actor_id, actor_name, actor_role, changes, amount, sequence, created_at, device_time, server_time',
         where,
         params,
         searchColumns: ['entity_label', 'actor_name'],
@@ -140,6 +153,7 @@ export class AuditService implements AuditLogger {
         entityType: r.entity_type,
         entityId: r.entity_id,
         entityLabel: r.entity_label,
+        actorId: r.actor_id,
         actorName: r.actor_name,
         actorRole: r.actor_role,
         changes: r.changes ? (JSON.parse(r.changes) as LocalAuditLog['changes']) : null,

@@ -13527,3 +13527,159 @@ textarea.input {
   background: #eef1f5;
   display: block;
 }
+
+/* Activity / Activité screen (BIZ-2.11) */
+.activity {
+  padding: 20px 24px;
+  max-width: 980px;
+}
+.activity .page-h h1 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.act-review {
+  margin: 14px 0 18px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.act-review-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.act-review-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.act-review-card.on {
+  border-color: var(--accent);
+}
+.act-review-card:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.act-review-card .name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.act-review-card .count {
+  font-size: 12px;
+  color: var(--danger);
+}
+.act-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.act-filters .seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.act-filters .seg button {
+  padding: 7px 14px;
+  font-size: 13px;
+  background: var(--surface);
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+.act-filters .seg button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+.act-select {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+  color: inherit;
+}
+.act-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.act-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.act-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.act-list .act-row:last-child {
+  border-bottom: none;
+}
+.act-row.flagged {
+  border-left-color: var(--danger);
+}
+.act-row.clickable {
+  cursor: pointer;
+}
+.act-row.clickable:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.06));
+}
+.act-row .ar-action {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.act-row .ar-meta {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.act-row .ar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.act-row .ar-amt {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 13px;
+}
+.chip.act-flag {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.act-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 14px;
+}
+.act-pager button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  color: inherit;
+}
+.act-pager button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
