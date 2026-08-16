@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import {
+  ABANDONED_SHIFT_HOURS,
   CashSessionClosedReason,
   CashSessionStatus,
   canTransitionCashSession,
@@ -174,6 +175,27 @@ export class CashSessionsService {
     if (input.closingNote !== undefined) session.closingNote = input.closingNote
     session.recountUsed = input.recountUsed ?? false
     return this.sessionsRepo.save(session)
+  }
+
+  /**
+   * Mark shifts left OPEN/COUNTING and untouched for more than ABANDONED_SHIFT_HOURS (72h)
+   * as ABANDONED (BIZ-2.5), across all businesses. Run on a schedule. These are excluded
+   * from variance statistics (they never closed, so there's no count) but stay visible —
+   * a cashier who never closes is itself a finding. Bumping updated_at syncs the status
+   * down to devices. Returns how many were swept.
+   */
+  async markAbandonedSessions(): Promise<number> {
+    const cutoff = new Date(Date.now() - ABANDONED_SHIFT_HOURS * 3_600_000)
+    const result = await this.sessionsRepo
+      .createQueryBuilder()
+      .update(CashSession)
+      .set({ status: CashSessionStatus.ABANDONED })
+      .where('status IN (:...statuses)', {
+        statuses: [CashSessionStatus.OPEN, CashSessionStatus.COUNTING],
+      })
+      .andWhere('updated_at < :cutoff', { cutoff })
+      .execute()
+    return result.affected ?? 0
   }
 
   async findById(id: string, businessId: string): Promise<CashSession> {

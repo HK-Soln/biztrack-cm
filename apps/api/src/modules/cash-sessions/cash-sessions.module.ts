@@ -5,11 +5,12 @@ import { CashCountLine } from '@/entities/cash-count-line.entity'
 import { CashMovement } from '@/entities/cash-movement.entity'
 import { CashSessionsController } from './controllers/cash-sessions.controller'
 import { CashSessionsService } from './services/cash-sessions.service'
+import { CashSessionsScheduler } from './cash-sessions.scheduler'
 
 @Module({
   imports: [TypeOrmModule.forFeature([CashSession, CashCountLine, CashMovement])],
   controllers: [CashSessionsController],
-  providers: [CashSessionsService],
+  providers: [CashSessionsService, CashSessionsScheduler],
   exports: [CashSessionsService],
 })
 export class CashSessionsModule {}
