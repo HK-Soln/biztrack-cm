@@ -1,11 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsArray, IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator'
+import {
+  IsArray,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 import type {
   AddDepositPaymentInput,
   CloseDepositInput,
   CreateDepositInput,
   DepositCloseSettlement,
+  DepositRefundLine,
   DepositTaggedProduct,
 } from '@biztrack/types'
 import { ListQueryDto } from '@/common/dto/list-query.dto'
@@ -92,10 +103,35 @@ export class AddDepositPaymentDto implements AddDepositPaymentInput {
 
 const SETTLEMENTS: DepositCloseSettlement[] = ['NONE', 'REFUND', 'TRANSFER']
 
+class DepositRefundLineDto implements DepositRefundLine {
+  @ApiProperty({ example: 'CASH' })
+  @IsString()
+  @MaxLength(50)
+  method!: string
+
+  @ApiProperty({ example: 50000 })
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  amount!: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  mobileMoneyReference?: string
+}
+
 export class CloseDepositDto implements CloseDepositInput {
   @ApiProperty({ enum: SETTLEMENTS })
   @IsEnum({ NONE: 'NONE', REFUND: 'REFUND', TRANSFER: 'TRANSFER' })
   settlement!: DepositCloseSettlement
+
+  @ApiPropertyOptional({ type: [DepositRefundLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DepositRefundLineDto)
+  refunds?: DepositRefundLineDto[]
 
   @ApiPropertyOptional()
   @IsOptional()

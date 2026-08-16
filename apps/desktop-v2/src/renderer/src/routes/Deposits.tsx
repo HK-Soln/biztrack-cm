@@ -957,8 +957,15 @@ function CloseModal({
   const [settlement, setSettlement] = useState<'NONE' | 'REFUND' | 'TRANSFER'>(
     leftover > 0 ? 'REFUND' : 'NONE',
   )
-  const [method, setMethod] = useState('CASH')
+  // Split refund: one line per method (part cash, part MoMo…). Starts as the whole leftover in cash.
+  const [refunds, setRefunds] = useState<{ method: string; amount: string }[]>([
+    { method: 'CASH', amount: String(leftover) },
+  ])
   const [error, setError] = useState<string | null>(null)
+
+  const parseAmt = (s: string) => Math.max(0, Number(s.replace(/\s/g, '').replace(',', '.')) || 0)
+  const refundTotal = refunds.reduce((sum, r) => sum + parseAmt(r.amount), 0)
+  const refundRemaining = Math.round((leftover - refundTotal) * 100) / 100
 
   const outcomeLabel = !hasSales
     ? t('dep.outcomeRefunded')
@@ -972,7 +979,10 @@ function CloseModal({
     mutationFn: () =>
       dataClient.deposits.close(deposit.id, {
         settlement,
-        method: settlement === 'REFUND' ? method : null,
+        refunds:
+          settlement === 'REFUND'
+            ? refunds.map((r) => ({ method: r.method, amount: parseAmt(r.amount) }))
+            : null,
       } as CloseDepositInput),
     onSuccess: onSaved,
     onError: (e) => setError(errorMessage(e, t('dep.saveError'))),
@@ -997,6 +1007,10 @@ function CloseModal({
           onSubmit={(e) => {
             e.preventDefault()
             setError(null)
+            if (settlement === 'REFUND' && Math.abs(refundRemaining) > 0.005) {
+              setError(t('dep.refundMustBalance'))
+              return
+            }
             save.mutate()
           }}
         >
@@ -1039,13 +1053,79 @@ function CloseModal({
               {settlement === 'REFUND' ? (
                 <div style={{ marginTop: 10 }}>
                   <label className="lbl2">{t('dep.refundMethod')}</label>
-                  <Select value={method} onChange={(e) => setMethod(e.target.value)}>
-                    {PAY_METHODS.map((m) => (
-                      <option key={m} value={m}>
-                        {payLabel(t, m)}
-                      </option>
-                    ))}
-                  </Select>
+                  <p className="hint" style={{ margin: '2px 0 8px' }}>
+                    {t('dep.refundSplitHint')}
+                  </p>
+                  {refunds.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      <Select
+                        value={r.method}
+                        onChange={(e) =>
+                          setRefunds((rs) =>
+                            rs.map((x, j) => (j === i ? { ...x, method: e.target.value } : x)),
+                          )
+                        }
+                        style={{ flex: '1 1 55%' }}
+                      >
+                        {PAY_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {payLabel(t, m)}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        value={r.amount}
+                        onChange={(e) =>
+                          setRefunds((rs) =>
+                            rs.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)),
+                          )
+                        }
+                        placeholder="0"
+                        style={{ flex: '1 1 30%' }}
+                      />
+                      {refunds.length > 1 ? (
+                        <button
+                          type="button"
+                          className="x"
+                          title={t('dep.removeLine')}
+                          onClick={() => setRefunds((rs) => rs.filter((_, j) => j !== i))}
+                        >
+                          {I.x}
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginTop: 4,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="pm-chip"
+                      onClick={() =>
+                        setRefunds((rs) => [
+                          ...rs,
+                          { method: 'MTN_MOMO', amount: String(Math.max(0, refundRemaining)) },
+                        ])
+                      }
+                    >
+                      + {t('dep.addRefundLine')}
+                    </button>
+                    <span
+                      className="hint"
+                      style={
+                        Math.abs(refundRemaining) > 0.005 ? { color: 'var(--danger)' } : undefined
+                      }
+                    >
+                      {t('dep.remaining')}: {money.format(refundRemaining)}
+                    </span>
+                  </div>
                 </div>
               ) : null}
               {settlement === 'TRANSFER' ? (

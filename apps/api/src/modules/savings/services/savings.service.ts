@@ -324,13 +324,11 @@ export class DepositsService {
       )
     const now = new Date()
     await this.dataSource.transaction(async (m) => {
-      await m
-        .getRepository(CustomerDeposit)
-        .update(acc.id, {
-          balance: round(acc.balance + amount),
-          totalDeposited: round(acc.totalDeposited + amount),
-          updatedAt: now,
-        })
+      await m.getRepository(CustomerDeposit).update(acc.id, {
+        balance: round(acc.balance + amount),
+        totalDeposited: round(acc.totalDeposited + amount),
+        updatedAt: now,
+      })
       await this.insertTxn(
         m,
         id,
@@ -375,21 +373,52 @@ export class DepositsService {
       } else if (dto.settlement === 'REFUND') {
         if (leftover <= 0)
           throw new AppBadRequestException('Nothing to refund.', 'DEPOSIT_NOTHING_TO_REFUND')
-        await this.insertTxn(
-          m,
-          id,
-          businessId,
-          {
-            type: 'refund',
-            direction: 'outbound',
-            amount: leftover,
-            method: dto.method ?? 'CASH',
-            mobileMoneyReference: dto.mobileMoneyReference,
-            notes: dto.notes,
-            recordedById: user.sub,
-          },
-          now,
-        )
+
+        // Split refund: one txn per method (part cash, part MoMo…). No lines → settle the whole
+        // leftover as a single line (back-compat with the deprecated method field).
+        const lines =
+          dto.refunds && dto.refunds.length > 0
+            ? dto.refunds.map((r) => ({
+                method: r.method || 'CASH',
+                amount: round(r.amount),
+                mobileMoneyReference: r.mobileMoneyReference,
+              }))
+            : [
+                {
+                  method: dto.method ?? 'CASH',
+                  amount: leftover,
+                  mobileMoneyReference: dto.mobileMoneyReference,
+                },
+              ]
+
+        if (lines.some((l) => !(l.amount > 0)))
+          throw new AppBadRequestException(
+            'Each refund line must be greater than 0.',
+            'DEPOSIT_REFUND_LINE_INVALID',
+          )
+        if (round(lines.reduce((s, l) => s + l.amount, 0)) !== leftover)
+          throw new AppBadRequestException(
+            'The refund must add up to the exact leftover balance.',
+            'DEPOSIT_REFUND_MISMATCH',
+          )
+
+        for (const line of lines) {
+          await this.insertTxn(
+            m,
+            id,
+            businessId,
+            {
+              type: 'refund',
+              direction: 'outbound',
+              amount: line.amount,
+              method: line.method,
+              mobileMoneyReference: line.mobileMoneyReference,
+              notes: dto.notes,
+              recordedById: user.sub,
+            },
+            now,
+          )
+        }
         await repo.update(id, {
           balance: 0,
           totalRefunded: round(acc.totalRefunded + leftover),
