@@ -13541,6 +13541,23 @@ textarea.input {
 .activity .panel-head .field {
   height: 36px;
 }
+/* Tablet & down: the three filters share one row; the search spans the row below. */
+@media (max-width: 760px) {
+  .activity .panel-head h3 {
+    flex: 1 0 100%;
+  }
+  .activity .panel-head .spacer {
+    display: none;
+  }
+  .activity .panel-head .select {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .activity .panel-head .field {
+    flex: 1 0 100%;
+    width: auto !important;
+  }
+}
 .act-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
