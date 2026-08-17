@@ -32,6 +32,8 @@ export const ENTITY: Record<string, { accent: EntityAccent; labelKey: MessageKey
   cash_session: { accent: 'success', labelKey: 'activity.entity.cash_session' },
   inventory: { accent: 'warning', labelKey: 'activity.entity.inventory' },
   product: { accent: 'brand', labelKey: 'activity.entity.product' },
+  product_variant: { accent: 'brand', labelKey: 'activity.entity.product_variant' },
+  product_serial_unit: { accent: 'brand', labelKey: 'activity.entity.product_serial_unit' },
   business_member: { accent: 'brand', labelKey: 'activity.entity.business_member' },
   device: { accent: 'danger', labelKey: 'activity.entity.device' },
   pin_authorization: { accent: 'danger', labelKey: 'activity.entity.pin_authorization' },
@@ -222,12 +224,22 @@ export function auditMeta(
   return { label: actionLabel(t, row.action), sev, why, diff }
 }
 
-/** Where a row deep-links, if anywhere. `sale` opens the sale drawer; `product` navigates. */
+/**
+ * Where a row deep-links, if anywhere. `sale` opens the sale drawer; everything product-related
+ * navigates to the product detail. Products/inventory link by their own id; a variant or serial
+ * unit links by the productId carried in its `changes` payload (its entityId is the variant/unit).
+ */
 export function auditDeepLink(
-  row: Pick<LocalAuditLog, 'entityType' | 'entityId'>,
+  row: Pick<LocalAuditLog, 'entityType' | 'entityId' | 'changes'>,
 ): { kind: 'sale' | 'product'; id: string } | null {
   if (row.entityType === 'sale') return { kind: 'sale', id: row.entityId }
   if (row.entityType === 'product' || row.entityType === 'inventory')
     return { kind: 'product', id: row.entityId }
+  if (row.entityType === 'product_variant' || row.entityType === 'product_serial_unit') {
+    const after = row.changes?.after as { productId?: string } | null
+    const before = row.changes?.before as { productId?: string } | null
+    const productId = after?.productId ?? before?.productId
+    return productId ? { kind: 'product', id: productId } : null
+  }
   return null
 }

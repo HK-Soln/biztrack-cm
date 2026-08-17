@@ -103,6 +103,13 @@ const ENTITY_ICON: Record<string, ReactNode> = {
       <path d="M8 7V5a4 4 0 0 1 8 0v2" />
     </>
   ),
+  product_variant: (
+    <>
+      <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+      <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+    </>
+  ),
+  product_serial_unit: <path d="M4 7v10M8 7v10M12 7v10M16 7v10M20 7v10" />,
   business_member: (
     <>
       <circle cx="12" cy="8" r="4" />
