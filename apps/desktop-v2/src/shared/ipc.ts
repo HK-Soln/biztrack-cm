@@ -1047,6 +1047,13 @@ export interface LocalReorderSuggestion {
   suggestedQty: number
   unitCost: number | null
   currency: string
+  /** Sales velocity in units/day (trailing window, stock-out days excluded), BIZ-4.6.
+   * null when too little history/sales to trust — falls back to the manual target. */
+  velocity?: number | null
+  /** Days of stock left at the current velocity ("Reste N jours"). null when untrusted. */
+  daysCover?: number | null
+  /** Whole days the product was out of stock in the window. */
+  stockoutDays?: number | null
 }
 
 /** One line of a restock (a purchase that adds stock). */

@@ -84,6 +84,8 @@ const makeService = () => {
     findOne: jest.fn(),
     update: jest.fn(),
     createQueryBuilder: jest.fn(() => inventoryLevelsQb),
+    // BIZ-4.6 velocity computation issues raw manager.query calls; default to empty.
+    manager: { query: jest.fn().mockResolvedValue([]) },
   }
   const movementsQb = {
     leftJoinAndSelect: jest.fn().mockReturnThis(),

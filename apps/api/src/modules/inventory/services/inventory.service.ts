@@ -29,6 +29,13 @@ import {
   SerialUnitStatus,
   StockAdjustmentType,
 } from '@biztrack/types'
+import {
+  REORDER_WINDOW_DAYS,
+  computeReorderVelocity,
+  computeStockoutMs,
+  type StockPoint,
+  type VelocityResult,
+} from '@biztrack/utils'
 import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -1112,22 +1119,127 @@ export class InventoryService {
   }
 
   private async mapAlertRows(rows: InventoryLevel[]): Promise<InventoryAlert[]> {
-    const primaryImageUrls = await this.loadPrimaryImageUrls(rows.map((row) => row.productId))
+    const productIds = rows.map((row) => row.productId)
+    const [primaryImageUrls, velocities] = await Promise.all([
+      this.loadPrimaryImageUrls(productIds),
+      this.computeAlertVelocities(rows),
+    ])
 
-    return rows.map((row) => ({
-      productId: row.productId,
-      productName: row.product?.name ?? null,
-      sku: row.product?.sku ?? null,
-      primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.product?.imageUrl ?? null,
-      categoryName: row.product?.category?.name ?? null,
-      currentQuantity: row.quantity,
-      lowStockThreshold: row.lowStockThreshold ?? null,
-      reorderPoint: row.reorderPoint ?? null,
-      shortfall:
-        row.lowStockThreshold !== null && row.lowStockThreshold !== undefined
-          ? row.lowStockThreshold - row.quantity
-          : 0,
-    }))
+    return rows.map((row) => {
+      const v = velocities.get(row.productId)
+      return {
+        productId: row.productId,
+        productName: row.product?.name ?? null,
+        sku: row.product?.sku ?? null,
+        primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.product?.imageUrl ?? null,
+        categoryName: row.product?.category?.name ?? null,
+        currentQuantity: row.quantity,
+        lowStockThreshold: row.lowStockThreshold ?? null,
+        reorderPoint: row.reorderPoint ?? null,
+        shortfall:
+          row.lowStockThreshold !== null && row.lowStockThreshold !== undefined
+            ? row.lowStockThreshold - row.quantity
+            : 0,
+        velocity: v?.velocity ?? null,
+        daysCover: v?.daysCover ?? null,
+        stockoutDays: v?.stockoutDays ?? null,
+      }
+    })
+  }
+
+  /** Trailing-window sales velocity + days-of-cover per alerted product (BIZ-4.6),
+   * keyed by productId. Excludes stock-out days (reconstructed from the movement
+   * ledger's `quantity_after`) and returns null velocity/cover for products with too
+   * little history/sales to trust — the shared @biztrack/utils calculator decides.
+   * Variant products are skipped: their stock lives per-variant, so a product-level
+   * timeline would misread as empty. */
+  private async computeAlertVelocities(
+    rows: InventoryLevel[],
+  ): Promise<Map<string, VelocityResult>> {
+    const out = new Map<string, VelocityResult>()
+    const first = rows[0]
+    if (!first) return out
+    const businessId = first.businessId
+    const productIds = [...new Set(rows.map((r) => r.productId))]
+    const mgr = this.inventoryLevelsRepo.manager
+    const now = Date.now()
+    const windowStart = now - REORDER_WINDOW_DAYS * 86_400_000
+    const windowStartIso = new Date(windowStart).toISOString()
+    const windowStartDate = windowStartIso.slice(0, 10)
+
+    // Variant products (skipped — product-level stock timeline doesn't apply).
+    const variantRows = (await mgr.query(
+      `SELECT DISTINCT product_id AS "productId" FROM product_variants
+       WHERE product_id = ANY($1) AND deleted_at IS NULL`,
+      [productIds],
+    )) as Array<{ productId: string }>
+    const variantIds = new Set(variantRows.map((r) => r.productId))
+    const simpleIds = productIds.filter((id) => !variantIds.has(id))
+    if (simpleIds.length === 0) return out
+
+    const [unitRows, moveRows, priorRows, ageRows] = (await Promise.all([
+      mgr.query(
+        `SELECT si.product_id AS "productId", COALESCE(SUM(si.quantity), 0) AS units
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status = 'COMPLETED'
+           AND si.deleted_at IS NULL AND s.sale_date >= $2 AND si.product_id = ANY($3)
+         GROUP BY si.product_id`,
+        [businessId, windowStartDate, simpleIds],
+      ),
+      mgr.query(
+        `SELECT product_id AS "productId", quantity_after AS "quantityAfter", created_at AS "createdAt"
+         FROM inventory_movements
+         WHERE business_id = $1 AND variant_id IS NULL AND product_id = ANY($2) AND created_at >= $3
+         ORDER BY product_id ASC, created_at ASC`,
+        [businessId, simpleIds, windowStartIso],
+      ),
+      mgr.query(
+        `SELECT DISTINCT ON (m.product_id) m.product_id AS "productId", m.quantity_after AS "quantityAfter"
+         FROM inventory_movements m
+         WHERE m.business_id = $1 AND m.variant_id IS NULL AND m.product_id = ANY($2) AND m.created_at < $3
+         ORDER BY m.product_id, m.created_at DESC`,
+        [businessId, simpleIds, windowStartIso],
+      ),
+      mgr.query(
+        `SELECT id AS "productId", created_at AS "createdAt" FROM products WHERE id = ANY($1)`,
+        [simpleIds],
+      ),
+    ])) as [
+      Array<{ productId: string; units: string }>,
+      Array<{ productId: string; quantityAfter: string; createdAt: string }>,
+      Array<{ productId: string; quantityAfter: string }>,
+      Array<{ productId: string; createdAt: string }>,
+    ]
+
+    const unitsById = new Map(unitRows.map((r) => [r.productId, Number(r.units ?? 0)]))
+    const startById = new Map(priorRows.map((r) => [r.productId, Number(r.quantityAfter ?? 0)]))
+    const ageById = new Map(ageRows.map((r) => [r.productId, Date.parse(String(r.createdAt))]))
+    const pointsById = new Map<string, StockPoint[]>()
+    for (const r of moveRows) {
+      const arr = pointsById.get(r.productId) ?? []
+      arr.push({ at: Date.parse(String(r.createdAt)), after: Number(r.quantityAfter ?? 0) })
+      pointsById.set(r.productId, arr)
+    }
+    const stockById = new Map(rows.map((r) => [r.productId, r.quantity]))
+
+    for (const id of simpleIds) {
+      const stockoutMs = computeStockoutMs(
+        windowStart,
+        now,
+        startById.get(id) ?? 0,
+        pointsById.get(id) ?? [],
+      )
+      out.set(
+        id,
+        computeReorderVelocity({
+          unitsSold: unitsById.get(id) ?? 0,
+          stockoutMs,
+          currentStock: stockById.get(id) ?? 0,
+          productAgeDays: (now - (ageById.get(id) ?? now)) / 86_400_000,
+        }),
+      )
+    }
+    return out
   }
 
   private async loadPrimaryImageUrls(productIds: string[]) {

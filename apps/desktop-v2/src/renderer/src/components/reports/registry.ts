@@ -425,6 +425,7 @@ export const LOADERS: Record<string, ReportLoader> = {
           reorderLevel: r.target,
           suggestedQty: r.suggestedQty,
           unitCost: r.unitCost,
+          daysCover: r.daysCover ?? null,
         })),
         currency: items[0]?.currency ?? currency,
       },

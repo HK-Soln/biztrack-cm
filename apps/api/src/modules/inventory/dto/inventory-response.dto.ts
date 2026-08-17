@@ -26,10 +26,7 @@ type InventoryMovementModel = {
   referenceType?: string | null
   referenceId?: string | null
   notes?: string | null
-  performedBy?:
-    | InventoryMovementPerformer
-    | InventoryMovementEntity['performedBy']
-    | null
+  performedBy?: InventoryMovementPerformer | InventoryMovementEntity['performedBy'] | null
   performedById?: string | null
   referenceLabel?: string | null
   product?: { name?: string | null } | null
@@ -84,6 +81,9 @@ export class InventoryAlertDto implements InventoryAlert {
   lowStockThreshold!: number | null
   reorderPoint!: number | null
   shortfall!: number
+  velocity?: number | null
+  daysCover?: number | null
+  stockoutDays?: number | null
 
   static fromModel(model: {
     productId: string
@@ -95,12 +95,18 @@ export class InventoryAlertDto implements InventoryAlert {
     lowStockThreshold?: number | null
     reorderPoint?: number | null
     shortfall: number
+    velocity?: number | null
+    daysCover?: number | null
+    stockoutDays?: number | null
   }): InventoryAlertDto {
     const dto = new InventoryAlertDto()
     Object.assign(dto, model)
     dto.primaryImageUrl = model.primaryImageUrl ?? null
     dto.lowStockThreshold = model.lowStockThreshold ?? null
     dto.reorderPoint = model.reorderPoint ?? null
+    dto.velocity = model.velocity ?? null
+    dto.daysCover = model.daysCover ?? null
+    dto.stockoutDays = model.stockoutDays ?? null
     return dto
   }
 }
@@ -141,7 +147,7 @@ export class InventoryMovementDto implements InventoryMovement {
     dto.id = entity.id
     dto.businessId = entity.businessId
     dto.productId = entity.productId
-    dto.productName = 'product' in entity && entity.product ? entity.product.name ?? null : null
+    dto.productName = 'product' in entity && entity.product ? (entity.product.name ?? null) : null
     dto.type = entity.type as InventoryMovement['type']
     dto.quantityChange = entity.quantityChange
     dto.quantityBefore = entity.quantityBefore
@@ -155,10 +161,12 @@ export class InventoryMovementDto implements InventoryMovement {
             id: entity.performedBy.id,
             name: entity.performedBy.name,
           }
-        : ('performedBy' in entity ? entity.performedBy : null),
+        : 'performedBy' in entity
+          ? entity.performedBy
+          : null,
     )
     dto.performedById = entity.performedById ?? null
-    dto.referenceLabel = 'referenceLabel' in entity ? entity.referenceLabel ?? null : null
+    dto.referenceLabel = 'referenceLabel' in entity ? (entity.referenceLabel ?? null) : null
     dto.createdAt = toIsoString(entity.createdAt) ?? ''
     return dto
   }
@@ -286,7 +294,9 @@ export class InventoryDetailDto implements InventoryDetail {
     dto.createdAt = toIsoString(model.createdAt) ?? ''
     dto.updatedAt = toIsoString(model.updatedAt) ?? ''
     dto.product = InventoryProductSummaryDto.fromProduct(model.product!)
-    dto.movements = (model.movements ?? []).map((movement) => InventoryMovementDto.fromEntity(movement))
+    dto.movements = (model.movements ?? []).map((movement) =>
+      InventoryMovementDto.fromEntity(movement),
+    )
     dto.binSummary = InventoryBinSummaryDto.fromModel(model.binSummary)
     return dto
   }

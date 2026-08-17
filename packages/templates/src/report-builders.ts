@@ -228,6 +228,7 @@ export function buildLowStockReport(
         sku: 'SKU',
         onHand: 'En stock',
         level: 'Seuil',
+        cover: 'Reste (j)',
         suggest: 'Qté suggérée',
         cost: 'Coût est.',
         total: 'TOTAL RÉAPPRO.',
@@ -241,11 +242,15 @@ export function buildLowStockReport(
         sku: 'SKU',
         onHand: 'On hand',
         level: 'Reorder lvl',
+        cover: 'Cover (days)',
         suggest: 'Suggest qty',
         cost: 'Est. cost',
         total: 'TOTAL REORDER',
         empty: 'All stock levels are healthy.',
       }
+  // "Reste N jours" — days of stock left at the current sales velocity (BIZ-4.6).
+  // "—" when there's too little history/sales to trust a velocity.
+  const cover = (d?: number | null) => (d == null ? '—' : n(d))
   const totalCost = data.rows.reduce((s, r) => s + r.suggestedQty * (r.unitCost ?? 0), 0)
   const document = baseDoc(L.title, opts, [
     {
@@ -262,6 +267,7 @@ export function buildLowStockReport(
         { key: 'sku', label: L.sku },
         { key: 'onHand', label: L.onHand, align: 'right' },
         { key: 'level', label: L.level, align: 'right' },
+        { key: 'cover', label: L.cover, align: 'right' },
         { key: 'suggest', label: L.suggest, align: 'right' },
         { key: 'cost', label: L.cost, align: 'right' },
       ],
@@ -270,20 +276,30 @@ export function buildLowStockReport(
         sku: r.sku ?? '—',
         onHand: n(r.onHand),
         level: n(r.reorderLevel),
+        cover: cover(r.daysCover),
         suggest: n(r.suggestedQty),
         cost: m(r.suggestedQty * (r.unitCost ?? 0)),
       })),
-      total: { product: L.total, sku: '', onHand: '', level: '', suggest: '', cost: m(totalCost) },
+      total: {
+        product: L.total,
+        sku: '',
+        onHand: '',
+        level: '',
+        cover: '',
+        suggest: '',
+        cost: m(totalCost),
+      },
       empty: L.empty,
     },
   ])
   const csv = toCsv(
-    [L.product, L.sku, L.onHand, L.level, L.suggest, L.cost],
+    [L.product, L.sku, L.onHand, L.level, L.cover, L.suggest, L.cost],
     data.rows.map((r) => [
       r.name,
       r.sku ?? '',
       String(r.onHand),
       String(r.reorderLevel),
+      r.daysCover == null ? '' : String(r.daysCover),
       String(r.suggestedQty),
       String(r.suggestedQty * (r.unitCost ?? 0)),
     ]),

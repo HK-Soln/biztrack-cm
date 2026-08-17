@@ -190,6 +190,9 @@ export interface LowStockRow {
   reorderLevel: number
   suggestedQty: number
   unitCost: number | null
+  /** Days of stock left at the current sales velocity ("Reste N jours"), BIZ-4.6.
+   * null/undefined when velocity isn't trustworthy — the column shows "—". */
+  daysCover?: number | null
 }
 export interface LowStockReportData {
   rows: LowStockRow[]

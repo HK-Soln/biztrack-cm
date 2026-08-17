@@ -86,6 +86,9 @@ interface ApiInventoryAlert {
   lowStockThreshold?: number | null
   reorderPoint?: number | null
   shortfall: number
+  velocity?: number | null
+  daysCover?: number | null
+  stockoutDays?: number | null
 }
 
 function toLocalReorderSuggestion(a: ApiInventoryAlert): LocalReorderSuggestion {
@@ -98,6 +101,9 @@ function toLocalReorderSuggestion(a: ApiInventoryAlert): LocalReorderSuggestion 
     suggestedQty: a.shortfall,
     unitCost: null,
     currency: 'XAF',
+    velocity: a.velocity ?? null,
+    daysCover: a.daysCover ?? null,
+    stockoutDays: a.stockoutDays ?? null,
   }
 }
 
