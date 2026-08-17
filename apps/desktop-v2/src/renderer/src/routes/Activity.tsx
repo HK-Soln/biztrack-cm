@@ -430,10 +430,10 @@ export function Activity() {
                               <EntIcon type={r.entityType} />
                             </div>
                             <div>
-                              <div className="nm">{meta.label}</div>
-                              <div className="sub">
-                                {r.entityLabel || `${entityLabel(t, r.entityType)} · ${r.entityId}`}
+                              <div className="nm">
+                                {entityLabel(t, r.entityType)} · {meta.label}
                               </div>
+                              <div className="sub">{r.entityLabel || r.entityId}</div>
                               {meta.why ? (
                                 <div className={`why${meta.sev === 'med' ? ' med' : ''}`}>
                                   {I.warn}
@@ -612,8 +612,10 @@ function AuditDrawer({
             <EntIcon type={r.entityType} />
           </div>
           <div className="ti">
-            <h3>{meta.label}</h3>
-            <p>{r.entityLabel || `${entityLabel(t, r.entityType)} · ${r.entityId}`}</p>
+            <h3>
+              {entityLabel(t, r.entityType)} · {meta.label}
+            </h3>
+            <p>{r.entityLabel || r.entityId}</p>
           </div>
           <button type="button" className="x" onClick={onClose}>
             {I.x}
