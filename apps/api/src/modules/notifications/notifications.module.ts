@@ -3,6 +3,12 @@ import { BullModule } from '@nestjs/bullmq'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { Notification } from '@/entities/notification.entity'
 import { PendingInvite } from '@/entities/pending-invite.entity'
+import { NotificationSetting } from '@/entities/notification-setting.entity'
+import { NotificationRecipient } from '@/entities/notification-recipient.entity'
+import { BusinessMember } from '@/entities/business-member.entity'
+import { NotificationSettingsService } from './services/notification-settings.service'
+import { NotificationDispatcher } from './services/notification-dispatcher.service'
+import { NotificationSettingsController } from './controllers/notification-settings.controller'
 import { NOTIFICATIONS_QUEUE } from './constants/notifications.constants'
 import { WahaHttpClient } from './providers/waha-http.client'
 import { EmailProvider } from './providers/email.provider'
@@ -18,21 +24,39 @@ import { RedisModule } from '@/common/redis/redis.module'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Notification, PendingInvite]),
+    TypeOrmModule.forFeature([
+      Notification,
+      PendingInvite,
+      NotificationSetting,
+      NotificationRecipient,
+      BusinessMember,
+    ]),
     BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE }),
     RedisModule,
   ],
-  controllers: [NotificationsWebhookController, NotificationsController],
+  controllers: [
+    NotificationsWebhookController,
+    NotificationsController,
+    NotificationSettingsController,
+  ],
   providers: [
     WahaHttpClient,
     EmailProvider,
     SmsProvider,
     WhatsAppProvider,
     NotificationsService,
+    NotificationSettingsService,
+    NotificationDispatcher,
     NotificationsProcessor,
     ResendWebhookGuard,
     WahaWebhookGuard,
   ],
-  exports: [NotificationsService, WhatsAppProvider, EmailProvider],
+  exports: [
+    NotificationsService,
+    NotificationSettingsService,
+    NotificationDispatcher,
+    WhatsAppProvider,
+    EmailProvider,
+  ],
 })
 export class NotificationsModule {}
