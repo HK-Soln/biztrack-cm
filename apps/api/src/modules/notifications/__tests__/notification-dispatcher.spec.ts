@@ -2,6 +2,7 @@ import { NotificationChannel, NotificationType } from '@biztrack/types'
 import {
   NotificationDispatcher,
   withinQuietHours,
+  type DispatchNotificationInput,
 } from '../services/notification-dispatcher.service'
 
 const IN_APP = NotificationChannel.IN_APP
@@ -40,7 +41,7 @@ describe('NotificationDispatcher', () => {
     )
     return { dispatcher, notifications }
   }
-  const base = {
+  const base: DispatchNotificationInput = {
     businessId: 'biz',
     event: NotificationType.LOW_STOCK,
     title: 't',
