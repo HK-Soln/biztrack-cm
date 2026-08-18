@@ -94,6 +94,11 @@ import type {
   UpdateOrderStatusRequest,
   BusinessProfile,
   UpdateBusinessRequest,
+  NotificationSettings,
+  UpdateNotificationMatrixRequest,
+  UpdateNotificationQuietHoursRequest,
+  AddNotificationRecipientRequest,
+  UpdateRecipientSubscriptionsRequest,
   ListPlansResponse,
   CurrentSubscriptionResponse,
   QuotaUsageResponse,
@@ -444,6 +449,17 @@ export interface DataClient {
     getProfile: () => Promise<BusinessProfile | null>
     update: (payload: UpdateBusinessRequest) => Promise<BusinessProfile>
   }
+  notificationSettings: {
+    get: () => Promise<NotificationSettings>
+    updateMatrix: (body: UpdateNotificationMatrixRequest) => Promise<NotificationSettings>
+    updateQuietHours: (body: UpdateNotificationQuietHoursRequest) => Promise<NotificationSettings>
+    addRecipient: (body: AddNotificationRecipientRequest) => Promise<NotificationSettings>
+    updateRecipientSubscriptions: (
+      id: string,
+      body: UpdateRecipientSubscriptionsRequest,
+    ) => Promise<NotificationSettings>
+    removeRecipient: (id: string) => Promise<NotificationSettings>
+  }
   plans: {
     list: () => Promise<ListPlansResponse>
     subscription: () => Promise<CurrentSubscriptionResponse>
@@ -531,6 +547,7 @@ import {
   cloudNotificationsRest,
   cloudInvitations,
   cloudBusiness,
+  cloudNotificationSettings,
   cloudPlans,
   cloudOnline,
   cloudUploads,
@@ -784,6 +801,15 @@ function electronAdapter(): DataClient {
       getProfile: () => window.api.business.getProfile(),
       update: (payload) => window.api.business.update(payload),
     },
+    notificationSettings: {
+      get: () => window.api.notificationSettings.get(),
+      updateMatrix: (body) => window.api.notificationSettings.updateMatrix(body),
+      updateQuietHours: (body) => window.api.notificationSettings.updateQuietHours(body),
+      addRecipient: (body) => window.api.notificationSettings.addRecipient(body),
+      updateRecipientSubscriptions: (id, body) =>
+        window.api.notificationSettings.updateRecipientSubscriptions(id, body),
+      removeRecipient: (id) => window.api.notificationSettings.removeRecipient(id),
+    },
     plans: {
       list: () => window.api.plans.list(),
       subscription: () => window.api.plans.subscription(),
@@ -902,6 +928,7 @@ function cloudAdapter(): DataClient {
     deposits: cloudDeposits,
     online: cloudOnline,
     business: cloudBusiness,
+    notificationSettings: cloudNotificationSettings,
     plans: cloudPlans,
     roles: cloudRoles,
     team: cloudTeam,

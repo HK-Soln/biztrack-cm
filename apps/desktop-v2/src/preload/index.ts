@@ -309,6 +309,15 @@ const api: BridgeApi = {
     getProfile: () => ipcRenderer.invoke(IPC.businessGetProfile),
     update: (payload) => ipcRenderer.invoke(IPC.businessUpdate, payload),
   },
+  notificationSettings: {
+    get: () => ipcRenderer.invoke(IPC.notificationSettingsGet),
+    updateMatrix: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateMatrix, body),
+    updateQuietHours: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateQuietHours, body),
+    addRecipient: (body) => ipcRenderer.invoke(IPC.notificationSettingsAddRecipient, body),
+    updateRecipientSubscriptions: (id, body) =>
+      ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipientSubs, id, body),
+    removeRecipient: (id) => ipcRenderer.invoke(IPC.notificationSettingsRemoveRecipient, id),
+  },
   plans: {
     list: () => ipcRenderer.invoke(IPC.plansList),
     subscription: () => ipcRenderer.invoke(IPC.plansSubscription),

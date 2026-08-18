@@ -3001,6 +3001,11 @@ export const en = {
   'ntf.billingDesc': 'Renewals, failed charges and plan limits.',
   'ntf.creditNote':
     'SMS & WhatsApp are billed per message from your account credit. In-app & email are free.',
+  'ntf.smsSoon': 'SMS is coming soon — it needs a dedicated SMS provider, so it stays off for now.',
+  'ntf.ownerOnly': 'Only the business owner can manage notification preferences.',
+  'ntf.ownerTag': 'Owner',
+  'ntf.offline': "You're offline — notification preferences load when you reconnect.",
+  'ntf.loading': 'Loading preferences…',
   'ntf.quietTitle': 'Quiet hours',
   'ntf.quietSub':
     'Pause SMS, WhatsApp and push during these times. Critical billing alerts still come through.',
@@ -6386,6 +6391,12 @@ export const fr: Record<MessageKey, string> = {
   'ntf.billingDesc': 'Renouvellements, échecs de paiement et limites de forfait.',
   'ntf.creditNote':
     'SMS & WhatsApp sont facturés par message depuis votre crédit. In-app & email sont gratuits.',
+  'ntf.smsSoon':
+    'Le SMS arrive bientôt — il nécessite un fournisseur SMS dédié, il reste donc désactivé pour l’instant.',
+  'ntf.ownerOnly': 'Seul le propriétaire peut gérer les préférences de notification.',
+  'ntf.ownerTag': 'Propriétaire',
+  'ntf.offline': 'Vous êtes hors ligne — les préférences se chargeront à la reconnexion.',
+  'ntf.loading': 'Chargement des préférences…',
   'ntf.quietTitle': 'Heures calmes',
   'ntf.quietSub':
     'Mettre en pause SMS, WhatsApp et push pendant ces heures. Les alertes de facturation critiques passent toujours.',

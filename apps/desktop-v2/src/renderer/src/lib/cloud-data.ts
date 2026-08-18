@@ -29,6 +29,12 @@ import type {
   // business
   BusinessProfile,
   UpdateBusinessRequest,
+  // notification settings
+  NotificationSettings,
+  UpdateNotificationMatrixRequest,
+  UpdateNotificationQuietHoursRequest,
+  AddNotificationRecipientRequest,
+  UpdateRecipientSubscriptionsRequest,
   // plans
   ListPlansResponse,
   CurrentSubscriptionResponse,
@@ -140,6 +146,20 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     logoUrl: b.logoUrl ?? null,
     role,
   }
+}
+
+export const cloudNotificationSettings = {
+  get: () => cget<NotificationSettings>('/notifications/settings'),
+  updateMatrix: (body: UpdateNotificationMatrixRequest) =>
+    cput<NotificationSettings>('/notifications/settings/matrix', body),
+  updateQuietHours: (body: UpdateNotificationQuietHoursRequest) =>
+    cput<NotificationSettings>('/notifications/settings/quiet-hours', body),
+  addRecipient: (body: AddNotificationRecipientRequest) =>
+    cpost<NotificationSettings>('/notifications/settings/recipients', body),
+  updateRecipientSubscriptions: (id: string, body: UpdateRecipientSubscriptionsRequest) =>
+    cput<NotificationSettings>(`/notifications/settings/recipients/${id}/subscriptions`, body),
+  removeRecipient: (id: string) =>
+    cdelete<NotificationSettings>(`/notifications/settings/recipients/${id}`),
 }
 
 export const cloudBusiness = {

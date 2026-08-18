@@ -5974,6 +5974,27 @@ button.imgdrop:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Per-recipient event subscription pills (Settings → Notifications recipients). */
+.subchip {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: 0.12s;
+}
+.subchip.on {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand-int);
+}
+.subchip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .qh {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -166,6 +166,12 @@ export const IPC = {
   onlinePublicationRestore: 'online:publication-restore',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
+  notificationSettingsGet: 'notification-settings:get',
+  notificationSettingsUpdateMatrix: 'notification-settings:update-matrix',
+  notificationSettingsUpdateQuietHours: 'notification-settings:update-quiet-hours',
+  notificationSettingsAddRecipient: 'notification-settings:add-recipient',
+  notificationSettingsUpdateRecipientSubs: 'notification-settings:update-recipient-subs',
+  notificationSettingsRemoveRecipient: 'notification-settings:remove-recipient',
   plansList: 'plans:list',
   plansSubscription: 'plans:subscription',
   plansQuotaUsage: 'plans:quota-usage',
@@ -1484,6 +1490,25 @@ import type {
   UpdateBusinessRequest as UpdateBusinessRequestT,
 } from '@biztrack/types'
 
+// --- Notifications control plane (Settings → Notifications) — server-owned, online-only ---
+export type {
+  NotificationSettings,
+  NotificationChannelToggle,
+  NotificationQuietHours,
+  NotificationRecipient,
+  UpdateNotificationMatrixRequest,
+  UpdateNotificationQuietHoursRequest,
+  AddNotificationRecipientRequest,
+  UpdateRecipientSubscriptionsRequest,
+} from '@biztrack/types'
+import type {
+  NotificationSettings as NotificationSettingsT,
+  UpdateNotificationMatrixRequest as UpdateNotificationMatrixRequestT,
+  UpdateNotificationQuietHoursRequest as UpdateNotificationQuietHoursRequestT,
+  AddNotificationRecipientRequest as AddNotificationRecipientRequestT,
+  UpdateRecipientSubscriptionsRequest as UpdateRecipientSubscriptionsRequestT,
+} from '@biztrack/types'
+
 // --- Plans / subscription (Settings → Subscription) — reuse the shared plan shapes ---
 export type {
   ListPlansResponse,
@@ -2220,6 +2245,18 @@ export interface BridgeApi {
   business: {
     getProfile: () => Promise<BusinessProfileT | null>
     update: (payload: UpdateBusinessRequestT) => Promise<BusinessProfileT>
+  }
+  /** Notification preferences (Settings → Notifications) — server-owned, proxied through main. */
+  notificationSettings: {
+    get: () => Promise<NotificationSettingsT>
+    updateMatrix: (body: UpdateNotificationMatrixRequestT) => Promise<NotificationSettingsT>
+    updateQuietHours: (body: UpdateNotificationQuietHoursRequestT) => Promise<NotificationSettingsT>
+    addRecipient: (body: AddNotificationRecipientRequestT) => Promise<NotificationSettingsT>
+    updateRecipientSubscriptions: (
+      id: string,
+      body: UpdateRecipientSubscriptionsRequestT,
+    ) => Promise<NotificationSettingsT>
+    removeRecipient: (id: string) => Promise<NotificationSettingsT>
   }
   /** Plans / subscription (Settings → Subscription) — server-owned, proxied through main. */
   plans: {
