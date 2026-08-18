@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Not, Repository } from 'typeorm'
+import { Repository } from 'typeorm'
 import {
   BusinessMemberRole,
   BusinessMemberStatus,
@@ -12,10 +12,13 @@ import {
   isNotificationChannelAvailable,
   type NotificationEvent,
   type NotificationRecipient as NotificationRecipientModel,
+  type NotificationRecipientLookupResult,
   type NotificationSettings,
 } from '@biztrack/types'
 import { AppForbiddenException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { Business } from '@/entities/business.entity'
 import { BusinessMember } from '@/entities/business-member.entity'
+import { User } from '@/entities/user.entity'
 import { NotificationRecipient } from '@/entities/notification-recipient.entity'
 import { NotificationSetting } from '@/entities/notification-setting.entity'
 import type {
@@ -34,9 +37,7 @@ export interface NotificationDispatchPlan {
   recipients: Array<{
     userId: string | null
     email: string | null
-    phone: string | null
-    emailVerified: boolean
-    phoneVerified: boolean
+    whatsappContact: string | null
   }>
 }
 
@@ -60,10 +61,17 @@ const DEFAULT_ENABLED: Record<NotificationEvent, NotificationChannel[]> = {
   [NotificationType.BILLING]: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
 }
 
+interface OwnerContext {
+  ownerId: string | null
+  ownerUser: User | null
+  business: Business | null
+}
+
 /**
  * The Settings → Notifications control plane: the business-level event×channel matrix,
- * quiet hours, and per-recipient event subscriptions. Owner-only. The dispatcher (and
- * every producer through it) reads these before fanning a notification out.
+ * quiet hours, and an owner-curated recipient list (each with per-event subscriptions).
+ * Owner-only. The dispatcher (and every producer through it) reads these before fanning
+ * a notification out.
  */
 @Injectable()
 export class NotificationSettingsService {
@@ -74,16 +82,19 @@ export class NotificationSettingsService {
     private readonly recipientsRepo: Repository<NotificationRecipient>,
     @InjectRepository(BusinessMember)
     private readonly membersRepo: Repository<BusinessMember>,
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+    @InjectRepository(User)
+    private readonly usersRepo: Repository<User>,
   ) {}
 
-  /** Load (reconciling defaults + members) the full settings payload. Owner-only. */
+  /** Load (reconciling defaults + the owner recipient) the full settings payload. Owner-only. */
   async getSettings(businessId: string, userId: string): Promise<NotificationSettings> {
     await this.assertOwner(businessId, userId)
-    const members = await this.activeMembers(businessId)
-    const ownerId = members.find((m) => m.role === BusinessMemberRole.OWNER)?.userId ?? null
+    const ctx = await this.ownerContext(businessId)
     const setting = await this.ensureSettings(businessId)
-    await this.ensureRecipients(businessId, members, ownerId)
-    return this.toResponse(businessId, setting, ownerId)
+    await this.ensureOwnerRecipient(businessId, ctx)
+    return this.toResponse(businessId, setting, ctx.ownerId)
   }
 
   /** Upsert matrix cells. SMS is always forced off regardless of the request (N3). */
@@ -120,21 +131,69 @@ export class NotificationSettingsService {
     return this.getSettings(businessId, userId)
   }
 
-  /** Add a bare (email/phone) recipient. Member recipients are auto-seeded, not added here. */
+  /** Look up an email/phone before adding — prefills the form and flags an existing recipient. */
+  async lookupContact(
+    businessId: string,
+    userId: string,
+    rawQuery: string,
+  ): Promise<NotificationRecipientLookupResult> {
+    await this.assertOwner(businessId, userId)
+    const q = (rawQuery ?? '').trim().toLowerCase()
+    if (!q) return { user: null, existingRecipientId: null }
+
+    const user = await this.usersRepo.findOne({ where: [{ email: q }, { phone: q }] })
+    const existing = await this.recipientsRepo.findOne({
+      where: [
+        ...(user ? [{ businessId, userId: user.id }] : []),
+        { businessId, email: q },
+        { businessId, smsContact: q },
+        { businessId, whatsappContact: q },
+      ],
+    })
+    return {
+      user: user
+        ? { userId: user.id, name: user.name, email: user.email ?? null, phone: user.phone ?? null }
+        : null,
+      existingRecipientId: existing?.id ?? null,
+    }
+  }
+
+  /** Add a recipient. Unique by identity (userId, else email/phone) — re-adding an existing
+   * contact merges its fields and keeps its subscriptions rather than duplicating. */
   async addRecipient(
     businessId: string,
     userId: string,
     dto: AddNotificationRecipientDto,
   ): Promise<NotificationSettings> {
     await this.assertOwner(businessId, userId)
-    const recipient = this.recipientsRepo.create({
-      businessId,
-      userId: dto.userId ?? null,
-      name: dto.name,
-      email: dto.email ?? null,
-      phone: dto.phone ?? null,
-      subscriptions: this.defaultSubscriptions(false),
-    })
+    const email = dto.email?.trim().toLowerCase() || null
+    const sms = dto.smsContact?.trim() || null
+    const whatsapp = dto.whatsappContact?.trim() || null
+
+    const identity = [
+      ...(dto.userId ? [{ businessId, userId: dto.userId }] : []),
+      ...(email ? [{ businessId, email }] : []),
+      ...(sms ? [{ businessId, smsContact: sms }] : []),
+      ...(whatsapp ? [{ businessId, whatsappContact: whatsapp }] : []),
+    ]
+    let recipient = identity.length ? await this.recipientsRepo.findOne({ where: identity }) : null
+    if (recipient) {
+      recipient.name = dto.name || recipient.name
+      recipient.userId = dto.userId ?? recipient.userId
+      recipient.email = email ?? recipient.email
+      recipient.smsContact = sms ?? recipient.smsContact
+      recipient.whatsappContact = whatsapp ?? recipient.whatsappContact
+    } else {
+      recipient = this.recipientsRepo.create({
+        businessId,
+        userId: dto.userId ?? null,
+        name: dto.name,
+        email,
+        smsContact: sms,
+        whatsappContact: whatsapp,
+        subscriptions: this.defaultSubscriptions(false),
+      })
+    }
     await this.recipientsRepo.save(recipient)
     return this.getSettings(businessId, userId)
   }
@@ -157,7 +216,7 @@ export class NotificationSettingsService {
     return this.getSettings(businessId, userId)
   }
 
-  /** Remove a bare recipient. Member-linked recipients cannot be removed (they follow the team). */
+  /** Remove a recipient. The owner cannot be removed (they're re-seeded anyway). */
   async removeRecipient(
     businessId: string,
     userId: string,
@@ -166,30 +225,30 @@ export class NotificationSettingsService {
     await this.assertOwner(businessId, userId)
     const recipient = await this.recipientsRepo.findOne({ where: { id: recipientId, businessId } })
     if (!recipient) throw new AppNotFoundException('Recipient not found', 'RECIPIENT_NOT_FOUND')
-    if (recipient.userId) {
+    const ctx = await this.ownerContext(businessId)
+    if (recipient.userId && recipient.userId === ctx.ownerId) {
       throw new AppForbiddenException(
-        'Team-member recipients cannot be removed',
-        'RECIPIENT_IS_MEMBER',
+        'The business owner cannot be removed from recipients',
+        'RECIPIENT_IS_OWNER',
       )
     }
-    await this.recipientsRepo.softRemove(recipient)
+    await this.recipientsRepo.remove(recipient)
     return this.getSettings(businessId, userId)
   }
 
   /**
-   * Resolve the dispatch plan for one event — NOT owner-gated (the dispatcher calls
-   * this on the producer's behalf). Reconciles the settings row + member recipients so
-   * the owner is covered even if Settings was never opened. Returns the matrix-enabled
-   * channels (SMS excluded) + quiet hours + the recipients subscribed to this event.
+   * Resolve the dispatch plan for one event — NOT owner-gated (the dispatcher calls this
+   * on the producer's behalf). Ensures the owner recipient exists so notifications always
+   * have a default target. Returns matrix-enabled channels (SMS excluded) + quiet hours +
+   * the recipients subscribed to this event with their destinations.
    */
   async resolvePlan(
     businessId: string,
     event: NotificationEvent,
   ): Promise<NotificationDispatchPlan> {
-    const members = await this.activeMembers(businessId)
-    const ownerId = members.find((m) => m.role === BusinessMemberRole.OWNER)?.userId ?? null
+    const ctx = await this.ownerContext(businessId)
     const setting = await this.ensureSettings(businessId)
-    await this.ensureRecipients(businessId, members, ownerId)
+    await this.ensureOwnerRecipient(businessId, ctx)
 
     const channels = NOTIFICATION_CHANNELS.filter((ch) => this.matrixCell(setting, event, ch))
     const rows = await this.recipientsRepo.find({ where: { businessId }, relations: ['user'] })
@@ -199,10 +258,8 @@ export class NotificationSettingsService {
         const linked = r.userId ? r.user : null
         return {
           userId: r.userId,
-          email: linked?.email ?? r.email ?? null,
-          phone: linked?.phone ?? r.phone ?? null,
-          emailVerified: linked ? Boolean(linked.isEmailVerified) : false,
-          phoneVerified: linked ? Boolean(linked.isPhoneVerified) : false,
+          email: r.email ?? linked?.email ?? null,
+          whatsappContact: r.whatsappContact ?? linked?.phone ?? null,
         }
       })
     return {
@@ -242,12 +299,17 @@ export class NotificationSettingsService {
     }
   }
 
-  private activeMembers(businessId: string): Promise<BusinessMember[]> {
-    return this.membersRepo.find({
-      where: { businessId, status: Not(BusinessMemberStatus.REMOVED) },
+  private async ownerContext(businessId: string): Promise<OwnerContext> {
+    const business = await this.businessRepo.findOne({ where: { id: businessId } })
+    const ownerMember = await this.membersRepo.findOne({
+      where: { businessId, role: BusinessMemberRole.OWNER, status: BusinessMemberStatus.ACTIVE },
       relations: ['user'],
-      order: { createdAt: 'ASC' },
     })
+    return {
+      ownerId: ownerMember?.userId ?? business?.ownerId ?? null,
+      ownerUser: ownerMember?.user ?? null,
+      business: business ?? null,
+    }
   }
 
   private async ensureSettings(businessId: string): Promise<NotificationSetting> {
@@ -259,27 +321,28 @@ export class NotificationSettingsService {
     return setting
   }
 
-  /** Ensure every active member has a recipient row (owner subscribed to all events by default). */
-  private async ensureRecipients(
-    businessId: string,
-    members: BusinessMember[],
-    ownerId: string | null,
-  ): Promise<void> {
-    const existing = await this.recipientsRepo.find({ where: { businessId } })
-    const linkedUserIds = new Set(existing.map((r) => r.userId).filter(Boolean))
-    const toCreate: NotificationRecipient[] = []
-    for (const m of members) {
-      if (m.status !== BusinessMemberStatus.ACTIVE) continue
-      if (linkedUserIds.has(m.userId)) continue
-      toCreate.push(
-        this.recipientsRepo.create({
-          businessId,
-          userId: m.userId,
-          subscriptions: this.defaultSubscriptions(m.userId === ownerId),
-        }),
-      )
-    }
-    if (toCreate.length) await this.recipientsRepo.save(toCreate)
+  /** Seed the owner as the default recipient (subscribed to all events), with SMS/WhatsApp
+   * defaulting to the owner's phone and falling back to the business phone. */
+  private async ensureOwnerRecipient(businessId: string, ctx: OwnerContext): Promise<void> {
+    if (!ctx.ownerId) return
+    const existing = await this.recipientsRepo.findOne({
+      where: { businessId, userId: ctx.ownerId },
+    })
+    if (existing) return
+    const u = ctx.ownerUser
+    const b = ctx.business
+    const phone = u?.phone ?? b?.phone ?? null
+    await this.recipientsRepo.save(
+      this.recipientsRepo.create({
+        businessId,
+        userId: ctx.ownerId,
+        name: u?.name ?? 'Owner',
+        email: u?.email ?? b?.email ?? null,
+        smsContact: phone,
+        whatsappContact: phone,
+        subscriptions: this.defaultSubscriptions(true),
+      }),
+    )
   }
 
   private async toResponse(
@@ -315,14 +378,25 @@ export class NotificationSettingsService {
     ownerId: string | null,
   ): NotificationRecipientModel {
     const linked = r.userId ? r.user : null
+    // For a linked recipient, the user's own email/phone are the natural fallback when
+    // the row didn't store explicit contacts (e.g. rows seeded before the contact split).
+    const email = r.email ?? linked?.email ?? null
+    const smsContact = r.smsContact ?? linked?.phone ?? null
+    const whatsappContact = r.whatsappContact ?? linked?.phone ?? null
     return {
       id: r.id,
       userId: r.userId,
-      name: linked?.name ?? r.name ?? '',
-      email: linked?.email ?? r.email ?? null,
-      phone: linked?.phone ?? r.phone ?? null,
-      emailVerified: linked ? Boolean(linked.isEmailVerified) : false,
-      phoneVerified: linked ? Boolean(linked.isPhoneVerified) : false,
+      name: r.name ?? linked?.name ?? '',
+      email,
+      smsContact,
+      whatsappContact,
+      emailVerified: Boolean(linked && email && email === linked.email && linked.isEmailVerified),
+      smsVerified: Boolean(
+        linked && smsContact && smsContact === linked.phone && linked.isPhoneVerified,
+      ),
+      whatsappVerified: Boolean(
+        linked && whatsappContact && whatsappContact === linked.phone && linked.isPhoneVerified,
+      ),
       isOwner: r.userId !== null && r.userId === ownerId,
       subscriptions: this.fillSubscriptions(r.subscriptions),
     }

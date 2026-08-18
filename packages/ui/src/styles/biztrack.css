@@ -5995,6 +5995,107 @@ button.imgdrop:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Recipient destination chips (Settings → Notifications). `.ok` = verified. */
+.destchip {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.destchip.ok {
+  background: var(--success-soft, var(--brand-soft));
+  border-color: var(--success, var(--brand));
+  color: var(--success, var(--brand-int));
+}
+/* Recipient side drawer. */
+.ntf-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 60;
+}
+.ntf-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 92vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.18);
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  animation: ntf-slide 0.16s ease-out;
+}
+/* Windows: the native title-bar overlay (min/max/close) is drawn above web content, so
+   start the drawer below it to keep its ✕ clear of the OS close button. */
+.ntf-drawer.below-titlebar {
+  top: 64px;
+  height: calc(100vh - 64px);
+}
+@keyframes ntf-slide {
+  from {
+    transform: translateX(16px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.ntf-drawer-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.ntf-drawer-h h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ntf-x {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.ntf-x:hover {
+  background: var(--inset);
+}
+.ntf-drawer-b {
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+.ntf-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.ntf-kv span {
+  color: var(--text-muted);
+}
+.ntf-kv b {
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
 .qh {
   display: grid;
   grid-template-columns: 1fr 1fr;

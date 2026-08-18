@@ -156,16 +156,22 @@ export interface NotificationQuietHours {
   until: string
 }
 
-/** A person who can receive this business's notifications (owner or added member). */
+/** A destination for this business's notifications — a name plus up to three contacts
+ * (email, SMS number, WhatsApp number), optionally linked to a platform user (which
+ * unlocks in-app delivery + verification). Owner-curated. */
 export interface NotificationRecipient {
   id: string
-  /** The linked business user, when the recipient is a team member. */
+  /** The linked platform user, when the email/phone matches one; null for an external contact. */
   userId: string | null
   name: string
   email: string | null
-  phone: string | null
+  /** Phone that receives SMS (kept separate from WhatsApp — they may differ). */
+  smsContact: string | null
+  /** Phone that receives WhatsApp. */
+  whatsappContact: string | null
   emailVerified: boolean
-  phoneVerified: boolean
+  smsVerified: boolean
+  whatsappVerified: boolean
   isOwner: boolean
   /** Which events this recipient is subscribed to (per-recipient routing). */
   subscriptions: Record<NotificationEvent, boolean>
@@ -188,14 +194,23 @@ export interface UpdateNotificationMatrixRequest {
 export type UpdateNotificationQuietHoursRequest = NotificationQuietHours
 
 export interface AddNotificationRecipientRequest {
-  /** Link to a business member; omit for a bare email/phone recipient. */
+  /** Link to a platform user when the contact matches one (enables in-app + verification). */
   userId?: string | null
   name: string
   email?: string | null
-  phone?: string | null
+  smsContact?: string | null
+  whatsappContact?: string | null
 }
 
 export interface UpdateRecipientSubscriptionsRequest {
   /** Events to set for this recipient; unlisted events are left unchanged. */
   subscriptions: Partial<Record<NotificationEvent, boolean>>
+}
+
+/** Result of looking up an email/phone before adding a recipient — prefills the form. */
+export interface NotificationRecipientLookupResult {
+  /** The platform user that owns this email/phone, if any. */
+  user: { userId: string; name: string; email: string | null; phone: string | null } | null
+  /** An existing recipient in this business with the same identity (add will merge events). */
+  existingRecipientId: string | null
 }

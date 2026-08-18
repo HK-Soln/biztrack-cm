@@ -62,7 +62,12 @@ export class AddNotificationRecipientDto {
   @IsOptional()
   @IsString()
   @MaxLength(40)
-  phone?: string | null
+  smsContact?: string | null
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  whatsappContact?: string | null
 }
 
 export class UpdateRecipientSubscriptionsDto {

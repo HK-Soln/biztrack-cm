@@ -48,19 +48,11 @@ describe('NotificationDispatcher', () => {
     body: 'b',
   }
 
-  it('routes in-app + verified email/whatsapp, and never SMS', async () => {
+  it('routes in-app + present email/whatsapp destinations, and never SMS', async () => {
     const { dispatcher, notifications } = make({
       channels: [IN_APP, EMAIL, WHATSAPP],
       quietHours: { enabled: false, from: '21:00', until: '07:00' },
-      recipients: [
-        {
-          userId: 'u1',
-          email: 'a@b.cm',
-          phone: '+237600000000',
-          emailVerified: true,
-          phoneVerified: true,
-        },
-      ],
+      recipients: [{ userId: 'u1', email: 'a@b.cm', whatsappContact: '+237600000000' }],
     })
     await dispatcher.dispatch(base)
     expect(notifications.createInApp).toHaveBeenCalledTimes(1)
@@ -69,25 +61,22 @@ describe('NotificationDispatcher', () => {
     expect(channels).not.toContain(NotificationChannel.SMS)
   })
 
-  it('skips unverified email and missing phone', async () => {
+  it('skips channels a recipient has no destination for', async () => {
     const { dispatcher, notifications } = make({
-      channels: [EMAIL, WHATSAPP],
+      channels: [IN_APP, EMAIL, WHATSAPP],
       quietHours: { enabled: false, from: '21:00', until: '07:00' },
-      recipients: [
-        { userId: 'u1', email: 'a@b.cm', phone: null, emailVerified: false, phoneVerified: false },
-      ],
+      recipients: [{ userId: 'u1', email: null, whatsappContact: null }],
     })
     await dispatcher.dispatch(base)
-    expect(notifications.createAndEnqueue).not.toHaveBeenCalled()
+    expect(notifications.createInApp).toHaveBeenCalledTimes(1) // has a userId → in-app
+    expect(notifications.createAndEnqueue).not.toHaveBeenCalled() // no email/whatsapp destination
   })
 
   it('holds external channels during quiet hours (in-app still recorded); urgent bypasses', async () => {
     const plan = {
       channels: [IN_APP, EMAIL],
       quietHours: { enabled: true, from: '00:00', until: '23:59' }, // always quiet → deterministic hold
-      recipients: [
-        { userId: 'u1', email: 'a@b.cm', phone: null, emailVerified: true, phoneVerified: false },
-      ],
+      recipients: [{ userId: 'u1', email: 'a@b.cm', whatsappContact: null }],
     }
     const { dispatcher, notifications } = make(plan)
 

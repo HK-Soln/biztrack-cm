@@ -4,12 +4,18 @@ import { Input } from '@biztrack/ui/biztrack'
 import {
   NotificationChannel,
   NotificationType,
+  type AddNotificationRecipientRequest,
   type NotificationEvent,
   type NotificationSettings,
 } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
+import { isWindows } from '@/lib/titlebar'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
+
+// On Windows the native title-bar overlay (min/max/close) is drawn above web content;
+// start the drawer below it so its ✕ doesn't sit under the OS close button.
+const DRAWER_CLASS = `ntf-drawer${isWindows ? ' below-titlebar' : ''}`
 
 // Notifications preferences (Settings → Notifications). Server-owned, online-only,
 // owner-only — the event×channel matrix, quiet hours and per-recipient event
@@ -158,6 +164,21 @@ const EVENTS: Array<{
   },
 ]
 
+type RecipientDraft = {
+  userId: string | null
+  name: string
+  email: string
+  smsContact: string
+  whatsappContact: string
+}
+const EMPTY_DRAFT: RecipientDraft = {
+  userId: null,
+  name: '',
+  email: '',
+  smsContact: '',
+  whatsappContact: '',
+}
+
 export function NotificationsSection() {
   const t = useT()
   const qc = useQueryClient()
@@ -198,6 +219,47 @@ export function NotificationsSection() {
       }),
     onSuccess: setData,
   })
+  const addMut = useMutation({
+    mutationFn: (body: AddNotificationRecipientRequest) =>
+      dataClient.notificationSettings.addRecipient(body),
+    onSuccess: (s) => {
+      setData(s)
+      closeAdd()
+    },
+  })
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => dataClient.notificationSettings.removeRecipient(id),
+    onSuccess: (s) => {
+      setData(s)
+      setSelectedId(null)
+    },
+  })
+  const lookupMut = useMutation({
+    mutationFn: (query: string) => dataClient.notificationSettings.lookupContact(query),
+    onSuccess: (res) => {
+      const query = search.trim()
+      if (res.user) {
+        setDraft({
+          userId: res.user.userId,
+          name: res.user.name,
+          email: res.user.email ?? '',
+          smsContact: res.user.phone ?? '',
+          whatsappContact: res.user.phone ?? '',
+        })
+        setLookupNote(res.existingRecipientId ? t('ntf.alreadyRecipient') : t('ntf.userFound'))
+      } else {
+        const isEmail = query.includes('@')
+        setDraft((d) => ({
+          ...d,
+          userId: null,
+          email: isEmail ? query : d.email,
+          smsContact: isEmail ? d.smsContact : query,
+          whatsappContact: isEmail ? d.whatsappContact : query,
+        }))
+        setLookupNote(res.existingRecipientId ? t('ntf.alreadyRecipient') : t('ntf.noUserFound'))
+      }
+    },
+  })
 
   // Quiet hours — seed local state from the server, commit on change/blur.
   const [quiet, setQuiet] = useState(false)
@@ -209,6 +271,19 @@ export function NotificationsSection() {
     setFrom(settings.quietHours.from)
     setUntil(settings.quietHours.until)
   }, [settings])
+
+  // Recipient drawers + add draft.
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [search, setSearch] = useState('')
+  const [lookupNote, setLookupNote] = useState<string | null>(null)
+  const [draft, setDraft] = useState<RecipientDraft>(EMPTY_DRAFT)
+  const closeAdd = () => {
+    setAdding(false)
+    setSearch('')
+    setLookupNote(null)
+    setDraft(EMPTY_DRAFT)
+  }
 
   if (!online) {
     return (
@@ -242,6 +317,8 @@ export function NotificationsSection() {
     if (!canEdit) return
     quietMut.mutate(next)
   }
+
+  const selected = settings.recipients.find((r) => r.id === selectedId) ?? null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -360,53 +437,254 @@ export function NotificationsSection() {
         </div>
       </div>
 
-      {/* Recipients + per-recipient event subscriptions */}
+      {/* Recipients */}
       <div className="card">
         <div className="card-h">
           <div>
             <h3>{t('ntf.recipientsTitle')}</h3>
             <p>{t('ntf.recipientsSub')}</p>
           </div>
+          <button
+            className="btn"
+            type="button"
+            style={{ marginLeft: 'auto' }}
+            disabled={!canEdit}
+            onClick={() => setAdding(true)}
+          >
+            {t('ntf.addRecipient')}
+          </button>
         </div>
-        {settings.recipients.map((rcp) => (
-          <div key={rcp.id} className="rcp-row" style={{ flexWrap: 'wrap' }}>
-            <div className="av">{(rcp.name || '—').slice(0, 2).toUpperCase()}</div>
-            <div style={{ minWidth: 160 }}>
-              <div className="nm">
-                {rcp.name || rcp.email || rcp.phone || '—'}
-                {rcp.isOwner ? ` · ${t('ntf.ownerTag')}` : ''}
+        {settings.recipients.map((rcp) => {
+          const count = Object.values(rcp.subscriptions).filter(Boolean).length
+          return (
+            <div
+              key={rcp.id}
+              className="rcp-row"
+              role="button"
+              tabIndex={0}
+              style={{ cursor: 'pointer' }}
+              onClick={() => setSelectedId(rcp.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setSelectedId(rcp.id)
+              }}
+            >
+              <div className="av">{(rcp.name || '—').slice(0, 2).toUpperCase()}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="nm">
+                  {rcp.name || '—'}
+                  {rcp.isOwner ? ` · ${t('ntf.ownerTag')}` : ''}
+                </div>
+                <div
+                  className="sub"
+                  style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}
+                >
+                  {rcp.email && (
+                    <span className={`destchip${rcp.emailVerified ? ' ok' : ''}`}>
+                      {t('ntf.email')}
+                      {rcp.emailVerified ? ' ✓' : ''}
+                    </span>
+                  )}
+                  {rcp.whatsappContact && (
+                    <span className={`destchip${rcp.whatsappVerified ? ' ok' : ''}`}>
+                      {t('ntf.whatsapp')}
+                      {rcp.whatsappVerified ? ' ✓' : ''}
+                    </span>
+                  )}
+                  {rcp.smsContact && (
+                    <span className={`destchip${rcp.smsVerified ? ' ok' : ''}`}>
+                      {t('ntf.sms')}
+                      {rcp.smsVerified ? ' ✓' : ''}
+                    </span>
+                  )}
+                  {!rcp.email && !rcp.whatsappContact && !rcp.smsContact && (
+                    <span>{t('ntf.noContacts')}</span>
+                  )}
+                </div>
               </div>
-              <div className="sub">
-                {rcp.email
-                  ? `${rcp.email}${rcp.emailVerified ? ` · ${t('ntf.emailVerified')}` : ''}`
-                  : rcp.phone
-                    ? `${rcp.phone}${rcp.phoneVerified ? ` · ${t('ntf.phoneVerified')}` : ''}`
-                    : '—'}
+              <div className="ch">
+                <span>{t('ntf.eventsCount').replace('{n}', String(count))}</span>
               </div>
             </div>
-            <div
-              className="subs"
-              style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginLeft: 'auto' }}
-            >
+          )
+        })}
+      </div>
+
+      {/* Recipient detail drawer */}
+      {selected && (
+        <>
+          <div className="ntf-backdrop" onClick={() => setSelectedId(null)} />
+          <aside className={DRAWER_CLASS} role="dialog" aria-label={selected.name || 'Recipient'}>
+            <div className="ntf-drawer-h">
+              <h3>{selected.name || '—'}</h3>
+              <button
+                type="button"
+                className="ntf-x"
+                aria-label={t('ntf.cancel')}
+                onClick={() => setSelectedId(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="ntf-drawer-b">
+              {selected.isOwner && <span className="destchip ok">{t('ntf.ownerTag')}</span>}
+              <div className="ntf-kv">
+                <span>{t('ntf.email')}</span>
+                <b>
+                  {selected.email || '—'}
+                  {selected.emailVerified ? ' ✓' : ''}
+                </b>
+              </div>
+              <div className="ntf-kv">
+                <span>{t('ntf.whatsapp')}</span>
+                <b>
+                  {selected.whatsappContact || '—'}
+                  {selected.whatsappVerified ? ' ✓' : ''}
+                </b>
+              </div>
+              <div className="ntf-kv">
+                <span>{t('ntf.sms')}</span>
+                <b>
+                  {selected.smsContact || '—'}
+                  {selected.smsVerified ? ' ✓' : ''}
+                </b>
+              </div>
+
+              <h4 style={{ margin: '18px 0 6px' }}>{t('ntf.manageEvents')}</h4>
               {EVENTS.map((ev) => {
-                const on = Boolean(rcp.subscriptions[ev.event])
+                const on = Boolean(selected.subscriptions[ev.event])
                 return (
-                  <button
-                    key={ev.event}
-                    type="button"
-                    className={`subchip${on ? ' on' : ''}`}
-                    aria-pressed={on}
-                    disabled={!canEdit}
-                    onClick={() => subsMut.mutate({ id: rcp.id, event: ev.event, enabled: !on })}
-                  >
-                    {t(ev.name)}
-                  </button>
+                  <div className="set-line" key={ev.event}>
+                    <div>
+                      <div className="nm">{t(ev.name)}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className={`switch${on ? ' on' : ''}`}
+                      aria-pressed={on}
+                      disabled={!canEdit || subsMut.isPending}
+                      onClick={() =>
+                        subsMut.mutate({ id: selected.id, event: ev.event, enabled: !on })
+                      }
+                    />
+                  </div>
                 )
               })}
+
+              {!selected.isOwner && (
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  style={{ marginTop: 18 }}
+                  disabled={!canEdit || deleteMut.isPending}
+                  onClick={() => deleteMut.mutate(selected.id)}
+                >
+                  {t('ntf.delete')}
+                </button>
+              )}
             </div>
-          </div>
-        ))}
-      </div>
+          </aside>
+        </>
+      )}
+
+      {/* Add recipient drawer */}
+      {adding && (
+        <>
+          <div className="ntf-backdrop" onClick={closeAdd} />
+          <aside className={DRAWER_CLASS} role="dialog" aria-label={t('ntf.addRecipient')}>
+            <div className="ntf-drawer-h">
+              <h3>{t('ntf.addRecipient')}</h3>
+              <button
+                type="button"
+                className="ntf-x"
+                aria-label={t('ntf.cancel')}
+                onClick={closeAdd}
+              >
+                ✕
+              </button>
+            </div>
+            <div
+              className="ntf-drawer-b"
+              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <div>
+                <label className="lbl">{t('ntf.searchContact')}</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Input
+                    value={search}
+                    placeholder="email / +237…"
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && search.trim()) lookupMut.mutate(search.trim())
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={!search.trim() || lookupMut.isPending}
+                    onClick={() => lookupMut.mutate(search.trim())}
+                  >
+                    {t('ntf.search')}
+                  </button>
+                </div>
+                {lookupNote && (
+                  <div className="form-note" style={{ marginTop: 8 }}>
+                    <span>{lookupNote}</span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="lbl">{t('ntf.fullName')}</label>
+                <Input
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="lbl">{t('ntf.email')}</label>
+                <Input
+                  value={draft.email}
+                  onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="lbl">{t('ntf.whatsappNumber')}</label>
+                <Input
+                  value={draft.whatsappContact}
+                  onChange={(e) => setDraft({ ...draft, whatsappContact: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="lbl">{t('ntf.smsNumber')}</label>
+                <Input
+                  value={draft.smsContact}
+                  onChange={(e) => setDraft({ ...draft, smsContact: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!draft.name.trim() || !canEdit || addMut.isPending}
+                  onClick={() =>
+                    addMut.mutate({
+                      userId: draft.userId,
+                      name: draft.name.trim(),
+                      email: draft.email.trim() || null,
+                      smsContact: draft.smsContact.trim() || null,
+                      whatsappContact: draft.whatsappContact.trim() || null,
+                    })
+                  }
+                >
+                  {t('ntf.save')}
+                </button>
+                <button type="button" className="btn" onClick={closeAdd}>
+                  {t('ntf.cancel')}
+                </button>
+              </div>
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   )
 }

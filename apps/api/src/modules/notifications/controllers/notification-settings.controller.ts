@@ -1,6 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import type { JwtPayload, NotificationSettings } from '@biztrack/types'
+import type {
+  JwtPayload,
+  NotificationRecipientLookupResult,
+  NotificationSettings,
+} from '@biztrack/types'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { NotificationSettingsService } from '../services/notification-settings.service'
@@ -47,8 +51,17 @@ export class NotificationSettingsController {
     return this.service.updateQuietHours(user.businessId as string, user.sub, dto)
   }
 
+  @Get('recipients/lookup')
+  @ApiOperation({ summary: 'Look up an email/phone before adding (prefill)' })
+  lookupContact(
+    @CurrentUser() user: JwtPayload,
+    @Query('q') q: string,
+  ): Promise<NotificationRecipientLookupResult> {
+    return this.service.lookupContact(user.businessId as string, user.sub, q ?? '')
+  }
+
   @Post('recipients')
-  @ApiOperation({ summary: 'Add a bare (email/phone) recipient' })
+  @ApiOperation({ summary: 'Add a recipient (upsert by identity)' })
   addRecipient(
     @CurrentUser() user: JwtPayload,
     @Body() dto: AddNotificationRecipientDto,

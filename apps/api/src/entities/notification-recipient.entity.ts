@@ -34,15 +34,19 @@ export class NotificationRecipient extends BaseEntity {
   @JoinColumn({ name: 'user_id', foreignKeyConstraintName: 'fk_notification_recipients_user_id' })
   user?: User | null
 
-  /** Used only for bare (userId-null) recipients; for linked ones the user is source of truth. */
   @Column({ type: 'varchar', length: 200, nullable: true })
   name!: string | null
 
   @Column({ type: 'varchar', length: 320, nullable: true })
   email!: string | null
 
-  @Column({ type: 'varchar', length: 40, nullable: true })
-  phone!: string | null
+  /** Phone that receives SMS (separate from WhatsApp — they may differ). */
+  @Column({ name: 'sms_contact', type: 'varchar', length: 40, nullable: true })
+  smsContact!: string | null
+
+  /** Phone that receives WhatsApp. */
+  @Column({ name: 'whatsapp_contact', type: 'varchar', length: 40, nullable: true })
+  whatsappContact!: string | null
 
   /** `subscriptions[event] = enabled` for the 7 configurable events. */
   @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })

@@ -63,7 +63,7 @@ export class NotificationDispatcher {
 
       if (holdExternal) continue
 
-      if (channels.has(NotificationChannel.EMAIL) && r.email && r.emailVerified) {
+      if (channels.has(NotificationChannel.EMAIL) && r.email) {
         await this.notifications.createAndEnqueue({
           channel: NotificationChannel.EMAIL,
           type: input.event,
@@ -77,11 +77,11 @@ export class NotificationDispatcher {
         external++
       }
 
-      if (channels.has(NotificationChannel.WHATSAPP) && r.phone && r.phoneVerified) {
+      if (channels.has(NotificationChannel.WHATSAPP) && r.whatsappContact) {
         await this.notifications.createAndEnqueue({
           channel: NotificationChannel.WHATSAPP,
           type: input.event,
-          recipient: r.phone,
+          recipient: r.whatsappContact,
           subject: input.title,
           body: input.body,
           metadata,

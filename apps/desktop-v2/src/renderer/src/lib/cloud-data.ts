@@ -31,6 +31,7 @@ import type {
   UpdateBusinessRequest,
   // notification settings
   NotificationSettings,
+  NotificationRecipientLookupResult,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
   AddNotificationRecipientRequest,
@@ -150,6 +151,10 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
 
 export const cloudNotificationSettings = {
   get: () => cget<NotificationSettings>('/notifications/settings'),
+  lookupContact: (q: string) =>
+    cget<NotificationRecipientLookupResult>(
+      `/notifications/settings/recipients/lookup?q=${encodeURIComponent(q)}`,
+    ),
   updateMatrix: (body: UpdateNotificationMatrixRequest) =>
     cput<NotificationSettings>('/notifications/settings/matrix', body),
   updateQuietHours: (body: UpdateNotificationQuietHoursRequest) =>

@@ -95,6 +95,7 @@ import type {
   BusinessProfile,
   UpdateBusinessRequest,
   NotificationSettings,
+  NotificationRecipientLookupResult,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
   AddNotificationRecipientRequest,
@@ -451,6 +452,7 @@ export interface DataClient {
   }
   notificationSettings: {
     get: () => Promise<NotificationSettings>
+    lookupContact: (q: string) => Promise<NotificationRecipientLookupResult>
     updateMatrix: (body: UpdateNotificationMatrixRequest) => Promise<NotificationSettings>
     updateQuietHours: (body: UpdateNotificationQuietHoursRequest) => Promise<NotificationSettings>
     addRecipient: (body: AddNotificationRecipientRequest) => Promise<NotificationSettings>
@@ -803,6 +805,7 @@ function electronAdapter(): DataClient {
     },
     notificationSettings: {
       get: () => window.api.notificationSettings.get(),
+      lookupContact: (q) => window.api.notificationSettings.lookupContact(q),
       updateMatrix: (body) => window.api.notificationSettings.updateMatrix(body),
       updateQuietHours: (body) => window.api.notificationSettings.updateQuietHours(body),
       addRecipient: (body) => window.api.notificationSettings.addRecipient(body),

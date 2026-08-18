@@ -6,6 +6,8 @@ import { PendingInvite } from '@/entities/pending-invite.entity'
 import { NotificationSetting } from '@/entities/notification-setting.entity'
 import { NotificationRecipient } from '@/entities/notification-recipient.entity'
 import { BusinessMember } from '@/entities/business-member.entity'
+import { Business } from '@/entities/business.entity'
+import { User } from '@/entities/user.entity'
 import { NotificationSettingsService } from './services/notification-settings.service'
 import { NotificationDispatcher } from './services/notification-dispatcher.service'
 import { NotificationSettingsController } from './controllers/notification-settings.controller'
@@ -30,6 +32,8 @@ import { RedisModule } from '@/common/redis/redis.module'
       NotificationSetting,
       NotificationRecipient,
       BusinessMember,
+      Business,
+      User,
     ]),
     BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE }),
     RedisModule,

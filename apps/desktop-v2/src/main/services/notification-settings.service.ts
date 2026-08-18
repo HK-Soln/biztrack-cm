@@ -1,6 +1,7 @@
 import type { HttpClient } from '@biztrack/http-client'
 import type {
   AddNotificationRecipientRequest,
+  NotificationRecipientLookupResult,
   NotificationSettings,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
@@ -21,6 +22,14 @@ export class NotificationSettingsService {
   async get(): Promise<NotificationSettings> {
     return (await this.http.get<ApiEnvelope<NotificationSettings>>('/notifications/settings')).data
       .data
+  }
+
+  async lookupContact(q: string): Promise<NotificationRecipientLookupResult> {
+    return (
+      await this.http.get<ApiEnvelope<NotificationRecipientLookupResult>>(
+        `/notifications/settings/recipients/lookup?q=${encodeURIComponent(q)}`,
+      )
+    ).data.data
   }
 
   async updateMatrix(body: UpdateNotificationMatrixRequest): Promise<NotificationSettings> {

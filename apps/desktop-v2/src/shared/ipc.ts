@@ -167,6 +167,7 @@ export const IPC = {
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   notificationSettingsGet: 'notification-settings:get',
+  notificationSettingsLookup: 'notification-settings:lookup',
   notificationSettingsUpdateMatrix: 'notification-settings:update-matrix',
   notificationSettingsUpdateQuietHours: 'notification-settings:update-quiet-hours',
   notificationSettingsAddRecipient: 'notification-settings:add-recipient',
@@ -1496,6 +1497,7 @@ export type {
   NotificationChannelToggle,
   NotificationQuietHours,
   NotificationRecipient,
+  NotificationRecipientLookupResult,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
   AddNotificationRecipientRequest,
@@ -1503,6 +1505,7 @@ export type {
 } from '@biztrack/types'
 import type {
   NotificationSettings as NotificationSettingsT,
+  NotificationRecipientLookupResult as NotificationRecipientLookupResultT,
   UpdateNotificationMatrixRequest as UpdateNotificationMatrixRequestT,
   UpdateNotificationQuietHoursRequest as UpdateNotificationQuietHoursRequestT,
   AddNotificationRecipientRequest as AddNotificationRecipientRequestT,
@@ -2249,6 +2252,7 @@ export interface BridgeApi {
   /** Notification preferences (Settings → Notifications) — server-owned, proxied through main. */
   notificationSettings: {
     get: () => Promise<NotificationSettingsT>
+    lookupContact: (q: string) => Promise<NotificationRecipientLookupResultT>
     updateMatrix: (body: UpdateNotificationMatrixRequestT) => Promise<NotificationSettingsT>
     updateQuietHours: (body: UpdateNotificationQuietHoursRequestT) => Promise<NotificationSettingsT>
     addRecipient: (body: AddNotificationRecipientRequestT) => Promise<NotificationSettingsT>
