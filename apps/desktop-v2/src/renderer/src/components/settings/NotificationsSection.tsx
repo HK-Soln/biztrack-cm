@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Input } from '@biztrack/ui/biztrack'
+import { Input, PhoneInput } from '@biztrack/ui/biztrack'
 import {
   NotificationChannel,
   NotificationType,
   type AddNotificationRecipientRequest,
   type NotificationEvent,
   type NotificationSettings,
+  type UpdateNotificationRecipientRequest,
 } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { isWindows } from '@/lib/titlebar'
@@ -227,6 +228,11 @@ export function NotificationsSection() {
       closeAdd()
     },
   })
+  const updateMut = useMutation({
+    mutationFn: (v: { id: string; body: UpdateNotificationRecipientRequest }) =>
+      dataClient.notificationSettings.updateRecipient(v.id, v.body),
+    onSuccess: setData,
+  })
   const deleteMut = useMutation({
     mutationFn: (id: string) => dataClient.notificationSettings.removeRecipient(id),
     onSuccess: (s) => {
@@ -278,11 +284,24 @@ export function NotificationsSection() {
   const [search, setSearch] = useState('')
   const [lookupNote, setLookupNote] = useState<string | null>(null)
   const [draft, setDraft] = useState<RecipientDraft>(EMPTY_DRAFT)
+  const [smsSame, setSmsSame] = useState(true)
+  const [edit, setEdit] = useState<RecipientDraft>(EMPTY_DRAFT)
   const closeAdd = () => {
     setAdding(false)
     setSearch('')
     setLookupNote(null)
     setDraft(EMPTY_DRAFT)
+    setSmsSame(true)
+  }
+  const openRecipient = (r: NotificationSettings['recipients'][number]) => {
+    setSelectedId(r.id)
+    setEdit({
+      userId: r.userId,
+      name: r.name,
+      email: r.email ?? '',
+      smsContact: r.smsContact ?? '',
+      whatsappContact: r.whatsappContact ?? '',
+    })
   }
 
   if (!online) {
@@ -463,9 +482,9 @@ export function NotificationsSection() {
               role="button"
               tabIndex={0}
               style={{ cursor: 'pointer' }}
-              onClick={() => setSelectedId(rcp.id)}
+              onClick={() => openRecipient(rcp)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') setSelectedId(rcp.id)
+                if (e.key === 'Enter') openRecipient(rcp)
               }}
             >
               <div className="av">{(rcp.name || '—').slice(0, 2).toUpperCase()}</div>
@@ -526,27 +545,64 @@ export function NotificationsSection() {
               </button>
             </div>
             <div className="ntf-drawer-b">
-              {selected.isOwner && <span className="destchip ok">{t('ntf.ownerTag')}</span>}
-              <div className="ntf-kv">
-                <span>{t('ntf.email')}</span>
-                <b>
-                  {selected.email || '—'}
-                  {selected.emailVerified ? ' ✓' : ''}
-                </b>
-              </div>
-              <div className="ntf-kv">
-                <span>{t('ntf.whatsapp')}</span>
-                <b>
-                  {selected.whatsappContact || '—'}
-                  {selected.whatsappVerified ? ' ✓' : ''}
-                </b>
-              </div>
-              <div className="ntf-kv">
-                <span>{t('ntf.sms')}</span>
-                <b>
-                  {selected.smsContact || '—'}
-                  {selected.smsVerified ? ' ✓' : ''}
-                </b>
+              {selected.isOwner && (
+                <span className="destchip ok" style={{ display: 'inline-block', marginBottom: 12 }}>
+                  {t('ntf.ownerTag')}
+                </span>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <label className="lbl">{t('ntf.fullName')}</label>
+                  <Input
+                    value={edit.name}
+                    disabled={!canEdit}
+                    onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="lbl">{t('ntf.email')}</label>
+                  <Input
+                    type="email"
+                    value={edit.email}
+                    disabled={!canEdit}
+                    onChange={(e) => setEdit({ ...edit, email: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="lbl">{t('ntf.whatsappNumber')}</label>
+                  <PhoneInput
+                    value={edit.whatsappContact}
+                    disabled={!canEdit}
+                    onChange={(v) => setEdit({ ...edit, whatsappContact: v ?? '' })}
+                  />
+                </div>
+                <div>
+                  <label className="lbl">{t('ntf.smsNumber')}</label>
+                  <PhoneInput
+                    value={edit.smsContact}
+                    disabled={!canEdit}
+                    onChange={(v) => setEdit({ ...edit, smsContact: v ?? '' })}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ alignSelf: 'flex-start' }}
+                  disabled={!canEdit || updateMut.isPending}
+                  onClick={() =>
+                    updateMut.mutate({
+                      id: selected.id,
+                      body: {
+                        name: edit.name.trim(),
+                        email: edit.email.trim() || null,
+                        whatsappContact: edit.whatsappContact.trim() || null,
+                        smsContact: edit.smsContact.trim() || null,
+                      },
+                    })
+                  }
+                >
+                  {t('ntf.save')}
+                </button>
               </div>
 
               <h4 style={{ margin: '18px 0 6px' }}>{t('ntf.manageEvents')}</h4>
@@ -642,24 +698,37 @@ export function NotificationsSection() {
               <div>
                 <label className="lbl">{t('ntf.email')}</label>
                 <Input
+                  type="email"
                   value={draft.email}
                   onChange={(e) => setDraft({ ...draft, email: e.target.value })}
                 />
               </div>
               <div>
                 <label className="lbl">{t('ntf.whatsappNumber')}</label>
-                <Input
+                <PhoneInput
                   value={draft.whatsappContact}
-                  onChange={(e) => setDraft({ ...draft, whatsappContact: e.target.value })}
+                  onChange={(v) => setDraft({ ...draft, whatsappContact: v ?? '' })}
                 />
               </div>
-              <div>
-                <label className="lbl">{t('ntf.smsNumber')}</label>
-                <Input
-                  value={draft.smsContact}
-                  onChange={(e) => setDraft({ ...draft, smsContact: e.target.value })}
+              <label className="set-line" style={{ cursor: 'pointer' }}>
+                <div>
+                  <div className="nm">{t('ntf.smsSameAsWhatsapp')}</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={smsSame}
+                  onChange={(e) => setSmsSame(e.target.checked)}
                 />
-              </div>
+              </label>
+              {!smsSame && (
+                <div>
+                  <label className="lbl">{t('ntf.smsNumber')}</label>
+                  <PhoneInput
+                    value={draft.smsContact}
+                    onChange={(v) => setDraft({ ...draft, smsContact: v ?? '' })}
+                  />
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button
                   type="button"
@@ -670,8 +739,9 @@ export function NotificationsSection() {
                       userId: draft.userId,
                       name: draft.name.trim(),
                       email: draft.email.trim() || null,
-                      smsContact: draft.smsContact.trim() || null,
                       whatsappContact: draft.whatsappContact.trim() || null,
+                      smsContact:
+                        (smsSame ? draft.whatsappContact : draft.smsContact).trim() || null,
                     })
                   }
                 >

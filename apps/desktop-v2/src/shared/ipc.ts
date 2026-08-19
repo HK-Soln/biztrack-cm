@@ -171,6 +171,7 @@ export const IPC = {
   notificationSettingsUpdateMatrix: 'notification-settings:update-matrix',
   notificationSettingsUpdateQuietHours: 'notification-settings:update-quiet-hours',
   notificationSettingsAddRecipient: 'notification-settings:add-recipient',
+  notificationSettingsUpdateRecipient: 'notification-settings:update-recipient',
   notificationSettingsUpdateRecipientSubs: 'notification-settings:update-recipient-subs',
   notificationSettingsRemoveRecipient: 'notification-settings:remove-recipient',
   plansList: 'plans:list',
@@ -1502,6 +1503,7 @@ export type {
   UpdateNotificationQuietHoursRequest,
   AddNotificationRecipientRequest,
   UpdateRecipientSubscriptionsRequest,
+  UpdateNotificationRecipientRequest,
 } from '@biztrack/types'
 import type {
   NotificationSettings as NotificationSettingsT,
@@ -1510,6 +1512,7 @@ import type {
   UpdateNotificationQuietHoursRequest as UpdateNotificationQuietHoursRequestT,
   AddNotificationRecipientRequest as AddNotificationRecipientRequestT,
   UpdateRecipientSubscriptionsRequest as UpdateRecipientSubscriptionsRequestT,
+  UpdateNotificationRecipientRequest as UpdateNotificationRecipientRequestT,
 } from '@biztrack/types'
 
 // --- Plans / subscription (Settings → Subscription) — reuse the shared plan shapes ---
@@ -2256,6 +2259,10 @@ export interface BridgeApi {
     updateMatrix: (body: UpdateNotificationMatrixRequestT) => Promise<NotificationSettingsT>
     updateQuietHours: (body: UpdateNotificationQuietHoursRequestT) => Promise<NotificationSettingsT>
     addRecipient: (body: AddNotificationRecipientRequestT) => Promise<NotificationSettingsT>
+    updateRecipient: (
+      id: string,
+      body: UpdateNotificationRecipientRequestT,
+    ) => Promise<NotificationSettingsT>
     updateRecipientSubscriptions: (
       id: string,
       body: UpdateRecipientSubscriptionsRequestT,

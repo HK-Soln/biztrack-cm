@@ -96,6 +96,7 @@ import type {
   UpdateBusinessRequest,
   NotificationSettings,
   NotificationRecipientLookupResult,
+  UpdateNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
   AddNotificationRecipientRequest,
@@ -456,6 +457,10 @@ export interface DataClient {
     updateMatrix: (body: UpdateNotificationMatrixRequest) => Promise<NotificationSettings>
     updateQuietHours: (body: UpdateNotificationQuietHoursRequest) => Promise<NotificationSettings>
     addRecipient: (body: AddNotificationRecipientRequest) => Promise<NotificationSettings>
+    updateRecipient: (
+      id: string,
+      body: UpdateNotificationRecipientRequest,
+    ) => Promise<NotificationSettings>
     updateRecipientSubscriptions: (
       id: string,
       body: UpdateRecipientSubscriptionsRequest,
@@ -809,6 +814,7 @@ function electronAdapter(): DataClient {
       updateMatrix: (body) => window.api.notificationSettings.updateMatrix(body),
       updateQuietHours: (body) => window.api.notificationSettings.updateQuietHours(body),
       addRecipient: (body) => window.api.notificationSettings.addRecipient(body),
+      updateRecipient: (id, body) => window.api.notificationSettings.updateRecipient(id, body),
       updateRecipientSubscriptions: (id, body) =>
         window.api.notificationSettings.updateRecipientSubscriptions(id, body),
       removeRecipient: (id) => window.api.notificationSettings.removeRecipient(id),

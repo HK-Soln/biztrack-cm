@@ -24,6 +24,7 @@ import { NotificationSetting } from '@/entities/notification-setting.entity'
 import type {
   AddNotificationRecipientDto,
   UpdateNotificationMatrixDto,
+  UpdateNotificationRecipientDto,
   UpdateQuietHoursDto,
   UpdateRecipientSubscriptionsDto,
 } from '../dto/notification-settings.dto'
@@ -194,6 +195,25 @@ export class NotificationSettingsService {
         subscriptions: this.defaultSubscriptions(false),
       })
     }
+    await this.recipientsRepo.save(recipient)
+    return this.getSettings(businessId, userId)
+  }
+
+  /** Edit a recipient's name/contacts. Only provided fields change. */
+  async updateRecipientContacts(
+    businessId: string,
+    userId: string,
+    recipientId: string,
+    dto: UpdateNotificationRecipientDto,
+  ): Promise<NotificationSettings> {
+    await this.assertOwner(businessId, userId)
+    const recipient = await this.recipientsRepo.findOne({ where: { id: recipientId, businessId } })
+    if (!recipient) throw new AppNotFoundException('Recipient not found', 'RECIPIENT_NOT_FOUND')
+    if (dto.name !== undefined) recipient.name = dto.name.trim() || recipient.name
+    if (dto.email !== undefined) recipient.email = dto.email?.trim().toLowerCase() || null
+    if (dto.smsContact !== undefined) recipient.smsContact = dto.smsContact?.trim() || null
+    if (dto.whatsappContact !== undefined)
+      recipient.whatsappContact = dto.whatsappContact?.trim() || null
     await this.recipientsRepo.save(recipient)
     return this.getSettings(businessId, userId)
   }

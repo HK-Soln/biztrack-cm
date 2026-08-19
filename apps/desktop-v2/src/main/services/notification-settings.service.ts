@@ -5,6 +5,7 @@ import type {
   NotificationSettings,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
+  UpdateNotificationRecipientRequest,
   UpdateRecipientSubscriptionsRequest,
 } from '@biztrack/types'
 
@@ -51,6 +52,18 @@ export class NotificationSettingsService {
     return (
       await this.http.post<ApiEnvelope<NotificationSettings>>(
         '/notifications/settings/recipients',
+        body,
+      )
+    ).data.data
+  }
+
+  async updateRecipient(
+    id: string,
+    body: UpdateNotificationRecipientRequest,
+  ): Promise<NotificationSettings> {
+    return (
+      await this.http.put<ApiEnvelope<NotificationSettings>>(
+        `/notifications/settings/recipients/${id}`,
         body,
       )
     ).data.data

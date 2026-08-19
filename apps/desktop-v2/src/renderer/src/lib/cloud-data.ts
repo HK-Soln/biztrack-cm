@@ -32,6 +32,7 @@ import type {
   // notification settings
   NotificationSettings,
   NotificationRecipientLookupResult,
+  UpdateNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
   AddNotificationRecipientRequest,
@@ -161,6 +162,8 @@ export const cloudNotificationSettings = {
     cput<NotificationSettings>('/notifications/settings/quiet-hours', body),
   addRecipient: (body: AddNotificationRecipientRequest) =>
     cpost<NotificationSettings>('/notifications/settings/recipients', body),
+  updateRecipient: (id: string, body: UpdateNotificationRecipientRequest) =>
+    cput<NotificationSettings>(`/notifications/settings/recipients/${id}`, body),
   updateRecipientSubscriptions: (id: string, body: UpdateRecipientSubscriptionsRequest) =>
     cput<NotificationSettings>(`/notifications/settings/recipients/${id}/subscriptions`, body),
   removeRecipient: (id: string) =>

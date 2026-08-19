@@ -207,6 +207,14 @@ export interface UpdateRecipientSubscriptionsRequest {
   subscriptions: Partial<Record<NotificationEvent, boolean>>
 }
 
+/** Edit a recipient's name/contacts. Only provided fields change; null clears one. */
+export interface UpdateNotificationRecipientRequest {
+  name?: string
+  email?: string | null
+  smsContact?: string | null
+  whatsappContact?: string | null
+}
+
 /** Result of looking up an email/phone before adding a recipient — prefills the form. */
 export interface NotificationRecipientLookupResult {
   /** The platform user that owns this email/phone, if any. */

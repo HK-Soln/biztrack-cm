@@ -11,6 +11,7 @@ import { NotificationSettingsService } from '../services/notification-settings.s
 import {
   AddNotificationRecipientDto,
   UpdateNotificationMatrixDto,
+  UpdateNotificationRecipientDto,
   UpdateQuietHoursDto,
   UpdateRecipientSubscriptionsDto,
 } from '../dto/notification-settings.dto'
@@ -67,6 +68,16 @@ export class NotificationSettingsController {
     @Body() dto: AddNotificationRecipientDto,
   ): Promise<NotificationSettings> {
     return this.service.addRecipient(user.businessId as string, user.sub, dto)
+  }
+
+  @Put('recipients/:id')
+  @ApiOperation({ summary: "Edit a recipient's name/contacts" })
+  updateRecipient(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateNotificationRecipientDto,
+  ): Promise<NotificationSettings> {
+    return this.service.updateRecipientContacts(user.businessId as string, user.sub, id, dto)
   }
 
   @Put('recipients/:id/subscriptions')

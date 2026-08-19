@@ -75,3 +75,24 @@ export class UpdateRecipientSubscriptionsDto {
   @IsObject()
   subscriptions!: Record<string, boolean>
 }
+
+export class UpdateNotificationRecipientDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string
+
+  @IsOptional()
+  @IsEmail()
+  email?: string | null
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  smsContact?: string | null
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  whatsappContact?: string | null
+}

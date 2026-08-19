@@ -315,6 +315,8 @@ const api: BridgeApi = {
     updateMatrix: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateMatrix, body),
     updateQuietHours: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateQuietHours, body),
     addRecipient: (body) => ipcRenderer.invoke(IPC.notificationSettingsAddRecipient, body),
+    updateRecipient: (id, body) =>
+      ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipient, id, body),
     updateRecipientSubscriptions: (id, body) =>
       ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipientSubs, id, body),
     removeRecipient: (id) => ipcRenderer.invoke(IPC.notificationSettingsRemoveRecipient, id),

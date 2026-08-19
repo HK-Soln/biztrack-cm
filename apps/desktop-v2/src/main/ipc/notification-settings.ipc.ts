@@ -3,6 +3,7 @@ import type {
   AddNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
+  UpdateNotificationRecipientRequest,
   UpdateRecipientSubscriptionsRequest,
 } from '@biztrack/types'
 import { IPC } from '../../shared/ipc'
@@ -22,6 +23,10 @@ export function registerNotificationSettingsIpc(service: NotificationSettingsSer
   ipcMain.handle(
     IPC.notificationSettingsAddRecipient,
     (_e, body: AddNotificationRecipientRequest) => service.addRecipient(body),
+  )
+  ipcMain.handle(
+    IPC.notificationSettingsUpdateRecipient,
+    (_e, id: string, body: UpdateNotificationRecipientRequest) => service.updateRecipient(id, body),
   )
   ipcMain.handle(
     IPC.notificationSettingsUpdateRecipientSubs,
