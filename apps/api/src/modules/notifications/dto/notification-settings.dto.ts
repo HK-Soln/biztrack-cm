@@ -44,6 +44,10 @@ export class UpdateQuietHoursDto {
 
   @Matches(HHMM, { message: 'until must be HH:mm' })
   until!: string
+
+  @IsString()
+  @MaxLength(64)
+  timezone!: string
 }
 
 export class AddNotificationRecipientDto {

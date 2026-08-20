@@ -311,6 +311,7 @@ const api: BridgeApi = {
   },
   notificationSettings: {
     get: () => ipcRenderer.invoke(IPC.notificationSettingsGet),
+    listTimezones: () => ipcRenderer.invoke(IPC.notificationSettingsTimezones),
     lookupContact: (q) => ipcRenderer.invoke(IPC.notificationSettingsLookup, q),
     updateMatrix: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateMatrix, body),
     updateQuietHours: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateQuietHours, body),

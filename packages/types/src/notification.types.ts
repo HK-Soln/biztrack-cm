@@ -90,6 +90,14 @@ export function isMandatoryNotificationEvent(event: NotificationEvent): boolean 
   return MANDATORY_NOTIFICATION_EVENTS.includes(event)
 }
 
+/**
+ * The timezone a business's scheduled notifications and quiet hours are evaluated in.
+ * The server can be in any region, so quiet hours / digest times must use the business's
+ * own zone. This is the fallback; the full IANA list is served by GET
+ * /notifications/settings/timezones (from the runtime's Intl tz database).
+ */
+export const DEFAULT_NOTIFICATION_TIMEZONE = 'Africa/Douala'
+
 export enum NotificationStatus {
   PENDING = 'pending',
   QUEUED = 'queued',
@@ -194,6 +202,8 @@ export interface NotificationRecipient {
 export interface NotificationSettings {
   matrix: NotificationChannelToggle[]
   quietHours: NotificationQuietHours
+  /** IANA timezone quiet hours + scheduled digests are evaluated in (the business's zone). */
+  timezone: string
   recipients: NotificationRecipient[]
   /** Channels with no live provider (echoed so the UI can disable their toggles). */
   unavailableChannels: NotificationChannel[]
@@ -204,7 +214,10 @@ export interface UpdateNotificationMatrixRequest {
   toggles: NotificationChannelToggle[]
 }
 
-export type UpdateNotificationQuietHoursRequest = NotificationQuietHours
+export interface UpdateNotificationQuietHoursRequest extends NotificationQuietHours {
+  /** IANA timezone the schedule is evaluated in. */
+  timezone: string
+}
 
 export interface AddNotificationRecipientRequest {
   /** Link to a platform user when the contact matches one (enables in-app + verification). */

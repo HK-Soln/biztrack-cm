@@ -167,6 +167,7 @@ export const IPC = {
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   notificationSettingsGet: 'notification-settings:get',
+  notificationSettingsTimezones: 'notification-settings:timezones',
   notificationSettingsLookup: 'notification-settings:lookup',
   notificationSettingsUpdateMatrix: 'notification-settings:update-matrix',
   notificationSettingsUpdateQuietHours: 'notification-settings:update-quiet-hours',
@@ -1062,6 +1063,12 @@ export interface LocalReorderSuggestion {
   daysCover?: number | null
   /** Whole days the product was out of stock in the window. */
   stockoutDays?: number | null
+  /** Unit selling price — feeds revenue-at-risk on the À-commander surface (BIZ-4.5). */
+  sellingPrice?: number | null
+  /** Last supplier who restocked this product (grouping key on À-commander). */
+  supplierId?: string | null
+  supplierName?: string | null
+  supplierPhone?: string | null
 }
 
 /** One line of a restock (a purchase that adds stock). */
@@ -2255,6 +2262,7 @@ export interface BridgeApi {
   /** Notification preferences (Settings → Notifications) — server-owned, proxied through main. */
   notificationSettings: {
     get: () => Promise<NotificationSettingsT>
+    listTimezones: () => Promise<string[]>
     lookupContact: (q: string) => Promise<NotificationRecipientLookupResultT>
     updateMatrix: (body: UpdateNotificationMatrixRequestT) => Promise<NotificationSettingsT>
     updateQuietHours: (body: UpdateNotificationQuietHoursRequestT) => Promise<NotificationSettingsT>

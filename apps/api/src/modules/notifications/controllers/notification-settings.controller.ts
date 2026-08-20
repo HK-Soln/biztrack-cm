@@ -52,6 +52,12 @@ export class NotificationSettingsController {
     return this.service.updateQuietHours(user.businessId as string, user.sub, dto)
   }
 
+  @Get('timezones')
+  @ApiOperation({ summary: 'List IANA timezones for the settings picker' })
+  listTimezones(): string[] {
+    return this.service.listTimezones()
+  }
+
   @Get('recipients/lookup')
   @ApiOperation({ summary: 'Look up an email/phone before adding (prefill)' })
   lookupContact(

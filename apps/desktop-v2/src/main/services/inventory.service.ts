@@ -176,19 +176,27 @@ export class InventoryService {
     const targetExpr = `CASE WHEN ${hasVariants}
         THEN (SELECT COALESCE(SUM(COALESCE(pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
         ELSE ${INV_THRESHOLD} END`
+    // Last supplier who restocked this product (grouping key for À-commander, BIZ-4.5).
+    const lastSupplier = (col: string) =>
+      `(SELECT rr.${col} FROM restock_items ri JOIN restock_records rr ON rr.id = ri.restock_record_id
+         WHERE ri.product_id = p.id ORDER BY rr.created_at DESC LIMIT 1)`
     const rows = this.db.query<{
       id: string
       name: string
       sku: string | null
       cost_price: number | null
+      selling_price: number | null
       currency: string | null
       stock: number | null
       target: number | null
       created_at: string
       has_variants: number
+      supplier_id: string | null
+      supplier_name: string | null
     }>(
-      `SELECT p.id, p.name, p.sku, p.cost_price, p.currency, ${STOCK_EXPR} AS stock, (${targetExpr}) AS target,
-              p.created_at, (${hasVariants}) AS has_variants
+      `SELECT p.id, p.name, p.sku, p.cost_price, p.price AS selling_price, p.currency, ${STOCK_EXPR} AS stock, (${targetExpr}) AS target,
+              p.created_at, (${hasVariants}) AS has_variants,
+              ${lastSupplier('supplier_id')} AS supplier_id, ${lastSupplier('supplier_name')} AS supplier_name
        FROM products p
        WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1
          AND (
@@ -206,6 +214,18 @@ export class InventoryService {
         .filter((r) => !r.has_variants)
         .map((r) => ({ id: r.id, stock: Math.max(0, r.stock ?? 0), createdAt: r.created_at })),
     )
+    // Resolve supplier phones in one pass (for the per-supplier WhatsApp draft).
+    const supplierIds = [...new Set(rows.map((r) => r.supplier_id).filter(Boolean))] as string[]
+    const phones = new Map<string, string | null>()
+    if (supplierIds.length) {
+      const ph = supplierIds.map(() => '?').join(', ')
+      for (const c of this.db.query<{ id: string; phone: string | null }>(
+        `SELECT id, phone FROM contacts WHERE id IN (${ph})`,
+        supplierIds,
+      )) {
+        phones.set(c.id, c.phone ?? null)
+      }
+    }
     return rows.map((r) => {
       const stock = Math.max(0, r.stock ?? 0)
       const target = r.target ?? 0
@@ -225,6 +245,10 @@ export class InventoryService {
         velocity: v?.velocity ?? null,
         daysCover: v?.daysCover ?? null,
         stockoutDays: v?.stockoutDays ?? null,
+        sellingPrice: r.selling_price ?? null,
+        supplierId: r.supplier_id ?? null,
+        supplierName: r.supplier_name ?? null,
+        supplierPhone: r.supplier_id ? (phones.get(r.supplier_id) ?? null) : null,
       }
     })
   }

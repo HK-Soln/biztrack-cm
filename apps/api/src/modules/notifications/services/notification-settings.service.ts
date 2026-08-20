@@ -4,6 +4,7 @@ import { Repository } from 'typeorm'
 import {
   BusinessMemberRole,
   BusinessMemberStatus,
+  DEFAULT_NOTIFICATION_TIMEZONE,
   MANDATORY_NOTIFICATION_EVENTS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
@@ -38,7 +39,7 @@ import type {
 export interface NotificationDispatchPlan {
   /** Matrix-enabled channels for the event (SMS already excluded). */
   channels: NotificationChannel[]
-  quietHours: { enabled: boolean; from: string; until: string }
+  quietHours: { enabled: boolean; from: string; until: string; timezone: string }
   /** Recipients subscribed to the event, with their resolved destinations. */
   recipients: Array<{
     userId: string | null
@@ -107,6 +108,13 @@ export class NotificationSettingsService {
     return this.toResponse(businessId, setting, ctx.ownerId)
   }
 
+  /** The IANA timezone list for the settings picker — served from the runtime's tz
+   * database (Intl), so it stays current without a hardcoded list or an external API. */
+  listTimezones(): string[] {
+    const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+    return intl.supportedValuesOf?.('timeZone') ?? [DEFAULT_NOTIFICATION_TIMEZONE]
+  }
+
   /** Upsert matrix cells. SMS is always forced off regardless of the request (N3). */
   async updateMatrix(
     businessId: string,
@@ -154,6 +162,7 @@ export class NotificationSettingsService {
     setting.quietHoursEnabled = dto.enabled
     setting.quietFrom = dto.from
     setting.quietUntil = dto.until
+    if (dto.timezone?.trim()) setting.timezone = dto.timezone.trim()
     await this.settingsRepo.save(setting)
     return this.getSettings(businessId, userId)
   }
@@ -314,6 +323,7 @@ export class NotificationSettingsService {
         enabled: setting.quietHoursEnabled,
         from: setting.quietFrom,
         until: setting.quietUntil,
+        timezone: setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
       },
       recipients,
     }
@@ -414,6 +424,7 @@ export class NotificationSettingsService {
         from: setting.quietFrom,
         until: setting.quietUntil,
       },
+      timezone: setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
       recipients: recipients.map((r) => this.toRecipient(r, ownerId)),
       unavailableChannels: [...UNAVAILABLE_NOTIFICATION_CHANNELS],
     }

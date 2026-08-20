@@ -453,6 +453,7 @@ export interface DataClient {
   }
   notificationSettings: {
     get: () => Promise<NotificationSettings>
+    listTimezones: () => Promise<string[]>
     lookupContact: (q: string) => Promise<NotificationRecipientLookupResult>
     updateMatrix: (body: UpdateNotificationMatrixRequest) => Promise<NotificationSettings>
     updateQuietHours: (body: UpdateNotificationQuietHoursRequest) => Promise<NotificationSettings>
@@ -810,6 +811,7 @@ function electronAdapter(): DataClient {
     },
     notificationSettings: {
       get: () => window.api.notificationSettings.get(),
+      listTimezones: () => window.api.notificationSettings.listTimezones(),
       lookupContact: (q) => window.api.notificationSettings.lookupContact(q),
       updateMatrix: (body) => window.api.notificationSettings.updateMatrix(body),
       updateQuietHours: (body) => window.api.notificationSettings.updateQuietHours(body),

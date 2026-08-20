@@ -1120,13 +1120,27 @@ export class InventoryService {
 
   private async mapAlertRows(rows: InventoryLevel[]): Promise<InventoryAlert[]> {
     const productIds = rows.map((row) => row.productId)
-    const [primaryImageUrls, velocities] = await Promise.all([
+    const businessId = rows[0]?.businessId
+    const [primaryImageUrls, velocities, suppliers] = await Promise.all([
       this.loadPrimaryImageUrls(productIds),
       this.computeAlertVelocities(rows),
+      businessId
+        ? this.loadLastSuppliers(businessId, productIds)
+        : Promise.resolve(
+            new Map<
+              string,
+              {
+                supplierId: string | null
+                supplierName: string | null
+                supplierPhone: string | null
+              }
+            >(),
+          ),
     ])
 
     return rows.map((row) => {
       const v = velocities.get(row.productId)
+      const s = suppliers.get(row.productId)
       return {
         productId: row.productId,
         productName: row.product?.name ?? null,
@@ -1143,8 +1157,55 @@ export class InventoryService {
         velocity: v?.velocity ?? null,
         daysCover: v?.daysCover ?? null,
         stockoutDays: v?.stockoutDays ?? null,
+        sellingPrice: row.product?.sellingPrice ?? null,
+        supplierId: s?.supplierId ?? null,
+        supplierName: s?.supplierName ?? null,
+        supplierPhone: s?.supplierPhone ?? null,
       }
     })
+  }
+
+  /** Last supplier who restocked each product (grouping key for À-commander, BIZ-4.5),
+   * with the supplier's phone for the per-supplier WhatsApp draft. */
+  private async loadLastSuppliers(
+    businessId: string,
+    productIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { supplierId: string | null; supplierName: string | null; supplierPhone: string | null }
+    >
+  > {
+    const out = new Map<
+      string,
+      { supplierId: string | null; supplierName: string | null; supplierPhone: string | null }
+    >()
+    const ids = [...new Set(productIds.filter(Boolean))]
+    if (ids.length === 0) return out
+    const rows = (await this.inventoryLevelsRepo.manager.query(
+      `SELECT DISTINCT ON (ri.product_id)
+              ri.product_id AS "productId", rr.supplier_id AS "supplierId",
+              rr.supplier_name AS "supplierName", c.phone AS "supplierPhone"
+       FROM restock_items ri
+       JOIN restock_records rr ON rr.id = ri.restock_record_id
+       LEFT JOIN contacts c ON c.id = rr.supplier_id
+       WHERE ri.product_id = ANY($1) AND rr.business_id = $2
+       ORDER BY ri.product_id, rr.created_at DESC`,
+      [ids, businessId],
+    )) as Array<{
+      productId: string
+      supplierId: string | null
+      supplierName: string | null
+      supplierPhone: string | null
+    }>
+    for (const r of rows) {
+      out.set(r.productId, {
+        supplierId: r.supplierId ?? null,
+        supplierName: r.supplierName ?? null,
+        supplierPhone: r.supplierPhone ?? null,
+      })
+    }
+    return out
   }
 
   /** Trailing-window sales velocity + days-of-cover per alerted product (BIZ-4.6),

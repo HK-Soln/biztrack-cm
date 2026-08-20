@@ -126,3 +126,124 @@ export function computeReorderVelocity(input: VelocityInput): VelocityResult {
     trusted: true,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Reorder digest (BIZ-4.5 / "À commander") — group the low-stock lines by supplier
+// and rank by revenue-at-risk, shared by apps/api and apps/desktop-v2 so the digest
+// and the offline surface agree.
+//
+//   revenue-at-risk = lost sales PER DAY while the shelf is empty = sellingPrice × velocity.
+//   When velocity isn't trustworthy (BIZ-4.6 guards) we fall back to the order value
+//   (sellingPrice × suggestedQty) so the line still ranks rather than dropping to zero.
+// ---------------------------------------------------------------------------
+
+/** One low-stock line, pre-digest (no revenueAtRisk yet). */
+export interface ReorderDigestLineInput {
+  productId: string
+  name: string
+  sku: string | null
+  currentStock: number
+  suggestedQty: number
+  unitCost: number | null
+  sellingPrice: number | null
+  currency: string
+  velocity?: number | null
+  daysCover?: number | null
+  stockoutDays?: number | null
+  /** Last supplier who restocked this product (grouping key); null = no supplier yet. */
+  supplierId: string | null
+  supplierName: string | null
+  supplierPhone?: string | null
+}
+
+export interface ReorderDigestLine extends ReorderDigestLineInput {
+  /** Lost-sales/day (or the order-value fallback). Ranks the line. */
+  revenueAtRisk: number
+}
+
+export interface ReorderSupplierGroup {
+  supplierId: string | null
+  supplierName: string | null
+  supplierPhone: string | null
+  lineCount: number
+  /** Σ revenueAtRisk over the group's lines. */
+  totalRevenueAtRisk: number
+  /** Σ suggestedQty × unitCost — what an order to this supplier would cost. */
+  estOrderCost: number
+  lines: ReorderDigestLine[]
+}
+
+export interface ReorderDigest {
+  currency: string
+  generatedAt: string
+  productCount: number
+  totalRevenueAtRisk: number
+  /** Supplier groups, worst revenue-at-risk first; the "no supplier yet" group sorts last. */
+  supplierGroups: ReorderSupplierGroup[]
+}
+
+/** Money at risk each day a product is out of stock. See the module header. */
+export function computeRevenueAtRisk(input: {
+  sellingPrice: number | null
+  velocity?: number | null
+  suggestedQty: number
+}): number {
+  const price = input.sellingPrice ?? 0
+  if (price <= 0) return 0
+  if (input.velocity && input.velocity > 0) return Math.round(price * input.velocity)
+  return Math.round(price * Math.max(0, input.suggestedQty))
+}
+
+const NO_SUPPLIER_KEY = '__none__'
+
+/** Group low-stock lines by supplier and rank by revenue-at-risk. */
+export function buildReorderDigest(
+  lines: ReorderDigestLineInput[],
+  opts: { currency: string; generatedAt: string },
+): ReorderDigest {
+  const groups = new Map<string, ReorderSupplierGroup>()
+  let totalRevenueAtRisk = 0
+
+  for (const line of lines) {
+    const revenueAtRisk = computeRevenueAtRisk(line)
+    totalRevenueAtRisk += revenueAtRisk
+    const key = line.supplierId ?? NO_SUPPLIER_KEY
+    let group = groups.get(key)
+    if (!group) {
+      group = {
+        supplierId: line.supplierId,
+        supplierName: line.supplierName,
+        supplierPhone: line.supplierPhone ?? null,
+        lineCount: 0,
+        totalRevenueAtRisk: 0,
+        estOrderCost: 0,
+        lines: [],
+      }
+      groups.set(key, group)
+    }
+    group.lines.push({ ...line, revenueAtRisk })
+    group.lineCount += 1
+    group.totalRevenueAtRisk += revenueAtRisk
+    group.estOrderCost += Math.max(0, line.suggestedQty) * (line.unitCost ?? 0)
+  }
+
+  const supplierGroups = [...groups.values()]
+  for (const g of supplierGroups) {
+    g.lines.sort((a, b) => b.revenueAtRisk - a.revenueAtRisk)
+  }
+  supplierGroups.sort((a, b) => {
+    // Keep the "no supplier yet" group last regardless of its risk.
+    const aNone = a.supplierId === null
+    const bNone = b.supplierId === null
+    if (aNone !== bNone) return aNone ? 1 : -1
+    return b.totalRevenueAtRisk - a.totalRevenueAtRisk
+  })
+
+  return {
+    currency: opts.currency,
+    generatedAt: opts.generatedAt,
+    productCount: lines.length,
+    totalRevenueAtRisk,
+    supplierGroups,
+  }
+}

@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Input, PhoneInput } from '@biztrack/ui/biztrack'
+import { CommandSelect, Input, PhoneInput, type CommandSelectOption } from '@biztrack/ui/biztrack'
 import {
+  DEFAULT_NOTIFICATION_TIMEZONE,
   NotificationChannel,
   NotificationType,
   isMandatoryNotificationEvent,
@@ -210,9 +211,15 @@ export function NotificationsSection() {
     onSuccess: setData,
   })
   const quietMut = useMutation({
-    mutationFn: (body: { enabled: boolean; from: string; until: string }) =>
+    mutationFn: (body: { enabled: boolean; from: string; until: string; timezone: string }) =>
       dataClient.notificationSettings.updateQuietHours(body),
     onSuccess: setData,
+  })
+  const { data: timezones = [] } = useQuery({
+    queryKey: ['notificationSettings', 'timezones'],
+    queryFn: () => dataClient.notificationSettings.listTimezones(),
+    enabled: isOwner && online,
+    staleTime: Infinity,
   })
   const subsMut = useMutation({
     mutationFn: (v: { id: string; event: NotificationEvent; enabled: boolean }) =>
@@ -272,12 +279,27 @@ export function NotificationsSection() {
   const [quiet, setQuiet] = useState(false)
   const [from, setFrom] = useState('21:00')
   const [until, setUntil] = useState('07:00')
+  const [tz, setTz] = useState(DEFAULT_NOTIFICATION_TIMEZONE)
   useEffect(() => {
     if (!settings) return
     setQuiet(settings.quietHours.enabled)
     setFrom(settings.quietHours.from)
     setUntil(settings.quietHours.until)
+    setTz(settings.timezone)
   }, [settings])
+
+  // Timezone picker: the backend returns the full IANA list, so filter it client-side.
+  const loadTimezones = useCallback(
+    (searchText: string): Promise<CommandSelectOption[]> => {
+      const query = searchText.trim().toLowerCase()
+      const list = timezones.length ? timezones : [tz]
+      const matched = query ? list.filter((z) => z.toLowerCase().includes(query)) : list
+      return Promise.resolve(
+        matched.slice(0, 100).map((z) => ({ value: z, label: z.replace(/_/g, ' ') })),
+      )
+    },
+    [timezones, tz],
+  )
 
   // Recipient drawers + add draft.
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -339,9 +361,19 @@ export function NotificationsSection() {
   const cellLocked = (event: NotificationEvent, channel: NotificationChannel) =>
     isMandatoryNotificationEvent(event) && cellOn(event, channel) && enabledCount(event) === 1
 
-  const commitQuiet = (next: { enabled: boolean; from: string; until: string }) => {
+  const commitQuiet = (next: {
+    enabled: boolean
+    from: string
+    until: string
+    timezone?: string
+  }) => {
     if (!canEdit) return
-    quietMut.mutate(next)
+    quietMut.mutate({
+      enabled: next.enabled,
+      from: next.from,
+      until: next.until,
+      timezone: next.timezone ?? tz,
+    })
   }
 
   const selected = settings.recipients.find((r) => r.id === selectedId) ?? null
@@ -427,6 +459,24 @@ export function NotificationsSection() {
           <div>
             <h3>{t('ntf.quietTitle')}</h3>
             <p>{t('ntf.quietSub')}</p>
+          </div>
+        </div>
+        <div style={{ marginBottom: 16, maxWidth: 320 }}>
+          <label className="lbl">{t('ntf.timezone')}</label>
+          <CommandSelect
+            value={tz}
+            valueLabel={tz.replace(/_/g, ' ')}
+            disabled={!canEdit}
+            loadOptions={loadTimezones}
+            searchPlaceholder={t('ntf.timezoneSearch')}
+            onChange={(v) => {
+              if (!v) return
+              setTz(v)
+              commitQuiet({ enabled: quiet, from, until, timezone: v })
+            }}
+          />
+          <div style={{ fontSize: '11.5px', color: 'var(--text-2)', marginTop: 4 }}>
+            {t('ntf.timezoneDesc')}
           </div>
         </div>
         <div className="set-line">

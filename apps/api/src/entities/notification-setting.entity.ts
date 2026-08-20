@@ -34,4 +34,8 @@ export class NotificationSetting extends BaseEntity {
 
   @Column({ name: 'quiet_until', type: 'varchar', length: 5, default: '07:00' })
   quietUntil!: string
+
+  /** IANA timezone quiet hours + scheduled digests are evaluated in (the business's zone). */
+  @Column({ type: 'varchar', length: 64, default: 'Africa/Douala' })
+  timezone!: string
 }

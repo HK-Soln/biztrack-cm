@@ -84,6 +84,10 @@ export class InventoryAlertDto implements InventoryAlert {
   velocity?: number | null
   daysCover?: number | null
   stockoutDays?: number | null
+  sellingPrice?: number | null
+  supplierId?: string | null
+  supplierName?: string | null
+  supplierPhone?: string | null
 
   static fromModel(model: {
     productId: string
@@ -98,6 +102,10 @@ export class InventoryAlertDto implements InventoryAlert {
     velocity?: number | null
     daysCover?: number | null
     stockoutDays?: number | null
+    sellingPrice?: number | null
+    supplierId?: string | null
+    supplierName?: string | null
+    supplierPhone?: string | null
   }): InventoryAlertDto {
     const dto = new InventoryAlertDto()
     Object.assign(dto, model)
@@ -107,6 +115,10 @@ export class InventoryAlertDto implements InventoryAlert {
     dto.velocity = model.velocity ?? null
     dto.daysCover = model.daysCover ?? null
     dto.stockoutDays = model.stockoutDays ?? null
+    dto.sellingPrice = model.sellingPrice ?? null
+    dto.supplierId = model.supplierId ?? null
+    dto.supplierName = model.supplierName ?? null
+    dto.supplierPhone = model.supplierPhone ?? null
     return dto
   }
 }

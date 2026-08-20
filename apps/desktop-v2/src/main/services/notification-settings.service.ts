@@ -25,6 +25,11 @@ export class NotificationSettingsService {
       .data
   }
 
+  async listTimezones(): Promise<string[]> {
+    return (await this.http.get<ApiEnvelope<string[]>>('/notifications/settings/timezones')).data
+      .data
+  }
+
   async lookupContact(q: string): Promise<NotificationRecipientLookupResult> {
     return (
       await this.http.get<ApiEnvelope<NotificationRecipientLookupResult>>(

@@ -11,6 +11,7 @@ import type { NotificationSettingsService } from '../services/notification-setti
 
 export function registerNotificationSettingsIpc(service: NotificationSettingsService): void {
   ipcMain.handle(IPC.notificationSettingsGet, () => service.get())
+  ipcMain.handle(IPC.notificationSettingsTimezones, () => service.listTimezones())
   ipcMain.handle(IPC.notificationSettingsLookup, (_e, q: string) => service.lookupContact(q))
   ipcMain.handle(
     IPC.notificationSettingsUpdateMatrix,
