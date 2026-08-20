@@ -318,6 +318,7 @@ export interface DataClient {
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    updateDueDate: (debtId: string, dueDate: string | null) => Promise<LocalDebt>
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
     ageing: (direction: DebtDirection) => Promise<AgeingReport>
   }
@@ -691,6 +692,7 @@ function electronAdapter(): DataClient {
       listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
       statement: (contactId, direction) => window.api.debts.statement(contactId, direction),
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
+      updateDueDate: (debtId, dueDate) => window.api.debts.updateDueDate(debtId, dueDate),
       offset: (contactId) => window.api.debts.offset(contactId),
       ageing: (direction) => window.api.debts.ageing(direction),
     },

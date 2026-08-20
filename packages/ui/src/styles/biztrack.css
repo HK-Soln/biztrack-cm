@@ -6136,6 +6136,109 @@ button.imgdrop:disabled {
   word-break: break-word;
 }
 /* À-commander (reorder) surface. */
+/* Debtors surface (Contacts → Debtors to follow up). */
+.dbtr-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.dbtr-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.dbtr-kpi .k {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+.dbtr-kpi .v {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dbtr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dbtr-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dbtr-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dbtr-who .nm {
+  font-weight: 600;
+}
+.dbtr-who .ph {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dbtr-amt {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+.dbtr-tones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dbtr-itemised {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin-left: auto;
+  cursor: pointer;
+}
+.dbtr-actions {
+  display: flex;
+  gap: 10px;
+}
+.dbtr-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.dbtr-date-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dbtr-date-row .ref {
+  flex: 1;
+  min-width: 0;
+}
+.dbtr-date-row .ref .r {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dbtr-date-row .ref .a {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
 .ro-kpis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

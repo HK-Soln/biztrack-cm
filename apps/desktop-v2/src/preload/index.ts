@@ -165,6 +165,7 @@ const api: BridgeApi = {
     statement: (contactId, direction) =>
       ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
+    updateDueDate: (debtId, dueDate) => ipcRenderer.invoke(IPC.debtsUpdateDueDate, debtId, dueDate),
     offset: (contactId) => ipcRenderer.invoke(IPC.debtsOffset, contactId),
     ageing: (direction) => ipcRenderer.invoke(IPC.debtsAgeing, direction),
   },

@@ -1918,6 +1918,27 @@ export const en = {
   'ct.deleteError': 'Could not remove the contact.',
 
   'debt.empty': 'No debts or payments for this contact yet.',
+  'debtors.title': 'Debtors to follow up',
+  'debtors.sub':
+    'Customers whose credit is past its due date. Send a reminder or adjust a due date.',
+  'debtors.kpiTotal': 'Total overdue',
+  'debtors.kpiCount': 'Customers overdue',
+  'debtors.empty': 'No overdue receivables. Nicely done!',
+  'debtors.noPhone': 'No phone number',
+  'debtors.remind': 'Remind on WhatsApp',
+  'debtors.manageDates': 'Due dates',
+  'debtors.saveDate': 'Save',
+  'debtors.itemised': 'Itemised breakdown',
+  'debtors.toneGentle': 'Gentle',
+  'debtors.toneNeutral': 'Neutral',
+  'debtors.toneFirm': 'Firm',
+  'debtors.waItems': 'Details:',
+  'debtors.waGentle':
+    'Hello {name}, a friendly reminder that {amount} is still outstanding on your account at {business}. Please settle it when you can. Thank you! 🙏',
+  'debtors.waNeutral':
+    'Hello {name}, your outstanding balance at {business} is {amount}. Kindly arrange payment. Thank you.',
+  'debtors.waFirm':
+    'Hello {name}, your balance of {amount} at {business} is now overdue. Please settle it as soon as possible. Thank you.',
   'debt.colRef': 'Reference',
   'debt.colKind': 'Kind',
   'debt.colAmount': 'Amount',
@@ -5365,6 +5386,27 @@ export const fr: Record<MessageKey, string> = {
   'ct.deleteError': 'Impossible de retirer le contact.',
 
   'debt.empty': 'Aucune dette ou paiement pour ce contact.',
+  'debtors.title': 'Créances à relancer',
+  'debtors.sub':
+    "Clients dont le crédit a dépassé l'échéance. Envoyez un rappel ou ajustez une échéance.",
+  'debtors.kpiTotal': 'Total en retard',
+  'debtors.kpiCount': 'Clients en retard',
+  'debtors.empty': 'Aucune créance en retard. Bravo !',
+  'debtors.noPhone': 'Pas de numéro',
+  'debtors.remind': 'Relancer sur WhatsApp',
+  'debtors.manageDates': 'Échéances',
+  'debtors.saveDate': 'Enregistrer',
+  'debtors.itemised': 'Détail par dette',
+  'debtors.toneGentle': 'Douce',
+  'debtors.toneNeutral': 'Neutre',
+  'debtors.toneFirm': 'Ferme',
+  'debtors.waItems': 'Détails :',
+  'debtors.waGentle':
+    'Bonjour {name}, petit rappel : il reste {amount} à régler sur votre compte chez {business}. Merci de régulariser dès que possible. 🙏',
+  'debtors.waNeutral':
+    'Bonjour {name}, votre solde chez {business} s’élève à {amount}. Merci de bien vouloir procéder au règlement.',
+  'debtors.waFirm':
+    'Bonjour {name}, votre solde de {amount} chez {business} est en retard. Merci de régler dans les plus brefs délais.',
   'debt.colRef': 'Référence',
   'debt.colKind': 'Type',
   'debt.colAmount': 'Montant',

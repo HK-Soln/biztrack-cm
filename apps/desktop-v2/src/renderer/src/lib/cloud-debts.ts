@@ -10,7 +10,7 @@ import type {
   AgeingReport,
 } from '@shared/ipc'
 import { DebtDirection as DebtDirectionEnum } from '@biztrack/types'
-import { cget, cpost } from './cloud-http'
+import { cget, cpatch, cpost } from './cloud-http'
 
 /**
  * Cloud (browser) read adapters for a contact's credit sub-resources (debts + statement
@@ -18,7 +18,6 @@ import { cget, cpost } from './cloud-http'
  * shared type (passthrough); the debt list item is a `LocalDebt` superset. Writes
  * (recordPayment/offset/upsert) map to the contacts/creditors/debtors endpoints.
  */
-
 
 function qs(query?: Record<string, unknown>): string {
   if (!query) return ''
@@ -73,7 +72,10 @@ function toLocalOpeningBalance(o: ApiOpeningBalance): LocalOpeningBalance {
 }
 
 export const cloudDebts = {
-  listByContact: async (contactId: string, query?: DebtsQuery): Promise<PaginatedResult<LocalDebt>> => {
+  listByContact: async (
+    contactId: string,
+    query?: DebtsQuery,
+  ): Promise<PaginatedResult<LocalDebt>> => {
     const res = await cget<PaginatedResult<ApiDebt>>(
       `/contacts/${contactId}/debts${qs(query as Record<string, unknown>)}`,
     )
@@ -91,17 +93,30 @@ export const cloudDebts = {
       return toLocalDebt(await cpost<ApiDebt>(`/creditors/${debtId}/payments`, body))
     }
   },
+  // Direction not known here — try debtors first, fall back to creditors (like payments).
+  updateDueDate: async (debtId: string, dueDate: string | null): Promise<LocalDebt> => {
+    const body = { dueDate }
+    try {
+      return toLocalDebt(await cpatch<ApiDebt>(`/debtors/${debtId}/due-date`, body))
+    } catch {
+      return toLocalDebt(await cpatch<ApiDebt>(`/creditors/${debtId}/due-date`, body))
+    }
+  },
   offset: (contactId: string): Promise<{ offsetAmount: number; affected: number }> =>
     cpost<{ offsetAmount: number; affected: number }>(`/contacts/${contactId}/offset`, {}),
   // Ageing lives on the direction-scoped controllers: /debtors/ageing (receivable) and
   // /creditors/ageing (payable). Both return the shared AgeingReport.
   ageing: (direction: DebtDirection): Promise<AgeingReport> =>
-    cget<AgeingReport>(direction === DebtDirectionEnum.RECEIVABLE ? '/debtors/ageing' : '/creditors/ageing'),
+    cget<AgeingReport>(
+      direction === DebtDirectionEnum.RECEIVABLE ? '/debtors/ageing' : '/creditors/ageing',
+    ),
 }
 
 export const cloudOpeningBalances = {
   listForContact: async (contactId: string): Promise<LocalOpeningBalance[]> =>
-    (await cget<ApiOpeningBalance[]>(`/contacts/${contactId}/opening-balance`)).map(toLocalOpeningBalance),
+    (await cget<ApiOpeningBalance[]>(`/contacts/${contactId}/opening-balance`)).map(
+      toLocalOpeningBalance,
+    ),
   upsert: async (input: OpeningBalanceInput): Promise<LocalOpeningBalance> => {
     const body: Record<string, unknown> = { direction: input.direction, amount: input.amount }
     if (input.asOfDate != null) body.asOfDate = input.asOfDate

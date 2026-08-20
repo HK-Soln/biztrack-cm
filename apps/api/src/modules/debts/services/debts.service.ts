@@ -217,6 +217,42 @@ export class DebtsService {
     }
   }
 
+  /** Set (or clear) a debt's expected payment date. Clearing falls the ageing/reminders
+   *  back to created_at + the business's default credit period (D9). Opening balances have
+   *  no due-date semantics and are rejected. */
+  async updateDueDate(
+    businessId: string,
+    _user: JwtPayload,
+    direction: DebtDirection,
+    debtId: string,
+    dueDate: string | null,
+  ): Promise<Debt> {
+    try {
+      const normalized = this.normalizeOptionalString(dueDate)
+      if (normalized) this.assertDateOnly(normalized)
+
+      const debt = await this.debtsRepo.findOne({ where: { id: debtId, businessId, direction } })
+      if (!debt) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.debt_not_found' as never),
+          'DEBT_NOT_FOUND',
+        )
+      }
+      if (debt.sourceType === DebtSource.OPENING_BALANCE) {
+        throw new AppBadRequestException(
+          'Opening-balance debts have no due date.',
+          'DEBT_DUE_DATE_LOCKED',
+        )
+      }
+
+      debt.dueDate = normalized
+      await this.debtsRepo.save(debt)
+      return this.findById(debtId, businessId, direction)
+    } catch (error) {
+      return this.handleServiceError('updateDueDate', error, { debtId, businessId })
+    }
+  }
+
   async recordPayment(
     businessId: string,
     user: JwtPayload,

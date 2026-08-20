@@ -186,6 +186,35 @@ export class DebtsService {
   }
 
   /** Record a payment against a debt; recomputes status (and settledAt). */
+  /** Set (or clear) a debt's expected payment date. Clearing (null) falls the ageing/
+   *  reminders back to created_at + the default credit period (D9). Re-enqueues so the
+   *  change syncs (applyDebtOperation upserts due_date). Opening balances are rejected. */
+  updateDueDate(debtId: string, dueDate: string | null): LocalDebt {
+    const businessId = this.requireBusinessId()
+    const debt = this.getRow(debtId, businessId)
+    if (!debt) throw new Error('Debt not found.')
+    if (debt.source_type === 'OPENING_BALANCE')
+      throw new Error('Opening-balance debts have no due date.')
+    const now = new Date().toISOString()
+    this.db.run(`UPDATE debts SET due_date = ? WHERE id = ? AND business_id = ?`, [
+      dueDate || null,
+      debtId,
+      businessId,
+    ])
+    this.enqueue(debtId, businessId, now)
+    this.onMutated()
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'debt',
+      entityId: debtId,
+      entityLabel: debt.source_reference,
+      changes: { dueDate: { before: debt.due_date ?? null, after: dueDate || null } },
+    })
+    const updated = this.get(debtId)
+    if (!updated) throw new Error('Debt not found.')
+    return updated
+  }
+
   recordPayment(debtId: string, input: RecordDebtPaymentRequest): LocalDebt {
     const businessId = this.requireBusinessId()
     const debt = this.getRow(debtId, businessId)

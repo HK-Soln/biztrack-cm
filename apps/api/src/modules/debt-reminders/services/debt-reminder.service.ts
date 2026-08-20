@@ -94,7 +94,7 @@ export class DebtReminderService {
       body: this.buildInApp(copy, summary),
       emailBody: this.buildEmailHtml(copy, business.name, summary),
       whatsappBody: this.buildWhatsApp(copy, business.name, summary),
-      deeplink: '/contacts',
+      deeplink: '/debtors',
       metadata: { totalPastDue: summary.totalPastDue, count: summary.count },
     })
     return summary

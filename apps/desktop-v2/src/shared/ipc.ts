@@ -112,6 +112,7 @@ export const IPC = {
   debtsListByContact: 'debts:list-by-contact',
   debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
+  debtsUpdateDueDate: 'debts:update-due-date',
   debtsOffset: 'debts:offset',
   debtsAgeing: 'debts:ageing',
   openingBalancesUpsert: 'opening-balances:upsert',
@@ -2054,6 +2055,8 @@ export interface BridgeApi {
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     /** Record a payment against a debt; returns the updated debt. */
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    /** Set/clear a debt's expected payment date (null → default credit period). */
+    updateDueDate: (debtId: string, dueDate: string | null) => Promise<LocalDebt>
     /** Net a Both-contact's receivable vs payable with OFFSET contra-payments (oldest first). */
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
     /** Ageing report (buckets outstanding balances by debt age) for one direction. */
