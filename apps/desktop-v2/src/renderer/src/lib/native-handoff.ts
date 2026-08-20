@@ -14,15 +14,23 @@ export function tryNativeHandoff(): void {
   // Electron build exposes window.api — it IS the native app, so never bounce.
   if ((window as unknown as { api?: unknown }).api) return
 
-  const url = new URL(window.location.href)
-  if (url.searchParams.get(MARKER) !== '1') return
+  // The marker lives in the real query (before the hash); the route lives in the hash
+  // (the app is a hash router), e.g. `https://app…/?openapp=1#/contacts/123`.
+  const params = new URLSearchParams(window.location.search)
+  if (params.get(MARKER) !== '1') return
 
   // Strip the marker so a refresh, bookmark, or in-app navigation never re-triggers handoff.
-  url.searchParams.delete(MARKER)
-  window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+  params.delete(MARKER)
+  const search = params.toString()
+  window.history.replaceState(
+    {},
+    '',
+    `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
+  )
 
   // biztrack://<route> — the desktop app's protocol handler maps it back to the in-app route.
-  const route = `${url.pathname}${url.search}${url.hash}`.replace(/^\/+/, '')
+  const route = window.location.hash.replace(/^#\/?/, '')
+  if (!route) return
   const target = `${SCHEME}://${route}`
 
   // A hidden iframe attempts the protocol without navigating the visible page away — if the

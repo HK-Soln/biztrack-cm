@@ -18,11 +18,12 @@ export const APP_ROUTES = {
   onlineOrder: (id: string): string => `/online/orders/${id}`,
 } as const
 
-/** Join a base origin and an app route path into an absolute URL, tolerant of trailing/
- *  leading slashes. Returns null when there's no base (external link then omitted). */
+/** Build an absolute URL to an app route on the web/cloud app. The app is a HASH router
+ *  (createHashRouter), so routes live after `#` — e.g. `https://app…/#/contacts/123`.
+ *  Returns null when there's no base (the external link is then omitted). */
 export function buildAppUrl(baseUrl: string | null | undefined, path: string): string | null {
   if (!baseUrl) return null
   const base = baseUrl.replace(/\/+$/, '')
   const rel = path.startsWith('/') ? path : `/${path}`
-  return `${base}${rel}`
+  return `${base}/#${rel}`
 }

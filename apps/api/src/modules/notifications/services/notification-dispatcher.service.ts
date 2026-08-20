@@ -58,12 +58,13 @@ export class NotificationDispatcher {
     const metadata = input.metadata ?? undefined
 
     // External channels (email/WhatsApp) can't navigate an in-app route, so they carry a
-    // FULL link to the web app. `openapp=1` tells the web page to try handing off to an
-    // installed native app for this route, falling back to the browser (N7).
+    // FULL link to the web/cloud app (APP_URL, a hash router → `…/#/route`). `openapp=1`
+    // (placed BEFORE the hash so window.location.search sees it) tells the web page to try
+    // handing off to an installed native app for this route, else stay in the browser (N7).
     const webUrl = input.deeplink
-      ? buildAppUrl(this.config.get('APP_WEB_URL', { infer: true }), input.deeplink)
+      ? buildAppUrl(this.config.get('APP_URL', { infer: true }), input.deeplink)
       : null
-    const externalUrl = webUrl ? `${webUrl}${webUrl.includes('?') ? '&' : '?'}openapp=1` : null
+    const externalUrl = webUrl ? webUrl.replace('#', '?openapp=1#') : null
 
     let inApp = 0
     let external = 0
