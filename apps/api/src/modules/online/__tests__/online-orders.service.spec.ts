@@ -94,6 +94,7 @@ const makeService = (opts: {
     storeService as any,
     config as any,
     orderEmail as any,
+    { dispatch: async () => {} } as any,
   )
   return { service, cartsRepo, ordersRepo, eventsRepo, contactsRepo, salesService, storeService }
 }

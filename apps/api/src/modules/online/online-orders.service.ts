@@ -6,6 +6,7 @@ import { I18nService } from 'nestjs-i18n'
 import type { AppConfig } from '@/config/configuration'
 import {
   ContactType,
+  NotificationType,
   PaymentMethod,
   ONLINE_ORDER_COMPLETION_STATUSES,
   SaleSource,
@@ -40,11 +41,14 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { OnlineStore } from '@/entities/online-store.entity'
 import { Contact } from '@/entities/contact.entity'
+import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
@@ -116,6 +120,7 @@ export class OnlineOrdersService {
     private readonly storeService: OnlineStoreService,
     private readonly config: ConfigService<AppConfig>,
     private readonly orderEmail: OrderEmailService,
+    private readonly dispatcher: NotificationDispatcher,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -290,6 +295,9 @@ export class OnlineOrdersService {
       // Send the "order received" email (best-effort).
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
 
+      // Notify the owner a new online order came in (BIZ-4 newOrder producer).
+      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, totalAmount)
+
       return {
         orderNumber: order.orderNumber,
         trackingToken: order.trackingToken,
@@ -297,6 +305,37 @@ export class OnlineOrdersService {
       }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })
+    }
+  }
+
+  /** NEW_ORDER notification to the owner when a customer places an online order. Copy in the
+   *  owner's language; routed through the notification control plane. Fire-and-forget. */
+  private async notifyNewOrder(
+    businessId: string,
+    orderId: string,
+    orderNumber: string,
+    totalAmount: number,
+  ): Promise<void> {
+    try {
+      const business = await this.ordersRepo.manager
+        .getRepository(Business)
+        .findOne({ where: { id: businessId }, relations: ['owner'] })
+      const en = business?.owner?.language === Locale.EN
+      const value = `${totalAmount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.NEW_ORDER,
+        title: en ? 'New online order' : 'Nouvelle commande en ligne',
+        body: en ? `Order ${orderNumber} · ${value}.` : `Commande ${orderNumber} · ${value}.`,
+        deeplink: `/online/orders/${orderId}`,
+        metadata: { orderId, orderNumber, totalAmount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch new-order notification', 'OnlineOrdersService', {
+        businessId,
+        orderId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
