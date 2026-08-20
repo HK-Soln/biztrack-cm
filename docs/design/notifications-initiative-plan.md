@@ -141,6 +141,19 @@ a correct external URL.
    for external channels, the dispatcher (or producer) resolves the **full URL** and
    embeds it in the channel body (or passes a resolved `url` alongside `deeplink`). The
    producer supplies a route key + params; the dispatcher renders per channel.
+4. **Web landing → native-app handoff (owner-flagged 2026-08-20).** The external URL
+   **always** points at the cloud/web `baseUrl` (a real web page that works for everyone).
+   When that page loads, it attempts to **hand off to the installed native app** for the
+   same route and **falls back to the browser** if the app isn't installed:
+   - **Desktop** (browser opens) → try to open the **Electron app** via a registered
+     custom protocol (e.g. `biztrack://inventory`); if nothing handles it, stay on the web.
+   - **Mobile** (browser opens, once the mobile app ships) → **Universal Links (iOS) /
+     App Links (Android)** for the same `https://` URL, or a custom scheme fallback; if the
+     app isn't installed, stay on the web.
+   - This means the route registry paths must map cleanly to **both** the web route and the
+     native deep-link/protocol route, and the web landing page carries a small
+     open-app-with-timeout-fallback script. The **email/WhatsApp/SMS body never contains an
+     app-scheme URL** — always the `https://` web URL, which does the handoff.
 
 **Open decisions (below): N7.** This is sequenced BEFORE the external-channel producers
 matter most, but the registry can be introduced independently and adopted route-by-route.

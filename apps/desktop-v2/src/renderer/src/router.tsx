@@ -21,6 +21,7 @@ import { Brands } from '@/routes/Brands'
 import { Products } from '@/routes/Products'
 import { ProductForm } from '@/routes/ProductForm'
 import { Inventory } from '@/routes/Inventory'
+import { Reorder } from '@/routes/Reorder'
 import { ReceiveStock } from '@/routes/ReceiveStock'
 import { ProductDetail } from '@/routes/ProductDetail'
 import { VariantDetail } from '@/routes/VariantDetail'
@@ -101,6 +102,7 @@ export const router = createHashRouter([
             element: <VariantDetail />,
           },
           { path: '/inventory', element: <Inventory /> },
+          { path: '/inventory/reorder', element: <Reorder /> },
           { path: '/inventory/restock', element: <ReceiveStock /> },
           { path: '/sales', element: <Sales /> },
           { path: '/activity', element: <Activity /> },
