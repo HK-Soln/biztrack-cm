@@ -369,6 +369,13 @@ const api: BridgeApi = {
     accept: (businessId) => ipcRenderer.invoke(IPC.invitationsAccept, businessId),
     reject: (businessId) => ipcRenderer.invoke(IPC.invitationsReject, businessId),
   },
+  deeplink: {
+    onNavigate: (cb) => {
+      const listener = (_e: unknown, path: string) => cb(path)
+      ipcRenderer.on(IPC.deeplinkNavigate, listener)
+      return () => ipcRenderer.removeListener(IPC.deeplinkNavigate, listener)
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

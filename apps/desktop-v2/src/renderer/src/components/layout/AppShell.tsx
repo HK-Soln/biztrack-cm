@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, TABS, filterNav, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
@@ -660,6 +660,11 @@ export function AppShell() {
     })
     return off
   }, [])
+
+  // OS deep links (biztrack:// → this window, N7): the main process forwards the route path;
+  // navigate to it. No-op in the browser build (it's already the deeplink target).
+  const navigate = useNavigate()
+  useEffect(() => dataClient.deeplink.onNavigate((path) => navigate(path)), [navigate])
 
   if (bp === 'mobile') {
     // Some routes render their own full-bleed header (home's m-hero, Sell's m-head),

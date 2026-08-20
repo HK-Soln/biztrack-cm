@@ -503,6 +503,10 @@ export interface DataClient {
     connect: () => Promise<void>
     onEvent: (cb: (payload: NotificationEventPayload) => void) => () => void
   }
+  /** OS deep links (biztrack:// → native-app handoff). No-op in the browser build. */
+  deeplink: {
+    onNavigate: (cb: (path: string) => void) => () => void
+  }
   invitations: {
     list: () => Promise<ListMyInvitationsResponse>
     accept: (businessId: string) => Promise<AcceptInvitationResponse>
@@ -857,6 +861,9 @@ function electronAdapter(): DataClient {
       connect: () => window.api.notifications.connect(),
       onEvent: (cb) => window.api.notifications.onEvent(cb),
     },
+    deeplink: {
+      onNavigate: (cb) => window.api.deeplink.onNavigate(cb),
+    },
     invitations: {
       list: () => window.api.invitations.list(),
       accept: (businessId) => window.api.invitations.accept(businessId),
@@ -950,6 +957,8 @@ function cloudAdapter(): DataClient {
       connect: cloudRealtimeConnect,
       onEvent: cloudRealtimeOnEvent,
     },
+    // The browser build IS the deeplink target (no native protocol); nothing to subscribe to.
+    deeplink: { onNavigate: () => () => {} },
     invitations: cloudInvitations,
     auth: cloudAuth,
     // Cloud is online-only: there is no local sync engine, so report a stable

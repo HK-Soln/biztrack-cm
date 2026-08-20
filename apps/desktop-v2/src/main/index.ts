@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import {
   DatabaseService,
   RealtimeClient,
@@ -112,6 +112,61 @@ function isDevToolsShortcut(input: Electron.Input): boolean {
   return combo && (input.shift || input.alt) && (key === 'i' || key === 'j' || key === 'c')
 }
 
+// ── Deep links (biztrack:// custom protocol → native-app handoff, N7) ───────────────
+const DEEP_LINK_SCHEME = 'biztrack'
+
+// Single-instance lock: required for the custom protocol on Windows/Linux, where the URL
+// arrives on the SECOND instance's argv. The secondary instance quits immediately; the
+// primary focuses its window and routes the link (see `second-instance` below).
+const isPrimaryInstance = app.requestSingleInstanceLock()
+if (!isPrimaryInstance) {
+  app.quit()
+}
+
+// Register as the OS handler for biztrack:// links. In dev the launcher is `electron` + our
+// entry script, so those must be passed explicitly; packaged builds register the exe.
+const devEntryScript = process.argv[1]
+if (process.defaultApp && devEntryScript) {
+  app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME, process.execPath, [resolve(devEntryScript)])
+} else {
+  app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME)
+}
+
+/** Normalise a biztrack:// URL to an in-app route path ('/contacts/123?tab=x'), or null. */
+function deeplinkToPath(url: string | undefined): string | null {
+  if (!url || !url.toLowerCase().startsWith(`${DEEP_LINK_SCHEME}://`)) return null
+  const rest = url.slice(`${DEEP_LINK_SCHEME}://`.length).replace(/^\/+/, '')
+  return `/${rest}`
+}
+
+// A link can arrive before the window/renderer exists (cold start, or macOS open-url before
+// ready) — buffer it and flush once the window is up.
+let pendingDeeplink: string | null = null
+
+function deliverDeeplink(path: string | null): void {
+  if (!path) return
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win) {
+    pendingDeeplink = path
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.focus()
+  win.webContents.send(IPC.deeplinkNavigate, path)
+}
+
+// macOS delivers protocol links via open-url; it can fire before `ready`, so it's buffered.
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  deliverDeeplink(deeplinkToPath(url))
+})
+
+// Windows/Linux: the URL is on the second instance's argv; the primary focuses + routes it.
+app.on('second-instance', (_event, argv) => {
+  const url = argv.find((arg) => arg.toLowerCase().startsWith(`${DEEP_LINK_SCHEME}://`))
+  deliverDeeplink(deeplinkToPath(url))
+})
+
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
   // In production the renderer is trusted, packaged UI — DevTools stay fully locked so the
@@ -170,6 +225,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // A secondary instance (opened by an OS protocol link) has already forwarded its URL to
+  // the primary via `second-instance` and is quitting — do no setup here.
+  if (!isPrimaryInstance) return
   if (process.platform === 'win32') app.setAppUserModelId('cm.biztrack.desktop.v2')
 
   // Barcode/QR scanning uses the device camera (getUserMedia). Grant the camera
@@ -527,6 +585,18 @@ app.whenReady().then(() => {
   nativeTheme.on('updated', applyOverlayToAllWindows)
 
   createWindow()
+
+  // Cold start: a protocol link may be in argv (Windows) or buffered from an early macOS
+  // open-url. Deliver once the renderer's router + deeplink listener have mounted.
+  const coldUrl = process.argv.find((arg) => arg.toLowerCase().startsWith(`${DEEP_LINK_SCHEME}://`))
+  const initialDeeplink = deeplinkToPath(coldUrl) ?? pendingDeeplink
+  pendingDeeplink = null
+  if (initialDeeplink) {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.webContents.once('did-finish-load', () => {
+      setTimeout(() => deliverDeeplink(initialDeeplink), 400)
+    })
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

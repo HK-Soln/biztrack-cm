@@ -203,6 +203,7 @@ export const IPC = {
   notificationsMarkAllRead: 'notifications:mark-all-read',
   notificationsConnect: 'notifications:connect',
   notificationEvent: 'notifications:event',
+  deeplinkNavigate: 'deeplink:navigate',
   // Invitee-side invitations (existing-user pending memberships)
   invitationsList: 'invitations:list',
   invitationsAccept: 'invitations:accept',
@@ -2326,5 +2327,10 @@ export interface BridgeApi {
     list: () => Promise<ListMyInvitationsResponseT>
     accept: (businessId: string) => Promise<AcceptInvitationResponseT>
     reject: (businessId: string) => Promise<RejectInvitationResponseT>
+  }
+  /** Deep links from the OS (biztrack:// custom protocol → a native-app handoff, N7). */
+  deeplink: {
+    /** Subscribe to in-app navigation requests (route path); returns an unsubscribe fn. */
+    onNavigate: (cb: (path: string) => void) => () => void
   }
 }

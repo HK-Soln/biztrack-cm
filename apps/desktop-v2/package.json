@@ -24,6 +24,14 @@
   "build": {
     "appId": "cm.biztrack.desktop",
     "productName": "BizTrack CM",
+    "protocols": [
+      {
+        "name": "BizTrack",
+        "schemes": [
+          "biztrack"
+        ]
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "assets"
