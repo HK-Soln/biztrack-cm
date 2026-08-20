@@ -1913,7 +1913,7 @@ export class SalesService {
     businessId: string,
     dto: SendSaleReceiptDto,
     context?: AuditContext,
-  ): Promise<{ pdfUrl: string }> {
+  ): Promise<{ pdfUrl: string | null }> {
     try {
       const { sale, business } = await this.getReceipt(id, businessId)
       const receipt = SaleReceiptDto.fromSale(sale, business)

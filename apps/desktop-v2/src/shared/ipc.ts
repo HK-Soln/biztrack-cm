@@ -625,10 +625,11 @@ export interface DocumentDownloadInput {
 
 /** Share an app-generated (trusted) HTML document via the WhatsApp/email composer. */
 export interface ShareHtmlPdfInput {
-  html: string
+  /** HTML to render + attach as a PDF. Omit to send a plain text/email message. */
+  html?: string | null
   message: string
   /** File name (without extension) for the rendered PDF. */
-  filename: string
+  filename?: string | null
   channel: DocumentSendChannel
   phone?: string | null
   email?: string | null

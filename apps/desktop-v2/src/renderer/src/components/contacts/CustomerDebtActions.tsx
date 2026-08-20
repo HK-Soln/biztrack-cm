@@ -1,17 +1,19 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
 import { DebtDirection, DebtSource } from '@biztrack/types'
 import type { LocalDebt } from '@shared/ipc'
 import { dataClient } from '@/lib/data-client'
+import { ActionMenu } from '@/components/ActionMenu'
 import { useCurrency } from '@/lib/currency'
-import { openExternal } from '@/lib/share'
+import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 
-// Per-customer debt tools shown in the contact-details receivable panel: a one-tap
-// WhatsApp reminder (3 tones + optional itemised breakdown) and inline editable due dates
-// (D9). Only renders when the customer actually owes. Reuses the debtors.* i18n + .dbtr-*.
+// Per-customer debt tools in the contact-details receivable panel: an ellipsis menu with
+// a one-tap WhatsApp reminder (3 tones + optional itemised breakdown) and a "view all
+// debts" modal that lists the outstanding debts making up the balance, with per-debt
+// editable due dates (D9). Self-hides when the customer owes nothing.
 
 type Tone = 'gentle' | 'neutral' | 'firm'
 const TONE_KEY: Record<Tone, MessageKey> = {
@@ -30,6 +32,16 @@ const X = (
     <path d="M6 6l12 12M18 6 6 18" />
   </svg>
 )
+const ICO_WA = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+    <path d="M12 3a9 9 0 0 0-7.7 13.6L3 21l4.5-1.3A9 9 0 1 0 12 3Z" />
+  </svg>
+)
+const ICO_LIST = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+  </svg>
+)
 
 interface CustomerRef {
   id: string
@@ -41,53 +53,58 @@ interface CustomerRef {
 export function CustomerDebtActions({
   contact,
   businessName,
+  statementHtml,
+  statementFilename,
 }: {
   contact: CustomerRef
   businessName: string
+  /** Pre-built receivable statement HTML (for the optional 'send with statement' attach). */
+  statementHtml: string | null
+  statementFilename: string
 }) {
   const t = useT()
   const [remind, setRemind] = useState(false)
-  const [dates, setDates] = useState(false)
+  const [debtsOpen, setDebtsOpen] = useState(false)
 
-  // The customer's outstanding receivable debts — for the itemised breakdown + due dates.
+  // Outstanding receivable debts making up the balance (incl. opening balance so the list
+  // reconciles with the total). Only fetched when a panel that needs them opens.
   const debtsQ = useQuery({
     queryKey: ['debtorDebts', contact.id],
     queryFn: async () => {
       const res = await dataClient.debts.listByContact(contact.id, { limit: 100 })
       return res.data.filter(
-        (d) =>
-          d.direction === DebtDirection.RECEIVABLE &&
-          d.sourceType !== DebtSource.OPENING_BALANCE &&
-          d.outstandingAmount > 0,
+        (d) => d.direction === DebtDirection.RECEIVABLE && d.outstandingAmount > 0,
       )
     },
-    enabled: remind || dates,
+    enabled: debtsOpen,
   })
 
   if (contact.totalReceivable <= 0) return null
 
   return (
     <>
-      <button type="button" className="btn" onClick={() => setRemind(true)}>
-        {t('debtors.remind')}
-      </button>
-      <button type="button" className="btn" onClick={() => setDates(true)}>
-        {t('debtors.manageDates')}
-      </button>
+      <ActionMenu
+        label={t('debtors.menuLabel')}
+        items={[
+          { label: t('debtors.remind'), icon: ICO_WA, onClick: () => setRemind(true) },
+          { label: t('debtors.viewDebts'), icon: ICO_LIST, onClick: () => setDebtsOpen(true) },
+        ]}
+      />
       {remind ? (
         <ReminderModal
           contact={contact}
           businessName={businessName}
-          debts={debtsQ.data ?? []}
+          statementHtml={statementHtml}
+          statementFilename={statementFilename}
           onClose={() => setRemind(false)}
         />
       ) : null}
-      {dates ? (
-        <DueDatesModal
+      {debtsOpen ? (
+        <AllDebtsModal
           contactId={contact.id}
           debts={debtsQ.data ?? []}
           loading={debtsQ.isLoading}
-          onClose={() => setDates(false)}
+          onClose={() => setDebtsOpen(false)}
         />
       ) : null}
     </>
@@ -97,99 +114,141 @@ export function CustomerDebtActions({
 function ReminderModal({
   contact,
   businessName,
-  debts,
+  statementHtml,
+  statementFilename,
   onClose,
 }: {
   contact: CustomerRef
   businessName: string
-  debts: LocalDebt[]
+  statementHtml: string | null
+  statementFilename: string
   onClose: () => void
 }) {
   const t = useT()
   const money = useCurrency()
-  const [tone, setTone] = useState<Tone>('neutral')
-  const [itemised, setItemised] = useState(false)
-  const [phone, setPhone] = useState(contact.phone ?? '')
-
-  const send = () => {
-    let msg = t(TONE_KEY[tone])
+  const genMessage = (tone: Tone) =>
+    t(TONE_KEY[tone])
       .replace('{name}', contact.name)
       .replace('{amount}', money.format(contact.totalReceivable))
       .replace('{business}', businessName)
-    if (itemised && debts.length > 0) {
-      const items = debts
-        .map(
-          (d) =>
-            `• ${d.sourceReference} — ${money.format(d.outstandingAmount)}${
-              d.dueDate ? ` (${d.dueDate})` : ''
-            }`,
-        )
-        .join('\n')
-      msg += `\n\n${t('debtors.waItems')}\n${items}`
-    }
-    const digits = phone.replace(/\D/g, '')
-    openExternal(
-      digits
-        ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
-        : `https://wa.me/?text=${encodeURIComponent(msg)}`,
-    )
-    onClose()
+
+  const [tone, setTone] = useState<Tone>('neutral')
+  const [message, setMessage] = useState(() => genMessage('neutral'))
+  const [phone, setPhone] = useState(contact.phone ?? '')
+  const [withStatement, setWithStatement] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const pickTone = (tk: Tone) => {
+    setTone(tk)
+    setMessage(genMessage(tk)) // regenerate; the user can then refine the text
   }
 
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setError(t('debtors.copyError'))
+    }
+  }
+
+  const send = useMutation({
+    mutationFn: () =>
+      dataClient.documents.shareHtmlPdf({
+        channel: 'whatsapp',
+        message: message.trim(),
+        phone: phone.trim(),
+        subject: t('debtors.reminderSubject').replace('{business}', businessName),
+        html: withStatement ? (statementHtml ?? undefined) : undefined,
+        filename: withStatement ? statementFilename : undefined,
+      }),
+    onSuccess: () => setDone(t('debtors.reminderSent')),
+    onError: (e) =>
+      setError(
+        typeof navigator !== 'undefined' && !navigator.onLine
+          ? t('debtors.reminderOffline')
+          : errorMessage(e, t('share.error')),
+      ),
+  })
+
+  const canSend = !!message.trim() && !!phone.trim() && !send.isPending
+
   return (
-    <div
-      className="pay-overlay open"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="pay-modal" style={{ width: 440 }}>
-        <div className="pm-head">
-          <h3>{t('debtors.remind')}</h3>
-          <button type="button" className="x" onClick={onClose}>
-            {X}
+    <Overlay onClose={onClose} title={t('debtors.remind')} width={460}>
+      <div className="dbtr-tones" style={{ marginBottom: 12 }}>
+        {(['gentle', 'neutral', 'firm'] as Tone[]).map((tk) => (
+          <button
+            key={tk}
+            type="button"
+            className={`ofs-chip${tone === tk ? ' on' : ''}`}
+            onClick={() => pickTone(tk)}
+          >
+            {t(TONE_LABEL[tk])}
           </button>
-        </div>
-        <div className="pm-body">
-          <div className="dbtr-tones" style={{ marginBottom: 14 }}>
-            {(['gentle', 'neutral', 'firm'] as Tone[]).map((tk) => (
-              <button
-                key={tk}
-                type="button"
-                className={`ofs-chip${tone === tk ? ' on' : ''}`}
-                onClick={() => setTone(tk)}
-              >
-                {t(TONE_LABEL[tk])}
-              </button>
-            ))}
-            <label className="dbtr-itemised">
-              <input
-                type="checkbox"
-                checked={itemised}
-                onChange={(e) => setItemised(e.target.checked)}
-              />
-              {t('debtors.itemised')}
-            </label>
-          </div>
-          <div className="ff">
-            <label className="lbl2">{t('share.recipientPhone')}</label>
-            <PhoneInput value={phone} onChange={(v) => setPhone(v ?? '')} />
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-            <Button variant="soft" onClick={onClose}>
-              {t('share.back')}
-            </Button>
-            <Button variant="primary" disabled={!phone.trim()} onClick={send}>
-              {t('debtors.remind')}
-            </Button>
-          </div>
-        </div>
+        ))}
       </div>
-    </div>
+      <textarea
+        className="dbtr-msg"
+        rows={6}
+        value={message}
+        onChange={(e) => {
+          setMessage(e.target.value)
+          setDone(null)
+        }}
+      />
+      <label className="dbtr-itemised" style={{ marginTop: 10 }}>
+        <input
+          type="checkbox"
+          checked={withStatement}
+          disabled={!statementHtml}
+          onChange={(e) => setWithStatement(e.target.checked)}
+        />
+        {t('debtors.withStatement')}
+      </label>
+      <div className="ff" style={{ marginTop: 12 }}>
+        <label className="lbl2">{t('share.recipientPhone')}</label>
+        <PhoneInput value={phone} onChange={(v) => setPhone(v ?? '')} />
+      </div>
+      {done ? (
+        <p style={{ color: 'var(--success)', fontSize: 12.5, marginTop: 10 }}>{done}</p>
+      ) : error ? (
+        <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginTop: 16,
+        }}
+      >
+        <Button type="button" variant="soft" onClick={copy}>
+          {copied ? t('debtors.copied') : t('debtors.copy')}
+        </Button>
+        <Button
+          type="button"
+          variant="primary"
+          loading={send.isPending}
+          disabled={!canSend}
+          onClick={() => {
+            setError(null)
+            send.mutate()
+          }}
+        >
+          {t('debtors.sendWhatsapp')}
+        </Button>
+      </div>
+    </Overlay>
   )
 }
 
-function DueDatesModal({
+function AllDebtsModal({
   contactId,
   debts,
   loading,
@@ -202,42 +261,28 @@ function DueDatesModal({
 }) {
   const t = useT()
   return (
-    <div
-      className="pay-overlay open"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="pay-modal" style={{ width: 460 }}>
-        <div className="pm-head">
-          <h3>{t('debtors.manageDates')}</h3>
-          <button type="button" className="x" onClick={onClose}>
-            {X}
-          </button>
+    <Overlay onClose={onClose} title={t('debtors.viewDebts')} width={520}>
+      {loading ? (
+        <p style={{ color: 'var(--text-2)', fontSize: 13 }}>…</p>
+      ) : debts.length === 0 ? (
+        <p style={{ color: 'var(--text-2)', fontSize: 13 }}>{t('debtors.noOpenDebts')}</p>
+      ) : (
+        <div className="debt-list">
+          {debts.map((d) => (
+            <DebtItem key={d.id} debt={d} contactId={contactId} />
+          ))}
         </div>
-        <div className="pm-body">
-          {loading ? (
-            <p style={{ color: 'var(--text-2)', fontSize: 13 }}>…</p>
-          ) : debts.length === 0 ? (
-            <p style={{ color: 'var(--text-2)', fontSize: 13 }}>{t('debtors.noOpenDebts')}</p>
-          ) : (
-            <div className="dbtr-dates" style={{ borderTop: 0, paddingTop: 0 }}>
-              {debts.map((d) => (
-                <DebtDateRow key={d.id} debt={d} contactId={contactId} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+      )}
+    </Overlay>
   )
 }
 
-function DebtDateRow({ debt, contactId }: { debt: LocalDebt; contactId: string }) {
+function DebtItem({ debt, contactId }: { debt: LocalDebt; contactId: string }) {
   const t = useT()
   const money = useCurrency()
   const qc = useQueryClient()
   const [value, setValue] = useState(debt.dueDate ?? '')
+  const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
 
   const save = useMutation({
     mutationFn: () => dataClient.debts.updateDueDate(debt.id, value || null),
@@ -247,22 +292,78 @@ function DebtDateRow({ debt, contactId }: { debt: LocalDebt; contactId: string }
     },
   })
   const dirty = (value || '') !== (debt.dueDate ?? '')
+  const created = new Date(debt.createdAt).toLocaleDateString()
 
   return (
-    <div className="dbtr-date-row">
-      <div className="ref">
-        <div className="r">{debt.sourceReference}</div>
-        <div className="a">{money.format(debt.outstandingAmount)}</div>
+    <div className="debt-item">
+      <div className="debt-item-top">
+        <span className="debt-item-ref">
+          {isOpening ? t('debtors.opening') : debt.sourceReference}
+        </span>
+        <span className="debt-item-out">{money.format(debt.outstandingAmount)}</span>
       </div>
-      <Input type="date" value={value} onChange={(e) => setValue(e.target.value)} />
-      <Button
-        type="button"
-        variant={dirty ? 'primary' : 'ghost'}
-        disabled={!dirty || save.isPending}
-        onClick={() => save.mutate()}
-      >
-        {t('debtors.saveDate')}
-      </Button>
+      <div className="debt-item-meta">
+        <span>{created}</span>
+        <span>
+          {t('debtors.colOriginal')}: {money.format(debt.originalAmount)}
+        </span>
+        {debt.paidAmount > 0 ? (
+          <span>
+            {t('debtors.colPaid')}: {money.format(debt.paidAmount)}
+          </span>
+        ) : null}
+      </div>
+      <div className="debt-item-due">
+        <label>{t('debtors.dueDate')}</label>
+        {isOpening ? (
+          <span className="debt-item-due-na">{debt.dueDate ?? '—'}</span>
+        ) : (
+          <>
+            <Input type="date" value={value} onChange={(e) => setValue(e.target.value)} />
+            <Button
+              type="button"
+              variant={dirty ? 'primary' : 'ghost'}
+              disabled={!dirty || save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {t('debtors.saveDate')}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Overlay({
+  title,
+  width,
+  onClose,
+  children,
+}: {
+  title: string
+  width: number
+  onClose: () => void
+  children: ReactNode
+}) {
+  return (
+    <div
+      className="pay-overlay open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="pay-modal" style={{ width }}>
+        <div className="pm-head">
+          <h3>{title}</h3>
+          <button type="button" className="x" onClick={onClose}>
+            {X}
+          </button>
+        </div>
+        <div className="pm-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+          {children}
+        </div>
+      </div>
     </div>
   )
 }

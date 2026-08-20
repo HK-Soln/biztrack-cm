@@ -1,25 +1,28 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsEmail, IsIn, IsString, MaxLength, ValidateIf } from 'class-validator'
+import { IsEmail, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator'
 
 /**
- * Send an app-generated document (e.g. a contact statement) to a recipient as a PDF via
- * email or WhatsApp. The HTML is rendered to PDF server-side with network blocked
- * (anti-SSRF) and dispatched through the notification providers.
+ * Send a message to a recipient via email or WhatsApp, optionally with an app-generated
+ * document (e.g. a contact statement) attached as a PDF. When `html` is present it is
+ * rendered to PDF server-side with network blocked (anti-SSRF) and attached; when absent
+ * a plain text/email message is sent. Dispatched through the notification providers.
  */
 export class SendDocumentDto {
-  @ApiProperty({ description: 'Self-contained HTML to render to PDF.' })
+  @ApiPropertyOptional({ description: 'Self-contained HTML to render to PDF + attach.' })
+  @IsOptional()
   @IsString()
   @MaxLength(2_000_000)
-  html!: string
+  html?: string | null
 
-  @ApiProperty({ example: 'statement-jean-dupont' })
+  @ApiPropertyOptional({ example: 'statement-jean-dupont' })
+  @IsOptional()
   @IsString()
   @MaxLength(200)
-  filename!: string
+  filename?: string | null
 
   @ApiProperty({ example: 'Your account statement is attached.' })
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(4000)
   message!: string
 
   @ApiProperty({ example: 'Kamga Store — Statement' })
