@@ -141,7 +141,7 @@ export class DailyDigestService {
       cashVariance: cash.totals.varianceCash,
       lowStock: stats.lowStock,
       receivablesOutstanding: ageing.totals.totalOutstanding,
-      receivablesOverdue: ageing.totals.overdue,
+      receivablesOverdue: ageing.totals.pastDue,
     }
   }
 

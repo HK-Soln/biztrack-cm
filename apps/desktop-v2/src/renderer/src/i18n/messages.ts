@@ -3041,6 +3041,11 @@ export const en = {
   'hours.save': 'Save hours',
   'hours.saved': 'Hours saved',
   'hours.closed': 'Closed',
+  'credit.title': 'Credit terms',
+  'credit.sub':
+    'Default time customers get to pay when a sale is on credit. Each debt keeps the due date set when it was created.',
+  'credit.label': 'Default credit period',
+  'credit.unit': 'days',
   'hours.ownerOnly': 'Only the business owner can edit business hours.',
   'hours.onlineOnly': "You're offline — business hours load when you reconnect.",
   'hours.mon': 'Monday',
@@ -6497,6 +6502,11 @@ export const fr: Record<MessageKey, string> = {
   'hours.save': 'Enregistrer',
   'hours.saved': 'Horaires enregistrés',
   'hours.closed': 'Fermé',
+  'credit.title': 'Conditions de crédit',
+  'credit.sub':
+    'Délai de paiement par défaut pour une vente à crédit. Chaque dette conserve l’échéance fixée à sa création.',
+  'credit.label': 'Délai de crédit par défaut',
+  'credit.unit': 'jours',
   'hours.ownerOnly': 'Seul le propriétaire peut modifier les horaires.',
   'hours.onlineOnly': 'Vous êtes hors ligne — les horaires se chargeront à la reconnexion.',
   'hours.mon': 'Lundi',

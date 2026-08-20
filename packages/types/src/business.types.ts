@@ -14,6 +14,8 @@ export interface Business {
   currency: Currency | string
   logoUrl?: string | null
   businessHours?: BusinessHours | null
+  /** Days of credit granted by default when a sale is put on account (drives due dates). */
+  defaultCreditDays?: number | null
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
@@ -161,6 +163,17 @@ export function normalizeBusinessHours(input: unknown): BusinessHours | null {
   return hasOpenDay ? out : null
 }
 
+/** Default credit period (days) for on-account sales when a debt carries no explicit due
+ * date. Drives the effective due date used by ageing + debt-due reminders (D9). */
+export const DEFAULT_CREDIT_DAYS = 30
+export const MAX_CREDIT_DAYS = 365
+
+/** Clamp a requested credit period to a valid integer in [0, MAX]. */
+export function clampCreditDays(days: number | null | undefined): number {
+  if (days == null || !Number.isFinite(days)) return DEFAULT_CREDIT_DAYS
+  return Math.min(MAX_CREDIT_DAYS, Math.max(0, Math.round(days)))
+}
+
 export interface CreateBusinessRequest extends BusinessFiscalFields {
   name: string
   description?: string
@@ -175,6 +188,8 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   logoUrl?: string | null
   /** Per-weekday opening hours (null day = closed). */
   businessHours?: BusinessHours | null
+  /** Default credit period in days for on-account sales (0–365). */
+  defaultCreditDays?: number | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -195,6 +210,7 @@ export interface BusinessProfile {
   currency: Currency | string
   logoUrl: string | null
   businessHours: BusinessHours | null
+  defaultCreditDays: number | null
   role: BusinessMemberRole | null
 }
 
@@ -213,6 +229,7 @@ export interface BusinessMembershipBusinessSummary {
   currency?: Currency | string
   logoUrl?: string | null
   businessHours?: BusinessHours | null
+  defaultCreditDays?: number | null
   ownerId?: string | null
   owner?: string | null
   subscriptionStatus?: SubscriptionStatus | null

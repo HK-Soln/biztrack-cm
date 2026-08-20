@@ -75,6 +75,11 @@ export class Business extends BaseEntity {
   @Column({ name: 'business_hours', type: 'jsonb', nullable: true })
   businessHours?: BusinessHours | null
 
+  /** Default credit period (days) for on-account sales; drives the effective due date
+   * used by ageing + debt-due reminders when a debt has no explicit due_date (D9). */
+  @Column({ name: 'default_credit_days', type: 'int', default: 30 })
+  defaultCreditDays!: number
+
   @Column({ name: 'owner_id' })
   ownerId!: string
 

@@ -38,6 +38,7 @@ import {
   BusinessMemberRole,
   BusinessMemberStatus,
   BusinessStatus,
+  clampCreditDays,
   normalizeBusinessHours,
 } from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
@@ -66,9 +67,11 @@ export class BusinessService {
       const baseSlug = generateSlug(dto.name)
       const slug = await this.generateUniqueSlug(baseSlug)
 
+      const { defaultCreditDays: rawCreditDays, ...createRest } = dto
       const business = this.businessRepo.create({
-        ...dto,
+        ...createRest,
         businessHours: normalizeBusinessHours(dto.businessHours),
+        defaultCreditDays: clampCreditDays(rawCreditDays),
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -158,11 +161,15 @@ export class BusinessService {
         business.businessStatus === BusinessStatus.ONBOARDING
           ? BusinessStatus.PLAN_PENDING
           : business.businessStatus
+      const { defaultCreditDays: rawUpdateCreditDays, ...updateRest } = dto
       await this.businessRepo.update(id, {
-        ...dto,
+        ...updateRest,
         businessStatus: nextStatus,
         ...(dto.businessHours !== undefined
           ? { businessHours: normalizeBusinessHours(dto.businessHours) }
+          : {}),
+        ...(rawUpdateCreditDays !== undefined
+          ? { defaultCreditDays: clampCreditDays(rawUpdateCreditDays) }
           : {}),
       })
       return this.businessRepo.findOne({ where: { id } })

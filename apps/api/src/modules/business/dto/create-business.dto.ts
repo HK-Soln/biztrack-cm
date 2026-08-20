@@ -78,6 +78,16 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @IsObject()
   businessHours?: BusinessHours | null
 
+  @ApiPropertyOptional({
+    description: 'Default credit period (days) for on-account sales; drives due dates.',
+    example: 30,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(365)
+  defaultCreditDays?: number | null
+
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })
   @IsOptional()

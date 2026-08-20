@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input } from '@biztrack/ui/biztrack'
 import {
+  DEFAULT_CREDIT_DAYS,
+  MAX_CREDIT_DAYS,
   WEEKDAYS,
+  clampCreditDays,
   normalizeBusinessHours,
   type BusinessHours,
   type BusinessProfile,
@@ -69,9 +72,13 @@ export function BusinessHoursSection() {
   const canEdit = isOwner && online
 
   const [days, setDays] = useState<Record<Weekday, DayState> | null>(null)
+  const [creditDays, setCreditDays] = useState(String(DEFAULT_CREDIT_DAYS))
   const [toast, setToast] = useState<string | null>(null)
   useEffect(() => {
-    if (q.data) setDays(seed(q.data.businessHours ?? null))
+    if (q.data) {
+      setDays(seed(q.data.businessHours ?? null))
+      setCreditDays(String(q.data.defaultCreditDays ?? DEFAULT_CREDIT_DAYS))
+    }
   }, [q.data])
   useEffect(() => {
     if (!toast) return
@@ -90,6 +97,19 @@ export function BusinessHoursSection() {
     },
     onSuccess: (updated) => {
       setToast(t('hours.saved'))
+      qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
+        ...updated,
+        role: prev?.role ?? updated.role,
+      }))
+    },
+  })
+
+  const creditSave = useMutation({
+    mutationFn: () =>
+      dataClient.business.update({ defaultCreditDays: clampCreditDays(Number(creditDays)) }),
+    onSuccess: (updated) => {
+      setToast(t('hours.saved'))
+      setCreditDays(String(updated.defaultCreditDays ?? DEFAULT_CREDIT_DAYS))
       qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
         ...updated,
         role: prev?.role ?? updated.role,
@@ -175,6 +195,39 @@ export function BusinessHoursSection() {
             {t('hours.save')}
           </Button>
           {toast ? <span style={{ color: 'var(--success)', fontSize: 13 }}>{toast}</span> : null}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <div>
+            <h3>{t('credit.title')}</h3>
+            <p>{t('credit.sub')}</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, maxWidth: 320 }}>
+          <div style={{ flex: 1 }}>
+            <label className="lbl">{t('credit.label')}</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Input
+                type="number"
+                min={0}
+                max={MAX_CREDIT_DAYS}
+                value={creditDays}
+                disabled={!canEdit}
+                onChange={(e) => setCreditDays(e.target.value)}
+              />
+              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{t('credit.unit')}</span>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!canEdit || creditSave.isPending}
+            onClick={() => creditSave.mutate()}
+          >
+            {t('hours.save')}
+          </Button>
         </div>
       </div>
     </div>

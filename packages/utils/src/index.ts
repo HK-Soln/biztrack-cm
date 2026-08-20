@@ -1,6 +1,7 @@
 export * from './currency'
 export * from './expected-cash'
 export * from './reorder'
+export * from './credit'
 export * from './discount-policy'
 export * from './pin'
 export * from './date'

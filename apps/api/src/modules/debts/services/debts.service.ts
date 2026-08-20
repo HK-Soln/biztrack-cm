@@ -9,6 +9,7 @@ import {
   DebtStatus,
   ContactStatementEntryType,
   PaymentMethod,
+  clampCreditDays,
   type ContactStatement,
   type Debt,
   type DebtDirectionSummary,
@@ -17,6 +18,7 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
+import { effectiveDueDate } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -27,6 +29,7 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { toIsoString } from '@/common/http/serialization'
+import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { Debt as DebtEntity } from '@/entities/debt.entity'
@@ -783,6 +786,22 @@ export class DebtsService {
       return existing
     }
 
+    const createdAt = params.createdAt ?? new Date()
+    // Every debt carries its own expected payment date (D9): the caller's explicit dueDate
+    // (e.g. the credit terms chosen at the point of sale), or a materialized fallback of
+    // created_at + the business's default credit period. Opening balances are excluded (no
+    // due-date semantics) — they never route through here.
+    let dueDate = this.normalizeOptionalString(params.dueDate)
+    if (!dueDate && params.sourceType !== DebtSource.OPENING_BALANCE) {
+      const business = await manager.getRepository(Business).findOne({
+        where: { id: params.businessId },
+        select: ['id', 'defaultCreditDays'],
+      })
+      dueDate = effectiveDueDate({ createdAt }, clampCreditDays(business?.defaultCreditDays))
+        .toISOString()
+        .slice(0, 10)
+    }
+
     return debtRepo.save(
       debtRepo.create({
         businessId: params.businessId,
@@ -793,10 +812,10 @@ export class DebtsService {
         sourceReference,
         originalAmount,
         status: DebtStatus.OUTSTANDING,
-        dueDate: params.dueDate ?? null,
+        dueDate,
         notes: this.normalizeOptionalString(params.notes),
-        createdAt: params.createdAt ?? new Date(),
-        updatedAt: params.createdAt ?? new Date(),
+        createdAt,
+        updatedAt: createdAt,
       }),
     )
   }

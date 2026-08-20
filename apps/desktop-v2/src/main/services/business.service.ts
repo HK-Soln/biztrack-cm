@@ -45,6 +45,7 @@ export class BusinessService {
       currency: b.currency ?? 'XAF',
       logoUrl: b.logoUrl ?? null,
       businessHours: b.businessHours ?? null,
+      defaultCreditDays: b.defaultCreditDays ?? null,
       role: membership?.role ?? null,
     }
   }
@@ -72,6 +73,7 @@ export class BusinessService {
       currency: b.currency ?? 'XAF',
       logoUrl: b.logoUrl ?? null,
       businessHours: b.businessHours ?? null,
+      defaultCreditDays: b.defaultCreditDays ?? null,
       role: b.role ?? null,
     }
   }

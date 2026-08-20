@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import { CashMovementKind, ContactStatementEntryType } from '@biztrack/types'
+import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
+import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
 import type {
   AgeingEntry,
   AgeingReport,
@@ -492,10 +493,13 @@ export class DebtsService {
 
   /**
    * Ageing report (receivable or payable). Buckets each contact's outstanding balance by
-   * the age of the underlying debt — ≤7d current, 8–15d moderate, 16–30d aged, 30d+ overdue
-   * — then adds the contact's opening balance to its total. Replicates the API
-   * OpeningBalancesService.getAgeingReport verbatim (same buckets, rounding, opening-balance
-   * inclusion, sort) so a fully-synced desktop and the cloud return an identical report.
+   * how far past its EFFECTIVE due date it is (D9: due_date, else created_at + default
+   * credit days) — ≤7d current, 8–15d moderate, 16–30d aged, 30d+ overdue — then adds the
+   * contact's opening balance to its total. Mirrors the API OpeningBalancesService.
+   * getAgeingReport (same buckets, rounding, opening-balance inclusion, sort). NOTE: a
+   * business's custom defaultCreditDays isn't cached locally (settings sync deferred), so
+   * offline uses DEFAULT_CREDIT_DAYS for undated debts; debts with an explicit due_date
+   * are exact either way.
    */
   getAgeing(direction: DebtDirection): AgeingReport {
     const now = new Date()
@@ -506,6 +510,7 @@ export class DebtsService {
       moderate: 0,
       aged: 0,
       overdue: 0,
+      pastDue: 0,
       totalOutstanding: 0,
     }
     const businessId = this.getBusinessId()
@@ -519,20 +524,21 @@ export class DebtsService {
       source_type: string
       original_amount: number
       created_at: string
+      due_date: string | null
       paid_amount: number
     }>(
-      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, ${PAID} AS paid_amount
+      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, d.due_date, ${PAID} AS paid_amount
        FROM debts d WHERE d.business_id = ? AND d.direction = ? AND d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`,
       [businessId, direction],
     )
 
-    const msPerDay = 1000 * 60 * 60 * 24
     interface Bucket {
       openingBalance: number
       current: number
       moderate: number
       aged: number
       overdue: number
+      pastDue: number
       total: number
     }
     const buckets = new Map<string, Bucket>()
@@ -547,16 +553,22 @@ export class DebtsService {
         moderate: 0,
         aged: 0,
         overdue: 0,
+        pastDue: 0,
         total: 0,
       }
       if (d.source_type === 'OPENING_BALANCE') {
         b.openingBalance = round2(b.openingBalance + outstanding)
       } else {
-        const ageDays = Math.floor((now.getTime() - new Date(d.created_at).getTime()) / msPerDay)
-        if (ageDays <= 7) b.current = round2(b.current + outstanding)
-        else if (ageDays <= 15) b.moderate = round2(b.moderate + outstanding)
-        else if (ageDays <= 30) b.aged = round2(b.aged + outstanding)
+        const due = effectiveDueDate(
+          { dueDate: d.due_date, createdAt: d.created_at },
+          DEFAULT_CREDIT_DAYS,
+        )
+        const overdueDays = daysPastDue(due, now)
+        if (overdueDays <= 7) b.current = round2(b.current + outstanding)
+        else if (overdueDays <= 15) b.moderate = round2(b.moderate + outstanding)
+        else if (overdueDays <= 30) b.aged = round2(b.aged + outstanding)
         else b.overdue = round2(b.overdue + outstanding)
+        if (overdueDays > 0) b.pastDue = round2(b.pastDue + outstanding)
         b.total = round2(b.total + outstanding)
       }
       buckets.set(d.contact_id, b)
@@ -587,6 +599,7 @@ export class DebtsService {
           moderate: b.moderate,
           aged: b.aged,
           overdue: b.overdue,
+          pastDue: b.pastDue,
           totalOutstanding: round2(b.openingBalance + b.total),
         }
       })
@@ -600,6 +613,7 @@ export class DebtsService {
         moderate: round2(acc.moderate + e.moderate),
         aged: round2(acc.aged + e.aged),
         overdue: round2(acc.overdue + e.overdue),
+        pastDue: round2(acc.pastDue + e.pastDue),
         totalOutstanding: round2(acc.totalOutstanding + e.totalOutstanding),
       }),
       { ...emptyTotals },

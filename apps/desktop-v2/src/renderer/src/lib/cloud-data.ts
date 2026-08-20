@@ -147,6 +147,7 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     currency: b.currency ?? 'XAF',
     logoUrl: b.logoUrl ?? null,
     businessHours: b.businessHours ?? null,
+    defaultCreditDays: b.defaultCreditDays ?? null,
     role,
   }
 }
