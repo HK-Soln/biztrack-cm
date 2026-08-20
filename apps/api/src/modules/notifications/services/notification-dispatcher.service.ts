@@ -58,10 +58,12 @@ export class NotificationDispatcher {
     const metadata = input.metadata ?? undefined
 
     // External channels (email/WhatsApp) can't navigate an in-app route, so they carry a
-    // FULL link to the web app; the page then hands off to an installed native app (N7).
-    const externalUrl = input.deeplink
+    // FULL link to the web app. `openapp=1` tells the web page to try handing off to an
+    // installed native app for this route, falling back to the browser (N7).
+    const webUrl = input.deeplink
       ? buildAppUrl(this.config.get('APP_WEB_URL', { infer: true }), input.deeplink)
       : null
+    const externalUrl = webUrl ? `${webUrl}${webUrl.includes('?') ? '&' : '?'}openapp=1` : null
 
     let inApp = 0
     let external = 0

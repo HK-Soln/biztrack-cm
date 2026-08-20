@@ -10,7 +10,11 @@ import { queryClient } from '@/lib/query'
 import { useThemeStore } from '@/stores/theme.store'
 import { useLangStore } from '@/i18n'
 import { useSessionStore } from '@/stores/session.store'
+import { tryNativeHandoff } from '@/lib/native-handoff'
 
+// Browser build only: if opened from a notification link, try to hand off to the installed
+// desktop app for this route (falls back to the browser). No-op in Electron / without marker.
+tryNativeHandoff()
 // Sync the theme store with the attributes the no-flash script set in index.html.
 useThemeStore.getState().init()
 // Reflect the persisted language on <html lang>.
