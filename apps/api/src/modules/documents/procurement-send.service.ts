@@ -20,6 +20,8 @@ export interface ProcurementDispatchInput {
   channels: ProcurementChannel[]
   phone?: string | null
   email?: string | null
+  /** Block network during PDF render — set when the HTML came from a client (anti-SSRF). */
+  blockNetwork?: boolean
 }
 
 /**
@@ -45,7 +47,7 @@ export class ProcurementSendService {
   }
 
   async dispatch(input: ProcurementDispatchInput): Promise<{ pdfUrl: string }> {
-    const pdf = await this.pdf.render(input.html)
+    const pdf = await this.pdf.render(input.html, { blockNetwork: input.blockNetwork ?? false })
     const stored = await this.storage.upload({
       buffer: pdf,
       contentType: 'application/pdf',
@@ -58,7 +60,11 @@ export class ProcurementSendService {
     // (Resend refuses to fetch localhost/private URLs); WhatsApp gets the hosted URL for
     // WAHA to fetch (falling back to a text link when the engine can't send documents).
     const filename = `${input.filename}.pdf`
-    const emailAttachment = { filename, content: pdf.toString('base64'), content_type: 'application/pdf' }
+    const emailAttachment = {
+      filename,
+      content: pdf.toString('base64'),
+      content_type: 'application/pdf',
+    }
     const waAttachment = { filename, path: stored.url, content_type: 'application/pdf' }
 
     // NOTE: reuses PAYMENT_REMINDER notification type (supplier-facing business message)

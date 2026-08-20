@@ -208,7 +208,7 @@ export class DebtsService {
       entityType: 'debt',
       entityId: debtId,
       entityLabel: debt.source_reference,
-      changes: { dueDate: { before: debt.due_date ?? null, after: dueDate || null } },
+      changes: { before: { dueDate: debt.due_date ?? null }, after: { dueDate: dueDate || null } },
     })
     const updated = this.get(debtId)
     if (!updated) throw new Error('Debt not found.')
