@@ -70,6 +70,7 @@ import {
   NotificationType,
 } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
+import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import type { Queue } from 'bullmq'
@@ -3646,7 +3647,7 @@ export class SyncService {
         event: NotificationType.PAYMENT_RECEIVED,
         title: en ? 'Payment received' : 'Paiement reçu',
         body: en ? `${value} received from ${name}.` : `${value} reçu de ${name}.`,
-        deeplink: `/contacts/${contactId}`,
+        deeplink: APP_ROUTES.contact(contactId),
         metadata: { contactId, amount },
       })
     } catch (error) {

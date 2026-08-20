@@ -6,6 +6,7 @@ import { PermissionsService } from '@/modules/permissions/permissions.service'
 import { SubscriptionEventType } from '@/entities/subscription-event.entity'
 import { SubscriptionStatus } from '@/entities/business.entity'
 import { NotificationType, SubscriptionPlan } from '@biztrack/types'
+import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 
@@ -58,7 +59,7 @@ export class SubscriptionsService {
         body: en
           ? 'You’re now on the Free plan. Upgrade anytime to restore your features.'
           : 'Vous êtes maintenant sur le forfait Gratuit. Passez à un forfait supérieur à tout moment.',
-        deeplink: '/settings',
+        deeplink: APP_ROUTES.settings(),
         metadata: { reason: 'trial_ended' },
       })
     } catch {

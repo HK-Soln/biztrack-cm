@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { NotificationChannel, type NotificationEvent } from '@biztrack/types'
+import { buildAppUrl } from '@biztrack/utils'
 import type { Logger } from '@biztrack/logger'
+import type { AppConfig } from '@/config/configuration'
 import { LOGGER } from '@/logger/logger.module'
 import { minutesOfDayInTimezone } from '@/common/time/timezone.util'
 import { NotificationsService } from './notifications.service'
@@ -43,6 +46,7 @@ export class NotificationDispatcher {
   constructor(
     private readonly settings: NotificationSettingsService,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService<AppConfig>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {}
 
@@ -52,6 +56,12 @@ export class NotificationDispatcher {
     const holdExternal =
       !input.urgent && plan.quietHours.enabled && withinQuietHours(plan.quietHours)
     const metadata = input.metadata ?? undefined
+
+    // External channels (email/WhatsApp) can't navigate an in-app route, so they carry a
+    // FULL link to the web app; the page then hands off to an installed native app (N7).
+    const externalUrl = input.deeplink
+      ? buildAppUrl(this.config.get('APP_WEB_URL', { infer: true }), input.deeplink)
+      : null
 
     let inApp = 0
     let external = 0
@@ -77,7 +87,7 @@ export class NotificationDispatcher {
           type: input.event,
           recipient: r.email,
           subject: input.title,
-          body: input.emailBody ?? input.body,
+          body: appendEmailLink(input.emailBody ?? input.body, externalUrl),
           metadata,
           businessId: input.businessId,
           userId: r.userId ?? undefined,
@@ -91,7 +101,7 @@ export class NotificationDispatcher {
           type: input.event,
           recipient: r.whatsappContact,
           subject: input.title,
-          body: input.whatsappBody ?? input.body,
+          body: appendWhatsAppLink(input.whatsappBody ?? input.body, externalUrl),
           metadata,
           businessId: input.businessId,
           userId: r.userId ?? undefined,
@@ -110,6 +120,19 @@ export class NotificationDispatcher {
       heldForQuietHours: holdExternal,
     })
   }
+}
+
+/** Append the full web-app link to an email body (rendered as HTML by Resend). No-op when
+ * there's no URL. Language-neutral — the URL itself is the visible link. */
+function appendEmailLink(body: string, url: string | null): string {
+  if (!url) return body
+  const safe = url.replace(/"/g, '%22')
+  return `${body}<div style="margin-top:16px;font-size:13px"><a href="${safe}" style="color:#0a58ca">${url}</a></div>`
+}
+
+/** Append the full web-app link on its own line for WhatsApp (auto-linked by the client). */
+function appendWhatsAppLink(body: string, url: string | null): string {
+  return url ? `${body}\n\n${url}` : body
 }
 
 /** True when `now` falls inside the quiet window IN THE BUSINESS TIMEZONE, wrap-around

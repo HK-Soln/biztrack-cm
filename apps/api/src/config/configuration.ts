@@ -73,6 +73,12 @@ const envSchema = z.object({
   BIZTRACK_WEB_URL: z
     .preprocess(normalizeEnvString, z.string().url())
     .default('https://biztrack.cm'),
+  // Origin of the BizTrack web/cloud app (the desktop-v2 browser build) where notification
+  // deeplinks resolve. External notification channels (email/WhatsApp) build full links
+  // against this; the page then hands off to the installed native app when present (N7).
+  APP_WEB_URL: z
+    .preprocess(normalizeEnvString, z.string().url())
+    .default('https://app.biztrack.cm'),
   // "Download latest desktop app" redirect target (GET /download/desktop). Defaults to GitHub's
   // latest-release asset (stable filename via electron-builder artifactName). Swap to an R2/CDN
   // URL or store links later without touching the landing page.

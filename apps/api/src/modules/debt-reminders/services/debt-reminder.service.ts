@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { DebtDirection, NotificationType } from '@biztrack/types'
+import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { Business } from '@/entities/business.entity'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
@@ -94,7 +95,7 @@ export class DebtReminderService {
       body: this.buildInApp(copy, summary),
       emailBody: this.buildEmailHtml(copy, business.name, summary),
       whatsappBody: this.buildWhatsApp(copy, business.name, summary),
-      deeplink: '/contacts?tab=debtors',
+      deeplink: APP_ROUTES.debtors(),
       metadata: { totalPastDue: summary.totalPastDue, count: summary.count },
     })
     return summary

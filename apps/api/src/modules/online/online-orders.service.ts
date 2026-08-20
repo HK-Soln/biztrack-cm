@@ -47,6 +47,7 @@ import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
@@ -331,7 +332,7 @@ export class OnlineOrdersService {
         body: en
           ? `${actor} refunded order ${orderNumber} (${value}).`
           : `${actor} a remboursé la commande ${orderNumber} (${value}).`,
-        deeplink: `/online/orders/${orderId}`,
+        deeplink: APP_ROUTES.onlineOrder(orderId),
         metadata: { action: 'REFUND', orderId, orderNumber, amount },
       })
     } catch (error) {
@@ -362,7 +363,7 @@ export class OnlineOrdersService {
         event: NotificationType.NEW_ORDER,
         title: en ? 'New online order' : 'Nouvelle commande en ligne',
         body: en ? `Order ${orderNumber} · ${value}.` : `Commande ${orderNumber} · ${value}.`,
-        deeplink: `/online/orders/${orderId}`,
+        deeplink: APP_ROUTES.onlineOrder(orderId),
         metadata: { orderId, orderNumber, totalAmount },
       })
     } catch (error) {

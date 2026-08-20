@@ -34,9 +34,11 @@ describe('NotificationDispatcher', () => {
       createAndEnqueue: jest.fn().mockResolvedValue(undefined),
     }
     const logger = { log: jest.fn() }
+    const config = { get: jest.fn().mockReturnValue('https://app.biztrack.cm') }
     const dispatcher = new NotificationDispatcher(
       settings as never,
       notifications as never,
+      config as never,
       logger as never,
     )
     return { dispatcher, notifications }

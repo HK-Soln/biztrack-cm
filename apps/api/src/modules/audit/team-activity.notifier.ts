@@ -7,6 +7,7 @@ import {
   type AuditAction,
   type AuditChanges,
 } from '@biztrack/types'
+import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { Business } from '@/entities/business.entity'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
@@ -65,7 +66,7 @@ export class TeamActivityNotifier {
         event: NotificationType.TEAM_ACTIVITY,
         title,
         body,
-        deeplink: '/activity',
+        deeplink: APP_ROUTES.activity(),
         metadata: { action: input.action, entityLabel: label },
       })
     } catch {

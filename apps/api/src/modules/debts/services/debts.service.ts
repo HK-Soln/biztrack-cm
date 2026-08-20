@@ -19,7 +19,7 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
-import { effectiveDueDate } from '@biztrack/utils'
+import { APP_ROUTES, effectiveDueDate } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -365,7 +365,7 @@ export class DebtsService {
         event: NotificationType.PAYMENT_RECEIVED,
         title: en ? 'Payment received' : 'Paiement reçu',
         body: en ? `${value} received from ${name}.` : `${value} reçu de ${name}.`,
-        deeplink: `/contacts/${debt.contactId}`,
+        deeplink: APP_ROUTES.contact(debt.contactId),
         metadata: { debtId: debt.id, amount },
       })
     } catch (error) {

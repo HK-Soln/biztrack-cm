@@ -3,7 +3,7 @@ import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger } from '@biztrack/logger'
 import { NotificationType } from '@biztrack/types'
-import { computeRevenueAtRisk } from '@biztrack/utils'
+import { APP_ROUTES, computeRevenueAtRisk } from '@biztrack/utils'
 import type { Job, Queue } from 'bullmq'
 import { Repository } from 'typeorm'
 import { RedisService } from '@/common/redis/redis.service'
@@ -34,8 +34,8 @@ type InventoryAlertsJobData = InventoryLowStockScanJobData | InventoryLowStockDi
 // i18n.generated.ts type; the strings are producer-specific.
 const NOTIF_COPY = {
   // Copy is channel-neutral (no "tap/click" CTA): the same body goes to in-app AND
-  // email/WhatsApp, but external channels have no clickable link until the shared
-  // route-registry + base-URL work (N7) lands. In-app rows are still tappable.
+  // email/WhatsApp. The dispatcher appends the full web-app link to external channels
+  // (N7), and in-app rows are tappable via the deeplink.
   [Locale.EN]: {
     lowStockTitle: (n: number) => `${n} product${n > 1 ? 's' : ''} to reorder`,
     lowStockBody: (risk: string) => `About ${risk} XAF/day at risk while stock is low.`,
@@ -177,7 +177,7 @@ export class InventoryAlertsProcessor extends WorkerHost {
         totalRisk > 0
           ? copy.lowStockBody(totalRisk.toLocaleString(copy.numberLocale))
           : copy.lowStockBodyNoRisk,
-      deeplink: '/inventory',
+      deeplink: APP_ROUTES.inventory(),
       metadata: { productCount: count, freshCount: fresh.length, totalRevenueAtRisk: totalRisk },
     })
 
@@ -233,7 +233,7 @@ export class InventoryAlertsProcessor extends WorkerHost {
       type: NotificationType.SYNC_STALE,
       title: copy.syncStaleTitle,
       body: copy.syncStaleBody,
-      deeplink: '/inventory',
+      deeplink: APP_ROUTES.inventory(),
     })
     await this.redis.setex(key, SYNC_STALE_ALERT_SUPPRESSION_SECONDS, '1')
     this.logger.warn(

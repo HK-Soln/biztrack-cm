@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { DebtDirection, NotificationType } from '@biztrack/types'
+import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { Business } from '@/entities/business.entity'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
@@ -164,7 +165,7 @@ export class DailyDigestService {
       body: this.buildInApp(copy, rows),
       emailBody: this.buildEmailHtml(copy, business.name, dayKey, rows),
       whatsappBody: this.buildWhatsApp(copy, business.name, dayKey, rows),
-      deeplink: '/reports',
+      deeplink: APP_ROUTES.reports(),
       metadata: { dayKey, ...figures },
       urgent: opts.urgent ?? false,
     })
