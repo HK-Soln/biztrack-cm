@@ -33,19 +33,21 @@ type InventoryAlertsJobData = InventoryLowStockScanJobData | InventoryLowStockDi
 // rather than in the shared i18n JSON to avoid depending on the auto-regenerated
 // i18n.generated.ts type; the strings are producer-specific.
 const NOTIF_COPY = {
+  // Copy is channel-neutral (no "tap/click" CTA): the same body goes to in-app AND
+  // email/WhatsApp, but external channels have no clickable link until the shared
+  // route-registry + base-URL work (N7) lands. In-app rows are still tappable.
   [Locale.EN]: {
     lowStockTitle: (n: number) => `${n} product${n > 1 ? 's' : ''} to reorder`,
-    lowStockBody: (risk: string) => `About ${risk} XAF/day at risk. Tap to reorder.`,
-    lowStockBodyNoRisk: 'Tap to reorder.',
+    lowStockBody: (risk: string) => `About ${risk} XAF/day at risk while stock is low.`,
+    lowStockBodyNoRisk: 'Reorder soon to avoid stockouts.',
     syncStaleTitle: 'Your data is out of date',
     syncStaleBody: "Your device hasn't synced recently. Sync for reliable alerts.",
     numberLocale: 'en-US',
   },
   [Locale.FR]: {
     lowStockTitle: (n: number) => `${n} produit${n > 1 ? 's' : ''} à commander`,
-    lowStockBody: (risk: string) =>
-      `Environ ${risk} XAF/jour à risque. Touchez pour réapprovisionner.`,
-    lowStockBodyNoRisk: 'Touchez pour réapprovisionner.',
+    lowStockBody: (risk: string) => `Environ ${risk} XAF/jour à risque tant que le stock est bas.`,
+    lowStockBodyNoRisk: 'Réapprovisionnez bientôt pour éviter les ruptures.',
     syncStaleTitle: 'Vos données ne sont pas à jour',
     syncStaleBody:
       "Votre appareil n'a pas synchronisé récemment. Synchronisez pour des alertes fiables.",
