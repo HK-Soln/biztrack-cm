@@ -10,7 +10,12 @@ function makeService() {
   }
   const auditQueue = { add: jest.fn(async () => undefined) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
-  const service = new AuditService(auditRepo as any, auditQueue as any, logger as any)
+  const service = new AuditService(
+    auditRepo as any,
+    auditQueue as any,
+    { maybeNotify: async () => {} } as any,
+    logger as any,
+  )
   return { service, auditRepo, auditQueue, logger }
 }
 

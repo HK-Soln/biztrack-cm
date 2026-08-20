@@ -4,11 +4,12 @@ import { InjectRepository } from '@nestjs/typeorm'
 import type { Queue } from 'bullmq'
 import { Between, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
-import type { AuditContext, AuditData, QueryAuditLogRequest } from '@biztrack/types'
+import type { AuditChanges, AuditContext, AuditData, QueryAuditLogRequest } from '@biztrack/types'
 import { AuditLog } from '@/entities/audit-log.entity'
 import { LOGGER } from '@/logger/logger.module'
 import { AUDIT_LOG_JOB, AUDIT_QUEUE } from './constants/audit.constants'
 import type { AuditIngestRowDto } from './dto/audit-ingest.dto'
+import { TeamActivityNotifier } from './team-activity.notifier'
 
 @Injectable()
 export class AuditService {
@@ -17,6 +18,7 @@ export class AuditService {
     private readonly auditRepo: Repository<AuditLog>,
     @InjectQueue(AUDIT_QUEUE)
     private readonly auditQueue: Queue,
+    private readonly teamActivity: TeamActivityNotifier,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('AuditService')
@@ -89,13 +91,29 @@ export class AuditService {
       amount: r.amount ?? null,
       sequence: r.sequence ?? null,
     }))
-    await this.auditRepo
+    const insertResult = await this.auditRepo
       .createQueryBuilder()
       .insert()
       .into(AuditLog)
       .values(values)
       .orIgnore() // ON CONFLICT (id) DO NOTHING — idempotent re-push
+      .returning(['id'])
       .execute()
+
+    // High-signal staff actions pushed from a device → notify the owner (team-activity
+    // producer). Only NEWLY-inserted rows (returned by ON CONFLICT DO NOTHING) fire, so a
+    // device safely re-pushing the same batch never re-notifies. Fire-and-forget.
+    const insertedIds = new Set((insertResult.raw as Array<{ id: string }>).map((row) => row.id))
+    for (const r of rows) {
+      if (!insertedIds.has(r.id)) continue
+      void this.teamActivity.maybeNotify({
+        businessId,
+        action: r.action as AuditLog['action'],
+        entityLabel: r.entityLabel ?? null,
+        actorName: r.actorName ?? null,
+        changes: (r.changes ?? null) as AuditChanges | null,
+      })
+    }
     return { ingested: rows.length }
   }
 

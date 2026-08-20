@@ -9,6 +9,7 @@ import { AuditLog } from '@/entities/audit-log.entity'
 import { LOGGER } from '@/logger/logger.module'
 import { AUDIT_QUEUE } from './constants/audit.constants'
 import { buildAuditLog } from './audit.service'
+import { TeamActivityNotifier } from './team-activity.notifier'
 
 @Injectable()
 @Processor(AUDIT_QUEUE)
@@ -16,6 +17,7 @@ export class AuditProcessor extends WorkerHost {
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditRepo: Repository<AuditLog>,
+    private readonly teamActivity: TeamActivityNotifier,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     super()
@@ -29,5 +31,13 @@ export class AuditProcessor extends WorkerHost {
       return
     }
     await this.auditRepo.save(this.auditRepo.create(buildAuditLog(context, data)))
+    // High-signal staff actions → notify the owner (BIZ-4 team-activity producer).
+    void this.teamActivity.maybeNotify({
+      businessId: context.businessId,
+      action: data.action,
+      entityLabel: data.entityLabel,
+      actorName: context.actorName,
+      changes: data.changes,
+    })
   }
 }
