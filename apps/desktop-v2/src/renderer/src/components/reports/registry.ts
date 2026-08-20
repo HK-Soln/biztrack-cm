@@ -390,29 +390,50 @@ export const LOADERS: Record<string, ReportLoader> = {
     )
   },
   'stock-val': async ({ client, currency, opts }) => {
-    const [p, inv] = await Promise.all([
-      client.products.stats(),
-      client.inventory.list({ page: 1, limit: 100 }),
-    ])
-    const rows = inv.data.map((i) => ({
-      name: i.name,
-      sku: i.sku,
-      quantity: i.currentStock,
-      costValue: i.stockValueCost,
-    }))
-    const listed = rows.reduce((sum, r) => sum + r.costValue, 0)
-    return buildStockValuationReport(
+    // Every tracked product is listed — no "Others" aggregate. The catalogue is printed in
+    // batches of BATCH; the desktop/API list caps a page at 100, so a batch is PAGES calls.
+    const BATCH = 1000
+    const PAGE = 100
+    const PAGES = BATCH / PAGE
+    const batch = Math.max(1, opts.batch ?? 1)
+    const p = await client.products.stats()
+
+    const rows: { name: string; sku: string | null; quantity: number; costValue: number }[] = []
+    let total = 0
+    let rowCurrency = currency
+    const startPage = (batch - 1) * PAGES + 1
+    for (let i = 0; i < PAGES; i++) {
+      const inv = await client.inventory.list({ page: startPage + i, limit: PAGE })
+      if (i === 0) {
+        total = inv.total
+        rowCurrency = inv.data[0]?.currency ?? currency
+      }
+      for (const it of inv.data)
+        rows.push({
+          name: it.name,
+          sku: it.sku,
+          quantity: it.currentStock,
+          costValue: it.stockValueCost,
+        })
+      if (inv.data.length < PAGE || startPage + i >= inv.totalPages) break
+    }
+
+    const totalBatches = Math.max(1, Math.ceil(total / BATCH))
+    const from = total === 0 ? 0 : (batch - 1) * BATCH + 1
+    const to = (batch - 1) * BATCH + rows.length
+    const built = buildStockValuationReport(
       {
         rows,
         totalSkus: p.totalSkus,
         totalCost: p.catalogValueCost,
         retailValue: p.retailValue,
         marginPct: p.blendedMarginPct,
-        otherCost: Math.max(0, p.catalogValueCost - listed),
-        currency: inv.data[0]?.currency ?? currency,
+        currency: rowCurrency,
+        batch: { from, to, total },
       },
       opts,
     )
+    return { ...built, batches: { current: batch, total: totalBatches } }
   },
   'low-stock': async ({ client, currency, opts }) => {
     const items = await client.inventory.reorderSuggestions()

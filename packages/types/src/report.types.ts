@@ -142,12 +142,17 @@ export interface ReportBuildOptions {
   locale: string
   /** Business currency (for reports whose input data doesn't carry it). */
   currency: string
+  /** 1-based batch to render for large, paginated reports (e.g. stock valuation). Default 1. */
+  batch?: number
 }
 
 /** A built report: the renderable document + an optional CSV export string. */
 export interface BuiltReportResult {
   document: ReportDocument
   csv?: string
+  /** Present when a report is printed in batches (e.g. stock valuation with >1000 products):
+   * which batch this is + how many there are, so the UI can offer "print next batch". */
+  batches?: { current: number; total: number }
 }
 
 export interface ReportExpenseCategory {
@@ -178,8 +183,12 @@ export interface StockValuationReportData {
   totalCost: number
   retailValue: number
   marginPct: number
-  /** Cost value of products not in `rows` (when the list is truncated). */
+  /** Cost value of products not in `rows` (legacy truncation aggregate — no longer used;
+   * the report now lists every product across batches instead). */
   otherCost?: number
+  /** When the product list is printed in batches (>1000 products), the range this document
+   * covers: products `from`–`to` of `total`. */
+  batch?: { from: number; to: number; total: number }
   currency: string
 }
 

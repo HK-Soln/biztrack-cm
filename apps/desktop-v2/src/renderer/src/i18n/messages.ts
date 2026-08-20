@@ -3297,6 +3297,7 @@ export const en = {
   'reports.soonTag': 'Soon',
   'reports.searchPh': 'Search reports…',
   'reports.print': 'Print',
+  'reports.batch': 'Batch {n}/{t}',
   'reports.exportPdf': 'Export PDF',
   'reports.soonTitle': 'Coming soon',
   'reports.soonBody':
@@ -6798,6 +6799,7 @@ export const fr: Record<MessageKey, string> = {
   'reports.soonTag': 'Bientôt',
   'reports.searchPh': 'Rechercher un rapport…',
   'reports.print': 'Imprimer',
+  'reports.batch': 'Lot {n}/{t}',
   'reports.exportPdf': 'Exporter PDF',
   'reports.soonTitle': 'Bientôt disponible',
   'reports.soonBody':

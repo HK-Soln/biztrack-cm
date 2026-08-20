@@ -178,31 +178,42 @@ export function buildStockValuationReport(
     qty: n(r.quantity),
     value: m(r.costValue),
   }))
-  if (data.otherCost && data.otherCost > 0)
-    rows.push({ product: L.other, sku: '', qty: '', value: m(data.otherCost) })
-  const document = baseDoc(L.title, opts, [
-    {
-      kind: 'kpis',
-      items: [
-        { label: L.skus, value: n(data.totalSkus) },
-        { label: L.cost, value: m(data.totalCost) },
-        { label: L.retail, value: m(data.retailValue) },
-        { label: L.margin, value: pct(data.marginPct) },
-      ],
-    },
-    {
-      kind: 'table',
-      columns: [
-        { key: 'product', label: L.product },
-        { key: 'sku', label: L.sku },
-        { key: 'qty', label: L.qty, align: 'right' },
-        { key: 'value', label: L.value, align: 'right' },
-      ],
-      rows,
-      total: { product: L.total, sku: '', qty: '', value: m(data.totalCost) },
-      empty: L.empty,
-    },
-  ])
+  // Every product is listed (across batches) — no "Others" aggregate. When the catalogue is
+  // printed in batches, note the range this document covers.
+  const subtitle =
+    data.batch && data.batch.total > data.rows.length
+      ? fr
+        ? `Produits ${n(data.batch.from)}–${n(data.batch.to)} sur ${n(data.batch.total)}`
+        : `Products ${n(data.batch.from)}–${n(data.batch.to)} of ${n(data.batch.total)}`
+      : undefined
+  const document = baseDoc(
+    L.title,
+    opts,
+    [
+      {
+        kind: 'kpis',
+        items: [
+          { label: L.skus, value: n(data.totalSkus) },
+          { label: L.cost, value: m(data.totalCost) },
+          { label: L.retail, value: m(data.retailValue) },
+          { label: L.margin, value: pct(data.marginPct) },
+        ],
+      },
+      {
+        kind: 'table',
+        columns: [
+          { key: 'product', label: L.product },
+          { key: 'sku', label: L.sku },
+          { key: 'qty', label: L.qty, align: 'right' },
+          { key: 'value', label: L.value, align: 'right' },
+        ],
+        rows,
+        total: { product: L.total, sku: '', qty: '', value: m(data.totalCost) },
+        empty: L.empty,
+      },
+    ],
+    subtitle,
+  )
   const csv = toCsv(
     [L.product, L.sku, L.qty, L.value],
     data.rows.map((r) => [r.name, r.sku ?? '', String(r.quantity), String(r.costValue)]),
