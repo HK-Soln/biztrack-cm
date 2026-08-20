@@ -11,6 +11,7 @@ import { User } from '@/entities/user.entity'
 import { NotificationSettingsService } from './services/notification-settings.service'
 import { NotificationDispatcher } from './services/notification-dispatcher.service'
 import { NotificationSettingsController } from './controllers/notification-settings.controller'
+import { NotificationsTestController } from './controllers/notifications-test.controller'
 import { NOTIFICATIONS_QUEUE } from './constants/notifications.constants'
 import { WahaHttpClient } from './providers/waha-http.client'
 import { EmailProvider } from './providers/email.provider'
@@ -42,6 +43,7 @@ import { RedisModule } from '@/common/redis/redis.module'
     NotificationsWebhookController,
     NotificationsController,
     NotificationSettingsController,
+    NotificationsTestController,
   ],
   providers: [
     WahaHttpClient,
