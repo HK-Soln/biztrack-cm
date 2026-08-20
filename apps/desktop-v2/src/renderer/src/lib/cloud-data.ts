@@ -170,6 +170,9 @@ export const cloudNotificationSettings = {
     cput<NotificationSettings>(`/notifications/settings/recipients/${id}/subscriptions`, body),
   removeRecipient: (id: string) =>
     cdelete<NotificationSettings>(`/notifications/settings/recipients/${id}`),
+  sendTestDigest: async () => {
+    await cpost('/notifications/daily-digest/test', {})
+  },
 }
 
 export const cloudBusiness = {

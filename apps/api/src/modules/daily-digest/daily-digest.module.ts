@@ -12,6 +12,7 @@ import { CashSessionsModule } from '@/modules/cash-sessions/cash-sessions.module
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { DAILY_DIGEST_QUEUE } from './constants/daily-digest.constants'
+import { DailyDigestController } from './controllers/daily-digest.controller'
 import { DailyDigestService } from './services/daily-digest.service'
 import { DailyDigestScheduler } from './schedulers/daily-digest.scheduler'
 import { DailyDigestProcessor } from './processors/daily-digest.processor'
@@ -34,6 +35,7 @@ import { DailyDigestProcessor } from './processors/daily-digest.processor'
     BullModule.registerQueue({ name: DAILY_DIGEST_QUEUE }),
     TypeOrmModule.forFeature([Business, NotificationSetting, DailySaleSummary]),
   ],
+  controllers: [DailyDigestController],
   providers: [DailyDigestService, DailyDigestScheduler, DailyDigestProcessor],
   exports: [DailyDigestService],
 })

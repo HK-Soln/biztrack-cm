@@ -93,4 +93,8 @@ export class NotificationSettingsService {
       )
     ).data.data
   }
+
+  async sendTestDigest(): Promise<void> {
+    await this.http.post('/notifications/daily-digest/test', {})
+  }
 }

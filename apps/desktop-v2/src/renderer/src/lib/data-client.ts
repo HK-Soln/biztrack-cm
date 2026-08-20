@@ -467,6 +467,7 @@ export interface DataClient {
       body: UpdateRecipientSubscriptionsRequest,
     ) => Promise<NotificationSettings>
     removeRecipient: (id: string) => Promise<NotificationSettings>
+    sendTestDigest: () => Promise<void>
   }
   plans: {
     list: () => Promise<ListPlansResponse>
@@ -820,6 +821,7 @@ function electronAdapter(): DataClient {
       updateRecipientSubscriptions: (id, body) =>
         window.api.notificationSettings.updateRecipientSubscriptions(id, body),
       removeRecipient: (id) => window.api.notificationSettings.removeRecipient(id),
+      sendTestDigest: () => window.api.notificationSettings.sendTestDigest(),
     },
     plans: {
       list: () => window.api.plans.list(),

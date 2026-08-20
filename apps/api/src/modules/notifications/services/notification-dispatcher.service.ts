@@ -12,6 +12,9 @@ export interface DispatchNotificationInput {
   /** In-app/email subject line. */
   title: string
   body: string
+  /** Optional HTML body for the EMAIL channel (Resend renders `body` as HTML, so a
+   * plain-text `body` with newlines collapses). In-app/WhatsApp keep the plain `body`. */
+  emailBody?: string
   /** In-app deep link the bell navigates to. */
   deeplink?: string | null
   metadata?: Record<string, unknown> | null
@@ -70,7 +73,7 @@ export class NotificationDispatcher {
           type: input.event,
           recipient: r.email,
           subject: input.title,
-          body: input.body,
+          body: input.emailBody ?? input.body,
           metadata,
           businessId: input.businessId,
           userId: r.userId ?? undefined,
