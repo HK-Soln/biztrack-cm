@@ -67,8 +67,11 @@ import {
   SerialUnitStatus,
   StockAdjustmentType,
   UnitOfMeasureType,
+  NotificationType,
 } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import type { Queue } from 'bullmq'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, In, IsNull, QueryFailedError, Repository } from 'typeorm'
@@ -552,6 +555,7 @@ export class SyncService {
     @InjectQueue(SYNC_BATCHES_QUEUE)
     private readonly queue: Queue,
     private readonly realtime: SyncRealtimeService,
+    private readonly dispatcher: NotificationDispatcher,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('SyncService')
@@ -3499,7 +3503,11 @@ export class SyncService {
       }
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    // Money in: sum payments newly seen on this apply so the owner can be notified once the
+    // txn commits (BIZ-4 payment producer). Desktop re-syncs the full debt state, so
+    // comparing against the DB's existing payment ids keeps this idempotent.
+    let freshReceivablePaid = 0
+    const result = await this.dataSource.transaction(async (manager) => {
       const debtsRepo = manager.getRepository(Debt)
       const paymentsRepo = manager.getRepository(DebtPayment)
       const fallbackUserId = await this.resolveContactCreatedById(businessId, null)
@@ -3580,6 +3588,7 @@ export class SyncService {
 
       const existingPayments = existing?.payments ?? []
       const nextPaymentIds = new Set((payload.payments ?? []).map((payment) => payment.id))
+      const existingPaymentIds = new Set(existingPayments.map((payment) => payment.id))
       const stalePaymentIds = existingPayments
         .filter((payment) => !nextPaymentIds.has(payment.id))
         .map((payment) => payment.id)
@@ -3589,6 +3598,9 @@ export class SyncService {
       }
 
       for (const payment of payload.payments ?? []) {
+        if (!existingPaymentIds.has(payment.id) && payload.direction === DebtDirection.RECEIVABLE) {
+          freshReceivablePaid += this.normalizeMoney(payment.amount)
+        }
         await paymentsRepo.save(
           paymentsRepo.create({
             id: payment.id,
@@ -3607,6 +3619,43 @@ export class SyncService {
 
       return { status: 'applied' as const }
     })
+
+    if (freshReceivablePaid > 0) {
+      void this.notifyPaymentReceived(businessId, payload.contactId, freshReceivablePaid)
+    }
+    return result
+  }
+
+  /** PAYMENT_RECEIVED for a customer's new receivable payment synced from a device. Copy in
+   *  the owner's language; routed through the notification control plane. Fire-and-forget. */
+  private async notifyPaymentReceived(
+    businessId: string,
+    contactId: string,
+    amount: number,
+  ): Promise<void> {
+    try {
+      const [business, contact] = await Promise.all([
+        this.businessesRepo.findOne({ where: { id: businessId }, relations: ['owner'] }),
+        this.contactsRepo.findOne({ where: { id: contactId, businessId }, select: ['id', 'name'] }),
+      ])
+      const en = business?.owner?.language === Locale.EN
+      const value = `${amount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      const name = contact?.name ?? ''
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.PAYMENT_RECEIVED,
+        title: en ? 'Payment received' : 'Paiement reçu',
+        body: en ? `${value} received from ${name}.` : `${value} reçu de ${name}.`,
+        deeplink: `/contacts/${contactId}`,
+        metadata: { contactId, amount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch payment-received (sync)', 'SyncService', {
+        businessId,
+        contactId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   private async applyExpenseOperation(

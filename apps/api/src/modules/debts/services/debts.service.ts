@@ -8,6 +8,7 @@ import {
   DebtSource,
   DebtStatus,
   ContactStatementEntryType,
+  NotificationType,
   PaymentMethod,
   clampCreditDays,
   type ContactStatement,
@@ -29,6 +30,8 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { toIsoString } from '@/common/http/serialization'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
@@ -76,6 +79,7 @@ export class DebtsService {
     private readonly contactsRepo: Repository<Contact>,
     private readonly openingBalancesService: OpeningBalancesService,
     private readonly i18n: I18nService<I18nTranslations>,
+    private readonly dispatcher: NotificationDispatcher,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('DebtsService')
@@ -324,13 +328,51 @@ export class DebtsService {
         await this.recalculateStatus(debt.id, manager)
       })
 
-      return this.findById(debtId, businessId, direction)
+      const result = await this.findById(debtId, businessId, direction)
+      // Money in: notify the owner when a customer settles a receivable (BIZ-4 payment
+      // producer). Fire-and-forget — a notification hiccup must not fail the payment.
+      if (direction === DebtDirection.RECEIVABLE) {
+        void this.notifyPaymentReceived(businessId, result, this.roundMoney(dto.amount))
+      }
+      return result
     } catch (error) {
       return this.handleServiceError('recordPayment', error, {
         debtId,
         businessId,
         direction,
         userId: user.sub,
+      })
+    }
+  }
+
+  /** Dispatch a PAYMENT_RECEIVED notification when a customer settles a receivable. Copy is
+   *  in the owner's language; routed through the control plane (prefs + quiet hours). */
+  private async notifyPaymentReceived(
+    businessId: string,
+    debt: Debt,
+    amount: number,
+  ): Promise<void> {
+    try {
+      const business = await this.debtsRepo.manager.getRepository(Business).findOne({
+        where: { id: businessId },
+        relations: ['owner'],
+      })
+      const en = business?.owner?.language === Locale.EN
+      const value = `${amount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      const name = debt.contact?.name ?? ''
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.PAYMENT_RECEIVED,
+        title: en ? 'Payment received' : 'Paiement reçu',
+        body: en ? `${value} received from ${name}.` : `${value} reçu de ${name}.`,
+        deeplink: `/contacts/${debt.contactId}`,
+        metadata: { debtId: debt.id, amount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch payment-received notification', 'DebtsService', {
+        businessId,
+        debtId: debt.id,
+        error: error instanceof Error ? error.message : String(error),
       })
     }
   }
