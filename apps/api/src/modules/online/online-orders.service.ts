@@ -308,6 +308,41 @@ export class OnlineOrdersService {
     }
   }
 
+  /** TEAM_ACTIVITY notification when staff refund an order — a high-signal money-out action.
+   *  Copy in the owner's language; fire-and-forget. */
+  private async notifyRefund(
+    businessId: string,
+    orderId: string,
+    orderNumber: string,
+    amount: number,
+    actorName: string | null,
+  ): Promise<void> {
+    try {
+      const business = await this.ordersRepo.manager
+        .getRepository(Business)
+        .findOne({ where: { id: businessId }, relations: ['owner'] })
+      const en = business?.owner?.language === Locale.EN
+      const value = `${amount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      const actor = actorName?.trim() || (en ? 'A team member' : 'Un membre de l’équipe')
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.TEAM_ACTIVITY,
+        title: en ? 'Order refunded' : 'Commande remboursée',
+        body: en
+          ? `${actor} refunded order ${orderNumber} (${value}).`
+          : `${actor} a remboursé la commande ${orderNumber} (${value}).`,
+        deeplink: `/online/orders/${orderId}`,
+        metadata: { action: 'REFUND', orderId, orderNumber, amount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch refund notification', 'OnlineOrdersService', {
+        businessId,
+        orderId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   /** NEW_ORDER notification to the owner when a customer places an online order. Copy in the
    *  owner's language; routed through the notification control plane. Fire-and-forget. */
   private async notifyNewOrder(
@@ -520,6 +555,8 @@ export class OnlineOrdersService {
           reason: dto.internalNote?.trim() || `Online order ${order.orderNumber} returned`,
         })
         patch.paymentStatus = 'REFUNDED'
+        // A refund is a high-signal staff action → notify the owner (team-activity producer).
+        void this.notifyRefund(businessId, id, order.orderNumber, order.totalAmount, actor.name)
         await this.eventsRepo.save(
           this.eventsRepo.create({
             onlineOrderId: id,
