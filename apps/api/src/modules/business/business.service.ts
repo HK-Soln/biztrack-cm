@@ -34,7 +34,12 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { I18nService } from 'nestjs-i18n'
 import type { I18nTranslations } from '@/i18n/i18n.types'
-import { BusinessMemberRole, BusinessMemberStatus, BusinessStatus } from '@biztrack/types'
+import {
+  BusinessMemberRole,
+  BusinessMemberStatus,
+  BusinessStatus,
+  normalizeBusinessHours,
+} from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
 
@@ -63,6 +68,7 @@ export class BusinessService {
 
       const business = this.businessRepo.create({
         ...dto,
+        businessHours: normalizeBusinessHours(dto.businessHours),
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -152,7 +158,13 @@ export class BusinessService {
         business.businessStatus === BusinessStatus.ONBOARDING
           ? BusinessStatus.PLAN_PENDING
           : business.businessStatus
-      await this.businessRepo.update(id, { ...dto, businessStatus: nextStatus })
+      await this.businessRepo.update(id, {
+        ...dto,
+        businessStatus: nextStatus,
+        ...(dto.businessHours !== undefined
+          ? { businessHours: normalizeBusinessHours(dto.businessHours) }
+          : {}),
+      })
       return this.businessRepo.findOne({ where: { id } })
     } catch (error) {
       return this.handleServiceError('update', error, { id, ownerId })

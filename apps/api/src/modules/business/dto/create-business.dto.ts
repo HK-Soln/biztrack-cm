@@ -2,6 +2,7 @@ import {
   IsString,
   IsOptional,
   IsEnum,
+  IsObject,
   MinLength,
   MaxLength,
   IsEmail,
@@ -9,9 +10,10 @@ import {
   IsNumber,
   Min,
   Max,
+  ValidateIf,
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import type { CreateBusinessRequest } from '@biztrack/types'
+import type { BusinessHours, CreateBusinessRequest } from '@biztrack/types'
 import { BusinessType, FiscalRegime } from '@biztrack/types'
 
 export class CreateBusinessDto implements CreateBusinessRequest {
@@ -67,6 +69,14 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @IsString()
   @MaxLength(500)
   logoUrl?: string
+
+  @ApiPropertyOptional({
+    description: 'Per-weekday opening hours { mon: {open,close}|null, … }. Normalized server-side.',
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.businessHours != null)
+  @IsObject()
+  businessHours?: BusinessHours | null
 
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })

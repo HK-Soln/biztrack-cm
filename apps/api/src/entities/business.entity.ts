@@ -11,6 +11,7 @@ import { MonthlyExpenseSummary } from './monthly-expense-summary.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
 import { SubscriptionPlan, BusinessStatus, FiscalRegime, BillingCycle } from '@biztrack/types'
+import type { BusinessHours } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
 import { SubscriptionEvent } from './subscription-event.entity'
 import { BusinessMember } from './business-member.entity'
@@ -70,6 +71,10 @@ export class Business extends BaseEntity {
   @Column({ name: 'logo_url', nullable: true, type: 'varchar' })
   logoUrl?: string | null
 
+  /** Per-weekday opening hours (null day = closed). Drives the daily-digest send time. */
+  @Column({ name: 'business_hours', type: 'jsonb', nullable: true })
+  businessHours?: BusinessHours | null
+
   @Column({ name: 'owner_id' })
   ownerId!: string
 
@@ -86,25 +91,60 @@ export class Business extends BaseEntity {
   @Column({ type: 'enum', enum: SubscriptionPlan, default: SubscriptionPlan.FREE })
   plan!: SubscriptionPlan
 
-  @Column({ name: 'subscription_status', type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIAL })
+  @Column({
+    name: 'subscription_status',
+    type: 'enum',
+    enum: SubscriptionStatus,
+    default: SubscriptionStatus.TRIAL,
+  })
   subscriptionStatus!: SubscriptionStatus
 
-  @Column({ name: 'billing_cycle', type: 'enum', enum: BillingCycle, default: BillingCycle.MONTHLY })
+  @Column({
+    name: 'billing_cycle',
+    type: 'enum',
+    enum: BillingCycle,
+    default: BillingCycle.MONTHLY,
+  })
   billingCycle!: BillingCycle
 
-  @Column({ name: 'business_status', type: 'enum', enum: BusinessStatus, default: BusinessStatus.ONBOARDING })
+  @Column({
+    name: 'business_status',
+    type: 'enum',
+    enum: BusinessStatus,
+    default: BusinessStatus.ONBOARDING,
+  })
   businessStatus!: BusinessStatus
 
-  @Column({ name: 'trial_started_at', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'trial_started_at',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   trialStartedAt?: Date | null
 
-  @Column({ name: 'trial_ends_at', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'trial_ends_at',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   trialEndsAt?: Date | null
 
-  @Column({ name: 'current_period_start', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'current_period_start',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   currentPeriodStart?: Date | null
 
-  @Column({ name: 'current_period_end', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'current_period_end',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   currentPeriodEnd?: Date | null
 
   @Column({ name: 'cancel_at_period_end', default: false })

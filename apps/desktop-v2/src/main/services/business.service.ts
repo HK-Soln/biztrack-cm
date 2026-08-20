@@ -44,6 +44,7 @@ export class BusinessService {
       city: b.city ?? null,
       currency: b.currency ?? 'XAF',
       logoUrl: b.logoUrl ?? null,
+      businessHours: b.businessHours ?? null,
       role: membership?.role ?? null,
     }
   }
@@ -70,6 +71,7 @@ export class BusinessService {
       city: b.city ?? null,
       currency: b.currency ?? 'XAF',
       logoUrl: b.logoUrl ?? null,
+      businessHours: b.businessHours ?? null,
       role: b.role ?? null,
     }
   }

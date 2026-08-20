@@ -13,6 +13,7 @@ export interface Business {
   type: BusinessType
   currency: Currency | string
   logoUrl?: string | null
+  businessHours?: BusinessHours | null
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
@@ -114,6 +115,52 @@ export interface BusinessFiscalFields {
   fiscalRegime?: FiscalRegime | null
 }
 
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+/** Weekdays in display/order (Mon-first). */
+export const WEEKDAYS: readonly Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+/** A single day's opening/closing time, local 'HH:mm' (24h). */
+export interface DayHours {
+  open: string
+  close: string
+}
+
+/** Per-weekday business hours — a null day means the business is closed that day.
+ * Evaluated in the business timezone. Drives the daily-digest send time. */
+export type BusinessHours = Record<Weekday, DayHours | null>
+
+const BUSINESS_HOURS_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/** Validate + normalize arbitrary input into a clean BusinessHours (or null when no
+ * valid day is present). Only known weekdays with valid HH:mm open/close survive; any
+ * other day becomes null (closed). Shared by the API (persist) and the UI. */
+export function normalizeBusinessHours(input: unknown): BusinessHours | null {
+  if (!input || typeof input !== 'object') return null
+  const src = input as Record<string, unknown>
+  const out = {} as BusinessHours
+  let hasOpenDay = false
+  for (const day of WEEKDAYS) {
+    const v = src[day]
+    if (v && typeof v === 'object') {
+      const open = (v as Record<string, unknown>).open
+      const close = (v as Record<string, unknown>).close
+      if (
+        typeof open === 'string' &&
+        typeof close === 'string' &&
+        BUSINESS_HOURS_HHMM.test(open) &&
+        BUSINESS_HOURS_HHMM.test(close)
+      ) {
+        out[day] = { open, close }
+        hasOpenDay = true
+        continue
+      }
+    }
+    out[day] = null
+  }
+  return hasOpenDay ? out : null
+}
+
 export interface CreateBusinessRequest extends BusinessFiscalFields {
   name: string
   description?: string
@@ -126,6 +173,8 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   type?: BusinessType
   /** Logo shown on receipts and the storefront. Persisted on the business. */
   logoUrl?: string | null
+  /** Per-weekday opening hours (null day = closed). */
+  businessHours?: BusinessHours | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -145,6 +194,7 @@ export interface BusinessProfile {
   city: string | null
   currency: Currency | string
   logoUrl: string | null
+  businessHours: BusinessHours | null
   role: BusinessMemberRole | null
 }
 
@@ -162,6 +212,7 @@ export interface BusinessMembershipBusinessSummary {
   address?: string | null
   currency?: Currency | string
   logoUrl?: string | null
+  businessHours?: BusinessHours | null
   ownerId?: string | null
   owner?: string | null
   subscriptionStatus?: SubscriptionStatus | null
