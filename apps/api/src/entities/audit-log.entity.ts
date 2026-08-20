@@ -40,7 +40,9 @@ export class AuditLog {
   @Column({ name: 'entity_type', type: 'varchar', length: 50 })
   entityType!: string
 
-  @Column({ name: 'entity_id', type: 'uuid' })
+  // Not a uuid: some entities use composite ids (e.g. a debt materialized from a sale
+  // is `debt:sale:<uuid>`). Matches the local ledger's TEXT entity_id.
+  @Column({ name: 'entity_id', type: 'varchar', length: 128 })
   entityId!: string
 
   @Column({ name: 'entity_label', type: 'text', nullable: true })
