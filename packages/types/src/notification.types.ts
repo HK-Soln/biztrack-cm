@@ -18,6 +18,9 @@ export enum NotificationType {
   OTP = 'otp',
   PAYMENT_REMINDER = 'payment_reminder',
   MARKETING = 'marketing',
+  /** System alert: the business's synced data is stale, so a digest was skipped and the
+   * owner is asked to sync. Not a configurable event — always delivered in-app. */
+  SYNC_STALE = 'sync_stale',
   // --- Configurable business events (the Settings notification matrix rows). Each is
   // owner-configurable per channel + per recipient and dispatched by the shared
   // NotificationDispatcher. See docs/design/notifications-initiative-plan.md. ---
