@@ -4,6 +4,7 @@ import { Repository } from 'typeorm'
 import {
   BusinessMemberRole,
   BusinessMemberStatus,
+  MANDATORY_NOTIFICATION_EVENTS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
   NotificationChannel,
@@ -15,7 +16,11 @@ import {
   type NotificationRecipientLookupResult,
   type NotificationSettings,
 } from '@biztrack/types'
-import { AppForbiddenException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import {
+  AppBadRequestException,
+  AppForbiddenException,
+  AppNotFoundException,
+} from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
 import { BusinessMember } from '@/entities/business-member.entity'
 import { User } from '@/entities/user.entity'
@@ -57,7 +62,11 @@ const DEFAULT_ENABLED: Record<NotificationEvent, NotificationChannel[]> = {
     NotificationChannel.EMAIL,
     NotificationChannel.WHATSAPP,
   ],
-  [NotificationType.DAILY_SUMMARY]: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
+  [NotificationType.DAILY_SUMMARY]: [
+    NotificationChannel.IN_APP,
+    NotificationChannel.EMAIL,
+    NotificationChannel.WHATSAPP,
+  ],
   [NotificationType.TEAM_ACTIVITY]: [NotificationChannel.IN_APP],
   [NotificationType.BILLING]: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
 }
@@ -114,6 +123,23 @@ export class NotificationSettingsService {
       row[t.channel] = isNotificationChannelAvailable(t.channel) ? t.enabled : false
     }
     setting.matrix = matrix
+    // Mandatory events (billing) are high-priority and must keep at least one channel.
+    // Reject an update that would silence one entirely — only for events this request
+    // actually touched, so unrelated toggles are never blocked.
+    const touchedMandatory = new Set(
+      dto.toggles
+        .map((t) => t.event as NotificationEvent)
+        .filter((e) => MANDATORY_NOTIFICATION_EVENTS.includes(e)),
+    )
+    for (const event of touchedMandatory) {
+      const hasOne = NOTIFICATION_CHANNELS.some((ch) => this.matrixCell(setting, event, ch))
+      if (!hasOne) {
+        throw new AppBadRequestException(
+          'This notification must keep at least one channel enabled',
+          'NOTIF_CHANNEL_REQUIRED',
+        )
+      }
+    }
     await this.settingsRepo.save(setting)
     return this.getSettings(businessId, userId)
   }

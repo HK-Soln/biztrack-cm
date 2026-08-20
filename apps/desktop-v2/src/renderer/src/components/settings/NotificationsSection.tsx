@@ -4,6 +4,7 @@ import { Input, PhoneInput } from '@biztrack/ui/biztrack'
 import {
   NotificationChannel,
   NotificationType,
+  isMandatoryNotificationEvent,
   type AddNotificationRecipientRequest,
   type NotificationEvent,
   type NotificationSettings,
@@ -331,6 +332,12 @@ export function NotificationsSection() {
     settings.matrix.find((m) => m.event === event && m.channel === channel)?.enabled ?? false
   const channelDisabled = (channel: NotificationChannel) =>
     settings.unavailableChannels.includes(channel)
+  const enabledCount = (event: NotificationEvent) =>
+    CHANNELS.filter((c) => cellOn(event, c.channel)).length
+  // A mandatory event (billing) must keep ≥1 channel — lock the last enabled cell so it
+  // can't be turned off.
+  const cellLocked = (event: NotificationEvent, channel: NotificationChannel) =>
+    isMandatoryNotificationEvent(event) && cellOn(event, channel) && enabledCount(event) === 1
 
   const commitQuiet = (next: { enabled: boolean; from: string; until: string }) => {
     if (!canEdit) return
@@ -377,7 +384,8 @@ export function NotificationsSection() {
                 </td>
                 {CHANNELS.map((c) => {
                   const on = cellOn(r.event, c.channel)
-                  const disabled = channelDisabled(c.channel) || !canEdit
+                  const locked = cellLocked(r.event, c.channel)
+                  const disabled = channelDisabled(c.channel) || locked || !canEdit
                   return (
                     <td key={c.channel} className="cell">
                       <button
@@ -386,7 +394,13 @@ export function NotificationsSection() {
                         aria-pressed={on}
                         aria-label={`${t(r.name)} · ${t(c.label)}`}
                         disabled={disabled}
-                        title={channelDisabled(c.channel) ? t('ntf.smsSoon') : undefined}
+                        title={
+                          channelDisabled(c.channel)
+                            ? t('ntf.smsSoon')
+                            : locked
+                              ? t('ntf.billingRequired')
+                              : undefined
+                        }
                         onClick={() =>
                           matrixMut.mutate({ event: r.event, channel: c.channel, enabled: !on })
                         }

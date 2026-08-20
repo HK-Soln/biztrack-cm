@@ -2993,8 +2993,8 @@ export const en = {
   'ntf.paymentDesc': 'Mobile money or card payment confirmed.',
   'ntf.debt': 'Debt due / overdue',
   'ntf.debtDesc': 'A credit customer’s payment date arrives.',
-  'ntf.daily': 'Daily sales summary',
-  'ntf.dailyDesc': 'End-of-day totals at closing time.',
+  'ntf.daily': 'Daily summary',
+  'ntf.dailyDesc': 'End-of-day recap: revenue, profit, cash & low stock.',
   'ntf.team': 'Team activity',
   'ntf.teamDesc': 'Refunds, voids, large discounts & logins.',
   'ntf.billing': 'Billing & subscription',
@@ -3002,6 +3002,7 @@ export const en = {
   'ntf.creditNote':
     'SMS & WhatsApp are billed per message from your account credit. In-app & email are free.',
   'ntf.smsSoon': 'SMS is coming soon — it needs a dedicated SMS provider, so it stays off for now.',
+  'ntf.billingRequired': 'Billing alerts are important — keep at least one channel on.',
   'ntf.ownerOnly': 'Only the business owner can manage notification preferences.',
   'ntf.ownerTag': 'Owner',
   'ntf.offline': "You're offline — notification preferences load when you reconnect.",
@@ -6399,8 +6400,8 @@ export const fr: Record<MessageKey, string> = {
   'ntf.paymentDesc': 'Paiement mobile money ou carte confirmé.',
   'ntf.debt': 'Dette échue / en retard',
   'ntf.debtDesc': 'La date de paiement d’un client à crédit arrive.',
-  'ntf.daily': 'Résumé quotidien des ventes',
-  'ntf.dailyDesc': 'Totaux de fin de journée à la fermeture.',
+  'ntf.daily': 'Résumé quotidien',
+  'ntf.dailyDesc': 'Récap de fin de journée : recette, bénéfice, caisse & stock bas.',
   'ntf.team': 'Activité de l’équipe',
   'ntf.teamDesc': 'Remboursements, annulations, remises & connexions.',
   'ntf.billing': 'Facturation & abonnement',
@@ -6409,6 +6410,8 @@ export const fr: Record<MessageKey, string> = {
     'SMS & WhatsApp sont facturés par message depuis votre crédit. In-app & email sont gratuits.',
   'ntf.smsSoon':
     'Le SMS arrive bientôt — il nécessite un fournisseur SMS dédié, il reste donc désactivé pour l’instant.',
+  'ntf.billingRequired':
+    'Les alertes de facturation sont importantes — gardez au moins un canal activé.',
   'ntf.ownerOnly': 'Seul le propriétaire peut gérer les préférences de notification.',
   'ntf.ownerTag': 'Propriétaire',
   'ntf.offline': 'Vous êtes hors ligne — les préférences se chargeront à la reconnexion.',

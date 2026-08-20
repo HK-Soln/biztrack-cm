@@ -77,6 +77,19 @@ export function isNotificationChannelAvailable(channel: NotificationChannel): bo
   return !UNAVAILABLE_NOTIFICATION_CHANNELS.includes(channel)
 }
 
+/**
+ * High-priority events that must always reach the owner on at least one channel — the
+ * matrix cannot disable every channel for these (e.g. billing / subscription). The owner
+ * still picks WHICH channel(s); they just can't turn off the last one.
+ */
+export const MANDATORY_NOTIFICATION_EVENTS: readonly NotificationEvent[] = [
+  NotificationType.BILLING,
+]
+
+export function isMandatoryNotificationEvent(event: NotificationEvent): boolean {
+  return MANDATORY_NOTIFICATION_EVENTS.includes(event)
+}
+
 export enum NotificationStatus {
   PENDING = 'pending',
   QUEUED = 'queued',
