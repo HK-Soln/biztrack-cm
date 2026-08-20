@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import { NotificationChannel, type NotificationEvent } from '@biztrack/types'
 import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
+import { minutesOfDayInTimezone } from '@/common/time/timezone.util'
 import { NotificationsService } from './notifications.service'
 import { NotificationSettingsService } from './notification-settings.service'
 
@@ -116,27 +117,6 @@ export function withinQuietHours(
   const until = toMinutes(quiet.until)
   if (from === until) return false
   return from < until ? cur >= from && cur < until : cur >= from || cur < until
-}
-
-/** Current minutes-since-midnight at `now`, read in the given IANA timezone (falls back
- * to server-local if the timezone is missing/invalid). */
-function minutesOfDayInTimezone(now: Date, timezone?: string): number {
-  if (timezone) {
-    try {
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }).formatToParts(now)
-      const h = Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24
-      const m = Number(parts.find((p) => p.type === 'minute')?.value ?? '0')
-      return h * 60 + m
-    } catch {
-      // Invalid timezone → fall through to server-local.
-    }
-  }
-  return now.getHours() * 60 + now.getMinutes()
 }
 
 function toMinutes(hhmm: string): number {

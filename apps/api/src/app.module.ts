@@ -16,6 +16,7 @@ import { PlansModule } from '@/modules/plans/plans.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
+import { DailyDigestModule } from '@/modules/daily-digest/daily-digest.module'
 import { MarketingModule } from '@/modules/marketing/marketing.module'
 import { StorageModule } from '@/modules/storage/storage.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
@@ -121,6 +122,7 @@ function resolveI18nPath() {
     OnlineModule,
     SubscriptionsModule,
     NotificationsModule,
+    DailyDigestModule,
     MarketingModule,
     StorageModule,
     RedisModule,

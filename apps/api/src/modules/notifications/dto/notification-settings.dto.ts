@@ -5,14 +5,21 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator'
-import { NotificationChannel, NotificationType } from '@biztrack/types'
+import {
+  MAX_DAILY_DIGEST_OFFSET_MINUTES,
+  NotificationChannel,
+  NotificationType,
+} from '@biztrack/types'
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -48,6 +55,12 @@ export class UpdateQuietHoursDto {
   @IsString()
   @MaxLength(64)
   timezone!: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_DAILY_DIGEST_OFFSET_MINUTES)
+  dailyDigestOffsetMinutes?: number
 }
 
 export class AddNotificationRecipientDto {

@@ -38,4 +38,8 @@ export class NotificationSetting extends BaseEntity {
   /** IANA timezone quiet hours + scheduled digests are evaluated in (the business's zone). */
   @Column({ type: 'varchar', length: 64, default: 'Africa/Douala' })
   timezone!: string
+
+  /** Minutes after the business's closing time to send the daily digest (0–180). */
+  @Column({ name: 'daily_digest_offset_minutes', type: 'int', default: 30 })
+  dailyDigestOffsetMinutes!: number
 }

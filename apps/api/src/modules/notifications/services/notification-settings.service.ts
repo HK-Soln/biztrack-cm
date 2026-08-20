@@ -4,8 +4,10 @@ import { Repository } from 'typeorm'
 import {
   BusinessMemberRole,
   BusinessMemberStatus,
+  DEFAULT_DAILY_DIGEST_OFFSET_MINUTES,
   DEFAULT_NOTIFICATION_TIMEZONE,
   MANDATORY_NOTIFICATION_EVENTS,
+  clampDailyDigestOffset,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
   NotificationChannel,
@@ -163,6 +165,9 @@ export class NotificationSettingsService {
     setting.quietFrom = dto.from
     setting.quietUntil = dto.until
     if (dto.timezone?.trim()) setting.timezone = dto.timezone.trim()
+    if (dto.dailyDigestOffsetMinutes !== undefined) {
+      setting.dailyDigestOffsetMinutes = clampDailyDigestOffset(dto.dailyDigestOffsetMinutes)
+    }
     await this.settingsRepo.save(setting)
     return this.getSettings(businessId, userId)
   }
@@ -425,6 +430,9 @@ export class NotificationSettingsService {
         until: setting.quietUntil,
       },
       timezone: setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
+      dailyDigestOffsetMinutes: clampDailyDigestOffset(
+        setting.dailyDigestOffsetMinutes ?? DEFAULT_DAILY_DIGEST_OFFSET_MINUTES,
+      ),
       recipients: recipients.map((r) => this.toRecipient(r, ownerId)),
       unavailableChannels: [...UNAVAILABLE_NOTIFICATION_CHANNELS],
     }

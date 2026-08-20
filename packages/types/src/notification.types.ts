@@ -101,6 +101,21 @@ export function isMandatoryNotificationEvent(event: NotificationEvent): boolean 
  */
 export const DEFAULT_NOTIFICATION_TIMEZONE = 'Africa/Douala'
 
+/**
+ * The owner's daily summary is sent this many minutes after the business's closing time
+ * (evaluated per-weekday in the business timezone). Presets surface as quick picks in the
+ * UI; any positive integer in [0, MAX] is accepted (custom minutes).
+ */
+export const DEFAULT_DAILY_DIGEST_OFFSET_MINUTES = 30
+export const MAX_DAILY_DIGEST_OFFSET_MINUTES = 180
+export const DAILY_DIGEST_OFFSET_PRESETS: readonly number[] = [0, 15, 30, 60, 120]
+
+/** Clamp a requested offset to a valid integer within [0, MAX]. */
+export function clampDailyDigestOffset(minutes: number): number {
+  if (!Number.isFinite(minutes)) return DEFAULT_DAILY_DIGEST_OFFSET_MINUTES
+  return Math.min(MAX_DAILY_DIGEST_OFFSET_MINUTES, Math.max(0, Math.round(minutes)))
+}
+
 export enum NotificationStatus {
   PENDING = 'pending',
   QUEUED = 'queued',
@@ -207,6 +222,8 @@ export interface NotificationSettings {
   quietHours: NotificationQuietHours
   /** IANA timezone quiet hours + scheduled digests are evaluated in (the business's zone). */
   timezone: string
+  /** Minutes after closing time the daily summary is sent (0–180). */
+  dailyDigestOffsetMinutes: number
   recipients: NotificationRecipient[]
   /** Channels with no live provider (echoed so the UI can disable their toggles). */
   unavailableChannels: NotificationChannel[]
@@ -220,6 +237,8 @@ export interface UpdateNotificationMatrixRequest {
 export interface UpdateNotificationQuietHoursRequest extends NotificationQuietHours {
   /** IANA timezone the schedule is evaluated in. */
   timezone: string
+  /** Minutes after closing time the daily summary is sent (0–180); optional (unchanged if omitted). */
+  dailyDigestOffsetMinutes?: number
 }
 
 export interface AddNotificationRecipientRequest {
