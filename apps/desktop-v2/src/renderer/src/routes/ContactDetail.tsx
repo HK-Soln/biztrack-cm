@@ -10,6 +10,7 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu } from '@/components/ActionMenu'
 import { ContactPaymentModal } from '@/components/ContactPaymentModal'
+import { CustomerDebtActions } from '@/components/contacts/CustomerDebtActions'
 import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import type { ContactStatement, ContactStatementEntry } from '@shared/ipc'
 
@@ -60,6 +61,11 @@ export function ContactDetail() {
     queryFn: () => dataClient.debts.statement(id, DebtDirection.PAYABLE),
     enabled: !!id && isSupplier,
   })
+  // Business name for the WhatsApp reminder templates (per-customer debt tools).
+  const { data: businessProfile } = useQuery({
+    queryKey: ['business', 'profile'],
+    queryFn: () => dataClient.business.getProfile(),
+  })
 
   const refresh = () => {
     void refetch()
@@ -90,6 +96,20 @@ export function ContactDetail() {
 
   const typeLabel = isBoth ? t('ct.bothLong') : isSupplier ? t('ct.supplier') : t('ct.customer')
   const net = contact.totalReceivable - contact.totalPayable
+
+  // Per-customer debt tools (WhatsApp reminder + editable due dates) — only shown on the
+  // receivable side, and self-hides when the customer owes nothing.
+  const custDebtActions = (
+    <CustomerDebtActions
+      contact={{
+        id,
+        name: contact.name,
+        phone: contact.phone,
+        totalReceivable: contact.totalReceivable,
+      }}
+      businessName={businessProfile?.name ?? ''}
+    />
+  )
   const since = new Date(contact.createdAt).toLocaleDateString(undefined, {
     month: 'short',
     year: 'numeric',
@@ -541,9 +561,14 @@ export function ContactDetail() {
               </button>
             </div>
             <div className="spacer" style={{ flex: 1 }} />
-            {ledgerTab === DebtDirection.RECEIVABLE
-              ? sendBtn(recvStmt, t('ct.ledgerAsCustomer'))
-              : sendBtn(payStmt, t('ct.ledgerAsSupplier'))}
+            {ledgerTab === DebtDirection.RECEIVABLE ? (
+              <>
+                {custDebtActions}
+                {sendBtn(recvStmt, t('ct.ledgerAsCustomer'))}
+              </>
+            ) : (
+              sendBtn(payStmt, t('ct.ledgerAsSupplier'))
+            )}
           </div>
           {ledgerTab === DebtDirection.RECEIVABLE
             ? ledgerView(recvStmt, t('ct.ledgerCustFoot'))
@@ -559,6 +584,7 @@ export function ContactDetail() {
                 <span className="d" />
                 {money.format(isSupplier ? contact.totalPayable : contact.totalReceivable)}
               </span>
+              {!isSupplier ? custDebtActions : null}
               {sendBtn(
                 isSupplier ? payStmt : recvStmt,
                 isSupplier ? t('ct.supplierAccount') : t('ct.statement'),

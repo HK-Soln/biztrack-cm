@@ -22,7 +22,6 @@ import { Products } from '@/routes/Products'
 import { ProductForm } from '@/routes/ProductForm'
 import { Inventory } from '@/routes/Inventory'
 import { Reorder } from '@/routes/Reorder'
-import { Debtors } from '@/routes/Debtors'
 import { ReceiveStock } from '@/routes/ReceiveStock'
 import { ProductDetail } from '@/routes/ProductDetail'
 import { VariantDetail } from '@/routes/VariantDetail'
@@ -111,7 +110,6 @@ export const router = createHashRouter([
           { path: '/online/products', element: <OnlineProducts /> },
           { path: '/online/store', element: <OnlineStore /> },
           { path: '/contacts', element: <Contacts /> },
-          { path: '/debtors', element: <Debtors /> },
           { path: '/contacts/new', element: <ContactForm /> },
           { path: '/contacts/:id', element: <ContactDetail /> },
           { path: '/contacts/:id/edit', element: <ContactForm /> },
