@@ -3001,7 +3001,7 @@ export const en = {
   'ntf.billingDesc': 'Renewals, failed charges and plan limits.',
   'ntf.creditNote':
     'SMS & WhatsApp are billed per message from your account credit. In-app & email are free.',
-  'ntf.smsSoon': 'SMS is coming soon — it needs a dedicated SMS provider, so it stays off for now.',
+  'ntf.smsSoon': 'SMS is coming soon!',
   'ntf.billingRequired': 'Billing alerts are important — keep at least one channel on.',
   'ntf.timezone': 'Timezone',
   'ntf.timezoneDesc': 'Quiet hours and scheduled digests use this timezone.',
@@ -6411,8 +6411,7 @@ export const fr: Record<MessageKey, string> = {
   'ntf.billingDesc': 'Renouvellements, échecs de paiement et limites de forfait.',
   'ntf.creditNote':
     'SMS & WhatsApp sont facturés par message depuis votre crédit. In-app & email sont gratuits.',
-  'ntf.smsSoon':
-    'Le SMS arrive bientôt — il nécessite un fournisseur SMS dédié, il reste donc désactivé pour l’instant.',
+  'ntf.smsSoon': 'Le SMS arrive bientôt !',
   'ntf.billingRequired':
     'Les alertes de facturation sont importantes — gardez au moins un canal activé.',
   'ntf.timezone': 'Fuseau horaire',
