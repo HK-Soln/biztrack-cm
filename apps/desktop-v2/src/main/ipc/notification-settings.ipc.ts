@@ -37,5 +37,4 @@ export function registerNotificationSettingsIpc(service: NotificationSettingsSer
   ipcMain.handle(IPC.notificationSettingsRemoveRecipient, (_e, id: string) =>
     service.removeRecipient(id),
   )
-  ipcMain.handle(IPC.notificationSettingsSendTestDigest, () => service.sendTestDigest())
 }

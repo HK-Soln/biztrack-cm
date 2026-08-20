@@ -1,13 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
-import { DEFAULT_NOTIFICATION_TIMEZONE, DebtDirection, NotificationType } from '@biztrack/types'
-import { AppForbiddenException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { DebtDirection, NotificationType } from '@biztrack/types'
 import { Locale } from '@/common/enums/locale.enum'
-import { dayKeyInTimezone } from '@/common/time/timezone.util'
 import { Business } from '@/entities/business.entity'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
-import { NotificationSetting } from '@/entities/notification-setting.entity'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { CashSessionsService } from '@/modules/cash-sessions/services/cash-sessions.service'
@@ -115,8 +112,6 @@ export class DailyDigestService {
     private readonly dispatcher: NotificationDispatcher,
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
-    @InjectRepository(NotificationSetting)
-    private readonly settingRepo: Repository<NotificationSetting>,
     @InjectRepository(DailySaleSummary)
     private readonly summaryRepo: Repository<DailySaleSummary>,
   ) {}
@@ -174,22 +169,6 @@ export class DailyDigestService {
       urgent: opts.urgent ?? false,
     })
     return figures
-  }
-
-  /** Owner-triggered preview: send today's digest immediately (bypasses quiet hours) so
-   *  the owner can see how it renders on each channel. Honours the matrix + recipients —
-   *  it's the real message, not a mock. */
-  async sendTestDigest(businessId: string, userId: string): Promise<DailyDigestFigures> {
-    const business = await this.businessRepo.findOne({ where: { id: businessId } })
-    if (!business) throw new AppNotFoundException('Business not found', 'BUSINESS_NOT_FOUND')
-    if (business.ownerId !== userId) {
-      throw new AppForbiddenException('Only the owner can send a test digest', 'FORBIDDEN')
-    }
-    const setting = await this.settingRepo.findOne({ where: { businessId } })
-    const tz = setting?.timezone || DEFAULT_NOTIFICATION_TIMEZONE
-    const dayKey = dayKeyInTimezone(new Date(), tz)
-    const figures = await this.runDigest(businessId, dayKey, { urgent: true })
-    return figures ?? this.computeFigures(businessId, dayKey)
   }
 
   /** One label/value pair per figure — the shared source every channel format renders. */

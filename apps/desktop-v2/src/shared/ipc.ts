@@ -176,7 +176,6 @@ export const IPC = {
   notificationSettingsUpdateRecipient: 'notification-settings:update-recipient',
   notificationSettingsUpdateRecipientSubs: 'notification-settings:update-recipient-subs',
   notificationSettingsRemoveRecipient: 'notification-settings:remove-recipient',
-  notificationSettingsSendTestDigest: 'notification-settings:send-test-digest',
   plansList: 'plans:list',
   plansSubscription: 'plans:subscription',
   plansQuotaUsage: 'plans:quota-usage',
@@ -2283,8 +2282,6 @@ export interface BridgeApi {
       body: UpdateRecipientSubscriptionsRequestT,
     ) => Promise<NotificationSettingsT>
     removeRecipient: (id: string) => Promise<NotificationSettingsT>
-    /** Owner-only: send today's daily summary now (preview on each channel). */
-    sendTestDigest: () => Promise<void>
   }
   /** Plans / subscription (Settings → Subscription) — server-owned, proxied through main. */
   plans: {

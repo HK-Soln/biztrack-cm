@@ -322,7 +322,6 @@ const api: BridgeApi = {
     updateRecipientSubscriptions: (id, body) =>
       ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipientSubs, id, body),
     removeRecipient: (id) => ipcRenderer.invoke(IPC.notificationSettingsRemoveRecipient, id),
-    sendTestDigest: () => ipcRenderer.invoke(IPC.notificationSettingsSendTestDigest),
   },
   plans: {
     list: () => ipcRenderer.invoke(IPC.plansList),

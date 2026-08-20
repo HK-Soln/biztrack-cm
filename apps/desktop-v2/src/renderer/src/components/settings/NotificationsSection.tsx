@@ -224,9 +224,6 @@ export function NotificationsSection() {
     }) => dataClient.notificationSettings.updateQuietHours(body),
     onSuccess: setData,
   })
-  const testMut = useMutation({
-    mutationFn: () => dataClient.notificationSettings.sendTestDigest(),
-  })
   const { data: timezones = [] } = useQuery({
     queryKey: ['notificationSettings', 'timezones'],
     queryFn: () => dataClient.notificationSettings.listTimezones(),
@@ -524,21 +521,6 @@ export function NotificationsSection() {
         </div>
         <div style={{ fontSize: '11.5px', color: 'var(--text-2)', marginTop: 10 }}>
           {effectiveLabel} · {t('ntf.digestNeedsHours')}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
-          <button
-            type="button"
-            className="btn"
-            disabled={!canEdit || testMut.isPending}
-            onClick={() => testMut.mutate()}
-          >
-            {testMut.isPending ? t('ntf.digestTestSending') : t('ntf.digestTest')}
-          </button>
-          {testMut.isSuccess ? (
-            <span style={{ color: 'var(--success)', fontSize: 12 }}>{t('ntf.digestTestSent')}</span>
-          ) : testMut.isError ? (
-            <span style={{ color: 'var(--danger)', fontSize: 12 }}>{t('ntf.digestTestFail')}</span>
-          ) : null}
         </div>
       </div>
 
