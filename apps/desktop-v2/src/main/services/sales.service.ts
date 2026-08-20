@@ -382,6 +382,9 @@ export class SalesService {
     const customerId = input.customerId?.trim() || null
     if (creditAmount > 0 && !customerId)
       throw new Error('Credit sales must be linked to a registered customer.')
+    // Optional expected payment date for the credit portion; when omitted the debt falls
+    // back to created_at + the business's default credit period (D9).
+    const creditDueDate = input.creditDueDate?.trim() || null
 
     // Deposit (savings) payments must reference an account with enough balance — validate
     // up front so a shortfall can never leave a half-written sale.
@@ -643,6 +646,7 @@ export class SalesService {
         discountAmount,
         chargesAmount,
         creditAmount,
+        creditDueDate,
         status: 'COMPLETED',
         payments: paymentRows.map((p) => ({
           id: p.id,
@@ -716,6 +720,7 @@ export class SalesService {
         sourceId: saleId,
         sourceReference: saleNumber,
         originalAmount: creditAmount,
+        dueDate: creditDueDate,
         notes,
         createdAt: soldAt,
       })

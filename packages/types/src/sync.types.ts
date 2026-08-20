@@ -938,6 +938,8 @@ export interface SaleSyncPayload {
   discountAmount?: number
   chargesAmount?: number
   creditAmount?: number | null
+  /** Optional expected payment date ('YYYY-MM-DD') for the credit portion (D9). */
+  creditDueDate?: string | null
   status?: SaleStatus
   // Channel + link to the originating online order (omitted/IN_STORE for in-store sales).
   source?: string

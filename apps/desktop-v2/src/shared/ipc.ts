@@ -1204,6 +1204,8 @@ export interface SaleInput {
   discounts?: SaleDiscountLineInput[]
   /** Manager userId who authorized an over-limit discount via step-up (BIZ-1.4). */
   authorizedByUserId?: string | null
+  /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale. */
+  creditDueDate?: string | null
 }
 /** An opening balance brought forward for a contact (one per direction). */
 export interface OpeningBalanceInput {

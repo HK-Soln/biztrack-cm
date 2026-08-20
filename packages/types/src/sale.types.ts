@@ -193,6 +193,9 @@ export interface CreateSaleRequest {
   /** Manager userId who authorized an over-limit discount via step-up (BIZ-1.4).
    * When present, the sale's discount rows are recorded authorized, not flagged. */
   authorizedByUserId?: string | null
+  /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale.
+   * When omitted, the debt falls back to created_at + the business's default credit days. */
+  creditDueDate?: string | null
 }
 
 export interface VoidSaleRequest {

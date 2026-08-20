@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -313,4 +314,12 @@ export class CreateSaleDto implements CreateSaleRequest {
   @IsOptional()
   @IsUUID()
   authorizedByUserId?: string | null
+
+  @ApiPropertyOptional({
+    example: '2026-05-23',
+    description: "Optional expected payment date for the sale's credit portion (YYYY-MM-DD).",
+  })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'creditDueDate must be YYYY-MM-DD' })
+  creditDueDate?: string | null
 }

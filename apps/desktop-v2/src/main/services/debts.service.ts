@@ -86,7 +86,15 @@ export class DebtsService {
       `SELECT id FROM debts WHERE business_id = ? AND source_type = ? AND source_id = ? AND direction = ?`,
       [businessId, input.sourceType, input.sourceId, input.direction],
     )
-    if (existing) return existing.id
+    if (existing) {
+      // The row may already exist from a DB trigger (sale/restock receivable). If the caller
+      // supplied an explicit due date (e.g. credit terms chosen at checkout), apply it — the
+      // trigger inserts due_date NULL, so the effective due falls back to the default until set.
+      if (input.dueDate) {
+        this.db.run(`UPDATE debts SET due_date = ? WHERE id = ?`, [input.dueDate, existing.id])
+      }
+      return existing.id
+    }
 
     const id = randomUUID()
     const now = input.createdAt ?? new Date().toISOString()

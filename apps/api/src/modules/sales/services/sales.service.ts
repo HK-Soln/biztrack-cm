@@ -469,6 +469,7 @@ export class SalesService {
             sourceId: sale.id,
             sourceReference: sale.saleNumber,
             originalAmount: creditAmount,
+            dueDate: dto.creditDueDate ?? null,
             notes: dto.notes?.trim() || null,
             createdAt: soldAt,
           })
@@ -772,6 +773,7 @@ export class SalesService {
             sourceId: sale.id,
             sourceReference: sale.saleNumber,
             originalAmount: creditAmount,
+            dueDate: payload.creditDueDate ?? null,
             notes: payload.notes?.trim() || null,
             createdAt: soldAt,
           })

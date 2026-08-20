@@ -10364,6 +10364,25 @@ textarea.input {
   flex-shrink: 0;
   margin-top: 1px;
 }
+.pm-duedate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.pm-duedate input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 14px;
+}
+.pm-duedate small {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
 .pm-recap-mini {
   background: var(--inset);
   border-radius: 12px;

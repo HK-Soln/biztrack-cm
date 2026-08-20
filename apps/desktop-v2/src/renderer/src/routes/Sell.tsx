@@ -678,11 +678,15 @@ export function Sell() {
 
   const itemCount = cart.reduce((a, l) => a + l.quantity, 0)
 
-  const buildInput = (payments: SaleInput['payments']): SaleInput => ({
+  const buildInput = (
+    payments: SaleInput['payments'],
+    creditDueDate?: string | null,
+  ): SaleInput => ({
     clientId: crypto.randomUUID(),
     customerId: customer?.id ?? null,
     customerName: customer?.name ?? null,
     customerPhone: customer?.phone ?? null,
+    creditDueDate: creditDueDate || null,
     items: cart.map((l) =>
       l.serialUnitId
         ? {
@@ -748,7 +752,7 @@ export function Sell() {
    * over the cashier's role limit. APPROVE semantics: if the manager cancels, the
    * sale still completes but its discount is flagged unauthorized on the backend.
    */
-  const submitSale = async (payments: SaleInput['payments']) => {
+  const submitSale = async (payments: SaleInput['payments'], creditDueDate?: string | null) => {
     let authorizedByUserId: string | null = null
     const limits = limitsQ.data
     const overLimit = limits
@@ -777,7 +781,7 @@ export function Sell() {
       const result = await requestManagerStepUp()
       authorizedByUserId = result?.authorizedByUserId ?? null
     }
-    checkout.mutate({ ...buildInput(payments), authorizedByUserId })
+    checkout.mutate({ ...buildInput(payments, creditDueDate), authorizedByUserId })
   }
 
   const startNew = () => {
@@ -919,7 +923,7 @@ export function Sell() {
             setCustOpen(true)
           }}
           busy={checkout.isPending}
-          onConfirm={(payments) => void submitSale(payments)}
+          onConfirm={(payments, due) => void submitSale(payments, due)}
         />
       ) : null}
 
@@ -1929,7 +1933,7 @@ function PaymentModal({
   forceDeposit?: boolean
   onClose: () => void
   onPickCustomer: () => void
-  onConfirm: (p: SaleInput['payments']) => void
+  onConfirm: (p: SaleInput['payments'], creditDueDate?: string | null) => void
   busy: boolean
 }) {
   const t = useT()
@@ -1937,6 +1941,7 @@ function PaymentModal({
   const [method, setMethod] = useState<TenderKey>(defaultTender ?? 'cash')
   const [tendered, setTendered] = useState<number | null>(null)
   const [momoRef, setMomoRef] = useState('')
+  const [creditDue, setCreditDue] = useState('')
   const [depRem, setDepRem] = useState<number | null>(null)
   const [splits, setSplits] = useState<Record<string, number>>({
     cash: 0,
@@ -1982,6 +1987,16 @@ function PaymentModal({
   // collected via the other method inputs, and whatever is still unpaid becomes credit.
   const depOtherAllocated = SPLIT_KEYS.reduce((a, k) => a + (splits[k] || 0), 0)
   const depLeftover = round2(total - depApplied - depOtherAllocated)
+
+  // Show the optional "expected payment date" picker whenever the sale will leave a credit
+  // balance on a registered customer. Skippable — omitting it falls back to the business
+  // default credit period (D9).
+  const willHaveCredit =
+    !!customer &&
+    ((method === 'credit' && total > 0) ||
+      (method === 'split' && remaining > 0) ||
+      (method === 'deposit' && forceDeposit && depLeftover > 0))
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   let canConfirm = true
   let confirmLabel = t('sell.confirmPayment')
@@ -2051,7 +2066,7 @@ function PaymentModal({
               },
         )
     }
-    onConfirm(payments)
+    onConfirm(payments, creditDue || null)
   }
 
   return (
@@ -2313,6 +2328,19 @@ function PaymentModal({
               </div>
               {remaining > 0 && isWalkIn ? <CustNeeded t={t} onPick={onPickCustomer} /> : null}
             </>
+          ) : null}
+
+          {willHaveCredit ? (
+            <div className="pm-duedate">
+              <label className="pm-lbl">{t('sell.creditDueDate')}</label>
+              <input
+                type="date"
+                min={todayIso}
+                value={creditDue}
+                onChange={(e) => setCreditDue(e.target.value)}
+              />
+              <small>{t('sell.creditDueHint')}</small>
+            </div>
           ) : null}
 
           <div className="pm-recap-mini">
