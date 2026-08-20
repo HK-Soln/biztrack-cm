@@ -42,38 +42,58 @@ const escapeHtml = (s: string): string =>
 
 // Digest copy per business language (the owner's user.language). Producer-specific, so
 // kept inline rather than in the auto-regenerated i18n.generated.ts (matches the
-// low-stock producer). Each builder returns one line; the body joins them.
+// low-stock producer). One shared label/value model renders all three channel formats.
 const DIGEST_COPY = {
   [Locale.EN]: {
-    numberLocale: 'en-US',
-    title: (name: string) => `Daily summary — ${name}`,
-    revenue: (v: string) => `Revenue: ${v} XAF`,
-    profit: (v: string) => `Profit: ${v} XAF`,
-    variance: (v: string) => `Cash variance: ${v} XAF`,
-    noCash: 'No cash drawer was closed today.',
-    discounts: (v: string) => `Discounts: ${v} XAF`,
-    lowStock: (n: number) => `${n} product${n > 1 ? 's' : ''} to reorder`,
-    lowStockNone: 'Stock levels OK',
-    receivables: (out: string, over: string) => `Receivables: ${out} XAF (${over} overdue)`,
+    locale: 'en-US',
+    title: 'Daily summary',
+    sep: ': ',
+    lblRevenue: 'Revenue',
+    lblProfit: 'Profit',
+    lblCash: 'Cash variance',
+    lblDiscounts: 'Discounts',
+    lblStock: 'Stock',
+    lblReceivables: 'Receivables',
+    noDrawer: 'No drawer closed',
+    toReorder: (n: number) => `${n} product${n > 1 ? 's' : ''} to reorder`,
+    stockOk: 'All good',
+    overdue: (v: string) => `${v} overdue`,
   },
   [Locale.FR]: {
-    numberLocale: 'fr-FR',
-    title: (name: string) => `Résumé du jour — ${name}`,
-    revenue: (v: string) => `Recette : ${v} XAF`,
-    profit: (v: string) => `Bénéfice : ${v} XAF`,
-    variance: (v: string) => `Écart caisse : ${v} XAF`,
-    noCash: 'Aucune caisse clôturée aujourd’hui.',
-    discounts: (v: string) => `Remises : ${v} XAF`,
-    lowStock: (n: number) => `${n} produit${n > 1 ? 's' : ''} à commander`,
-    lowStockNone: 'Niveaux de stock OK',
-    receivables: (out: string, over: string) => `Créances : ${out} XAF (${over} en retard)`,
+    locale: 'fr-FR',
+    title: 'Résumé du jour',
+    sep: ' : ',
+    lblRevenue: 'Recette',
+    lblProfit: 'Bénéfice',
+    lblCash: 'Écart caisse',
+    lblDiscounts: 'Remises',
+    lblStock: 'Stock',
+    lblReceivables: 'Créances',
+    noDrawer: 'Aucune caisse clôturée',
+    toReorder: (n: number) => `${n} produit${n > 1 ? 's' : ''} à commander`,
+    stockOk: 'Tout est bon',
+    overdue: (v: string) => `${v} en retard`,
   },
 } as const
 
 type DigestCopy = (typeof DIGEST_COPY)[Locale]
+interface DigestRow {
+  label: string
+  value: string
+}
 
 const businessLang = (business: Business | null): Locale =>
   business?.owner?.language === Locale.EN ? Locale.EN : Locale.FR
+
+/** The business-local day, spelled out in the business language (e.g. "20 August 2026").
+ *  Formatted in UTC so the 'YYYY-MM-DD' key keeps its calendar date. */
+const formatDay = (dayKey: string, locale: string): string =>
+  new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${dayKey}T00:00:00.000Z`))
 
 /**
  * Owner daily-summary digest. Computes the figures from the SAME canonical services the
@@ -140,13 +160,15 @@ export class DailyDigestService {
 
     const copy = DIGEST_COPY[businessLang(business)]
     const figures = await this.computeFigures(businessId, dayKey)
+    const rows = this.buildRows(copy, figures)
 
     await this.dispatcher.dispatch({
       businessId,
       event: NotificationType.DAILY_SUMMARY,
-      title: copy.title(business.name),
-      body: this.buildBody(copy, figures),
-      emailBody: this.buildEmailHtml(copy, figures),
+      title: `${copy.title} — ${business.name}`,
+      body: this.buildInApp(copy, rows),
+      emailBody: this.buildEmailHtml(copy, business.name, dayKey, rows),
+      whatsappBody: this.buildWhatsApp(copy, business.name, dayKey, rows),
       deeplink: '/reports',
       metadata: { dayKey, ...figures },
       urgent: opts.urgent ?? false,
@@ -170,26 +192,66 @@ export class DailyDigestService {
     return figures ?? this.computeFigures(businessId, dayKey)
   }
 
-  private buildLines(copy: DigestCopy, f: DailyDigestFigures): string[] {
-    const n = (v: number) => v.toLocaleString(copy.numberLocale)
+  /** One label/value pair per figure — the shared source every channel format renders. */
+  private buildRows(copy: DigestCopy, f: DailyDigestFigures): DigestRow[] {
+    const n = (v: number) => v.toLocaleString(copy.locale)
     return [
-      copy.revenue(n(f.revenue)),
-      copy.profit(n(f.profit)),
-      f.cashShifts > 0 ? copy.variance(signed(f.cashVariance, copy.numberLocale)) : copy.noCash,
-      copy.discounts(n(f.discounts)),
-      f.lowStock > 0 ? copy.lowStock(f.lowStock) : copy.lowStockNone,
-      copy.receivables(n(f.receivablesOutstanding), n(f.receivablesOverdue)),
+      { label: copy.lblRevenue, value: `${n(f.revenue)} XAF` },
+      { label: copy.lblProfit, value: `${n(f.profit)} XAF` },
+      {
+        label: copy.lblCash,
+        value: f.cashShifts > 0 ? `${signed(f.cashVariance, copy.locale)} XAF` : copy.noDrawer,
+      },
+      { label: copy.lblDiscounts, value: `${n(f.discounts)} XAF` },
+      {
+        label: copy.lblStock,
+        value: f.lowStock > 0 ? copy.toReorder(f.lowStock) : copy.stockOk,
+      },
+      {
+        label: copy.lblReceivables,
+        value:
+          f.receivablesOverdue > 0
+            ? `${n(f.receivablesOutstanding)} XAF (${copy.overdue(n(f.receivablesOverdue))})`
+            : `${n(f.receivablesOutstanding)} XAF`,
+      },
     ]
   }
 
-  /** Plain text for in-app + WhatsApp (newlines preserved by those channels). */
-  private buildBody(copy: DigestCopy, f: DailyDigestFigures): string {
-    return this.buildLines(copy, f).join('\n')
+  /** Plain "Label: value" lines for the in-app bell (title shown separately by the UI). */
+  private buildInApp(copy: DigestCopy, rows: DigestRow[]): string {
+    return rows.map((r) => `${r.label}${copy.sep}${r.value}`).join('\n')
   }
 
-  /** HTML for email (Resend renders body as HTML; the plain body's newlines would collapse). */
-  private buildEmailHtml(copy: DigestCopy, f: DailyDigestFigures): string {
-    const inner = this.buildLines(copy, f).map(escapeHtml).join('<br>')
-    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#111">${inner}</div>`
+  /** WhatsApp: a bold title + date heading, then each value in *bold* for glanceability
+   *  (WAHA sends only the body text, so the heading must live here — WhatsApp markdown). */
+  private buildWhatsApp(copy: DigestCopy, name: string, dayKey: string, rows: DigestRow[]): string {
+    const heading = `📊 *${copy.title} — ${name}*\n${formatDay(dayKey, copy.locale)}`
+    const lines = rows.map((r) => `${r.label}${copy.sep}*${r.value}*`).join('\n')
+    return `${heading}\n\n${lines}`
+  }
+
+  /** HTML for email (Resend renders body as HTML): title + date header, values in a
+   *  right-aligned bold column so the numbers read at a glance. */
+  private buildEmailHtml(
+    copy: DigestCopy,
+    name: string,
+    dayKey: string,
+    rows: DigestRow[],
+  ): string {
+    const cells = rows
+      .map(
+        (r) =>
+          `<tr><td style="padding:7px 0;color:#555;border-bottom:1px solid #eee">${escapeHtml(
+            r.label,
+          )}</td><td style="padding:7px 0;text-align:right;font-weight:700;border-bottom:1px solid #eee">${escapeHtml(
+            r.value,
+          )}</td></tr>`,
+      )
+      .join('')
+    return `<div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:460px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:2px">${escapeHtml(copy.title)} — ${escapeHtml(name)}</div>
+      <div style="font-size:12px;color:#777;margin-bottom:14px">${escapeHtml(formatDay(dayKey, copy.locale))}</div>
+      <table style="border-collapse:collapse;width:100%;font-size:14px">${cells}</table>
+    </div>`
   }
 }

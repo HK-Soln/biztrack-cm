@@ -13,8 +13,12 @@ export interface DispatchNotificationInput {
   title: string
   body: string
   /** Optional HTML body for the EMAIL channel (Resend renders `body` as HTML, so a
-   * plain-text `body` with newlines collapses). In-app/WhatsApp keep the plain `body`. */
+   * plain-text `body` with newlines collapses). In-app keeps the plain `body`. */
   emailBody?: string
+  /** Optional body for the WhatsApp channel (supports WhatsApp markdown *bold*); falls
+   * back to `body`. Lets a producer add a bold title/heading WhatsApp won't get from the
+   * `title` field (WAHA sends only the message text). */
+  whatsappBody?: string
   /** In-app deep link the bell navigates to. */
   deeplink?: string | null
   metadata?: Record<string, unknown> | null
@@ -87,7 +91,7 @@ export class NotificationDispatcher {
           type: input.event,
           recipient: r.whatsappContact,
           subject: input.title,
-          body: input.body,
+          body: input.whatsappBody ?? input.body,
           metadata,
           businessId: input.businessId,
           userId: r.userId ?? undefined,
