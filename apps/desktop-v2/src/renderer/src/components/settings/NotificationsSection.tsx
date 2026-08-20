@@ -2,9 +2,13 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CommandSelect, Input, PhoneInput, type CommandSelectOption } from '@biztrack/ui/biztrack'
 import {
+  DAILY_DIGEST_OFFSET_PRESETS,
+  DEFAULT_DAILY_DIGEST_OFFSET_MINUTES,
   DEFAULT_NOTIFICATION_TIMEZONE,
+  MAX_DAILY_DIGEST_OFFSET_MINUTES,
   NotificationChannel,
   NotificationType,
+  clampDailyDigestOffset,
   isMandatoryNotificationEvent,
   type AddNotificationRecipientRequest,
   type NotificationEvent,
@@ -211,8 +215,13 @@ export function NotificationsSection() {
     onSuccess: setData,
   })
   const quietMut = useMutation({
-    mutationFn: (body: { enabled: boolean; from: string; until: string; timezone: string }) =>
-      dataClient.notificationSettings.updateQuietHours(body),
+    mutationFn: (body: {
+      enabled: boolean
+      from: string
+      until: string
+      timezone: string
+      dailyDigestOffsetMinutes?: number
+    }) => dataClient.notificationSettings.updateQuietHours(body),
     onSuccess: setData,
   })
   const { data: timezones = [] } = useQuery({
@@ -280,12 +289,15 @@ export function NotificationsSection() {
   const [from, setFrom] = useState('21:00')
   const [until, setUntil] = useState('07:00')
   const [tz, setTz] = useState(DEFAULT_NOTIFICATION_TIMEZONE)
+  const [digestOffset, setDigestOffset] = useState(DEFAULT_DAILY_DIGEST_OFFSET_MINUTES)
+  const [customOffset, setCustomOffset] = useState('')
   useEffect(() => {
     if (!settings) return
     setQuiet(settings.quietHours.enabled)
     setFrom(settings.quietHours.from)
     setUntil(settings.quietHours.until)
     setTz(settings.timezone)
+    setDigestOffset(settings.dailyDigestOffsetMinutes)
   }, [settings])
 
   // Timezone picker: the backend returns the full IANA list, so filter it client-side.
@@ -366,6 +378,7 @@ export function NotificationsSection() {
     from: string
     until: string
     timezone?: string
+    dailyDigestOffsetMinutes?: number
   }) => {
     if (!canEdit) return
     quietMut.mutate({
@@ -373,8 +386,23 @@ export function NotificationsSection() {
       from: next.from,
       until: next.until,
       timezone: next.timezone ?? tz,
+      dailyDigestOffsetMinutes: next.dailyDigestOffsetMinutes ?? digestOffset,
     })
   }
+
+  const commitOffset = (minutes: number) => {
+    const clamped = clampDailyDigestOffset(minutes)
+    setDigestOffset(clamped)
+    setCustomOffset('')
+    commitQuiet({ enabled: quiet, from, until, dailyDigestOffsetMinutes: clamped })
+  }
+
+  const offsetText = (n: number) => (n !== 0 && n % 60 === 0 ? `+${n / 60} h` : `+${n} min`)
+  const chipLabel = (n: number) => (n === 0 ? t('ntf.digestAtClose') : offsetText(n))
+  const effectiveLabel =
+    digestOffset === 0
+      ? t('ntf.digestAtClose')
+      : `${offsetText(digestOffset)} ${t('ntf.digestAfterClose')}`
 
   const selected = settings.recipients.find((r) => r.id === selectedId) ?? null
 
@@ -450,6 +478,49 @@ export function NotificationsSection() {
             <path d="M12 11v5M12 8h.01" />
           </svg>
           <span>{t('ntf.smsSoon')}</span>
+        </div>
+      </div>
+
+      {/* Daily summary timing */}
+      <div className="card">
+        <div className="card-h">
+          <div>
+            <h3>{t('ntf.digestTitle')}</h3>
+            <p>{t('ntf.digestSub')}</p>
+          </div>
+        </div>
+        <div className="ofs-row">
+          {DAILY_DIGEST_OFFSET_PRESETS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={`ofs-chip${digestOffset === p ? ' on' : ''}`}
+              disabled={!canEdit}
+              onClick={() => commitOffset(p)}
+            >
+              {chipLabel(p)}
+            </button>
+          ))}
+          <div className="ofs-custom">
+            <Input
+              type="number"
+              min={0}
+              max={MAX_DAILY_DIGEST_OFFSET_MINUTES}
+              placeholder={t('ntf.digestCustom')}
+              value={customOffset}
+              disabled={!canEdit}
+              onChange={(e) => setCustomOffset(e.target.value)}
+              onBlur={() => customOffset.trim() !== '' && commitOffset(Number(customOffset))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && customOffset.trim() !== '')
+                  commitOffset(Number(customOffset))
+              }}
+            />
+            <span className="ofs-unit">{t('ntf.digestCustomPh')}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: '11.5px', color: 'var(--text-2)', marginTop: 10 }}>
+          {effectiveLabel} · {t('ntf.digestNeedsHours')}
         </div>
       </div>
 

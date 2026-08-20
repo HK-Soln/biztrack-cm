@@ -5995,6 +5995,45 @@ button.imgdrop:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Daily-summary send-offset chips (Settings → Notifications). */
+.ofs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ofs-chip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: 0.12s;
+}
+.ofs-chip.on {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand-int);
+}
+.ofs-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ofs-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ofs-custom input {
+  width: 84px;
+}
+.ofs-unit {
+  font-size: 12px;
+  color: var(--text-2);
+}
 /* Recipient destination chips (Settings → Notifications). `.ok` = verified. */
 .destchip {
   font-size: 10.5px;
