@@ -12,6 +12,7 @@ import type {
   PaginatedResult,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -214,6 +215,8 @@ export class ExpensesService {
     const id = randomUUID()
     const now = new Date().toISOString()
     const expenseDate = input.expenseDate?.trim() || now.slice(0, 10)
+    // Local trading day (BIZ-5.1) from the expense date.
+    const businessDate = localBusinessDate(expenseDate)
     const currency = this.businessCurrency()
     const status = input.status === 'PENDING' ? 'PENDING' : 'PAID'
     const categoryName =
@@ -224,8 +227,8 @@ export class ExpensesService {
     this.db.run(
       `INSERT INTO expenses
         (id, business_id, recorded_by_id, category, category_id, description, amount, currency, payment_method,
-         receipt_url, vendor, notes, is_recurring, status, date, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+         receipt_url, vendor, notes, is_recurring, status, date, business_date, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -242,6 +245,7 @@ export class ExpensesService {
         input.isRecurring ? 1 : 0,
         status,
         expenseDate,
+        businessDate,
         now,
         now,
       ],

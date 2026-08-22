@@ -26,6 +26,7 @@ import {
 import { Business } from '@/entities/business.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { Product } from '@/entities/product.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
@@ -84,6 +85,7 @@ export class ProductsService {
     private readonly variantsService: ProductVariantsService,
     private readonly auditService: AuditService,
     private readonly quotaService: QuotaService,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -261,6 +263,8 @@ export class ProductsService {
           )
 
           if (quantity > 0) {
+            // Local trading day (BIZ-5.1) from the business timezone + cutover.
+            const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
             await manager.getRepository(InventoryMovement).save(
               manager.getRepository(InventoryMovement).create({
                 businessId,
@@ -273,6 +277,7 @@ export class ProductsService {
                 referenceId: created.id,
                 notes: 'Opening stock set during product creation',
                 performedById: userId,
+                businessDate,
               }),
             )
           }
@@ -1013,6 +1018,8 @@ export class ProductsService {
         await imageRepo.delete({ productId: id })
 
         if (stockBefore > 0) {
+          // Local trading day (BIZ-5.1) from the business timezone + cutover.
+          const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
           await movementRepo.save(
             movementRepo.create({
               businessId,
@@ -1025,6 +1032,7 @@ export class ProductsService {
               referenceId: id,
               notes: 'Product deleted',
               performedById: context?.actorId ?? null,
+              businessDate,
             }),
           )
         }

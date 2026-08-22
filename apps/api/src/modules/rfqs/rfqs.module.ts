@@ -9,6 +9,7 @@ import { Business } from '@/entities/business.entity'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { DocumentsModule } from '@/modules/documents/documents.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { RfqsController } from './controllers/rfqs.controller'
 import { RfqsService } from './services/rfqs.service'
 
@@ -18,6 +19,7 @@ import { RfqsService } from './services/rfqs.service'
     AuditModule,
     PermissionsModule,
     DocumentsModule,
+    BusinessCalendarModule,
   ],
   controllers: [RfqsController],
   providers: [RfqsService],

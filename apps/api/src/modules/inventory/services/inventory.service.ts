@@ -56,6 +56,7 @@ import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { PurchaseOrder } from '@/entities/purchase-order.entity'
 import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { Sale } from '@/entities/sale.entity'
@@ -191,6 +192,8 @@ type RestockCreationInput = {
   performedById?: string | null
   createdAt: Date
   updatedAt?: Date | null
+  /** Local trading day hint (BIZ-5.1) from a syncing device; recomputed when absent. */
+  businessDate?: string | null
   payments?: RestockPaymentRequest[]
   charges?: RestockChargeLineRequest[]
   discounts?: RestockDiscountLineRequest[]
@@ -220,6 +223,7 @@ export class InventoryService {
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
     private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
   ) {
     this.logger.setContext('InventoryService')
   }
@@ -585,6 +589,8 @@ export class InventoryService {
         }
 
         await inventoryRepo.update(current.id, { quantity: quantityAfter })
+        // Local trading day (BIZ-5.1) from the business timezone + cutover.
+        const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
         await movementRepo.save(
           movementRepo.create({
             businessId,
@@ -598,6 +604,7 @@ export class InventoryService {
             referenceId: variantId ?? undefined,
             notes: dto.notes.trim(),
             performedById: userId,
+            businessDate,
           }),
         )
 
@@ -697,6 +704,7 @@ export class InventoryService {
           invoiceDate: payload.invoiceDate ?? null,
           invoiceFileUrl: payload.invoiceFileUrl ?? null,
           performedById: null,
+          businessDate: payload.businessDate ?? null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? recordUpdatedAt,
           updatedAt: recordUpdatedAt,
           payments: payload.payments,
@@ -826,6 +834,8 @@ export class InventoryService {
       const runningQuantities = new Map<string, number>()
       const keyMeta = new Map<string, { productId: string; variantId: string | null }>()
       const movementsToInsert: InventoryMovement[] = []
+      // Local trading day (BIZ-5.1) shared by every movement this sale writes.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
 
       for (const item of items) {
         const product = productMap.get(item.productId)
@@ -884,6 +894,7 @@ export class InventoryService {
             referenceId: saleId,
             notes: `Sale ${saleNumber}`,
             performedById: userId,
+            businessDate,
           }),
         )
       }
@@ -931,6 +942,8 @@ export class InventoryService {
       const inventoryRepo = this.getInventoryRepo(manager)
       const movementRepo = this.getMovementRepo(manager)
       const productRepo = this.getProductRepo(manager)
+      // Local trading day (BIZ-5.1) shared by every reversal movement.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
 
       for (const item of items) {
         const product = await productRepo.findOne({
@@ -983,6 +996,7 @@ export class InventoryService {
             referenceId: saleId,
             notes: `Void ${saleNumber}`,
             performedById: userId,
+            businessDate,
           }),
         )
       }
@@ -1425,6 +1439,14 @@ export class InventoryService {
       )
     }
 
+    // Local trading day (BIZ-5.1): trust a syncing device's hint, else compute authoritatively
+    // from the business calendar. The restock record and every movement it writes share it.
+    const businessDate = await this.calendar.resolveForSync(
+      input.businessId,
+      input.createdAt,
+      input.businessDate,
+    )
+
     const creditAmount = this.roundMoney(totalAmount - amountPaid)
     if (creditAmount > 0 && !input.supplierId) {
       throw new AppBadRequestException(
@@ -1466,6 +1488,7 @@ export class InventoryService {
         invoiceFileUrl: input.invoiceFileUrl ?? null,
         notes: input.notes ?? null,
         performedById: input.performedById ?? null,
+        businessDate,
         createdAt: input.createdAt,
       }),
     )
@@ -1544,6 +1567,7 @@ export class InventoryService {
               referenceId: record.id,
               notes: input.notes ?? null,
               performedById: input.performedById ?? null,
+              businessDate,
               createdAt: input.createdAt,
             }),
           )
@@ -1616,6 +1640,7 @@ export class InventoryService {
           referenceId: record.id,
           notes: input.notes ?? null,
           performedById: input.performedById ?? null,
+          businessDate,
           createdAt: input.createdAt,
         }),
       )

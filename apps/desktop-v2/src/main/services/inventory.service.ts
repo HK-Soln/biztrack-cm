@@ -26,6 +26,7 @@ import type {
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import { COST_EXPR, STOCK_EXPR, effectiveStock, recordStockMovement } from './stock-ledger'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 import type { ProductsService } from './products.service'
 import type { DebtsService } from './debts.service'
@@ -608,10 +609,12 @@ export class InventoryService {
           ?.name ?? null)
       : null
     const movementNote = reference ? `Restock ${reference}` : 'Restock'
+    // Local trading day (BIZ-5.1) from the receipt's timestamp; movements inherit it below.
+    const businessDate = localBusinessDate(now)
 
     this.db.run(
-      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, discount_amount, charges_amount, amount_paid, credit_amount, invoice_number, invoice_date, invoice_file_url, notes, performed_by_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, discount_amount, charges_amount, amount_paid, credit_amount, invoice_number, invoice_date, invoice_file_url, notes, performed_by_id, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       [
         restockId,
         businessId,
@@ -629,6 +632,7 @@ export class InventoryService {
         invoiceDate,
         invoiceFileUrl,
         notes,
+        businessDate,
         now,
       ],
     )

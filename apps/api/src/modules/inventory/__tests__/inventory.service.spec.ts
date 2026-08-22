@@ -131,6 +131,11 @@ const makeService = () => {
     i18n as any,
     logger as any,
     { log: () => {} } as any,
+    {
+      computeForBusiness: async () => '2026-01-01',
+      resolveForSync: async () => '2026-01-01',
+      businessDateFor: async () => '2026-01-01',
+    } as any,
   )
 
   return {

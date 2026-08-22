@@ -322,6 +322,8 @@ export interface InventoryMovementSyncRecord extends SyncRecord {
   notes?: string | null
   performedById?: string | null
   performedByName?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -353,6 +355,8 @@ export interface OpeningBalanceSyncRecord extends SyncRecord {
   asOfDate: string
   notes?: string | null
   recordedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -367,6 +371,8 @@ export interface RestockRecordSyncRecord extends SyncRecord {
   totalCost?: number | null
   notes?: string | null
   performedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -493,6 +499,8 @@ export interface DebtPaymentSyncPayload {
   paymentDate: string
   notes?: string | null
   recordedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -512,6 +520,8 @@ export interface DebtSyncPayload {
   writtenOffAt?: string | null
   writtenOffById?: string | null
   writtenOffReason?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   payments?: DebtPaymentSyncPayload[]
 }
 
@@ -544,6 +554,8 @@ export interface RfqSyncPayload {
   status: RfqStatus
   currency: string
   createdById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
   updatedAt: string
   items?: RfqItemSyncPayload[]
@@ -577,6 +589,8 @@ export interface PurchaseOrderSyncPayload {
   totalAmount: number
   sentAt?: string | null
   createdById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
   updatedAt: string
   items?: PurchaseOrderItemSyncPayload[]
@@ -611,6 +625,8 @@ export interface ExpenseSyncRecord extends SyncRecord {
   status?: string | null
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -668,6 +684,8 @@ export interface SavingsAccountSyncRecord extends SyncRecord {
   closedById?: string | null
   transferredToId?: string | null
   taggedProducts?: Array<{ productId: string; productName: string }> | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -683,6 +701,8 @@ export interface SavingsTransactionSyncRecord extends SyncRecord {
   notes?: string | null
   recordedById?: string | null
   occurredAt: string
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -747,6 +767,8 @@ export interface OpeningBalanceSyncPayload {
   asOfDate: string
   notes?: string | null
   recordedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -827,6 +849,8 @@ export interface InventoryAdjustmentSyncPayload {
   createdAt: string
   /** When set, the adjustment targets a specific (non-serialized) variant's stock level. */
   variantId?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
 }
 
 export interface InventoryRestockSyncItemPayload {
@@ -884,6 +908,8 @@ export interface InventoryRestockSyncPayload {
   invoiceNumber?: string | null
   invoiceDate?: string | null
   invoiceFileUrl?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
   payments?: InventoryRestockSyncPaymentPayload[]
   charges?: InventoryRestockSyncChargeLinePayload[]
@@ -989,6 +1015,8 @@ export interface ExpenseSyncPayload {
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
   currency?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -1010,6 +1038,8 @@ export interface SavingsAccountSyncPayload {
   taggedProducts?: Array<{ productId: string; productName: string }> | null
   customerName?: string | null
   customerPhone?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -1027,6 +1057,8 @@ export interface SavingsTransactionSyncPayload {
   notes?: string | null
   recordedById?: string | null
   occurredAt: string
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
 }
 

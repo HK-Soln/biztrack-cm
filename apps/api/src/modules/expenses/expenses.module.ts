@@ -10,16 +10,13 @@ import { ExpenseCategoriesService } from './services/expense-categories.service'
 import { ExpensesService } from './services/expenses.service'
 import { MonthlyExpenseSummaryService } from './services/monthly-expense-summary.service'
 import { PermissionsModule } from '../permissions/permissions.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Expense,
-      ExpenseCategory,
-      MonthlyExpenseSummary,
-      DailySaleSummary,
-    ]),
+    TypeOrmModule.forFeature([Expense, ExpenseCategory, MonthlyExpenseSummary, DailySaleSummary]),
     PermissionsModule,
+    BusinessCalendarModule,
   ],
   controllers: [ExpenseCategoriesController, ExpensesController],
   providers: [ExpenseCategoriesService, MonthlyExpenseSummaryService, ExpensesService],

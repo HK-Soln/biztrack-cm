@@ -32,6 +32,7 @@ import {
   recordStockMovement as recordStockMovementFn,
   setInventoryLevel as setInventoryLevelFn,
 } from './stock-ledger'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 interface ProductRow {
@@ -1881,12 +1882,24 @@ export class ProductsService {
     const qty = this.effectiveStock(productId)
     if (qty <= 0) return
     this.setInventoryLevel(productId, businessId, qty, now)
+    // Local trading day (BIZ-5.1) from the movement's timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
       `INSERT INTO inventory_movements
         (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
-         reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
-       VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?)`,
-      [randomUUID(), businessId, productId, qty, qty, productId, OPENING_STOCK_NOTE, now],
+         reference_type, reference_id, notes, performed_by_id, performed_by_name, business_date, created_at)
+       VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?, ?)`,
+      [
+        randomUUID(),
+        businessId,
+        productId,
+        qty,
+        qty,
+        productId,
+        OPENING_STOCK_NOTE,
+        businessDate,
+        now,
+      ],
     )
   }
 

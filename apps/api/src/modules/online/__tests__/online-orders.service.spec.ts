@@ -95,6 +95,11 @@ const makeService = (opts: {
     config as any,
     orderEmail as any,
     { dispatch: async () => {} } as any,
+    {
+      computeForBusiness: async () => '2026-01-01',
+      resolveForSync: async () => '2026-01-01',
+      businessDateFor: async () => '2026-01-01',
+    } as any,
   )
   return { service, cartsRepo, ordersRepo, eventsRepo, contactsRepo, salesService, storeService }
 }

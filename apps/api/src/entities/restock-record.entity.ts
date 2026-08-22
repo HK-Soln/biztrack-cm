@@ -1,11 +1,4 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-} from 'typeorm'
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm'
 import { ImmutableBaseEntity } from '@/common/entities/immutable-base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -133,4 +126,8 @@ export class RestockRecord extends ImmutableBaseEntity {
 
   @OneToMany(() => RestockDiscount, (discount) => discount.restockRecord, { cascade: false })
   discounts?: RestockDiscount[]
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

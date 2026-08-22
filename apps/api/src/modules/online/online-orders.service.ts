@@ -51,6 +51,7 @@ import { APP_ROUTES } from '@biztrack/utils'
 import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
 
@@ -122,6 +123,7 @@ export class OnlineOrdersService {
     private readonly config: ConfigService<AppConfig>,
     private readonly orderEmail: OrderEmailService,
     private readonly dispatcher: NotificationDispatcher,
+    private readonly calendar: BusinessCalendarService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -255,6 +257,8 @@ export class OnlineOrdersService {
           : 0
       const totalAmount = subtotal + deliveryFee
 
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(store.businessId, new Date())
       const order = await this.ordersRepo.save(
         this.ordersRepo.create({
           onlineStoreId: store.id,
@@ -274,6 +278,7 @@ export class OnlineOrdersService {
           status: 'PENDING',
           paymentMethod: dto.paymentMethod ?? null,
           paymentStatus: 'PENDING',
+          businessDate,
         }),
       )
 

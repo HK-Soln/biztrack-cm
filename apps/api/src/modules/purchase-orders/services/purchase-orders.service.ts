@@ -3,10 +3,21 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, IsNull, Repository } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
 import { PurchaseOrderStatus } from '@biztrack/types'
-import type { AuditContext, ConvertRfqToPoRequest, CreatePurchaseOrderRequest, PurchaseOrderDocument, PurchaseOrdersQuery, SendPurchaseOrderRequest } from '@biztrack/types'
+import type {
+  AuditContext,
+  ConvertRfqToPoRequest,
+  CreatePurchaseOrderRequest,
+  PurchaseOrderDocument,
+  PurchaseOrdersQuery,
+  SendPurchaseOrderRequest,
+} from '@biztrack/types'
 import { purchaseOrderMessageText, renderPurchaseOrderHtml } from '@biztrack/templates'
 import { AppException } from '@/common/exceptions/app.exception'
-import { AppBadRequestException, AppInternalServerException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import {
+  AppBadRequestException,
+  AppInternalServerException,
+  AppNotFoundException,
+} from '@/common/exceptions/app-exceptions'
 import { PurchaseOrder } from '@/entities/purchase-order.entity'
 import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { Product } from '@/entities/product.entity'
@@ -15,6 +26,7 @@ import { Business } from '@/entities/business.entity'
 import { toIsoString } from '@/common/http/serialization'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { RfqsService } from '@/modules/rfqs/services/rfqs.service'
 import { ProcurementSendService } from '@/modules/documents/procurement-send.service'
 
@@ -43,6 +55,7 @@ export class PurchaseOrdersService {
     private readonly rfqsService: RfqsService,
     private readonly procurementSend: ProcurementSendService,
     private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('PurchaseOrdersService')
@@ -62,7 +75,10 @@ export class PurchaseOrdersService {
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.items', 'i', 'i.deleted_at IS NULL')
         .where('p.business_id = :businessId AND p.deleted_at IS NULL', { businessId })
-      if (query.search) qb.andWhere('(p.number ILIKE :s OR p.title ILIKE :s OR p.supplier_name ILIKE :s)', { s: `%${query.search}%` })
+      if (query.search)
+        qb.andWhere('(p.number ILIKE :s OR p.title ILIKE :s OR p.supplier_name ILIKE :s)', {
+          s: `%${query.search}%`,
+        })
       if (query.status) qb.andWhere('p.status = :status', { status: query.status })
       if (query.supplierId) qb.andWhere('p.supplier_id = :sid', { sid: query.supplierId })
       if (query.rfqId) qb.andWhere('p.rfq_id = :rid', { rid: query.rfqId })
@@ -78,17 +94,29 @@ export class PurchaseOrdersService {
   }
 
   async findById(id: string, businessId: string): Promise<PurchaseOrder> {
-    const po = await this.poRepo.findOne({ where: { id, businessId, deletedAt: IsNull() }, relations: { items: true } })
+    const po = await this.poRepo.findOne({
+      where: { id, businessId, deletedAt: IsNull() },
+      relations: { items: true },
+    })
     if (!po) throw new AppNotFoundException('Purchase order not found.', 'PURCHASE_ORDER_NOT_FOUND')
     return po
   }
 
-  async create(businessId: string, dto: CreatePurchaseOrderRequest, context: AuditContext): Promise<PurchaseOrder> {
+  async create(
+    businessId: string,
+    dto: CreatePurchaseOrderRequest,
+    context: AuditContext,
+  ): Promise<PurchaseOrder> {
     try {
-      if (!dto.items?.length) throw new AppBadRequestException('Add at least one item.', 'PO_ITEMS_REQUIRED')
+      if (!dto.items?.length)
+        throw new AppBadRequestException('Add at least one item.', 'PO_ITEMS_REQUIRED')
       const lines: PoLineInput[] = []
       for (const it of dto.items) {
-        if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new AppBadRequestException('Each item needs a quantity greater than 0.', 'PO_ITEM_QTY_INVALID')
+        if (!Number.isFinite(it.quantity) || it.quantity <= 0)
+          throw new AppBadRequestException(
+            'Each item needs a quantity greater than 0.',
+            'PO_ITEM_QTY_INVALID',
+          )
         lines.push({
           productId: it.productId,
           variantId: it.variantId ?? null,
@@ -97,7 +125,8 @@ export class PurchaseOrdersService {
           unitPrice: it.unitPrice ?? 0,
         })
       }
-      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
+      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
+        throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
       const id = await this.insert(businessId, {
         rfqId: dto.rfqId ?? null,
         supplierId: dto.supplierId,
@@ -108,23 +137,43 @@ export class PurchaseOrdersService {
         createdById: context.actorId ?? null,
         lines,
       })
-      this.auditService.log(context, { action: 'CREATE', entityType: 'purchase_order', entityId: id, entityLabel: '', changes: { before: null, after: { supplierId: dto.supplierId, items: lines.length } } })
+      this.auditService.log(context, {
+        action: 'CREATE',
+        entityType: 'purchase_order',
+        entityId: id,
+        entityLabel: '',
+        changes: { before: null, after: { supplierId: dto.supplierId, items: lines.length } },
+      })
       return this.findById(id, businessId)
     } catch (error) {
       return this.handleServiceError('create', error, { businessId })
     }
   }
 
-  async createFromRfq(businessId: string, rfqId: string, dto: ConvertRfqToPoRequest, context: AuditContext): Promise<PurchaseOrder> {
+  async createFromRfq(
+    businessId: string,
+    rfqId: string,
+    dto: ConvertRfqToPoRequest,
+    context: AuditContext,
+  ): Promise<PurchaseOrder> {
     try {
       const rfq = await this.rfqsService.findById(rfqId, businessId)
       const supplier = (rfq.suppliers ?? []).find((s) => s.id === dto.rfqSupplierId)
-      if (!supplier) throw new AppBadRequestException('Supplier is not on this request.', 'RFQ_SUPPLIER_NOT_FOUND')
-      if (!dto.items?.length) throw new AppBadRequestException('Add at least one item to the order.', 'PO_ITEMS_REQUIRED')
+      if (!supplier)
+        throw new AppBadRequestException(
+          'Supplier is not on this request.',
+          'RFQ_SUPPLIER_NOT_FOUND',
+        )
+      if (!dto.items?.length)
+        throw new AppBadRequestException('Add at least one item to the order.', 'PO_ITEMS_REQUIRED')
 
       const lines: PoLineInput[] = []
       for (const it of dto.items) {
-        if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new AppBadRequestException('Each item needs a quantity greater than 0.', 'PO_ITEM_QTY_INVALID')
+        if (!Number.isFinite(it.quantity) || it.quantity <= 0)
+          throw new AppBadRequestException(
+            'Each item needs a quantity greater than 0.',
+            'PO_ITEM_QTY_INVALID',
+          )
         lines.push({
           productId: it.productId,
           variantId: it.variantId ?? null,
@@ -133,7 +182,8 @@ export class PurchaseOrdersService {
           unitPrice: it.unitPrice ?? 0,
         })
       }
-      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
+      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
+        throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
       const id = await this.insert(businessId, {
         rfqId,
         supplierId: supplier.supplierId,
@@ -145,7 +195,13 @@ export class PurchaseOrdersService {
         lines,
       })
       await this.rfqsService.markConverted(rfqId, businessId)
-      this.auditService.log(context, { action: 'CREATE', entityType: 'purchase_order', entityId: id, entityLabel: '', changes: { before: null, after: { fromRfq: rfqId, supplierId: supplier.supplierId } } })
+      this.auditService.log(context, {
+        action: 'CREATE',
+        entityType: 'purchase_order',
+        entityId: id,
+        entityLabel: '',
+        changes: { before: null, after: { fromRfq: rfqId, supplierId: supplier.supplierId } },
+      })
       return this.findById(id, businessId)
     } catch (error) {
       return this.handleServiceError('createFromRfq', error, { businessId, rfqId })
@@ -159,7 +215,12 @@ export class PurchaseOrdersService {
     return this.procurementSend.renderPdf(renderPurchaseOrderHtml(doc))
   }
 
-  async send(id: string, businessId: string, dto: SendPurchaseOrderRequest, context: AuditContext): Promise<PurchaseOrder> {
+  async send(
+    id: string,
+    businessId: string,
+    dto: SendPurchaseOrderRequest,
+    context: AuditContext,
+  ): Promise<PurchaseOrder> {
     try {
       const po = await this.findById(id, businessId)
       const doc = await this.buildDocument(po, businessId)
@@ -177,7 +238,16 @@ export class PurchaseOrdersService {
         status: po.status === PurchaseOrderStatus.DRAFT ? PurchaseOrderStatus.SENT : po.status,
         sentAt: new Date(),
       })
-      this.auditService.log(context, { action: 'UPDATE', entityType: 'purchase_order', entityId: id, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'SENT', channels: dto.channels } } })
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'purchase_order',
+        entityId: id,
+        entityLabel: po.number,
+        changes: {
+          before: { status: po.status },
+          after: { status: 'SENT', channels: dto.channels },
+        },
+      })
       return this.findById(id, businessId)
     } catch (error) {
       return this.handleServiceError('send', error, { businessId, id })
@@ -187,11 +257,23 @@ export class PurchaseOrdersService {
   async cancel(id: string, businessId: string, context: AuditContext): Promise<PurchaseOrder> {
     try {
       const po = await this.findById(id, businessId)
-      if (po.status === PurchaseOrderStatus.RECEIVED || po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED) {
-        throw new AppBadRequestException('A received purchase order cannot be cancelled.', 'PO_RECEIVED_CANNOT_CANCEL')
+      if (
+        po.status === PurchaseOrderStatus.RECEIVED ||
+        po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+      ) {
+        throw new AppBadRequestException(
+          'A received purchase order cannot be cancelled.',
+          'PO_RECEIVED_CANNOT_CANCEL',
+        )
       }
       await this.poRepo.update(po.id, { status: PurchaseOrderStatus.CANCELLED })
-      this.auditService.log(context, { action: 'UPDATE', entityType: 'purchase_order', entityId: id, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'CANCELLED' } } })
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'purchase_order',
+        entityId: id,
+        entityLabel: po.number,
+        changes: { before: { status: po.status }, after: { status: 'CANCELLED' } },
+      })
       return this.findById(id, businessId)
     } catch (error) {
       return this.handleServiceError('cancel', error, { businessId, id })
@@ -216,6 +298,8 @@ export class PurchaseOrdersService {
     const number = await this.nextNumber(businessId)
     const total = data.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
     const supplierName = await this.contactName(data.supplierId)
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
     return this.dataSource.transaction(async (manager) => {
       const po = await manager.getRepository(PurchaseOrder).save(
         manager.getRepository(PurchaseOrder).create({
@@ -231,6 +315,7 @@ export class PurchaseOrdersService {
           expectedDate: data.expectedDate,
           totalAmount: total,
           createdById: data.createdById,
+          businessDate,
         }),
       )
       for (const l of data.lines) {
@@ -256,16 +341,25 @@ export class PurchaseOrdersService {
   }
 
   private async describeProduct(productId: string): Promise<string> {
-    const p = await this.productsRepo.findOne({ where: { id: productId }, select: { id: true, name: true } })
+    const p = await this.productsRepo.findOne({
+      where: { id: productId },
+      select: { id: true, name: true },
+    })
     return p?.name ?? 'Item'
   }
 
   private async contactName(contactId: string): Promise<string | null> {
-    const c = await this.contactsRepo.findOne({ where: { id: contactId }, select: { id: true, name: true } })
+    const c = await this.contactsRepo.findOne({
+      where: { id: contactId },
+      select: { id: true, name: true },
+    })
     return c?.name ?? null
   }
 
-  private async buildDocument(po: PurchaseOrder, businessId: string): Promise<PurchaseOrderDocument> {
+  private async buildDocument(
+    po: PurchaseOrder,
+    businessId: string,
+  ): Promise<PurchaseOrderDocument> {
     const biz = await this.businessRepo.findOne({ where: { id: businessId } })
     const supplier = await this.contactsRepo.findOne({ where: { id: po.supplierId, businessId } })
     const items = (po.items ?? []).map((i) => ({
@@ -283,8 +377,19 @@ export class PurchaseOrdersService {
       issuedDate: (toIsoString(po.createdAt) ?? '').slice(0, 10),
       expectedDate: po.expectedDate ? (toIsoString(po.expectedDate) ?? '').slice(0, 10) : null,
       currency: po.currency,
-      business: { name: biz?.name ?? 'BizTrack', phone: biz?.phone ?? null, email: biz?.email ?? null, address: biz?.address ?? null, logoUrl: biz?.logoUrl ?? null },
-      supplier: { name: supplier?.name ?? po.supplierName ?? '', phone: supplier?.phone ?? null, email: null, address: supplier?.address ?? null },
+      business: {
+        name: biz?.name ?? 'BizTrack',
+        phone: biz?.phone ?? null,
+        email: biz?.email ?? null,
+        address: biz?.address ?? null,
+        logoUrl: biz?.logoUrl ?? null,
+      },
+      supplier: {
+        name: supplier?.name ?? po.supplierName ?? '',
+        phone: supplier?.phone ?? null,
+        email: null,
+        address: supplier?.address ?? null,
+      },
       items,
       subtotal,
       total: Number(po.totalAmount),
@@ -292,13 +397,20 @@ export class PurchaseOrdersService {
     }
   }
 
-  private handleServiceError(operation: string, error: unknown, meta: Record<string, unknown>): never {
+  private handleServiceError(
+    operation: string,
+    error: unknown,
+    meta: Record<string, unknown>,
+  ): never {
     if (error instanceof AppException) throw error
     this.logger.error('PurchaseOrdersService unexpected error', 'PurchaseOrdersService', {
       operation,
       message: error instanceof Error ? error.message : 'Unknown error',
       ...meta,
     })
-    throw new AppInternalServerException('Could not complete the request.', 'PURCHASE_ORDER_OPERATION_FAILED')
+    throw new AppInternalServerException(
+      'Could not complete the request.',
+      'PURCHASE_ORDER_OPERATION_FAILED',
+    )
   }
 }

@@ -16,6 +16,7 @@ import type {
   RecordDebtPaymentRequest,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -98,9 +99,11 @@ export class DebtsService {
 
     const id = randomUUID()
     const now = input.createdAt ?? new Date().toISOString()
+    // Local trading day (BIZ-5.1) from the debt's creation timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
-      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OUTSTANDING', ?, ?, ?)`,
+      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OUTSTANDING', ?, ?, ?, ?)`,
       [
         id,
         businessId,
@@ -112,6 +115,7 @@ export class DebtsService {
         input.originalAmount,
         input.dueDate ?? null,
         input.notes ?? null,
+        businessDate,
         now,
       ],
     )
@@ -175,10 +179,21 @@ export class DebtsService {
 
     const id = randomUUID()
     const createdAt = `${input.asOfDate}T00:00:00.000Z`
+    // Local trading day (BIZ-5.1) from the opening-balance date.
+    const businessDate = localBusinessDate(input.asOfDate)
     this.db.run(
-      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, created_at)
-       VALUES (?, ?, ?, ?, 'OPENING_BALANCE', ?, 'Opening balance', ?, 'OUTSTANDING', NULL, NULL, ?)`,
-      [id, businessId, input.contactId, input.direction, input.contactId, input.amount, createdAt],
+      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, business_date, created_at)
+       VALUES (?, ?, ?, ?, 'OPENING_BALANCE', ?, 'Opening balance', ?, 'OUTSTANDING', NULL, NULL, ?, ?)`,
+      [
+        id,
+        businessId,
+        input.contactId,
+        input.direction,
+        input.contactId,
+        input.amount,
+        businessDate,
+        createdAt,
+      ],
     )
     this.enqueue(id, businessId, now)
     this.onMutated()
@@ -227,9 +242,11 @@ export class DebtsService {
     if (amount > outstanding + 1e-6) throw new Error('Payment exceeds the outstanding balance.')
 
     const now = new Date().toISOString()
+    // Local trading day (BIZ-5.1) from the payment date.
+    const businessDate = localBusinessDate(input.paymentDate || now)
     this.db.run(
-      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         randomUUID(),
         businessId,
@@ -240,6 +257,7 @@ export class DebtsService {
         input.paymentDate || now,
         input.notes ?? null,
         this.getActorId() ?? 'unknown',
+        businessDate,
         now,
       ],
     )
@@ -349,10 +367,22 @@ export class DebtsService {
   ): void {
     const debt = this.getRow(debtId, businessId)
     if (!debt) return
+    // Local trading day (BIZ-5.1) from the contra payment's timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
-      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
-       VALUES (?, ?, ?, ?, 'OFFSET', NULL, ?, ?, ?, ?)`,
-      [randomUUID(), businessId, debtId, amount, now, ref, this.getActorId() ?? 'unknown', now],
+      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, business_date, created_at)
+       VALUES (?, ?, ?, ?, 'OFFSET', NULL, ?, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        businessId,
+        debtId,
+        amount,
+        now,
+        ref,
+        this.getActorId() ?? 'unknown',
+        businessDate,
+        now,
+      ],
     )
     const paid = debt.paid_amount + amount
     const settled = paid >= debt.original_amount - 1e-6

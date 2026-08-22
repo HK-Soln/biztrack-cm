@@ -20,6 +20,7 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
 import { Expense } from '@/entities/expense.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import type { CreateExpenseDto } from '../dto/create-expense.dto'
@@ -64,6 +65,7 @@ export class ExpensesService {
     private readonly dailySaleSummariesRepo: Repository<DailySaleSummary>,
     private readonly categoriesService: ExpenseCategoriesService,
     private readonly monthlySummaryService: MonthlyExpenseSummaryService,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -73,8 +75,13 @@ export class ExpensesService {
   async create(businessId: string, user: JwtPayload, dto: CreateExpenseDto) {
     try {
       this.assertManageAccess(user)
-      const category = await this.categoriesService.resolveAccessibleCategory(dto.categoryId, businessId)
+      const category = await this.categoriesService.resolveAccessibleCategory(
+        dto.categoryId,
+        businessId,
+      )
       const expenseDate = this.parseExpenseDate(dto.expenseDate)
+      // Local trading day (BIZ-5.1) from the business timezone + cutover (back-office write).
+      const businessDate = await this.calendar.computeForBusiness(businessId, expenseDate)
       const expense = await this.expensesRepo.save(
         this.expensesRepo.create({
           businessId,
@@ -84,13 +91,17 @@ export class ExpensesService {
           amount: this.roundMoney(dto.amount),
           currency: 'XAF',
           // Pending expenses carry no payment method until settled.
-          paymentMethod: (dto.status ?? ExpenseStatus.PAID) === ExpenseStatus.PENDING ? null : this.normalizePaymentMethod(dto.paymentMethod),
+          paymentMethod:
+            (dto.status ?? ExpenseStatus.PAID) === ExpenseStatus.PENDING
+              ? null
+              : this.normalizePaymentMethod(dto.paymentMethod),
           receiptUrl: this.normalizeOptionalString(dto.receiptUrl),
           vendor: this.normalizeOptionalString(dto.vendor),
           notes: this.normalizeOptionalString(dto.notes),
           isRecurring: dto.isRecurring ?? false,
           status: dto.status ?? ExpenseStatus.PAID,
           date: expenseDate,
+          businessDate,
         }),
       )
 
@@ -124,15 +135,20 @@ export class ExpensesService {
           nextStatus === ExpenseStatus.PENDING
             ? null
             : dto.paymentMethod === undefined
-              ? existing.paymentMethod ?? this.normalizePaymentMethod(undefined)
+              ? (existing.paymentMethod ?? this.normalizePaymentMethod(undefined))
               : this.normalizePaymentMethod(dto.paymentMethod),
         receiptUrl:
           dto.receiptUrl === undefined
-            ? existing.receiptUrl ?? null
+            ? (existing.receiptUrl ?? null)
             : this.normalizeOptionalString(dto.receiptUrl),
         vendor:
-          dto.vendor === undefined ? existing.vendor ?? null : this.normalizeOptionalString(dto.vendor),
-        notes: dto.notes === undefined ? existing.notes ?? null : this.normalizeOptionalString(dto.notes),
+          dto.vendor === undefined
+            ? (existing.vendor ?? null)
+            : this.normalizeOptionalString(dto.vendor),
+        notes:
+          dto.notes === undefined
+            ? (existing.notes ?? null)
+            : this.normalizeOptionalString(dto.notes),
         isRecurring: nextRecurring,
         status: nextStatus,
         date: nextDate,
@@ -204,7 +220,7 @@ export class ExpensesService {
 
       if (query.search?.trim()) {
         qb.andWhere(
-          '(LOWER(expense.description) LIKE :search OR LOWER(COALESCE(expense.vendor, \'\')) LIKE :search)',
+          "(LOWER(expense.description) LIKE :search OR LOWER(COALESCE(expense.vendor, '')) LIKE :search)",
           { search: `%${query.search.trim().toLowerCase()}%` },
         )
       }
@@ -218,7 +234,11 @@ export class ExpensesService {
         .clone()
         .select('COALESCE(SUM(expense.amount), 0)', 'totalAmount')
         .getRawOne<{ totalAmount: string | number | null }>()
-      const [rows, total] = await qb.orderBy(sort, sortOrder).skip(skip).take(limit).getManyAndCount()
+      const [rows, total] = await qb
+        .orderBy(sort, sortOrder)
+        .skip(skip)
+        .take(limit)
+        .getManyAndCount()
 
       return {
         data: rows,
@@ -299,8 +319,12 @@ export class ExpensesService {
         .select('COALESCE(SUM(summary.total_revenue), 0)', 'revenue')
         .addSelect('COALESCE(SUM(summary.total_cost), 0)', 'costOfGoods')
         .where('summary.business_id = :businessId', { businessId })
-        .andWhere('summary.summary_date >= :startDate', { startDate: start.toISOString().slice(0, 10) })
-        .andWhere('summary.summary_date < :endDate', { endDate: endExclusive.toISOString().slice(0, 10) })
+        .andWhere('summary.summary_date >= :startDate', {
+          startDate: start.toISOString().slice(0, 10),
+        })
+        .andWhere('summary.summary_date < :endDate', {
+          endDate: endExclusive.toISOString().slice(0, 10),
+        })
         .getRawOne<{ revenue: string | number | null; costOfGoods: string | number | null }>()
 
       const revenue = this.roundMoney(Number(raw?.revenue ?? 0))
@@ -370,7 +394,9 @@ export class ExpensesService {
         `SELECT COUNT(*)::int AS n, COALESCE(SUM(e.amount), 0) AS amt FROM expenses e WHERE ${where} AND e.status = 'PENDING'`,
         params,
       )) as Array<{ n: number; amt: string }>
-      const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [businessId])) as Array<{
+      const [biz] = (await mgr.query(`SELECT currency FROM businesses WHERE id = $1`, [
+        businessId,
+      ])) as Array<{
         currency: string | null
       }>
 
@@ -408,7 +434,10 @@ export class ExpensesService {
         total,
         count: Number(tot?.n ?? 0),
         previousTotal,
-        changePct: previousTotal > 0 ? this.roundPercentage(((total - previousTotal) / previousTotal) * 100) : 0,
+        changePct:
+          previousTotal > 0
+            ? this.roundPercentage(((total - previousTotal) / previousTotal) * 100)
+            : 0,
         avgPerDay: this.roundMoney(total / days),
         pendingCount: Number(pending?.n ?? 0),
         pendingAmount: this.roundMoney(Number(pending?.amt ?? 0)),
@@ -434,12 +463,30 @@ export class ExpensesService {
          GROUP BY ym ORDER BY ym`,
         [businessId, sinceIso],
       )) as Array<{ ym: string; total: string }>
-      const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const MONTHS = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ]
       return rows.map((r) => {
         const parts = r.ym.split('-')
         const y = Number(parts[0])
         const m = Number(parts[1])
-        return { year: y, month: m, label: `${MONTHS[m - 1] ?? ''} ${y}`, total: this.roundMoney(Number(r.total ?? 0)) }
+        return {
+          year: y,
+          month: m,
+          label: `${MONTHS[m - 1] ?? ''} ${y}`,
+          total: this.roundMoney(Number(r.total ?? 0)),
+        }
       })
     } catch (error) {
       return this.handleServiceError('getTrend', error, { businessId })
@@ -464,6 +511,7 @@ export class ExpensesService {
       receiptUrl?: string | null
       currency?: string | null
       createdAt?: string
+      businessDate?: string | null
     },
     action: 'UPSERT' | 'DELETE',
     recordUpdatedAt: Date,
@@ -493,6 +541,12 @@ export class ExpensesService {
       const createdAt =
         this.parseOptionalDate(payload.createdAt) ?? existing?.createdAt ?? new Date()
       const previousDate = existing?.date ?? null
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        expenseDate,
+        payload.businessDate,
+      )
 
       await this.expensesRepo.save(
         this.expensesRepo.create({
@@ -503,13 +557,18 @@ export class ExpensesService {
           description: payload.description.trim(),
           amount: this.roundMoney(payload.amount),
           currency: payload.currency?.trim() || 'XAF',
-          paymentMethod: payload.status === ExpenseStatus.PENDING || !payload.paymentMethod ? null : this.normalizePaymentMethod(payload.paymentMethod),
+          paymentMethod:
+            payload.status === ExpenseStatus.PENDING || !payload.paymentMethod
+              ? null
+              : this.normalizePaymentMethod(payload.paymentMethod),
           receiptUrl: this.normalizeOptionalString(payload.receiptUrl),
           vendor: this.normalizeOptionalString(payload.vendor),
           notes: this.normalizeOptionalString(payload.notes),
           isRecurring: payload.isRecurring ?? false,
-          status: payload.status === ExpenseStatus.PENDING ? ExpenseStatus.PENDING : ExpenseStatus.PAID,
+          status:
+            payload.status === ExpenseStatus.PENDING ? ExpenseStatus.PENDING : ExpenseStatus.PAID,
           date: expenseDate,
+          businessDate,
           createdAt,
           updatedAt: recordUpdatedAt,
           deletedAt: null,
@@ -549,11 +608,12 @@ export class ExpensesService {
   }
 
   private assertManageAccess(user: JwtPayload) {
-    if (![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(user.role as BusinessMemberRole)) {
-      throw new AppForbiddenException(
-        'Only owners and managers can manage expenses.',
-        'FORBIDDEN',
+    if (
+      ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
+        user.role as BusinessMemberRole,
       )
+    ) {
+      throw new AppForbiddenException('Only owners and managers can manage expenses.', 'FORBIDDEN')
     }
   }
 
@@ -598,7 +658,9 @@ export class ExpensesService {
   private parseExpenseDate(value: string) {
     const parsed = this.parseDateOnly(value)
     const today = new Date()
-    const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+    const todayUtc = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+    )
     if (parsed.getTime() > todayUtc.getTime()) {
       throw new AppBadRequestException(
         'Expense date cannot be in the future.',

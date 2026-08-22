@@ -40,7 +40,12 @@ export class PurchaseOrder extends BaseEntity {
   @Column({ type: 'varchar', default: 'XAF' })
   currency!: string
 
-  @Column({ name: 'expected_date', nullable: true, type: 'timestamptz', transformer: dateTransformer })
+  @Column({
+    name: 'expected_date',
+    nullable: true,
+    type: 'timestamptz',
+    transformer: dateTransformer,
+  })
   expectedDate?: Date | null
 
   @Column({ name: 'total_amount', type: 'numeric', precision: 14, scale: 2, default: 0 })
@@ -54,4 +59,8 @@ export class PurchaseOrder extends BaseEntity {
 
   @OneToMany(() => PurchaseOrderItem, (item) => item.purchaseOrder)
   items?: PurchaseOrderItem[]
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

@@ -36,6 +36,7 @@ import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { Debt as DebtEntity } from '@/entities/debt.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import type { RecordDebtPaymentDto } from '../dto/record-debt-payment.dto'
@@ -78,6 +79,7 @@ export class DebtsService {
     @InjectRepository(Contact)
     private readonly contactsRepo: Repository<Contact>,
     private readonly openingBalancesService: OpeningBalancesService,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     private readonly dispatcher: NotificationDispatcher,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -312,6 +314,8 @@ export class DebtsService {
           )
         }
 
+        // Local trading day this collection lands on (BIZ-5.1).
+        const businessDate = await this.calendar.computeForBusiness(businessId, dto.paymentDate)
         await paymentRepo.save(
           paymentRepo.create({
             businessId,
@@ -322,6 +326,7 @@ export class DebtsService {
             paymentDate: dto.paymentDate,
             notes: this.normalizeOptionalString(dto.notes),
             recordedById: user.sub,
+            businessDate,
           }),
         )
 
@@ -436,6 +441,8 @@ export class DebtsService {
 
         const today = this.toDateOnly(new Date())
         const ref = `OFFSET-${today.replace(/-/g, '')}`
+        // Local trading day these contra payments land on (BIZ-5.1).
+        const businessDate = await this.calendar.computeForBusiness(businessId, today)
         let affected = 0
         const allocate = async (rows: { debt: DebtEntity; outstanding: number }[]) => {
           let remaining = offsetAmount
@@ -453,6 +460,7 @@ export class DebtsService {
                 paymentDate: today,
                 notes: ref,
                 recordedById: user.sub,
+                businessDate,
               }),
             )
             await this.recalculateStatus(debt.id, manager)
@@ -535,6 +543,9 @@ export class DebtsService {
             'DEBT_PAYMENT_ALREADY_REVERSED',
           )
         }
+        // Local trading day the reversal lands on (BIZ-5.1).
+        const reversalDate = this.toDateOnly(new Date())
+        const businessDate = await this.calendar.computeForBusiness(businessId, reversalDate)
         await paymentRepo.save(
           paymentRepo.create({
             businessId,
@@ -542,9 +553,10 @@ export class DebtsService {
             amount: -payment.amount,
             method: payment.method,
             mobileMoneyReference: payment.mobileMoneyReference ?? null,
-            paymentDate: this.toDateOnly(new Date()),
+            paymentDate: reversalDate,
             notes: `${marker}${payment.notes ? ` ${payment.notes}` : ''}`,
             recordedById: user.sub,
+            businessDate,
           }),
         )
 
@@ -880,6 +892,9 @@ export class DebtsService {
         .slice(0, 10)
     }
 
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(params.businessId, createdAt)
+
     return debtRepo.save(
       debtRepo.create({
         businessId: params.businessId,
@@ -892,6 +907,7 @@ export class DebtsService {
         status: DebtStatus.OUTSTANDING,
         dueDate,
         notes: this.normalizeOptionalString(params.notes),
+        businessDate,
         createdAt,
         updatedAt: createdAt,
       }),
@@ -981,6 +997,9 @@ export class DebtsService {
     if (applied <= 0) return
 
     const paymentRepo = manager.getRepository(DebtPayment)
+    const paymentDate = params.paymentDate ?? this.toDateOnly(new Date())
+    // Local trading day this collection lands on (BIZ-5.1).
+    const businessDate = await this.calendar.computeForBusiness(params.businessId, paymentDate)
     await paymentRepo.save(
       paymentRepo.create({
         businessId: params.businessId,
@@ -990,9 +1009,10 @@ export class DebtsService {
         mobileMoneyReference: this.normalizeOptionalString(
           params.mobileMoneyReference ?? undefined,
         ),
-        paymentDate: params.paymentDate ?? this.toDateOnly(new Date()),
+        paymentDate,
         notes: this.normalizeOptionalString(params.notes ?? undefined),
         recordedById: params.recordedById ?? undefined,
+        businessDate,
       }),
     )
     await this.recalculateStatus(debt.id, manager)

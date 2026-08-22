@@ -28,6 +28,7 @@ import { ContactOpeningBalance as ContactOpeningBalanceEntity } from '@/entities
 import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { Debt } from '@/entities/debt.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 
@@ -53,6 +54,7 @@ export class OpeningBalancesService {
     private readonly contactsRepo: Repository<Contact>,
     @InjectRepository(Debt)
     private readonly debtsRepo: Repository<Debt>,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -95,6 +97,8 @@ export class OpeningBalancesService {
         return this.toModel(updated)
       }
 
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, dto.asOfDate)
       const created = await this.openingBalancesRepo.save(
         this.openingBalancesRepo.create({
           businessId,
@@ -104,6 +108,7 @@ export class OpeningBalancesService {
           asOfDate: dto.asOfDate,
           notes: dto.notes?.trim() || null,
           recordedById: user.sub,
+          businessDate,
         }),
       )
       await this.materializeDebt(businessId, contactId, dto.direction, amount, dto.asOfDate)
@@ -189,6 +194,8 @@ export class OpeningBalancesService {
       return
     }
 
+    // Local trading day (BIZ-5.1) for the mirrored debt, from the opening-balance date.
+    const businessDate = await this.calendar.computeForBusiness(businessId, asOfDate)
     await this.debtsRepo.save(
       this.debtsRepo.create({
         businessId,
@@ -199,6 +206,7 @@ export class OpeningBalancesService {
         sourceReference: OPENING_BALANCE_DEBT_REFERENCE,
         originalAmount: amount,
         status: DebtStatus.OUTSTANDING,
+        businessDate,
         // Pin to the opening-balance date so it precedes later transactions in the statement.
         createdAt: new Date(`${asOfDate}T00:00:00.000Z`),
       }),

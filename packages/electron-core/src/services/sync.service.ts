@@ -256,6 +256,7 @@ const DEBT_MAP: Record<string, string> = {
   written_off_at: 'writtenOffAt',
   written_off_by: 'writtenOffById',
   written_off_reason: 'writtenOffReason',
+  business_date: 'businessDate',
 }
 const INVENTORY_LEVEL_MAP: Record<string, string> = {
   id: 'id',
@@ -283,6 +284,7 @@ const INVENTORY_MOVEMENT_MAP: Record<string, string> = {
   notes: 'notes',
   performed_by_id: 'performedById',
   performed_by_name: 'performedByName',
+  business_date: 'businessDate',
   created_at: 'createdAt',
 }
 const RESTOCK_RECORD_MAP: Record<string, string> = {
@@ -297,6 +299,7 @@ const RESTOCK_RECORD_MAP: Record<string, string> = {
   credit_amount: 'creditAmount',
   notes: 'notes',
   performed_by_id: 'performedById',
+  business_date: 'businessDate',
   created_at: 'createdAt',
 }
 const RESTOCK_ITEM_MAP: Record<string, string> = {
@@ -419,6 +422,7 @@ const RFQ_MAP: Record<string, string> = {
   status: 'status',
   currency: 'currency',
   created_by_id: 'createdById',
+  business_date: 'businessDate',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -457,6 +461,7 @@ const PURCHASE_ORDER_MAP: Record<string, string> = {
   total_amount: 'totalAmount',
   sent_at: 'sentAt',
   created_by_id: 'createdById',
+  business_date: 'businessDate',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -887,13 +892,14 @@ export class SyncService {
       for (const p of payments) {
         keepIds.push(p.id)
         this.opts.db.run(
-          `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, business_date, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              amount = excluded.amount, method = excluded.method,
              mobile_money_reference = excluded.mobile_money_reference,
              payment_date = excluded.payment_date, notes = excluded.notes,
-             recorded_by = excluded.recorded_by`,
+             recorded_by = excluded.recorded_by,
+             business_date = excluded.business_date`,
           [
             p.id,
             local.business_id,
@@ -904,6 +910,7 @@ export class SyncService {
             p.paymentDate,
             p.notes ?? null,
             p.recordedById ?? 'unknown',
+            p.businessDate ?? null,
             p.createdAt,
           ],
         )
@@ -1045,11 +1052,12 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO contact_opening_balances
-        (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, business_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(business_id, contact_id, direction) DO UPDATE SET
           amount = excluded.amount, as_of_date = excluded.as_of_date, notes = excluded.notes,
-          recorded_by_id = excluded.recorded_by_id, updated_at = excluded.updated_at`,
+          recorded_by_id = excluded.recorded_by_id, business_date = excluded.business_date,
+          updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(o.businessId),
@@ -1059,6 +1067,7 @@ export class SyncService {
         asStr(o.asOfDate) ?? now.slice(0, 10),
         asStr(o.notes),
         asStr(o.recordedById),
+        asStr(o.businessDate),
         asStr(o.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
@@ -1073,8 +1082,8 @@ export class SyncService {
       sql: `INSERT INTO savings_accounts
         (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
          total_deposited, total_refunded, total_used, total_transferred, status, outcome, closed_at,
-         closed_by_id, transferred_to_id, tagged_products, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         closed_by_id, transferred_to_id, tagged_products, is_deleted, business_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           customer_name = excluded.customer_name, customer_phone = excluded.customer_phone,
           balance = excluded.balance, total_deposited = excluded.total_deposited,
@@ -1082,7 +1091,7 @@ export class SyncService {
           total_transferred = excluded.total_transferred, status = excluded.status, outcome = excluded.outcome,
           closed_at = excluded.closed_at, closed_by_id = excluded.closed_by_id,
           transferred_to_id = excluded.transferred_to_id, tagged_products = excluded.tagged_products,
-          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          is_deleted = excluded.is_deleted, business_date = excluded.business_date, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(s.businessId),
@@ -1102,6 +1111,7 @@ export class SyncService {
         asStr(s.transferredToId),
         tagged,
         r.isDeleted ? 1 : 0,
+        asStr(s.businessDate),
         asStr(s.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
@@ -1114,8 +1124,8 @@ export class SyncService {
     return {
       sql: `INSERT INTO savings_transactions
         (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id,
-         notes, recorded_by_id, occurred_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         notes, recorded_by_id, occurred_at, business_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO NOTHING`,
       params: [
         asStr(r.id),
@@ -1130,6 +1140,7 @@ export class SyncService {
         asStr(s.notes),
         asStr(s.recordedById),
         asStr(s.occurredAt) ?? now,
+        asStr(s.businessDate),
         asStr(s.createdAt) ?? now,
       ],
     }
@@ -1169,13 +1180,14 @@ export class SyncService {
     return {
       sql: `INSERT INTO expenses
         (id, business_id, recorded_by_id, category, category_id, description, amount, currency, payment_method,
-         receipt_url, vendor, notes, is_recurring, status, date, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         receipt_url, vendor, notes, is_recurring, status, date, is_deleted, business_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           category_id = excluded.category_id, description = excluded.description, amount = excluded.amount,
           currency = excluded.currency, payment_method = excluded.payment_method, receipt_url = excluded.receipt_url,
           vendor = excluded.vendor, notes = excluded.notes, is_recurring = excluded.is_recurring,
-          status = excluded.status, date = excluded.date, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          status = excluded.status, date = excluded.date, is_deleted = excluded.is_deleted,
+          business_date = excluded.business_date, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(e.businessId),
@@ -1193,6 +1205,7 @@ export class SyncService {
         asStr(e.status) ?? 'PAID',
         asStr(e.expenseDate) ?? now.slice(0, 10),
         r.isDeleted ? 1 : 0,
+        asStr(e.businessDate),
         asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],

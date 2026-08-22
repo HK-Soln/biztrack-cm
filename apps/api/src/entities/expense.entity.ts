@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  ManyToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm'
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -65,4 +59,8 @@ export class Expense extends BaseEntity {
 
   @Column({ name: 'date', type: 'date', transformer: dateTransformer })
   date!: Date
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

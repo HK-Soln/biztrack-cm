@@ -144,6 +144,7 @@ import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { DepositsService } from '@/modules/savings/services/savings.service'
 import { CashSessionsService } from '@/modules/cash-sessions/services/cash-sessions.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import {
   SYNC_BATCH_MAX_OPERATIONS,
@@ -548,6 +549,7 @@ export class SyncService {
     private readonly salesService: SalesService,
     private readonly savingsService: DepositsService,
     private readonly cashSessionsService: CashSessionsService,
+    private readonly calendar: BusinessCalendarService,
     private readonly quotaService: QuotaService,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
@@ -1269,6 +1271,7 @@ export class SyncService {
           status: record.status,
           currency: record.currency,
           createdById: record.createdById ?? null,
+          businessDate: record.businessDate ?? null,
           createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
           updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
           isDeleted: record.deletedAt != null,
@@ -1313,6 +1316,7 @@ export class SyncService {
           totalAmount: record.totalAmount,
           sentAt: iso(record.sentAt),
           createdById: record.createdById ?? null,
+          businessDate: record.businessDate ?? null,
           createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
           updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
           isDeleted: record.deletedAt != null,
@@ -2248,6 +2252,8 @@ export class SyncService {
       (await this.inventoryMovementsRepo.count({ where: { businessId, productId } })) > 0
     const type =
       change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(businessId, createdAt)
     await this.inventoryMovementsRepo.save(
       this.inventoryMovementsRepo.create({
         businessId,
@@ -2261,6 +2267,7 @@ export class SyncService {
         referenceId,
         notes,
         performedById: null,
+        businessDate,
         createdAt,
       }),
     )
@@ -2698,6 +2705,7 @@ export class SyncService {
       status?: string
       currency?: string
       createdById?: string | null
+      businessDate?: string | null
       createdAt?: string
       items?: Array<{
         id: string
@@ -2727,6 +2735,13 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
     } else {
+      const rfqCreatedAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        rfqCreatedAt,
+        payload.businessDate,
+      )
       await this.rfqsRepo.save(
         this.rfqsRepo.create({
           id: operation.recordId,
@@ -2737,7 +2752,8 @@ export class SyncService {
           status: (payload.status as RfqStatus) ?? RfqStatus.DRAFT,
           currency: payload.currency ?? 'XAF',
           createdById: payload.createdById ?? null,
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate,
+          createdAt: rfqCreatedAt,
           updatedAt: operation.recordUpdatedAt,
         }),
       )
@@ -2805,6 +2821,7 @@ export class SyncService {
       totalAmount?: number
       sentAt?: string | null
       createdById?: string | null
+      businessDate?: string | null
       createdAt?: string
       items?: Array<{
         id: string
@@ -2833,6 +2850,13 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
     } else {
+      const poCreatedAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        poCreatedAt,
+        payload.businessDate,
+      )
       await this.purchaseOrdersRepo.save(
         this.purchaseOrdersRepo.create({
           id: operation.recordId,
@@ -2849,7 +2873,8 @@ export class SyncService {
           totalAmount: payload.totalAmount ?? 0,
           sentAt: this.parseOptionalDate(payload.sentAt) ?? null,
           createdById: payload.createdById ?? null,
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate,
+          createdAt: poCreatedAt,
           updatedAt: operation.recordUpdatedAt,
         }),
       )
@@ -2925,6 +2950,13 @@ export class SyncService {
       return { status: 'applied' }
     }
 
+    // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+    const businessDate = await this.calendar.resolveForSync(
+      businessId,
+      payload.asOfDate,
+      payload.businessDate,
+    )
+
     await this.openingBalancesRepo.save(
       this.openingBalancesRepo.create({
         id: operation.recordId,
@@ -2935,6 +2967,7 @@ export class SyncService {
         asOfDate: payload.asOfDate,
         notes: this.normalizeOptionalString(payload.notes),
         recordedById: this.normalizeOptionalString(payload.recordedById),
+        businessDate,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3425,6 +3458,14 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
 
+      const movementCreatedAt =
+        this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        movementCreatedAt,
+        payload.businessDate,
+      )
       await movementRepo.save(
         movementRepo.create({
           id: operation.recordId,
@@ -3439,7 +3480,8 @@ export class SyncService {
           referenceId: variantId ?? payload.productId,
           notes: payload.notes.trim(),
           performedById: null,
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate,
+          createdAt: movementCreatedAt,
         }),
       )
 
@@ -3564,6 +3606,14 @@ export class SyncService {
           ? this.normalizeOptionalString(payload.writtenOffReason)
           : null
 
+      const debtCreatedAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const debtBusinessDate = await this.calendar.resolveForSync(
+        businessId,
+        debtCreatedAt,
+        payload.businessDate,
+      )
+
       const debt = await debtsRepo.save(
         debtsRepo.create({
           id: existing?.id,
@@ -3578,7 +3628,8 @@ export class SyncService {
           status,
           dueDate: payload.dueDate ?? null,
           notes: this.normalizeOptionalString(payload.notes),
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate: debtBusinessDate,
+          createdAt: debtCreatedAt,
           updatedAt: operation.recordUpdatedAt,
           settledAt,
           writtenOffAt,
@@ -3602,6 +3653,13 @@ export class SyncService {
         if (!existingPaymentIds.has(payment.id) && payload.direction === DebtDirection.RECEIVABLE) {
           freshReceivablePaid += this.normalizeMoney(payment.amount)
         }
+        const paymentCreatedAt =
+          this.parseOptionalDate(payment.createdAt) ?? operation.recordUpdatedAt
+        const paymentBusinessDate = await this.calendar.resolveForSync(
+          businessId,
+          payment.paymentDate,
+          payment.businessDate,
+        )
         await paymentsRepo.save(
           paymentsRepo.create({
             id: payment.id,
@@ -3613,7 +3671,8 @@ export class SyncService {
             paymentDate: payment.paymentDate,
             notes: this.normalizeOptionalString(payment.notes),
             recordedById: this.normalizeOptionalString(payment.recordedById) ?? fallbackUserId,
-            createdAt: this.parseOptionalDate(payment.createdAt) ?? operation.recordUpdatedAt,
+            businessDate: paymentBusinessDate,
+            createdAt: paymentCreatedAt,
           }),
         )
       }
@@ -4383,6 +4442,7 @@ export class SyncService {
       asOfDate: record.asOfDate,
       notes: record.notes ?? null,
       recordedById: record.recordedById ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       isDeleted: false,
@@ -4489,6 +4549,7 @@ export class SyncService {
       notes: record.notes ?? null,
       performedById: record.performedById ?? null,
       performedByName: record.performedBy?.name ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
@@ -4509,6 +4570,7 @@ export class SyncService {
       totalCost: record.totalCost ?? null,
       notes: record.notes ?? null,
       performedById: record.performedById ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
@@ -4703,6 +4765,7 @@ export class SyncService {
       writtenOffAt: record.writtenOffAt?.toISOString() ?? null,
       writtenOffById: record.writtenOffById ?? null,
       writtenOffReason: record.writtenOffReason ?? null,
+      businessDate: record.businessDate ?? null,
       payments: payments.map((payment) => this.toDebtPaymentSyncPayload(payment)),
       deletedAt: null,
       isDeleted: false,
@@ -4718,6 +4781,7 @@ export class SyncService {
       paymentDate: payment.paymentDate,
       notes: payment.notes ?? null,
       recordedById: payment.recordedById,
+      businessDate: payment.businessDate ?? null,
       createdAt: payment.createdAt.toISOString(),
     }
   }
@@ -4738,6 +4802,7 @@ export class SyncService {
       status: record.status ?? 'PAID',
       paymentMethod: record.paymentMethod ?? null,
       receiptUrl: record.receiptUrl ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -4807,6 +4872,7 @@ export class SyncService {
       closedById: record.closedById ?? null,
       transferredToId: record.transferredToId ?? null,
       taggedProducts: record.taggedProducts ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -4828,6 +4894,7 @@ export class SyncService {
       notes: record.notes ?? null,
       recordedById: record.recordedById ?? null,
       occurredAt: record.occurredAt.toISOString(),
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,

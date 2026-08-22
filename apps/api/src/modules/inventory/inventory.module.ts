@@ -16,6 +16,7 @@ import { AuditModule } from '@/modules/audit/audit.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { SyncFreshnessModule } from '@/common/sync-freshness/sync-freshness.module'
 import { INVENTORY_ALERTS_QUEUE } from './constants/inventory.constants'
 import { InventoryController } from './controllers/inventory.controller'
@@ -31,6 +32,7 @@ import { RedisModule } from '@/common/redis/redis.module'
     DebtsModule,
     NotificationsModule,
     SyncFreshnessModule,
+    BusinessCalendarModule,
     BullModule.registerQueue({
       name: INVENTORY_ALERTS_QUEUE,
     }),

@@ -17,6 +17,7 @@ import { CashMovementKind } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { DepositsListQuery, PaginatedResult } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
@@ -250,11 +251,13 @@ export class SavingsService {
     const initial = round2(Number(input.initialDeposit?.amount ?? 0))
     const balance = initial > 0 ? initial : 0
 
+    // Local trading day (BIZ-5.1) from the session's open timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
       `INSERT INTO savings_accounts
         (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
-         total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', ?, 0, ?, ?)`,
+         total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, business_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', ?, 0, ?, ?, ?)`,
       [
         id,
         businessId,
@@ -265,6 +268,7 @@ export class SavingsService {
         balance,
         balance,
         tagged,
+        businessDate,
         now,
         now,
       ],
@@ -443,11 +447,13 @@ export class SavingsService {
       )
       const newId = randomUUID()
       const accountNumber = `DEP-${now.slice(0, 10).replace(/-/g, '')}-${newId.slice(0, 4).toUpperCase()}`
+      // Local trading day (BIZ-5.1) from the transfer timestamp.
+      const businessDate = localBusinessDate(now)
       this.db.run(
         `INSERT INTO savings_accounts
           (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
-           total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', NULL, 0, ?, ?)`,
+           total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, business_date, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', NULL, 0, ?, ?, ?)`,
         [
           newId,
           businessId,
@@ -457,6 +463,7 @@ export class SavingsService {
           accountNumber,
           leftover,
           leftover,
+          businessDate,
           now,
           now,
         ],
@@ -781,9 +788,11 @@ export class SavingsService {
   ): void {
     const id = randomUUID()
     const recordedById = tx.recordedById ?? this.getActorId()
+    // Local trading day (BIZ-5.1) from the transaction's timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
-      `INSERT INTO savings_transactions (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id, notes, recorded_by_id, occurred_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO savings_transactions (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id, notes, recorded_by_id, occurred_at, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         savingsId,
@@ -797,6 +806,7 @@ export class SavingsService {
         tx.notes ?? null,
         recordedById,
         now,
+        businessDate,
         now,
       ],
     )
