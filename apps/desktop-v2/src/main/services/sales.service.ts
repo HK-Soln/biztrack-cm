@@ -1114,14 +1114,17 @@ export class SalesService {
   dailySeries(query: SalesListQuery = {}): DailySalesRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    // BIZ-5.1: bucket by the local trading day (business_date), fallback to the UTC sale_date
+    // for pre-migration rows. Kept identical to the API getDailySeries so synced rows tie out.
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const conds = ['s.business_id = ?', 's.is_deleted = 0']
     const params: unknown[] = [businessId]
     if (query.dateFrom) {
-      conds.push('s.sale_date >= ?')
+      conds.push(`${day} >= ?`)
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      conds.push('s.sale_date <= ?')
+      conds.push(`${day} <= ?`)
       params.push(query.dateTo)
     }
     const where = conds.join(' AND ')
@@ -1136,25 +1139,25 @@ export class SalesService {
       momo: number
       card: number
     }>(
-      `SELECT d.sale_date AS date, d.txns, d.total, d.credit,
+      `SELECT d.bday AS date, d.txns, d.total, d.credit,
               COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
        FROM (
-         SELECT s.sale_date, COUNT(*) AS txns,
+         SELECT ${day} AS bday, COUNT(*) AS txns,
                 COALESCE(SUM(s.total_amount), 0) AS total,
                 COALESCE(SUM(s.credit_amount), 0) AS credit
          FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
-         GROUP BY s.sale_date
+         GROUP BY ${day}
        ) d
        LEFT JOIN (
-         SELECT s.sale_date,
+         SELECT ${day} AS bday,
                 SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
                 SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
                 SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
          FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
          WHERE ${where} AND s.status = 'COMPLETED'
-         GROUP BY s.sale_date
-       ) p ON p.sale_date = d.sale_date
-       ORDER BY d.sale_date ASC`,
+         GROUP BY ${day}
+       ) p ON p.bday = d.bday
+       ORDER BY d.bday ASC`,
       [...params, ...params],
     )
     return rows.map((r) => ({
@@ -1176,14 +1179,16 @@ export class SalesService {
   cashierRoster(query: SalesListQuery = {}): CashierPerformanceRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    // BIZ-5.1: trading day = business_date (fallback sale_date). "shifts" = distinct days.
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const conds = ['s.business_id = ?', 's.is_deleted = 0']
     const params: unknown[] = [businessId]
     if (query.dateFrom) {
-      conds.push('s.sale_date >= ?')
+      conds.push(`${day} >= ?`)
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      conds.push('s.sale_date <= ?')
+      conds.push(`${day} <= ?`)
       params.push(query.dateTo)
     }
     const where = conds.join(' AND ')
@@ -1197,7 +1202,7 @@ export class SalesService {
       discounts: number
     }>(
       `SELECT s.cashier_id AS cashier_id, s.cashier_name AS name,
-              COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN s.sale_date END) AS shifts,
+              COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN ${day} END) AS shifts,
               COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END) AS transactions,
               COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
               COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
@@ -1219,19 +1224,21 @@ export class SalesService {
     }))
   }
 
-  /** Shared sale_date-range WHERE for the report aggregations (parity with the API). */
+  /** Shared trading-day-range WHERE for the report aggregations (parity with the API):
+   *  business_date, falling back to the UTC sale_date for pre-migration rows (BIZ-5.1). */
   private reportWhere(
     businessId: string,
     query: SalesListQuery,
   ): { where: string; params: unknown[] } {
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const conds = ['s.business_id = ?', 's.is_deleted = 0']
     const params: unknown[] = [businessId]
     if (query.dateFrom) {
-      conds.push('s.sale_date >= ?')
+      conds.push(`${day} >= ?`)
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      conds.push('s.sale_date <= ?')
+      conds.push(`${day} <= ?`)
       params.push(query.dateTo)
     }
     return { where: conds.join(' AND '), params }
@@ -1590,14 +1597,15 @@ export class SalesService {
         params.push(query.paymentMethod)
       }
     }
-    // Compare on the LOCAL calendar day of sold_at (sale_date is stored as the UTC date, so
-    // a straight string compare drops sales near the day boundary / in non-UTC zones).
+    // BIZ-5.1: filter by the local trading day (business_date, computed with the business
+    // timezone + cutover), falling back to the UTC sale_date for pre-migration rows. This
+    // replaces the old machine-localtime approximation on sold_at.
     if (query.dateFrom) {
-      where += " AND date(s.sold_at, 'localtime') >= ?"
+      where += ' AND COALESCE(s.business_date, s.sale_date) >= ?'
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      where += " AND date(s.sold_at, 'localtime') <= ?"
+      where += ' AND COALESCE(s.business_date, s.sale_date) <= ?'
       params.push(query.dateTo)
     }
     return { where, params }

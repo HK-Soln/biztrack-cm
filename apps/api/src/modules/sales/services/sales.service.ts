@@ -843,12 +843,18 @@ export class SalesService {
         .where('sale.business_id = :businessId', { businessId })
         .distinct(true)
 
+      // BIZ-5.1: filter by the local trading day (business_date, fallback sale_date), matching
+      // the desktop list + the reports.
       if (query.dateFrom) {
-        qb.andWhere('sale.sale_date >= :dateFrom', { dateFrom: query.dateFrom })
+        qb.andWhere('COALESCE(sale.business_date, sale.sale_date) >= :dateFrom', {
+          dateFrom: query.dateFrom,
+        })
       }
 
       if (query.dateTo) {
-        qb.andWhere('sale.sale_date <= :dateTo', { dateTo: query.dateTo })
+        qb.andWhere('COALESCE(sale.business_date, sale.sale_date) <= :dateTo', {
+          dateTo: query.dateTo,
+        })
       }
 
       if (query.status) {
@@ -978,6 +984,8 @@ export class SalesService {
     query: { customerId?: string | null; dateFrom?: string; dateTo?: string },
   ): Promise<SalesSummary> {
     try {
+      // BIZ-5.1: range reports bucket by the local trading day (fallback sale_date).
+      const day = 'COALESCE(s.business_date, s.sale_date)'
       const params: unknown[] = [businessId]
       const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
       if (query.customerId) {
@@ -986,11 +994,11 @@ export class SalesService {
       }
       if (query.dateFrom) {
         params.push(query.dateFrom)
-        conds.push(`s.sale_date >= $${params.length}`)
+        conds.push(`${day} >= $${params.length}`)
       }
       if (query.dateTo) {
         params.push(query.dateTo)
-        conds.push(`s.sale_date <= $${params.length}`)
+        conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
       const mgr = this.salesRepo.manager
@@ -1044,37 +1052,40 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<DailySalesRow[]> {
     try {
+      // BIZ-5.1: bucket by the local trading day (business_date), falling back to the UTC
+      // sale_date for pre-migration rows that were never stamped.
+      const day = 'COALESCE(s.business_date, s.sale_date)'
       const params: unknown[] = [businessId]
       const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
       if (query.dateFrom) {
         params.push(query.dateFrom)
-        conds.push(`s.sale_date >= $${params.length}`)
+        conds.push(`${day} >= $${params.length}`)
       }
       if (query.dateTo) {
         params.push(query.dateTo)
-        conds.push(`s.sale_date <= $${params.length}`)
+        conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
       const rows = (await this.salesRepo.manager.query(
-        `SELECT d.sale_date AS date, d.txns, d.total, d.credit,
+        `SELECT d.bday AS date, d.txns, d.total, d.credit,
                 COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
          FROM (
-           SELECT s.sale_date, COUNT(*)::int AS txns,
+           SELECT ${day} AS bday, COUNT(*)::int AS txns,
                   COALESCE(SUM(s.total_amount), 0) AS total,
                   COALESCE(SUM(s.credit_amount), 0) AS credit
            FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
-           GROUP BY s.sale_date
+           GROUP BY ${day}
          ) d
          LEFT JOIN (
-           SELECT s.sale_date,
+           SELECT ${day} AS bday,
                   SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
                   SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
                   SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
            FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
            WHERE ${where} AND s.status = 'COMPLETED'
-           GROUP BY s.sale_date
-         ) p ON p.sale_date = d.sale_date
-         ORDER BY d.sale_date ASC`,
+           GROUP BY ${day}
+         ) p ON p.bday = d.bday
+         ORDER BY d.bday ASC`,
         params,
       )) as Array<{
         date: string | Date
@@ -1113,20 +1124,22 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<CashierPerformanceRow[]> {
     try {
+      // BIZ-5.1: trading day = business_date (fallback sale_date). "shifts" = distinct days.
+      const day = 'COALESCE(s.business_date, s.sale_date)'
       const params: unknown[] = [businessId]
       const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
       if (query.dateFrom) {
         params.push(query.dateFrom)
-        conds.push(`s.sale_date >= $${params.length}`)
+        conds.push(`${day} >= $${params.length}`)
       }
       if (query.dateTo) {
         params.push(query.dateTo)
-        conds.push(`s.sale_date <= $${params.length}`)
+        conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
       const rows = (await this.salesRepo.manager.query(
         `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
-                COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN s.sale_date END)::int AS shifts,
+                COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN ${day} END)::int AS shifts,
                 COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END)::int AS transactions,
                 COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
                 COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
@@ -1163,16 +1176,18 @@ export class SalesService {
     where: string
     params: unknown[]
   } {
+    // BIZ-5.1: report date range is the local trading day (business_date, fallback sale_date).
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const params: unknown[] = []
     const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
     params.push('')
     if (query.dateFrom) {
       params.push(query.dateFrom)
-      conds.push(`s.sale_date >= $${params.length}`)
+      conds.push(`${day} >= $${params.length}`)
     }
     if (query.dateTo) {
       params.push(query.dateTo)
-      conds.push(`s.sale_date <= $${params.length}`)
+      conds.push(`${day} <= $${params.length}`)
     }
     return { where: conds.join(' AND '), params }
   }
@@ -1772,7 +1787,8 @@ export class SalesService {
         .leftJoinAndSelect('sale.cashier', 'cashier')
         .where('sale.business_id = :businessId', { businessId })
         .andWhere('sale.cashier_id = :cashierId', { cashierId })
-        .andWhere('sale.sale_date = :date', { date })
+        // BIZ-5.1: match the cashier's trading day (business_date, fallback sale_date).
+        .andWhere('COALESCE(sale.business_date, sale.sale_date) = :date', { date })
         .orderBy('sale.sold_at', 'DESC')
         .getMany()
 
