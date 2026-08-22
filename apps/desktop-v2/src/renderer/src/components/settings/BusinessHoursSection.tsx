@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input } from '@biztrack/ui/biztrack'
+import { Button, CommandSelect, Input, type CommandSelectOption } from '@biztrack/ui/biztrack'
 import {
   DEFAULT_CREDIT_DAYS,
   MAX_CREDIT_DAYS,
@@ -11,6 +11,11 @@ import {
   type BusinessProfile,
   type Weekday,
 } from '@biztrack/types'
+import {
+  DEFAULT_BUSINESS_TIMEZONE,
+  DEFAULT_DAY_CUTOVER,
+  normalizeDayCutover,
+} from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
@@ -73,13 +78,31 @@ export function BusinessHoursSection() {
 
   const [days, setDays] = useState<Record<Weekday, DayState> | null>(null)
   const [creditDays, setCreditDays] = useState(String(DEFAULT_CREDIT_DAYS))
+  const [tz, setTz] = useState(DEFAULT_BUSINESS_TIMEZONE)
+  const [cutover, setCutover] = useState(DEFAULT_DAY_CUTOVER)
   const [toast, setToast] = useState<string | null>(null)
   useEffect(() => {
     if (q.data) {
       setDays(seed(q.data.businessHours ?? null))
       setCreditDays(String(q.data.defaultCreditDays ?? DEFAULT_CREDIT_DAYS))
+      setTz(q.data.timezone || DEFAULT_BUSINESS_TIMEZONE)
+      setCutover(q.data.dayCutoverTime || DEFAULT_DAY_CUTOVER)
     }
   }, [q.data])
+
+  const { data: timezones = [] } = useQuery({
+    queryKey: ['notificationSettings', 'timezones'],
+    queryFn: () => dataClient.notificationSettings.listTimezones(),
+  })
+  const loadTimezones = useCallback(
+    (searchText: string): Promise<CommandSelectOption[]> => {
+      const list = timezones.length ? timezones : [tz]
+      const q2 = searchText.trim().toLowerCase()
+      const filtered = q2 ? list.filter((z) => z.toLowerCase().includes(q2)) : list
+      return Promise.resolve(filtered.slice(0, 100).map((z) => ({ value: z, label: z })))
+    },
+    [timezones, tz],
+  )
   useEffect(() => {
     if (!toast) return
     const id = setTimeout(() => setToast(null), 2200)
@@ -110,6 +133,20 @@ export function BusinessHoursSection() {
     onSuccess: (updated) => {
       setToast(t('hours.saved'))
       setCreditDays(String(updated.defaultCreditDays ?? DEFAULT_CREDIT_DAYS))
+      qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
+        ...updated,
+        role: prev?.role ?? updated.role,
+      }))
+    },
+  })
+
+  const calendarSave = useMutation({
+    mutationFn: () =>
+      dataClient.business.update({ timezone: tz, dayCutoverTime: normalizeDayCutover(cutover) }),
+    onSuccess: (updated) => {
+      setToast(t('hours.saved'))
+      setTz(updated.timezone || DEFAULT_BUSINESS_TIMEZONE)
+      setCutover(updated.dayCutoverTime || DEFAULT_DAY_CUTOVER)
       qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
         ...updated,
         role: prev?.role ?? updated.role,
@@ -225,6 +262,48 @@ export function BusinessHoursSection() {
             variant="primary"
             disabled={!canEdit || creditSave.isPending}
             onClick={() => creditSave.mutate()}
+          >
+            {t('hours.save')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <div>
+            <h3>{t('calendar.title')}</h3>
+            <p>{t('calendar.sub')}</p>
+          </div>
+        </div>
+        <div className="field-row">
+          <div>
+            <label className="lbl">{t('calendar.timezone')}</label>
+            <CommandSelect
+              value={tz}
+              disabled={!canEdit}
+              loadOptions={loadTimezones}
+              searchPlaceholder={t('calendar.timezoneSearch')}
+              onChange={(v) => setTz(v || DEFAULT_BUSINESS_TIMEZONE)}
+            />
+            <div className="help">{t('calendar.timezoneHelp')}</div>
+          </div>
+          <div>
+            <label className="lbl">{t('calendar.cutover')}</label>
+            <Input
+              type="time"
+              value={cutover}
+              disabled={!canEdit}
+              onChange={(e) => setCutover(e.target.value)}
+            />
+            <div className="help">{t('calendar.cutoverHelp')}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!canEdit || calendarSave.isPending}
+            onClick={() => calendarSave.mutate()}
           >
             {t('hours.save')}
           </Button>

@@ -88,6 +88,24 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @Max(365)
   defaultCreditDays?: number | null
 
+  @ApiPropertyOptional({
+    description: 'Canonical business timezone (IANA); drives business_date, digests, quiet hours.',
+    example: 'Africa/Douala',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timezone?: string | null
+
+  @ApiPropertyOptional({
+    description: "Local trading-day cutover ('HH:mm'); default 00:00.",
+    example: '00:00',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  dayCutoverTime?: string | null
+
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })
   @IsOptional()

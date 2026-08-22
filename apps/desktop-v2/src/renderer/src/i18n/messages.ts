@@ -2808,6 +2808,8 @@ export const en = {
   'tax.regReelTag': 'TVA charged & reclaimable',
   'tax.tvaTitle': 'TVA (VAT) handling',
   'tax.tvaSub': 'How tax is calculated and shown across POS, receipts and the online store.',
+  'tax.vatRegistered': 'VAT registered',
+  'tax.vatRegisteredDesc': 'Charge and report TVA on sales.',
   'tax.stdRate': 'Standard TVA rate',
   'tax.stdRateHelp': 'Cameroon standard rate (17,5% + 10% CAC).',
   'tax.rounding': 'Rounding',
@@ -3083,6 +3085,15 @@ export const en = {
   'credit.label': 'Default credit period',
   'credit.unit': 'days',
   'hours.ownerOnly': 'Only the business owner can edit business hours.',
+  'calendar.title': 'Business day',
+  'calendar.sub':
+    'Timezone and the hour your trading day rolls over — used to bucket sales into the right day.',
+  'calendar.timezone': 'Timezone',
+  'calendar.timezoneSearch': 'Search timezones…',
+  'calendar.timezoneHelp': 'Used for the trading day, daily summary and quiet hours.',
+  'calendar.cutover': 'Day cutover',
+  'calendar.cutoverHelp':
+    '00:00 = the calendar date. A late-night business can set e.g. 03:00 so a 1 AM sale counts to the previous day.',
   'hours.onlineOnly': "You're offline — business hours load when you reconnect.",
   'hours.mon': 'Monday',
   'hours.tue': 'Tuesday',
@@ -6300,6 +6311,8 @@ export const fr: Record<MessageKey, string> = {
   'tax.tvaTitle': 'Gestion de la TVA',
   'tax.tvaSub':
     'Comment la taxe est calculée et affichée au POS, sur les reçus et la boutique en ligne.',
+  'tax.vatRegistered': 'Assujetti à la TVA',
+  'tax.vatRegisteredDesc': 'Facturer et déclarer la TVA sur les ventes.',
   'tax.stdRate': 'Taux de TVA standard',
   'tax.stdRateHelp': 'Taux standard du Cameroun (17,5% + 10% CAC).',
   'tax.rounding': 'Arrondi',
@@ -6582,6 +6595,16 @@ export const fr: Record<MessageKey, string> = {
   'credit.label': 'Délai de crédit par défaut',
   'credit.unit': 'jours',
   'hours.ownerOnly': 'Seul le propriétaire peut modifier les horaires.',
+  'calendar.title': 'Journée commerciale',
+  'calendar.sub':
+    'Fuseau horaire et heure de bascule de la journée — sert à rattacher les ventes au bon jour.',
+  'calendar.timezone': 'Fuseau horaire',
+  'calendar.timezoneSearch': 'Rechercher un fuseau…',
+  'calendar.timezoneHelp':
+    'Utilisé pour la journée commerciale, le résumé quotidien et les heures calmes.',
+  'calendar.cutover': 'Bascule de journée',
+  'calendar.cutoverHelp':
+    '00:00 = la date du calendrier. Un commerce de nuit peut mettre p.ex. 03:00 pour qu’une vente à 1 h compte pour la veille.',
   'hours.onlineOnly': 'Vous êtes hors ligne — les horaires se chargeront à la reconnexion.',
   'hours.mon': 'Lundi',
   'hours.tue': 'Mardi',

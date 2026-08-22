@@ -79,8 +79,18 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
   phone!: BusinessMembershipBusinessSummary['phone']
   email!: BusinessMembershipBusinessSummary['email']
   address!: BusinessMembershipBusinessSummary['address']
+  country!: BusinessMembershipBusinessSummary['country']
   currency!: BusinessMembershipBusinessSummary['currency']
   logoUrl!: BusinessMembershipBusinessSummary['logoUrl']
+  businessHours!: BusinessMembershipBusinessSummary['businessHours']
+  defaultCreditDays!: BusinessMembershipBusinessSummary['defaultCreditDays']
+  timezone!: BusinessMembershipBusinessSummary['timezone']
+  dayCutoverTime!: BusinessMembershipBusinessSummary['dayCutoverTime']
+  niu!: BusinessMembershipBusinessSummary['niu']
+  rccm!: BusinessMembershipBusinessSummary['rccm']
+  vatRegistered!: BusinessMembershipBusinessSummary['vatRegistered']
+  defaultVatRate!: BusinessMembershipBusinessSummary['defaultVatRate']
+  fiscalRegime!: BusinessMembershipBusinessSummary['fiscalRegime']
   ownerId!: BusinessMembershipBusinessSummary['ownerId']
   owner!: BusinessMembershipBusinessSummary['owner']
   subscriptionStatus!: BusinessMembershipBusinessSummary['subscriptionStatus']
@@ -89,7 +99,6 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
   currentPeriodStart!: BusinessMembershipBusinessSummary['currentPeriodStart']
   currentPeriodEnd!: BusinessMembershipBusinessSummary['currentPeriodEnd']
   cancelAtPeriodEnd!: BusinessMembershipBusinessSummary['cancelAtPeriodEnd']
-
 
   static fromEntity(entity?: BusinessEntity | null): BusinessMembershipBusinessSummaryDto | null {
     if (!entity) return null
@@ -106,8 +115,18 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
     dto.phone = entity.phone ?? null
     dto.email = entity.email ?? null
     dto.address = entity.address ?? null
+    dto.country = entity.country ?? null
     dto.currency = entity.currency
     dto.logoUrl = entity.logoUrl ?? null
+    dto.businessHours = entity.businessHours ?? null
+    dto.defaultCreditDays = entity.defaultCreditDays ?? null
+    dto.timezone = entity.timezone ?? null
+    dto.dayCutoverTime = entity.dayCutoverTime ?? null
+    dto.niu = entity.niu ?? null
+    dto.rccm = entity.rccm ?? null
+    dto.vatRegistered = entity.vatRegistered ?? false
+    dto.defaultVatRate = entity.defaultVatRate ?? null
+    dto.fiscalRegime = entity.fiscalRegime ?? null
     dto.ownerId = entity.ownerId
     dto.owner = entity.owner ? entity.owner.name : null
     dto.subscriptionStatus = entity.subscriptionStatus
@@ -116,7 +135,7 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
     dto.currentPeriodStart = toIsoString(entity.currentPeriodStart)
     dto.currentPeriodEnd = toIsoString(entity.currentPeriodEnd)
     dto.cancelAtPeriodEnd = entity.cancelAtPeriodEnd
-    
+
     return dto
   }
 }
@@ -200,4 +219,3 @@ export class UpdateMemberRoleResponseDto implements UpdateMemberRoleResponse {
     return dto
   }
 }
-

@@ -216,12 +216,19 @@ export interface BusinessProfile {
   email: string | null
   address: string | null
   city: string | null
+  country: string | null
   currency: Currency | string
   logoUrl: string | null
   businessHours: BusinessHours | null
   defaultCreditDays: number | null
   timezone: string | null
   dayCutoverTime: string | null
+  // Legal / fiscal identity captured at onboarding (editable afterward — Settings → Tax).
+  niu: string | null
+  rccm: string | null
+  vatRegistered: boolean
+  defaultVatRate: number | null
+  fiscalRegime: FiscalRegime | null
   role: BusinessMemberRole | null
 }
 
@@ -237,12 +244,18 @@ export interface BusinessMembershipBusinessSummary {
   phone?: string | null
   email?: string | null
   address?: string | null
+  country?: string | null
   currency?: Currency | string
   logoUrl?: string | null
   businessHours?: BusinessHours | null
   defaultCreditDays?: number | null
   timezone?: string | null
   dayCutoverTime?: string | null
+  niu?: string | null
+  rccm?: string | null
+  vatRegistered?: boolean
+  defaultVatRate?: number | null
+  fiscalRegime?: FiscalRegime | null
   ownerId?: string | null
   owner?: string | null
   subscriptionStatus?: SubscriptionStatus | null
