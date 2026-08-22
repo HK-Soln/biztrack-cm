@@ -32,6 +32,11 @@ export class CashSession extends BaseEntity {
   @Column({ name: 'outlet_id', type: 'uuid', nullable: true })
   outletId?: string | null
 
+  // The trading day this shift belongs to (BIZ-5.1), stamped at open. Sales/movements rung in
+  // the shift inherit it, so a shift straddling the cutover keeps one consistent day.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
+
   @Column({ name: 'device_id', type: 'text' })
   deviceId!: string
 

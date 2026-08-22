@@ -59,4 +59,8 @@ export class CashMovement extends BaseEntity {
   // pulled from sync, so this holds any reference id, not just a bare uuid.
   @Column({ name: 'reference_id', type: 'varchar', length: 80, nullable: true })
   referenceId?: string | null
+
+  // Local trading day (BIZ-5.1), inherited from the parent shift's business_date.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

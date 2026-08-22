@@ -9,6 +9,7 @@ import {
 } from '@biztrack/utils'
 import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
+import { localBusinessDate } from './business-calendar'
 import type {
   CashierPerformanceRow,
   DailySalesRow,
@@ -122,6 +123,16 @@ export class SalesService {
     // Tag the sale to the open shift (BIZ-2.2). NULL = rung outside a session
     // ("vente hors caisse"). Drives the expected-cash reconciliation.
     const cashSessionId = this.getOpenCashSessionId()
+    // Local trading day (BIZ-5.1): a sale rung in an open shift inherits that shift's day (so a
+    // shift straddling midnight stays one day); otherwise compute from the local calendar.
+    let businessDate = localBusinessDate(soldAt)
+    if (cashSessionId) {
+      const shift = this.db.get<{ business_date: string | null }>(
+        `SELECT business_date FROM cash_sessions WHERE id = ?`,
+        [cashSessionId],
+      )
+      if (shift?.business_date) businessDate = shift.business_date
+    }
 
     // --- expand cart lines into persisted sale items (one per serial unit) ----
     type Emit = {
@@ -428,8 +439,8 @@ export class SalesService {
         (id, business_id, client_id, cashier_id, cashier_name, sale_number, receipt_number, subtotal, total_amount,
          discount_amount, charges_amount, tax_amount, net_amount, amount_paid, credit_amount, change_given,
          payment_method, momo_reference, customer_id, customer_name, customer_phone, notes, currency, sale_date,
-         sold_at, cash_session_id, status, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+         sold_at, cash_session_id, business_date, status, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
       [
         saleId,
         businessId,
@@ -456,6 +467,7 @@ export class SalesService {
         soldAt.slice(0, 10),
         soldAt,
         cashSessionId,
+        businessDate,
         now,
         now,
       ],
@@ -561,8 +573,8 @@ export class SalesService {
     }
     for (const p of paymentRows) {
       this.db.run(
-        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, mobile_money_reference, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, mobile_money_reference, business_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           p.id,
           saleId,
@@ -570,6 +582,7 @@ export class SalesService {
           p.method,
           toWholeXaf(p.amount),
           p.mobileMoneyReference ?? null,
+          businessDate,
           now,
         ],
       )

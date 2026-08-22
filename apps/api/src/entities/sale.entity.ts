@@ -151,6 +151,12 @@ export class Sale extends BaseEntity {
   @Column({ name: 'sale_date', type: 'date' })
   saleDate!: string
 
+  // The local trading day this sale belongs to (BIZ-5.1), stamped at write time from the
+  // business timezone + cutover (or inherited from the open shift). Distinct from sale_date
+  // (the UTC date, which drives receipt numbering). Nullable for pre-migration history.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
+
   // The cash session (shift) this sale was rung in, or null ("vente hors caisse").
   // Soft ref (no FK) — tags the sale to a shift for cash reconciliation (BIZ-2.2).
   @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })

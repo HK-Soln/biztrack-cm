@@ -38,6 +38,7 @@ import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
 import { CashMovement } from '@/entities/cash-movement.entity'
 import { AuditService } from '@/modules/audit/audit.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import {
   OpenCashSessionDto,
   ListCashSessionsQueryDto,
@@ -68,6 +69,7 @@ export class CashSessionsService {
     @InjectRepository(CashMovement)
     private readonly movementsRepo: Repository<CashMovement>,
     private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
   ) {}
 
   async openSession(
@@ -92,6 +94,7 @@ export class CashSessionsService {
     }
 
     const now = new Date()
+    const businessDate = await this.calendar.computeForBusiness(businessId, now)
     const saved = await this.sessionsRepo.save(
       this.sessionsRepo.create({
         id: dto.id,
@@ -100,6 +103,7 @@ export class CashSessionsService {
         userId: user.sub,
         status: CashSessionStatus.OPEN,
         openedAt: now,
+        businessDate,
         openingFloat: dto.openingFloat ?? 0,
         creditIssued: 0,
         discountTotal: 0,
@@ -768,6 +772,8 @@ export class CashSessionsService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new AppBadRequestException('Amount must be greater than 0.', 'CASH_MOVEMENT_AMOUNT')
     }
+    const businessDate =
+      session.businessDate ?? (await this.calendar.computeForBusiness(businessId, new Date()))
     const saved = await this.movementsRepo.save(
       this.movementsRepo.create({
         id: input.id,
@@ -780,6 +786,7 @@ export class CashSessionsService {
         note: input.note ?? null,
         referenceType: input.referenceType ?? null,
         referenceId: input.referenceId ?? null,
+        businessDate,
       }),
     )
     if (context) {
@@ -833,6 +840,7 @@ export class CashSessionsService {
         note: payload.note ?? null,
         referenceType: payload.referenceType ?? null,
         referenceId: payload.referenceId ?? null,
+        businessDate: payload.businessDate ?? parent.businessDate ?? null,
         createdAt: new Date(payload.createdAt),
         updatedAt: new Date(payload.updatedAt),
       }),
@@ -849,9 +857,13 @@ export class CashSessionsService {
     // A closed count is immutable — never let a later re-push mutate it.
     if (existing && isCashSessionLocked(existing.status)) return
 
+    const businessDate =
+      payload.businessDate ??
+      (await this.calendar.computeForBusiness(businessId, new Date(payload.openedAt)))
     const row = {
       businessId,
       outletId: payload.outletId ?? null,
+      businessDate,
       deviceId: payload.deviceId,
       userId: payload.userId,
       status: payload.status as CashSessionStatus,

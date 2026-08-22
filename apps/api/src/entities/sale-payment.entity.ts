@@ -54,4 +54,9 @@ export class SalePayment extends ImmutableBaseEntity {
 
   @Column({ type: 'text', nullable: true })
   note?: string | null
+
+  // Local trading day this payment lands on (BIZ-5.1): the sale's day for payments taken at
+  // the sale; the collection day for a later COD payment / refund.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

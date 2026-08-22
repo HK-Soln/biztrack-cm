@@ -47,6 +47,10 @@ function makeService() {
     {} as any, // saleNumberService
     {} as any, // dailySummaryService
     {} as any, // auditService
+    {
+      computeForBusiness: async () => '2026-01-01',
+      resolveForSync: async () => '2026-01-01',
+    } as any, // calendar
     i18n as any,
     logger as any,
   )

@@ -25,6 +25,7 @@ import {
 } from '@biztrack/types'
 import { computeExpectedCash } from '@biztrack/utils'
 import type { DatabaseService } from '@biztrack/electron-core'
+import { localBusinessDate } from './business-calendar'
 import type {
   CashSessionsListQuery,
   OpenCashSessionInput,
@@ -759,11 +760,17 @@ export class CashSessionsService {
     const id = input.id ?? randomUUID()
     const direction = cashMovementDirection(input.kind)
     const now = new Date().toISOString()
+    // Inherit the shift's trading day (BIZ-5.1) so the movement lands on the shift's day.
+    const businessDate =
+      this.db.get<{ business_date: string | null }>(
+        `SELECT business_date FROM cash_sessions WHERE id = ?`,
+        [session.id],
+      )?.business_date ?? localBusinessDate(now)
     this.db.run(
       `INSERT INTO cash_movements
         (id, business_id, cash_session_id, user_id, kind, direction, amount, note,
-         reference_type, reference_id, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+         reference_type, reference_id, business_date, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -775,6 +782,7 @@ export class CashSessionsService {
         input.note ?? null,
         input.referenceType ?? null,
         input.referenceId ?? null,
+        businessDate,
         now,
         now,
       ],
@@ -813,11 +821,17 @@ export class CashSessionsService {
     const id = randomUUID()
     const direction = cashMovementDirection(input.kind)
     const now = new Date().toISOString()
+    // Inherit the shift's trading day (BIZ-5.1) so the movement lands on the shift's day.
+    const businessDate =
+      this.db.get<{ business_date: string | null }>(
+        `SELECT business_date FROM cash_sessions WHERE id = ?`,
+        [session.id],
+      )?.business_date ?? localBusinessDate(now)
     this.db.run(
       `INSERT INTO cash_movements
         (id, business_id, cash_session_id, user_id, kind, direction, amount, note,
-         reference_type, reference_id, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+         reference_type, reference_id, business_date, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         businessId,
@@ -829,6 +843,7 @@ export class CashSessionsService {
         input.note ?? null,
         input.referenceType ?? null,
         input.referenceId ?? null,
+        businessDate,
         now,
         now,
       ],
@@ -888,14 +903,16 @@ export class CashSessionsService {
     const id = input.id ?? randomUUID()
     const now = new Date().toISOString()
     const openingFloat = Math.round(input.openingFloat ?? 0)
+    // The shift's trading day (BIZ-5.1); sales/movements rung in it inherit this.
+    const businessDate = localBusinessDate(now)
 
     this.db.run(
       `INSERT INTO cash_sessions
         (id, business_id, device_id, user_id, status, opened_at, opening_float,
          credit_issued, discount_total, sales_count, void_count, recount_used,
-         is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'OPEN', ?, ?, 0, 0, 0, 0, 0, 0, ?, ?)`,
-      [id, businessId, deviceId, this.getUserId(), now, openingFloat, now, now],
+         business_date, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'OPEN', ?, ?, 0, 0, 0, 0, 0, ?, 0, ?, ?)`,
+      [id, businessId, deviceId, this.getUserId(), now, openingFloat, businessDate, now, now],
     )
 
     this.push(id, businessId)

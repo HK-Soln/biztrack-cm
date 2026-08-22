@@ -41,6 +41,7 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
 import { AuditService } from '@/modules/audit/audit.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { AuditContext } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
@@ -164,6 +165,7 @@ export class SalesService {
     private readonly saleNumberService: SaleNumberService,
     private readonly dailySummaryService: DailySalesSummaryService,
     private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -241,6 +243,9 @@ export class SalesService {
         const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
         const now = new Date()
+        // Local trading day (BIZ-5.1). API-direct sales aren't rung at a till (no shift), so
+        // this comes from the business timezone + cutover; distinct from the UTC saleDate.
+        const businessDate = await this.calendar.computeForBusiness(businessId, soldAt)
 
         const sale = await saleRepo.save(
           saleRepo.create({
@@ -265,6 +270,7 @@ export class SalesService {
             notes: dto.notes?.trim() || null,
             priceDriftWarning: computed.priceDriftWarning,
             saleDate,
+            businessDate,
             soldAt,
             syncedAt: now,
           }),
@@ -376,6 +382,7 @@ export class SalesService {
               amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
+              businessDate,
             }),
           ),
         )
@@ -604,6 +611,14 @@ export class SalesService {
         }
 
         const now = new Date()
+        // Recompute the trading day authoritatively from the business calendar (or the shift),
+        // trusting the device's value only as a hint — the server has the real timezone/cutover.
+        const businessDate = await this.calendar.resolveForSync(
+          businessId,
+          soldAt,
+          payload.businessDate,
+          payload.cashSessionId ?? null,
+        )
 
         const sale = await saleRepo.save(
           saleRepo.create({
@@ -631,6 +646,7 @@ export class SalesService {
             notes: payload.notes?.trim() || null,
             priceDriftWarning: computed.priceDriftWarning,
             saleDate,
+            businessDate,
             soldAt,
             cashSessionId: payload.cashSessionId ?? null,
             syncedAt: now,
@@ -678,6 +694,7 @@ export class SalesService {
               amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
+              businessDate,
             }),
           ),
         )

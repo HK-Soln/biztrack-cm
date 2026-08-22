@@ -400,6 +400,8 @@ export interface SaleSyncRecord extends SyncRecord {
   notes?: string | null
   priceDriftWarning: boolean
   saleDate: string
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   soldAt: string
   /** The cash session (shift) this sale was rung in, or null ("vente hors caisse"). BIZ-2.2. */
   cashSessionId?: string | null
@@ -445,6 +447,7 @@ export interface SalePaymentSyncRecord extends SyncRecord {
   recordedAt?: string | null
   recordedById?: string | null
   note?: string | null
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -686,6 +689,8 @@ export interface SavingsTransactionSyncRecord extends SyncRecord {
 export interface CashSessionSyncRecord extends SyncRecord {
   businessId: string
   outletId?: string | null
+  /** The shift's trading day (BIZ-5.1). */
+  businessDate?: string | null
   deviceId: string
   userId: string
   status: string
@@ -731,6 +736,7 @@ export interface CashMovementSyncRecord extends SyncRecord {
   note?: string | null
   referenceType?: string | null
   referenceId?: string | null
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -928,6 +934,8 @@ export interface SaleSyncPayload {
   soldAt: string
   /** The cash session (shift) this sale was rung in, or null. BIZ-2.2. */
   cashSessionId?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   cashierId?: string | null
   cashierName?: string | null
   fallbackCashierId?: string | null

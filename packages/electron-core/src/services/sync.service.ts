@@ -164,6 +164,7 @@ const SALE_MAP: Record<string, string> = {
   price_drift_warning: 'priceDriftWarning',
   currency: 'currency',
   sale_date: 'saleDate',
+  business_date: 'businessDate',
   sold_at: 'soldAt',
   cash_session_id: 'cashSessionId',
   synced_at: 'syncedAt',
@@ -203,6 +204,7 @@ const SALE_PAYMENT_MAP: Record<string, string> = {
   recorded_at: 'recordedAt',
   recorded_by_id: 'recordedById',
   note: 'note',
+  business_date: 'businessDate',
   created_at: 'createdAt',
 }
 const SALE_CHARGE_MAP: Record<string, string> = {
@@ -356,6 +358,7 @@ const CASH_SESSION_MAP: Record<string, string> = {
   id: 'id',
   business_id: 'businessId',
   outlet_id: 'outletId',
+  business_date: 'businessDate',
   device_id: 'deviceId',
   user_id: 'userId',
   status: 'status',
@@ -403,6 +406,7 @@ const CASH_MOVEMENT_MAP: Record<string, string> = {
   note: 'note',
   reference_type: 'referenceType',
   reference_id: 'referenceId',
+  business_date: 'businessDate',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
