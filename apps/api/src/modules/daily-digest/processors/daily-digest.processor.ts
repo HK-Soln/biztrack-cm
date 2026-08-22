@@ -77,7 +77,7 @@ export class DailyDigestProcessor extends WorkerHost {
     const now = new Date()
     const businesses = await this.businessRepo.find({
       where: { businessHours: Not(IsNull()) },
-      select: ['id', 'businessHours'],
+      select: ['id', 'businessHours', 'timezone'],
     })
     if (businesses.length === 0) return { status: 'idle', due: 0 }
 
@@ -89,7 +89,9 @@ export class DailyDigestProcessor extends WorkerHost {
     let due = 0
     for (const business of businesses) {
       const setting = settingMap.get(business.id) ?? null
-      const tz = setting?.timezone || DEFAULT_NOTIFICATION_TIMEZONE
+      // Canonical timezone is on the business now (BIZ-5.1); fall back to the dormant
+      // notification setting then the default for not-yet-migrated rows.
+      const tz = business.timezone || setting?.timezone || DEFAULT_NOTIFICATION_TIMEZONE
       const offset = clampDailyDigestOffset(
         setting?.dailyDigestOffsetMinutes ?? DEFAULT_DAILY_DIGEST_OFFSET_MINUTES,
       )

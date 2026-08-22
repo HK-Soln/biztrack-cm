@@ -164,7 +164,11 @@ export class NotificationSettingsService {
     setting.quietHoursEnabled = dto.enabled
     setting.quietFrom = dto.from
     setting.quietUntil = dto.until
-    if (dto.timezone?.trim()) setting.timezone = dto.timezone.trim()
+    // The timezone picker (still hosted on this settings screen) now writes the canonical
+    // business timezone (BIZ-5.1), which the digest + quiet hours read.
+    if (dto.timezone?.trim()) {
+      await this.businessRepo.update({ id: businessId }, { timezone: dto.timezone.trim() })
+    }
     if (dto.dailyDigestOffsetMinutes !== undefined) {
       setting.dailyDigestOffsetMinutes = clampDailyDigestOffset(dto.dailyDigestOffsetMinutes)
     }
@@ -328,7 +332,9 @@ export class NotificationSettingsService {
         enabled: setting.quietHoursEnabled,
         from: setting.quietFrom,
         until: setting.quietUntil,
-        timezone: setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
+        // Canonical timezone now lives on the business (BIZ-5.1); notification_settings.timezone
+        // is dormant. Fall back to it, then the default, for not-yet-migrated rows.
+        timezone: ctx.business?.timezone || setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
       },
       recipients,
     }
@@ -416,6 +422,11 @@ export class NotificationSettingsService {
       relations: ['user'],
       order: { createdAt: 'ASC' },
     })
+    // Canonical timezone lives on the business (BIZ-5.1); the settings row's is dormant.
+    const business = await this.businessRepo.findOne({
+      where: { id: businessId },
+      select: ['id', 'timezone'],
+    })
     return {
       matrix: NOTIFICATION_EVENTS.flatMap((event) =>
         NOTIFICATION_CHANNELS.map((channel) => ({
@@ -429,7 +440,7 @@ export class NotificationSettingsService {
         from: setting.quietFrom,
         until: setting.quietUntil,
       },
-      timezone: setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
+      timezone: business?.timezone || setting.timezone || DEFAULT_NOTIFICATION_TIMEZONE,
       dailyDigestOffsetMinutes: clampDailyDigestOffset(
         setting.dailyDigestOffsetMinutes ?? DEFAULT_DAILY_DIGEST_OFFSET_MINUTES,
       ),

@@ -148,6 +148,8 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     logoUrl: b.logoUrl ?? null,
     businessHours: b.businessHours ?? null,
     defaultCreditDays: b.defaultCreditDays ?? null,
+    timezone: b.timezone ?? null,
+    dayCutoverTime: b.dayCutoverTime ?? null,
     role,
   }
 }

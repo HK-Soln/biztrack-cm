@@ -16,6 +16,11 @@ export interface Business {
   businessHours?: BusinessHours | null
   /** Days of credit granted by default when a sale is put on account (drives due dates). */
   defaultCreditDays?: number | null
+  /** Canonical business timezone (IANA, e.g. Africa/Douala) — the single source of truth for
+   * business_date, digest timing and quiet hours (BIZ-5.1). */
+  timezone?: string | null
+  /** Local time of day the trading day rolls over ('HH:mm', default 00:00). */
+  dayCutoverTime?: string | null
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
@@ -190,6 +195,10 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   businessHours?: BusinessHours | null
   /** Default credit period in days for on-account sales (0–365). */
   defaultCreditDays?: number | null
+  /** Canonical business timezone (IANA); default Africa/Douala. */
+  timezone?: string | null
+  /** Local trading-day cutover ('HH:mm'); default 00:00. */
+  dayCutoverTime?: string | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -211,6 +220,8 @@ export interface BusinessProfile {
   logoUrl: string | null
   businessHours: BusinessHours | null
   defaultCreditDays: number | null
+  timezone: string | null
+  dayCutoverTime: string | null
   role: BusinessMemberRole | null
 }
 
@@ -230,6 +241,8 @@ export interface BusinessMembershipBusinessSummary {
   logoUrl?: string | null
   businessHours?: BusinessHours | null
   defaultCreditDays?: number | null
+  timezone?: string | null
+  dayCutoverTime?: string | null
   ownerId?: string | null
   owner?: string | null
   subscriptionStatus?: SubscriptionStatus | null

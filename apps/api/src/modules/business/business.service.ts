@@ -23,7 +23,7 @@ import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
-import { generateSlug } from '@biztrack/utils'
+import { generateSlug, DEFAULT_BUSINESS_TIMEZONE, normalizeDayCutover } from '@biztrack/utils'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -67,11 +67,18 @@ export class BusinessService {
       const baseSlug = generateSlug(dto.name)
       const slug = await this.generateUniqueSlug(baseSlug)
 
-      const { defaultCreditDays: rawCreditDays, ...createRest } = dto
+      const {
+        defaultCreditDays: rawCreditDays,
+        timezone: rawTimezone,
+        dayCutoverTime: rawCutover,
+        ...createRest
+      } = dto
       const business = this.businessRepo.create({
         ...createRest,
         businessHours: normalizeBusinessHours(dto.businessHours),
         defaultCreditDays: clampCreditDays(rawCreditDays),
+        timezone: rawTimezone?.trim() || DEFAULT_BUSINESS_TIMEZONE,
+        dayCutoverTime: normalizeDayCutover(rawCutover),
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -161,7 +168,12 @@ export class BusinessService {
         business.businessStatus === BusinessStatus.ONBOARDING
           ? BusinessStatus.PLAN_PENDING
           : business.businessStatus
-      const { defaultCreditDays: rawUpdateCreditDays, ...updateRest } = dto
+      const {
+        defaultCreditDays: rawUpdateCreditDays,
+        timezone: rawUpdateTimezone,
+        dayCutoverTime: rawUpdateCutover,
+        ...updateRest
+      } = dto
       await this.businessRepo.update(id, {
         ...updateRest,
         businessStatus: nextStatus,
@@ -170,6 +182,10 @@ export class BusinessService {
           : {}),
         ...(rawUpdateCreditDays !== undefined
           ? { defaultCreditDays: clampCreditDays(rawUpdateCreditDays) }
+          : {}),
+        ...(rawUpdateTimezone?.trim() ? { timezone: rawUpdateTimezone.trim() } : {}),
+        ...(rawUpdateCutover !== undefined
+          ? { dayCutoverTime: normalizeDayCutover(rawUpdateCutover) }
           : {}),
       })
       return this.businessRepo.findOne({ where: { id } })

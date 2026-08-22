@@ -46,6 +46,8 @@ export class BusinessService {
       logoUrl: b.logoUrl ?? null,
       businessHours: b.businessHours ?? null,
       defaultCreditDays: b.defaultCreditDays ?? null,
+      timezone: b.timezone ?? null,
+      dayCutoverTime: b.dayCutoverTime ?? null,
       role: membership?.role ?? null,
     }
   }
@@ -74,6 +76,8 @@ export class BusinessService {
       logoUrl: b.logoUrl ?? null,
       businessHours: b.businessHours ?? null,
       defaultCreditDays: b.defaultCreditDays ?? null,
+      timezone: b.timezone ?? null,
+      dayCutoverTime: b.dayCutoverTime ?? null,
       role: b.role ?? null,
     }
   }

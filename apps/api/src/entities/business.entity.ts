@@ -80,6 +80,18 @@ export class Business extends BaseEntity {
   @Column({ name: 'default_credit_days', type: 'int', default: 30 })
   defaultCreditDays!: number
 
+  /** Canonical business timezone (IANA, e.g. Africa/Douala). The single source of truth
+   * for every local-time decision — business_date (BIZ-5.1), digest send time, quiet
+   * hours. Notifications read this, not the (now dormant) notification_settings.timezone. */
+  @Column({ name: 'timezone', type: 'varchar', length: 64, default: 'Africa/Douala' })
+  timezone!: string
+
+  /** Local time of day at which the trading day rolls over (HH:mm). Default 00:00 = the
+   * business_date is the local calendar date; a late-night trade sets a dead-hour cutover
+   * (e.g. 03:00) so a 01:00 sale counts to the previous trading day (BIZ-5.1). */
+  @Column({ name: 'day_cutover_time', type: 'varchar', length: 5, default: '00:00' })
+  dayCutoverTime!: string
+
   @Column({ name: 'owner_id' })
   ownerId!: string
 
