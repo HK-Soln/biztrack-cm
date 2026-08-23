@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Icon, TABS, filterNav, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useCanManage } from '@/lib/useCanManage'
+import { useResourcePredicate } from '@/lib/entitlements'
 import { useSyncStatus } from '@/lib/useSyncStatus'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useThemeStore } from '@/stores/theme.store'
@@ -181,6 +182,7 @@ function Sidebar({
   const t = useT()
   const isOwner = (useSessionStore((s) => s.status.user?.role) ?? '').toUpperCase() === 'OWNER'
   const canManage = useCanManage()
+  const hasResource = useResourcePredicate()
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
       {collapsible ? (
@@ -214,7 +216,7 @@ function Sidebar({
       ) : null}
       <div className="nav-sec">{t('nav.workspace')}</div>
       <nav className="nav">
-        {filterNav(isOwner, canManage).map((entry, i) =>
+        {filterNav(isOwner, canManage, hasResource).map((entry, i) =>
           isGroup(entry) ? (
             <NavGroup key={`g${i}`} entry={entry} rail={rail} />
           ) : (

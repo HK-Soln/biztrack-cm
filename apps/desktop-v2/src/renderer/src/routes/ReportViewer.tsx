@@ -6,6 +6,7 @@ import type { ReportBusiness } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useCanManage } from '@/lib/useCanManage'
+import { useResourcePredicate } from '@/lib/entitlements'
 import { useLangStore, useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useSessionStore } from '@/stores/session.store'
@@ -239,6 +240,7 @@ export function ReportViewer() {
     ) : null
 
   const canManage = useCanManage()
+  const hasResource = useResourcePredicate()
   const grouped = useMemo(() => {
     const s = search.trim().toLowerCase()
     return REPORT_CATEGORIES.map((cat) => ({
@@ -248,10 +250,11 @@ export function ReportViewer() {
           r.cat === cat.key &&
           (isElectron || !r.desktopOnly) &&
           (canManage || !r.managerOnly) &&
+          (!r.resource || hasResource(r.resource)) &&
           (!s || `${r.name} ${r.fr}`.toLowerCase().includes(s)),
       ),
     })).filter((g) => g.reps.length)
-  }, [search, canManage])
+  }, [search, canManage, hasResource])
 
   // Enter real OS fullscreen when the modal opens (best-effort — the DOM overlay fills
   // the window regardless). Keep app state in sync when the user exits fullscreen.

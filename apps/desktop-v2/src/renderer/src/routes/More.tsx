@@ -4,6 +4,7 @@ import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { useSessionStore } from '@/stores/session.store'
 import { useCanManage } from '@/lib/useCanManage'
+import { useResourcePredicate } from '@/lib/entitlements'
 import { Icon, TABS, filterNav, isGroup, type NavLeaf } from '@/lib/nav'
 
 // Mobile "More" hub (bottom-tab). Lists every nav destination that isn't already a
@@ -36,6 +37,7 @@ export function More() {
 
   const isOwner = (user?.role ?? '').toUpperCase() === 'OWNER'
   const canManage = useCanManage()
+  const hasResource = useResourcePredicate()
   const roleLabel = user?.role
     ? t(ROLE_LABEL[user.role.toUpperCase()] ?? 'selectBiz.role.member')
     : (businessName ?? '')
@@ -50,7 +52,7 @@ export function More() {
       loose = []
     }
   }
-  for (const entry of filterNav(isOwner, canManage)) {
+  for (const entry of filterNav(isOwner, canManage, hasResource)) {
     if (isGroup(entry)) {
       flush()
       const items = entry.children.filter((c) => !bottom.has(c.to))

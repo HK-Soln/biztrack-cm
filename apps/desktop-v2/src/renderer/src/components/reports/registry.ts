@@ -25,7 +25,7 @@ import {
   buildStockValuationReport,
   buildSupplierPriceReport,
 } from '@biztrack/templates'
-import type { BuiltReportResult, ReportBuildOptions } from '@biztrack/types'
+import type { BuiltReportResult, ReportBuildOptions, Resource } from '@biztrack/types'
 import { DebtDirection } from '@biztrack/types'
 import { countTradingDays } from '@biztrack/utils'
 import type { DataClient } from '@/lib/data-client'
@@ -49,6 +49,9 @@ export interface ReportMeta {
   /** Manager-oversight report (aggregates across cashiers). Hidden from roles that can't
    * authorize (a regular cashier). */
   managerOnly?: boolean
+  /** Plan-tier feature that unlocks this report (BIZ-5.5). Hidden when the plan lacks it. Reserved —
+   * no report is plan-gated today; parity with nav for when a paid-module report exists. */
+  resource?: Resource
 }
 
 export interface ReportLoadContext {

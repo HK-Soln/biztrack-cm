@@ -12,6 +12,7 @@ import type {
   RegisterPayload,
   SessionStatus,
 } from '../../shared/ipc'
+import type { PlanStateResponse } from '@biztrack/types'
 import { decodeJwt, isJwtExpired } from './jwt'
 import type { LocalCache } from './local-cache'
 import type { StoredTokens, TokenStore } from './token-store'
@@ -417,6 +418,8 @@ export class AuthService {
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
+      // BIZ-5.5: last-known entitlements from the offline cache (undefined ⇒ permissive).
+      effectivePermissions: businessId ? this.cache.getEffectivePermissions(businessId) : undefined,
       nextStep,
     }
     return { ok: true, nextStep, session: this.session, context: null, error: null }
@@ -489,6 +492,8 @@ export class AuthService {
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
+      // BIZ-5.5: last-known plan-tier entitlements for client module gating. undefined ⇒ permissive.
+      effectivePermissions: businessId ? this.cache.getEffectivePermissions(businessId) : undefined,
       nextStep,
     }
     this.tokens.setLastSession(payload.sub, businessId)
@@ -520,7 +525,31 @@ export class AuthService {
     } catch {
       // non-fatal
     }
+    await this.refreshPlanState()
     await this.listBusinesses()
+  }
+
+  /**
+   * BIZ-5.5 — refresh the business's plan-tier entitlements (GET /plans/state) into the offline cache
+   * and patch the live session so client module gating reflects the current plan. Best-effort: on
+   * any failure the session keeps its last-known (or undefined ⇒ permissive) entitlements.
+   */
+  private async refreshPlanState(): Promise<void> {
+    const businessId = this.session.businessId
+    if (this.session.phase !== 'phase2' || !businessId) return
+    try {
+      const state = await this.get<PlanStateResponse>('/plans/state')
+      if (!state?.authPermissions) return
+      this.cache.savePlanState(businessId, state)
+      if (this.session.businessId === businessId) {
+        this.session = {
+          ...this.session,
+          effectivePermissions: state.authPermissions.effectivePermissions,
+        }
+      }
+    } catch {
+      // non-fatal — keep last-known entitlements
+    }
   }
 
   private async ensureSyncToken(): Promise<void> {
