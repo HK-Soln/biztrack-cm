@@ -742,6 +742,8 @@ export interface BusinessSetupPayload {
   vatRegistered?: boolean
   defaultVatRate?: number
   fiscalRegime?: string
+  /** Month (1–12) the fiscal year begins in; default 1 (January, OHADA). (BIZ-5.2) */
+  fiscalYearStartMonth?: number
 }
 
 /** A product category as stored locally (mirrors the synced server record). */

@@ -2546,6 +2546,8 @@ export const en = {
   'setup.vatRegistered': 'Registered for VAT (TVA)',
   'setup.vatRate': 'Default VAT rate',
   'setup.fiscalRegime': 'Fiscal regime',
+  'setup.fyStart': 'Fiscal year starts in',
+  'setup.fyStartHelp': 'Monthly accounting periods are generated automatically for each year.',
   'setup.optional': 'Optional',
   'setup.back': 'Back',
   'setup.continue': 'Continue',
@@ -3094,6 +3096,9 @@ export const en = {
   'calendar.cutover': 'Day cutover',
   'calendar.cutoverHelp':
     '00:00 = the calendar date. A late-night business can set e.g. 03:00 so a 1 AM sale counts to the previous day.',
+  'calendar.fyStart': 'Fiscal year starts in',
+  'calendar.fyStartHelp':
+    'Anchors your accounting periods. Monthly periods are generated automatically for each fiscal year.',
   'hours.onlineOnly': "You're offline — business hours load when you reconnect.",
   'hours.mon': 'Monday',
   'hours.tue': 'Tuesday',
@@ -6041,6 +6046,9 @@ export const fr: Record<MessageKey, string> = {
   'setup.vatRegistered': 'Assujetti à la TVA',
   'setup.vatRate': 'Taux de TVA par défaut',
   'setup.fiscalRegime': 'Régime fiscal',
+  'setup.fyStart': 'Début de l’exercice',
+  'setup.fyStartHelp':
+    'Les périodes comptables mensuelles sont générées automatiquement chaque année.',
   'setup.optional': 'Facultatif',
   'setup.back': 'Retour',
   'setup.continue': 'Continuer',
@@ -6605,6 +6613,9 @@ export const fr: Record<MessageKey, string> = {
   'calendar.cutover': 'Bascule de journée',
   'calendar.cutoverHelp':
     '00:00 = la date du calendrier. Un commerce de nuit peut mettre p.ex. 03:00 pour qu’une vente à 1 h compte pour la veille.',
+  'calendar.fyStart': 'Début de l’exercice',
+  'calendar.fyStartHelp':
+    'Ancre vos périodes comptables. Les périodes mensuelles sont générées automatiquement pour chaque exercice.',
   'hours.onlineOnly': 'Vous êtes hors ligne — les horaires se chargeront à la reconnexion.',
   'hours.mon': 'Lundi',
   'hours.tue': 'Mardi',

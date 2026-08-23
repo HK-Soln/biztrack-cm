@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, CommandSelect, Input, type CommandSelectOption } from '@biztrack/ui/biztrack'
+import {
+  Button,
+  CommandSelect,
+  Input,
+  Select,
+  type CommandSelectOption,
+} from '@biztrack/ui/biztrack'
 import {
   DEFAULT_CREDIT_DAYS,
   MAX_CREDIT_DAYS,
@@ -17,7 +23,7 @@ import {
   normalizeDayCutover,
 } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
-import { useT } from '@/i18n'
+import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 
 // Business hours (Settings → Business hours). Per-weekday open/close, server-owned,
@@ -66,6 +72,7 @@ function seed(hours: BusinessHours | null): Record<Weekday, DayState> {
 
 export function BusinessHoursSection() {
   const t = useT()
+  const lang = useLangStore((s) => s.lang)
   const qc = useQueryClient()
   const online = useOnline()
 
@@ -80,6 +87,7 @@ export function BusinessHoursSection() {
   const [creditDays, setCreditDays] = useState(String(DEFAULT_CREDIT_DAYS))
   const [tz, setTz] = useState(DEFAULT_BUSINESS_TIMEZONE)
   const [cutover, setCutover] = useState(DEFAULT_DAY_CUTOVER)
+  const [fyStart, setFyStart] = useState('1')
   const [toast, setToast] = useState<string | null>(null)
   useEffect(() => {
     if (q.data) {
@@ -87,8 +95,18 @@ export function BusinessHoursSection() {
       setCreditDays(String(q.data.defaultCreditDays ?? DEFAULT_CREDIT_DAYS))
       setTz(q.data.timezone || DEFAULT_BUSINESS_TIMEZONE)
       setCutover(q.data.dayCutoverTime || DEFAULT_DAY_CUTOVER)
+      setFyStart(String(q.data.fiscalYearStartMonth ?? 1))
     }
   }, [q.data])
+
+  // Locale-aware month names for the fiscal-year start picker.
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const name = new Date(Date.UTC(2000, i, 1)).toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR', {
+      month: 'long',
+      timeZone: 'UTC',
+    })
+    return { value: String(i + 1), label: name.charAt(0).toUpperCase() + name.slice(1) }
+  })
 
   const { data: timezones = [] } = useQuery({
     queryKey: ['notificationSettings', 'timezones'],
@@ -142,11 +160,16 @@ export function BusinessHoursSection() {
 
   const calendarSave = useMutation({
     mutationFn: () =>
-      dataClient.business.update({ timezone: tz, dayCutoverTime: normalizeDayCutover(cutover) }),
+      dataClient.business.update({
+        timezone: tz,
+        dayCutoverTime: normalizeDayCutover(cutover),
+        fiscalYearStartMonth: Number(fyStart) || 1,
+      }),
     onSuccess: (updated) => {
       setToast(t('hours.saved'))
       setTz(updated.timezone || DEFAULT_BUSINESS_TIMEZONE)
       setCutover(updated.dayCutoverTime || DEFAULT_DAY_CUTOVER)
+      setFyStart(String(updated.fiscalYearStartMonth ?? 1))
       qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
         ...updated,
         role: prev?.role ?? updated.role,
@@ -296,6 +319,18 @@ export function BusinessHoursSection() {
               onChange={(e) => setCutover(e.target.value)}
             />
             <div className="help">{t('calendar.cutoverHelp')}</div>
+          </div>
+        </div>
+        <div className="field-row">
+          <div>
+            <label className="lbl">{t('calendar.fyStart')}</label>
+            <Select
+              value={fyStart}
+              disabled={!canEdit}
+              onChange={(e) => setFyStart(e.target.value)}
+              options={monthOptions}
+            />
+            <div className="help">{t('calendar.fyStartHelp')}</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
