@@ -22,11 +22,15 @@ export function tryNativeHandoff(): void {
   // Strip the marker so a refresh, bookmark, or in-app navigation never re-triggers handoff.
   params.delete(MARKER)
   const search = params.toString()
-  window.history.replaceState(
-    {},
-    '',
-    `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
-  )
+  // Collapse any repeated leading slashes to one — a `//…` pathname reconstructs into a
+  // protocol-relative URL (`//#/route`) that replaceState rejects with a SecurityError.
+  const pathname = window.location.pathname.replace(/^\/+/, '/')
+  const nextUrl = `${pathname}${search ? `?${search}` : ''}${window.location.hash}`
+  try {
+    window.history.replaceState({}, '', nextUrl)
+  } catch {
+    // Non-fatal: keep going with the handoff even if the URL can't be cleaned up.
+  }
 
   // biztrack://<route> — the desktop app's protocol handler maps it back to the in-app route.
   const route = window.location.hash.replace(/^#\/?/, '')
