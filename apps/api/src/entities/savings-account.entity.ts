@@ -97,7 +97,15 @@ export class SavingsAccount extends TypeOrmBaseEntity {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz', transformer: dateTransformer })
   updatedAt!: Date
 
-  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  @DeleteDateColumn({
+    name: 'deleted_at',
+    type: 'timestamptz',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   deletedAt?: Date | null
 
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

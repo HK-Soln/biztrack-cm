@@ -2,7 +2,13 @@ import { dialog, ipcMain } from 'electron'
 import { writeFile } from 'fs/promises'
 import type { HttpClient } from '@biztrack/http-client'
 import { renderPurchaseOrderHtml, renderRfqHtml } from '@biztrack/templates'
-import { IPC, type DocumentDownloadInput, type DocumentDownloadResult, type DocumentSendInput, type ShareHtmlPdfInput } from '../../shared/ipc'
+import {
+  IPC,
+  type DocumentDownloadInput,
+  type DocumentDownloadResult,
+  type DocumentSendInput,
+  type ShareHtmlPdfInput,
+} from '../../shared/ipc'
 import type { RfqService } from '../services/rfq.service'
 import type { PurchaseOrderService } from '../services/purchase-order.service'
 import type { DocumentService } from '../services/document.service'
@@ -37,43 +43,52 @@ export function registerDocumentsIpc(
     }
   })
 
-  ipcMain.handle(IPC.documentsDownload, async (_e, input: DocumentDownloadInput): Promise<DocumentDownloadResult> => {
-    const { html, number } =
-      input.kind === 'rfq'
-        ? (() => {
-            const doc = rfqs.buildDocument(input.id, input.supplierId ?? '')
-            return { html: renderRfqHtml(doc), number: doc.number }
-          })()
-        : (() => {
-            const doc = purchaseOrders.buildDocument(input.id)
-            return { html: renderPurchaseOrderHtml(doc), number: doc.number }
-          })()
+  ipcMain.handle(
+    IPC.documentsDownload,
+    async (_e, input: DocumentDownloadInput): Promise<DocumentDownloadResult> => {
+      const { html, number } =
+        input.kind === 'rfq'
+          ? (() => {
+              const doc = rfqs.buildDocument(input.id, input.supplierId ?? '')
+              return { html: renderRfqHtml(doc), number: doc.number }
+            })()
+          : (() => {
+              const doc = purchaseOrders.buildDocument(input.id)
+              return { html: renderPurchaseOrderHtml(doc), number: doc.number }
+            })()
 
-    const pdf = await documents.renderPdf(html)
-    const res = await dialog.showSaveDialog({
-      defaultPath: `${number}.pdf`,
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    })
-    if (res.canceled || !res.filePath) return { saved: false }
-    await writeFile(res.filePath, pdf)
-    return { saved: true, path: res.filePath }
-  })
+      const pdf = await documents.renderPdf(html)
+      const res = await dialog.showSaveDialog({
+        defaultPath: `${number}.pdf`,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      })
+      if (res.canceled || !res.filePath) return { saved: false }
+      await writeFile(res.filePath, pdf)
+      return { saved: true, path: res.filePath }
+    },
+  )
 
   // Generic: render app-generated HTML (e.g. a statement) to PDF + save dialog.
-  ipcMain.handle(IPC.documentsDownloadHtml, (_e, html: string, filename: string): Promise<DocumentDownloadResult> => {
-    return documents.downloadPdf(html, filename)
-  })
+  ipcMain.handle(
+    IPC.documentsDownloadHtml,
+    (_e, html: string, filename: string): Promise<DocumentDownloadResult> => {
+      return documents.downloadPdf(html, filename)
+    },
+  )
 
-  // Generic: share an app-generated HTML doc as a PDF via the WhatsApp/email composer.
+  // Generic: send an app-generated HTML doc (e.g. a statement) to the recipient as a PDF —
+  // the server renders + dispatches via Resend/WAHA (like procurement). Requires a
+  // connection; the renderer falls back to download when offline. `documents.share` (local
+  // composer) is kept for OS-level share sheets but is no longer the statement path.
   ipcMain.handle(IPC.documentsShareHtml, async (_e, input: ShareHtmlPdfInput) => {
-    await documents.share({
+    await http.post('/documents/send', {
       html: input.html,
-      message: input.message,
       filename: input.filename,
+      message: input.message,
+      subject: input.subject ?? input.filename,
       channel: input.channel,
-      phone: input.phone,
-      email: input.email,
-      subject: input.subject,
+      phone: input.channel === 'whatsapp' ? (input.phone ?? null) : null,
+      email: input.channel === 'email' ? (input.email ?? null) : null,
     })
   })
 }

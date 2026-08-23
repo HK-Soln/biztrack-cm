@@ -10,7 +10,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm'
-import { dateTransformer } from '@/common/entities/transformers'
+import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
 import { User } from './user.entity'
 import { RolePermission } from './role-permission.entity'
@@ -45,6 +45,51 @@ export class Role extends TypeOrmBaseEntity {
 
   @Column({ name: 'is_owner_role', default: false })
   isOwnerRole!: boolean
+
+  // Members with this role may set a manager PIN and authorize till step-up
+  // (discounts/overrides/over-limit). Replaces the hard-coded OWNER/MANAGER check.
+  @Column({ name: 'can_authorize', default: false })
+  canAuthorize!: boolean
+
+  // Members of this role run a till: prompt to open a shift at login, show the shift
+  // control in the nav, tag their sales to the open cash session (BIZ-2.4).
+  @Column({ name: 'tracks_cash_drawer', default: false })
+  tracksCashDrawer!: boolean
+
+  // Per-role discount limits (BIZ-1.4). NULL = no limit. A discount beyond these
+  // still completes but is flagged unauthorized until a manager PIN clears it.
+  @Column({
+    name: 'max_discount_percent',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  maxDiscountPercent!: number | null
+
+  @Column({
+    name: 'max_cart_discount_percent',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  maxCartDiscountPercent!: number | null
+
+  @Column({
+    name: 'max_discount_amount_xaf',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  maxDiscountAmountXaf!: number | null
+
+  @Column({ name: 'allow_below_cost', default: false })
+  allowBelowCost!: boolean
 
   @Column({ type: 'varchar', length: 7, nullable: true })
   colour!: string | null

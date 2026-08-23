@@ -10,7 +10,12 @@ function makeService() {
   }
   const auditQueue = { add: jest.fn(async () => undefined) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
-  const service = new AuditService(auditRepo as any, auditQueue as any, logger as any)
+  const service = new AuditService(
+    auditRepo as any,
+    auditQueue as any,
+    { maybeNotify: async () => {} } as any,
+    logger as any,
+  )
   return { service, auditRepo, auditQueue, logger }
 }
 
@@ -25,9 +30,15 @@ const data = () =>
   ({ action: 'CREATE', entityType: 'product', entityId: 'p1', entityLabel: 'Widget' }) as any
 
 describe('AuditService.log (fire-and-forget)', () => {
-  it('does nothing when the context has no businessId', () => {
+  it('still records a pre-business/system event (null businessId is NOT dropped) — BIZ-2.9', () => {
     const { service, auditQueue } = makeService()
     service.log(ctx({ businessId: undefined }), data())
+    expect(auditQueue.add).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops only a genuinely empty event (no action/entityType)', () => {
+    const { service, auditQueue } = makeService()
+    service.log(ctx(), { action: undefined, entityType: undefined } as never)
     expect(auditQueue.add).not.toHaveBeenCalled()
   })
 
@@ -103,7 +114,13 @@ describe('AuditService.query (scoping + filters)', () => {
     const { service, auditRepo } = makeService()
     auditRepo.findAndCount.mockResolvedValueOnce([[{ id: 'a1' }], 1])
     const result = await service.query('biz-1', { page: 1, limit: 50 } as any)
-    expect(result).toMatchObject({ data: [{ id: 'a1' }], total: 1, page: 1, limit: 50, totalPages: 1 })
+    expect(result).toMatchObject({
+      data: [{ id: 'a1' }],
+      total: 1,
+      page: 1,
+      limit: 50,
+      totalPages: 1,
+    })
   })
 })
 

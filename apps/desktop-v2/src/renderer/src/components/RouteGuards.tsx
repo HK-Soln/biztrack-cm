@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import type { Resource } from '@biztrack/types'
 import { useSessionStore } from '@/stores/session.store'
+import { useHasResource } from '@/lib/entitlements'
 import { isDashboardStep, routeForNextStep } from '@/lib/auth-routing'
 
 function Splash() {
@@ -44,5 +46,24 @@ export function RequireOwner({ children }: { children: ReactNode }) {
   const { status, hydrated } = useSessionStore()
   if (!hydrated) return <Splash />
   if ((status.user?.role ?? '').toUpperCase() !== 'OWNER') return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+/**
+ * Plan-gated routes (BIZ-5.5). Bounced to the dashboard when the plan lacks the module's resource —
+ * the hard backstop behind the hidden nav. Permissive when entitlements are unknown (offline / not
+ * yet fetched): the server still rejects the writes, so this never falsely locks a legitimate user.
+ */
+export function RequireResource({
+  resource,
+  children,
+}: {
+  resource: Resource
+  children: ReactNode
+}) {
+  const hydrated = useSessionStore((s) => s.hydrated)
+  const allowed = useHasResource(resource)
+  if (!hydrated) return <Splash />
+  if (!allowed) return <Navigate to="/" replace />
   return <>{children}</>
 }

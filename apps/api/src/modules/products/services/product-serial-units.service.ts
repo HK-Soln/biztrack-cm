@@ -20,6 +20,7 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { Product } from '@/entities/product.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
@@ -49,6 +50,7 @@ export class ProductSerialUnitsService {
     private readonly movementsRepo: Repository<InventoryMovement>,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -172,6 +174,8 @@ export class ProductSerialUnitsService {
 
         if (saved.length > 0) {
           const isOpening = (await movementRepo.count({ where: { businessId, productId } })) === 0
+          // Local trading day (BIZ-5.1) from the business timezone + cutover.
+          const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
           await movementRepo.save(
             movementRepo.create({
               businessId,
@@ -184,6 +188,7 @@ export class ProductSerialUnitsService {
               referenceId: productId,
               notes: dto.notes?.trim() || `Added ${saved.length} serial unit(s)`,
               performedById: context.actorId ?? null,
+              businessDate,
             }),
           )
         }
@@ -316,6 +321,8 @@ export class ProductSerialUnitsService {
         )
         await serialRepo.softDelete({ id: unit.id })
 
+        // Local trading day (BIZ-5.1) from the business timezone + cutover.
+        const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
         await movementRepo.save(
           movementRepo.create({
             businessId,
@@ -328,6 +335,7 @@ export class ProductSerialUnitsService {
             referenceId: unit.id,
             notes: reason,
             performedById: context.actorId ?? null,
+            businessDate,
           }),
         )
       })

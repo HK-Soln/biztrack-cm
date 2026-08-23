@@ -25,7 +25,10 @@ export class SavingsTransaction extends TypeOrmBaseEntity {
   savingsId!: string
 
   @ManyToOne(() => SavingsAccount, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'savings_id', foreignKeyConstraintName: 'fk_savings_transactions_savings_id' })
+  @JoinColumn({
+    name: 'savings_id',
+    foreignKeyConstraintName: 'fk_savings_transactions_savings_id',
+  })
   savingsAccount?: SavingsAccount
 
   @Column({ name: 'business_id' })
@@ -62,7 +65,10 @@ export class SavingsTransaction extends TypeOrmBaseEntity {
   recordedById?: string | null
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'NO ACTION' })
-  @JoinColumn({ name: 'recorded_by_id', foreignKeyConstraintName: 'fk_savings_transactions_recorded_by_id' })
+  @JoinColumn({
+    name: 'recorded_by_id',
+    foreignKeyConstraintName: 'fk_savings_transactions_recorded_by_id',
+  })
   recordedBy?: User | null
 
   @Column({ name: 'occurred_at', type: 'timestamptz', transformer: dateTransformer })
@@ -73,4 +79,8 @@ export class SavingsTransaction extends TypeOrmBaseEntity {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz', transformer: dateTransformer })
   createdAt!: Date
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

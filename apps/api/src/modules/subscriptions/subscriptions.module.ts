@@ -6,16 +6,23 @@ import { SubscriptionEvent } from '@/entities/subscription-event.entity'
 import { BusinessesRepository } from '@/modules/business/repositories/businesses.repository'
 import { SubscriptionEventsRepository } from './repositories/subscription-events.repository'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
+import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { SubscriptionsService } from './subscriptions.service'
 import { SubscriptionsScheduler } from './subscriptions.scheduler'
 
 @Module({
   imports: [
     PermissionsModule,
+    NotificationsModule,
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([Business, SubscriptionEvent]),
   ],
-  providers: [SubscriptionsService, SubscriptionsScheduler, BusinessesRepository, SubscriptionEventsRepository],
+  providers: [
+    SubscriptionsService,
+    SubscriptionsScheduler,
+    BusinessesRepository,
+    SubscriptionEventsRepository,
+  ],
   exports: [SubscriptionsService],
 })
 export class SubscriptionsModule {}

@@ -1,4 +1,5 @@
 import type { DatabaseService } from '@biztrack/electron-core'
+import type { PlanStateResponse, Resource } from '@biztrack/types'
 
 export interface CachedBusiness {
   id: string
@@ -35,7 +36,17 @@ export class LocalCache {
          role=excluded.role, business_id=excluded.business_id,
          onboarding_step=excluded.onboarding_step,
          language=excluded.language, saved_at=excluded.saved_at`,
-      [user.id, user.name, user.email, user.phone, user.role, user.businessId, user.onboardingStep, user.language ?? null, now],
+      [
+        user.id,
+        user.name,
+        user.email,
+        user.phone,
+        user.role,
+        user.businessId,
+        user.onboardingStep,
+        user.language ?? null,
+        now,
+      ],
     )
   }
 
@@ -64,7 +75,10 @@ export class LocalCache {
     }
   }
 
-  saveBusinesses(userId: string, list: Array<{ id: string; name: string; currency?: string | null; role?: string | null }>): void {
+  saveBusinesses(
+    userId: string,
+    list: Array<{ id: string; name: string; currency?: string | null; role?: string | null }>,
+  ): void {
     const now = new Date().toISOString()
     for (const b of list) {
       this.db.run(
@@ -91,5 +105,69 @@ export class LocalCache {
       [userId],
     )
     return rows.map((r) => ({ id: r.id, name: r.name, currency: r.currency, role: null }))
+  }
+
+  /**
+   * BIZ-5.5 — cache a business's plan state (from GET /plans/state) so client-side module gating has
+   * a last-known truth offline. The whole row is persisted; the entitlements the gating reads back
+   * are in auth_permissions_json.
+   */
+  savePlanState(businessId: string, state: PlanStateResponse): void {
+    const now = new Date().toISOString()
+    this.db.run(
+      `INSERT INTO plan_state_cache (
+         business_id, selected_plan, effective_plan, subscription_status,
+         trial_started_at, trial_ends_at, current_period_start, current_period_end,
+         cancel_at_period_end, entitlement_valid, entitlement_expires_at,
+         auth_permissions_json, quotas_json, quota_usage_json,
+         fetched_at, last_validated_at, stale_after, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(business_id) DO UPDATE SET
+         selected_plan=excluded.selected_plan, effective_plan=excluded.effective_plan,
+         subscription_status=excluded.subscription_status, trial_started_at=excluded.trial_started_at,
+         trial_ends_at=excluded.trial_ends_at, current_period_start=excluded.current_period_start,
+         current_period_end=excluded.current_period_end, cancel_at_period_end=excluded.cancel_at_period_end,
+         entitlement_valid=excluded.entitlement_valid, entitlement_expires_at=excluded.entitlement_expires_at,
+         auth_permissions_json=excluded.auth_permissions_json, quotas_json=excluded.quotas_json,
+         quota_usage_json=excluded.quota_usage_json, fetched_at=excluded.fetched_at,
+         last_validated_at=excluded.last_validated_at, stale_after=excluded.stale_after,
+         updated_at=excluded.updated_at`,
+      [
+        businessId,
+        state.selectedPlan,
+        state.effectivePlan,
+        state.status,
+        state.trialStartedAt,
+        state.trialEndsAt,
+        state.currentPeriodStart,
+        state.currentPeriodEnd,
+        state.cancelAtPeriodEnd ? 1 : 0,
+        state.entitlementValid ? 1 : 0,
+        state.entitlementExpiresAt,
+        JSON.stringify(state.authPermissions),
+        JSON.stringify(state.quotas),
+        JSON.stringify(state.quotaUsage),
+        state.fetchedAt,
+        now,
+        state.staleAfter,
+        now,
+      ],
+    )
+  }
+
+  /** Last-known plan-tier entitlements for a business, or undefined when never cached (→ the caller
+   *  treats unknown as permissive; the server stays the hard gate). */
+  getEffectivePermissions(businessId: string): Resource[] | undefined {
+    const row = this.db.get<{ auth_permissions_json: string }>(
+      'SELECT auth_permissions_json FROM plan_state_cache WHERE business_id = ?',
+      [businessId],
+    )
+    if (!row) return undefined
+    try {
+      const parsed = JSON.parse(row.auth_permissions_json) as { effectivePermissions?: Resource[] }
+      return Array.isArray(parsed.effectivePermissions) ? parsed.effectivePermissions : undefined
+    } catch {
+      return undefined
+    }
   }
 }

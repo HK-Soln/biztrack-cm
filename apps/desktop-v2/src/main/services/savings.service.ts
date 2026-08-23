@@ -13,9 +13,11 @@ import type {
   DepositOutcome,
   DepositTransaction,
 } from '@biztrack/types'
+import { CashMovementKind } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { DepositsListQuery, PaginatedResult } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
@@ -68,6 +70,13 @@ export class SavingsService {
     private readonly onMutated: () => void = () => {},
     private readonly getActorId: () => string | null = () => null,
     private readonly audit?: AuditLogger,
+    /** Records a cash_movement against the open shift when a deposit is topped up or
+     * refunded in cash (BIZ-2.3) — so the drawer reconciles against deposits too. */
+    private readonly recordCashMovement: (input: {
+      kind: CashMovementKind
+      amount: number
+      referenceId: string
+    }) => void = () => {},
   ) {}
 
   /** The customer's OPEN deposit session (or null) — what the Sell deposit tender draws from. */
@@ -242,11 +251,13 @@ export class SavingsService {
     const initial = round2(Number(input.initialDeposit?.amount ?? 0))
     const balance = initial > 0 ? initial : 0
 
+    // Local trading day (BIZ-5.1) from the session's open timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
       `INSERT INTO savings_accounts
         (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
-         total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', ?, 0, ?, ?)`,
+         total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, business_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', ?, 0, ?, ?, ?)`,
       [
         id,
         businessId,
@@ -257,6 +268,7 @@ export class SavingsService {
         balance,
         balance,
         tagged,
+        businessDate,
         now,
         now,
       ],
@@ -275,6 +287,13 @@ export class SavingsService {
         },
         now,
       )
+      if ((input.initialDeposit?.method ?? 'CASH') === 'CASH') {
+        this.recordCashMovement({
+          kind: CashMovementKind.CUSTOMER_DEPOSIT,
+          amount: initial,
+          referenceId: id,
+        })
+      }
     }
     this.pushSession(id, businessId, now)
     this.onMutated()
@@ -313,6 +332,9 @@ export class SavingsService {
       },
       now,
     )
+    if ((input.method ?? 'CASH') === 'CASH') {
+      this.recordCashMovement({ kind: CashMovementKind.CUSTOMER_DEPOSIT, amount, referenceId: id })
+    }
     this.pushSession(id, businessId, now)
     this.onMutated()
     this.audit?.log({
@@ -345,23 +367,60 @@ export class SavingsService {
         throw new Error('There is a leftover balance — refund it or transfer it to a new session.')
     } else if (input.settlement === 'REFUND') {
       if (leftover <= 0) throw new Error('Nothing to refund.')
-      this.insertTxn(
-        id,
-        businessId,
-        {
-          type: 'refund',
-          direction: 'outbound',
-          amount: leftover,
-          method: input.method ?? 'CASH',
-          mobileMoneyReference: input.mobileMoneyReference ?? null,
-          notes: input.notes ?? null,
-        },
-        now,
-      )
+
+      // A split refund pays the leftover back across several methods (part cash, part MoMo…).
+      // When no explicit lines are given, settle the whole leftover as one line (back-compat).
+      const lines =
+        input.refunds && input.refunds.length > 0
+          ? input.refunds.map((r) => ({
+              method: r.method || 'CASH',
+              amount: round2(r.amount),
+              mobileMoneyReference: r.mobileMoneyReference ?? null,
+            }))
+          : [
+              {
+                method: input.method ?? 'CASH',
+                amount: leftover,
+                mobileMoneyReference: input.mobileMoneyReference ?? null,
+              },
+            ]
+
+      if (lines.some((l) => !(l.amount > 0)))
+        throw new Error('Each refund line must be greater than 0.')
+      const refundTotal = round2(lines.reduce((s, l) => s + l.amount, 0))
+      if (refundTotal !== leftover)
+        throw new Error('The refund must add up to the exact leftover balance.')
+
+      for (const line of lines) {
+        this.insertTxn(
+          id,
+          businessId,
+          {
+            type: 'refund',
+            direction: 'outbound',
+            amount: line.amount,
+            method: line.method,
+            mobileMoneyReference: line.mobileMoneyReference,
+            notes: input.notes ?? null,
+          },
+          now,
+        )
+      }
       this.db.run(
         `UPDATE savings_accounts SET balance = 0, total_refunded = ?, updated_at = ? WHERE id = ?`,
         [round2(acc.total_refunded + leftover), now, id],
       )
+      // Only the cash portion leaves the till.
+      const cashRefunded = round2(
+        lines.filter((l) => l.method === 'CASH').reduce((s, l) => s + l.amount, 0),
+      )
+      if (cashRefunded > 0) {
+        this.recordCashMovement({
+          kind: CashMovementKind.DEPOSIT_REFUND,
+          amount: cashRefunded,
+          referenceId: id,
+        })
+      }
     } else if (input.settlement === 'TRANSFER') {
       if (!hasSales)
         throw new Error(
@@ -388,11 +447,13 @@ export class SavingsService {
       )
       const newId = randomUUID()
       const accountNumber = `DEP-${now.slice(0, 10).replace(/-/g, '')}-${newId.slice(0, 4).toUpperCase()}`
+      // Local trading day (BIZ-5.1) from the transfer timestamp.
+      const businessDate = localBusinessDate(now)
       this.db.run(
         `INSERT INTO savings_accounts
           (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
-           total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', NULL, 0, ?, ?)`,
+           total_deposited, total_refunded, total_used, total_transferred, status, tagged_products, is_deleted, business_date, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'OPEN', NULL, 0, ?, ?, ?)`,
         [
           newId,
           businessId,
@@ -402,6 +463,7 @@ export class SavingsService {
           accountNumber,
           leftover,
           leftover,
+          businessDate,
           now,
           now,
         ],
@@ -726,9 +788,11 @@ export class SavingsService {
   ): void {
     const id = randomUUID()
     const recordedById = tx.recordedById ?? this.getActorId()
+    // Local trading day (BIZ-5.1) from the transaction's timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
-      `INSERT INTO savings_transactions (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id, notes, recorded_by_id, occurred_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO savings_transactions (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id, notes, recorded_by_id, occurred_at, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         savingsId,
@@ -742,6 +806,7 @@ export class SavingsService {
         tx.notes ?? null,
         recordedById,
         now,
+        businessDate,
         now,
       ],
     )

@@ -7,6 +7,7 @@ import type {
   IdDocumentType,
 } from './credit.types'
 import type { SubscriptionPlan } from './business.types'
+import type { SaleDiscountTypeValue } from './charge.types'
 import type {
   CreateSaleItemRequest,
   CreateSalePaymentRequest,
@@ -43,6 +44,11 @@ export type SyncEntity =
   | 'savings_transaction'
   | 'rfq'
   | 'purchase_order'
+  | 'cash_session'
+  | 'cash_count_line'
+  | 'cash_movement'
+  | 'fiscal_year'
+  | 'accounting_period'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -108,6 +114,12 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   savings_transaction: 3,
   rfq: 2,
   purchase_order: 2,
+  cash_session: 2,
+  cash_count_line: 3,
+  cash_movement: 3,
+  // Fiscal year is a root config (references only the business); periods reference the year.
+  fiscal_year: 1,
+  accounting_period: 2,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -137,6 +149,11 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   savings_transaction: 23,
   rfq: 24,
   purchase_order: 25,
+  cash_session: 26,
+  cash_count_line: 27,
+  cash_movement: 28,
+  fiscal_year: 29,
+  accounting_period: 30,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -194,6 +211,14 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   savings_transaction: ['savings'],
   rfq: ['contact', 'product'],
   purchase_order: ['contact', 'product', 'rfq'],
+  // A cash session references only business/user (non-sync roots); its count lines
+  // reference the session. Sales/expenses carry a soft (FK-less) cash_session_id, so
+  // they need no dependency edge here.
+  cash_session: [],
+  cash_count_line: ['cash_session'],
+  cash_movement: ['cash_session'],
+  fiscal_year: [],
+  accounting_period: ['fiscal_year'],
 }
 
 /**
@@ -306,6 +331,8 @@ export interface InventoryMovementSyncRecord extends SyncRecord {
   notes?: string | null
   performedById?: string | null
   performedByName?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -337,6 +364,8 @@ export interface OpeningBalanceSyncRecord extends SyncRecord {
   asOfDate: string
   notes?: string | null
   recordedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -351,6 +380,8 @@ export interface RestockRecordSyncRecord extends SyncRecord {
   totalCost?: number | null
   notes?: string | null
   performedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -384,7 +415,11 @@ export interface SaleSyncRecord extends SyncRecord {
   notes?: string | null
   priceDriftWarning: boolean
   saleDate: string
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   soldAt: string
+  /** The cash session (shift) this sale was rung in, or null ("vente hors caisse"). BIZ-2.2. */
+  cashSessionId?: string | null
   syncedAt?: string | null
   voidedAt?: string | null
   voidedById?: string | null
@@ -427,6 +462,7 @@ export interface SalePaymentSyncRecord extends SyncRecord {
   recordedAt?: string | null
   recordedById?: string | null
   note?: string | null
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -472,6 +508,8 @@ export interface DebtPaymentSyncPayload {
   paymentDate: string
   notes?: string | null
   recordedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -491,6 +529,8 @@ export interface DebtSyncPayload {
   writtenOffAt?: string | null
   writtenOffById?: string | null
   writtenOffReason?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   payments?: DebtPaymentSyncPayload[]
 }
 
@@ -523,6 +563,8 @@ export interface RfqSyncPayload {
   status: RfqStatus
   currency: string
   createdById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
   updatedAt: string
   items?: RfqItemSyncPayload[]
@@ -556,6 +598,8 @@ export interface PurchaseOrderSyncPayload {
   totalAmount: number
   sentAt?: string | null
   createdById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
   updatedAt: string
   items?: PurchaseOrderItemSyncPayload[]
@@ -590,6 +634,8 @@ export interface ExpenseSyncRecord extends SyncRecord {
   status?: string | null
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -602,6 +648,12 @@ export interface TeamMemberSyncRecord extends SyncRecord {
   name: string | null
   email: string | null
   phone: string | null
+  /** bcrypt hash of the member's manager PIN, hashed on-device; null = no PIN set.
+   * Rides the pull so a manager's PIN can be verified offline on a cashier device. */
+  pinHash: string | null
+  /** Bumped on every PIN set/rotation; 0 = never set. */
+  pinVersion: number
+  pinSetAt: string | null
   createdAt: string
 }
 
@@ -611,6 +663,15 @@ export interface RoleSyncRecord extends SyncRecord {
   description: string | null
   isSystem: boolean
   isOwnerRole: boolean
+  /** Members with this role may set a PIN and authorize till step-up. */
+  canAuthorize: boolean
+  /** Members of this role run a till (BIZ-2.4). */
+  tracksCashDrawer?: boolean
+  /** Per-role discount limits (BIZ-1.4); null = no limit. */
+  maxDiscountPercent: number | null
+  maxCartDiscountPercent: number | null
+  maxDiscountAmountXaf: number | null
+  allowBelowCost: boolean
   colour: string | null
   createdAt: string
 }
@@ -632,6 +693,8 @@ export interface SavingsAccountSyncRecord extends SyncRecord {
   closedById?: string | null
   transferredToId?: string | null
   taggedProducts?: Array<{ productId: string; productName: string }> | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -647,6 +710,84 @@ export interface SavingsTransactionSyncRecord extends SyncRecord {
   notes?: string | null
   recordedById?: string | null
   occurredAt: string
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
+  createdAt: string
+}
+
+export interface CashSessionSyncRecord extends SyncRecord {
+  businessId: string
+  outletId?: string | null
+  /** The shift's trading day (BIZ-5.1). */
+  businessDate?: string | null
+  deviceId: string
+  userId: string
+  status: string
+  openedAt: string
+  closedAt?: string | null
+  openingFloat: number
+  expectedCash?: number | null
+  countedCash?: number | null
+  varianceCash?: number | null
+  expectedMtnMomo?: number | null
+  confirmedMtnMomo?: number | null
+  expectedOrangeMoney?: number | null
+  confirmedOrangeMoney?: number | null
+  creditIssued: number
+  discountTotal: number
+  salesCount: number
+  voidCount: number
+  closedReason?: string | null
+  recountUsed: boolean
+  closingNote?: string | null
+  varianceReason?: string | null
+  varianceNote?: string | null
+  reviewedBy?: string | null
+  reviewedAt?: string | null
+  reviewNote?: string | null
+  createdAt: string
+}
+
+export interface CashCountLineSyncRecord extends SyncRecord {
+  cashSessionId: string
+  denomination: number
+  quantity: number
+  createdAt: string
+}
+
+export interface CashMovementSyncRecord extends SyncRecord {
+  businessId: string
+  cashSessionId: string
+  userId: string
+  kind: string
+  direction: string
+  amount: number
+  note?: string | null
+  referenceType?: string | null
+  referenceId?: string | null
+  businessDate?: string | null
+  createdAt: string
+}
+
+export interface FiscalYearSyncRecord extends SyncRecord {
+  businessId: string
+  year: number
+  label: string
+  startMonth: number
+  startDate: string
+  endDate: string
+  createdAt: string
+}
+
+export interface AccountingPeriodSyncRecord extends SyncRecord {
+  businessId: string
+  fiscalYearId: string
+  periodNumber: number
+  label: string
+  startDate: string
+  endDate: string
+  status: string
+  closedAt?: string | null
   createdAt: string
 }
 
@@ -657,6 +798,8 @@ export interface OpeningBalanceSyncPayload {
   asOfDate: string
   notes?: string | null
   recordedById?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -699,6 +842,11 @@ export interface ChangeSet {
   roles?: RoleSyncRecord[]
   savingsAccounts?: SavingsAccountSyncRecord[]
   savingsTransactions?: SavingsTransactionSyncRecord[]
+  cashSessions?: CashSessionSyncRecord[]
+  cashCountLines?: CashCountLineSyncRecord[]
+  cashMovements?: CashMovementSyncRecord[]
+  fiscalYears?: FiscalYearSyncRecord[]
+  accountingPeriods?: AccountingPeriodSyncRecord[]
 }
 
 export interface InventoryThresholdSyncPayload {
@@ -734,6 +882,8 @@ export interface InventoryAdjustmentSyncPayload {
   createdAt: string
   /** When set, the adjustment targets a specific (non-serialized) variant's stock level. */
   variantId?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
 }
 
 export interface InventoryRestockSyncItemPayload {
@@ -791,6 +941,8 @@ export interface InventoryRestockSyncPayload {
   invoiceNumber?: string | null
   invoiceDate?: string | null
   invoiceFileUrl?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
   payments?: InventoryRestockSyncPaymentPayload[]
   charges?: InventoryRestockSyncChargeLinePayload[]
@@ -820,9 +972,18 @@ export interface SaleSyncChargeLinePayload {
 export interface SaleSyncDiscountLinePayload {
   id: string
   description: string
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  discountType: SaleDiscountTypeValue
   rate?: number | null
   amount: number
+  /** LINE-scoped when set (reconciles with that line's discount_amount); null = cart-level. */
+  saleItemId?: string | null
+  reasonCode?: string | null
+  reasonNote?: string | null
+  /** Who applied it (cashier) and, when a step-up occurred, who authorized it. */
+  appliedBy?: string | null
+  authorizedBy?: string | null
+  unauthorized?: boolean
+  belowCost?: boolean
 }
 
 export interface SaleSyncPayload {
@@ -830,6 +991,10 @@ export interface SaleSyncPayload {
   clientId: string
   saleNumber: string
   soldAt: string
+  /** The cash session (shift) this sale was rung in, or null. BIZ-2.2. */
+  cashSessionId?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   cashierId?: string | null
   cashierName?: string | null
   fallbackCashierId?: string | null
@@ -840,6 +1005,8 @@ export interface SaleSyncPayload {
   discountAmount?: number
   chargesAmount?: number
   creditAmount?: number | null
+  /** Optional expected payment date ('YYYY-MM-DD') for the credit portion (D9). */
+  creditDueDate?: string | null
   status?: SaleStatus
   // Channel + link to the originating online order (omitted/IN_STORE for in-store sales).
   source?: string
@@ -881,6 +1048,8 @@ export interface ExpenseSyncPayload {
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
   currency?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
 }
 
@@ -902,6 +1071,8 @@ export interface SavingsAccountSyncPayload {
   taggedProducts?: Array<{ productId: string; productName: string }> | null
   customerName?: string | null
   customerPhone?: string | null
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -919,6 +1090,8 @@ export interface SavingsTransactionSyncPayload {
   notes?: string | null
   recordedById?: string | null
   occurredAt: string
+  /** Local trading day the device stamped (BIZ-5.1); the server recomputes it authoritatively. */
+  businessDate?: string | null
   createdAt: string
 }
 

@@ -9,6 +9,7 @@ import { AuditModule } from '@/modules/audit/audit.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { RfqsModule } from '@/modules/rfqs/rfqs.module'
 import { DocumentsModule } from '@/modules/documents/documents.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { PurchaseOrdersController } from './controllers/purchase-orders.controller'
 import { PurchaseOrdersService } from './services/purchase-orders.service'
 
@@ -19,6 +20,7 @@ import { PurchaseOrdersService } from './services/purchase-orders.service'
     PermissionsModule,
     RfqsModule,
     DocumentsModule,
+    BusinessCalendarModule,
   ],
   controllers: [PurchaseOrdersController],
   providers: [PurchaseOrdersService],

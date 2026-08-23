@@ -80,7 +80,13 @@ export interface ReportKeyValueSection {
   title?: string
   titleFr?: string
   /** `strong` → grand-total styling, `subtotal` → intermediate-total styling, else a plain row. */
-  rows: Array<{ label: string; value: string; strong?: boolean; subtotal?: boolean; tone?: ReportTone }>
+  rows: Array<{
+    label: string
+    value: string
+    strong?: boolean
+    subtotal?: boolean
+    tone?: ReportTone
+  }>
 }
 
 export interface ReportNoteSection {
@@ -136,12 +142,17 @@ export interface ReportBuildOptions {
   locale: string
   /** Business currency (for reports whose input data doesn't carry it). */
   currency: string
+  /** 1-based batch to render for large, paginated reports (e.g. stock valuation). Default 1. */
+  batch?: number
 }
 
 /** A built report: the renderable document + an optional CSV export string. */
 export interface BuiltReportResult {
   document: ReportDocument
   csv?: string
+  /** Present when a report is printed in batches (e.g. stock valuation with >1000 products):
+   * which batch this is + how many there are, so the UI can offer "print next batch". */
+  batches?: { current: number; total: number }
 }
 
 export interface ReportExpenseCategory {
@@ -172,8 +183,12 @@ export interface StockValuationReportData {
   totalCost: number
   retailValue: number
   marginPct: number
-  /** Cost value of products not in `rows` (when the list is truncated). */
+  /** Cost value of products not in `rows` (legacy truncation aggregate — no longer used;
+   * the report now lists every product across batches instead). */
   otherCost?: number
+  /** When the product list is printed in batches (>1000 products), the range this document
+   * covers: products `from`–`to` of `total`. */
+  batch?: { from: number; to: number; total: number }
   currency: string
 }
 
@@ -184,6 +199,9 @@ export interface LowStockRow {
   reorderLevel: number
   suggestedQty: number
   unitCost: number | null
+  /** Days of stock left at the current sales velocity ("Reste N jours"), BIZ-4.6.
+   * null/undefined when velocity isn't trustworthy — the column shows "—". */
+  daysCover?: number | null
 }
 export interface LowStockReportData {
   rows: LowStockRow[]
@@ -230,6 +248,9 @@ export interface DailySalesRow {
 export interface DailySalesSeriesReportData {
   rows: DailySalesRow[]
   currency: string
+  /** Number of TRADING days in the report period (business-hours aware, BIZ-5.9) — the correct
+   *  denominator for "average per day". When absent, the report falls back to days-with-sales. */
+  tradingDays?: number
 }
 
 export interface CashierPerformanceRow {
@@ -257,6 +278,88 @@ export interface SalesByProductRow {
 }
 export interface SalesByProductReportData {
   rows: SalesByProductRow[]
+  currency: string
+}
+
+// ─── Discount reports (BIZ-1.7) ──────────────────────────────────────────────
+export interface DiscountByReasonRow {
+  reasonCode: string | null
+  count: number
+  amount: number
+}
+/** Headline discount numbers for the owner's daily glance. */
+export interface DiscountSummary {
+  totalDiscount: number
+  /** Net sales revenue (booked) — the base for the discount rate. */
+  grossSales: number
+  saleCount: number
+  discountedSaleCount: number
+  unauthorizedCount: number
+  belowCostCount: number
+  byReason: DiscountByReasonRow[]
+}
+export interface DiscountSummaryReportData extends DiscountSummary {
+  currency: string
+}
+
+export interface DiscountByCashierRow {
+  cashierId: string
+  cashierName: string
+  discountTotal: number
+  grossSales: number
+  unauthorizedCount: number
+  discountCount: number
+}
+export interface DiscountByCashierReportData {
+  rows: DiscountByCashierRow[]
+  currency: string
+}
+
+export interface DiscountByProductRow {
+  productId: string
+  name: string
+  category: string | null
+  discountTotal: number
+  discountCount: number
+  revenue: number
+  cogs: number
+}
+export interface DiscountByProductReportData {
+  rows: DiscountByProductRow[]
+  currency: string
+}
+
+/** One flagged discount row — an over-limit (unauthorized) or below-cost sale line. */
+export interface FlaggedDiscountRow {
+  id: string
+  saleId: string
+  saleNumber: string
+  soldAt: string
+  cashierName: string | null
+  amount: number
+  reasonCode: string | null
+  unauthorized: boolean
+  belowCost: boolean
+  authorized: boolean
+}
+export interface FlaggedDiscountReportData {
+  rows: FlaggedDiscountRow[]
+  currency: string
+}
+
+// BIZ-5.4 — prior-period adjustments: transactions that arrived after their period closed and
+// were redated forward. `label` fields are the machine 'YYYY-MM' of the period; the builder
+// localizes them.
+export interface PriorPeriodAdjustmentRow {
+  kind: 'SALE' | 'EXPENSE'
+  reference: string
+  amount: number
+  businessDate: string | null
+  originalPeriodLabel: string | null
+  postingPeriodLabel: string | null
+}
+export interface PriorPeriodAdjustmentsReportData {
+  rows: PriorPeriodAdjustmentRow[]
   currency: string
 }
 

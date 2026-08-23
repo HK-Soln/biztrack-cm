@@ -17,6 +17,8 @@ import { BillingSection } from '@/components/settings/BillingSection'
 import { TaxSection } from '@/components/settings/TaxSection'
 import { ReceiptsSection } from '@/components/settings/ReceiptsSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
+import { BusinessHoursSection } from '@/components/settings/BusinessHoursSection'
+import { AccountingPeriodsSection } from '@/components/settings/AccountingPeriodsSection'
 
 // Settings is a SINGLE route with an in-page side-nav (per design-settings.html).
 // Team & Roles live under the separate "Organization" nav group — they are not
@@ -27,6 +29,8 @@ import { NotificationsSection } from '@/components/settings/NotificationsSection
 
 type SectionKey =
   | 'business'
+  | 'hours'
+  | 'periods'
   | 'security'
   | 'subscription'
   | 'billing'
@@ -35,16 +39,72 @@ type SectionKey =
   | 'notifications'
 
 const ICO: Record<string, ReactNode> = {
-  building: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01" /></svg>,
-  palette: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="13.5" cy="6.5" r="1.5" /><circle cx="17" cy="11" r="1.5" /><circle cx="8" cy="7.5" r="1.5" /><circle cx="6.5" cy="12" r="1.5" /><path d="M12 22a10 10 0 0 1 0-20c5 0 8 3 8 7 0 3-3 4-5 4h-2a2 2 0 0 0 0 4 2 2 0 0 1-1 5Z" /></svg>,
-  shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 2 4 5v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V5Z" /></svg>,
-  card: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18" /></svg>,
-  receipt: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z" /><path d="M8 8h8M8 12h8" /></svg>,
-  bell: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M10.3 21a2 2 0 0 0 3.4 0" /></svg>,
-  scale: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M9 9h6M9 12h6M9 15h3" /></svg>,
-  lock: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>,
-  check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6}><path d="m5 12 4 4L19 6" /></svg>,
-  warn: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>,
+  building: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01" />
+    </svg>
+  ),
+  palette: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="13.5" cy="6.5" r="1.5" />
+      <circle cx="17" cy="11" r="1.5" />
+      <circle cx="8" cy="7.5" r="1.5" />
+      <circle cx="6.5" cy="12" r="1.5" />
+      <path d="M12 22a10 10 0 0 1 0-20c5 0 8 3 8 7 0 3-3 4-5 4h-2a2 2 0 0 0 0 4 2 2 0 0 1-1 5Z" />
+    </svg>
+  ),
+  shield: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M12 2 4 5v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V5Z" />
+    </svg>
+  ),
+  card: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M3 10h18" />
+    </svg>
+  ),
+  receipt: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z" />
+      <path d="M8 8h8M8 12h8" />
+    </svg>
+  ),
+  bell: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M10.3 21a2 2 0 0 0 3.4 0" />
+    </svg>
+  ),
+  scale: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9 9h6M9 12h6M9 15h3" />
+    </svg>
+  ),
+  lock: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  ),
+  check: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6}>
+      <path d="m5 12 4 4L19 6" />
+    </svg>
+  ),
+  warn: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
+  ),
+  clock: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
 }
 
 const NAV_GROUPS: Array<{
@@ -53,7 +113,11 @@ const NAV_GROUPS: Array<{
 }> = [
   {
     label: 'settings.grpBusiness',
-    items: [{ key: 'business', label: 'settings.business', icon: ICO.building }],
+    items: [
+      { key: 'business', label: 'settings.business', icon: ICO.building },
+      { key: 'hours', label: 'settings.hours', icon: ICO.clock },
+      { key: 'periods', label: 'settings.periods', icon: ICO.clock },
+    ],
   },
   {
     label: 'settings.grpAccount',
@@ -67,14 +131,14 @@ const NAV_GROUPS: Array<{
   },
   {
     label: 'settings.grpPreferences',
-    items: [
-      { key: 'notifications', label: 'settings.notifications', icon: ICO.bell },
-    ],
+    items: [{ key: 'notifications', label: 'settings.notifications', icon: ICO.bell }],
   },
 ]
 
 const SECTION_LABEL: Record<SectionKey, MessageKey> = {
   business: 'settings.business',
+  hours: 'settings.hours',
+  periods: 'settings.periods',
   security: 'settings.security',
   subscription: 'settings.subscription',
   billing: 'settings.billing',
@@ -83,10 +147,22 @@ const SECTION_LABEL: Record<SectionKey, MessageKey> = {
   notifications: 'settings.notifications',
 }
 
-const SECTION_KEYS: SectionKey[] = ['business', 'security', 'subscription', 'billing', 'tax', 'receipts', 'notifications']
+const SECTION_KEYS: SectionKey[] = [
+  'business',
+  'hours',
+  'periods',
+  'security',
+  'subscription',
+  'billing',
+  'tax',
+  'receipts',
+  'notifications',
+]
 
 function useOnline(): boolean {
-  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
+  const [online, setOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  )
   useEffect(() => {
     const on = () => setOnline(true)
     const off = () => setOnline(false)
@@ -105,22 +181,26 @@ export function Settings() {
   const bp = useBreakpoint()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const initial = params.get('section')
-  const [section, setSection] = useState<SectionKey>(
-    initial && (SECTION_KEYS as string[]).includes(initial) ? (initial as SectionKey) : 'business',
-  )
+  // The active section is DERIVED from the ?section= search param (single source of truth), so a
+  // refresh or deep-link always lands on the same tab and back/forward navigates tabs.
+  const rawSection = params.get('section')
+  const validSection = !!rawSection && (SECTION_KEYS as string[]).includes(rawSection)
+  const section: SectionKey = validSection ? (rawSection as SectionKey) : 'business'
   // On mobile the page is a drill-in: the section list, then the chosen section.
   // Deep-linking to ?section=… opens that section directly.
-  const [mobileOpen, setMobileOpen] = useState(!!initial && (SECTION_KEYS as string[]).includes(initial))
+  const [mobileOpen, setMobileOpen] = useState(validSection)
 
   function selectSection(key: SectionKey) {
-    setSection(key)
     setParams(key === 'business' ? {} : { section: key }, { replace: true })
   }
 
   const sectionBody =
     section === 'business' ? (
       <BusinessProfileSection />
+    ) : section === 'hours' ? (
+      <BusinessHoursSection />
+    ) : section === 'periods' ? (
+      <AccountingPeriodsSection />
     ) : section === 'security' ? (
       <BusinessSecuritySection />
     ) : section === 'subscription' ? (
@@ -143,10 +223,19 @@ export function Settings() {
       return (
         <>
           <header className="m-head">
-            <button type="button" className="back" onClick={() => setMobileOpen(false)} aria-label={t('settings.title')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+            <button
+              type="button"
+              className="back"
+              onClick={() => setMobileOpen(false)}
+              aria-label={t('settings.title')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="m15 18-6-6 6-6" />
+              </svg>
             </button>
-            <div className="m-tt"><div className="m-title">{t(SECTION_LABEL[section])}</div></div>
+            <div className="m-tt">
+              <div className="m-title">{t(SECTION_LABEL[section])}</div>
+            </div>
           </header>
           {sectionBody}
         </>
@@ -155,20 +244,48 @@ export function Settings() {
     return (
       <>
         <header className="m-head">
-          <button type="button" className="back" onClick={() => navigate(-1)} aria-label={t('settings.title')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m15 18-6-6 6-6" /></svg>
+          <button
+            type="button"
+            className="back"
+            onClick={() => navigate(-1)}
+            aria-label={t('settings.title')}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="m15 18-6-6 6-6" />
+            </svg>
           </button>
-          <div className="m-tt"><div className="m-title">{t('settings.title')}</div><div className="m-sub">{t('settings.subtitle')}</div></div>
+          <div className="m-tt">
+            <div className="m-title">{t('settings.title')}</div>
+            <div className="m-sub">{t('settings.subtitle')}</div>
+          </div>
         </header>
         {NAV_GROUPS.map((g) => (
           <Fragment key={g.label}>
             <div className="m-sec">{t(g.label)}</div>
             <div className="mlist" style={{ marginBottom: 18 }}>
               {g.items.map((it) => (
-                <button key={it.key} type="button" className="mrow" onClick={() => { selectSection(it.key); setMobileOpen(true) }}>
+                <button
+                  key={it.key}
+                  type="button"
+                  className="mrow"
+                  onClick={() => {
+                    selectSection(it.key)
+                    setMobileOpen(true)
+                  }}
+                >
                   <div className="th">{it.icon}</div>
-                  <div className="mt"><div className="nm">{t(it.label)}</div></div>
-                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 6 6 6-6 6" /></svg>
+                  <div className="mt">
+                    <div className="nm">{t(it.label)}</div>
+                  </div>
+                  <svg
+                    className="chev"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path d="m9 6 6 6-6 6" />
+                  </svg>
                 </button>
               ))}
             </div>
@@ -222,17 +339,31 @@ function BusinessSecuritySection() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="banner">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
         <span>{t('bsec.comingSoon')}</span>
       </div>
       <div className="card">
         <div className="fsec-h">{t('bsec.title')}</div>
         <div className="set-line">
-          <div><div className="nm">{t('bsec.require')}</div><div className="ds">{t('bsec.requireDesc')}</div></div>
-          <button type="button" className={`switch${require2fa ? ' on' : ''}`} aria-pressed={require2fa} onClick={() => setRequire2fa((v) => !v)} />
+          <div>
+            <div className="nm">{t('bsec.require')}</div>
+            <div className="ds">{t('bsec.requireDesc')}</div>
+          </div>
+          <button
+            type="button"
+            className={`switch${require2fa ? ' on' : ''}`}
+            aria-pressed={require2fa}
+            onClick={() => setRequire2fa((v) => !v)}
+          />
         </div>
         <div className="form-note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v5M12 8h.01" />
+          </svg>
           <span>{t('bsec.roleNote')}</span>
         </div>
       </div>
@@ -245,7 +376,10 @@ function SectionStub({ titleKey }: { titleKey: MessageKey }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="banner">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
         <span>{t('settings.soonBanner')}</span>
       </div>
       <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
@@ -304,7 +438,10 @@ function BusinessProfileSection() {
   const setLang = useLangStore((s) => s.setLang)
   const refreshSession = useSessionStore((s) => s.refresh)
 
-  const q = useQuery({ queryKey: ['business', 'profile'], queryFn: () => dataClient.business.getProfile() })
+  const q = useQuery({
+    queryKey: ['business', 'profile'],
+    queryFn: () => dataClient.business.getProfile(),
+  })
 
   const [form, setForm] = useState<FormState | null>(null)
   const [nameErr, setNameErr] = useState(false)
@@ -371,13 +508,21 @@ function BusinessProfileSection() {
   }
 
   if (q.isLoading || !form) {
-    return <div className="card" style={{ color: 'var(--text-muted)', fontSize: 13 }}>…</div>
+    return (
+      <div className="card" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+        …
+      </div>
+    )
   }
   if (q.isError) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
-        <div style={{ color: 'var(--text-2)', fontSize: 13, marginBottom: 12 }}>{t('settings.bp.loadError')}</div>
-        <Button variant="soft" type="button" onClick={() => void q.refetch()}>{t('settings.bp.retry')}</Button>
+        <div style={{ color: 'var(--text-2)', fontSize: 13, marginBottom: 12 }}>
+          {t('settings.bp.loadError')}
+        </div>
+        <Button variant="soft" type="button" onClick={() => void q.refetch()}>
+          {t('settings.bp.retry')}
+        </Button>
       </div>
     )
   }
@@ -385,19 +530,30 @@ function BusinessProfileSection() {
   return (
     <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {!online ? (
-        <div className="banner warn">{ICO.warn}<span>{t('settings.bp.onlineOnly')}</span></div>
+        <div className="banner warn">
+          {ICO.warn}
+          <span>{t('settings.bp.onlineOnly')}</span>
+        </div>
       ) : !isOwner ? (
-        <div className="banner">{ICO.shield}<span>{t('settings.bp.ownerOnly')}</span></div>
+        <div className="banner">
+          {ICO.shield}
+          <span>{t('settings.bp.ownerOnly')}</span>
+        </div>
       ) : null}
 
       <div className="fp-grid">
         {/* Main column: identity + contact */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
-            <div className="fsec-h"><span className="n">1</span>{t('settings.bp.identity')}</div>
+            <div className="fsec-h">
+              <span className="n">1</span>
+              {t('settings.bp.identity')}
+            </div>
             <div className="fform">
               <div className={`ff${nameErr ? ' invalid' : ''}`}>
-                <label className="lbl2">{t('settings.bp.name')} <span className="req">*</span></label>
+                <label className="lbl2">
+                  {t('settings.bp.name')} <span className="req">*</span>
+                </label>
                 <Input
                   value={form.name}
                   error={nameErr}
@@ -410,7 +566,10 @@ function BusinessProfileSection() {
                 />
                 {nameErr ? (
                   <div className="msg err">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 8v5M12 16h.01" />
+                    </svg>
                     <span>{t('settings.bp.nameRequired')}</span>
                   </div>
                 ) : null}
@@ -421,22 +580,40 @@ function BusinessProfileSection() {
                   value={form.type}
                   disabled={!canEdit}
                   onChange={(e) => set('type', e.target.value as BusinessType)}
-                  options={BUSINESS_TYPES.map((v) => ({ value: v, label: t(`bizType.${v}` as MessageKey) }))}
+                  options={BUSINESS_TYPES.map((v) => ({
+                    value: v,
+                    label: t(`bizType.${v}` as MessageKey),
+                  }))}
                 />
               </div>
               <div className="ff">
-                <label className="lbl2">{t('settings.bp.slogan')} <span className="opt">{t('settings.bp.optional')}</span></label>
-                <Input value={form.description} disabled={!canEdit} placeholder={t('settings.bp.sloganPh')} onChange={(e) => set('description', e.target.value)} />
+                <label className="lbl2">
+                  {t('settings.bp.slogan')} <span className="opt">{t('settings.bp.optional')}</span>
+                </label>
+                <Input
+                  value={form.description}
+                  disabled={!canEdit}
+                  placeholder={t('settings.bp.sloganPh')}
+                  onChange={(e) => set('description', e.target.value)}
+                />
               </div>
             </div>
           </div>
 
           <div className="card">
-            <div className="fsec-h"><span className="n">2</span>{t('settings.bp.contact')}</div>
+            <div className="fsec-h">
+              <span className="n">2</span>
+              {t('settings.bp.contact')}
+            </div>
             <div className="fform">
               <div className="ff">
                 <label className="lbl2">{t('settings.bp.phone')}</label>
-                <PhoneInput value={form.phone || undefined} disabled={!canEdit} placeholder="6 91 22 14 08" onChange={(v) => set('phone', v ?? '')} />
+                <PhoneInput
+                  value={form.phone || undefined}
+                  disabled={!canEdit}
+                  placeholder="6 91 22 14 08"
+                  onChange={(v) => set('phone', v ?? '')}
+                />
               </div>
               <div className={`ff${emailErr ? ' invalid' : ''}`}>
                 <label className="lbl2">{t('settings.bp.email')}</label>
@@ -453,7 +630,10 @@ function BusinessProfileSection() {
                 />
                 {emailErr ? (
                   <div className="msg err">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 8v5M12 16h.01" />
+                    </svg>
                     <span>{t('settings.bp.emailInvalid')}</span>
                   </div>
                 ) : null}
@@ -461,11 +641,19 @@ function BusinessProfileSection() {
               <div className="ff-row">
                 <div className="ff">
                   <label className="lbl2">{t('settings.bp.address')}</label>
-                  <Input value={form.address} disabled={!canEdit} onChange={(e) => set('address', e.target.value)} />
+                  <Input
+                    value={form.address}
+                    disabled={!canEdit}
+                    onChange={(e) => set('address', e.target.value)}
+                  />
                 </div>
                 <div className="ff">
                   <label className="lbl2">{t('settings.bp.city')}</label>
-                  <Input value={form.city} disabled={!canEdit} onChange={(e) => set('city', e.target.value)} />
+                  <Input
+                    value={form.city}
+                    disabled={!canEdit}
+                    onChange={(e) => set('city', e.target.value)}
+                  />
                 </div>
               </div>
             </div>
@@ -498,8 +686,12 @@ function BusinessProfileSection() {
               <label className="lbl2">{t('settings.bp.language')}</label>
               <div>
                 <span className="seg-pick">
-                  <button type="button" aria-pressed={lang === 'fr'} onClick={() => setLang('fr')}>FR</button>
-                  <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>EN</button>
+                  <button type="button" aria-pressed={lang === 'fr'} onClick={() => setLang('fr')}>
+                    FR
+                  </button>
+                  <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>
+                    EN
+                  </button>
                 </span>
               </div>
             </div>
@@ -507,18 +699,43 @@ function BusinessProfileSection() {
         </div>
       </div>
 
-      {error ? <div className="banner warn">{ICO.warn}<span>{error}</span></div> : null}
+      {error ? (
+        <div className="banner warn">
+          {ICO.warn}
+          <span>{error}</span>
+        </div>
+      ) : null}
 
       <div className="fp-actions" style={{ alignItems: 'center' }}>
         {toast ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>
-            {ICO.check}{toast}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--success)',
+            }}
+          >
+            {ICO.check}
+            {toast}
           </span>
         ) : null}
-        <Button variant="soft" type="button" disabled={!canEdit || !dirty || save.isPending} onClick={() => setForm(toForm(q.data!))}>
+        <Button
+          variant="soft"
+          type="button"
+          disabled={!canEdit || !dirty || save.isPending}
+          onClick={() => setForm(toForm(q.data!))}
+        >
           {t('settings.bp.cancel')}
         </Button>
-        <Button variant="primary" type="submit" loading={save.isPending} disabled={!canEdit || !dirty}>
+        <Button
+          variant="primary"
+          type="submit"
+          loading={save.isPending}
+          disabled={!canEdit || !dirty}
+        >
           {t('settings.bp.save')}
         </Button>
       </div>

@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  ManyToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm'
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -53,15 +47,22 @@ export class StockMovement extends BaseEntity {
   newQuantity!: number
 
   @Column({ nullable: true })
-  reason?: string 
+  reason?: string
 
   @Column({ name: 'reference_id', nullable: true })
-  referenceId?: string 
+  referenceId?: string
 
   @Column({ name: 'recorded_by_id' })
   recordedById!: string
 
   @ManyToOne(() => User, (user) => user.stockMovements)
-  @JoinColumn({ name: 'recorded_by_id', foreignKeyConstraintName: 'fk_stock_movements_recorded_by_id' })
+  @JoinColumn({
+    name: 'recorded_by_id',
+    foreignKeyConstraintName: 'fk_stock_movements_recorded_by_id',
+  })
   recordedBy?: User
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

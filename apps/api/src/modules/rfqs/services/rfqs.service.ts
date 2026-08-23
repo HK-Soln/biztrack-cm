@@ -3,10 +3,21 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, IsNull, Repository } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
 import { RfqStatus, RfqSupplierStatus } from '@biztrack/types'
-import type { AuditContext, CreateRfqRequest, RecordRfqQuoteRequest, RfqDocument, RfqsQuery, SendRfqRequest } from '@biztrack/types'
+import type {
+  AuditContext,
+  CreateRfqRequest,
+  RecordRfqQuoteRequest,
+  RfqDocument,
+  RfqsQuery,
+  SendRfqRequest,
+} from '@biztrack/types'
 import { renderRfqHtml, rfqMessageText } from '@biztrack/templates'
 import { AppException } from '@/common/exceptions/app.exception'
-import { AppBadRequestException, AppInternalServerException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import {
+  AppBadRequestException,
+  AppInternalServerException,
+  AppNotFoundException,
+} from '@/common/exceptions/app-exceptions'
 import { Rfq } from '@/entities/rfq.entity'
 import { RfqItem } from '@/entities/rfq-item.entity'
 import { RfqSupplier } from '@/entities/rfq-supplier.entity'
@@ -16,6 +27,7 @@ import { Business } from '@/entities/business.entity'
 import { toIsoString } from '@/common/http/serialization'
 import { LOGGER } from '@/logger/logger.module'
 import { AuditService } from '@/modules/audit/audit.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { ProcurementSendService } from '@/modules/documents/procurement-send.service'
 
 /**
@@ -35,6 +47,7 @@ export class RfqsService {
     private readonly dataSource: DataSource,
     private readonly procurementSend: ProcurementSendService,
     private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('RfqsService')
@@ -55,10 +68,14 @@ export class RfqsService {
         .leftJoinAndSelect('r.items', 'i', 'i.deleted_at IS NULL')
         .leftJoinAndSelect('r.suppliers', 's', 's.deleted_at IS NULL')
         .where('r.business_id = :businessId AND r.deleted_at IS NULL', { businessId })
-      if (query.search) qb.andWhere('(r.number ILIKE :s OR r.title ILIKE :s)', { s: `%${query.search}%` })
+      if (query.search)
+        qb.andWhere('(r.number ILIKE :s OR r.title ILIKE :s)', { s: `%${query.search}%` })
       if (query.status) qb.andWhere('r.status = :status', { status: query.status })
       if (query.supplierId) {
-        qb.andWhere('EXISTS (SELECT 1 FROM rfq_suppliers rs WHERE rs.rfq_id = r.id AND rs.supplier_id = :sid)', { sid: query.supplierId })
+        qb.andWhere(
+          'EXISTS (SELECT 1 FROM rfq_suppliers rs WHERE rs.rfq_id = r.id AND rs.supplier_id = :sid)',
+          { sid: query.supplierId },
+        )
       }
       const [data, total] = await qb
         .orderBy(sortColumn, order)
@@ -82,10 +99,14 @@ export class RfqsService {
 
   async create(businessId: string, dto: CreateRfqRequest, context: AuditContext): Promise<Rfq> {
     try {
-      if (!dto.items?.length) throw new AppBadRequestException('Add at least one item.', 'RFQ_ITEMS_REQUIRED')
-      if (!dto.supplierIds?.length) throw new AppBadRequestException('Select at least one supplier.', 'RFQ_SUPPLIERS_REQUIRED')
+      if (!dto.items?.length)
+        throw new AppBadRequestException('Add at least one item.', 'RFQ_ITEMS_REQUIRED')
+      if (!dto.supplierIds?.length)
+        throw new AppBadRequestException('Select at least one supplier.', 'RFQ_SUPPLIERS_REQUIRED')
 
       const number = await this.nextNumber(businessId)
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
       const id = await this.dataSource.transaction(async (manager) => {
         const rfq = await manager.getRepository(Rfq).save(
           manager.getRepository(Rfq).create({
@@ -96,6 +117,7 @@ export class RfqsService {
             status: RfqStatus.DRAFT,
             currency: dto.currency || 'XAF',
             createdById: context.actorId ?? null,
+            businessDate,
           }),
         )
         for (const it of dto.items) {
@@ -128,7 +150,10 @@ export class RfqsService {
         entityType: 'rfq',
         entityId: id,
         entityLabel: number,
-        changes: { before: null, after: { number, items: dto.items.length, suppliers: dto.supplierIds.length } },
+        changes: {
+          before: null,
+          after: { number, items: dto.items.length, suppliers: dto.supplierIds.length },
+        },
       })
       return this.findById(id, businessId)
     } catch (error) {
@@ -136,11 +161,20 @@ export class RfqsService {
     }
   }
 
-  async recordQuote(id: string, businessId: string, dto: RecordRfqQuoteRequest, context: AuditContext): Promise<Rfq> {
+  async recordQuote(
+    id: string,
+    businessId: string,
+    dto: RecordRfqQuoteRequest,
+    context: AuditContext,
+  ): Promise<Rfq> {
     try {
       const rfq = await this.findById(id, businessId)
       const supplier = (rfq.suppliers ?? []).find((s) => s.id === dto.rfqSupplierId)
-      if (!supplier) throw new AppBadRequestException('Supplier is not on this request.', 'RFQ_SUPPLIER_NOT_FOUND')
+      if (!supplier)
+        throw new AppBadRequestException(
+          'Supplier is not on this request.',
+          'RFQ_SUPPLIER_NOT_FOUND',
+        )
 
       await this.suppliersRepo.update(supplier.id, {
         status: RfqSupplierStatus.QUOTED,
@@ -165,11 +199,18 @@ export class RfqsService {
     }
   }
 
-  async send(id: string, businessId: string, dto: SendRfqRequest, context: AuditContext): Promise<Rfq> {
+  async send(
+    id: string,
+    businessId: string,
+    dto: SendRfqRequest,
+    context: AuditContext,
+  ): Promise<Rfq> {
     try {
       const rfq = await this.findById(id, businessId)
       const targets = (rfq.suppliers ?? []).filter((s) =>
-        dto.supplierIds?.length ? dto.supplierIds.includes(s.supplierId) : s.status === RfqSupplierStatus.PENDING,
+        dto.supplierIds?.length
+          ? dto.supplierIds.includes(s.supplierId)
+          : s.status === RfqSupplierStatus.PENDING,
       )
       const biz = await this.businessRepo.findOne({ where: { id: businessId } })
       // Render + dispatch a copy addressed to each target supplier.
@@ -185,15 +226,20 @@ export class RfqsService {
           phone: dto.recipient?.phone ?? doc.supplier.phone,
           email: dto.recipient?.email ?? doc.supplier.email,
         })
-        if (s.status === RfqSupplierStatus.PENDING) await this.suppliersRepo.update(s.id, { status: RfqSupplierStatus.SENT })
+        if (s.status === RfqSupplierStatus.PENDING)
+          await this.suppliersRepo.update(s.id, { status: RfqSupplierStatus.SENT })
       }
-      if (rfq.status === RfqStatus.DRAFT) await this.rfqsRepo.update(rfq.id, { status: RfqStatus.SENT })
+      if (rfq.status === RfqStatus.DRAFT)
+        await this.rfqsRepo.update(rfq.id, { status: RfqStatus.SENT })
       this.auditService.log(context, {
         action: 'UPDATE',
         entityType: 'rfq',
         entityId: id,
         entityLabel: rfq.number,
-        changes: { before: { status: rfq.status }, after: { status: 'SENT', channels: dto.channels, sentTo: targets.length } },
+        changes: {
+          before: { status: rfq.status },
+          after: { status: 'SENT', channels: dto.channels, sentTo: targets.length },
+        },
       })
       return this.findById(id, businessId)
     } catch (error) {
@@ -222,30 +268,59 @@ export class RfqsService {
   }
 
   private async describeProduct(productId: string): Promise<string> {
-    const p = await this.productsRepo.findOne({ where: { id: productId }, select: { id: true, name: true } })
+    const p = await this.productsRepo.findOne({
+      where: { id: productId },
+      select: { id: true, name: true },
+    })
     return p?.name ?? 'Item'
   }
 
   private async contactName(contactId: string): Promise<string | null> {
-    const c = await this.contactsRepo.findOne({ where: { id: contactId }, select: { id: true, name: true } })
+    const c = await this.contactsRepo.findOne({
+      where: { id: contactId },
+      select: { id: true, name: true },
+    })
     return c?.name ?? null
   }
 
-  private async buildDocument(rfq: Rfq, supplierId: string, biz: Business | null): Promise<RfqDocument> {
+  private async buildDocument(
+    rfq: Rfq,
+    supplierId: string,
+    biz: Business | null,
+  ): Promise<RfqDocument> {
     const supplier = await this.contactsRepo.findOne({ where: { id: supplierId } })
     return {
       number: rfq.number,
       title: rfq.title ?? null,
       issuedDate: (toIsoString(rfq.createdAt) ?? '').slice(0, 10),
       currency: rfq.currency,
-      business: { name: biz?.name ?? 'BizTrack', phone: biz?.phone ?? null, email: biz?.email ?? null, address: biz?.address ?? null, logoUrl: biz?.logoUrl ?? null },
-      supplier: { name: supplier?.name ?? '', phone: supplier?.phone ?? null, email: null, address: supplier?.address ?? null },
-      items: (rfq.items ?? []).map((it) => ({ description: it.description, sku: null, quantity: Number(it.quantity) })),
+      business: {
+        name: biz?.name ?? 'BizTrack',
+        phone: biz?.phone ?? null,
+        email: biz?.email ?? null,
+        address: biz?.address ?? null,
+        logoUrl: biz?.logoUrl ?? null,
+      },
+      supplier: {
+        name: supplier?.name ?? '',
+        phone: supplier?.phone ?? null,
+        email: null,
+        address: supplier?.address ?? null,
+      },
+      items: (rfq.items ?? []).map((it) => ({
+        description: it.description,
+        sku: null,
+        quantity: Number(it.quantity),
+      })),
       messageBody: rfq.messageBody ?? null,
     }
   }
 
-  private handleServiceError(operation: string, error: unknown, meta: Record<string, unknown>): never {
+  private handleServiceError(
+    operation: string,
+    error: unknown,
+    meta: Record<string, unknown>,
+  ): never {
     if (error instanceof AppException) throw error
     this.logger.error('RfqsService unexpected error', 'RfqsService', {
       operation,

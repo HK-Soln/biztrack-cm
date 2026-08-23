@@ -6,6 +6,7 @@ import {
   DebtDirection,
   DebtSource,
   DebtStatus,
+  clampCreditDays,
   type AgeingEntry,
   type AgeingReport,
   type ContactNetPosition,
@@ -13,6 +14,7 @@ import {
   type JwtPayload,
   type UpsertOpeningBalanceRequest,
 } from '@biztrack/types'
+import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -23,8 +25,10 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { toIsoString } from '@/common/http/serialization'
 import { ContactOpeningBalance as ContactOpeningBalanceEntity } from '@/entities/contact-opening-balance.entity'
+import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { Debt } from '@/entities/debt.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 
@@ -50,6 +54,7 @@ export class OpeningBalancesService {
     private readonly contactsRepo: Repository<Contact>,
     @InjectRepository(Debt)
     private readonly debtsRepo: Repository<Debt>,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -92,6 +97,8 @@ export class OpeningBalancesService {
         return this.toModel(updated)
       }
 
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, dto.asOfDate)
       const created = await this.openingBalancesRepo.save(
         this.openingBalancesRepo.create({
           businessId,
@@ -101,6 +108,7 @@ export class OpeningBalancesService {
           asOfDate: dto.asOfDate,
           notes: dto.notes?.trim() || null,
           recordedById: user.sub,
+          businessDate,
         }),
       )
       await this.materializeDebt(businessId, contactId, dto.direction, amount, dto.asOfDate)
@@ -186,6 +194,8 @@ export class OpeningBalancesService {
       return
     }
 
+    // Local trading day (BIZ-5.1) for the mirrored debt, from the opening-balance date.
+    const businessDate = await this.calendar.computeForBusiness(businessId, asOfDate)
     await this.debtsRepo.save(
       this.debtsRepo.create({
         businessId,
@@ -196,6 +206,7 @@ export class OpeningBalancesService {
         sourceReference: OPENING_BALANCE_DEBT_REFERENCE,
         originalAmount: amount,
         status: DebtStatus.OUTSTANDING,
+        businessDate,
         // Pin to the opening-balance date so it precedes later transactions in the statement.
         createdAt: new Date(`${asOfDate}T00:00:00.000Z`),
       }),
@@ -270,6 +281,14 @@ export class OpeningBalancesService {
       const now = new Date()
       const today = now.toISOString().slice(0, 10)
 
+      // D9: bucket every debt off its EFFECTIVE due date — the explicit due_date, or
+      // created_at + the business's default credit period when none was set.
+      const business = await this.debtsRepo.manager.getRepository(Business).findOne({
+        where: { id: businessId },
+        select: ['id', 'defaultCreditDays'],
+      })
+      const creditDays = clampCreditDays(business?.defaultCreditDays)
+
       const debts = await this.debtsRepo.find({
         where: {
           businessId,
@@ -288,6 +307,7 @@ export class OpeningBalancesService {
           moderate: number
           aged: number
           overdue: number
+          pastDue: number
           total: number
         }
       >()
@@ -305,22 +325,28 @@ export class OpeningBalancesService {
           moderate: 0,
           aged: 0,
           overdue: 0,
+          pastDue: 0,
           total: 0,
         }
 
-        // The opening balance keeps its own column (not aged); every other debt is bucketed by age.
+        // The opening balance keeps its own column (not aged); every other debt is
+        // bucketed by how far past its effective due date it is (7/15/30 boundaries).
         if (debt.sourceType === DebtSource.OPENING_BALANCE) {
           entry.openingBalance = this.roundMoney(entry.openingBalance + outstanding)
         } else {
-          const ageDays = this.daysBetween(debt.createdAt, now)
-          if (ageDays <= 7) {
+          const due = effectiveDueDate(debt, creditDays)
+          const overdueDays = daysPastDue(due, now)
+          if (overdueDays <= 7) {
             entry.current = this.roundMoney(entry.current + outstanding)
-          } else if (ageDays <= 15) {
+          } else if (overdueDays <= 15) {
             entry.moderate = this.roundMoney(entry.moderate + outstanding)
-          } else if (ageDays <= 30) {
+          } else if (overdueDays <= 30) {
             entry.aged = this.roundMoney(entry.aged + outstanding)
           } else {
             entry.overdue = this.roundMoney(entry.overdue + outstanding)
+          }
+          if (overdueDays > 0) {
+            entry.pastDue = this.roundMoney(entry.pastDue + outstanding)
           }
           entry.total = this.roundMoney(entry.total + outstanding)
         }
@@ -336,6 +362,7 @@ export class OpeningBalancesService {
         moderate: e.moderate,
         aged: e.aged,
         overdue: e.overdue,
+        pastDue: e.pastDue,
         totalOutstanding: this.roundMoney(e.openingBalance + e.total),
       }))
 
@@ -348,9 +375,18 @@ export class OpeningBalancesService {
           moderate: this.roundMoney(acc.moderate + e.moderate),
           aged: this.roundMoney(acc.aged + e.aged),
           overdue: this.roundMoney(acc.overdue + e.overdue),
+          pastDue: this.roundMoney(acc.pastDue + e.pastDue),
           totalOutstanding: this.roundMoney(acc.totalOutstanding + e.totalOutstanding),
         }),
-        { openingBalance: 0, current: 0, moderate: 0, aged: 0, overdue: 0, totalOutstanding: 0 },
+        {
+          openingBalance: 0,
+          current: 0,
+          moderate: 0,
+          aged: 0,
+          overdue: 0,
+          pastDue: 0,
+          totalOutstanding: 0,
+        },
       )
 
       return { direction, asOf: today, entries, totals }

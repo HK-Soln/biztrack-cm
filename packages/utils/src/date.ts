@@ -1,3 +1,10 @@
+// NOTE (BIZ-5.1): the getStartOf*/getEndOf* helpers below operate on the RUNTIME's local
+// clock (getHours/getDate/getMonth), so on a UTC-deployed server they compute UTC boundaries —
+// which do NOT match a business's local trading day. For anything that must bucket by the
+// business's day/period (reports, business_date), use `computeBusinessDate` / the timezone-aware
+// primitives in ./business-calendar with the business timezone, not these. These remain for
+// display/relative math where the machine zone is acceptable.
+
 export function formatDate(date: Date | string, locale = 'fr-CM'): string {
   return new Intl.DateTimeFormat(locale, {
     day: '2-digit',

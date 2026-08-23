@@ -21,6 +21,7 @@ const makeService = () => {
     businessesRepo as any,
     subscriptionEventsRepo as any,
     permissionsService as any,
+    { dispatch: async () => {} } as any,
   )
 
   return { service, businessesRepo, subscriptionEventsRepo, permissionsService }

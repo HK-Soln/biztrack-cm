@@ -1,7 +1,8 @@
 import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthShell } from '@/components/layout/AuthShell'
-import { RequireAuth, RequireGuest, RequireOwner } from '@/components/RouteGuards'
+import { RequireAuth, RequireGuest, RequireOwner, RequireResource } from '@/components/RouteGuards'
+import { Resource } from '@biztrack/types'
 import { RouteError } from '@/components/RouteError'
 import { Dashboard } from '@/routes/Dashboard'
 import { SignIn } from '@/routes/SignIn'
@@ -21,6 +22,7 @@ import { Brands } from '@/routes/Brands'
 import { Products } from '@/routes/Products'
 import { ProductForm } from '@/routes/ProductForm'
 import { Inventory } from '@/routes/Inventory'
+import { Reorder } from '@/routes/Reorder'
 import { ReceiveStock } from '@/routes/ReceiveStock'
 import { ProductDetail } from '@/routes/ProductDetail'
 import { VariantDetail } from '@/routes/VariantDetail'
@@ -37,6 +39,7 @@ import { PoDetail } from '@/routes/PoDetail'
 import { ReceivePo } from '@/routes/ReceivePo'
 import { Sell } from '@/routes/Sell'
 import { Sales } from '@/routes/Sales'
+import { Activity } from '@/routes/Activity'
 import { Expenses } from '@/routes/Expenses'
 import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
@@ -100,11 +103,34 @@ export const router = createHashRouter([
             element: <VariantDetail />,
           },
           { path: '/inventory', element: <Inventory /> },
+          { path: '/inventory/reorder', element: <Reorder /> },
           { path: '/inventory/restock', element: <ReceiveStock /> },
           { path: '/sales', element: <Sales /> },
-          { path: '/online/orders', element: <OnlineOrders /> },
-          { path: '/online/products', element: <OnlineProducts /> },
-          { path: '/online/store', element: <OnlineStore /> },
+          { path: '/activity', element: <Activity /> },
+          {
+            path: '/online/orders',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineOrders />
+              </RequireResource>
+            ),
+          },
+          {
+            path: '/online/products',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineProducts />
+              </RequireResource>
+            ),
+          },
+          {
+            path: '/online/store',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineStore />
+              </RequireResource>
+            ),
+          },
           { path: '/contacts', element: <Contacts /> },
           { path: '/contacts/new', element: <ContactForm /> },
           { path: '/contacts/:id', element: <ContactDetail /> },

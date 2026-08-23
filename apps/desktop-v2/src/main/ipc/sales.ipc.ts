@@ -21,6 +21,12 @@ export function registerSalesIpc(
   http: HttpClient,
 ): void {
   ipcMain.handle(IPC.salesCreate, (_e, input: SaleInput) => sales.createSale(input))
+  ipcMain.handle(IPC.salesMyDiscountLimits, () => sales.myDiscountLimits())
+  ipcMain.handle(
+    IPC.salesBelowCostCheck,
+    (_e, lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>) =>
+      sales.belowCostNeedsAuth(lines),
+  )
   ipcMain.handle(IPC.salesList, (_e, query?: SalesListQuery) => sales.list(query))
   ipcMain.handle(IPC.salesListAll, (_e, query?: SalesListQuery) => sales.listAll(query))
   ipcMain.handle(IPC.salesSummary, (_e, query?: SalesListQuery) => sales.summary(query))
@@ -30,6 +36,18 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesByPayment, (_e, query?: SalesListQuery) => sales.byPaymentMethod(query))
   ipcMain.handle(IPC.salesRefunds, (_e, query?: SalesListQuery) => sales.refunds(query))
   ipcMain.handle(IPC.salesGrossProfit, (_e, query?: SalesListQuery) => sales.grossProfit(query))
+  ipcMain.handle(IPC.salesDiscountSummary, (_e, query?: SalesListQuery) =>
+    sales.discountSummary(query),
+  )
+  ipcMain.handle(IPC.salesDiscountsByCashier, (_e, query?: SalesListQuery) =>
+    sales.discountsByCashier(query),
+  )
+  ipcMain.handle(IPC.salesDiscountsByProduct, (_e, query?: SalesListQuery) =>
+    sales.discountsByProduct(query),
+  )
+  ipcMain.handle(IPC.salesFlaggedDiscounts, (_e, query?: SalesListQuery) =>
+    sales.flaggedDiscounts(query),
+  )
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
   ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) =>
     sales.voidSale(saleId, reason),
@@ -47,15 +65,24 @@ export function registerSalesIpc(
 
   // Print the receipt straight to the connected printer (no dialog); saves + reveals a
   // PDF if there's no printer or the job fails.
-  ipcMain.handle(IPC.salesPrintReceipt, async (_e, saleId: string, locale: string) => {
-    const built = sales.buildReceipt(saleId)
-    if (!built) throw new Error('Sale not found.')
-    const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
-    return documents.printReceipt(html, {
-      filename: `receipt-${built.receipt.saleNumber}`,
-      paperWidthMm: RECEIPT_WIDTH_MM,
-    })
-  })
+  ipcMain.handle(
+    IPC.salesPrintReceipt,
+    async (_e, saleId: string, locale: string, reprint?: boolean) => {
+      const built = sales.buildReceipt(saleId)
+      if (!built) throw new Error('Sale not found.')
+      const html = renderSaleReceiptHtml(built.receipt, {
+        labels: saleReceiptLabels(locale),
+        locale,
+      })
+      const result = await documents.printReceipt(html, {
+        filename: `receipt-${built.receipt.saleNumber}`,
+        paperWidthMm: RECEIPT_WIDTH_MM,
+      })
+      // A reprint (from sales history) is audited; the initial checkout print is not.
+      if (reprint) sales.logReceiptReprint(saleId)
+      return result
+    },
+  )
 
   // Render the receipt to a PDF and save it via the native dialog.
   ipcMain.handle(IPC.salesDownloadReceipt, async (_e, saleId: string, locale: string) => {

@@ -16,6 +16,13 @@ async function bootstrap() {
 
   const config = app.get<ConfigService<AppConfig>>(ConfigService)
 
+  // A sync push can carry many outbox operations in one batch, which blows past
+  // Express's default 100kb body limit and surfaces as "request entity too large".
+  // Raise it (still bounded) so batches are accepted; override with API_BODY_LIMIT.
+  const bodyLimit = process.env.API_BODY_LIMIT ?? '10mb'
+  app.useBodyParser('json', { limit: bodyLimit })
+  app.useBodyParser('urlencoded', { extended: true, limit: bodyLimit })
+
   // Serve locally-stored uploads (local storage driver) at /uploads. Harmless when the
   // S3/R2 driver is active (the folder is just empty and unused).
   const uploadsDir =

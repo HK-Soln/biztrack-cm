@@ -76,7 +76,16 @@ export class LoggingInterceptor implements NestInterceptor {
   private redactBody(body: unknown) {
     if (!body || typeof body !== 'object') return body
     const clone = Array.isArray(body) ? [...body] : { ...(body as Record<string, unknown>) }
-    const redactKeys = ['password', 'token', 'refreshToken', 'accessToken', 'code', 'otp']
+    const redactKeys = [
+      'password',
+      'token',
+      'refreshToken',
+      'accessToken',
+      'code',
+      'otp',
+      'pin',
+      'pinHash',
+    ]
     for (const key of redactKeys) {
       if (key in (clone as Record<string, unknown>)) {
         ;(clone as Record<string, unknown>)[key] = '***'

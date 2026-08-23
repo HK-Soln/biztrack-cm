@@ -14,6 +14,7 @@ import type {
   UpdateMemberRoleRequest,
   UpdateMemberRoleResponse,
   UpdateMemberStatusResponse,
+  SetMemberPinResponse,
 } from '@biztrack/types'
 import type { AuditContext } from '@biztrack/types'
 import { RedisService } from '@/common/redis/redis.service'
@@ -22,7 +23,12 @@ import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
-import { generateSlug } from '@biztrack/utils'
+import {
+  generateSlug,
+  DEFAULT_BUSINESS_TIMEZONE,
+  normalizeDayCutover,
+  clampFiscalYearStartMonth,
+} from '@biztrack/utils'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -33,9 +39,16 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { I18nService } from 'nestjs-i18n'
 import type { I18nTranslations } from '@/i18n/i18n.types'
-import { BusinessMemberRole, BusinessMemberStatus, BusinessStatus } from '@biztrack/types'
+import {
+  BusinessMemberRole,
+  BusinessMemberStatus,
+  BusinessStatus,
+  clampCreditDays,
+  normalizeBusinessHours,
+} from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
+import { FiscalYearsService } from '@/modules/fiscal/fiscal-years.service'
 
 @Injectable()
 export class BusinessService {
@@ -44,6 +57,7 @@ export class BusinessService {
     private membersRepo: BusinessMembersRepository,
     private rolesService: RolesService,
     private attributeGroupsService: AttributeGroupsService,
+    private fiscalYears: FiscalYearsService,
     private i18n: I18nService<I18nTranslations>,
     private redis: RedisService,
     private auditService: AuditService,
@@ -60,8 +74,20 @@ export class BusinessService {
       const baseSlug = generateSlug(dto.name)
       const slug = await this.generateUniqueSlug(baseSlug)
 
+      const {
+        defaultCreditDays: rawCreditDays,
+        timezone: rawTimezone,
+        dayCutoverTime: rawCutover,
+        fiscalYearStartMonth: rawFyStart,
+        ...createRest
+      } = dto
       const business = this.businessRepo.create({
-        ...dto,
+        ...createRest,
+        businessHours: normalizeBusinessHours(dto.businessHours),
+        defaultCreditDays: clampCreditDays(rawCreditDays),
+        timezone: rawTimezone?.trim() || DEFAULT_BUSINESS_TIMEZONE,
+        dayCutoverTime: normalizeDayCutover(rawCutover),
+        fiscalYearStartMonth: clampFiscalYearStartMonth(rawFyStart),
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -73,6 +99,9 @@ export class BusinessService {
       // Seed the default attribute groups (Color, Size, Storage, …). Idempotent
       // and error-swallowing, so it never blocks business creation.
       await this.attributeGroupsService.seedDefaults(business.id)
+      // Generate the current + next fiscal year eagerly (BIZ-5.2). Error-swallowing so a
+      // generation hiccup never blocks business creation.
+      await this.fiscalYears.ensureUpcoming(business.id).catch(() => undefined)
       const ownerRole = await this.rolesService.findOwnerRole(business.id)
 
       const member = this.membersRepo.create({
@@ -151,7 +180,34 @@ export class BusinessService {
         business.businessStatus === BusinessStatus.ONBOARDING
           ? BusinessStatus.PLAN_PENDING
           : business.businessStatus
-      await this.businessRepo.update(id, { ...dto, businessStatus: nextStatus })
+      const {
+        defaultCreditDays: rawUpdateCreditDays,
+        timezone: rawUpdateTimezone,
+        dayCutoverTime: rawUpdateCutover,
+        fiscalYearStartMonth: rawUpdateFyStart,
+        ...updateRest
+      } = dto
+      await this.businessRepo.update(id, {
+        ...updateRest,
+        businessStatus: nextStatus,
+        ...(dto.businessHours !== undefined
+          ? { businessHours: normalizeBusinessHours(dto.businessHours) }
+          : {}),
+        ...(rawUpdateCreditDays !== undefined
+          ? { defaultCreditDays: clampCreditDays(rawUpdateCreditDays) }
+          : {}),
+        ...(rawUpdateTimezone?.trim() ? { timezone: rawUpdateTimezone.trim() } : {}),
+        ...(rawUpdateCutover !== undefined
+          ? { dayCutoverTime: normalizeDayCutover(rawUpdateCutover) }
+          : {}),
+        ...(rawUpdateFyStart != null
+          ? { fiscalYearStartMonth: clampFiscalYearStartMonth(rawUpdateFyStart) }
+          : {}),
+      })
+      // Ensure the fiscal calendar exists once onboarding details (incl. the start month) are set
+      // (BIZ-5.2). Idempotent; error-swallowing. NOTE: changing the start month after periods
+      // already exist does NOT regenerate them here — that needs the close-aware regen (BIZ-5.3).
+      await this.fiscalYears.ensureUpcoming(id).catch(() => undefined)
       return this.businessRepo.findOne({ where: { id } })
     } catch (error) {
       return this.handleServiceError('update', error, { id, ownerId })
@@ -203,10 +259,7 @@ export class BusinessService {
         where: { businessId, userId: requestingUserId, status: BusinessMemberStatus.ACTIVE },
       })
       if (!requester || requester.role !== BusinessMemberRole.OWNER) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       if (requestingUserId === targetUserId) {
@@ -220,10 +273,7 @@ export class BusinessService {
         where: { businessId, userId: targetUserId },
       })
       if (!target) {
-        throw new AppNotFoundException(
-          await this.i18n.translate('errors.not_found'),
-          'NOT_FOUND',
-        )
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
       }
 
       await this.membersRepo.update(target.id, { status: BusinessMemberStatus.REMOVED })
@@ -261,7 +311,10 @@ export class BusinessService {
         throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
       if (requestingUserId === targetUserId) {
-        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'TEAM_CANNOT_SUSPEND_SELF')
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.forbidden'),
+          'TEAM_CANNOT_SUSPEND_SELF',
+        )
       }
       const target = await this.membersRepo.findOne({
         where: { businessId, userId: targetUserId },
@@ -271,7 +324,10 @@ export class BusinessService {
         throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
       }
       if (target.role === BusinessMemberRole.OWNER) {
-        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'TEAM_CANNOT_SUSPEND_OWNER')
+        throw new AppForbiddenException(
+          await this.i18n.translate('errors.forbidden'),
+          'TEAM_CANNOT_SUSPEND_OWNER',
+        )
       }
       const before = target.status
       const status = active ? BusinessMemberStatus.ACTIVE : BusinessMemberStatus.SUSPENDED
@@ -292,7 +348,50 @@ export class BusinessService {
 
       return { memberId: target.id, status }
     } catch (error) {
-      return this.handleServiceError('setMemberActive', error, { businessId, requestingUserId, targetUserId })
+      return this.handleServiceError('setMemberActive', error, {
+        businessId,
+        requestingUserId,
+        targetUserId,
+      })
+    }
+  }
+
+  /**
+   * Set or rotate the caller's own offline manager PIN (BIZ-3.1). The device has
+   * already hashed the PIN with bcrypt; we store the hash so it can be pulled to
+   * other devices for offline step-up. The server never verifies it. Each call
+   * bumps pin_version so devices can detect rotations.
+   */
+  async setOwnPin(
+    businessId: string,
+    userId: string,
+    pinHash: string,
+    context: AuditContext,
+  ): Promise<SetMemberPinResponse> {
+    this.logger.debug('Set own PIN', 'BusinessService', { businessId, userId })
+    try {
+      const member = await this.membersRepo.findOne({
+        where: { businessId, userId, status: BusinessMemberStatus.ACTIVE },
+      })
+      if (!member) {
+        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
+      }
+      const pinVersion = (member.pinVersion ?? 0) + 1
+      const pinSetAt = new Date()
+      await this.membersRepo.update(member.id, { pinHash, pinVersion, pinSetAt })
+
+      this.auditService.log(context, {
+        action: 'UPDATE',
+        entityType: 'business_member',
+        entityId: member.id,
+        entityLabel: 'PIN',
+        // Never log the hash; record only that a PIN was set and its new version.
+        changes: { before: { pinVersion: member.pinVersion ?? 0 }, after: { pinVersion } },
+      })
+
+      return { memberId: member.id, pinVersion, pinSetAt: pinSetAt.toISOString() }
+    } catch (error) {
+      return this.handleServiceError('setOwnPin', error, { businessId, userId })
     }
   }
 
@@ -335,7 +434,10 @@ export class BusinessService {
         relations: ['business'],
       })
       if (!membership || membership.status !== BusinessMemberStatus.PENDING) {
-        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'INVITE_INVALID')
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.not_found'),
+          'INVITE_INVALID',
+        )
       }
       await this.membersRepo.update(membership.id, { status: BusinessMemberStatus.ACTIVE })
       await this.redis.del(memberStatusCacheKey(businessId, userId))
@@ -367,7 +469,10 @@ export class BusinessService {
         relations: ['business'],
       })
       if (!membership || membership.status !== BusinessMemberStatus.PENDING) {
-        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'INVITE_INVALID')
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.not_found'),
+          'INVITE_INVALID',
+        )
       }
       await this.membersRepo.update(membership.id, { status: BusinessMemberStatus.REMOVED })
       await this.redis.del(memberStatusCacheKey(businessId, userId))
@@ -392,6 +497,7 @@ export class BusinessService {
     actor: JwtPayload,
     targetUserId: string,
     dto: UpdateMemberRoleRequest,
+    context?: AuditContext,
   ): Promise<UpdateMemberRoleResponse> {
     this.logger.debug('Update member role', 'BusinessService', {
       businessId,
@@ -417,18 +523,12 @@ export class BusinessService {
 
       // Cannot reassign the owner
       if (target.roleRecord?.isOwnerRole) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       const newRole = await this.rolesService.findByIdOrFail(dto.roleId, businessId)
       if (newRole.isOwnerRole) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       // Non-owners: must have roles:manage and pass containment on both current and new role
@@ -450,6 +550,19 @@ export class BusinessService {
 
       const enumRole = RolesService.toMemberRoleEnum(newRole.name)
       await this.membersRepo.update(target.id, { role: enumRole, roleId: newRole.id })
+
+      if (context) {
+        this.auditService.log(context, {
+          action: 'USER_ROLE_CHANGED',
+          entityType: 'business_member',
+          entityId: target.id,
+          entityLabel: target.user?.name ?? target.user?.email ?? targetUserId,
+          changes: {
+            before: { roleId: target.roleId, role: target.roleRecord?.name ?? target.role },
+            after: { roleId: newRole.id, role: newRole.name },
+          },
+        })
+      }
 
       return { memberId: target.id, roleId: newRole.id, roleName: newRole.name, role: enumRole }
     } catch (error) {
@@ -475,10 +588,7 @@ export class BusinessService {
     try {
       const newRole = await this.rolesService.findByIdOrFail(dto.roleId, businessId)
       if (newRole.isOwnerRole) {
-        throw new AppForbiddenException(
-          await this.i18n.translate('errors.forbidden'),
-          'FORBIDDEN',
-        )
+        throw new AppForbiddenException(await this.i18n.translate('errors.forbidden'), 'FORBIDDEN')
       }
 
       let actorPerms: Set<string> | null = null
@@ -500,9 +610,7 @@ export class BusinessService {
 
       const eligibleMembers = members.filter(
         (m) =>
-          dto.userIds.includes(m.userId) &&
-          m.userId !== actor.sub &&
-          !m.roleRecord?.isOwnerRole,
+          dto.userIds.includes(m.userId) && m.userId !== actor.sub && !m.roleRecord?.isOwnerRole,
       )
 
       if (!actor.isOwner && actorPerms) {

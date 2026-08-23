@@ -16,13 +16,18 @@
     "./migrations": {
       "types": "./dist/migrations/index.d.ts",
       "default": "./dist/migrations/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint . --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "cross-env ELECTRON_RUN_AS_NODE=1 NODE_OPTIONS=--experimental-require-module electron node_modules/vitest/vitest.mjs run"
   },
   "dependencies": {
     "@biztrack/http-client": "workspace:*",
@@ -35,9 +40,11 @@
     "@biztrack/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
+    "cross-env": "^10.1.0",
     "electron": "^33.3.1",
     "eslint": "^9.32.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "electron": ">=33"

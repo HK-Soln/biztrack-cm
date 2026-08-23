@@ -11,6 +11,7 @@ import type {
   PurchaseOrdersQuery,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 import type { RfqService } from './rfq.service'
 
@@ -57,7 +58,13 @@ export class PurchaseOrderService {
 
   list(query: PurchaseOrdersQuery = {}): PaginatedResult<LocalPurchaseOrderListItem> {
     const businessId = this.getBusinessId()
-    if (!businessId) return toPaginated<LocalPurchaseOrderListItem>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!businessId)
+      return toPaginated<LocalPurchaseOrderListItem>([], {
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+      })
 
     let where = 'p.business_id = ? AND p.is_deleted = 0'
     const params: unknown[] = [businessId]
@@ -103,7 +110,10 @@ export class PurchaseOrderService {
   get(id: string): LocalPurchaseOrderDetail | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
-    const row = this.db.get<PoRow>(`SELECT ${COLS} FROM purchase_orders p WHERE p.id = ? AND p.business_id = ? AND p.is_deleted = 0`, [id, businessId])
+    const row = this.db.get<PoRow>(
+      `SELECT ${COLS} FROM purchase_orders p WHERE p.id = ? AND p.business_id = ? AND p.is_deleted = 0`,
+      [id, businessId],
+    )
     if (!row) return null
     return { ...toLocalPo(row), items: this.items(id) }
   }
@@ -113,16 +123,19 @@ export class PurchaseOrderService {
     if (!input.supplierId) throw new Error('Select a supplier.')
     if (!input.items?.length) throw new Error('Add at least one item.')
     const lines = input.items.map((it) => {
-      if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error('Each item needs a quantity greater than 0.')
+      if (!Number.isFinite(it.quantity) || it.quantity <= 0)
+        throw new Error('Each item needs a quantity greater than 0.')
       return {
         productId: it.productId,
         variantId: it.variantId ?? null,
-        description: it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
+        description:
+          it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
         quantity: it.quantity,
         unitPrice: it.unitPrice ?? 0,
       }
     })
-    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new Error('The order total must be greater than 0.')
+    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
+      throw new Error('The order total must be greater than 0.')
     return this.insert(businessId, {
       rfqId: input.rfqId ?? null,
       supplierId: input.supplierId,
@@ -137,26 +150,36 @@ export class PurchaseOrderService {
   /** Create a PO from a chosen RFQ supplier quote; marks the RFQ converted. */
   createFromRfq(rfqId: string, input: ConvertRfqToPoRequest): LocalPurchaseOrderDetail {
     const businessId = this.requireBusinessId()
-    const rfq = this.db.get<{ currency: string; title: string | null; message_body: string | null }>(
+    const rfq = this.db.get<{
+      currency: string
+      title: string | null
+      message_body: string | null
+    }>(
       `SELECT currency, title, message_body FROM rfqs WHERE id = ? AND business_id = ? AND is_deleted = 0`,
       [rfqId, businessId],
     )
     if (!rfq) throw new Error('RFQ not found.')
-    const supplier = this.db.get<{ supplier_id: string }>(`SELECT supplier_id FROM rfq_suppliers WHERE id = ? AND rfq_id = ?`, [input.rfqSupplierId, rfqId])
+    const supplier = this.db.get<{ supplier_id: string }>(
+      `SELECT supplier_id FROM rfq_suppliers WHERE id = ? AND rfq_id = ?`,
+      [input.rfqSupplierId, rfqId],
+    )
     if (!supplier) throw new Error('Supplier is not on this request.')
     if (!input.items?.length) throw new Error('Add at least one item to the order.')
 
     const lines = input.items.map((it) => {
-      if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error('Each item needs a quantity greater than 0.')
+      if (!Number.isFinite(it.quantity) || it.quantity <= 0)
+        throw new Error('Each item needs a quantity greater than 0.')
       return {
         productId: it.productId,
         variantId: it.variantId ?? null,
-        description: it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
+        description:
+          it.description?.trim() || this.describeProduct(it.productId, it.variantId ?? null),
         quantity: it.quantity,
         unitPrice: it.unitPrice ?? 0,
       }
     })
-    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0) throw new Error('The order total must be greater than 0.')
+    if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
+      throw new Error('The order total must be greater than 0.')
     const po = this.insert(businessId, {
       rfqId,
       supplierId: supplier.supplier_id,
@@ -176,10 +199,19 @@ export class PurchaseOrderService {
     const po = this.get(poId)
     if (!po) throw new Error('Purchase order not found.')
     const now = new Date().toISOString()
-    this.db.run(`UPDATE purchase_orders SET status = CASE WHEN status = 'DRAFT' THEN 'SENT' ELSE status END, sent_at = ?, updated_at = ? WHERE id = ? AND business_id = ?`, [now, now, poId, businessId])
+    this.db.run(
+      `UPDATE purchase_orders SET status = CASE WHEN status = 'DRAFT' THEN 'SENT' ELSE status END, sent_at = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [now, now, poId, businessId],
+    )
     this.enqueue(poId, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'purchase_order', entityId: poId, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'SENT' } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'purchase_order',
+      entityId: poId,
+      entityLabel: po.number,
+      changes: { before: { status: po.status }, after: { status: 'SENT' } },
+    })
     return this.get(poId)!
   }
 
@@ -187,56 +219,102 @@ export class PurchaseOrderService {
     const businessId = this.requireBusinessId()
     const po = this.get(poId)
     if (!po) throw new Error('Purchase order not found.')
-    if (po.status === 'RECEIVED' || po.status === 'PARTIALLY_RECEIVED') throw new Error('A received purchase order cannot be cancelled.')
+    if (po.status === 'RECEIVED' || po.status === 'PARTIALLY_RECEIVED')
+      throw new Error('A received purchase order cannot be cancelled.')
     const now = new Date().toISOString()
-    this.db.run(`UPDATE purchase_orders SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND business_id = ?`, [now, poId, businessId])
+    this.db.run(
+      `UPDATE purchase_orders SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND business_id = ?`,
+      [now, poId, businessId],
+    )
     this.enqueue(poId, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'purchase_order', entityId: poId, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: 'CANCELLED' } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'purchase_order',
+      entityId: poId,
+      entityLabel: po.number,
+      changes: { before: { status: po.status }, after: { status: 'CANCELLED' } },
+    })
     return this.get(poId)!
   }
 
   /** Receive quantities against a PO (called by restock). Increments each matched
    * line's received_quantity, recomputes status (PARTIALLY_RECEIVED/RECEIVED), syncs. */
-  applyReceipt(poId: string, receipts: Array<{ productId: string; variantId: string | null; quantity: number }>): void {
+  applyReceipt(
+    poId: string,
+    receipts: Array<{ productId: string; variantId: string | null; quantity: number }>,
+  ): void {
     const businessId = this.requireBusinessId()
     const po = this.get(poId)
     if (!po) return
     const now = new Date().toISOString()
     for (const r of receipts) {
       if (r.quantity <= 0) continue
-      const line = po.items.find((i) => i.productId === r.productId && (i.variantId ?? null) === (r.variantId ?? null))
+      const line = po.items.find(
+        (i) => i.productId === r.productId && (i.variantId ?? null) === (r.variantId ?? null),
+      )
       if (!line) continue
-      this.db.run(`UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE id = ?`, [r.quantity, line.id])
+      this.db.run(
+        `UPDATE purchase_order_items SET received_quantity = received_quantity + ? WHERE id = ?`,
+        [r.quantity, line.id],
+      )
     }
     // Recompute status from the (now updated) lines.
     const lines = this.items(poId)
     const anyReceived = lines.some((l) => l.receivedQuantity > 0)
     const allReceived = lines.length > 0 && lines.every((l) => l.receivedQuantity >= l.quantity)
     const nextStatus = allReceived ? 'RECEIVED' : anyReceived ? 'PARTIALLY_RECEIVED' : po.status
-    this.db.run(`UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ? AND business_id = ?`, [nextStatus, now, poId, businessId])
+    this.db.run(
+      `UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+      [nextStatus, now, poId, businessId],
+    )
     this.enqueue(poId, businessId, now)
     this.onMutated()
-    this.audit?.log({ action: 'UPDATE', entityType: 'purchase_order', entityId: poId, entityLabel: po.number, changes: { before: { status: po.status }, after: { status: nextStatus, received: receipts } } })
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'purchase_order',
+      entityId: poId,
+      entityLabel: po.number,
+      changes: { before: { status: po.status }, after: { status: nextStatus, received: receipts } },
+    })
   }
 
   buildDocument(poId: string): PurchaseOrderDocument {
     const businessId = this.requireBusinessId()
-    const po = this.db.get<PoRow>(`SELECT ${COLS} FROM purchase_orders p WHERE p.id = ? AND p.business_id = ?`, [poId, businessId])
-    if (!po) throw new Error('Purchase order not found.')
-    const biz = this.db.get<{ name: string; phone: string | null; email: string | null; address: string | null; logo_url: string | null }>(
-      `SELECT name, phone, email, address, logo_url FROM local_businesses WHERE id = ?`,
-      [businessId],
+    const po = this.db.get<PoRow>(
+      `SELECT ${COLS} FROM purchase_orders p WHERE p.id = ? AND p.business_id = ?`,
+      [poId, businessId],
     )
+    if (!po) throw new Error('Purchase order not found.')
+    const biz = this.db.get<{
+      name: string
+      phone: string | null
+      email: string | null
+      address: string | null
+      logo_url: string | null
+    }>(`SELECT name, phone, email, address, logo_url FROM local_businesses WHERE id = ?`, [
+      businessId,
+    ])
     const supplier = this.db.get<{ name: string; phone: string | null; address: string | null }>(
       `SELECT name, phone, address FROM contacts WHERE id = ? AND business_id = ?`,
       [po.supplier_id, businessId],
     )
-    const items = this.db.query<{ description: string; quantity: number; unit_price: number; sku: string | null }>(
+    const items = this.db.query<{
+      description: string
+      quantity: number
+      unit_price: number
+      sku: string | null
+    }>(
       `SELECT i.description, i.quantity, i.unit_price, pr.sku FROM purchase_order_items i LEFT JOIN products pr ON pr.id = i.product_id WHERE i.purchase_order_id = ? ORDER BY i.created_at ASC`,
       [poId],
     )
-    const docItems = items.map((i) => ({ description: i.description, sku: i.sku, quantity: i.quantity, unitPrice: i.unit_price, lineTotal: i.quantity * i.unit_price }))
+    const docItems = items.map((i) => ({
+      description: i.description,
+      sku: i.sku,
+      quantity: i.quantity,
+      unitPrice: i.unit_price,
+      lineTotal: i.quantity * i.unit_price,
+    }))
     const subtotal = docItems.reduce((s, i) => s + i.lineTotal, 0)
     return {
       number: po.number,
@@ -245,8 +323,19 @@ export class PurchaseOrderService {
       issuedDate: new Date(po.created_at).toLocaleDateString(),
       expectedDate: po.expected_date ? new Date(po.expected_date).toLocaleDateString() : null,
       currency: po.currency,
-      business: { name: biz?.name ?? 'BizTrack', phone: biz?.phone, email: biz?.email, address: biz?.address, logoUrl: biz?.logo_url },
-      supplier: { name: supplier?.name ?? po.supplier_name ?? '', phone: supplier?.phone, email: null, address: supplier?.address },
+      business: {
+        name: biz?.name ?? 'BizTrack',
+        phone: biz?.phone,
+        email: biz?.email,
+        address: biz?.address,
+        logoUrl: biz?.logo_url,
+      },
+      supplier: {
+        name: supplier?.name ?? po.supplier_name ?? '',
+        phone: supplier?.phone,
+        email: null,
+        address: supplier?.address,
+      },
       items: docItems,
       subtotal,
       total: po.total_amount,
@@ -265,18 +354,42 @@ export class PurchaseOrderService {
       messageBody: string | null
       currency: string
       expectedDate: string | null
-      lines: Array<{ productId: string; variantId: string | null; description: string; quantity: number; unitPrice: number }>
+      lines: Array<{
+        productId: string
+        variantId: string | null
+        description: string
+        quantity: number
+        unitPrice: number
+      }>
     },
   ): LocalPurchaseOrderDetail {
     const id = randomUUID()
     const now = new Date().toISOString()
     const number = this.nextNumber(businessId)
     const total = data.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
+    // Local trading day (BIZ-5.1) from the PO's timestamp.
+    const businessDate = localBusinessDate(now)
 
     this.db.run(
-      `INSERT INTO purchase_orders (id, business_id, number, rfq_id, supplier_id, supplier_name, title, message_body, status, currency, expected_date, total_amount, sent_at, created_by_id, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, NULL, ?, 0, ?, ?)`,
-      [id, businessId, number, data.rfqId, data.supplierId, this.contactName(data.supplierId), data.title, data.messageBody, data.currency, data.expectedDate, total, this.getActorId(), now, now],
+      `INSERT INTO purchase_orders (id, business_id, number, rfq_id, supplier_id, supplier_name, title, message_body, status, currency, expected_date, total_amount, sent_at, created_by_id, is_deleted, business_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, NULL, ?, 0, ?, ?, ?)`,
+      [
+        id,
+        businessId,
+        number,
+        data.rfqId,
+        data.supplierId,
+        this.contactName(data.supplierId),
+        data.title,
+        data.messageBody,
+        data.currency,
+        data.expectedDate,
+        total,
+        this.getActorId(),
+        businessDate,
+        now,
+        now,
+      ],
     )
     for (const l of data.lines) {
       this.db.run(
@@ -288,16 +401,30 @@ export class PurchaseOrderService {
     this.enqueue(id, businessId, now)
     this.onMutated()
     const created = this.get(id)!
-    this.audit?.log({ action: 'CREATE', entityType: 'purchase_order', entityId: id, entityLabel: number, changes: { before: null, after: { number, supplierId: data.supplierId, total, items: data.lines.length } } })
+    this.audit?.log({
+      action: 'CREATE',
+      entityType: 'purchase_order',
+      entityId: id,
+      entityLabel: number,
+      changes: {
+        before: null,
+        after: { number, supplierId: data.supplierId, total, items: data.lines.length },
+      },
+    })
     return created
   }
 
   private items(poId: string): LocalPurchaseOrderItem[] {
     return this.db
-      .query<{ id: string; product_id: string; variant_id: string | null; description: string; quantity: number; unit_price: number; received_quantity: number }>(
-        `SELECT id, product_id, variant_id, description, quantity, unit_price, received_quantity FROM purchase_order_items WHERE purchase_order_id = ? ORDER BY created_at ASC`,
-        [poId],
-      )
+      .query<{
+        id: string
+        product_id: string
+        variant_id: string | null
+        description: string
+        quantity: number
+        unit_price: number
+        received_quantity: number
+      }>(`SELECT id, product_id, variant_id, description, quantity, unit_price, received_quantity FROM purchase_order_items WHERE purchase_order_id = ? ORDER BY created_at ASC`, [poId])
       .map((r) => ({
         id: r.id,
         productId: r.product_id,
@@ -313,24 +440,36 @@ export class PurchaseOrderService {
     const p = this.db.get<{ name: string }>(`SELECT name FROM products WHERE id = ?`, [productId])
     const base = p?.name ?? 'Item'
     if (variantId) {
-      const v = this.db.get<{ name: string }>(`SELECT name FROM product_variants WHERE id = ?`, [variantId])
+      const v = this.db.get<{ name: string }>(`SELECT name FROM product_variants WHERE id = ?`, [
+        variantId,
+      ])
       if (v?.name) return `${base} — ${v.name}`
     }
     return base
   }
 
   private contactName(contactId: string): string | null {
-    return this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [contactId])?.name ?? null
+    return (
+      this.db.get<{ name: string }>(`SELECT name FROM contacts WHERE id = ?`, [contactId])?.name ??
+      null
+    )
   }
 
   private businessCurrency(): string {
     const businessId = this.getBusinessId()
     if (!businessId) return 'XAF'
-    return this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [businessId])?.currency ?? 'XAF'
+    return (
+      this.db.get<{ currency: string }>(`SELECT currency FROM local_businesses WHERE id = ?`, [
+        businessId,
+      ])?.currency ?? 'XAF'
+    )
   }
 
   private nextNumber(businessId: string): string {
-    const row = this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM purchase_orders WHERE business_id = ?`, [businessId])
+    const row = this.db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM purchase_orders WHERE business_id = ?`,
+      [businessId],
+    )
     return `PO-${String((row?.n ?? 0) + 1).padStart(5, '0')}`
   }
 
@@ -342,7 +481,10 @@ export class PurchaseOrderService {
 
   /** Enqueue the PO with its full current state (items nested) — coalesced. */
   private enqueue(poId: string, businessId: string, now: string): void {
-    const p = this.db.get<PoRow & { created_by_id: string | null }>(`SELECT ${COLS}, p.created_by_id FROM purchase_orders p WHERE p.id = ?`, [poId])
+    const p = this.db.get<PoRow & { created_by_id: string | null }>(
+      `SELECT ${COLS}, p.created_by_id FROM purchase_orders p WHERE p.id = ?`,
+      [poId],
+    )
     if (!p) return
     const payload = {
       id: poId,
@@ -361,7 +503,15 @@ export class PurchaseOrderService {
       createdById: p.created_by_id,
       createdAt: p.created_at,
       updatedAt: now,
-      items: this.items(poId).map((i) => ({ id: i.id, productId: i.productId, variantId: i.variantId, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, receivedQuantity: i.receivedQuantity })),
+      items: this.items(poId).map((i) => ({
+        id: i.id,
+        productId: i.productId,
+        variantId: i.variantId,
+        description: i.description,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        receivedQuantity: i.receivedQuantity,
+      })),
     }
     this.db.run(
       `INSERT INTO sync_outbox (id, entity, record_id, operation, payload, status, attempt_count, created_at, updated_at)

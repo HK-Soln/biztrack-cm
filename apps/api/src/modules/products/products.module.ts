@@ -17,6 +17,7 @@ import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { AttributeGroupsController } from './controllers/attribute-groups.controller'
 import { CategoriesController } from './controllers/categories.controller'
 import { ProductImagesController } from './controllers/product-images.controller'
@@ -42,6 +43,7 @@ import { UnitOfMeasuresService } from './services/unit-of-measures.service'
   imports: [
     PermissionsModule,
     AuditModule,
+    BusinessCalendarModule,
     TypeOrmModule.forFeature([
       AttributeGroup,
       AttributeOption,

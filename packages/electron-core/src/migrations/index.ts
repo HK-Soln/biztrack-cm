@@ -58,6 +58,23 @@ import { migration_0056 } from './0056_variant_seo'
 import { migration_0057 } from './0057_unique_serial_items'
 import { migration_0058 } from './0058_variant_reorder_point'
 import { migration_0059 } from './0059_inventory_movement_variant'
+import { migration_0060 } from './0060_whole_xaf_money'
+import { migration_0061 } from './0061_business_members_pin'
+import { migration_0062 } from './0062_sale_item_listed_price_cart_alloc'
+import { migration_0063 } from './0063_sale_discount_reason_authz'
+import { migration_0064 } from './0064_role_can_authorize'
+import { migration_0065 } from './0065_role_discount_limits'
+import { migration_0066 } from './0066_cash_sessions'
+import { migration_0067 } from './0067_cash_movements'
+import { migration_0068 } from './0068_role_tracks_cash_drawer'
+import { migration_0069 } from './0069_cash_session_variance_reason'
+import { migration_0070 } from './0070_audit_log_time_amount'
+import { migration_0071 } from './0071_append_only_guards'
+import { migration_0072 } from './0072_audit_sequence'
+import { migration_0073 } from './0073_audit_prune_delete'
+import { migration_0074 } from './0074_transaction_currency_outlet'
+import { migration_0075 } from './0075_business_date'
+import { migration_0076 } from './0076_fiscal_years_accounting_periods'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -123,6 +140,23 @@ export const MIGRATIONS: Migration[] = [
   migration_0057,
   migration_0058,
   migration_0059,
+  migration_0060,
+  migration_0061,
+  migration_0062,
+  migration_0063,
+  migration_0064,
+  migration_0065,
+  migration_0066,
+  migration_0067,
+  migration_0068,
+  migration_0069,
+  migration_0070,
+  migration_0071,
+  migration_0072,
+  migration_0073,
+  migration_0074,
+  migration_0075,
+  migration_0076,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

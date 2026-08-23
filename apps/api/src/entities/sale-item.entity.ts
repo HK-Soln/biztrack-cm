@@ -1,10 +1,4 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-} from 'typeorm'
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -72,6 +66,29 @@ export class SaleItem extends BaseEntity {
     transformer: decimalTransformer,
   })
   unitPrice!: number
+
+  // Catalogue price at sale time (variant override ?? product selling price). Snapshot
+  // so later catalogue changes never move history. Nullable for pre-BIZ-1.1 rows.
+  @Column({
+    name: 'unit_price_listed',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  unitPriceListed?: number | null
+
+  // This line's allocated share of the sale-level discount (BIZ-1.3); 0 otherwise.
+  @Column({
+    name: 'cart_discount_alloc',
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  cartDiscountAlloc!: number
 
   @Column({
     name: 'discount_amount',

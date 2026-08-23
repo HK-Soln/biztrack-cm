@@ -43,6 +43,20 @@ export interface InventoryAlert {
   lowStockThreshold: number | null
   reorderPoint: number | null
   shortfall: number
+  /** Sales velocity in units/day over the trailing window, excluding stock-out days
+   * (BIZ-4.6). null when there's too little history/sales to trust — see @biztrack/utils
+   * computeReorderVelocity. */
+  velocity?: number | null
+  /** Days of stock left at the current velocity ("Reste N jours"). null when untrusted. */
+  daysCover?: number | null
+  /** Whole days the product was out of stock in the window (context for velocity). */
+  stockoutDays?: number | null
+  /** Unit selling price — feeds revenue-at-risk on the À-commander surface (BIZ-4.5). */
+  sellingPrice?: number | null
+  /** Last supplier who restocked this product (grouping key on À-commander). */
+  supplierId?: string | null
+  supplierName?: string | null
+  supplierPhone?: string | null
 }
 
 export type InventoryMovementPerformer = ProductUserSummary

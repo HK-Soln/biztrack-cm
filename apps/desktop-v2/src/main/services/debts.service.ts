@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import { ContactStatementEntryType } from '@biztrack/types'
+import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
+import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
 import type {
   AgeingEntry,
   AgeingReport,
@@ -15,6 +16,7 @@ import type {
   RecordDebtPaymentRequest,
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -67,6 +69,14 @@ export class DebtsService {
     private readonly onMutated: () => void,
     private readonly getActorId: () => string | null,
     private readonly audit?: AuditLogger,
+    /** Records a cash_movement against the open shift when a debt is paid in cash
+     * (BIZ-2.3) — so the drawer reconciles against debt payments, not just sales. */
+    private readonly recordCashMovement: (input: {
+      kind: CashMovementKind
+      amount: number
+      referenceType?: string | null
+      referenceId?: string | null
+    }) => void = () => {},
   ) {}
 
   /** Create a debt from a source transaction (e.g. a credit restock → supplier payable).
@@ -77,13 +87,23 @@ export class DebtsService {
       `SELECT id FROM debts WHERE business_id = ? AND source_type = ? AND source_id = ? AND direction = ?`,
       [businessId, input.sourceType, input.sourceId, input.direction],
     )
-    if (existing) return existing.id
+    if (existing) {
+      // The row may already exist from a DB trigger (sale/restock receivable). If the caller
+      // supplied an explicit due date (e.g. credit terms chosen at checkout), apply it — the
+      // trigger inserts due_date NULL, so the effective due falls back to the default until set.
+      if (input.dueDate) {
+        this.db.run(`UPDATE debts SET due_date = ? WHERE id = ?`, [input.dueDate, existing.id])
+      }
+      return existing.id
+    }
 
     const id = randomUUID()
     const now = input.createdAt ?? new Date().toISOString()
+    // Local trading day (BIZ-5.1) from the debt's creation timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
-      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OUTSTANDING', ?, ?, ?)`,
+      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OUTSTANDING', ?, ?, ?, ?)`,
       [
         id,
         businessId,
@@ -95,6 +115,7 @@ export class DebtsService {
         input.originalAmount,
         input.dueDate ?? null,
         input.notes ?? null,
+        businessDate,
         now,
       ],
     )
@@ -158,10 +179,21 @@ export class DebtsService {
 
     const id = randomUUID()
     const createdAt = `${input.asOfDate}T00:00:00.000Z`
+    // Local trading day (BIZ-5.1) from the opening-balance date.
+    const businessDate = localBusinessDate(input.asOfDate)
     this.db.run(
-      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, created_at)
-       VALUES (?, ?, ?, ?, 'OPENING_BALANCE', ?, 'Opening balance', ?, 'OUTSTANDING', NULL, NULL, ?)`,
-      [id, businessId, input.contactId, input.direction, input.contactId, input.amount, createdAt],
+      `INSERT INTO debts (id, business_id, contact_id, direction, source_type, source_id, source_reference, original_amount, status, due_date, notes, business_date, created_at)
+       VALUES (?, ?, ?, ?, 'OPENING_BALANCE', ?, 'Opening balance', ?, 'OUTSTANDING', NULL, NULL, ?, ?)`,
+      [
+        id,
+        businessId,
+        input.contactId,
+        input.direction,
+        input.contactId,
+        input.amount,
+        businessDate,
+        createdAt,
+      ],
     )
     this.enqueue(id, businessId, now)
     this.onMutated()
@@ -169,6 +201,35 @@ export class DebtsService {
   }
 
   /** Record a payment against a debt; recomputes status (and settledAt). */
+  /** Set (or clear) a debt's expected payment date. Clearing (null) falls the ageing/
+   *  reminders back to created_at + the default credit period (D9). Re-enqueues so the
+   *  change syncs (applyDebtOperation upserts due_date). Opening balances are rejected. */
+  updateDueDate(debtId: string, dueDate: string | null): LocalDebt {
+    const businessId = this.requireBusinessId()
+    const debt = this.getRow(debtId, businessId)
+    if (!debt) throw new Error('Debt not found.')
+    if (debt.source_type === 'OPENING_BALANCE')
+      throw new Error('Opening-balance debts have no due date.')
+    const now = new Date().toISOString()
+    this.db.run(`UPDATE debts SET due_date = ? WHERE id = ? AND business_id = ?`, [
+      dueDate || null,
+      debtId,
+      businessId,
+    ])
+    this.enqueue(debtId, businessId, now)
+    this.onMutated()
+    this.audit?.log({
+      action: 'UPDATE',
+      entityType: 'debt',
+      entityId: debtId,
+      entityLabel: debt.source_reference,
+      changes: { before: { dueDate: debt.due_date ?? null }, after: { dueDate: dueDate || null } },
+    })
+    const updated = this.get(debtId)
+    if (!updated) throw new Error('Debt not found.')
+    return updated
+  }
+
   recordPayment(debtId: string, input: RecordDebtPaymentRequest): LocalDebt {
     const businessId = this.requireBusinessId()
     const debt = this.getRow(debtId, businessId)
@@ -181,9 +242,11 @@ export class DebtsService {
     if (amount > outstanding + 1e-6) throw new Error('Payment exceeds the outstanding balance.')
 
     const now = new Date().toISOString()
+    // Local trading day (BIZ-5.1) from the payment date.
+    const businessDate = localBusinessDate(input.paymentDate || now)
     this.db.run(
-      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         randomUUID(),
         businessId,
@@ -194,6 +257,7 @@ export class DebtsService {
         input.paymentDate || now,
         input.notes ?? null,
         this.getActorId() ?? 'unknown',
+        businessDate,
         now,
       ],
     )
@@ -209,6 +273,21 @@ export class DebtsService {
     ])
 
     this.enqueue(debtId, businessId, now)
+
+    // A cash payment moves the physical drawer: a customer settling a receivable is cash
+    // IN (CREDIT_REPAYMENT); paying a supplier payable is cash OUT (SUPPLIER_PAYMENT).
+    if (input.method === 'CASH') {
+      this.recordCashMovement({
+        kind:
+          debt.direction === 'PAYABLE'
+            ? CashMovementKind.SUPPLIER_PAYMENT
+            : CashMovementKind.CREDIT_REPAYMENT,
+        amount,
+        referenceType: 'debt',
+        referenceId: debtId,
+      })
+    }
+
     this.onMutated()
     this.audit?.log({
       action: 'UPDATE',
@@ -288,10 +367,22 @@ export class DebtsService {
   ): void {
     const debt = this.getRow(debtId, businessId)
     if (!debt) return
+    // Local trading day (BIZ-5.1) from the contra payment's timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
-      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
-       VALUES (?, ?, ?, ?, 'OFFSET', NULL, ?, ?, ?, ?)`,
-      [randomUUID(), businessId, debtId, amount, now, ref, this.getActorId() ?? 'unknown', now],
+      `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, business_date, created_at)
+       VALUES (?, ?, ?, ?, 'OFFSET', NULL, ?, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        businessId,
+        debtId,
+        amount,
+        now,
+        ref,
+        this.getActorId() ?? 'unknown',
+        businessDate,
+        now,
+      ],
     )
     const paid = debt.paid_amount + amount
     const settled = paid >= debt.original_amount - 1e-6
@@ -469,10 +560,13 @@ export class DebtsService {
 
   /**
    * Ageing report (receivable or payable). Buckets each contact's outstanding balance by
-   * the age of the underlying debt — ≤7d current, 8–15d moderate, 16–30d aged, 30d+ overdue
-   * — then adds the contact's opening balance to its total. Replicates the API
-   * OpeningBalancesService.getAgeingReport verbatim (same buckets, rounding, opening-balance
-   * inclusion, sort) so a fully-synced desktop and the cloud return an identical report.
+   * how far past its EFFECTIVE due date it is (D9: due_date, else created_at + default
+   * credit days) — ≤7d current, 8–15d moderate, 16–30d aged, 30d+ overdue — then adds the
+   * contact's opening balance to its total. Mirrors the API OpeningBalancesService.
+   * getAgeingReport (same buckets, rounding, opening-balance inclusion, sort). NOTE: a
+   * business's custom defaultCreditDays isn't cached locally (settings sync deferred), so
+   * offline uses DEFAULT_CREDIT_DAYS for undated debts; debts with an explicit due_date
+   * are exact either way.
    */
   getAgeing(direction: DebtDirection): AgeingReport {
     const now = new Date()
@@ -483,6 +577,7 @@ export class DebtsService {
       moderate: 0,
       aged: 0,
       overdue: 0,
+      pastDue: 0,
       totalOutstanding: 0,
     }
     const businessId = this.getBusinessId()
@@ -496,20 +591,21 @@ export class DebtsService {
       source_type: string
       original_amount: number
       created_at: string
+      due_date: string | null
       paid_amount: number
     }>(
-      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, ${PAID} AS paid_amount
+      `SELECT d.id, d.contact_id, d.source_type, d.original_amount, d.created_at, d.due_date, ${PAID} AS paid_amount
        FROM debts d WHERE d.business_id = ? AND d.direction = ? AND d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')`,
       [businessId, direction],
     )
 
-    const msPerDay = 1000 * 60 * 60 * 24
     interface Bucket {
       openingBalance: number
       current: number
       moderate: number
       aged: number
       overdue: number
+      pastDue: number
       total: number
     }
     const buckets = new Map<string, Bucket>()
@@ -524,16 +620,22 @@ export class DebtsService {
         moderate: 0,
         aged: 0,
         overdue: 0,
+        pastDue: 0,
         total: 0,
       }
       if (d.source_type === 'OPENING_BALANCE') {
         b.openingBalance = round2(b.openingBalance + outstanding)
       } else {
-        const ageDays = Math.floor((now.getTime() - new Date(d.created_at).getTime()) / msPerDay)
-        if (ageDays <= 7) b.current = round2(b.current + outstanding)
-        else if (ageDays <= 15) b.moderate = round2(b.moderate + outstanding)
-        else if (ageDays <= 30) b.aged = round2(b.aged + outstanding)
+        const due = effectiveDueDate(
+          { dueDate: d.due_date, createdAt: d.created_at },
+          DEFAULT_CREDIT_DAYS,
+        )
+        const overdueDays = daysPastDue(due, now)
+        if (overdueDays <= 7) b.current = round2(b.current + outstanding)
+        else if (overdueDays <= 15) b.moderate = round2(b.moderate + outstanding)
+        else if (overdueDays <= 30) b.aged = round2(b.aged + outstanding)
         else b.overdue = round2(b.overdue + outstanding)
+        if (overdueDays > 0) b.pastDue = round2(b.pastDue + outstanding)
         b.total = round2(b.total + outstanding)
       }
       buckets.set(d.contact_id, b)
@@ -564,6 +666,7 @@ export class DebtsService {
           moderate: b.moderate,
           aged: b.aged,
           overdue: b.overdue,
+          pastDue: b.pastDue,
           totalOutstanding: round2(b.openingBalance + b.total),
         }
       })
@@ -577,6 +680,7 @@ export class DebtsService {
         moderate: round2(acc.moderate + e.moderate),
         aged: round2(acc.aged + e.aged),
         overdue: round2(acc.overdue + e.overdue),
+        pastDue: round2(acc.pastDue + e.pastDue),
         totalOutstanding: round2(acc.totalOutstanding + e.totalOutstanding),
       }),
       { ...emptyTotals },

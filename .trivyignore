@@ -1,0 +1,13 @@
+# Trivy suppressions for the API image scan. One vulnerability ID per line, each with a
+# written justification. Keep this list SHORT and revisit it — a suppression is a promise
+# that the flaw is unreachable in what actually ships, not a way to silence the gate.
+
+# CVE-2025-68121 — crypto/tls: incorrect certificate validation during TLS session
+# resumption, in the Go stdlib (1.23.12) that the esbuild binary (@esbuild/linux-x64) was
+# compiled with. esbuild is a BUILD-TIME bundler pulled in transitively; it is never
+# executed in the running API (no esbuild `serve`, no TLS session resumption at runtime),
+# so the vulnerable code path is unreachable in the shipped container.
+# Proper follow-up: prune devDependencies from the production API image (turbo-prune +
+# `pnpm prune --prod`) so build tools like esbuild are not shipped at all — then this
+# suppression can be removed.
+CVE-2025-68121
