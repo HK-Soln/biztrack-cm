@@ -12,6 +12,7 @@
     "STORE_ROOT_DOMAIN",
     "LOG_LEVEL",
     "LOG_DIR",
+    "API_BODY_LIMIT",
     "STORAGE_LOCAL_DIR",
     "S3_REGION",
     "S3_ACCESS_KEY_ID",

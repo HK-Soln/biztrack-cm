@@ -95,6 +95,7 @@ const api: BridgeApi = {
   },
   products: {
     list: (query) => ipcRenderer.invoke(IPC.productsList, query),
+    listAll: (query) => ipcRenderer.invoke(IPC.productsListAll, query),
     listSellable: (query) => ipcRenderer.invoke(IPC.productsListSellable, query),
     stats: () => ipcRenderer.invoke(IPC.productsStats),
     get: (id) => ipcRenderer.invoke(IPC.productsGet, id),
@@ -164,6 +165,7 @@ const api: BridgeApi = {
     statement: (contactId, direction) =>
       ipcRenderer.invoke(IPC.debtsStatement, contactId, direction),
     recordPayment: (debtId, input) => ipcRenderer.invoke(IPC.debtsRecordPayment, debtId, input),
+    updateDueDate: (debtId, dueDate) => ipcRenderer.invoke(IPC.debtsUpdateDueDate, debtId, dueDate),
     offset: (contactId) => ipcRenderer.invoke(IPC.debtsOffset, contactId),
     ageing: (direction) => ipcRenderer.invoke(IPC.debtsAgeing, direction),
   },
@@ -212,8 +214,14 @@ const api: BridgeApi = {
       ipcRenderer.invoke(IPC.documentsDownloadHtml, html, filename),
     shareHtmlPdf: (input) => ipcRenderer.invoke(IPC.documentsShareHtml, input),
   },
+  pin: {
+    set: (pin) => ipcRenderer.invoke(IPC.pinSet, pin),
+    verify: (pin) => ipcRenderer.invoke(IPC.pinVerify, pin),
+    canManage: () => ipcRenderer.invoke(IPC.pinCanManage),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
+    saleLineRemoved: (input) => ipcRenderer.invoke(IPC.auditSaleLineRemoved, input),
   },
   uploads: {
     file: (input) => ipcRenderer.invoke(IPC.uploadsFile, input),
@@ -223,6 +231,8 @@ const api: BridgeApi = {
   },
   sales: {
     create: (input) => ipcRenderer.invoke(IPC.salesCreate, input),
+    myDiscountLimits: () => ipcRenderer.invoke(IPC.salesMyDiscountLimits),
+    belowCostCheck: (lines) => ipcRenderer.invoke(IPC.salesBelowCostCheck, lines),
     list: (query) => ipcRenderer.invoke(IPC.salesList, query),
     listAll: (query) => ipcRenderer.invoke(IPC.salesListAll, query),
     summary: (query) => ipcRenderer.invoke(IPC.salesSummary, query),
@@ -232,11 +242,16 @@ const api: BridgeApi = {
     byPaymentMethod: (query) => ipcRenderer.invoke(IPC.salesByPayment, query),
     refunds: (query) => ipcRenderer.invoke(IPC.salesRefunds, query),
     grossProfit: (query) => ipcRenderer.invoke(IPC.salesGrossProfit, query),
+    discountSummary: (query) => ipcRenderer.invoke(IPC.salesDiscountSummary, query),
+    discountsByCashier: (query) => ipcRenderer.invoke(IPC.salesDiscountsByCashier, query),
+    discountsByProduct: (query) => ipcRenderer.invoke(IPC.salesDiscountsByProduct, query),
+    flaggedDiscounts: (query) => ipcRenderer.invoke(IPC.salesFlaggedDiscounts, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
     void: (saleId, reason) => ipcRenderer.invoke(IPC.salesVoid, saleId, reason),
     sendReceipt: (saleId, channel, locale, opts) =>
       ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
-    printReceipt: (saleId, locale) => ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale),
+    printReceipt: (saleId, locale, reprint) =>
+      ipcRenderer.invoke(IPC.salesPrintReceipt, saleId, locale, reprint),
     downloadReceipt: (saleId, locale) =>
       ipcRenderer.invoke(IPC.salesDownloadReceipt, saleId, locale),
     receiptHtml: (saleId, locale) => ipcRenderer.invoke(IPC.salesReceiptHtml, saleId, locale),
@@ -255,6 +270,25 @@ const api: BridgeApi = {
     receiptHtml: (transactionId, locale) =>
       ipcRenderer.invoke(IPC.depositsReceiptHtml, transactionId, locale),
     reportHtml: (id, locale) => ipcRenderer.invoke(IPC.depositsReportHtml, id, locale),
+  },
+  cashSessions: {
+    list: (query) => ipcRenderer.invoke(IPC.cashSessionsList, query),
+    get: (id) => ipcRenderer.invoke(IPC.cashSessionsGet, id),
+    current: () => ipcRenderer.invoke(IPC.cashSessionsCurrent),
+    open: (input) => ipcRenderer.invoke(IPC.cashSessionsOpen, input),
+    transition: (id, input) => ipcRenderer.invoke(IPC.cashSessionsTransition, id, input),
+    expectedCash: (id) => ipcRenderer.invoke(IPC.cashSessionsExpectedCash, id),
+    recordMovement: (input) => ipcRenderer.invoke(IPC.cashSessionsRecordMovement, input),
+    listMovements: (sessionId) => ipcRenderer.invoke(IPC.cashSessionsListMovements, sessionId),
+    close: (id, input) => ipcRenderer.invoke(IPC.cashSessionsClose, id, input),
+    setVarianceReason: (id, input) =>
+      ipcRenderer.invoke(IPC.cashSessionsSetVarianceReason, id, input),
+    varianceHistory: (query) => ipcRenderer.invoke(IPC.cashSessionsVarianceHistory, query),
+    shiftReport: (id, kind) => ipcRenderer.invoke(IPC.cashSessionsShiftReport, id, kind),
+    dailyReport: (query) => ipcRenderer.invoke(IPC.cashSessionsDailyReport, query),
+    roleTracksDrawer: () => ipcRenderer.invoke(IPC.cashSessionsRoleTracksDrawer),
+    staleOpen: () => ipcRenderer.invoke(IPC.cashSessionsStaleOpen),
+    recover: (id) => ipcRenderer.invoke(IPC.cashSessionsRecover, id),
   },
   online: {
     getStore: () => ipcRenderer.invoke(IPC.onlineStoreGet),
@@ -275,6 +309,25 @@ const api: BridgeApi = {
   business: {
     getProfile: () => ipcRenderer.invoke(IPC.businessGetProfile),
     update: (payload) => ipcRenderer.invoke(IPC.businessUpdate, payload),
+  },
+  notificationSettings: {
+    get: () => ipcRenderer.invoke(IPC.notificationSettingsGet),
+    listTimezones: () => ipcRenderer.invoke(IPC.notificationSettingsTimezones),
+    lookupContact: (q) => ipcRenderer.invoke(IPC.notificationSettingsLookup, q),
+    updateMatrix: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateMatrix, body),
+    updateQuietHours: (body) => ipcRenderer.invoke(IPC.notificationSettingsUpdateQuietHours, body),
+    addRecipient: (body) => ipcRenderer.invoke(IPC.notificationSettingsAddRecipient, body),
+    updateRecipient: (id, body) =>
+      ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipient, id, body),
+    updateRecipientSubscriptions: (id, body) =>
+      ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipientSubs, id, body),
+    removeRecipient: (id) => ipcRenderer.invoke(IPC.notificationSettingsRemoveRecipient, id),
+  },
+  fiscal: {
+    calendar: () => ipcRenderer.invoke(IPC.fiscalCalendar),
+    adjustments: () => ipcRenderer.invoke(IPC.fiscalAdjustments),
+    closePeriod: (id) => ipcRenderer.invoke(IPC.fiscalClosePeriod, id),
+    lockPeriod: (id) => ipcRenderer.invoke(IPC.fiscalLockPeriod, id),
   },
   plans: {
     list: () => ipcRenderer.invoke(IPC.plansList),
@@ -321,6 +374,13 @@ const api: BridgeApi = {
     list: () => ipcRenderer.invoke(IPC.invitationsList),
     accept: (businessId) => ipcRenderer.invoke(IPC.invitationsAccept, businessId),
     reject: (businessId) => ipcRenderer.invoke(IPC.invitationsReject, businessId),
+  },
+  deeplink: {
+    onNavigate: (cb) => {
+      const listener = (_e: unknown, path: string) => cb(path)
+      ipcRenderer.on(IPC.deeplinkNavigate, listener)
+      return () => ipcRenderer.removeListener(IPC.deeplinkNavigate, listener)
+    },
   },
 }
 

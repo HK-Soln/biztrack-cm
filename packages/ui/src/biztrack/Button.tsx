@@ -5,7 +5,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 // @biztrack/ui/styles.css. Namespaced under @biztrack/ui/biztrack to keep it
 // separate from the legacy top-level Button export.
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'default' | 'ghost' | 'soft'
+  variant?: 'primary' | 'default' | 'ghost' | 'soft' | 'danger' | 'danger-soft'
   block?: boolean
   loading?: boolean
   children?: ReactNode
@@ -31,6 +31,8 @@ export function Button({
         variant === 'primary' && 'btn-primary',
         variant === 'ghost' && 'btn-ghost',
         variant === 'soft' && 'btn-soft',
+        variant === 'danger' && 'btn-danger',
+        variant === 'danger-soft' && 'btn-danger-soft',
         block && 'btn-block',
         loading && 'loading',
         className,

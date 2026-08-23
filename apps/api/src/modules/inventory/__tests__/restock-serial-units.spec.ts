@@ -29,6 +29,12 @@ function makeService(existingBySerial: Record<string, Partial<ProductSerialUnit>
     {} as any,
     i18n as any,
     logger as any,
+    { log: () => {} } as any,
+    {
+      computeForBusiness: async () => '2026-01-01',
+      resolveForSync: async () => '2026-01-01',
+      businessDateFor: async () => '2026-01-01',
+    } as any,
   )
   return { service: service as any, serialRepo, manager }
 }
@@ -58,7 +64,12 @@ describe('InventoryService.restockSerialUnits (Phase 6)', () => {
 
   it('rejects an invalid serial format with INVALID_FORMAT (and keeps the valid ones)', async () => {
     const { service, manager } = makeService()
-    const result = await restock(service, manager, { serialNumbers: ['bad serial!', 'SN-OK'] }, product())
+    const result = await restock(
+      service,
+      manager,
+      { serialNumbers: ['bad serial!', 'SN-OK'] },
+      product(),
+    )
     expect(result.created).toBe(1)
     expect(result.errors).toEqual([{ serialNumber: 'bad serial!', reason: 'INVALID_FORMAT' }])
   })

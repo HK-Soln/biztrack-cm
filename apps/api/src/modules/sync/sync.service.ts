@@ -35,6 +35,11 @@ import type {
   SavingsAccountSyncRecord,
   SavingsTransactionSyncPayload,
   SavingsTransactionSyncRecord,
+  CashSessionSyncRecord,
+  CashCountLineSyncRecord,
+  CashMovementSyncRecord,
+  FiscalYearSyncRecord,
+  AccountingPeriodSyncRecord,
   SyncBatchStatus,
   SyncBatchStatusResponse,
   SyncEntity,
@@ -64,8 +69,12 @@ import {
   SerialUnitStatus,
   StockAdjustmentType,
   UnitOfMeasureType,
+  NotificationType,
 } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
+import { APP_ROUTES } from '@biztrack/utils'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import type { Queue } from 'bullmq'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, In, IsNull, QueryFailedError, Repository } from 'typeorm'
@@ -98,6 +107,11 @@ import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
+import { CashSession } from '@/entities/cash-session.entity'
+import { CashCountLine } from '@/entities/cash-count-line.entity'
+import { CashMovement } from '@/entities/cash-movement.entity'
+import { FiscalYear } from '@/entities/fiscal-year.entity'
+import { AccountingPeriod } from '@/entities/accounting-period.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -133,6 +147,9 @@ import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { DepositsService } from '@/modules/savings/services/savings.service'
+import { CashSessionsService } from '@/modules/cash-sessions/services/cash-sessions.service'
+import { FiscalYearsService } from '@/modules/fiscal/fiscal-years.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import {
   SYNC_BATCH_MAX_OPERATIONS,
@@ -536,6 +553,9 @@ export class SyncService {
     private readonly inventoryService: InventoryService,
     private readonly salesService: SalesService,
     private readonly savingsService: DepositsService,
+    private readonly cashSessionsService: CashSessionsService,
+    private readonly fiscalYearsService: FiscalYearsService,
+    private readonly calendar: BusinessCalendarService,
     private readonly quotaService: QuotaService,
     private readonly slugService: SlugService,
     private readonly skuService: SkuService,
@@ -544,6 +564,7 @@ export class SyncService {
     @InjectQueue(SYNC_BATCHES_QUEUE)
     private readonly queue: Queue,
     private readonly realtime: SyncRealtimeService,
+    private readonly dispatcher: NotificationDispatcher,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('SyncService')
@@ -1010,6 +1031,8 @@ export class SyncService {
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
+      const cashData = await this.cashSessionsService.findByBusiness(businessId, since, pulledAt)
+      const fiscalData = await this.fiscalYearsService.findByBusiness(businessId, since, pulledAt)
 
       const restockQuantityMap = new Map(
         inventoryMovements
@@ -1098,6 +1121,13 @@ export class SyncService {
         ),
         savingsTransactions: savingsData.transactions.map((record) =>
           this.toSavingsTransactionSyncRecord(record),
+        ),
+        cashSessions: cashData.sessions.map((record) => this.toCashSessionSyncRecord(record)),
+        cashCountLines: cashData.countLines.map((record) => this.toCashCountLineSyncRecord(record)),
+        cashMovements: cashData.movements.map((record) => this.toCashMovementSyncRecord(record)),
+        fiscalYears: fiscalData.fiscalYears.map((record) => this.toFiscalYearSyncRecord(record)),
+        accountingPeriods: fiscalData.periods.map((record) =>
+          this.toAccountingPeriodSyncRecord(record),
         ),
         attributeGroups: attributeGroups.map((record) => ({
           id: record.id,
@@ -1252,6 +1282,7 @@ export class SyncService {
           status: record.status,
           currency: record.currency,
           createdById: record.createdById ?? null,
+          businessDate: record.businessDate ?? null,
           createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
           updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
           isDeleted: record.deletedAt != null,
@@ -1296,6 +1327,7 @@ export class SyncService {
           totalAmount: record.totalAmount,
           sentAt: iso(record.sentAt),
           createdById: record.createdById ?? null,
+          businessDate: record.businessDate ?? null,
           createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
           updatedAt: iso(record.updatedAt) ?? new Date(0).toISOString(),
           isDeleted: record.deletedAt != null,
@@ -1544,6 +1576,11 @@ export class SyncService {
       expense: (b, o) => this.applyExpenseOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
+      fiscal_year: () => this.applyFiscalYearOperation(),
+      accounting_period: (b, o) => this.applyAccountingPeriodOperation(b, o),
+      cash_session: (b, o) => this.applyCashSessionOperation(b, o),
+      cash_count_line: (b, o) => this.applyCashCountLineOperation(b, o),
+      cash_movement: (b, o) => this.applyCashMovementOperation(b, o),
     }
   }
 
@@ -2228,6 +2265,8 @@ export class SyncService {
       (await this.inventoryMovementsRepo.count({ where: { businessId, productId } })) > 0
     const type =
       change > 0 && !hasHistory ? MovementType.OPENING_STOCK : MovementType.MANUAL_ADJUSTMENT
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(businessId, createdAt)
     await this.inventoryMovementsRepo.save(
       this.inventoryMovementsRepo.create({
         businessId,
@@ -2241,6 +2280,7 @@ export class SyncService {
         referenceId,
         notes,
         performedById: null,
+        businessDate,
         createdAt,
       }),
     )
@@ -2678,6 +2718,7 @@ export class SyncService {
       status?: string
       currency?: string
       createdById?: string | null
+      businessDate?: string | null
       createdAt?: string
       items?: Array<{
         id: string
@@ -2707,6 +2748,13 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
     } else {
+      const rfqCreatedAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        rfqCreatedAt,
+        payload.businessDate,
+      )
       await this.rfqsRepo.save(
         this.rfqsRepo.create({
           id: operation.recordId,
@@ -2717,7 +2765,8 @@ export class SyncService {
           status: (payload.status as RfqStatus) ?? RfqStatus.DRAFT,
           currency: payload.currency ?? 'XAF',
           createdById: payload.createdById ?? null,
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate,
+          createdAt: rfqCreatedAt,
           updatedAt: operation.recordUpdatedAt,
         }),
       )
@@ -2785,6 +2834,7 @@ export class SyncService {
       totalAmount?: number
       sentAt?: string | null
       createdById?: string | null
+      businessDate?: string | null
       createdAt?: string
       items?: Array<{
         id: string
@@ -2813,6 +2863,13 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
     } else {
+      const poCreatedAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        poCreatedAt,
+        payload.businessDate,
+      )
       await this.purchaseOrdersRepo.save(
         this.purchaseOrdersRepo.create({
           id: operation.recordId,
@@ -2829,7 +2886,8 @@ export class SyncService {
           totalAmount: payload.totalAmount ?? 0,
           sentAt: this.parseOptionalDate(payload.sentAt) ?? null,
           createdById: payload.createdById ?? null,
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate,
+          createdAt: poCreatedAt,
           updatedAt: operation.recordUpdatedAt,
         }),
       )
@@ -2905,6 +2963,13 @@ export class SyncService {
       return { status: 'applied' }
     }
 
+    // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+    const businessDate = await this.calendar.resolveForSync(
+      businessId,
+      payload.asOfDate,
+      payload.businessDate,
+    )
+
     await this.openingBalancesRepo.save(
       this.openingBalancesRepo.create({
         id: operation.recordId,
@@ -2915,6 +2980,7 @@ export class SyncService {
         asOfDate: payload.asOfDate,
         notes: this.normalizeOptionalString(payload.notes),
         recordedById: this.normalizeOptionalString(payload.recordedById),
+        businessDate,
         createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
         updatedAt: operation.recordUpdatedAt,
       }),
@@ -3405,6 +3471,14 @@ export class SyncService {
         updatedAt: operation.recordUpdatedAt,
       })
 
+      const movementCreatedAt =
+        this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        movementCreatedAt,
+        payload.businessDate,
+      )
       await movementRepo.save(
         movementRepo.create({
           id: operation.recordId,
@@ -3419,7 +3493,8 @@ export class SyncService {
           referenceId: variantId ?? payload.productId,
           notes: payload.notes.trim(),
           performedById: null,
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate,
+          createdAt: movementCreatedAt,
         }),
       )
 
@@ -3484,7 +3559,11 @@ export class SyncService {
       }
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    // Money in: sum payments newly seen on this apply so the owner can be notified once the
+    // txn commits (BIZ-4 payment producer). Desktop re-syncs the full debt state, so
+    // comparing against the DB's existing payment ids keeps this idempotent.
+    let freshReceivablePaid = 0
+    const result = await this.dataSource.transaction(async (manager) => {
       const debtsRepo = manager.getRepository(Debt)
       const paymentsRepo = manager.getRepository(DebtPayment)
       const fallbackUserId = await this.resolveContactCreatedById(businessId, null)
@@ -3540,6 +3619,14 @@ export class SyncService {
           ? this.normalizeOptionalString(payload.writtenOffReason)
           : null
 
+      const debtCreatedAt = this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const debtBusinessDate = await this.calendar.resolveForSync(
+        businessId,
+        debtCreatedAt,
+        payload.businessDate,
+      )
+
       const debt = await debtsRepo.save(
         debtsRepo.create({
           id: existing?.id,
@@ -3554,7 +3641,8 @@ export class SyncService {
           status,
           dueDate: payload.dueDate ?? null,
           notes: this.normalizeOptionalString(payload.notes),
-          createdAt: this.parseOptionalDate(payload.createdAt) ?? operation.recordUpdatedAt,
+          businessDate: debtBusinessDate,
+          createdAt: debtCreatedAt,
           updatedAt: operation.recordUpdatedAt,
           settledAt,
           writtenOffAt,
@@ -3565,6 +3653,7 @@ export class SyncService {
 
       const existingPayments = existing?.payments ?? []
       const nextPaymentIds = new Set((payload.payments ?? []).map((payment) => payment.id))
+      const existingPaymentIds = new Set(existingPayments.map((payment) => payment.id))
       const stalePaymentIds = existingPayments
         .filter((payment) => !nextPaymentIds.has(payment.id))
         .map((payment) => payment.id)
@@ -3574,6 +3663,16 @@ export class SyncService {
       }
 
       for (const payment of payload.payments ?? []) {
+        if (!existingPaymentIds.has(payment.id) && payload.direction === DebtDirection.RECEIVABLE) {
+          freshReceivablePaid += this.normalizeMoney(payment.amount)
+        }
+        const paymentCreatedAt =
+          this.parseOptionalDate(payment.createdAt) ?? operation.recordUpdatedAt
+        const paymentBusinessDate = await this.calendar.resolveForSync(
+          businessId,
+          payment.paymentDate,
+          payment.businessDate,
+        )
         await paymentsRepo.save(
           paymentsRepo.create({
             id: payment.id,
@@ -3585,13 +3684,51 @@ export class SyncService {
             paymentDate: payment.paymentDate,
             notes: this.normalizeOptionalString(payment.notes),
             recordedById: this.normalizeOptionalString(payment.recordedById) ?? fallbackUserId,
-            createdAt: this.parseOptionalDate(payment.createdAt) ?? operation.recordUpdatedAt,
+            businessDate: paymentBusinessDate,
+            createdAt: paymentCreatedAt,
           }),
         )
       }
 
       return { status: 'applied' as const }
     })
+
+    if (freshReceivablePaid > 0) {
+      void this.notifyPaymentReceived(businessId, payload.contactId, freshReceivablePaid)
+    }
+    return result
+  }
+
+  /** PAYMENT_RECEIVED for a customer's new receivable payment synced from a device. Copy in
+   *  the owner's language; routed through the notification control plane. Fire-and-forget. */
+  private async notifyPaymentReceived(
+    businessId: string,
+    contactId: string,
+    amount: number,
+  ): Promise<void> {
+    try {
+      const [business, contact] = await Promise.all([
+        this.businessesRepo.findOne({ where: { id: businessId }, relations: ['owner'] }),
+        this.contactsRepo.findOne({ where: { id: contactId, businessId }, select: ['id', 'name'] }),
+      ])
+      const en = business?.owner?.language === Locale.EN
+      const value = `${amount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      const name = contact?.name ?? ''
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.PAYMENT_RECEIVED,
+        title: en ? 'Payment received' : 'Paiement reçu',
+        body: en ? `${value} received from ${name}.` : `${value} reçu de ${name}.`,
+        deeplink: APP_ROUTES.contact(contactId),
+        metadata: { contactId, amount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch payment-received (sync)', 'SyncService', {
+        businessId,
+        contactId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   private async applyExpenseOperation(
@@ -3676,6 +3813,108 @@ export class SyncService {
     }
 
     return payload as unknown as SavingsAccountSyncPayload
+  }
+
+  private async applyCashSessionOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return { status: 'failed', errorMessage: 'Deleting synced cash sessions is not supported.' }
+    }
+    const payload = this.readCashSessionPayload(operation.payload)
+    await this.cashSessionsService.applyCashSessionOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private async applyCashCountLineOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced cash count lines is not supported.',
+      }
+    }
+    const payload = this.readCashCountLinePayload(operation.payload)
+    await this.cashSessionsService.applyCashCountLineOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private readCashSessionPayload(payload: Record<string, unknown> | null): CashSessionSyncRecord {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Cash session sync payload is required.',
+        'SYNC_CASH_SESSION_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as unknown as CashSessionSyncRecord
+  }
+
+  private readCashCountLinePayload(
+    payload: Record<string, unknown> | null,
+  ): CashCountLineSyncRecord {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Cash count line sync payload is required.',
+        'SYNC_CASH_COUNT_LINE_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as unknown as CashCountLineSyncRecord
+  }
+
+  private async applyCashMovementOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return { status: 'failed', errorMessage: 'Deleting synced cash movements is not supported.' }
+    }
+    const payload = this.readCashMovementPayload(operation.payload)
+    await this.cashSessionsService.applyCashMovementOperation(businessId, payload)
+    return { status: 'applied' }
+  }
+
+  private readCashMovementPayload(payload: Record<string, unknown> | null): CashMovementSyncRecord {
+    if (!payload || typeof payload !== 'object') {
+      throw new AppBadRequestException(
+        'Cash movement sync payload is required.',
+        'SYNC_CASH_MOVEMENT_PAYLOAD_REQUIRED',
+      )
+    }
+    return payload as unknown as CashMovementSyncRecord
+  }
+
+  // Fiscal years are generated server-side and sync DOWN only; a device never pushes them, so
+  // this is a defensive no-op (BIZ-5.2).
+  private async applyFiscalYearOperation(): Promise<BatchProcessingResult> {
+    return { status: 'applied' }
+  }
+
+  // Accounting periods are generated server-side; the only thing a device pushes back is a status
+  // change (BIZ-5.3 close). applyPeriodStatusFromSync only ever UPDATES an existing period.
+  private async applyAccountingPeriodOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced accounting periods is not supported.',
+      }
+    }
+    if (!operation.payload || typeof operation.payload !== 'object') {
+      throw new AppBadRequestException(
+        'Accounting period sync payload is required.',
+        'SYNC_ACCOUNTING_PERIOD_PAYLOAD_REQUIRED',
+      )
+    }
+    await this.fiscalYearsService.applyPeriodStatusFromSync(
+      businessId,
+      operation.payload as unknown as AccountingPeriodSyncRecord,
+    )
+    return { status: 'applied' }
   }
 
   private readSavingsTransactionPayload(
@@ -4247,6 +4486,7 @@ export class SyncService {
       asOfDate: record.asOfDate,
       notes: record.notes ?? null,
       recordedById: record.recordedById ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       isDeleted: false,
@@ -4353,6 +4593,7 @@ export class SyncService {
       notes: record.notes ?? null,
       performedById: record.performedById ?? null,
       performedByName: record.performedBy?.name ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
@@ -4373,6 +4614,7 @@ export class SyncService {
       totalCost: record.totalCost ?? null,
       notes: record.notes ?? null,
       performedById: record.performedById ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
@@ -4427,7 +4669,9 @@ export class SyncService {
       notes: record.notes ?? null,
       priceDriftWarning: record.priceDriftWarning,
       saleDate: record.saleDate,
+      businessDate: record.businessDate ?? null,
       soldAt: record.soldAt.toISOString(),
+      cashSessionId: record.cashSessionId ?? null,
       syncedAt: record.syncedAt?.toISOString() ?? null,
       voidedAt: record.voidedAt?.toISOString() ?? null,
       voidedById: record.voidedById ?? null,
@@ -4480,6 +4724,7 @@ export class SyncService {
       recordedAt: record.recordedAt?.toISOString() ?? null,
       recordedById: record.recordedById ?? null,
       note: record.note ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
@@ -4564,6 +4809,7 @@ export class SyncService {
       writtenOffAt: record.writtenOffAt?.toISOString() ?? null,
       writtenOffById: record.writtenOffById ?? null,
       writtenOffReason: record.writtenOffReason ?? null,
+      businessDate: record.businessDate ?? null,
       payments: payments.map((payment) => this.toDebtPaymentSyncPayload(payment)),
       deletedAt: null,
       isDeleted: false,
@@ -4579,6 +4825,7 @@ export class SyncService {
       paymentDate: payment.paymentDate,
       notes: payment.notes ?? null,
       recordedById: payment.recordedById,
+      businessDate: payment.businessDate ?? null,
       createdAt: payment.createdAt.toISOString(),
     }
   }
@@ -4599,6 +4846,7 @@ export class SyncService {
       status: record.status ?? 'PAID',
       paymentMethod: record.paymentMethod ?? null,
       receiptUrl: record.receiptUrl ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -4617,6 +4865,9 @@ export class SyncService {
       name: record.user?.name ?? null,
       email: record.user?.email ?? null,
       phone: record.user?.phone ?? null,
+      pinHash: record.pinHash ?? null,
+      pinVersion: record.pinVersion ?? 0,
+      pinSetAt: record.pinSetAt ? record.pinSetAt.toISOString() : null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: null,
@@ -4632,6 +4883,12 @@ export class SyncService {
       description: record.description ?? null,
       isSystem: record.isSystem,
       isOwnerRole: record.isOwnerRole,
+      canAuthorize: record.canAuthorize ?? false,
+      tracksCashDrawer: record.tracksCashDrawer ?? false,
+      maxDiscountPercent: record.maxDiscountPercent ?? null,
+      maxCartDiscountPercent: record.maxCartDiscountPercent ?? null,
+      maxDiscountAmountXaf: record.maxDiscountAmountXaf ?? null,
+      allowBelowCost: record.allowBelowCost ?? false,
       colour: record.colour ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
@@ -4659,6 +4916,7 @@ export class SyncService {
       closedById: record.closedById ?? null,
       transferredToId: record.transferredToId ?? null,
       taggedProducts: record.taggedProducts ?? null,
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,
@@ -4680,10 +4938,116 @@ export class SyncService {
       notes: record.notes ?? null,
       recordedById: record.recordedById ?? null,
       occurredAt: record.occurredAt.toISOString(),
+      businessDate: record.businessDate ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,
       isDeleted: record.isDeleted,
+    }
+  }
+
+  private toCashSessionSyncRecord(record: CashSession): CashSessionSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      outletId: record.outletId ?? null,
+      businessDate: record.businessDate ?? null,
+      deviceId: record.deviceId,
+      userId: record.userId,
+      status: record.status,
+      openedAt: record.openedAt.toISOString(),
+      closedAt: record.closedAt?.toISOString() ?? null,
+      openingFloat: record.openingFloat,
+      expectedCash: record.expectedCash ?? null,
+      countedCash: record.countedCash ?? null,
+      varianceCash: record.varianceCash ?? null,
+      expectedMtnMomo: record.expectedMtnMomo ?? null,
+      confirmedMtnMomo: record.confirmedMtnMomo ?? null,
+      expectedOrangeMoney: record.expectedOrangeMoney ?? null,
+      confirmedOrangeMoney: record.confirmedOrangeMoney ?? null,
+      creditIssued: record.creditIssued,
+      discountTotal: record.discountTotal,
+      salesCount: record.salesCount,
+      voidCount: record.voidCount,
+      closedReason: record.closedReason ?? null,
+      recountUsed: record.recountUsed,
+      closingNote: record.closingNote ?? null,
+      varianceReason: record.varianceReason ?? null,
+      varianceNote: record.varianceNote ?? null,
+      reviewedBy: record.reviewedBy ?? null,
+      reviewedAt: record.reviewedAt?.toISOString() ?? null,
+      reviewNote: record.reviewNote ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toCashCountLineSyncRecord(record: CashCountLine): CashCountLineSyncRecord {
+    return {
+      id: record.id,
+      cashSessionId: record.cashSessionId,
+      denomination: record.denomination,
+      quantity: record.quantity,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toCashMovementSyncRecord(record: CashMovement): CashMovementSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      cashSessionId: record.cashSessionId,
+      userId: record.userId,
+      kind: record.kind,
+      direction: record.direction,
+      amount: record.amount,
+      note: record.note ?? null,
+      referenceType: record.referenceType ?? null,
+      referenceId: record.referenceId ?? null,
+      businessDate: record.businessDate ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toFiscalYearSyncRecord(record: FiscalYear): FiscalYearSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      year: record.year,
+      label: record.label,
+      startMonth: record.startMonth,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toAccountingPeriodSyncRecord(record: AccountingPeriod): AccountingPeriodSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      fiscalYearId: record.fiscalYearId,
+      periodNumber: record.periodNumber,
+      label: record.label,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      status: record.status,
+      closedAt: record.closedAt?.toISOString() ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
     }
   }
 

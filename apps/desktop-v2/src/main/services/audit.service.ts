@@ -18,6 +18,8 @@ export interface AuditEntry {
   entityId: string
   entityLabel?: string | null
   changes?: { before: unknown; after: unknown } | null
+  /** Money impact in whole XAF (BIZ-2.7), or null/absent when the event moves no money. */
+  amount?: number | null
 }
 
 /** Minimal logger surface other services depend on (keeps them decoupled). */
@@ -31,10 +33,15 @@ interface AuditRow {
   entity_type: string
   entity_id: string
   entity_label: string | null
+  actor_id: string | null
   actor_name: string | null
   actor_role: string | null
   changes: string | null
+  amount: number | null
+  sequence: number | null
   created_at: string
+  device_time: string | null
+  server_time: string | null
 }
 
 /**
@@ -53,11 +60,21 @@ export class AuditService implements AuditLogger {
     try {
       const ctx = this.getContext()
       if (!ctx.businessId) return
+      // device_time = this device's clock (same as created_at on-device); server_time stays
+      // NULL until the server ingests the row (BIZ-2.7 / the audit bridge in a later phase).
+      const now = new Date().toISOString()
+      // Monotonic per-device counter (BIZ-2.9) — MAX+1 for this device (better-sqlite3 is
+      // synchronous/single-threaded, so no race). A gap later reveals a dropped/tampered row.
+      const seqRow = this.db.get<{ n: number }>(
+        `SELECT COALESCE(MAX(sequence), 0) + 1 AS n FROM local_audit_logs WHERE device_id IS ?`,
+        [ctx.deviceId],
+      )
       this.db.run(
         `INSERT INTO local_audit_logs
           (id, business_id, actor_id, actor_type, actor_name, actor_role, action,
-           entity_type, entity_id, entity_label, changes, device_id, created_at, synced_at)
-         VALUES (?, ?, ?, 'USER', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+           entity_type, entity_id, entity_label, changes, device_id, amount, sequence, created_at,
+           device_time, server_time, synced_at)
+         VALUES (?, ?, ?, 'USER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
         [
           randomUUID(),
           ctx.businessId,
@@ -70,7 +87,10 @@ export class AuditService implements AuditLogger {
           entry.entityLabel ?? null,
           entry.changes ? JSON.stringify(entry.changes) : null,
           ctx.deviceId,
-          new Date().toISOString(),
+          entry.amount ?? null,
+          seqRow?.n ?? 1,
+          now,
+          now,
         ],
       )
     } catch {
@@ -80,7 +100,8 @@ export class AuditService implements AuditLogger {
 
   list(query: AuditListQuery = {}): PaginatedResult<LocalAuditLog> {
     const ctx = this.getContext()
-    if (!ctx.businessId) return toPaginated<LocalAuditLog>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+    if (!ctx.businessId)
+      return toPaginated<LocalAuditLog>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
 
     let where = 'business_id = ?'
     const params: unknown[] = [ctx.businessId]
@@ -96,12 +117,25 @@ export class AuditService implements AuditLogger {
       where += ' AND action = ?'
       params.push(query.action)
     }
+    if (query.actorId) {
+      where += ' AND actor_id = ?'
+      params.push(query.actorId)
+    }
+    if (query.dateFrom) {
+      where += ' AND created_at >= ?'
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      where += ' AND created_at <= ?'
+      params.push(query.dateTo)
+    }
 
     const { rows, ...meta } = paginateRows<AuditRow>(
       this.db,
       {
         from: 'local_audit_logs',
-        columns: 'id, action, entity_type, entity_id, entity_label, actor_name, actor_role, changes, created_at',
+        columns:
+          'id, action, entity_type, entity_id, entity_label, actor_id, actor_name, actor_role, changes, amount, sequence, created_at, device_time, server_time',
         where,
         params,
         searchColumns: ['entity_label', 'actor_name'],
@@ -119,10 +153,15 @@ export class AuditService implements AuditLogger {
         entityType: r.entity_type,
         entityId: r.entity_id,
         entityLabel: r.entity_label,
+        actorId: r.actor_id,
         actorName: r.actor_name,
         actorRole: r.actor_role,
         changes: r.changes ? (JSON.parse(r.changes) as LocalAuditLog['changes']) : null,
+        amount: r.amount,
+        sequence: r.sequence,
         createdAt: r.created_at,
+        deviceTime: r.device_time,
+        serverTime: r.server_time,
       })),
       meta,
     )

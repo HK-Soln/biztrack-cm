@@ -28,14 +28,20 @@ export class ContactOpeningBalance extends TypeOrmBaseEntity {
   businessId!: string
 
   @ManyToOne(() => Business, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'business_id', foreignKeyConstraintName: 'fk_contact_opening_balances_business_id' })
+  @JoinColumn({
+    name: 'business_id',
+    foreignKeyConstraintName: 'fk_contact_opening_balances_business_id',
+  })
   business?: Business
 
   @Column({ name: 'contact_id' })
   contactId!: string
 
   @ManyToOne(() => Contact, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'contact_id', foreignKeyConstraintName: 'fk_contact_opening_balances_contact_id' })
+  @JoinColumn({
+    name: 'contact_id',
+    foreignKeyConstraintName: 'fk_contact_opening_balances_contact_id',
+  })
   contact?: Contact
 
   @Column({ type: 'varchar' })
@@ -59,7 +65,10 @@ export class ContactOpeningBalance extends TypeOrmBaseEntity {
   recordedById?: string | null
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'NO ACTION' })
-  @JoinColumn({ name: 'recorded_by', foreignKeyConstraintName: 'fk_contact_opening_balances_recorded_by' })
+  @JoinColumn({
+    name: 'recorded_by',
+    foreignKeyConstraintName: 'fk_contact_opening_balances_recorded_by',
+  })
   recordedBy?: User | null
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz', transformer: dateTransformer })
@@ -67,4 +76,8 @@ export class ContactOpeningBalance extends TypeOrmBaseEntity {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz', transformer: dateTransformer })
   updatedAt!: Date
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

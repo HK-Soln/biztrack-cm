@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { LocalOpeningBalance, OpeningBalanceInput } from '../../shared/ipc'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 interface OpeningBalanceRow {
@@ -66,9 +67,11 @@ export class OpeningBalancesService {
         [amount, asOfDate, input.notes ?? null, recordedById, now, id],
       )
     } else {
+      // Local trading day (BIZ-5.1) from the opening-balance date.
+      const businessDate = localBusinessDate(asOfDate)
       this.db.run(
-        `INSERT INTO contact_opening_balances (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO contact_opening_balances (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, business_date, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           businessId,
@@ -78,6 +81,7 @@ export class OpeningBalancesService {
           asOfDate,
           input.notes ?? null,
           recordedById,
+          businessDate,
           createdAt,
           now,
         ],

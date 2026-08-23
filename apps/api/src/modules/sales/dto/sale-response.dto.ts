@@ -420,6 +420,7 @@ export class SaleReceiptDto implements SaleReceipt {
       name: item.productName,
       qty: item.quantity,
       unitPrice: item.unitPrice,
+      unitPriceListed: item.unitPriceListed ?? null,
       total: item.lineTotal,
       discountAmount: item.discountAmount ?? 0,
     }))

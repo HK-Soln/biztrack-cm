@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Resource } from '@biztrack/types'
 import type {
+  AuditContext,
   DeadStockRow,
   InventoryAlert,
   InventoryDetail,
@@ -16,6 +17,7 @@ import type {
 import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
 import type { InventoryStats } from '@/common/stats/stock-stats'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
+import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { AdjustStockDto } from '../dto/adjust-stock.dto'
@@ -93,7 +95,10 @@ export class InventoryController {
     @CurrentUser() user: JwtPayload,
     @Query() query: ListInventoryMovementsQueryDto,
   ): Promise<InventoryTurnoverRow[]> {
-    return this.inventoryService.getInventoryTurnover(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+    return this.inventoryService.getInventoryTurnover(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   @Get('dead-stock')
@@ -108,9 +113,7 @@ export class InventoryController {
   @Get('supplier-price-trend')
   @RequireResource(Resource.INVENTORY_VIEW)
   @ApiOperation({ summary: 'Restock unit-cost trend per product (current / ~3mo / ~6mo)' })
-  async getSupplierPriceTrend(
-    @CurrentUser() user: JwtPayload,
-  ): Promise<SupplierPriceRow[]> {
+  async getSupplierPriceTrend(@CurrentUser() user: JwtPayload): Promise<SupplierPriceRow[]> {
     return this.inventoryService.getSupplierPriceTrend(user.businessId as string)
   }
 
@@ -164,10 +167,17 @@ export class InventoryController {
     @CurrentUser() user: JwtPayload,
     @Param('productId') productId: string,
     @Body() dto: AdjustStockDto,
+    @CurrentAuditContext() context: AuditContext,
   ): Promise<InventoryDetail> {
     return serializeDto(
       InventoryDetailDto.fromModel(
-        await this.inventoryService.adjust(productId, user.businessId as string, user.sub, dto),
+        await this.inventoryService.adjust(
+          productId,
+          user.businessId as string,
+          user.sub,
+          dto,
+          context,
+        ),
       ),
     )
   }

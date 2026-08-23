@@ -113,20 +113,19 @@ export const cloudDocuments = {
   },
 
   /**
-   * Browser fallback for sharing a generated document. Web cannot attach a rendered PDF
-   * to a wa.me/mailto link, so open the document in a print window (to save/attach
-   * manually) AND open the chosen channel pre-filled with the message.
+   * Send a generated document (e.g. a statement) to the recipient as a PDF — the server
+   * renders + dispatches via Resend/WAHA. The caller (DocumentShareDialog) falls back to
+   * download when the browser is offline.
    */
   shareHtmlPdf: async (input: ShareHtmlPdfInput): Promise<void> => {
-    printHtml(input.html)
-    if (input.channel === 'whatsapp') {
-      const phone = (input.phone ?? '').replace(/[^\d]/g, '')
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(input.message)}`
-      window.open(url, '_blank', 'noopener')
-    } else {
-      const subject = encodeURIComponent(input.subject ?? input.filename)
-      const body = encodeURIComponent(input.message)
-      window.open(`mailto:${input.email ?? ''}?subject=${subject}&body=${body}`, '_blank', 'noopener')
-    }
+    await cpost('/documents/send', {
+      html: input.html,
+      filename: input.filename,
+      message: input.message,
+      subject: input.subject ?? input.filename,
+      channel: input.channel,
+      phone: input.channel === 'whatsapp' ? (input.phone ?? null) : null,
+      email: input.channel === 'email' ? (input.email ?? null) : null,
+    })
   },
 }

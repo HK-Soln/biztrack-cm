@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, TABS, filterNav, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { useCanManage } from '@/lib/useCanManage'
+import { useResourcePredicate } from '@/lib/entitlements'
 import { useSyncStatus } from '@/lib/useSyncStatus'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useThemeStore } from '@/stores/theme.store'
@@ -12,6 +14,9 @@ import { useSessionStore } from '@/stores/session.store'
 import { isWindows, syncTitleBarOverlay } from '@/lib/titlebar'
 import { BrandMark } from '@biztrack/ui/biztrack'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { ShiftChip } from '@/components/layout/ShiftChip'
+import { StartShiftPrompt } from '@/components/layout/StartShiftPrompt'
+import { StaleShiftRecovery } from '@/components/layout/StaleShiftRecovery'
 import { NotificationToasts } from '@/components/notifications/NotificationToasts'
 import { useNotificationsStore } from '@/stores/notifications.store'
 
@@ -176,6 +181,8 @@ function Sidebar({
 }) {
   const t = useT()
   const isOwner = (useSessionStore((s) => s.status.user?.role) ?? '').toUpperCase() === 'OWNER'
+  const canManage = useCanManage()
+  const hasResource = useResourcePredicate()
   return (
     <aside className={`sidebar${rail ? ' rail' : ''}`}>
       {collapsible ? (
@@ -209,7 +216,7 @@ function Sidebar({
       ) : null}
       <div className="nav-sec">{t('nav.workspace')}</div>
       <nav className="nav">
-        {filterNav(isOwner).map((entry, i) =>
+        {filterNav(isOwner, canManage, hasResource).map((entry, i) =>
           isGroup(entry) ? (
             <NavGroup key={`g${i}`} entry={entry} rail={rail} />
           ) : (
@@ -390,6 +397,7 @@ function TopBar() {
       </button>
       <PlanChip now={now} />
       <div className="tb-right">
+        {isElectron && <ShiftChip />}
         {isElectron && <SyncIndicator />}
         <NotificationBell />
         <LanguageToggle />
@@ -655,6 +663,11 @@ export function AppShell() {
     return off
   }, [])
 
+  // OS deep links (biztrack:// → this window, N7): the main process forwards the route path;
+  // navigate to it. No-op in the browser build (it's already the deeplink target).
+  const navigate = useNavigate()
+  useEffect(() => dataClient.deeplink.onNavigate((path) => navigate(path)), [navigate])
+
   if (bp === 'mobile') {
     // Some routes render their own full-bleed header (home's m-hero, Sell's m-head),
     // so they own the top of the screen — suppress the generic mobile top bar there.
@@ -706,6 +719,8 @@ export function AppShell() {
         </div>
       </div>
       <NotificationToasts />
+      <StaleShiftRecovery />
+      <StartShiftPrompt />
     </div>
   )
 }

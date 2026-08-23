@@ -5,6 +5,8 @@ import { Contact } from '@/entities/contact.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { Debt } from '@/entities/debt.entity'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
+import { NotificationsModule } from '@/modules/notifications/notifications.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { ContactsController } from './controllers/contacts.controller'
 import { CreditorsController } from './controllers/creditors.controller'
 import { DebtorsController } from './controllers/debtors.controller'
@@ -13,7 +15,12 @@ import { DebtsService } from './services/debts.service'
 import { OpeningBalancesService } from './services/opening-balances.service'
 
 @Module({
-  imports: [PermissionsModule, TypeOrmModule.forFeature([Contact, Debt, DebtPayment, ContactOpeningBalance])],
+  imports: [
+    PermissionsModule,
+    NotificationsModule,
+    BusinessCalendarModule,
+    TypeOrmModule.forFeature([Contact, Debt, DebtPayment, ContactOpeningBalance]),
+  ],
   controllers: [ContactsController, DebtorsController, CreditorsController],
   providers: [ContactsService, DebtsService, OpeningBalancesService],
   exports: [ContactsService, DebtsService, OpeningBalancesService],

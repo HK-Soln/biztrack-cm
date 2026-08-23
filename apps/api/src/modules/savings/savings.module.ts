@@ -6,11 +6,13 @@ import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import { SavingsController } from './controllers/savings.controller'
 import { DepositsService } from './services/savings.service'
 import { PermissionsModule } from '../permissions/permissions.module'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([CustomerDeposit, DepositTransaction, Business]),
     PermissionsModule,
+    BusinessCalendarModule,
   ],
   controllers: [SavingsController],
   providers: [DepositsService],

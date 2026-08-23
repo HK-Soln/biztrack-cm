@@ -8,7 +8,9 @@ import {
   DebtSource,
   DebtStatus,
   ContactStatementEntryType,
+  NotificationType,
   PaymentMethod,
+  clampCreditDays,
   type ContactStatement,
   type Debt,
   type DebtDirectionSummary,
@@ -17,6 +19,7 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
+import { APP_ROUTES, effectiveDueDate } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -27,9 +30,13 @@ import {
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
 import { toIsoString } from '@/common/http/serialization'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
+import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { Debt as DebtEntity } from '@/entities/debt.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import type { RecordDebtPaymentDto } from '../dto/record-debt-payment.dto'
@@ -72,7 +79,9 @@ export class DebtsService {
     @InjectRepository(Contact)
     private readonly contactsRepo: Repository<Contact>,
     private readonly openingBalancesService: OpeningBalancesService,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
+    private readonly dispatcher: NotificationDispatcher,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('DebtsService')
@@ -214,6 +223,42 @@ export class DebtsService {
     }
   }
 
+  /** Set (or clear) a debt's expected payment date. Clearing falls the ageing/reminders
+   *  back to created_at + the business's default credit period (D9). Opening balances have
+   *  no due-date semantics and are rejected. */
+  async updateDueDate(
+    businessId: string,
+    _user: JwtPayload,
+    direction: DebtDirection,
+    debtId: string,
+    dueDate: string | null,
+  ): Promise<Debt> {
+    try {
+      const normalized = this.normalizeOptionalString(dueDate)
+      if (normalized) this.assertDateOnly(normalized)
+
+      const debt = await this.debtsRepo.findOne({ where: { id: debtId, businessId, direction } })
+      if (!debt) {
+        throw new AppNotFoundException(
+          await this.i18n.translate('errors.debt_not_found' as never),
+          'DEBT_NOT_FOUND',
+        )
+      }
+      if (debt.sourceType === DebtSource.OPENING_BALANCE) {
+        throw new AppBadRequestException(
+          'Opening-balance debts have no due date.',
+          'DEBT_DUE_DATE_LOCKED',
+        )
+      }
+
+      debt.dueDate = normalized
+      await this.debtsRepo.save(debt)
+      return this.findById(debtId, businessId, direction)
+    } catch (error) {
+      return this.handleServiceError('updateDueDate', error, { debtId, businessId })
+    }
+  }
+
   async recordPayment(
     businessId: string,
     user: JwtPayload,
@@ -269,6 +314,8 @@ export class DebtsService {
           )
         }
 
+        // Local trading day this collection lands on (BIZ-5.1).
+        const businessDate = await this.calendar.computeForBusiness(businessId, dto.paymentDate)
         await paymentRepo.save(
           paymentRepo.create({
             businessId,
@@ -279,19 +326,58 @@ export class DebtsService {
             paymentDate: dto.paymentDate,
             notes: this.normalizeOptionalString(dto.notes),
             recordedById: user.sub,
+            businessDate,
           }),
         )
 
         await this.recalculateStatus(debt.id, manager)
       })
 
-      return this.findById(debtId, businessId, direction)
+      const result = await this.findById(debtId, businessId, direction)
+      // Money in: notify the owner when a customer settles a receivable (BIZ-4 payment
+      // producer). Fire-and-forget — a notification hiccup must not fail the payment.
+      if (direction === DebtDirection.RECEIVABLE) {
+        void this.notifyPaymentReceived(businessId, result, this.roundMoney(dto.amount))
+      }
+      return result
     } catch (error) {
       return this.handleServiceError('recordPayment', error, {
         debtId,
         businessId,
         direction,
         userId: user.sub,
+      })
+    }
+  }
+
+  /** Dispatch a PAYMENT_RECEIVED notification when a customer settles a receivable. Copy is
+   *  in the owner's language; routed through the control plane (prefs + quiet hours). */
+  private async notifyPaymentReceived(
+    businessId: string,
+    debt: Debt,
+    amount: number,
+  ): Promise<void> {
+    try {
+      const business = await this.debtsRepo.manager.getRepository(Business).findOne({
+        where: { id: businessId },
+        relations: ['owner'],
+      })
+      const en = business?.owner?.language === Locale.EN
+      const value = `${amount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      const name = debt.contact?.name ?? ''
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.PAYMENT_RECEIVED,
+        title: en ? 'Payment received' : 'Paiement reçu',
+        body: en ? `${value} received from ${name}.` : `${value} reçu de ${name}.`,
+        deeplink: APP_ROUTES.contact(debt.contactId),
+        metadata: { debtId: debt.id, amount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch payment-received notification', 'DebtsService', {
+        businessId,
+        debtId: debt.id,
+        error: error instanceof Error ? error.message : String(error),
       })
     }
   }
@@ -355,6 +441,8 @@ export class DebtsService {
 
         const today = this.toDateOnly(new Date())
         const ref = `OFFSET-${today.replace(/-/g, '')}`
+        // Local trading day these contra payments land on (BIZ-5.1).
+        const businessDate = await this.calendar.computeForBusiness(businessId, today)
         let affected = 0
         const allocate = async (rows: { debt: DebtEntity; outstanding: number }[]) => {
           let remaining = offsetAmount
@@ -372,6 +460,7 @@ export class DebtsService {
                 paymentDate: today,
                 notes: ref,
                 recordedById: user.sub,
+                businessDate,
               }),
             )
             await this.recalculateStatus(debt.id, manager)
@@ -432,7 +521,44 @@ export class DebtsService {
           )
         }
 
-        await paymentRepo.delete(payment.id)
+        // BIZ-2.8: never destroy a financial record. "Deleting" a payment appends a reversing
+        // entry (a negative-amount row) that nets against the original via SUM(amount); both the
+        // original and the reversal stay on the ledger.
+        if (payment.amount <= 0) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.debt_payment_not_found' as never),
+            'DEBT_PAYMENT_ALREADY_REVERSAL',
+          )
+        }
+        const marker = `[REVERSAL:${payment.id}]`
+        const alreadyReversed = await paymentRepo
+          .createQueryBuilder('p')
+          .where('p.debt_id = :debtId', { debtId })
+          .andWhere('p.business_id = :businessId', { businessId })
+          .andWhere('p.notes LIKE :marker', { marker: `%${marker}%` })
+          .getOne()
+        if (alreadyReversed) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.debt_payment_not_found' as never),
+            'DEBT_PAYMENT_ALREADY_REVERSED',
+          )
+        }
+        // Local trading day the reversal lands on (BIZ-5.1).
+        const reversalDate = this.toDateOnly(new Date())
+        const businessDate = await this.calendar.computeForBusiness(businessId, reversalDate)
+        await paymentRepo.save(
+          paymentRepo.create({
+            businessId,
+            debtId: debt.id,
+            amount: -payment.amount,
+            method: payment.method,
+            mobileMoneyReference: payment.mobileMoneyReference ?? null,
+            paymentDate: reversalDate,
+            notes: `${marker}${payment.notes ? ` ${payment.notes}` : ''}`,
+            recordedById: user.sub,
+            businessDate,
+          }),
+        )
 
         if (debt.status !== DebtStatus.WRITTEN_OFF) {
           await this.recalculateStatus(debt.id, manager)
@@ -750,6 +876,25 @@ export class DebtsService {
       return existing
     }
 
+    const createdAt = params.createdAt ?? new Date()
+    // Every debt carries its own expected payment date (D9): the caller's explicit dueDate
+    // (e.g. the credit terms chosen at the point of sale), or a materialized fallback of
+    // created_at + the business's default credit period. Opening balances are excluded (no
+    // due-date semantics) — they never route through here.
+    let dueDate = this.normalizeOptionalString(params.dueDate)
+    if (!dueDate && params.sourceType !== DebtSource.OPENING_BALANCE) {
+      const business = await manager.getRepository(Business).findOne({
+        where: { id: params.businessId },
+        select: ['id', 'defaultCreditDays'],
+      })
+      dueDate = effectiveDueDate({ createdAt }, clampCreditDays(business?.defaultCreditDays))
+        .toISOString()
+        .slice(0, 10)
+    }
+
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(params.businessId, createdAt)
+
     return debtRepo.save(
       debtRepo.create({
         businessId: params.businessId,
@@ -760,10 +905,11 @@ export class DebtsService {
         sourceReference,
         originalAmount,
         status: DebtStatus.OUTSTANDING,
-        dueDate: params.dueDate ?? null,
+        dueDate,
         notes: this.normalizeOptionalString(params.notes),
-        createdAt: params.createdAt ?? new Date(),
-        updatedAt: params.createdAt ?? new Date(),
+        businessDate,
+        createdAt,
+        updatedAt: createdAt,
       }),
     )
   }
@@ -851,6 +997,9 @@ export class DebtsService {
     if (applied <= 0) return
 
     const paymentRepo = manager.getRepository(DebtPayment)
+    const paymentDate = params.paymentDate ?? this.toDateOnly(new Date())
+    // Local trading day this collection lands on (BIZ-5.1).
+    const businessDate = await this.calendar.computeForBusiness(params.businessId, paymentDate)
     await paymentRepo.save(
       paymentRepo.create({
         businessId: params.businessId,
@@ -860,9 +1009,10 @@ export class DebtsService {
         mobileMoneyReference: this.normalizeOptionalString(
           params.mobileMoneyReference ?? undefined,
         ),
-        paymentDate: params.paymentDate ?? this.toDateOnly(new Date()),
+        paymentDate,
         notes: this.normalizeOptionalString(params.notes ?? undefined),
         recordedById: params.recordedById ?? undefined,
+        businessDate,
       }),
     )
     await this.recalculateStatus(debt.id, manager)

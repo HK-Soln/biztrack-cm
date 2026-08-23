@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import type {
   AdjustInventoryRequest,
+  AuditContext,
   DeadStockRow,
   InventoryBinSummary,
   InventoryRestockSyncPayload,
@@ -28,6 +29,13 @@ import {
   SerialUnitStatus,
   StockAdjustmentType,
 } from '@biztrack/types'
+import {
+  REORDER_WINDOW_DAYS,
+  computeReorderVelocity,
+  computeStockoutMs,
+  type StockPoint,
+  type VelocityResult,
+} from '@biztrack/utils'
 import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -48,12 +56,14 @@ import { RestockDiscount } from '@/entities/restock-discount.entity'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockPayment } from '@/entities/restock-payment.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { PurchaseOrder } from '@/entities/purchase-order.entity'
 import { PurchaseOrderItem } from '@/entities/purchase-order-item.entity'
 import { Sale } from '@/entities/sale.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { DebtsService } from '@/modules/debts/services/debts.service'
+import { AuditService } from '@/modules/audit/audit.service'
 import type { InventoryLowStockAlertDigest } from '../constants/inventory.constants'
 import {
   stockExpr,
@@ -182,6 +192,8 @@ type RestockCreationInput = {
   performedById?: string | null
   createdAt: Date
   updatedAt?: Date | null
+  /** Local trading day hint (BIZ-5.1) from a syncing device; recomputed when absent. */
+  businessDate?: string | null
   payments?: RestockPaymentRequest[]
   charges?: RestockChargeLineRequest[]
   discounts?: RestockDiscountLineRequest[]
@@ -210,6 +222,8 @@ export class InventoryService {
     private readonly debtsService: DebtsService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
+    private readonly auditService: AuditService,
+    private readonly calendar: BusinessCalendarService,
   ) {
     this.logger.setContext('InventoryService')
   }
@@ -532,13 +546,21 @@ export class InventoryService {
     }
   }
 
-  async adjust(productId: string, businessId: string, userId: string, dto: AdjustInventoryRequest) {
+  async adjust(
+    productId: string,
+    businessId: string,
+    userId: string,
+    dto: AdjustInventoryRequest,
+    context?: AuditContext,
+  ) {
     try {
       this.validateAdjustment(dto)
       await this.requireTrackedProduct(productId, businessId)
       const variantId = dto.variantId ?? null
+      let auditBefore = 0
+      let auditAfter = 0
 
-      return this.dataSource.transaction(async (manager) => {
+      const result = await this.dataSource.transaction(async (manager) => {
         const inventoryRepo = manager.getRepository(InventoryLevel)
         const movementRepo = manager.getRepository(InventoryMovement)
         // Variant products track stock per (product, variant) level; direct products use the
@@ -555,6 +577,8 @@ export class InventoryService {
 
         const quantityBefore = Number(current.quantity)
         const quantityAfter = this.calculateAdjustedQuantity(quantityBefore, dto)
+        auditBefore = quantityBefore
+        auditAfter = quantityAfter
 
         if (quantityAfter < 0) {
           throw new AppBadRequestException(
@@ -565,6 +589,8 @@ export class InventoryService {
         }
 
         await inventoryRepo.update(current.id, { quantity: quantityAfter })
+        // Local trading day (BIZ-5.1) from the business timezone + cutover.
+        const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
         await movementRepo.save(
           movementRepo.create({
             businessId,
@@ -578,11 +604,26 @@ export class InventoryService {
             referenceId: variantId ?? undefined,
             notes: dto.notes.trim(),
             performedById: userId,
+            businessDate,
           }),
         )
 
         return this.findOne(productId, businessId)
       })
+
+      if (context) {
+        this.auditService.log(context, {
+          action: 'STOCK_ADJUSTED',
+          entityType: 'inventory',
+          entityId: productId,
+          entityLabel: (result as { name?: string }).name ?? productId,
+          changes: {
+            before: { quantity: auditBefore },
+            after: { quantity: auditAfter },
+          },
+        })
+      }
+      return result
     } catch (error) {
       return this.handleServiceError('adjust', error, { productId, businessId, userId })
     }
@@ -663,6 +704,7 @@ export class InventoryService {
           invoiceDate: payload.invoiceDate ?? null,
           invoiceFileUrl: payload.invoiceFileUrl ?? null,
           performedById: null,
+          businessDate: payload.businessDate ?? null,
           createdAt: this.parseOptionalDate(payload.createdAt) ?? recordUpdatedAt,
           updatedAt: recordUpdatedAt,
           payments: payload.payments,
@@ -792,6 +834,8 @@ export class InventoryService {
       const runningQuantities = new Map<string, number>()
       const keyMeta = new Map<string, { productId: string; variantId: string | null }>()
       const movementsToInsert: InventoryMovement[] = []
+      // Local trading day (BIZ-5.1) shared by every movement this sale writes.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
 
       for (const item of items) {
         const product = productMap.get(item.productId)
@@ -850,6 +894,7 @@ export class InventoryService {
             referenceId: saleId,
             notes: `Sale ${saleNumber}`,
             performedById: userId,
+            businessDate,
           }),
         )
       }
@@ -897,6 +942,8 @@ export class InventoryService {
       const inventoryRepo = this.getInventoryRepo(manager)
       const movementRepo = this.getMovementRepo(manager)
       const productRepo = this.getProductRepo(manager)
+      // Local trading day (BIZ-5.1) shared by every reversal movement.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
 
       for (const item of items) {
         const product = await productRepo.findOne({
@@ -949,6 +996,7 @@ export class InventoryService {
             referenceId: saleId,
             notes: `Void ${saleNumber}`,
             performedById: userId,
+            businessDate,
           }),
         )
       }
@@ -1085,22 +1133,188 @@ export class InventoryService {
   }
 
   private async mapAlertRows(rows: InventoryLevel[]): Promise<InventoryAlert[]> {
-    const primaryImageUrls = await this.loadPrimaryImageUrls(rows.map((row) => row.productId))
+    const productIds = rows.map((row) => row.productId)
+    const businessId = rows[0]?.businessId
+    const [primaryImageUrls, velocities, suppliers] = await Promise.all([
+      this.loadPrimaryImageUrls(productIds),
+      this.computeAlertVelocities(rows),
+      businessId
+        ? this.loadLastSuppliers(businessId, productIds)
+        : Promise.resolve(
+            new Map<
+              string,
+              {
+                supplierId: string | null
+                supplierName: string | null
+                supplierPhone: string | null
+              }
+            >(),
+          ),
+    ])
 
-    return rows.map((row) => ({
-      productId: row.productId,
-      productName: row.product?.name ?? null,
-      sku: row.product?.sku ?? null,
-      primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.product?.imageUrl ?? null,
-      categoryName: row.product?.category?.name ?? null,
-      currentQuantity: row.quantity,
-      lowStockThreshold: row.lowStockThreshold ?? null,
-      reorderPoint: row.reorderPoint ?? null,
-      shortfall:
-        row.lowStockThreshold !== null && row.lowStockThreshold !== undefined
-          ? row.lowStockThreshold - row.quantity
-          : 0,
-    }))
+    return rows.map((row) => {
+      const v = velocities.get(row.productId)
+      const s = suppliers.get(row.productId)
+      return {
+        productId: row.productId,
+        productName: row.product?.name ?? null,
+        sku: row.product?.sku ?? null,
+        primaryImageUrl: primaryImageUrls.get(row.productId) ?? row.product?.imageUrl ?? null,
+        categoryName: row.product?.category?.name ?? null,
+        currentQuantity: row.quantity,
+        lowStockThreshold: row.lowStockThreshold ?? null,
+        reorderPoint: row.reorderPoint ?? null,
+        shortfall:
+          row.lowStockThreshold !== null && row.lowStockThreshold !== undefined
+            ? row.lowStockThreshold - row.quantity
+            : 0,
+        velocity: v?.velocity ?? null,
+        daysCover: v?.daysCover ?? null,
+        stockoutDays: v?.stockoutDays ?? null,
+        sellingPrice: row.product?.sellingPrice ?? null,
+        supplierId: s?.supplierId ?? null,
+        supplierName: s?.supplierName ?? null,
+        supplierPhone: s?.supplierPhone ?? null,
+      }
+    })
+  }
+
+  /** Last supplier who restocked each product (grouping key for À-commander, BIZ-4.5),
+   * with the supplier's phone for the per-supplier WhatsApp draft. */
+  private async loadLastSuppliers(
+    businessId: string,
+    productIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { supplierId: string | null; supplierName: string | null; supplierPhone: string | null }
+    >
+  > {
+    const out = new Map<
+      string,
+      { supplierId: string | null; supplierName: string | null; supplierPhone: string | null }
+    >()
+    const ids = [...new Set(productIds.filter(Boolean))]
+    if (ids.length === 0) return out
+    const rows = (await this.inventoryLevelsRepo.manager.query(
+      `SELECT DISTINCT ON (ri.product_id)
+              ri.product_id AS "productId", rr.supplier_id AS "supplierId",
+              rr.supplier_name AS "supplierName", c.phone AS "supplierPhone"
+       FROM restock_items ri
+       JOIN restock_records rr ON rr.id = ri.restock_record_id
+       LEFT JOIN contacts c ON c.id = rr.supplier_id
+       WHERE ri.product_id = ANY($1) AND rr.business_id = $2
+       ORDER BY ri.product_id, rr.created_at DESC`,
+      [ids, businessId],
+    )) as Array<{
+      productId: string
+      supplierId: string | null
+      supplierName: string | null
+      supplierPhone: string | null
+    }>
+    for (const r of rows) {
+      out.set(r.productId, {
+        supplierId: r.supplierId ?? null,
+        supplierName: r.supplierName ?? null,
+        supplierPhone: r.supplierPhone ?? null,
+      })
+    }
+    return out
+  }
+
+  /** Trailing-window sales velocity + days-of-cover per alerted product (BIZ-4.6),
+   * keyed by productId. Excludes stock-out days (reconstructed from the movement
+   * ledger's `quantity_after`) and returns null velocity/cover for products with too
+   * little history/sales to trust — the shared @biztrack/utils calculator decides.
+   * Variant products are skipped: their stock lives per-variant, so a product-level
+   * timeline would misread as empty. */
+  private async computeAlertVelocities(
+    rows: InventoryLevel[],
+  ): Promise<Map<string, VelocityResult>> {
+    const out = new Map<string, VelocityResult>()
+    const first = rows[0]
+    if (!first) return out
+    const businessId = first.businessId
+    const productIds = [...new Set(rows.map((r) => r.productId))]
+    const mgr = this.inventoryLevelsRepo.manager
+    const now = Date.now()
+    const windowStart = now - REORDER_WINDOW_DAYS * 86_400_000
+    const windowStartIso = new Date(windowStart).toISOString()
+    const windowStartDate = windowStartIso.slice(0, 10)
+
+    // Variant products (skipped — product-level stock timeline doesn't apply).
+    const variantRows = (await mgr.query(
+      `SELECT DISTINCT product_id AS "productId" FROM product_variants
+       WHERE product_id = ANY($1) AND deleted_at IS NULL`,
+      [productIds],
+    )) as Array<{ productId: string }>
+    const variantIds = new Set(variantRows.map((r) => r.productId))
+    const simpleIds = productIds.filter((id) => !variantIds.has(id))
+    if (simpleIds.length === 0) return out
+
+    const [unitRows, moveRows, priorRows, ageRows] = (await Promise.all([
+      mgr.query(
+        `SELECT si.product_id AS "productId", COALESCE(SUM(si.quantity), 0) AS units
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status = 'COMPLETED'
+           AND si.deleted_at IS NULL AND s.sale_date >= $2 AND si.product_id = ANY($3)
+         GROUP BY si.product_id`,
+        [businessId, windowStartDate, simpleIds],
+      ),
+      mgr.query(
+        `SELECT product_id AS "productId", quantity_after AS "quantityAfter", created_at AS "createdAt"
+         FROM inventory_movements
+         WHERE business_id = $1 AND variant_id IS NULL AND product_id = ANY($2) AND created_at >= $3
+         ORDER BY product_id ASC, created_at ASC`,
+        [businessId, simpleIds, windowStartIso],
+      ),
+      mgr.query(
+        `SELECT DISTINCT ON (m.product_id) m.product_id AS "productId", m.quantity_after AS "quantityAfter"
+         FROM inventory_movements m
+         WHERE m.business_id = $1 AND m.variant_id IS NULL AND m.product_id = ANY($2) AND m.created_at < $3
+         ORDER BY m.product_id, m.created_at DESC`,
+        [businessId, simpleIds, windowStartIso],
+      ),
+      mgr.query(
+        `SELECT id AS "productId", created_at AS "createdAt" FROM products WHERE id = ANY($1)`,
+        [simpleIds],
+      ),
+    ])) as [
+      Array<{ productId: string; units: string }>,
+      Array<{ productId: string; quantityAfter: string; createdAt: string }>,
+      Array<{ productId: string; quantityAfter: string }>,
+      Array<{ productId: string; createdAt: string }>,
+    ]
+
+    const unitsById = new Map(unitRows.map((r) => [r.productId, Number(r.units ?? 0)]))
+    const startById = new Map(priorRows.map((r) => [r.productId, Number(r.quantityAfter ?? 0)]))
+    const ageById = new Map(ageRows.map((r) => [r.productId, Date.parse(String(r.createdAt))]))
+    const pointsById = new Map<string, StockPoint[]>()
+    for (const r of moveRows) {
+      const arr = pointsById.get(r.productId) ?? []
+      arr.push({ at: Date.parse(String(r.createdAt)), after: Number(r.quantityAfter ?? 0) })
+      pointsById.set(r.productId, arr)
+    }
+    const stockById = new Map(rows.map((r) => [r.productId, r.quantity]))
+
+    for (const id of simpleIds) {
+      const stockoutMs = computeStockoutMs(
+        windowStart,
+        now,
+        startById.get(id) ?? 0,
+        pointsById.get(id) ?? [],
+      )
+      out.set(
+        id,
+        computeReorderVelocity({
+          unitsSold: unitsById.get(id) ?? 0,
+          stockoutMs,
+          currentStock: stockById.get(id) ?? 0,
+          productAgeDays: (now - (ageById.get(id) ?? now)) / 86_400_000,
+        }),
+      )
+    }
+    return out
   }
 
   private async loadPrimaryImageUrls(productIds: string[]) {
@@ -1225,6 +1439,14 @@ export class InventoryService {
       )
     }
 
+    // Local trading day (BIZ-5.1): trust a syncing device's hint, else compute authoritatively
+    // from the business calendar. The restock record and every movement it writes share it.
+    const businessDate = await this.calendar.resolveForSync(
+      input.businessId,
+      input.createdAt,
+      input.businessDate,
+    )
+
     const creditAmount = this.roundMoney(totalAmount - amountPaid)
     if (creditAmount > 0 && !input.supplierId) {
       throw new AppBadRequestException(
@@ -1266,6 +1488,7 @@ export class InventoryService {
         invoiceFileUrl: input.invoiceFileUrl ?? null,
         notes: input.notes ?? null,
         performedById: input.performedById ?? null,
+        businessDate,
         createdAt: input.createdAt,
       }),
     )
@@ -1344,6 +1567,7 @@ export class InventoryService {
               referenceId: record.id,
               notes: input.notes ?? null,
               performedById: input.performedById ?? null,
+              businessDate,
               createdAt: input.createdAt,
             }),
           )
@@ -1358,8 +1582,14 @@ export class InventoryService {
         continue
       }
 
+      // Stock is tracked per (business, product, variant): a variant restock must hit that
+      // variant's own level row, not the product-level (variant_id IS NULL) row.
       const level = await inventoryRepo.findOne({
-        where: { businessId: input.businessId, productId: product.id },
+        where: {
+          businessId: input.businessId,
+          productId: product.id,
+          variantId: item.variantId ?? IsNull(),
+        },
       })
       const quantityBefore = Number(level?.quantity ?? 0)
       const quantityAfter = this.roundQuantity(quantityBefore + item.quantity)
@@ -1369,6 +1599,7 @@ export class InventoryService {
           inventoryRepo.create({
             businessId: input.businessId,
             productId: product.id,
+            variantId: item.variantId ?? null,
             quantity: quantityAfter,
             lastRestockAt: input.createdAt,
             createdAt: input.createdAt,
@@ -1409,6 +1640,7 @@ export class InventoryService {
           referenceId: record.id,
           notes: input.notes ?? null,
           performedById: input.performedById ?? null,
+          businessDate,
           createdAt: input.createdAt,
         }),
       )

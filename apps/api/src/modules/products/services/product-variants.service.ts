@@ -23,6 +23,7 @@ import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { Product } from '@/entities/product.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
@@ -49,6 +50,7 @@ export class ProductVariantsService {
     private readonly variantOptionsRepo: Repository<ProductVariantOption>,
     @InjectRepository(InventoryLevel)
     private readonly inventoryLevelsRepo: Repository<InventoryLevel>,
+    private readonly calendar: BusinessCalendarService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -295,6 +297,8 @@ export class ProductVariantsService {
           }),
         )
         if (quantity > 0) {
+          // Local trading day (BIZ-5.1) from the business timezone + cutover.
+          const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
           await movementRepo.save(
             movementRepo.create({
               businessId,
@@ -307,6 +311,7 @@ export class ProductVariantsService {
               referenceId: variant.id,
               notes: 'Opening stock set during product creation',
               performedById: userId,
+              businessDate,
             }),
           )
         }

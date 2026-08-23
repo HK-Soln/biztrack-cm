@@ -27,6 +27,9 @@ export const IPC = {
   authListBusinesses: 'auth:list-businesses',
   authOfflineLogin: 'auth:offline-login',
   authLogout: 'auth:logout',
+  pinSet: 'pin:set',
+  pinVerify: 'pin:verify',
+  pinCanManage: 'pin:can-manage',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -62,6 +65,7 @@ export const IPC = {
   brandsUpdateModel: 'brands:update-model',
   brandsDeleteModel: 'brands:delete-model',
   productsList: 'products:list',
+  productsListAll: 'products:list-all',
   productsListSellable: 'products:list-sellable',
   productsGet: 'products:get',
   productsCreate: 'products:create',
@@ -108,6 +112,7 @@ export const IPC = {
   debtsListByContact: 'debts:list-by-contact',
   debtsStatement: 'debts:statement',
   debtsRecordPayment: 'debts:record-payment',
+  debtsUpdateDueDate: 'debts:update-due-date',
   debtsOffset: 'debts:offset',
   debtsAgeing: 'debts:ageing',
   openingBalancesUpsert: 'opening-balances:upsert',
@@ -131,6 +136,22 @@ export const IPC = {
   depositsClose: 'deposits:close',
   depositsReceiptHtml: 'deposits:receipt-html',
   depositsReportHtml: 'deposits:report-html',
+  cashSessionsList: 'cash-sessions:list',
+  cashSessionsGet: 'cash-sessions:get',
+  cashSessionsCurrent: 'cash-sessions:current',
+  cashSessionsOpen: 'cash-sessions:open',
+  cashSessionsTransition: 'cash-sessions:transition',
+  cashSessionsExpectedCash: 'cash-sessions:expected-cash',
+  cashSessionsRecordMovement: 'cash-sessions:record-movement',
+  cashSessionsListMovements: 'cash-sessions:list-movements',
+  cashSessionsClose: 'cash-sessions:close',
+  cashSessionsRoleTracksDrawer: 'cash-sessions:role-tracks-drawer',
+  cashSessionsStaleOpen: 'cash-sessions:stale-open',
+  cashSessionsRecover: 'cash-sessions:recover',
+  cashSessionsSetVarianceReason: 'cash-sessions:set-variance-reason',
+  cashSessionsVarianceHistory: 'cash-sessions:variance-history',
+  cashSessionsShiftReport: 'cash-sessions:shift-report',
+  cashSessionsDailyReport: 'cash-sessions:daily-report',
   onlineStoreGet: 'online:store-get',
   onlineStoreCreate: 'online:store-create',
   onlineStoreUpdate: 'online:store-update',
@@ -146,6 +167,19 @@ export const IPC = {
   onlinePublicationRestore: 'online:publication-restore',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
+  notificationSettingsGet: 'notification-settings:get',
+  notificationSettingsTimezones: 'notification-settings:timezones',
+  notificationSettingsLookup: 'notification-settings:lookup',
+  notificationSettingsUpdateMatrix: 'notification-settings:update-matrix',
+  notificationSettingsUpdateQuietHours: 'notification-settings:update-quiet-hours',
+  notificationSettingsAddRecipient: 'notification-settings:add-recipient',
+  notificationSettingsUpdateRecipient: 'notification-settings:update-recipient',
+  notificationSettingsUpdateRecipientSubs: 'notification-settings:update-recipient-subs',
+  notificationSettingsRemoveRecipient: 'notification-settings:remove-recipient',
+  fiscalCalendar: 'fiscal:calendar',
+  fiscalAdjustments: 'fiscal:adjustments',
+  fiscalClosePeriod: 'fiscal:close-period',
+  fiscalLockPeriod: 'fiscal:lock-period',
   plansList: 'plans:list',
   plansSubscription: 'plans:subscription',
   plansQuotaUsage: 'plans:quota-usage',
@@ -173,6 +207,7 @@ export const IPC = {
   notificationsMarkAllRead: 'notifications:mark-all-read',
   notificationsConnect: 'notifications:connect',
   notificationEvent: 'notifications:event',
+  deeplinkNavigate: 'deeplink:navigate',
   // Invitee-side invitations (existing-user pending memberships)
   invitationsList: 'invitations:list',
   invitationsAccept: 'invitations:accept',
@@ -195,9 +230,12 @@ export const IPC = {
   documentsDownloadHtml: 'documents:download-html',
   documentsShareHtml: 'documents:share-html',
   auditList: 'audit:list',
+  auditSaleLineRemoved: 'audit:sale-line-removed',
   uploadsFile: 'uploads:file',
   chargesListActive: 'charges:list-active',
   salesCreate: 'sales:create',
+  salesMyDiscountLimits: 'sales:my-discount-limits',
+  salesBelowCostCheck: 'sales:below-cost-check',
   salesList: 'sales:list',
   salesListAll: 'sales:list-all',
   salesSummary: 'sales:summary',
@@ -207,6 +245,10 @@ export const IPC = {
   salesByPayment: 'sales:by-payment-method',
   salesRefunds: 'sales:refunds',
   salesGrossProfit: 'sales:gross-profit',
+  salesDiscountSummary: 'sales:discount-summary',
+  salesDiscountsByCashier: 'sales:discounts-by-cashier',
+  salesDiscountsByProduct: 'sales:discounts-by-product',
+  salesFlaggedDiscounts: 'sales:flagged-discounts',
   salesGet: 'sales:get',
   salesVoid: 'sales:void',
   salesSendReceipt: 'sales:send-receipt',
@@ -222,6 +264,8 @@ export const IPC = {
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
 export type { ChargeType } from '@biztrack/types'
+import type { RoleDiscountLimits } from '@biztrack/utils'
+export type { RoleDiscountLimits }
 export type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
 export type {
   SalesByProductRow,
@@ -230,8 +274,20 @@ export type {
   RefundCashierRow,
 } from '@biztrack/types'
 export type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
+export type {
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
+} from '@biztrack/types'
 import type { ListQuery as ListQueryT, PaginatedResult as PaginatedT } from '@biztrack/types'
 import type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
+import type {
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
+} from '@biztrack/types'
 import type {
   SalesByProductRow,
   SalesByPaymentRow,
@@ -300,25 +356,51 @@ export interface ProductStats {
 }
 
 // ---- Audit trail ----------------------------------------------------------
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VOID'
+// Single source of truth — the shared union (reconciled with the desktop's older narrow one
+// in BIZ-2.9). Includes CREATE/UPDATE/DELETE/VOID/PIN_FAILED/PIN_LOCKED plus the new domain
+// events (SHIFT_*, CASH_MOVEMENT, DISCOUNT_APPLIED, …).
+export type { AuditAction } from '@biztrack/types'
 
 /** One append-only audit row (who changed what, when). */
 export interface LocalAuditLog {
   id: string
-  action: AuditAction
+  action: AuditActionT
   entityType: string
   entityId: string
   entityLabel: string | null
+  actorId?: string | null
   actorName: string | null
   actorRole: string | null
   changes: { before: unknown; after: unknown } | null
+  /** Money impact in whole XAF, or null (BIZ-2.7). */
+  amount?: number | null
+  /** Monotonic per-device event counter (BIZ-2.9). */
+  sequence?: number | null
   createdAt: string
+  /** Device clock reading (BIZ-2.7). */
+  deviceTime?: string | null
+  /** Server-stamped ingest time; null until the row reaches the server (BIZ-2.7). */
+  serverTime?: string | null
 }
 
 export interface AuditListQuery extends ListQueryT {
   entityType?: string
   entityId?: string
-  action?: AuditAction
+  action?: AuditActionT
+  /** Filter to one actor (cashier) by user id — BIZ-2.11. */
+  actorId?: string
+  /** ISO lower/upper bounds on created_at (the caller computes the local-day window) — BIZ-2.11. */
+  dateFrom?: string
+  dateTo?: string
+}
+
+/** A held-cart line rung then removed before checkout (BIZ-2.9, local-only audit). */
+export interface SaleLineRemovedInput {
+  productId: string
+  productName: string
+  quantity: number
+  /** Whole-XAF unit price at the time it was in the cart. */
+  unitPrice: number
 }
 
 // ---- Contacts (customers & suppliers) -------------------------------------
@@ -547,10 +629,11 @@ export interface DocumentDownloadInput {
 
 /** Share an app-generated (trusted) HTML document via the WhatsApp/email composer. */
 export interface ShareHtmlPdfInput {
-  html: string
+  /** HTML to render + attach as a PDF. Omit to send a plain text/email message. */
+  html?: string | null
   message: string
   /** File name (without extension) for the rendered PDF. */
-  filename: string
+  filename?: string | null
   channel: DocumentSendChannel
   phone?: string | null
   email?: string | null
@@ -663,6 +746,8 @@ export interface BusinessSetupPayload {
   vatRegistered?: boolean
   defaultVatRate?: number
   fiscalRegime?: string
+  /** Month (1–12) the fiscal year begins in; default 1 (January, OHADA). (BIZ-5.2) */
+  fiscalYearStartMonth?: number
 }
 
 /** A product category as stored locally (mirrors the synced server record). */
@@ -980,6 +1065,19 @@ export interface LocalReorderSuggestion {
   suggestedQty: number
   unitCost: number | null
   currency: string
+  /** Sales velocity in units/day (trailing window, stock-out days excluded), BIZ-4.6.
+   * null when too little history/sales to trust — falls back to the manual target. */
+  velocity?: number | null
+  /** Days of stock left at the current velocity ("Reste N jours"). null when untrusted. */
+  daysCover?: number | null
+  /** Whole days the product was out of stock in the window. */
+  stockoutDays?: number | null
+  /** Unit selling price — feeds revenue-at-risk on the À-commander surface (BIZ-4.5). */
+  sellingPrice?: number | null
+  /** Last supplier who restocked this product (grouping key on À-commander). */
+  supplierId?: string | null
+  supplierName?: string | null
+  supplierPhone?: string | null
 }
 
 /** One line of a restock (a purchase that adds stock). */
@@ -1055,8 +1153,14 @@ export interface SaleLineInput {
   serialUnitIds?: string[]
   quantity: number
   unitPrice: number
+  /** Catalogue price at cart-add (variant override ?? product selling price). Snapshot
+   * so later catalogue changes never move history; defaults to unitPrice if omitted. */
+  unitPriceListed?: number
   discountAmount?: number
   costPrice?: number | null
+  /** Reason for a price override on this line (BIZ-1.6); defaults to NEGOTIATED. */
+  reasonCode?: string | null
+  reasonNote?: string | null
 }
 /** A charge line on the sale (transport, service, payment fee…). Mirrors restock. */
 export interface SaleChargeLineInput {
@@ -1071,9 +1175,19 @@ export interface SaleChargeLineInput {
 export interface SaleDiscountLineInput {
   id?: string
   description: string
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  discountType:
+    | 'PERCENTAGE'
+    | 'FIXED_AMOUNT'
+    | 'OVERRIDE'
+    | 'ROUNDING'
+    | 'DAMAGE'
+    | 'STAFF_PURCHASE'
   rate?: number | null
   amount: number
+  /** LINE-scoped when set (reconciles with that line's discount_amount); null = cart-level. */
+  saleItemId?: string | null
+  reasonCode?: string | null
+  reasonNote?: string | null
 }
 /** A split-payment line. `SAVINGS` draws from the customer's deposit balance. */
 export interface SalePaymentLineInput {
@@ -1096,6 +1210,10 @@ export interface SaleInput {
   payments: SalePaymentLineInput[]
   charges?: SaleChargeLineInput[]
   discounts?: SaleDiscountLineInput[]
+  /** Manager userId who authorized an over-limit discount via step-up (BIZ-1.4). */
+  authorizedByUserId?: string | null
+  /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale. */
+  creditDueDate?: string | null
 }
 /** An opening balance brought forward for a contact (one per direction). */
 export interface OpeningBalanceInput {
@@ -1146,6 +1264,9 @@ export interface LocalExpenseCategory {
   isSystem: boolean
   sortOrder: number
   expenseCount?: number
+  /** Sticky default: true once any expense in this category was marked recurring, so new
+   * expenses in it default to recurring without re-marking (#5). */
+  defaultRecurring?: boolean
 }
 export interface LocalExpense {
   id: string
@@ -1224,6 +1345,7 @@ export interface LocalSaleItem {
   serialNumber: string | null
   quantity: number
   unitPrice: number
+  unitPriceListed: number | null
   discountAmount: number
   lineTotal: number
 }
@@ -1293,10 +1415,36 @@ import type {
   CreateDepositInput as CreateDepositInputT,
   AddDepositPaymentInput as AddDepositPaymentInputT,
   CloseDepositInput as CloseDepositInputT,
+  CashSession as CashSessionT,
+  CashSessionStatus as CashSessionStatusT,
+  CashSessionExpectedCash as CashSessionExpectedCashT,
+  CashMovement as CashMovementT,
+  RecordCashMovementInput as RecordCashMovementInputT,
+  CloseCashSessionInput as CloseCashSessionInputT,
+  SetCashVarianceReasonInput as SetCashVarianceReasonInputT,
+  CashVarianceHistory as CashVarianceHistoryT,
+  CashVarianceHistoryQuery as CashVarianceHistoryQueryT,
+  CashReportKind as CashReportKindT,
+  CashShiftReportData as CashShiftReportDataT,
+  CashDailyReportData as CashDailyReportDataT,
+  CashDailyReportQuery as CashDailyReportQueryT,
+  AuditAction as AuditActionT,
 } from '@biztrack/types'
 
 export interface DepositsListQuery extends ListQueryT {
   status?: 'OPEN' | 'CLOSED'
+}
+
+export interface CashSessionsListQuery extends ListQueryT {
+  status?: CashSessionStatusT
+}
+export interface OpenCashSessionInput {
+  id?: string
+  openingFloat?: number
+}
+export interface TransitionCashSessionInput {
+  status: CashSessionStatusT
+  closingNote?: string
 }
 /** A session plus its transactions (for the detail pane). */
 export interface LocalDepositDetail extends CustomerDepositT {
@@ -1360,6 +1508,35 @@ export { BusinessType } from '@biztrack/types'
 import type {
   BusinessProfile as BusinessProfileT,
   UpdateBusinessRequest as UpdateBusinessRequestT,
+} from '@biztrack/types'
+
+// --- Fiscal calendar + period close (Settings → Accounting periods) ---
+export type { FiscalYearWithPeriods, AccountingPeriod, PostingAdjustment } from '@biztrack/types'
+
+// --- Notifications control plane (Settings → Notifications) — server-owned, online-only ---
+export type {
+  NotificationSettings,
+  NotificationChannelToggle,
+  NotificationQuietHours,
+  NotificationRecipient,
+  NotificationRecipientLookupResult,
+  UpdateNotificationMatrixRequest,
+  UpdateNotificationQuietHoursRequest,
+  AddNotificationRecipientRequest,
+  UpdateRecipientSubscriptionsRequest,
+  UpdateNotificationRecipientRequest,
+} from '@biztrack/types'
+import type {
+  NotificationSettings as NotificationSettingsT,
+  FiscalYearWithPeriods as FiscalYearWithPeriodsT,
+  AccountingPeriod as AccountingPeriodT,
+  PostingAdjustment as PostingAdjustmentT,
+  NotificationRecipientLookupResult as NotificationRecipientLookupResultT,
+  UpdateNotificationMatrixRequest as UpdateNotificationMatrixRequestT,
+  UpdateNotificationQuietHoursRequest as UpdateNotificationQuietHoursRequestT,
+  AddNotificationRecipientRequest as AddNotificationRecipientRequestT,
+  UpdateRecipientSubscriptionsRequest as UpdateRecipientSubscriptionsRequestT,
+  UpdateNotificationRecipientRequest as UpdateNotificationRecipientRequestT,
 } from '@biztrack/types'
 
 // --- Plans / subscription (Settings → Subscription) — reuse the shared plan shapes ---
@@ -1653,6 +1830,22 @@ export interface SkeletonHealthDTO {
   source: 'local-sqlite'
 }
 
+/** Why an offline manager-PIN verification was denied. */
+export type PinVerifyReason = 'STALE_DEVICE' | 'NO_MATCH' | 'INVALID_FORMAT' | 'LOCKED_OUT'
+
+/** Result of an offline manager-PIN step-up check. */
+export interface PinVerifyResult {
+  authorized: boolean
+  reason?: PinVerifyReason
+  /** The manager whose PIN matched — recorded as `authorized_by` on the action. */
+  authorizedByUserId: string | null
+  authorizedByName: string | null
+  /** Failed attempts left before a lockout (present on a NO_MATCH). */
+  attemptsRemaining?: number
+  /** ISO time the device lockout ends (present on a LOCKED_OUT). */
+  lockedUntil?: string
+}
+
 /** The shape exposed on `window.api` by the preload bridge. */
 export interface BridgeApi {
   skeleton: {
@@ -1691,6 +1884,14 @@ export interface BridgeApi {
     listBusinesses: () => Promise<BusinessOption[]>
     offlineLogin: (password: string) => Promise<AuthFlowResult>
     logout: () => Promise<SessionStatus>
+  }
+  pin: {
+    /** Set or rotate the current user's manager PIN (requires connectivity). */
+    set: (pin: string) => Promise<{ pinVersion: number }>
+    /** Verify a manager PIN offline for step-up authorization. */
+    verify: (pin: string) => Promise<PinVerifyResult>
+    /** Whether the current user's role may set a PIN and authorize step-up. */
+    canManage: () => Promise<boolean>
   }
   sync: {
     /** Run a push+pull cycle now. */
@@ -1747,6 +1948,8 @@ export interface BridgeApi {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedT<LocalProduct>>
+    /** Every product matching the filters, unpaginated — for CSV/PDF catalogue export. */
+    listAll: (query?: ProductListQuery) => Promise<LocalProduct[]>
     /** Flattened sellable catalog for the POS grid: products + one entry per variant. */
     listSellable: (query?: ProductListQuery) => Promise<PaginatedT<SellEntry>>
     stats: () => Promise<ProductStats>
@@ -1865,6 +2068,8 @@ export interface BridgeApi {
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     /** Record a payment against a debt; returns the updated debt. */
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    /** Set/clear a debt's expected payment date (null → default credit period). */
+    updateDueDate: (debtId: string, dueDate: string | null) => Promise<LocalDebt>
     /** Net a Both-contact's receivable vs payable with OFFSET contra-payments (oldest first). */
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
     /** Ageing report (buckets outstanding balances by debt age) for one direction. */
@@ -1933,6 +2138,9 @@ export interface BridgeApi {
   audit: {
     /** Read the local audit trail (newest first), optionally scoped to an entity. */
     list: (query?: AuditListQuery) => Promise<PaginatedT<LocalAuditLog>>
+    /** Record a held-cart line that was rung then removed before checkout (BIZ-2.9). This is
+     * local-only — a held cart has no DB row, so there is no server-side equivalent. */
+    saleLineRemoved: (input: SaleLineRemovedInput) => Promise<void>
   }
   uploads: {
     /** Upload a file (image/pdf) through the API storage service; returns its URL. */
@@ -1945,6 +2153,13 @@ export interface BridgeApi {
   sales: {
     /** Ring up a checkout (idempotent on clientId). Returns the saved sale + lines. */
     create: (input: SaleInput) => Promise<LocalSaleDetail>
+    /** The current cashier's role discount limits (to prompt step-up when exceeded). */
+    myDiscountLimits: () => Promise<RoleDiscountLimits>
+    /** Whether the cart needs manager auth on margin grounds (below cost + role
+     * disallows). Returns only a boolean — the cost figure never leaves the main process. */
+    belowCostCheck: (
+      lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
+    ) => Promise<boolean>
     list: (query?: SalesListQuery) => Promise<PaginatedT<LocalSale>>
     /** All sales matching the filters (no pagination) — for CSV export. */
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
@@ -1964,6 +2179,14 @@ export interface BridgeApi {
     ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     /** Product revenue + COGS over the range (feeds the Income Statement). */
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
+    /** Headline discount numbers over the range (Discount Summary report). */
+    discountSummary: (query?: SalesListQuery) => Promise<DiscountSummary>
+    /** Discount total + rate ranked per cashier (Discounts by Cashier report). */
+    discountsByCashier: (query?: SalesListQuery) => Promise<DiscountByCashierRow[]>
+    /** Discount total + margin-after-discount per product (Discounts by Product report). */
+    discountsByProduct: (query?: SalesListQuery) => Promise<DiscountByProductRow[]>
+    /** Over-limit + below-cost discount rows, most recent first (Flagged Discounts report). */
+    flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
@@ -1974,10 +2197,12 @@ export interface BridgeApi {
       locale: string,
       opts?: { recipient?: DocumentRecipient; online?: boolean },
     ) => Promise<void>
-    /** Print the receipt directly to the connected printer; falls back to saving a PDF. */
+    /** Print the receipt directly to the connected printer; falls back to saving a PDF.
+     * Pass reprint=true from sales history so the reprint is audited (BIZ-2.9). */
     printReceipt: (
       saleId: string,
       locale: string,
+      reprint?: boolean,
     ) => Promise<{ printed: boolean; pdfPath?: string }>
     /** Render the receipt to a PDF and save it via the native dialog. */
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
@@ -2001,6 +2226,37 @@ export interface BridgeApi {
     /** Compiled full-session report HTML (fed to the shared share dialog). */
     reportHtml: (id: string, locale: string) => Promise<string | null>
   }
+  /** Cash sessions (till shifts) — offline-first; open/transition + read (BIZ-2.1). */
+  cashSessions: {
+    list: (query?: CashSessionsListQuery) => Promise<PaginatedT<CashSessionT>>
+    get: (id: string) => Promise<CashSessionT | null>
+    /** This device's live session (OPEN/COUNTING) or null — drives the POS shift banner. */
+    current: () => Promise<CashSessionT | null>
+    open: (input?: OpenCashSessionInput) => Promise<CashSessionT>
+    transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSessionT>
+    /** Close a shift with a blind denomination count → variance (BIZ-2.4). */
+    close: (id: string, input: CloseCashSessionInputT) => Promise<CashSessionT>
+    /** Record why a just-closed shift was out of tolerance (BIZ-2.6). */
+    setVarianceReason: (id: string, input: SetCashVarianceReasonInputT) => Promise<CashSessionT>
+    /** Per-cashier drawer-accuracy history over the last N days (BIZ-2.6). */
+    varianceHistory: (query?: CashVarianceHistoryQueryT) => Promise<CashVarianceHistoryT>
+    /** Z-report (close) or X-report (mid-shift read) for a shift (BIZ-2.6). */
+    shiftReport: (id: string, kind?: CashReportKindT) => Promise<CashShiftReportDataT | null>
+    /** Daily close — every shift in a day + rolled-up totals (BIZ-2.6). */
+    dailyReport: (query?: CashDailyReportQueryT) => Promise<CashDailyReportDataT>
+    /** Whether the signed-in user's role runs a till (drives the login shift prompt). */
+    roleTracksDrawer: () => Promise<boolean>
+    /** An OPEN session older than the max-shift window (orphan), or null (BIZ-2.5). */
+    staleOpen: () => Promise<CashSessionT | null>
+    /** Force-close an orphaned shift as RECOVERED (variance stays unknown). */
+    recover: (id: string) => Promise<CashSessionT>
+    /** Expected drawer cash + its breakdown for a session (BIZ-2.2). */
+    expectedCash: (id: string) => Promise<CashSessionExpectedCashT | null>
+    /** Record a cash movement against the open shift (BIZ-2.3). */
+    recordMovement: (input: RecordCashMovementInputT) => Promise<CashMovementT>
+    /** Cash movements for a session, newest first. */
+    listMovements: (sessionId: string) => Promise<CashMovementT[]>
+  }
   /** Online store / orders — API-only (proxied through main); requires connectivity. */
   online: {
     getStore: () => Promise<OnlineStoreT | null>
@@ -2021,6 +2277,31 @@ export interface BridgeApi {
   business: {
     getProfile: () => Promise<BusinessProfileT | null>
     update: (payload: UpdateBusinessRequestT) => Promise<BusinessProfileT>
+  }
+  /** Notification preferences (Settings → Notifications) — server-owned, proxied through main. */
+  notificationSettings: {
+    get: () => Promise<NotificationSettingsT>
+    listTimezones: () => Promise<string[]>
+    lookupContact: (q: string) => Promise<NotificationRecipientLookupResultT>
+    updateMatrix: (body: UpdateNotificationMatrixRequestT) => Promise<NotificationSettingsT>
+    updateQuietHours: (body: UpdateNotificationQuietHoursRequestT) => Promise<NotificationSettingsT>
+    addRecipient: (body: AddNotificationRecipientRequestT) => Promise<NotificationSettingsT>
+    updateRecipient: (
+      id: string,
+      body: UpdateNotificationRecipientRequestT,
+    ) => Promise<NotificationSettingsT>
+    updateRecipientSubscriptions: (
+      id: string,
+      body: UpdateRecipientSubscriptionsRequestT,
+    ) => Promise<NotificationSettingsT>
+    removeRecipient: (id: string) => Promise<NotificationSettingsT>
+  }
+  /** Fiscal calendar + period close (Settings → Accounting periods) — server-owned, proxied. */
+  fiscal: {
+    calendar: () => Promise<FiscalYearWithPeriodsT[]>
+    adjustments: () => Promise<PostingAdjustmentT[]>
+    closePeriod: (id: string) => Promise<AccountingPeriodT>
+    lockPeriod: (id: string) => Promise<AccountingPeriodT>
   }
   /** Plans / subscription (Settings → Subscription) — server-owned, proxied through main. */
   plans: {
@@ -2065,5 +2346,10 @@ export interface BridgeApi {
     list: () => Promise<ListMyInvitationsResponseT>
     accept: (businessId: string) => Promise<AcceptInvitationResponseT>
     reject: (businessId: string) => Promise<RejectInvitationResponseT>
+  }
+  /** Deep links from the OS (biztrack:// custom protocol → a native-app handoff, N7). */
+  deeplink: {
+    /** Subscribe to in-app navigation requests (route path); returns an unsubscribe fn. */
+    onNavigate: (cb: (path: string) => void) => () => void
   }
 }

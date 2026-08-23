@@ -91,6 +91,11 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   expenses: 'expense',
   savings: 'savings',
   savingsTransactions: 'savings_transaction',
+  cashSessions: 'cash_session',
+  cashCountLines: 'cash_count_line',
+  cashMovements: 'cash_movement',
+  // Accounting-period status changes (BIZ-5.3 closes) push back; fiscal_year is server-only.
+  accountingPeriods: 'accounting_period',
 }
 
 const TERMINAL_BATCH_STATUSES: SyncBatchStatus[] = [
@@ -161,7 +166,9 @@ const SALE_MAP: Record<string, string> = {
   price_drift_warning: 'priceDriftWarning',
   currency: 'currency',
   sale_date: 'saleDate',
+  business_date: 'businessDate',
   sold_at: 'soldAt',
+  cash_session_id: 'cashSessionId',
   synced_at: 'syncedAt',
   voided_at: 'voidedAt',
   voided_by: 'voidedById',
@@ -199,6 +206,7 @@ const SALE_PAYMENT_MAP: Record<string, string> = {
   recorded_at: 'recordedAt',
   recorded_by_id: 'recordedById',
   note: 'note',
+  business_date: 'businessDate',
   created_at: 'createdAt',
 }
 const SALE_CHARGE_MAP: Record<string, string> = {
@@ -250,6 +258,7 @@ const DEBT_MAP: Record<string, string> = {
   written_off_at: 'writtenOffAt',
   written_off_by: 'writtenOffById',
   written_off_reason: 'writtenOffReason',
+  business_date: 'businessDate',
 }
 const INVENTORY_LEVEL_MAP: Record<string, string> = {
   id: 'id',
@@ -277,6 +286,7 @@ const INVENTORY_MOVEMENT_MAP: Record<string, string> = {
   notes: 'notes',
   performed_by_id: 'performedById',
   performed_by_name: 'performedByName',
+  business_date: 'businessDate',
   created_at: 'createdAt',
 }
 const RESTOCK_RECORD_MAP: Record<string, string> = {
@@ -291,6 +301,7 @@ const RESTOCK_RECORD_MAP: Record<string, string> = {
   credit_amount: 'creditAmount',
   notes: 'notes',
   performed_by_id: 'performedById',
+  business_date: 'businessDate',
   created_at: 'createdAt',
 }
 const RESTOCK_ITEM_MAP: Record<string, string> = {
@@ -319,6 +330,12 @@ const ROLE_MAP: Record<string, string> = {
   description: 'description',
   is_system: 'isSystem',
   is_owner_role: 'isOwnerRole',
+  can_authorize: 'canAuthorize',
+  tracks_cash_drawer: 'tracksCashDrawer',
+  max_discount_percent: 'maxDiscountPercent',
+  max_cart_discount_percent: 'maxCartDiscountPercent',
+  max_discount_amount_xaf: 'maxDiscountAmountXaf',
+  allow_below_cost: 'allowBelowCost',
   colour: 'colour',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
@@ -327,11 +344,98 @@ const TEAM_MEMBER_MAP: Record<string, string> = {
   id: 'id',
   business_id: 'businessId',
   user_id: 'userId',
+  // The FK to the member's role row. Without it the local business_members.role_id is
+  // NULL, so the roles join in discount-limit / below-cost / PIN checks finds no role
+  // and silently enforces nothing (BIZ-1.4/1.5). Must ride the team-member pull.
+  role_id: 'roleId',
   role: 'role',
   status: 'status',
   name: 'name',
   email: 'email',
   phone: 'phone',
+  pin_hash: 'pinHash',
+  pin_version: 'pinVersion',
+  pin_set_at: 'pinSetAt',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const CASH_SESSION_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  outlet_id: 'outletId',
+  business_date: 'businessDate',
+  device_id: 'deviceId',
+  user_id: 'userId',
+  status: 'status',
+  opened_at: 'openedAt',
+  closed_at: 'closedAt',
+  opening_float: 'openingFloat',
+  expected_cash: 'expectedCash',
+  counted_cash: 'countedCash',
+  variance_cash: 'varianceCash',
+  expected_mtn_momo: 'expectedMtnMomo',
+  confirmed_mtn_momo: 'confirmedMtnMomo',
+  expected_orange_money: 'expectedOrangeMoney',
+  confirmed_orange_money: 'confirmedOrangeMoney',
+  credit_issued: 'creditIssued',
+  discount_total: 'discountTotal',
+  sales_count: 'salesCount',
+  void_count: 'voidCount',
+  closed_reason: 'closedReason',
+  recount_used: 'recountUsed',
+  closing_note: 'closingNote',
+  variance_reason: 'varianceReason',
+  variance_note: 'varianceNote',
+  reviewed_by: 'reviewedBy',
+  reviewed_at: 'reviewedAt',
+  review_note: 'reviewNote',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const CASH_COUNT_LINE_MAP: Record<string, string> = {
+  id: 'id',
+  cash_session_id: 'cashSessionId',
+  denomination: 'denomination',
+  quantity: 'quantity',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const CASH_MOVEMENT_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  cash_session_id: 'cashSessionId',
+  user_id: 'userId',
+  kind: 'kind',
+  direction: 'direction',
+  amount: 'amount',
+  note: 'note',
+  reference_type: 'referenceType',
+  reference_id: 'referenceId',
+  business_date: 'businessDate',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const FISCAL_YEAR_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  year: 'year',
+  label: 'label',
+  start_month: 'startMonth',
+  start_date: 'startDate',
+  end_date: 'endDate',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const ACCOUNTING_PERIOD_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  fiscal_year_id: 'fiscalYearId',
+  period_number: 'periodNumber',
+  label: 'label',
+  start_date: 'startDate',
+  end_date: 'endDate',
+  status: 'status',
+  closed_at: 'closedAt',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -344,6 +448,7 @@ const RFQ_MAP: Record<string, string> = {
   status: 'status',
   currency: 'currency',
   created_by_id: 'createdById',
+  business_date: 'businessDate',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -382,6 +487,7 @@ const PURCHASE_ORDER_MAP: Record<string, string> = {
   total_amount: 'totalAmount',
   sent_at: 'sentAt',
   created_by_id: 'createdById',
+  business_date: 'businessDate',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -470,6 +576,12 @@ export class SyncService {
     try {
       await this.push()
       await this.pull()
+      // Best-effort audit bridge — a failure here must not fail the sync cycle (retried next).
+      try {
+        await this.auditPush()
+      } catch {
+        /* retried next cycle */
+      }
       this.setStatus({ state: 'idle', lastSyncedAt: new Date().toISOString(), lastError: null })
     } catch (e) {
       this.setStatus({ state: 'error', lastError: e instanceof Error ? e.message : String(e) })
@@ -756,6 +868,11 @@ export class SyncService {
     pushAll(changes.rfqSuppliers, 'rfq_suppliers', RFQ_SUPPLIER_MAP)
     pushAll(changes.purchaseOrders, 'purchase_orders', PURCHASE_ORDER_MAP)
     pushAll(changes.purchaseOrderItems, 'purchase_order_items', PURCHASE_ORDER_ITEM_MAP)
+    pushAll(changes.cashSessions, 'cash_sessions', CASH_SESSION_MAP)
+    pushAll(changes.cashCountLines, 'cash_count_lines', CASH_COUNT_LINE_MAP)
+    pushAll(changes.cashMovements, 'cash_movements', CASH_MOVEMENT_MAP)
+    pushAll(changes.fiscalYears, 'fiscal_years', FISCAL_YEAR_MAP)
+    pushAll(changes.accountingPeriods, 'accounting_periods', ACCOUNTING_PERIOD_MAP)
 
     if (ops.length > 0) {
       try {
@@ -803,13 +920,14 @@ export class SyncService {
       for (const p of payments) {
         keepIds.push(p.id)
         this.opts.db.run(
-          `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO debt_payments (id, business_id, debt_id, amount, method, mobile_money_reference, payment_date, notes, recorded_by, business_date, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              amount = excluded.amount, method = excluded.method,
              mobile_money_reference = excluded.mobile_money_reference,
              payment_date = excluded.payment_date, notes = excluded.notes,
-             recorded_by = excluded.recorded_by`,
+             recorded_by = excluded.recorded_by,
+             business_date = excluded.business_date`,
           [
             p.id,
             local.business_id,
@@ -820,6 +938,7 @@ export class SyncService {
             p.paymentDate,
             p.notes ?? null,
             p.recordedById ?? 'unknown',
+            p.businessDate ?? null,
             p.createdAt,
           ],
         )
@@ -961,11 +1080,12 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO contact_opening_balances
-        (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, contact_id, direction, amount, as_of_date, notes, recorded_by_id, business_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(business_id, contact_id, direction) DO UPDATE SET
           amount = excluded.amount, as_of_date = excluded.as_of_date, notes = excluded.notes,
-          recorded_by_id = excluded.recorded_by_id, updated_at = excluded.updated_at`,
+          recorded_by_id = excluded.recorded_by_id, business_date = excluded.business_date,
+          updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(o.businessId),
@@ -975,6 +1095,7 @@ export class SyncService {
         asStr(o.asOfDate) ?? now.slice(0, 10),
         asStr(o.notes),
         asStr(o.recordedById),
+        asStr(o.businessDate),
         asStr(o.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
@@ -989,8 +1110,8 @@ export class SyncService {
       sql: `INSERT INTO savings_accounts
         (id, business_id, customer_id, customer_name, customer_phone, account_number, balance,
          total_deposited, total_refunded, total_used, total_transferred, status, outcome, closed_at,
-         closed_by_id, transferred_to_id, tagged_products, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         closed_by_id, transferred_to_id, tagged_products, is_deleted, business_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           customer_name = excluded.customer_name, customer_phone = excluded.customer_phone,
           balance = excluded.balance, total_deposited = excluded.total_deposited,
@@ -998,7 +1119,7 @@ export class SyncService {
           total_transferred = excluded.total_transferred, status = excluded.status, outcome = excluded.outcome,
           closed_at = excluded.closed_at, closed_by_id = excluded.closed_by_id,
           transferred_to_id = excluded.transferred_to_id, tagged_products = excluded.tagged_products,
-          is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          is_deleted = excluded.is_deleted, business_date = excluded.business_date, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(s.businessId),
@@ -1018,6 +1139,7 @@ export class SyncService {
         asStr(s.transferredToId),
         tagged,
         r.isDeleted ? 1 : 0,
+        asStr(s.businessDate),
         asStr(s.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
@@ -1030,8 +1152,8 @@ export class SyncService {
     return {
       sql: `INSERT INTO savings_transactions
         (id, savings_id, business_id, type, direction, amount, method, mobile_money_reference, sale_id,
-         notes, recorded_by_id, occurred_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         notes, recorded_by_id, occurred_at, business_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO NOTHING`,
       params: [
         asStr(r.id),
@@ -1046,6 +1168,7 @@ export class SyncService {
         asStr(s.notes),
         asStr(s.recordedById),
         asStr(s.occurredAt) ?? now,
+        asStr(s.businessDate),
         asStr(s.createdAt) ?? now,
       ],
     }
@@ -1085,13 +1208,14 @@ export class SyncService {
     return {
       sql: `INSERT INTO expenses
         (id, business_id, recorded_by_id, category, category_id, description, amount, currency, payment_method,
-         receipt_url, vendor, notes, is_recurring, status, date, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         receipt_url, vendor, notes, is_recurring, status, date, is_deleted, business_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           category_id = excluded.category_id, description = excluded.description, amount = excluded.amount,
           currency = excluded.currency, payment_method = excluded.payment_method, receipt_url = excluded.receipt_url,
           vendor = excluded.vendor, notes = excluded.notes, is_recurring = excluded.is_recurring,
-          status = excluded.status, date = excluded.date, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+          status = excluded.status, date = excluded.date, is_deleted = excluded.is_deleted,
+          business_date = excluded.business_date, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(e.businessId),
@@ -1109,6 +1233,7 @@ export class SyncService {
         asStr(e.status) ?? 'PAID',
         asStr(e.expenseDate) ?? now.slice(0, 10),
         r.isDeleted ? 1 : 0,
+        asStr(e.businessDate),
         asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
@@ -1535,6 +1660,74 @@ export class SyncService {
         asStr(r.updatedAt) ?? now,
       ],
     }
+  }
+
+  // ---- audit bridge (BIZ-2.10) ---------------------------------------------
+
+  /**
+   * Push local audit rows to the server (append-only, one-way) and prune synced rows older
+   * than 90 days. Idempotent — the server ingests ON CONFLICT DO NOTHING keyed on the row id,
+   * so a re-push after a crash is safe. server_time / actor_type are set authoritatively by
+   * the server. Best-effort: called from the sync cycle and retried next tick on failure.
+   */
+  private async auditPush(): Promise<void> {
+    const rows = this.opts.db.query<{
+      id: string
+      actor_id: string | null
+      actor_name: string | null
+      actor_role: string | null
+      action: string
+      entity_type: string
+      entity_id: string
+      entity_label: string | null
+      changes: string | null
+      amount: number | null
+      sequence: number | null
+      cash_session_id: string | null
+      created_at: string
+      device_time: string | null
+    }>(
+      `SELECT id, actor_id, actor_name, actor_role, action, entity_type, entity_id, entity_label,
+              changes, amount, sequence, cash_session_id, created_at, device_time
+       FROM local_audit_logs WHERE synced_at IS NULL
+       ORDER BY sequence ASC, created_at ASC
+       LIMIT 500`,
+    )
+    if (rows.length > 0) {
+      await this.request('POST', '/sync/audit', {
+        deviceId: this.opts.getDeviceId(),
+        rows: rows.map((r) => ({
+          id: r.id,
+          actorId: r.actor_id,
+          actorName: r.actor_name,
+          actorRole: r.actor_role,
+          action: r.action,
+          entityType: r.entity_type,
+          entityId: r.entity_id,
+          entityLabel: r.entity_label,
+          changes: r.changes ? (JSON.parse(r.changes) as Record<string, unknown>) : null,
+          amount: r.amount,
+          sequence: r.sequence,
+          cashSessionId: r.cash_session_id,
+          createdAt: r.created_at,
+          deviceTime: r.device_time,
+        })),
+      })
+      const now = new Date().toISOString()
+      const ids = rows.map((r) => r.id)
+      const placeholders = ids.map(() => '?').join(', ')
+      // Only synced_at changes → permitted by the append-only update guard (0072).
+      this.opts.db.run(`UPDATE local_audit_logs SET synced_at = ? WHERE id IN (${placeholders})`, [
+        now,
+        ...ids,
+      ])
+    }
+    // Prune rows already pushed and older than 90 days (the server retains everything).
+    const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString()
+    this.opts.db.run(
+      `DELETE FROM local_audit_logs WHERE synced_at IS NOT NULL AND created_at < ?`,
+      [cutoff],
+    )
   }
 
   // ---- http ----------------------------------------------------------------

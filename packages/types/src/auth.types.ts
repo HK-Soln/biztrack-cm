@@ -1,5 +1,5 @@
 import { SubscriptionPlan, BusinessMemberRole } from './business.types'
-import type { AuthPermissions } from './permissions.types'
+import type { AuthPermissions, Resource } from './permissions.types'
 import type { IsoDateString } from './http.types'
 
 export enum UserRole {
@@ -327,6 +327,12 @@ export interface SessionStatus {
   businessName: string | null
   /** Active business currency (ISO 4217, e.g. XAF). null until a business is selected. */
   businessCurrency: string | null
+  /**
+   * BIZ-5.5 — the business's plan-tier feature entitlements, for client-side module/surface gating.
+   * `undefined` means "unknown" (never fetched, or offline with no cache) → treat as PERMISSIVE: the
+   * renderer shows everything and the server stays the hard gate. Never a reason to hide a surface.
+   */
+  effectivePermissions?: Resource[]
   /** The AuthNextStep that drives routing. null = signed out. */
   nextStep: string | null
 }
