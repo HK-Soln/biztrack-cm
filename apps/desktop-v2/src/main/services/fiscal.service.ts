@@ -1,5 +1,5 @@
 import type { HttpClient } from '@biztrack/http-client'
-import type { AccountingPeriod, FiscalYearWithPeriods } from '@biztrack/types'
+import type { AccountingPeriod, FiscalYearWithPeriods, PostingAdjustment } from '@biztrack/types'
 
 type ApiEnvelope<T> = { success?: boolean; data: T }
 
@@ -13,6 +13,10 @@ export class FiscalService {
 
   async calendar(): Promise<FiscalYearWithPeriods[]> {
     return (await this.http.get<ApiEnvelope<FiscalYearWithPeriods[]>>('/fiscal/calendar')).data.data
+  }
+
+  async adjustments(): Promise<PostingAdjustment[]> {
+    return (await this.http.get<ApiEnvelope<PostingAdjustment[]>>('/fiscal/adjustments')).data.data
   }
 
   async closePeriod(id: string): Promise<AccountingPeriod> {

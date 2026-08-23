@@ -34,6 +34,7 @@ import type {
   NotificationRecipientLookupResult,
   FiscalYearWithPeriods,
   AccountingPeriod,
+  PostingAdjustment,
   UpdateNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
@@ -165,6 +166,7 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
 
 export const cloudFiscal = {
   calendar: () => cget<FiscalYearWithPeriods[]>('/fiscal/calendar'),
+  adjustments: () => cget<PostingAdjustment[]>('/fiscal/adjustments'),
   closePeriod: (id: string) => cpost<AccountingPeriod>(`/fiscal/periods/${id}/close`, {}),
   lockPeriod: (id: string) => cpost<AccountingPeriod>(`/fiscal/periods/${id}/lock`, {}),
 }

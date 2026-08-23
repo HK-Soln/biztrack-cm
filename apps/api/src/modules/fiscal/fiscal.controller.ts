@@ -37,6 +37,12 @@ export class FiscalController {
     return this.fiscalYears.listCalendar(businessId)
   }
 
+  @Get('adjustments')
+  @ApiOperation({ summary: 'List prior-period adjustments (late arrivals redated forward)' })
+  adjustments(@CurrentUser() user: JwtPayload) {
+    return this.fiscalPeriods.listAdjustments(user.businessId as string)
+  }
+
   @Post('periods/:id/close')
   @ApiOperation({ summary: 'Close an accounting period (owner only)' })
   close(@CurrentUser() user: JwtPayload, @Param('id') id: string) {

@@ -97,6 +97,7 @@ import type {
   NotificationSettings,
   FiscalYearWithPeriods,
   AccountingPeriod,
+  PostingAdjustment,
   NotificationRecipientLookupResult,
   UpdateNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
@@ -473,6 +474,7 @@ export interface DataClient {
   }
   fiscal: {
     calendar: () => Promise<FiscalYearWithPeriods[]>
+    adjustments: () => Promise<PostingAdjustment[]>
     closePeriod: (id: string) => Promise<AccountingPeriod>
     lockPeriod: (id: string) => Promise<AccountingPeriod>
   }
@@ -837,6 +839,7 @@ function electronAdapter(): DataClient {
     },
     fiscal: {
       calendar: () => window.api.fiscal.calendar(),
+      adjustments: () => window.api.fiscal.adjustments(),
       closePeriod: (id) => window.api.fiscal.closePeriod(id),
       lockPeriod: (id) => window.api.fiscal.lockPeriod(id),
     },

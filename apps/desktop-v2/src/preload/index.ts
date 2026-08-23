@@ -325,6 +325,7 @@ const api: BridgeApi = {
   },
   fiscal: {
     calendar: () => ipcRenderer.invoke(IPC.fiscalCalendar),
+    adjustments: () => ipcRenderer.invoke(IPC.fiscalAdjustments),
     closePeriod: (id) => ipcRenderer.invoke(IPC.fiscalClosePeriod, id),
     lockPeriod: (id) => ipcRenderer.invoke(IPC.fiscalLockPeriod, id),
   },

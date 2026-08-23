@@ -33,6 +33,30 @@ export interface FiscalYearWithPeriods extends FiscalYear {
   periods: AccountingPeriod[]
 }
 
+/**
+ * BIZ-5.4 — a prior-period adjustment: a sale or expense that arrived after its own accounting
+ * period had already closed, so it was redated forward and posted to a later (still-open) period.
+ * Surfaced so the owner can see what landed in the current books but belonged to an earlier one.
+ */
+export interface PostingAdjustment {
+  id: string
+  kind: 'SALE' | 'EXPENSE'
+  /** Human reference — the sale number, or the expense description. */
+  reference: string
+  /** Whole-XAF money impact (a sale's total, an expense's amount). */
+  amount: number
+  /** The operational day it actually happened on. */
+  businessDate: IsoDateString | null
+  /** The accounting day it was redated to (falls in the still-open period). */
+  postingDate: IsoDateString | null
+  /** The closed period it originally belonged to. */
+  originalPeriodId: string | null
+  originalPeriodLabel: string | null
+  /** The period it ended up posting into. */
+  postingPeriodLabel: string | null
+  createdAt: IsoDateString
+}
+
 export interface AccountingPeriod {
   id: string
   businessId: string

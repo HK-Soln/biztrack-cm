@@ -1,7 +1,7 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, In, LessThan, Repository } from 'typeorm'
-import { PeriodStatus } from '@biztrack/types'
+import { PeriodStatus, type PostingAdjustment } from '@biztrack/types'
 import { LOGGER } from '@/logger/logger.module'
 import type { Logger } from '@biztrack/logger'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
@@ -119,6 +119,65 @@ export class FiscalPeriodsService implements OnModuleInit {
     period.status = PeriodStatus.CLOSED
     period.closedAt = new Date()
     return this.periodRepo.save(period)
+  }
+
+  /** BIZ-5.4 — prior-period adjustments: sales/expenses that arrived after their own period had
+   *  closed and were redated forward. Newest first; capped so the panel stays light. */
+  async listAdjustments(businessId: string): Promise<PostingAdjustment[]> {
+    const rows = (await this.dataSource.query(
+      `SELECT x.id, x.kind, x.reference,
+              x.amount,
+              x.business_date AS "businessDate",
+              x.posting_date AS "postingDate",
+              x.original_period_id AS "originalPeriodId",
+              op.label AS "originalPeriodLabel",
+              pp.label AS "postingPeriodLabel",
+              x.created_at AS "createdAt"
+         FROM (
+           SELECT s.id, 'SALE' AS kind, s.sale_number AS reference, s.total_amount AS amount,
+                  s.business_date, s.posting_date, s.original_period_id, s.created_at
+             FROM sales s
+            WHERE s.business_id = $1 AND s.is_late_arrival = true AND s.deleted_at IS NULL
+              AND s.status = 'COMPLETED'
+           UNION ALL
+           SELECT e.id, 'EXPENSE', e.description, e.amount,
+                  e.business_date, e.posting_date, e.original_period_id, e.created_at
+             FROM expenses e
+            WHERE e.business_id = $1 AND e.is_late_arrival = true AND e.deleted_at IS NULL
+         ) x
+         LEFT JOIN accounting_periods op ON op.id = x.original_period_id
+         LEFT JOIN accounting_periods pp
+                ON pp.business_id = $1 AND x.posting_date BETWEEN pp.start_date AND pp.end_date
+        ORDER BY x.created_at DESC
+        LIMIT 200`,
+      [businessId],
+    )) as Array<{
+      id: string
+      kind: 'SALE' | 'EXPENSE'
+      reference: string | null
+      amount: string
+      businessDate: string | null
+      postingDate: string | null
+      originalPeriodId: string | null
+      originalPeriodLabel: string | null
+      postingPeriodLabel: string | null
+      createdAt: Date
+    }>
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      reference: r.reference ?? '—',
+      amount: Number(r.amount ?? 0),
+      businessDate: r.businessDate,
+      postingDate: r.postingDate,
+      originalPeriodId: r.originalPeriodId,
+      originalPeriodLabel: r.originalPeriodLabel,
+      postingPeriodLabel: r.postingPeriodLabel,
+      createdAt:
+        r.createdAt instanceof Date
+          ? r.createdAt.toISOString()
+          : new Date(r.createdAt).toISOString(),
+    }))
   }
 
   /** Lock a closed period. Terminal — there is no reopen path (by design). */

@@ -4,6 +4,7 @@ import { Button } from '@biztrack/ui/biztrack'
 import { PeriodStatus, type AccountingPeriod, type FiscalYearWithPeriods } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { useT, useLangStore } from '@/i18n'
+import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 
 // A period's machine label is 'YYYY-MM'; show it as a readable, localized 'Jan 2027' / 'janv. 2027'.
@@ -48,6 +49,7 @@ const STATUS_CLASS: Record<PeriodStatus, string> = {
 export function AccountingPeriodsSection() {
   const t = useT()
   const lang = useLangStore((s) => s.lang)
+  const cur = useCurrency()
   const qc = useQueryClient()
   const online = useOnline()
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +81,23 @@ export function AccountingPeriodsSection() {
     queryFn: () => dataClient.fiscal.calendar(),
     enabled: online,
   })
+
+  // BIZ-5.4: prior-period adjustments — transactions that arrived after their period closed and
+  // were redated into a later one. Only meaningful once a period has been closed.
+  const adjQ = useQuery({
+    queryKey: ['fiscal', 'adjustments'],
+    queryFn: () => dataClient.fiscal.adjustments(),
+    enabled: online,
+  })
+  const adjustments = useMemo(() => adjQ.data ?? [], [adjQ.data])
+  // How many late arrivals posted INTO each period (keyed by its 'YYYY-MM' label), for the badge.
+  const lateByPeriod = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const a of adjustments) {
+      if (a.postingPeriodLabel) m.set(a.postingPeriodLabel, (m.get(a.postingPeriodLabel) ?? 0) + 1)
+    }
+    return m
+  }, [adjustments])
 
   // Surface "now" first: the current fiscal year leads (remaining years ascending), and inside
   // each year the current period is pinned to the top (remaining periods in calendar order).
@@ -114,6 +133,7 @@ export function AccountingPeriodsSection() {
     onSuccess: () => {
       setError(null)
       void qc.invalidateQueries({ queryKey: ['fiscal', 'calendar'] })
+      void qc.invalidateQueries({ queryKey: ['fiscal', 'adjustments'] })
     },
     onError: (e) => setError(errorMessage(e)),
   })
@@ -122,6 +142,7 @@ export function AccountingPeriodsSection() {
     onSuccess: () => {
       setError(null)
       void qc.invalidateQueries({ queryKey: ['fiscal', 'calendar'] })
+      void qc.invalidateQueries({ queryKey: ['fiscal', 'adjustments'] })
     },
     onError: (e) => setError(errorMessage(e)),
   })
@@ -274,6 +295,15 @@ export function AccountingPeriodsSection() {
                                 {t('periods.current')}
                               </span>
                             ) : null}
+                            {lateByPeriod.get(p.label) ? (
+                              <span className="st st-low" style={{ marginLeft: 8 }}>
+                                <span className="d" />
+                                {t('periods.lateCount').replace(
+                                  '{n}',
+                                  String(lateByPeriod.get(p.label)),
+                                )}
+                              </span>
+                            ) : null}
                           </td>
                           <td style={{ color: 'var(--text-2)' }}>
                             {p.startDate} → {p.endDate}
@@ -295,6 +325,51 @@ export function AccountingPeriodsSection() {
           })
         )}
       </div>
+
+      {/* Prior-period adjustments (BIZ-5.4) — only shown once there's something to show. */}
+      {adjustments.length > 0 ? (
+        <div className="card">
+          <div className="card-h">
+            <div>
+              <h3>{t('periods.adjTitle')}</h3>
+              <p>{t('periods.adjSub')}</p>
+            </div>
+          </div>
+          <table className="ltbl">
+            <thead>
+              <tr>
+                <th>{t('periods.adjWhat')}</th>
+                <th className="right">{t('periods.adjAmount')}</th>
+                <th>{t('periods.adjHappened')}</th>
+                <th>{t('periods.adjBelonged')}</th>
+                <th>{t('periods.adjPosted')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adjustments.map((a) => (
+                <tr key={`${a.kind}-${a.id}`}>
+                  <td>
+                    <span className="st st-neutral" style={{ marginRight: 8 }}>
+                      {t(a.kind === 'SALE' ? 'periods.adjSale' : 'periods.adjExpense')}
+                    </span>
+                    {a.reference}
+                  </td>
+                  <td className="right" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {cur.format(a.amount)}
+                  </td>
+                  <td style={{ color: 'var(--text-2)' }}>{a.businessDate ?? '—'}</td>
+                  <td style={{ color: 'var(--text-2)' }}>
+                    {a.originalPeriodLabel ? periodLabel(a.originalPeriodLabel, lang) : '—'}
+                  </td>
+                  <td style={{ color: 'var(--text-2)' }}>
+                    {a.postingPeriodLabel ? periodLabel(a.postingPeriodLabel, lang) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   )
 }
