@@ -95,6 +95,8 @@ import type {
   BusinessProfile,
   UpdateBusinessRequest,
   NotificationSettings,
+  FiscalYearWithPeriods,
+  AccountingPeriod,
   NotificationRecipientLookupResult,
   UpdateNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
@@ -469,6 +471,11 @@ export interface DataClient {
     ) => Promise<NotificationSettings>
     removeRecipient: (id: string) => Promise<NotificationSettings>
   }
+  fiscal: {
+    calendar: () => Promise<FiscalYearWithPeriods[]>
+    closePeriod: (id: string) => Promise<AccountingPeriod>
+    lockPeriod: (id: string) => Promise<AccountingPeriod>
+  }
   plans: {
     list: () => Promise<ListPlansResponse>
     subscription: () => Promise<CurrentSubscriptionResponse>
@@ -561,6 +568,7 @@ import {
   cloudInvitations,
   cloudBusiness,
   cloudNotificationSettings,
+  cloudFiscal,
   cloudPlans,
   cloudOnline,
   cloudUploads,
@@ -827,6 +835,11 @@ function electronAdapter(): DataClient {
         window.api.notificationSettings.updateRecipientSubscriptions(id, body),
       removeRecipient: (id) => window.api.notificationSettings.removeRecipient(id),
     },
+    fiscal: {
+      calendar: () => window.api.fiscal.calendar(),
+      closePeriod: (id) => window.api.fiscal.closePeriod(id),
+      lockPeriod: (id) => window.api.fiscal.lockPeriod(id),
+    },
     plans: {
       list: () => window.api.plans.list(),
       subscription: () => window.api.plans.subscription(),
@@ -949,6 +962,7 @@ function cloudAdapter(): DataClient {
     online: cloudOnline,
     business: cloudBusiness,
     notificationSettings: cloudNotificationSettings,
+    fiscal: cloudFiscal,
     plans: cloudPlans,
     roles: cloudRoles,
     team: cloudTeam,

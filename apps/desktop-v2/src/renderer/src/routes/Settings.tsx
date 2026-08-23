@@ -18,6 +18,7 @@ import { TaxSection } from '@/components/settings/TaxSection'
 import { ReceiptsSection } from '@/components/settings/ReceiptsSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
 import { BusinessHoursSection } from '@/components/settings/BusinessHoursSection'
+import { AccountingPeriodsSection } from '@/components/settings/AccountingPeriodsSection'
 
 // Settings is a SINGLE route with an in-page side-nav (per design-settings.html).
 // Team & Roles live under the separate "Organization" nav group — they are not
@@ -29,6 +30,7 @@ import { BusinessHoursSection } from '@/components/settings/BusinessHoursSection
 type SectionKey =
   | 'business'
   | 'hours'
+  | 'periods'
   | 'security'
   | 'subscription'
   | 'billing'
@@ -114,6 +116,7 @@ const NAV_GROUPS: Array<{
     items: [
       { key: 'business', label: 'settings.business', icon: ICO.building },
       { key: 'hours', label: 'settings.hours', icon: ICO.clock },
+      { key: 'periods', label: 'settings.periods', icon: ICO.clock },
     ],
   },
   {
@@ -135,6 +138,7 @@ const NAV_GROUPS: Array<{
 const SECTION_LABEL: Record<SectionKey, MessageKey> = {
   business: 'settings.business',
   hours: 'settings.hours',
+  periods: 'settings.periods',
   security: 'settings.security',
   subscription: 'settings.subscription',
   billing: 'settings.billing',
@@ -196,6 +200,8 @@ export function Settings() {
       <BusinessProfileSection />
     ) : section === 'hours' ? (
       <BusinessHoursSection />
+    ) : section === 'periods' ? (
+      <AccountingPeriodsSection />
     ) : section === 'security' ? (
       <BusinessSecuritySection />
     ) : section === 'subscription' ? (

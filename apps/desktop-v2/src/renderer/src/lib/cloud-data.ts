@@ -32,6 +32,8 @@ import type {
   // notification settings
   NotificationSettings,
   NotificationRecipientLookupResult,
+  FiscalYearWithPeriods,
+  AccountingPeriod,
   UpdateNotificationRecipientRequest,
   UpdateNotificationMatrixRequest,
   UpdateNotificationQuietHoursRequest,
@@ -159,6 +161,12 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     fiscalRegime: b.fiscalRegime ?? null,
     role,
   }
+}
+
+export const cloudFiscal = {
+  calendar: () => cget<FiscalYearWithPeriods[]>('/fiscal/calendar'),
+  closePeriod: (id: string) => cpost<AccountingPeriod>(`/fiscal/periods/${id}/close`, {}),
+  lockPeriod: (id: string) => cpost<AccountingPeriod>(`/fiscal/periods/${id}/lock`, {}),
 }
 
 export const cloudNotificationSettings = {

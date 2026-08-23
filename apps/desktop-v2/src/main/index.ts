@@ -69,6 +69,8 @@ import { NotificationsService } from './services/notifications.service'
 import { registerNotificationsIpc } from './ipc/notifications.ipc'
 import { NotificationSettingsService } from './services/notification-settings.service'
 import { registerNotificationSettingsIpc } from './ipc/notification-settings.ipc'
+import { FiscalService } from './services/fiscal.service'
+import { registerFiscalIpc } from './ipc/fiscal.ipc'
 import { AuditService } from './services/audit.service'
 import { registerAuditIpc } from './ipc/audit.ipc'
 
@@ -290,6 +292,7 @@ app.whenReady().then(() => {
   const notifications = new NotificationsService(authHttp)
   registerNotificationsIpc(notifications, realtime)
   registerNotificationSettingsIpc(new NotificationSettingsService(authHttp))
+  registerFiscalIpc(new FiscalService(authHttp))
 
   // Append-only local audit trail: every mutating service action records who/what/when.
   // Actor + device are snapshotted from the active session at write time.

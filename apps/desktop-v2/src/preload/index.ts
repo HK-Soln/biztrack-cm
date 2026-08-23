@@ -323,6 +323,11 @@ const api: BridgeApi = {
       ipcRenderer.invoke(IPC.notificationSettingsUpdateRecipientSubs, id, body),
     removeRecipient: (id) => ipcRenderer.invoke(IPC.notificationSettingsRemoveRecipient, id),
   },
+  fiscal: {
+    calendar: () => ipcRenderer.invoke(IPC.fiscalCalendar),
+    closePeriod: (id) => ipcRenderer.invoke(IPC.fiscalClosePeriod, id),
+    lockPeriod: (id) => ipcRenderer.invoke(IPC.fiscalLockPeriod, id),
+  },
   plans: {
     list: () => ipcRenderer.invoke(IPC.plansList),
     subscription: () => ipcRenderer.invoke(IPC.plansSubscription),

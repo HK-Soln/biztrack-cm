@@ -176,6 +176,9 @@ export const IPC = {
   notificationSettingsUpdateRecipient: 'notification-settings:update-recipient',
   notificationSettingsUpdateRecipientSubs: 'notification-settings:update-recipient-subs',
   notificationSettingsRemoveRecipient: 'notification-settings:remove-recipient',
+  fiscalCalendar: 'fiscal:calendar',
+  fiscalClosePeriod: 'fiscal:close-period',
+  fiscalLockPeriod: 'fiscal:lock-period',
   plansList: 'plans:list',
   plansSubscription: 'plans:subscription',
   plansQuotaUsage: 'plans:quota-usage',
@@ -1506,6 +1509,9 @@ import type {
   UpdateBusinessRequest as UpdateBusinessRequestT,
 } from '@biztrack/types'
 
+// --- Fiscal calendar + period close (Settings → Accounting periods) ---
+export type { FiscalYearWithPeriods, AccountingPeriod } from '@biztrack/types'
+
 // --- Notifications control plane (Settings → Notifications) — server-owned, online-only ---
 export type {
   NotificationSettings,
@@ -1521,6 +1527,8 @@ export type {
 } from '@biztrack/types'
 import type {
   NotificationSettings as NotificationSettingsT,
+  FiscalYearWithPeriods as FiscalYearWithPeriodsT,
+  AccountingPeriod as AccountingPeriodT,
   NotificationRecipientLookupResult as NotificationRecipientLookupResultT,
   UpdateNotificationMatrixRequest as UpdateNotificationMatrixRequestT,
   UpdateNotificationQuietHoursRequest as UpdateNotificationQuietHoursRequestT,
@@ -2285,6 +2293,12 @@ export interface BridgeApi {
       body: UpdateRecipientSubscriptionsRequestT,
     ) => Promise<NotificationSettingsT>
     removeRecipient: (id: string) => Promise<NotificationSettingsT>
+  }
+  /** Fiscal calendar + period close (Settings → Accounting periods) — server-owned, proxied. */
+  fiscal: {
+    calendar: () => Promise<FiscalYearWithPeriodsT[]>
+    closePeriod: (id: string) => Promise<AccountingPeriodT>
+    lockPeriod: (id: string) => Promise<AccountingPeriodT>
   }
   /** Plans / subscription (Settings → Subscription) — server-owned, proxied through main. */
   plans: {
