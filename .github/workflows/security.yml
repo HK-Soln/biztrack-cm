@@ -96,8 +96,10 @@ jobs:
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: '0'
-      # The hard gate: block the merge on any fixable CRITICAL.
+      # The hard gate: block the merge on any fixable CRITICAL. Suppressions (with written
+      # justification) live in .trivyignore — currently the esbuild build-tool Go-stdlib CVE.
       - name: Trivy gate (fail on CRITICAL)
         uses: aquasecurity/trivy-action@0.35.0
         with:
@@ -105,4 +107,5 @@ jobs:
           format: table
           severity: CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: '1'
