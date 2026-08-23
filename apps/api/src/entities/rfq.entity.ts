@@ -39,4 +39,8 @@ export class Rfq extends BaseEntity {
 
   @OneToMany(() => RfqSupplier, (s) => s.rfq)
   suppliers?: RfqSupplier[]
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

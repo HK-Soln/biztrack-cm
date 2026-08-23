@@ -11,12 +11,21 @@ const makeService = (existing: unknown) => {
     create: jest.fn((e) => e),
     softDelete: jest.fn(),
   }
-  const purchaseOrderItemsRepo = { delete: jest.fn(), save: jest.fn(async (e) => e), create: jest.fn((e) => e) }
+  const purchaseOrderItemsRepo = {
+    delete: jest.fn(),
+    save: jest.fn(async (e) => e),
+    create: jest.fn((e) => e),
+  }
   const service = Object.create(SyncService.prototype) as any
   service.purchaseOrdersRepo = purchaseOrdersRepo
   service.purchaseOrderItemsRepo = purchaseOrderItemsRepo
   service.normalizeOptionalString = (v: unknown) => (v == null || v === '' ? null : v)
   service.parseOptionalDate = (v: unknown) => (v ? new Date(v as string) : null)
+  service.calendar = {
+    resolveForSync: async () => '2026-01-01',
+    computeForBusiness: async () => '2026-01-01',
+    businessDateFor: async () => '2026-01-01',
+  }
   return { service, purchaseOrdersRepo, purchaseOrderItemsRepo }
 }
 
@@ -27,7 +36,16 @@ const payload = {
   currency: 'XAF',
   totalAmount: 2300000,
   rfqId: 'rfq-1',
-  items: [{ id: 'it-1', productId: 'p-1', description: 'iPhone', quantity: 5, unitPrice: 450000, receivedQuantity: 0 }],
+  items: [
+    {
+      id: 'it-1',
+      productId: 'p-1',
+      description: 'iPhone',
+      quantity: 5,
+      unitPrice: 450000,
+      receivedQuantity: 0,
+    },
+  ],
 }
 
 describe('SyncService.applyPurchaseOrderOperation', () => {
@@ -41,7 +59,14 @@ describe('SyncService.applyPurchaseOrderOperation', () => {
     } as any)
     expect(result.status).toBe('applied')
     expect(purchaseOrdersRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'po-1', businessId: 'biz-1', number: 'PO-00001', status: 'SENT', rfqId: 'rfq-1', totalAmount: 2300000 }),
+      expect.objectContaining({
+        id: 'po-1',
+        businessId: 'biz-1',
+        number: 'PO-00001',
+        status: 'SENT',
+        rfqId: 'rfq-1',
+        totalAmount: 2300000,
+      }),
     )
     expect(purchaseOrderItemsRepo.delete).toHaveBeenCalledWith({ purchaseOrderId: 'po-1' })
     expect(purchaseOrderItemsRepo.save).toHaveBeenCalledWith(

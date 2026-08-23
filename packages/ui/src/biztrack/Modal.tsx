@@ -10,24 +10,43 @@ export interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   className?: string
+  /** Extra class on the overlay — e.g. to raise its stacking layer above another
+   * open modal (a manager step-up prompt must sit above the payment sheet). */
+  overlayClassName?: string
+  /** When false, a backdrop click and Escape do NOT close the modal — the user must use
+   * the close icon or an explicit action. Default true. */
+  dismissable?: boolean
   /** When set, body + footer are wrapped in a <form> so Enter submits. Pair the
    * primary footer action with type="submit". */
   onSubmit?: () => void
 }
 
-export function Modal({ open, onClose, title, children, footer, className, onSubmit }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  className,
+  overlayClassName,
+  dismissable = true,
+  onSubmit,
+}: ModalProps) {
   useEffect(() => {
-    if (!open) return
+    if (!open || !dismissable) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, dismissable])
 
   if (!open) return null
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div
+      className={clsx('modal-overlay', overlayClassName)}
+      onMouseDown={dismissable ? onClose : undefined}
+    >
       <div
         className={clsx('modal', className)}
         role="dialog"
@@ -45,7 +64,13 @@ export function Modal({ open, onClose, title, children, footer, className, onSub
           </div>
         ) : null}
         {onSubmit ? (
-          <form style={{ display: 'contents' }} onSubmit={(e) => { e.preventDefault(); onSubmit() }}>
+          <form
+            style={{ display: 'contents' }}
+            onSubmit={(e) => {
+              e.preventDefault()
+              onSubmit()
+            }}
+          >
             <div className="modal-body">{children}</div>
             {footer ? <div className="modal-foot">{footer}</div> : null}
           </form>

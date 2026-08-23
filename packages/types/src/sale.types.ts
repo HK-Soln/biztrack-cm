@@ -1,4 +1,5 @@
 import type { Currency } from './business.types'
+import type { SaleDiscountTypeValue } from './charge.types'
 import type { IsoDateString, ListQuery } from './http.types'
 import type { ProductUserSummary } from './product.types'
 
@@ -136,8 +137,16 @@ export interface CreateSaleItemRequest {
   serialNumber?: string
   quantity: number
   unitPrice: number
+  /** Catalogue price at sale time (variant override ?? product selling price). Snapshot
+   * so later catalogue changes never move history; defaults to unitPrice when omitted. */
+  unitPriceListed?: number
   discountAmount?: number
   costPrice?: number
+  /** Reason for a price override on this line (BIZ-1.6); a DiscountReasonCode value.
+   * Defaults to NEGOTIATED when the price is below listed and no reason is given. */
+  reasonCode?: string | null
+  /** Free text; required by the UI when reasonCode = OTHER. */
+  reasonNote?: string | null
 }
 
 // A sale-level charge line (e.g. delivery, packaging). The backend persists each line
@@ -154,9 +163,16 @@ export interface CreateSaleChargeRequest {
 // discountAmount from their sum.
 export interface CreateSaleDiscountRequest {
   description: string
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  discountType: SaleDiscountTypeValue
   rate?: number | null
   amount: number
+  /** Set for a LINE-scoped discount (reconciles with that line's discount_amount);
+   * null/omitted = a cart-level discount. */
+  saleItemId?: string | null
+  /** A DiscountReasonCode value (business-editable later, so stored as a free string). */
+  reasonCode?: string | null
+  /** Free text; required by the UI when reasonCode = OTHER. */
+  reasonNote?: string | null
 }
 
 export interface CreateSaleRequest {
@@ -174,6 +190,12 @@ export interface CreateSaleRequest {
   discounts?: CreateSaleDiscountRequest[]
   payments: CreateSalePaymentRequest[]
   items: CreateSaleItemRequest[]
+  /** Manager userId who authorized an over-limit discount via step-up (BIZ-1.4).
+   * When present, the sale's discount rows are recorded authorized, not flagged. */
+  authorizedByUserId?: string | null
+  /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale.
+   * When omitted, the debt falls back to created_at + the business's default credit days. */
+  creditDueDate?: string | null
 }
 
 export interface VoidSaleRequest {
@@ -214,6 +236,9 @@ export interface SaleReceiptItem {
   unitPrice: number
   total: number
   discountAmount?: number | null
+  /** Catalogue price at sale time; when it exceeds unitPrice the receipt prints
+   * "Prix {listed} → {charged}" so the customer sees the discount (BIZ-1.6). */
+  unitPriceListed?: number | null
 }
 
 export interface SaleReceiptPayment {

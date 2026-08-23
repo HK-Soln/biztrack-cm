@@ -6,6 +6,7 @@ import { I18nService } from 'nestjs-i18n'
 import type { AppConfig } from '@/config/configuration'
 import {
   ContactType,
+  NotificationType,
   PaymentMethod,
   ONLINE_ORDER_COMPLETION_STATUSES,
   SaleSource,
@@ -40,12 +41,17 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { OnlineStore } from '@/entities/online-store.entity'
 import { Contact } from '@/entities/contact.entity'
+import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
+import { APP_ROUTES } from '@biztrack/utils'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
 
@@ -116,6 +122,8 @@ export class OnlineOrdersService {
     private readonly storeService: OnlineStoreService,
     private readonly config: ConfigService<AppConfig>,
     private readonly orderEmail: OrderEmailService,
+    private readonly dispatcher: NotificationDispatcher,
+    private readonly calendar: BusinessCalendarService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -249,6 +257,8 @@ export class OnlineOrdersService {
           : 0
       const totalAmount = subtotal + deliveryFee
 
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(store.businessId, new Date())
       const order = await this.ordersRepo.save(
         this.ordersRepo.create({
           onlineStoreId: store.id,
@@ -268,6 +278,7 @@ export class OnlineOrdersService {
           status: 'PENDING',
           paymentMethod: dto.paymentMethod ?? null,
           paymentStatus: 'PENDING',
+          businessDate,
         }),
       )
 
@@ -290,6 +301,9 @@ export class OnlineOrdersService {
       // Send the "order received" email (best-effort).
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
 
+      // Notify the owner a new online order came in (BIZ-4 newOrder producer).
+      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, totalAmount)
+
       return {
         orderNumber: order.orderNumber,
         trackingToken: order.trackingToken,
@@ -297,6 +311,72 @@ export class OnlineOrdersService {
       }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })
+    }
+  }
+
+  /** TEAM_ACTIVITY notification when staff refund an order — a high-signal money-out action.
+   *  Copy in the owner's language; fire-and-forget. */
+  private async notifyRefund(
+    businessId: string,
+    orderId: string,
+    orderNumber: string,
+    amount: number,
+    actorName: string | null,
+  ): Promise<void> {
+    try {
+      const business = await this.ordersRepo.manager
+        .getRepository(Business)
+        .findOne({ where: { id: businessId }, relations: ['owner'] })
+      const en = business?.owner?.language === Locale.EN
+      const value = `${amount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      const actor = actorName?.trim() || (en ? 'A team member' : 'Un membre de l’équipe')
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.TEAM_ACTIVITY,
+        title: en ? 'Order refunded' : 'Commande remboursée',
+        body: en
+          ? `${actor} refunded order ${orderNumber} (${value}).`
+          : `${actor} a remboursé la commande ${orderNumber} (${value}).`,
+        deeplink: APP_ROUTES.onlineOrder(orderId),
+        metadata: { action: 'REFUND', orderId, orderNumber, amount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch refund notification', 'OnlineOrdersService', {
+        businessId,
+        orderId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  /** NEW_ORDER notification to the owner when a customer places an online order. Copy in the
+   *  owner's language; routed through the notification control plane. Fire-and-forget. */
+  private async notifyNewOrder(
+    businessId: string,
+    orderId: string,
+    orderNumber: string,
+    totalAmount: number,
+  ): Promise<void> {
+    try {
+      const business = await this.ordersRepo.manager
+        .getRepository(Business)
+        .findOne({ where: { id: businessId }, relations: ['owner'] })
+      const en = business?.owner?.language === Locale.EN
+      const value = `${totalAmount.toLocaleString(en ? 'en-US' : 'fr-FR')} XAF`
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.NEW_ORDER,
+        title: en ? 'New online order' : 'Nouvelle commande en ligne',
+        body: en ? `Order ${orderNumber} · ${value}.` : `Commande ${orderNumber} · ${value}.`,
+        deeplink: APP_ROUTES.onlineOrder(orderId),
+        metadata: { orderId, orderNumber, totalAmount },
+      })
+    } catch (error) {
+      this.logger.warn('Failed to dispatch new-order notification', 'OnlineOrdersService', {
+        businessId,
+        orderId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
@@ -481,6 +561,8 @@ export class OnlineOrdersService {
           reason: dto.internalNote?.trim() || `Online order ${order.orderNumber} returned`,
         })
         patch.paymentStatus = 'REFUNDED'
+        // A refund is a high-signal staff action → notify the owner (team-activity producer).
+        void this.notifyRefund(businessId, id, order.orderNumber, order.totalAmount, actor.name)
         await this.eventsRepo.save(
           this.eventsRepo.create({
             onlineOrderId: id,

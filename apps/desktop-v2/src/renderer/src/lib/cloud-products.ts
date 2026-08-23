@@ -294,6 +294,21 @@ export const cloudProducts = {
     const res = await cget<PaginatedResult<ApiProduct>>(`/products${qs(productQuery(query))}`)
     return { ...res, data: res.data.map(toLocalProduct) }
   },
+  listAll: async (query?: ProductListQuery): Promise<LocalProduct[]> => {
+    // Page through the API until every product matching the filters is collected (for export).
+    const out: LocalProduct[] = []
+    const limit = 200
+    let page = 1
+    for (;;) {
+      const res = await cget<PaginatedResult<ApiProduct>>(
+        `/products${qs(productQuery({ ...query, page, limit }))}`,
+      )
+      out.push(...res.data.map(toLocalProduct))
+      if (res.data.length === 0 || page >= (res.totalPages ?? 1)) break
+      page += 1
+    }
+    return out
+  },
   listSellable: async (query?: ProductListQuery): Promise<PaginatedResult<SellEntry>> => {
     const res = await cget<PaginatedResult<ApiSellEntry>>(
       `/products/sellable${qs(productQuery(query))}`,

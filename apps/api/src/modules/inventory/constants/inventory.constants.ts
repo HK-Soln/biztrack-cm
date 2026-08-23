@@ -6,6 +6,10 @@ export const INVENTORY_LOW_STOCK_DISPATCH_JOB = 'inventory-low-stock-business-di
 export const INVENTORY_LOW_STOCK_CRON_PATTERN = '0 8 * * *'
 export const INVENTORY_LOW_STOCK_TIMEZONE = 'Africa/Douala'
 export const INVENTORY_LOW_STOCK_ALERT_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+/** Don't re-notify about the same product within this window (BIZ-4.5). */
+export const REORDER_SUPPRESSION_HOURS = 72
+/** Don't repeat the "please sync" stale alert more than once per this window. */
+export const SYNC_STALE_ALERT_SUPPRESSION_SECONDS = 72 * 60 * 60
 
 export interface InventoryLowStockScanJobData {
   requestedAt: string

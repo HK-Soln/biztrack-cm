@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -25,6 +26,7 @@ import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import { ListDebtsQueryDto } from '../dto/list-debts-query.dto'
 import { RecordDebtPaymentDto } from '../dto/record-debt-payment.dto'
+import { UpdateDebtDueDateDto } from '../dto/update-debt-due-date.dto'
 import { WriteOffDebtDto } from '../dto/write-off-debt.dto'
 import { DebtsService } from '../services/debts.service'
 import { OpeningBalancesService } from '../services/opening-balances.service'
@@ -109,6 +111,23 @@ export class DebtorsController {
       DebtDirection.RECEIVABLE,
       debtId,
       paymentId,
+    )
+  }
+
+  @Patch(':debtId/due-date')
+  @RequireResource(Resource.DEBTS_RECORD_PAYMENT)
+  @ApiOperation({ summary: "Set a receivable debt's expected payment date" })
+  updateDueDate(
+    @CurrentUser() user: JwtPayload,
+    @Param('debtId') debtId: string,
+    @Body() dto: UpdateDebtDueDateDto,
+  ): Promise<Debt> {
+    return this.debtsService.updateDueDate(
+      user.businessId as string,
+      user,
+      DebtDirection.RECEIVABLE,
+      debtId,
+      dto.dueDate,
     )
   }
 

@@ -2,6 +2,7 @@ import {
   IsString,
   IsOptional,
   IsEnum,
+  IsObject,
   MinLength,
   MaxLength,
   IsEmail,
@@ -9,9 +10,10 @@ import {
   IsNumber,
   Min,
   Max,
+  ValidateIf,
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import type { CreateBusinessRequest } from '@biztrack/types'
+import type { BusinessHours, CreateBusinessRequest } from '@biztrack/types'
 import { BusinessType, FiscalRegime } from '@biztrack/types'
 
 export class CreateBusinessDto implements CreateBusinessRequest {
@@ -67,6 +69,52 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @IsString()
   @MaxLength(500)
   logoUrl?: string
+
+  @ApiPropertyOptional({
+    description: 'Per-weekday opening hours { mon: {open,close}|null, … }. Normalized server-side.',
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.businessHours != null)
+  @IsObject()
+  businessHours?: BusinessHours | null
+
+  @ApiPropertyOptional({
+    description: 'Default credit period (days) for on-account sales; drives due dates.',
+    example: 30,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(365)
+  defaultCreditDays?: number | null
+
+  @ApiPropertyOptional({
+    description: 'Canonical business timezone (IANA); drives business_date, digests, quiet hours.',
+    example: 'Africa/Douala',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timezone?: string | null
+
+  @ApiPropertyOptional({
+    description: "Local trading-day cutover ('HH:mm'); default 00:00.",
+    example: '00:00',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  dayCutoverTime?: string | null
+
+  @ApiPropertyOptional({
+    description: 'Month (1–12) the fiscal year begins in; default 1 (January, OHADA).',
+    example: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(12)
+  fiscalYearStartMonth?: number | null
 
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })

@@ -11,3 +11,14 @@ export function decodeJwt(token: string): JwtPayload | null {
     return null
   }
 }
+
+/**
+ * True when the token carries an `exp` claim that is already in the past. A token
+ * with no decodable `exp` returns false (unknown → let the API be the authority).
+ * Used on cold start so an expired session isn't restored into an empty dashboard.
+ */
+export function isJwtExpired(token: string, nowMs: number = Date.now()): boolean {
+  const payload = decodeJwt(token) as (JwtPayload & { exp?: number }) | null
+  if (!payload || typeof payload.exp !== 'number') return false
+  return payload.exp * 1000 <= nowMs
+}

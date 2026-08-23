@@ -5,7 +5,10 @@ import { SubscriptionEventsRepository } from './repositories/subscription-events
 import { PermissionsService } from '@/modules/permissions/permissions.service'
 import { SubscriptionEventType } from '@/entities/subscription-event.entity'
 import { SubscriptionStatus } from '@/entities/business.entity'
-import { SubscriptionPlan } from '@biztrack/types'
+import { NotificationType, SubscriptionPlan } from '@biztrack/types'
+import { APP_ROUTES } from '@biztrack/utils'
+import { Locale } from '@/common/enums/locale.enum'
+import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 
 @Injectable()
 export class SubscriptionsService {
@@ -13,6 +16,7 @@ export class SubscriptionsService {
     private businessesRepo: BusinessesRepository,
     private subscriptionEventsRepo: SubscriptionEventsRepository,
     private permissionsService: PermissionsService,
+    private dispatcher: NotificationDispatcher,
   ) {}
 
   async expireTrials() {
@@ -23,6 +27,7 @@ export class SubscriptionsService {
         trialEndsAt: LessThan(now),
         plan: Not(SubscriptionPlan.FREE),
       },
+      relations: ['owner'],
     })
 
     for (const business of expired) {
@@ -37,6 +42,28 @@ export class SubscriptionsService {
         fromPlan: business.plan,
         toPlan: SubscriptionPlan.FREE,
       })
+      // BILLING is a mandatory event (always ≥1 channel) — tell the owner their trial ended.
+      await this.notifyTrialEnded(business.id, business.owner?.language)
+    }
+  }
+
+  /** BILLING notification when a trial ends and the business drops to Free. Fire-and-forget
+   *  so a notification hiccup never blocks the downgrade. */
+  private async notifyTrialEnded(businessId: string, language?: string | null): Promise<void> {
+    try {
+      const en = language === Locale.EN
+      await this.dispatcher.dispatch({
+        businessId,
+        event: NotificationType.BILLING,
+        title: en ? 'Your trial has ended' : 'Votre essai est terminé',
+        body: en
+          ? 'You’re now on the Free plan. Upgrade anytime to restore your features.'
+          : 'Vous êtes maintenant sur le forfait Gratuit. Passez à un forfait supérieur à tout moment.',
+        deeplink: APP_ROUTES.settings(),
+        metadata: { reason: 'trial_ended' },
+      })
+    } catch {
+      // Best-effort — the downgrade already succeeded.
     }
   }
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BrandMark, Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
-import { useT } from '@/i18n'
+import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { BusinessSetupPayload } from '@shared/ipc'
 import { useSessionStore } from '@/stores/session.store'
@@ -29,8 +29,18 @@ const REGIMES = ['IMPOT_LIBERATOIRE', 'SIMPLIFIE', 'REEL'] as const
 export function SetupBusiness() {
   const navigate = useNavigate()
   const t = useT()
+  const lang = useLangStore((s) => s.lang)
   const setStatus = useSessionStore((s) => s.setStatus)
   const sessionBusinessName = useSessionStore((s) => s.status.businessName)
+
+  // Locale-aware month names for the fiscal-year start picker.
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const name = new Date(Date.UTC(2000, i, 1)).toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR', {
+      month: 'long',
+      timeZone: 'UTC',
+    })
+    return { value: String(i + 1), label: name.charAt(0).toUpperCase() + name.slice(1) }
+  })
 
   const [step, setStep] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -53,6 +63,7 @@ export function SetupBusiness() {
   const [vatRegistered, setVatRegistered] = useState(false)
   const [vatRate, setVatRate] = useState('19.25')
   const [fiscalRegime, setFiscalRegime] = useState<string>('IMPOT_LIBERATOIRE')
+  const [fiscalYearStartMonth, setFiscalYearStartMonth] = useState('1')
 
   const validateStep = (s: number): boolean => {
     if (s === 0 && !name.trim()) {
@@ -85,6 +96,7 @@ export function SetupBusiness() {
       vatRegistered,
       defaultVatRate: vatRegistered && Number.isFinite(rate) ? rate : undefined,
       fiscalRegime: fiscalRegime || undefined,
+      fiscalYearStartMonth: Number(fiscalYearStartMonth) || 1,
     }
     const res = await dataClient.auth.setupBusiness(payload)
     setBusy(false)
@@ -324,6 +336,20 @@ export function SetupBusiness() {
                     label: t(`regime.${v}` as MessageKey),
                   }))}
                 />
+              </div>
+            </div>
+            <div className="ff">
+              <label className="lbl2">{t('setup.fyStart')}</label>
+              <Select
+                value={fiscalYearStartMonth}
+                onChange={(e) => setFiscalYearStartMonth(e.target.value)}
+                options={monthOptions}
+              />
+              <div
+                className="help"
+                style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}
+              >
+                {t('setup.fyStartHelp')}
               </div>
             </div>
           </>

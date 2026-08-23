@@ -14,13 +14,15 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint . --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@biztrack/types": "workspace:*",
     "@biztrack/eslint-config": "workspace:*",
+    "@biztrack/types": "workspace:*",
     "@biztrack/typescript-config": "workspace:*",
     "eslint": "^9.32.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }

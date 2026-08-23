@@ -62,17 +62,9 @@ export function Inventory() {
   const attention = (stats?.lowStock ?? 0) + (stats?.outOfStock ?? 0)
   const estRestockCost = suggestions.reduce((s, x) => s + x.suggestedQty * (x.unitCost ?? 0), 0)
 
-  const generatePO = () =>
-    navigate('/purchasing/orders/new', {
-      state: {
-        seedItems: suggestions.map((s) => ({
-          productId: s.productId,
-          name: s.name,
-          quantity: String(s.suggestedQty),
-          unitPrice: s.unitCost != null ? String(s.unitCost) : '',
-        })),
-      },
-    })
+  // The reorder banner leads to the À-commander surface, where the owner reviews the
+  // low-stock lines grouped by supplier and orders (per-supplier PO / WhatsApp).
+  const generatePO = () => navigate('/inventory/reorder')
 
   const onHandCell = (it: LocalInventoryItem) => (
     <span

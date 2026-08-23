@@ -10,7 +10,24 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
-import { BusinessMemberRole, Resource, type AuditContext, type CashierPerformanceRow, type CashierShiftSummary, type DailySalesRow, type DailySalesSummary, type JwtPayload, type PaginatedResult, type RefundCashierRow, type RefundReasonRow, type Sale, type SaleListItem, type SaleReceipt, type SalesByPaymentRow, type SalesByProductRow } from '@biztrack/types'
+import {
+  BusinessMemberRole,
+  Resource,
+  type AuditContext,
+  type CashierPerformanceRow,
+  type CashierShiftSummary,
+  type DailySalesRow,
+  type DailySalesSummary,
+  type JwtPayload,
+  type PaginatedResult,
+  type RefundCashierRow,
+  type RefundReasonRow,
+  type Sale,
+  type SaleListItem,
+  type SaleReceipt,
+  type SalesByPaymentRow,
+  type SalesByProductRow,
+} from '@biztrack/types'
 import { serializeDto, serializePaginatedResult } from '@/common/http/serialization'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
@@ -127,7 +144,10 @@ export class SalesController {
     @CurrentUser() user: JwtPayload,
     @Query() query: ListSalesQueryDto,
   ): Promise<SalesByProductRow[]> {
-    return this.salesService.getSalesByProduct(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+    return this.salesService.getSalesByProduct(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   @Get('by-payment-method')
@@ -137,7 +157,10 @@ export class SalesController {
     @CurrentUser() user: JwtPayload,
     @Query() query: ListSalesQueryDto,
   ): Promise<SalesByPaymentRow[]> {
-    return this.salesService.getSalesByPaymentMethod(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+    return this.salesService.getSalesByPaymentMethod(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   @Get('refunds')
@@ -147,7 +170,10 @@ export class SalesController {
     @CurrentUser() user: JwtPayload,
     @Query() query: ListSalesQueryDto,
   ): Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }> {
-    return this.salesService.getRefundsSummary(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+    return this.salesService.getRefundsSummary(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   @Get('gross-profit')
@@ -157,7 +183,10 @@ export class SalesController {
     @CurrentUser() user: JwtPayload,
     @Query() query: ListSalesQueryDto,
   ): Promise<{ revenue: number; cogs: number }> {
-    return this.salesService.getGrossProfit(user.businessId as string, { dateFrom: query.dateFrom, dateTo: query.dateTo })
+    return this.salesService.getGrossProfit(user.businessId as string, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    })
   }
 
   @Get('cashier-summary')
@@ -168,18 +197,13 @@ export class SalesController {
     @Query() query: CashierSummaryQueryDto,
   ): Promise<CashierShiftSummary> {
     const date = query.date ?? new Date().toISOString().slice(0, 10)
-    const isCashierRole = [
-      BusinessMemberRole.CASHIER,
-      BusinessMemberRole.STAFF,
-    ].includes(user.role as BusinessMemberRole)
+    const isCashierRole = [BusinessMemberRole.CASHIER, BusinessMemberRole.STAFF].includes(
+      user.role as BusinessMemberRole,
+    )
     const cashierId = isCashierRole ? user.sub : (query.cashierId ?? user.sub)
     return serializeDto(
       CashierShiftSummaryDto.fromData(
-        await this.salesService.getCashierShiftSummary(
-          user.businessId as string,
-          cashierId,
-          date,
-        ),
+        await this.salesService.getCashierShiftSummary(user.businessId as string, cashierId, date),
       ),
     )
   }
@@ -214,7 +238,7 @@ export class SalesController {
     @Param('id') id: string,
     @Body() dto: SendSaleReceiptDto,
     @CurrentAuditContext() auditContext: AuditContext,
-  ): Promise<{ pdfUrl: string }> {
+  ): Promise<{ pdfUrl: string | null }> {
     return this.salesService.sendReceipt(id, user.businessId as string, dto, auditContext)
   }
 
@@ -239,9 +263,7 @@ export class SalesController {
   @ApiOperation({ summary: 'Get sale detail' })
   async findById(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<Sale> {
     return serializeDto(
-      SaleResponseDto.fromEntity(
-        await this.salesService.findById(id, user.businessId as string),
-      ),
+      SaleResponseDto.fromEntity(await this.salesService.findById(id, user.businessId as string)),
     )
   }
 }

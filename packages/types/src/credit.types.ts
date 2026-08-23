@@ -212,6 +212,10 @@ export interface AgeingEntry {
   moderate: number
   aged: number
   overdue: number
+  /** Outstanding strictly past the effective due date (COALESCE(due_date, created_at +
+   * defaultCreditDays)). Excludes opening balances. Drives debt-due reminders + the
+   * daily digest's "overdue" figure (D9). */
+  pastDue: number
   totalOutstanding: number
 }
 

@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
+import { evaluateDiscountAuthorization } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
+import { requestManagerStepUp } from '@/stores/step-up.store'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
+import { PriceOverrideSheet, type PriceOverrideResult } from '@/components/sell/PriceOverrideSheet'
 import type {
   LocalProduct,
   LocalSaleDetail,
@@ -29,6 +32,41 @@ interface SellTile {
 }
 
 const PAGE = 20
+
+// Product thumbnail: the photo when present, otherwise a striped placeholder with a dashed
+// "IMG" chip (mirrors the storefront's product-card / hero placeholder). Styles are inline so
+// the placeholder is fully self-contained — it fills + centers regardless of the parent tile's
+// styling or the shared stylesheet, and a broken photo URL falls back to it too.
+const THUMB_PH_WRAP: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background:
+    'repeating-linear-gradient(45deg, var(--stripe, rgba(0,0,0,0.05)), var(--stripe, rgba(0,0,0,0.05)) 9px, transparent 9px, transparent 18px)',
+}
+const THUMB_PH_CHIP: CSSProperties = {
+  fontFamily: 'ui-monospace, Menlo, monospace',
+  fontSize: 10.5,
+  letterSpacing: '0.04em',
+  color: 'var(--text-muted)',
+  border: '1px dashed var(--border-strong)',
+  borderRadius: 7,
+  padding: '4px 9px',
+  background: 'var(--surface)',
+}
+function Thumb({ src, imgClassName = 'ava-img' }: { src: string | null; imgClassName?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (src && !failed) {
+    return <img src={src} alt="" className={imgClassName} onError={() => setFailed(true)} />
+  }
+  return (
+    <span style={THUMB_PH_WRAP}>
+      <span style={THUMB_PH_CHIP}>IMG</span>
+    </span>
+  )
+}
 
 // --- tiny icon set (matches the approved design) ---------------------------
 const I = {
@@ -149,6 +187,13 @@ export interface CartLine {
   productId: string
   name: string
   unitPrice: number
+  /** Catalogue price captured when the line was added; preserved even if the cashier
+   * later edits unitPrice (bargaining), so history keeps the true listed price.
+   * Optional so held carts parked before this field existed still resume. */
+  unitPriceListed?: number
+  /** Reason for a price override on this line (BIZ-1.6), set via the price-edit sheet. */
+  reasonCode?: string | null
+  reasonNote?: string | null
   quantity: number
   variantId?: string | null
   variantName?: string | null
@@ -336,6 +381,7 @@ export function Sell() {
         productId: p.id,
         name: p.name,
         unitPrice,
+        unitPriceListed: unitPrice,
         quantity: 1,
       },
     ])
@@ -352,6 +398,7 @@ export function Sell() {
           productId: p.id,
           name: p.name,
           unitPrice: p.effectiveSellingPrice,
+          unitPriceListed: p.effectiveSellingPrice,
           quantity: 1,
         },
       ]
@@ -370,6 +417,7 @@ export function Sell() {
           productId: p.id,
           name: `${p.name} · ${v.name}`,
           unitPrice,
+          unitPriceListed: unitPrice,
           quantity: 1,
           variantId: v.id,
           variantName: v.name,
@@ -384,6 +432,7 @@ export function Sell() {
     name: `${tgt.productName}${tgt.variantName ? ` · ${tgt.variantName}` : ''} · ${u.serialNumber}`,
     productName: tgt.productName,
     unitPrice: tgt.unitPrice,
+    unitPriceListed: tgt.unitPrice,
     quantity: 1,
     variantId: tgt.variantId ?? null,
     variantName: tgt.variantName ?? null,
@@ -426,6 +475,17 @@ export function Sell() {
         l.key === key ? (l.quantity + d <= 0 ? [] : [{ ...l, quantity: l.quantity + d }]) : [l],
       ),
     )
+  // Price-override sheet (BIZ-1.6): tap a cart line's price to edit it + pick a reason.
+  const [priceEditKey, setPriceEditKey] = useState<string | null>(null)
+  const priceEditLine = cart.find((l) => l.key === priceEditKey) ?? null
+  const applyPriceOverride = (key: string, r: PriceOverrideResult) =>
+    setCart((prev) =>
+      prev.map((l) =>
+        l.key === key
+          ? { ...l, unitPrice: r.unitPrice, reasonCode: r.reasonCode, reasonNote: r.reasonNote }
+          : l,
+      ),
+    )
   // Direct quantity entry — clamp to a positive integer (never serialized; those are 1/line).
   const setQtyValue = (key: string, n: number) =>
     setCart((prev) =>
@@ -433,7 +493,20 @@ export function Sell() {
         l.key === key ? { ...l, quantity: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1 } : l,
       ),
     )
-  const removeLine = (key: string) => setCart((prev) => prev.filter((l) => l.key !== key))
+  const removeLine = (key: string) => {
+    // BIZ-2.9: ring-then-remove is a theft pattern. The held cart has no DB row, so this is
+    // captured in local_audit_logs only (desktop). Guarded — noop in the browser build.
+    const line = cart.find((l) => l.key === key)
+    if (line?.productId) {
+      void window.api?.audit?.saleLineRemoved?.({
+        productId: line.productId,
+        productName: line.name,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+      })
+    }
+    setCart((prev) => prev.filter((l) => l.key !== key))
+  }
   const editSerials = (l: CartLine) =>
     setSerialPick({
       productId: l.productId,
@@ -605,18 +678,25 @@ export function Sell() {
 
   const itemCount = cart.reduce((a, l) => a + l.quantity, 0)
 
-  const buildInput = (payments: SaleInput['payments']): SaleInput => ({
+  const buildInput = (
+    payments: SaleInput['payments'],
+    creditDueDate?: string | null,
+  ): SaleInput => ({
     clientId: crypto.randomUUID(),
     customerId: customer?.id ?? null,
     customerName: customer?.name ?? null,
     customerPhone: customer?.phone ?? null,
+    creditDueDate: creditDueDate || null,
     items: cart.map((l) =>
       l.serialUnitId
         ? {
             productId: l.productId,
             unitPrice: l.unitPrice,
+            unitPriceListed: l.unitPriceListed ?? l.unitPrice,
             quantity: 1,
             serialUnitIds: [l.serialUnitId],
+            reasonCode: l.reasonCode ?? null,
+            reasonNote: l.reasonNote ?? null,
           }
         : {
             productId: l.productId,
@@ -624,6 +704,9 @@ export function Sell() {
             variantName: l.variantName ?? null,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
+            unitPriceListed: l.unitPriceListed ?? l.unitPrice,
+            reasonCode: l.reasonCode ?? null,
+            reasonNote: l.reasonNote ?? null,
           },
     ),
     payments,
@@ -655,6 +738,51 @@ export function Sell() {
       setPayOpen(false)
     },
   })
+
+  // The cashier's role discount limits (offline). Used to prompt manager step-up
+  // when a discount exceeds them before the sale is rung up (BIZ-1.4).
+  const limitsQ = useQuery({
+    queryKey: ['sales', 'my-discount-limits'],
+    queryFn: () => dataClient.sales.myDiscountLimits(),
+    staleTime: 5 * 60_000,
+  })
+
+  /**
+   * Ring up the sale, first prompting for manager authorization if the discount is
+   * over the cashier's role limit. APPROVE semantics: if the manager cancels, the
+   * sale still completes but its discount is flagged unauthorized on the backend.
+   */
+  const submitSale = async (payments: SaleInput['payments'], creditDueDate?: string | null) => {
+    let authorizedByUserId: string | null = null
+    const limits = limitsQ.data
+    const overLimit = limits
+      ? evaluateDiscountAuthorization(limits, {
+          lines: cart.map((l) => {
+            const listed = l.unitPriceListed ?? l.unitPrice
+            return {
+              discountAmount: Math.max(0, (listed - l.unitPrice) * l.quantity),
+              listedLineValue: listed * l.quantity,
+            }
+          }),
+          cartDiscount: calc.disc,
+          subtotal: calc.subtotal,
+        }).overLimit
+      : false
+    // Below-cost is resolved in the main process (cost never reaches the cashier) —
+    // it returns only whether authorization is required.
+    const belowCost = await dataClient.sales.belowCostCheck(
+      cart.map((l) => ({
+        productId: l.productId,
+        variantId: l.variantId ?? null,
+        unitPrice: l.unitPrice,
+      })),
+    )
+    if (overLimit || belowCost) {
+      const result = await requestManagerStepUp()
+      authorizedByUserId = result?.authorizedByUserId ?? null
+    }
+    checkout.mutate({ ...buildInput(payments, creditDueDate), authorizedByUserId })
+  }
 
   const startNew = () => {
     setCart([])
@@ -795,7 +923,7 @@ export function Sell() {
             setCustOpen(true)
           }}
           busy={checkout.isPending}
-          onConfirm={(payments) => checkout.mutate(buildInput(payments))}
+          onConfirm={(payments, due) => void submitSale(payments, due)}
         />
       ) : null}
 
@@ -806,6 +934,25 @@ export function Sell() {
           onNew={startNew}
         />
       ) : null}
+
+      <PriceOverrideSheet
+        open={priceEditKey !== null}
+        line={
+          priceEditLine
+            ? {
+                name: priceEditLine.name,
+                listed: priceEditLine.unitPriceListed ?? priceEditLine.unitPrice,
+                unitPrice: priceEditLine.unitPrice,
+                quantity: priceEditLine.quantity,
+              }
+            : null
+        }
+        onClose={() => setPriceEditKey(null)}
+        onConfirm={(r) => {
+          if (priceEditKey) applyPriceOverride(priceEditKey, r)
+          setPriceEditKey(null)
+        }}
+      />
     </>
   )
 
@@ -884,11 +1031,7 @@ export function Sell() {
               >
                 <span className="padd">{I.plus}</span>
                 <div className="pth">
-                  {tile.imageUrl ? (
-                    <img src={tile.imageUrl} alt="" />
-                  ) : (
-                    tile.name.trim().charAt(0).toUpperCase()
-                  )}
+                  <Thumb src={tile.imageUrl} />
                 </div>
                 <div className="pn" title={tile.name}>
                   {tile.name}
@@ -942,6 +1085,7 @@ export function Sell() {
             setQty={setQty}
             setQtyValue={setQtyValue}
             onEditSerial={editSerials}
+            onEditPrice={setPriceEditKey}
             removeLine={removeLine}
             onClose={() => setSheetOpen(false)}
             onCharge={() => {
@@ -1031,11 +1175,7 @@ export function Sell() {
                   onClick={() => onEntryClick(e)}
                 >
                   <div className="thumb">
-                    {tile.imageUrl ? (
-                      <img src={tile.imageUrl} alt="" className="ava-img" />
-                    ) : (
-                      tile.name.trim().charAt(0).toUpperCase()
-                    )}
+                    <Thumb src={tile.imageUrl} imgClassName="ava-img" />
                   </div>
                   <div className="pn" title={tile.name}>
                     {tile.name}
@@ -1095,9 +1235,17 @@ export function Sell() {
                 <div key={l.key} className="tl-row">
                   <div className="tn">
                     <div className="nm">{l.name}</div>
-                    <div className="up">
+                    <button
+                      type="button"
+                      className="up up-edit"
+                      title={t('priceEdit.title')}
+                      onClick={() => setPriceEditKey(l.key)}
+                    >
+                      {(l.unitPriceListed ?? l.unitPrice) > l.unitPrice ? (
+                        <span className="up-was">{money.format(l.unitPriceListed ?? 0)}</span>
+                      ) : null}
                       {money.format(l.unitPrice)} × {l.quantity}
-                    </div>
+                    </button>
                   </div>
                   {l.serialUnitId ? (
                     // No delete here — the row's hover-× (.trm) already removes it. Edit swaps units.
@@ -1319,6 +1467,7 @@ function MobileTicketSheet({
   setQty,
   setQtyValue,
   onEditSerial,
+  onEditPrice,
   removeLine,
   onClose,
   onCharge,
@@ -1337,6 +1486,7 @@ function MobileTicketSheet({
   setQty: (key: string, d: number) => void
   setQtyValue: (key: string, n: number) => void
   onEditSerial: (l: CartLine) => void
+  onEditPrice: (key: string) => void
   removeLine: (key: string) => void
   onClose: () => void
   onCharge: () => void
@@ -1360,9 +1510,17 @@ function MobileTicketSheet({
               <div className="th">{l.name.trim().charAt(0).toUpperCase()}</div>
               <div className="li">
                 <div className="nm">{l.name}</div>
-                <div className="up">
+                <button
+                  type="button"
+                  className="up up-edit"
+                  title={t('priceEdit.title')}
+                  onClick={() => onEditPrice(l.key)}
+                >
+                  {(l.unitPriceListed ?? l.unitPrice) > l.unitPrice ? (
+                    <span className="up-was">{money.format(l.unitPriceListed ?? 0)}</span>
+                  ) : null}
                   {money.format(l.unitPrice)} × {l.quantity}
-                </div>
+                </button>
               </div>
               {l.serialUnitId ? (
                 <div className="sh-qty serial">
@@ -1775,7 +1933,7 @@ function PaymentModal({
   forceDeposit?: boolean
   onClose: () => void
   onPickCustomer: () => void
-  onConfirm: (p: SaleInput['payments']) => void
+  onConfirm: (p: SaleInput['payments'], creditDueDate?: string | null) => void
   busy: boolean
 }) {
   const t = useT()
@@ -1783,6 +1941,7 @@ function PaymentModal({
   const [method, setMethod] = useState<TenderKey>(defaultTender ?? 'cash')
   const [tendered, setTendered] = useState<number | null>(null)
   const [momoRef, setMomoRef] = useState('')
+  const [creditDue, setCreditDue] = useState('')
   const [depRem, setDepRem] = useState<number | null>(null)
   const [splits, setSplits] = useState<Record<string, number>>({
     cash: 0,
@@ -1828,6 +1987,16 @@ function PaymentModal({
   // collected via the other method inputs, and whatever is still unpaid becomes credit.
   const depOtherAllocated = SPLIT_KEYS.reduce((a, k) => a + (splits[k] || 0), 0)
   const depLeftover = round2(total - depApplied - depOtherAllocated)
+
+  // Show the optional "expected payment date" picker whenever the sale will leave a credit
+  // balance on a registered customer. Skippable — omitting it falls back to the business
+  // default credit period (D9).
+  const willHaveCredit =
+    !!customer &&
+    ((method === 'credit' && total > 0) ||
+      (method === 'split' && remaining > 0) ||
+      (method === 'deposit' && forceDeposit && depLeftover > 0))
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   let canConfirm = true
   let confirmLabel = t('sell.confirmPayment')
@@ -1897,7 +2066,7 @@ function PaymentModal({
               },
         )
     }
-    onConfirm(payments)
+    onConfirm(payments, creditDue || null)
   }
 
   return (
@@ -2159,6 +2328,19 @@ function PaymentModal({
               </div>
               {remaining > 0 && isWalkIn ? <CustNeeded t={t} onPick={onPickCustomer} /> : null}
             </>
+          ) : null}
+
+          {willHaveCredit ? (
+            <div className="pm-duedate">
+              <label className="pm-lbl">{t('sell.creditDueDate')}</label>
+              <input
+                type="date"
+                min={todayIso}
+                value={creditDue}
+                onChange={(e) => setCreditDue(e.target.value)}
+              />
+              <small>{t('sell.creditDueHint')}</small>
+            </div>
           ) : null}
 
           <div className="pm-recap-mini">

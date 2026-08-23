@@ -47,7 +47,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else if (typeof response === 'object' && response) {
         const payload = response as Record<string, unknown>
         const msg = payload.message
-        message = Array.isArray(msg) ? msg.join(', ') : (msg as string) ?? exception.message
+        message = Array.isArray(msg) ? msg.join(', ') : ((msg as string) ?? exception.message)
         details = payload
       } else {
         message = exception.message
@@ -55,6 +55,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       code = `HTTP_${status}`
     } else if (exception instanceof Error) {
       message = exception.message
+      // Library errors (body-parser / http-errors, e.g. PayloadTooLargeError) carry a
+      // numeric status/statusCode. Honour it instead of masking everything as a 500.
+      const errStatus =
+        (exception as { status?: number; statusCode?: number }).status ??
+        (exception as { statusCode?: number }).statusCode
+      if (typeof errStatus === 'number' && errStatus >= 400 && errStatus < 600) {
+        status = errStatus
+        code = `HTTP_${status}`
+      }
     }
 
     if (typeof message === 'string' && message.startsWith('i18n:')) {
@@ -64,7 +73,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       const translated = await this.i18n.translate(message, { lang })
       message =
         translated && translated !== message
-          ? translated as string
+          ? (translated as string)
           : await this.translateStatus(status, lang)
     } else if (status !== HttpStatus.INTERNAL_SERVER_ERROR && message === 'Internal server error') {
       message = await this.translateStatus(status, lang)

@@ -80,7 +80,12 @@ export class Debt extends TypeOrmBaseEntity {
   @Column({ name: 'settled_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
   settledAt?: Date | null
 
-  @Column({ name: 'written_off_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'written_off_at',
+    type: 'timestamptz',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   writtenOffAt?: Date | null
 
   @Column({ name: 'written_off_by', type: 'uuid', nullable: true })
@@ -92,6 +97,10 @@ export class Debt extends TypeOrmBaseEntity {
 
   @Column({ name: 'written_off_reason', type: 'text', nullable: true })
   writtenOffReason?: string | null
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 
   @OneToMany(() => DebtPayment, (payment) => payment.debt)
   payments?: DebtPayment[]

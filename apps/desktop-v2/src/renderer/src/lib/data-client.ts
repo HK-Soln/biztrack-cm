@@ -50,6 +50,7 @@ import type {
   LocalModel,
   AuditListQuery,
   LocalAuditLog,
+  PinVerifyResult,
   AdjustStockInput,
   InventoryListQuery,
   InventoryStats,
@@ -93,6 +94,16 @@ import type {
   UpdateOrderStatusRequest,
   BusinessProfile,
   UpdateBusinessRequest,
+  NotificationSettings,
+  FiscalYearWithPeriods,
+  AccountingPeriod,
+  PostingAdjustment,
+  NotificationRecipientLookupResult,
+  UpdateNotificationRecipientRequest,
+  UpdateNotificationMatrixRequest,
+  UpdateNotificationQuietHoursRequest,
+  AddNotificationRecipientRequest,
+  UpdateRecipientSubscriptionsRequest,
   ListPlansResponse,
   CurrentSubscriptionResponse,
   QuotaUsageResponse,
@@ -169,6 +180,11 @@ import type {
   BusinessOption,
   SyncStatus,
   TitleBarOverlayColors,
+  RoleDiscountLimits,
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
 } from '@shared/ipc'
 
 // The renderer's single data dependency. In Electron it resolves to the IPC bridge
@@ -219,6 +235,7 @@ export interface DataClient {
   }
   products: {
     list: (query?: ProductListQuery) => Promise<PaginatedResult<LocalProduct>>
+    listAll: (query?: ProductListQuery) => Promise<LocalProduct[]>
     listSellable: (query?: ProductListQuery) => Promise<PaginatedResult<SellEntry>>
     stats: () => Promise<ProductStats>
     get: (id: string) => Promise<LocalProduct | null>
@@ -304,6 +321,7 @@ export interface DataClient {
     listByContact: (contactId: string, query?: DebtsQuery) => Promise<PaginatedResult<LocalDebt>>
     statement: (contactId: string, direction: DebtDirection) => Promise<ContactStatement>
     recordPayment: (debtId: string, input: RecordDebtPaymentRequest) => Promise<LocalDebt>
+    updateDueDate: (debtId: string, dueDate: string | null) => Promise<LocalDebt>
     offset: (contactId: string) => Promise<{ offsetAmount: number; affected: number }>
     ageing: (direction: DebtDirection) => Promise<AgeingReport>
   }
@@ -356,6 +374,11 @@ export interface DataClient {
   audit: {
     list: (query?: AuditListQuery) => Promise<PaginatedResult<LocalAuditLog>>
   }
+  pin: {
+    set: (pin: string) => Promise<{ pinVersion: number }>
+    verify: (pin: string) => Promise<PinVerifyResult>
+    canManage: () => Promise<boolean>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
@@ -364,6 +387,10 @@ export interface DataClient {
   }
   sales: {
     create: (input: SaleInput) => Promise<LocalSaleDetail>
+    myDiscountLimits: () => Promise<RoleDiscountLimits>
+    belowCostCheck: (
+      lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
+    ) => Promise<boolean>
     list: (query?: SalesListQuery) => Promise<PaginatedResult<LocalSale>>
     listAll: (query?: SalesListQuery) => Promise<LocalSale[]>
     summary: (query?: SalesListQuery) => Promise<LocalSalesSummary>
@@ -375,6 +402,10 @@ export interface DataClient {
       query?: SalesListQuery,
     ) => Promise<{ byReason: RefundReasonRow[]; byCashier: RefundCashierRow[]; grossSales: number }>
     grossProfit: (query?: SalesListQuery) => Promise<{ revenue: number; cogs: number }>
+    discountSummary: (query?: SalesListQuery) => Promise<DiscountSummary>
+    discountsByCashier: (query?: SalesListQuery) => Promise<DiscountByCashierRow[]>
+    discountsByProduct: (query?: SalesListQuery) => Promise<DiscountByProductRow[]>
+    flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
     sendReceipt: (
@@ -386,6 +417,7 @@ export interface DataClient {
     printReceipt: (
       saleId: string,
       locale: string,
+      reprint?: boolean,
     ) => Promise<{ printed: boolean; pdfPath?: string }>
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
     receiptHtml: (saleId: string, locale: string) => Promise<string | null>
@@ -423,6 +455,29 @@ export interface DataClient {
     getProfile: () => Promise<BusinessProfile | null>
     update: (payload: UpdateBusinessRequest) => Promise<BusinessProfile>
   }
+  notificationSettings: {
+    get: () => Promise<NotificationSettings>
+    listTimezones: () => Promise<string[]>
+    lookupContact: (q: string) => Promise<NotificationRecipientLookupResult>
+    updateMatrix: (body: UpdateNotificationMatrixRequest) => Promise<NotificationSettings>
+    updateQuietHours: (body: UpdateNotificationQuietHoursRequest) => Promise<NotificationSettings>
+    addRecipient: (body: AddNotificationRecipientRequest) => Promise<NotificationSettings>
+    updateRecipient: (
+      id: string,
+      body: UpdateNotificationRecipientRequest,
+    ) => Promise<NotificationSettings>
+    updateRecipientSubscriptions: (
+      id: string,
+      body: UpdateRecipientSubscriptionsRequest,
+    ) => Promise<NotificationSettings>
+    removeRecipient: (id: string) => Promise<NotificationSettings>
+  }
+  fiscal: {
+    calendar: () => Promise<FiscalYearWithPeriods[]>
+    adjustments: () => Promise<PostingAdjustment[]>
+    closePeriod: (id: string) => Promise<AccountingPeriod>
+    lockPeriod: (id: string) => Promise<AccountingPeriod>
+  }
   plans: {
     list: () => Promise<ListPlansResponse>
     subscription: () => Promise<CurrentSubscriptionResponse>
@@ -456,6 +511,10 @@ export interface DataClient {
     markAllRead: () => Promise<MarkAllNotificationsReadResponse>
     connect: () => Promise<void>
     onEvent: (cb: (payload: NotificationEventPayload) => void) => () => void
+  }
+  /** OS deep links (biztrack:// → native-app handoff). No-op in the browser build. */
+  deeplink: {
+    onNavigate: (cb: (path: string) => void) => () => void
   }
   invitations: {
     list: () => Promise<ListMyInvitationsResponse>
@@ -510,6 +569,8 @@ import {
   cloudNotificationsRest,
   cloudInvitations,
   cloudBusiness,
+  cloudNotificationSettings,
+  cloudFiscal,
   cloudPlans,
   cloudOnline,
   cloudUploads,
@@ -581,6 +642,7 @@ function electronAdapter(): DataClient {
     },
     products: {
       list: (query) => window.api.products.list(query),
+      listAll: (query) => window.api.products.listAll(query),
       listSellable: (query) => window.api.products.listSellable(query),
       stats: () => window.api.products.stats(),
       get: (id) => window.api.products.get(id),
@@ -643,6 +705,7 @@ function electronAdapter(): DataClient {
       listByContact: (contactId, query) => window.api.debts.listByContact(contactId, query),
       statement: (contactId, direction) => window.api.debts.statement(contactId, direction),
       recordPayment: (debtId, input) => window.api.debts.recordPayment(debtId, input),
+      updateDueDate: (debtId, dueDate) => window.api.debts.updateDueDate(debtId, dueDate),
       offset: (contactId) => window.api.debts.offset(contactId),
       ageing: (direction) => window.api.debts.ageing(direction),
     },
@@ -691,6 +754,11 @@ function electronAdapter(): DataClient {
     audit: {
       list: (query) => window.api.audit.list(query),
     },
+    pin: {
+      set: (pin) => window.api.pin.set(pin),
+      verify: (pin) => window.api.pin.verify(pin),
+      canManage: () => window.api.pin.canManage(),
+    },
     uploads: {
       file: (input) => window.api.uploads.file(input),
     },
@@ -699,6 +767,8 @@ function electronAdapter(): DataClient {
     },
     sales: {
       create: (input) => window.api.sales.create(input),
+      myDiscountLimits: () => window.api.sales.myDiscountLimits(),
+      belowCostCheck: (lines) => window.api.sales.belowCostCheck(lines),
       list: (query) => window.api.sales.list(query),
       listAll: (query) => window.api.sales.listAll(query),
       summary: (query) => window.api.sales.summary(query),
@@ -708,11 +778,16 @@ function electronAdapter(): DataClient {
       byPaymentMethod: (query) => window.api.sales.byPaymentMethod(query),
       refunds: (query) => window.api.sales.refunds(query),
       grossProfit: (query) => window.api.sales.grossProfit(query),
+      discountSummary: (query) => window.api.sales.discountSummary(query),
+      discountsByCashier: (query) => window.api.sales.discountsByCashier(query),
+      discountsByProduct: (query) => window.api.sales.discountsByProduct(query),
+      flaggedDiscounts: (query) => window.api.sales.flaggedDiscounts(query),
       get: (id) => window.api.sales.get(id),
       void: (saleId, reason) => window.api.sales.void(saleId, reason),
       sendReceipt: (saleId, channel, locale, opts) =>
         window.api.sales.sendReceipt(saleId, channel, locale, opts),
-      printReceipt: (saleId, locale) => window.api.sales.printReceipt(saleId, locale),
+      printReceipt: (saleId, locale, reprint) =>
+        window.api.sales.printReceipt(saleId, locale, reprint),
       downloadReceipt: (saleId, locale) => window.api.sales.downloadReceipt(saleId, locale),
       receiptHtml: (saleId, locale) => window.api.sales.receiptHtml(saleId, locale),
     },
@@ -750,6 +825,24 @@ function electronAdapter(): DataClient {
       getProfile: () => window.api.business.getProfile(),
       update: (payload) => window.api.business.update(payload),
     },
+    notificationSettings: {
+      get: () => window.api.notificationSettings.get(),
+      listTimezones: () => window.api.notificationSettings.listTimezones(),
+      lookupContact: (q) => window.api.notificationSettings.lookupContact(q),
+      updateMatrix: (body) => window.api.notificationSettings.updateMatrix(body),
+      updateQuietHours: (body) => window.api.notificationSettings.updateQuietHours(body),
+      addRecipient: (body) => window.api.notificationSettings.addRecipient(body),
+      updateRecipient: (id, body) => window.api.notificationSettings.updateRecipient(id, body),
+      updateRecipientSubscriptions: (id, body) =>
+        window.api.notificationSettings.updateRecipientSubscriptions(id, body),
+      removeRecipient: (id) => window.api.notificationSettings.removeRecipient(id),
+    },
+    fiscal: {
+      calendar: () => window.api.fiscal.calendar(),
+      adjustments: () => window.api.fiscal.adjustments(),
+      closePeriod: (id) => window.api.fiscal.closePeriod(id),
+      lockPeriod: (id) => window.api.fiscal.lockPeriod(id),
+    },
     plans: {
       list: () => window.api.plans.list(),
       subscription: () => window.api.plans.subscription(),
@@ -783,6 +876,9 @@ function electronAdapter(): DataClient {
       markAllRead: () => window.api.notifications.markAllRead(),
       connect: () => window.api.notifications.connect(),
       onEvent: (cb) => window.api.notifications.onEvent(cb),
+    },
+    deeplink: {
+      onNavigate: (cb) => window.api.deeplink.onNavigate(cb),
     },
     invitations: {
       list: () => window.api.invitations.list(),
@@ -859,6 +955,8 @@ function cloudAdapter(): DataClient {
     purchaseOrders: cloudPurchaseOrders,
     documents: cloudDocuments,
     audit: cloudAudit,
+    // Manager PIN is a device-local offline credential; there is no cloud path yet.
+    pin: { set: notWired, verify: notWired, canManage: async () => false },
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,
@@ -866,6 +964,8 @@ function cloudAdapter(): DataClient {
     deposits: cloudDeposits,
     online: cloudOnline,
     business: cloudBusiness,
+    notificationSettings: cloudNotificationSettings,
+    fiscal: cloudFiscal,
     plans: cloudPlans,
     roles: cloudRoles,
     team: cloudTeam,
@@ -874,6 +974,8 @@ function cloudAdapter(): DataClient {
       connect: cloudRealtimeConnect,
       onEvent: cloudRealtimeOnEvent,
     },
+    // The browser build IS the deeplink target (no native protocol); nothing to subscribe to.
+    deeplink: { onNavigate: () => () => {} },
     invitations: cloudInvitations,
     auth: cloudAuth,
     // Cloud is online-only: there is no local sync engine, so report a stable

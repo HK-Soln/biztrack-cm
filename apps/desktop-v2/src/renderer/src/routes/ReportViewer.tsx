@@ -5,6 +5,8 @@ import { renderReportDocumentHtml, reportLabels } from '@biztrack/templates'
 import type { ReportBusiness } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
+import { useCanManage } from '@/lib/useCanManage'
+import { useResourcePredicate } from '@/lib/entitlements'
 import { useLangStore, useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useSessionStore } from '@/stores/session.store'
@@ -101,6 +103,9 @@ export function ReportViewer() {
     )
 
   const [search, setSearch] = useState('')
+  // Which batch of a large, paginated report to render (e.g. stock valuation >1000 products).
+  const [batch, setBatch] = useState(1)
+  useEffect(() => setBatch(1), [id, period])
   const range = useMemo(() => rangeFor(period), [period])
   const label = periodLabel(period, lang)
 
@@ -145,7 +150,7 @@ export function ReportViewer() {
 
   // Selected report.
   const report = useQuery({
-    queryKey: ['report', id, range, lang, business],
+    queryKey: ['report', id, range, lang, business, batch],
     queryFn: () =>
       LOADERS[id!]!({
         client: dataClient,
@@ -157,10 +162,12 @@ export function ReportViewer() {
           generatedAt: new Date().toISOString(),
           locale: lang,
           currency: money.currency,
+          batch,
         },
       }),
     enabled: routable,
   })
+  const batches = report.data?.batches ?? null
   const html = useMemo(
     () =>
       report.data
@@ -201,16 +208,53 @@ export function ReportViewer() {
     if (report.data?.csv)
       download(`${id}-${period}.csv`, report.data.csv, 'text/csv;charset=utf-8;')
   }
+  // Batch navigation for large paginated reports (e.g. stock valuation >1000 products):
+  // step through batches and print each; the whole catalogue is covered across batches.
+  const batchNav =
+    batches && batches.total > 1 ? (
+      <span className="batch-nav">
+        <button
+          type="button"
+          className="btn"
+          disabled={batch <= 1}
+          onClick={() => setBatch((b) => Math.max(1, b - 1))}
+          aria-label="Previous batch"
+        >
+          ‹
+        </button>
+        <span className="batch-lbl">
+          {t('reports.batch')
+            .replace('{n}', String(batches.current))
+            .replace('{t}', String(batches.total))}
+        </span>
+        <button
+          type="button"
+          className="btn"
+          disabled={batch >= batches.total}
+          onClick={() => setBatch((b) => Math.min(batches.total, b + 1))}
+          aria-label="Next batch"
+        >
+          ›
+        </button>
+      </span>
+    ) : null
 
+  const canManage = useCanManage()
+  const hasResource = useResourcePredicate()
   const grouped = useMemo(() => {
     const s = search.trim().toLowerCase()
     return REPORT_CATEGORIES.map((cat) => ({
       cat,
       reps: REPORTS.filter(
-        (r) => r.cat === cat.key && (!s || `${r.name} ${r.fr}`.toLowerCase().includes(s)),
+        (r) =>
+          r.cat === cat.key &&
+          (isElectron || !r.desktopOnly) &&
+          (canManage || !r.managerOnly) &&
+          (!r.resource || hasResource(r.resource)) &&
+          (!s || `${r.name} ${r.fr}`.toLowerCase().includes(s)),
       ),
     })).filter((g) => g.reps.length)
-  }, [search])
+  }, [search, canManage, hasResource])
 
   // Enter real OS fullscreen when the modal opens (best-effort — the DOM overlay fills
   // the window regardless). Keep app state in sync when the user exits fullscreen.
@@ -368,6 +412,7 @@ export function ReportViewer() {
                 {I.csv}CSV
               </button>
             ) : null}
+            {batchNav}
             <button
               type="button"
               className="btn"
@@ -493,6 +538,7 @@ export function ReportViewer() {
                     {I.csv}CSV
                   </button>
                 ) : null}
+                {batchNav}
                 <button type="button" className="btn" onClick={print} disabled={!html}>
                   {I.print}
                   {t('reports.print')}
@@ -613,6 +659,7 @@ export function ReportViewer() {
                   {I.csv}CSV
                 </button>
               ) : null}
+              {batchNav}
               <button type="button" className="btn" onClick={print}>
                 {I.print}
                 {t('reports.print')}

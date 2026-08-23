@@ -50,4 +50,8 @@ export class DebtPayment extends ImmutableBaseEntity {
   @ManyToOne(() => User, { onDelete: 'NO ACTION' })
   @JoinColumn({ name: 'recorded_by', foreignKeyConstraintName: 'fk_debt_payments_recorded_by' })
   recordedBy?: User
+
+  // Local trading day this payment lands on (BIZ-5.1), stamped at write time.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }

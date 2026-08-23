@@ -140,6 +140,7 @@ interface ApiSaleItem {
   serialNumber?: string | null
   quantity: number
   unitPrice: number
+  unitPriceListed?: number | null
   discountAmount: number
   lineTotal: number
 }
@@ -161,6 +162,7 @@ function toLocalSaleItem(i: ApiSaleItem): LocalSaleItem {
     serialNumber: i.serialNumber ?? null,
     quantity: i.quantity,
     unitPrice: i.unitPrice,
+    unitPriceListed: i.unitPriceListed ?? null,
     discountAmount: i.discountAmount,
     lineTotal: i.lineTotal,
   }
@@ -175,6 +177,14 @@ function toLocalSalePayment(p: ApiSalePayment): LocalSalePayment {
 }
 
 export const cloudSales = {
+  // Cloud evaluates discount limits + below-cost server-side on create; the browser
+  // build does not pre-prompt, so report no local limits and no below-cost need.
+  myDiscountLimits: async () => ({
+    maxDiscountPercent: null,
+    maxCartDiscountPercent: null,
+    maxDiscountAmountXaf: null,
+  }),
+  belowCostCheck: async () => false,
   list: async (query?: SalesListQuery): Promise<PaginatedResult<LocalSale>> => {
     const res = await cget<PaginatedResult<ApiSale>>(`/sales${qs(saleQuery(query))}`)
     return { ...res, data: res.data.map(toLocalSale) }
@@ -199,6 +209,20 @@ export const cloudSales = {
     ),
   grossProfit: (query?: SalesListQuery): Promise<{ revenue: number; cogs: number }> =>
     cget<{ revenue: number; cogs: number }>(`/sales/gross-profit${qs(saleQuery(query))}`),
+  // Discount reports (BIZ-1.7) are computed from local sale_discounts on the desktop.
+  // No cloud API endpoint yet — return empties so the browser build doesn't 404.
+  discountSummary: async () => ({
+    totalDiscount: 0,
+    grossSales: 0,
+    saleCount: 0,
+    discountedSaleCount: 0,
+    unauthorizedCount: 0,
+    belowCostCount: 0,
+    byReason: [],
+  }),
+  discountsByCashier: async () => [],
+  discountsByProduct: async () => [],
+  flaggedDiscounts: async () => [],
   // The API now mirrors the desktop sale model: serialised lines (serialUnitIds[]),
   // SAVINGS/deposit payments (savingsAccountId), and per-line charges/discounts. The
   // backend derives the sale totals from the lines and persists the breakdown.
@@ -294,6 +318,7 @@ export const cloudSales = {
   printReceipt: async (
     saleId: string,
     locale: string,
+    _reprint?: boolean,
   ): Promise<{ printed: boolean; pdfPath?: string }> => {
     const html = await fetchReceiptHtml(saleId, locale)
     if (!html) return { printed: false }

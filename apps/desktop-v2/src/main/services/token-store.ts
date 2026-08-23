@@ -12,6 +12,7 @@ const SYNC_CREDENTIAL_KEY = 'sync.deviceCredential'
 const LAST_USER_KEY = 'auth.lastUserId'
 const LAST_BUSINESS_KEY = 'auth.lastBusinessId'
 const LAST_NEXT_STEP_KEY = 'auth.lastNextStep'
+const LAST_SYNC_AT_KEY = 'sync.lastSuccessAt'
 
 /**
  * Encrypted token vault, main-process only. The renderer has no IPC path to these
@@ -78,6 +79,17 @@ export class TokenStore {
   setLastSession(userId: string | null, businessId: string | null): void {
     if (userId) this.secure.set(LAST_USER_KEY, userId)
     if (businessId) this.secure.set(LAST_BUSINESS_KEY, businessId)
+  }
+
+  /** ISO time of the last successful sync — the freshness reference for the
+   * offline manager-PIN stale-device rule. Persisted (survives restarts), unlike
+   * the in-memory SyncStatus.lastSyncedAt. */
+  getLastSyncAt(): string | null {
+    return this.secure.get(LAST_SYNC_AT_KEY)
+  }
+
+  setLastSyncAt(iso: string): void {
+    this.secure.set(LAST_SYNC_AT_KEY, iso)
   }
 
   /** Stable per-install device id (for sync token + audit headers). */

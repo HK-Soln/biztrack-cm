@@ -55,7 +55,10 @@ export function OwnerHome() {
   const spend = e?.total ?? 0
   const operating = revenue - spend
   const trendItems = (trend.data ?? []).map((m) => ({ label: m.label, value: m.total }))
-  const trendAvg = trend.data && trend.data.length ? Math.round(trend.data.reduce((a, x) => a + x.total, 0) / trend.data.length) : 0
+  const trendAvg =
+    trend.data && trend.data.length
+      ? Math.round(trend.data.reduce((a, x) => a + x.total, 0) / trend.data.length)
+      : 0
   const reorderRows = reorder.data ?? []
 
   return (
@@ -64,21 +67,44 @@ export function OwnerHome() {
 
       <SectionLabel>{t('home.secMoney')}</SectionLabel>
       <div className="grid4 mb20">
-        <Kpi label={t('home.kRevenue')} value={money.compact(revenue)} hint={t('home.hSales').replace('{n}', String(s?.transactions ?? 0))} />
+        <Kpi
+          label={t('home.kRevenue')}
+          value={money.compact(revenue)}
+          hint={t('home.hSales').replace('{n}', String(s?.transactions ?? 0))}
+        />
         <Kpi
           label={t('home.kExpenses')}
           value={money.compact(spend)}
-          badge={e && e.changePct !== 0 ? { text: `${e.changePct > 0 ? '▲' : '▼'} ${Math.abs(e.changePct).toFixed(1)}%`, tone: e.changePct > 0 ? 'down' : 'up' } : null}
+          badge={
+            e && e.changePct !== 0
+              ? {
+                  text: `${e.changePct > 0 ? '▲' : '▼'} ${Math.abs(e.changePct).toFixed(1)}%`,
+                  tone: e.changePct > 0 ? 'down' : 'up',
+                }
+              : null
+          }
         />
-        <Kpi label={t('home.kReceivable')} value={money.compact(c?.totalReceivable ?? 0)} hint={t('home.hDebtors').replace('{n}', String(c?.debtorCount ?? 0))} />
-        <Kpi label={t('home.kPayable')} value={money.compact(c?.totalPayable ?? 0)} hint={t('home.hSuppliers').replace('{n}', String(c?.creditorCount ?? 0))} />
+        <Kpi
+          label={t('home.kReceivable')}
+          value={money.compact(c?.totalReceivable ?? 0)}
+          hint={t('home.hDebtors').replace('{n}', String(c?.debtorCount ?? 0))}
+        />
+        <Kpi
+          label={t('home.kPayable')}
+          value={money.compact(c?.totalPayable ?? 0)}
+          hint={t('home.hSuppliers').replace('{n}', String(c?.creditorCount ?? 0))}
+        />
       </div>
 
       <div className="grid4 mb20">
         <MiniKpi label={t('home.kTransactions')} value={money.plain(s?.transactions ?? 0)} />
         <MiniKpi label={t('home.kAvgBasket')} value={money.compact(s?.averageBasket ?? 0)} />
         <MiniKpi label={t('home.kItemsSold')} value={money.plain(s?.itemsSold ?? 0)} />
-        <MiniKpi label={t('home.kStockValue')} value={money.compact(p?.catalogValueCost ?? 0)} hint={t('home.hCatalogValue')} />
+        <MiniKpi
+          label={t('home.kStockValue')}
+          value={money.compact(p?.catalogValueCost ?? 0)}
+          hint={t('home.hCatalogValue')}
+        />
       </div>
 
       <div className="split mb20" style={{ alignItems: 'stretch' }}>
@@ -91,23 +117,59 @@ export function OwnerHome() {
             </button>
           }
         >
-          {trendItems.length ? <Bars items={trendItems} /> : <div className="card-empty">{t('home.noData')}</div>}
+          {trendItems.length ? (
+            <Bars items={trendItems} />
+          ) : (
+            <div className="card-empty">{t('home.noData')}</div>
+          )}
           <div className="stat-row">
-            <div className="well"><div className="k">{t('home.thisPeriod')}</div><div className="v">{money.format(spend)}</div></div>
-            <div className="well"><div className="k">{t('home.previous')}</div><div className="v">{money.format(e?.previousTotal ?? 0)}</div></div>
-            <div className="well"><div className="k">{t('home.avg')}</div><div className="v">{money.format(trendAvg)}</div></div>
+            <div className="well">
+              <div className="k">{t('home.thisPeriod')}</div>
+              <div className="v">{money.format(spend)}</div>
+            </div>
+            <div className="well">
+              <div className="k">{t('home.previous')}</div>
+              <div className="v">{money.format(e?.previousTotal ?? 0)}</div>
+            </div>
+            <div className="well">
+              <div className="k">{t('home.avg')}</div>
+              <div className="v">{money.format(trendAvg)}</div>
+            </div>
           </div>
         </Card>
 
         <Card title={t('home.cMoney')} sub={t('home.cMoneySub')}>
           <div className="pnl" style={{ marginTop: 0, borderTop: 0, paddingTop: 0 }}>
-            <div className="row"><span>{t('home.pRevenue')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(revenue)}</span></div>
-            <div className="row"><span>{t('home.pExpenses')}</span><span style={{ color: 'var(--danger)', fontWeight: 600 }}>−{money.format(spend)}</span></div>
-            <div className="row total"><span>{t('home.pOperating')}</span><span style={{ color: operating < 0 ? 'var(--danger)' : undefined }}>{money.format(operating)}</span></div>
+            <div className="row">
+              <span>{t('home.pRevenue')}</span>
+              <span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.format(revenue)}</span>
+            </div>
+            <div className="row">
+              <span>{t('home.pExpenses')}</span>
+              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                −{money.format(spend)}
+              </span>
+            </div>
+            <div className="row total">
+              <span>{t('home.pOperating')}</span>
+              <span style={{ color: operating < 0 ? 'var(--danger)' : undefined }}>
+                {money.format(operating)}
+              </span>
+            </div>
           </div>
           <div className="grid2" style={{ marginTop: 16 }}>
-            <div className="well"><div className="k">{t('home.kReceivable')}</div><div className="v" style={{ color: 'var(--success)' }}>{money.format(c?.totalReceivable ?? 0)}</div></div>
-            <div className="well"><div className="k">{t('home.kPayable')}</div><div className="v" style={{ color: 'var(--danger)' }}>{money.format(c?.totalPayable ?? 0)}</div></div>
+            <div className="well">
+              <div className="k">{t('home.kReceivable')}</div>
+              <div className="v" style={{ color: 'var(--success)' }}>
+                {money.format(c?.totalReceivable ?? 0)}
+              </div>
+            </div>
+            <div className="well">
+              <div className="k">{t('home.kPayable')}</div>
+              <div className="v" style={{ color: 'var(--danger)' }}>
+                {money.format(c?.totalPayable ?? 0)}
+              </div>
+            </div>
           </div>
         </Card>
       </div>
@@ -124,16 +186,24 @@ export function OwnerHome() {
           }
         >
           {(e?.byCategory ?? []).slice(0, 5).map((cat) => (
-            <ProgressRow key={cat.categoryId} name={cat.name} pct={cat.percentage} color={cat.color} amount={money.format(cat.amount)} />
+            <ProgressRow
+              key={cat.categoryId}
+              name={cat.name}
+              pct={cat.percentage}
+              color={cat.color}
+              amount={money.format(cat.amount)}
+            />
           ))}
-          {(e?.byCategory ?? []).length === 0 ? <div className="card-empty">{t('home.noData')}</div> : null}
+          {(e?.byCategory ?? []).length === 0 ? (
+            <div className="card-empty">{t('home.noData')}</div>
+          ) : null}
         </Card>
 
         <Card
           title={t('home.cReorder')}
           sub={t('home.cReorderSub')}
           action={
-            <button type="button" className="link" onClick={() => navigate('/inventory')}>
+            <button type="button" className="link" onClick={() => navigate('/inventory/reorder')}>
               {t('home.viewAll')}
             </button>
           }
@@ -146,13 +216,21 @@ export function OwnerHome() {
               title={r.name}
               meta={
                 <span style={{ color: r.currentStock <= 0 ? 'var(--danger)' : 'var(--warning)' }}>
-                  {r.currentStock <= 0 ? t('home.outLabel') : t('home.unitsLeft').replace('{n}', String(r.currentStock))}
+                  {r.currentStock <= 0
+                    ? t('home.outLabel')
+                    : t('home.unitsLeft').replace('{n}', String(r.currentStock))}
                 </span>
               }
-              right={<span className="meta">{t('home.threshold')}: {money.plain(r.target)}</span>}
+              right={
+                <span className="meta">
+                  {t('home.threshold')}: {money.plain(r.target)}
+                </span>
+              }
             />
           ))}
-          {!reorder.isPending && reorderRows.length === 0 ? <div className="card-empty">{t('home.noLowStock')}</div> : null}
+          {!reorder.isPending && reorderRows.length === 0 ? (
+            <div className="card-empty">{t('home.noLowStock')}</div>
+          ) : null}
         </Card>
 
         <Card
@@ -165,14 +243,31 @@ export function OwnerHome() {
           }
         >
           <div className="pnl" style={{ marginTop: 0, borderTop: 0, paddingTop: 0 }}>
-            <div className="row"><span>{t('home.openDeposits')}</span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{money.plain(d?.openCount ?? 0)}</span></div>
-            <div className="row"><span>{t('home.pDepositsHeld')}</span><span style={{ color: 'var(--success)', fontWeight: 600 }}>{money.format(d?.depositsHeld ?? 0)}</span></div>
-            <div className="row total"><span>{t('home.pCollected')}</span><span>{money.format(d?.collectedAmount ?? 0)}</span></div>
+            <div className="row">
+              <span>{t('home.openDeposits')}</span>
+              <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                {money.plain(d?.openCount ?? 0)}
+              </span>
+            </div>
+            <div className="row">
+              <span>{t('home.pDepositsHeld')}</span>
+              <span style={{ color: 'var(--success)', fontWeight: 600 }}>
+                {money.format(d?.depositsHeld ?? 0)}
+              </span>
+            </div>
+            <div className="row total">
+              <span>{t('home.pCollected')}</span>
+              <span>{money.format(d?.collectedAmount ?? 0)}</span>
+            </div>
           </div>
         </Card>
       </div>
 
-      <RecentSales rows={recent.data?.data ?? []} loading={recent.isPending} onViewAll={() => navigate('/sales')} />
+      <RecentSales
+        rows={recent.data?.data ?? []}
+        loading={recent.isPending}
+        onViewAll={() => navigate('/sales')}
+      />
     </div>
   )
 }

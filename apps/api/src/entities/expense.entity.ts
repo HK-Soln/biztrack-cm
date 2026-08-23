@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  ManyToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm'
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer, decimalTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -65,4 +59,19 @@ export class Expense extends BaseEntity {
 
   @Column({ name: 'date', type: 'date', transformer: dateTransformer })
   date!: Date
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
+
+  // Accounting day this expense posts to (BIZ-5.4). See Sale.postingDate — an expense landing in an
+  // already-closed period is redated forward to the earliest open period as a late arrival.
+  @Column({ name: 'posting_date', type: 'date', nullable: true })
+  postingDate?: string | null
+
+  @Column({ name: 'is_late_arrival', type: 'boolean', default: false })
+  isLateArrival!: boolean
+
+  @Column({ name: 'original_period_id', type: 'uuid', nullable: true })
+  originalPeriodId?: string | null
 }

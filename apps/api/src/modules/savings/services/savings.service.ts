@@ -20,6 +20,7 @@ import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import type {
   AddDepositPaymentDto,
   CloseDepositDto,
@@ -52,6 +53,7 @@ export class DepositsService {
     @InjectRepository(Business)
     private readonly businessesRepo: Repository<Business>,
     private readonly dataSource: DataSource,
+    private readonly calendar: BusinessCalendarService,
   ) {}
 
   /** Structured receipt payload for a single deposit/refund transaction (mirrors desktop). */
@@ -200,6 +202,8 @@ export class DepositsService {
     const now = new Date()
     const id = newId()
     const initial = round(dto.initialDeposit?.amount ?? 0)
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(businessId, now)
     await this.savingsAccountsRepo.save(
       this.savingsAccountsRepo.create({
         id,
@@ -216,6 +220,7 @@ export class DepositsService {
         status: 'OPEN',
         taggedProducts: dto.taggedProducts ?? null,
         isDeleted: false,
+        businessDate,
         createdAt: now,
         updatedAt: now,
       }),
@@ -324,13 +329,11 @@ export class DepositsService {
       )
     const now = new Date()
     await this.dataSource.transaction(async (m) => {
-      await m
-        .getRepository(CustomerDeposit)
-        .update(acc.id, {
-          balance: round(acc.balance + amount),
-          totalDeposited: round(acc.totalDeposited + amount),
-          updatedAt: now,
-        })
+      await m.getRepository(CustomerDeposit).update(acc.id, {
+        balance: round(acc.balance + amount),
+        totalDeposited: round(acc.totalDeposited + amount),
+        updatedAt: now,
+      })
       await this.insertTxn(
         m,
         id,
@@ -375,21 +378,52 @@ export class DepositsService {
       } else if (dto.settlement === 'REFUND') {
         if (leftover <= 0)
           throw new AppBadRequestException('Nothing to refund.', 'DEPOSIT_NOTHING_TO_REFUND')
-        await this.insertTxn(
-          m,
-          id,
-          businessId,
-          {
-            type: 'refund',
-            direction: 'outbound',
-            amount: leftover,
-            method: dto.method ?? 'CASH',
-            mobileMoneyReference: dto.mobileMoneyReference,
-            notes: dto.notes,
-            recordedById: user.sub,
-          },
-          now,
-        )
+
+        // Split refund: one txn per method (part cash, part MoMo…). No lines → settle the whole
+        // leftover as a single line (back-compat with the deprecated method field).
+        const lines =
+          dto.refunds && dto.refunds.length > 0
+            ? dto.refunds.map((r) => ({
+                method: r.method || 'CASH',
+                amount: round(r.amount),
+                mobileMoneyReference: r.mobileMoneyReference,
+              }))
+            : [
+                {
+                  method: dto.method ?? 'CASH',
+                  amount: leftover,
+                  mobileMoneyReference: dto.mobileMoneyReference,
+                },
+              ]
+
+        if (lines.some((l) => !(l.amount > 0)))
+          throw new AppBadRequestException(
+            'Each refund line must be greater than 0.',
+            'DEPOSIT_REFUND_LINE_INVALID',
+          )
+        if (round(lines.reduce((s, l) => s + l.amount, 0)) !== leftover)
+          throw new AppBadRequestException(
+            'The refund must add up to the exact leftover balance.',
+            'DEPOSIT_REFUND_MISMATCH',
+          )
+
+        for (const line of lines) {
+          await this.insertTxn(
+            m,
+            id,
+            businessId,
+            {
+              type: 'refund',
+              direction: 'outbound',
+              amount: line.amount,
+              method: line.method,
+              mobileMoneyReference: line.mobileMoneyReference,
+              notes: dto.notes,
+              recordedById: user.sub,
+            },
+            now,
+          )
+        }
         await repo.update(id, {
           balance: 0,
           totalRefunded: round(acc.totalRefunded + leftover),
@@ -422,6 +456,8 @@ export class DepositsService {
           updatedAt: now,
         })
         const nid = newId()
+        // Local trading day (BIZ-5.1) from the business timezone + cutover.
+        const transferBusinessDate = await this.calendar.computeForBusiness(businessId, now)
         await repo.save(
           repo.create({
             id: nid,
@@ -437,6 +473,7 @@ export class DepositsService {
             totalTransferred: 0,
             status: 'OPEN',
             isDeleted: false,
+            businessDate: transferBusinessDate,
             createdAt: now,
             updatedAt: now,
           }),
@@ -553,6 +590,8 @@ export class DepositsService {
     now: Date,
   ): Promise<void> {
     const repo = m.getRepository(DepositTransaction)
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(businessId, now)
     await repo.save(
       repo.create({
         id: newId(),
@@ -568,6 +607,7 @@ export class DepositsService {
         recordedById: tx.recordedById ?? null,
         occurredAt: now,
         isDeleted: false,
+        businessDate,
         createdAt: now,
       }),
     )
@@ -582,6 +622,12 @@ export class DepositsService {
     })
 
     if (!existing) {
+      // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+      const businessDate = await this.calendar.resolveForSync(
+        businessId,
+        new Date(payload.createdAt),
+        payload.businessDate,
+      )
       await this.savingsAccountsRepo.save(
         this.savingsAccountsRepo.create({
           id: payload.savingsId,
@@ -602,6 +648,7 @@ export class DepositsService {
           transferredToId: payload.transferredToId ?? null,
           taggedProducts: payload.taggedProducts ?? null,
           isDeleted: false,
+          businessDate,
           createdAt: new Date(payload.createdAt),
           updatedAt: new Date(payload.updatedAt),
         }),
@@ -638,6 +685,12 @@ export class DepositsService {
       return
     }
 
+    // Trust the device's stamped trading day (BIZ-5.1), else recompute authoritatively.
+    const businessDate = await this.calendar.resolveForSync(
+      businessId,
+      new Date(payload.occurredAt),
+      payload.businessDate,
+    )
     await this.savingsTransactionsRepo.save(
       this.savingsTransactionsRepo.create({
         id: payload.transactionId,
@@ -653,6 +706,7 @@ export class DepositsService {
         recordedById: payload.recordedById ?? null,
         occurredAt: new Date(payload.occurredAt),
         isDeleted: false,
+        businessDate,
         createdAt: new Date(payload.createdAt),
       }),
     )
@@ -667,6 +721,8 @@ export class DepositsService {
     voidedAt: Date,
   ): Promise<void> {
     const txId = crypto.randomUUID()
+    // Local trading day (BIZ-5.1) from the business timezone + cutover.
+    const businessDate = await this.calendar.computeForBusiness(businessId, voidedAt)
     await this.savingsTransactionsRepo.save(
       this.savingsTransactionsRepo.create({
         id: txId,
@@ -682,6 +738,7 @@ export class DepositsService {
         recordedById: null,
         occurredAt: voidedAt,
         isDeleted: false,
+        businessDate,
         createdAt: voidedAt,
       }),
     )

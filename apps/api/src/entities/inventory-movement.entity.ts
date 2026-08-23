@@ -87,4 +87,8 @@ export class InventoryMovement extends ImmutableBaseEntity {
     foreignKeyConstraintName: 'fk_inventory_movements_performed_by',
   })
   performedBy?: User | null
+
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }
