@@ -7,6 +7,7 @@ import type { Logger } from '@biztrack/logger'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { AccountingPeriod } from '@/entities/accounting-period.entity'
 import { PeriodCloseRun } from '@/entities/period-close-run.entity'
+import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
 
 /**
@@ -22,6 +23,7 @@ export class FiscalPeriodsService implements OnModuleInit {
     @InjectRepository(PeriodCloseRun) private readonly runRepo: Repository<PeriodCloseRun>,
     @Inject(PERIOD_CLOSE_STEPS) private readonly steps: PeriodCloseStep[],
     private readonly dataSource: DataSource,
+    private readonly calendar: BusinessCalendarService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('FiscalPeriodsService')
@@ -61,6 +63,15 @@ export class FiscalPeriodsService implements OnModuleInit {
       throw new AppBadRequestException(
         `Only an open period can be closed (it is ${period.status}).`,
         'PERIOD_NOT_OPEN',
+      )
+    }
+    // A period can only be closed once it has ENDED — you never close the current or a future
+    // month (a basic accounting principle). "Today" is the business's local trading day.
+    const today = await this.calendar.computeForBusiness(businessId, new Date())
+    if (period.endDate >= today) {
+      throw new AppBadRequestException(
+        'This period has not ended yet — you can only close a period after it is over.',
+        'PERIOD_NOT_ENDED',
       )
     }
     const earlierOpen = await this.periodRepo.count({

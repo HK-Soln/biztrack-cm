@@ -4,6 +4,7 @@ import { Business } from '@/entities/business.entity'
 import { FiscalYear } from '@/entities/fiscal-year.entity'
 import { AccountingPeriod } from '@/entities/accounting-period.entity'
 import { PeriodCloseRun } from '@/entities/period-close-run.entity'
+import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { FiscalYearsService } from './fiscal-years.service'
 import { FiscalYearsScheduler } from './fiscal-years.scheduler'
 import { FiscalPeriodsService } from './fiscal-periods.service'
@@ -18,7 +19,10 @@ import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
  * PERIOD_CLOSE_STEPS ships EMPTY — a later module (Fixed Assets, etc.) registers steps here.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Business, FiscalYear, AccountingPeriod, PeriodCloseRun])],
+  imports: [
+    TypeOrmModule.forFeature([Business, FiscalYear, AccountingPeriod, PeriodCloseRun]),
+    BusinessCalendarModule,
+  ],
   controllers: [FiscalController],
   providers: [
     FiscalYearsService,

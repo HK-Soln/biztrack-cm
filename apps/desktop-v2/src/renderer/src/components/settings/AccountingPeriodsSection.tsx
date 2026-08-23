@@ -45,6 +45,13 @@ export function AccountingPeriodsSection() {
   })
   const isOwner = profileQ.data?.role === 'OWNER'
   const canManage = isOwner && online
+  // Today's local date in the business timezone ('YYYY-MM-DD'), for the "current" markers and to
+  // gate closing to periods that have actually ended.
+  const todayStr = new Date().toLocaleDateString('en-CA', {
+    timeZone: profileQ.data?.timezone || 'Africa/Douala',
+  })
+  const hasEnded = (p: AccountingPeriod) => p.endDate < todayStr
+  const isCurrent = (p: AccountingPeriod) => p.startDate <= todayStr && p.endDate >= todayStr
 
   const q = useQuery({
     queryKey: ['fiscal', 'calendar'],
@@ -81,6 +88,12 @@ export function AccountingPeriodsSection() {
 
   const action = (p: AccountingPeriod) => {
     if (p.status === PeriodStatus.OPEN) {
+      // A period can only be closed after it has ended — never the current or a future month.
+      if (!hasEnded(p)) {
+        return (
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('periods.notEnded')}</span>
+        )
+      }
       return (
         <Button
           type="button"
@@ -139,8 +152,23 @@ export function AccountingPeriodsSection() {
         ) : (
           q.data.map((fy) => (
             <div key={fy.id} style={{ marginBottom: 18 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
                 {t('periods.fiscalYear')} {fy.label}
+                {fy.startDate <= todayStr && fy.endDate >= todayStr ? (
+                  <span className="st st-ok">
+                    <span className="d" />
+                    {t('periods.current')}
+                  </span>
+                ) : null}
               </div>
               <table className="ltbl">
                 <thead>
@@ -153,8 +181,22 @@ export function AccountingPeriodsSection() {
                 </thead>
                 <tbody>
                   {fy.periods.map((p) => (
-                    <tr key={p.id}>
-                      <td>{p.label}</td>
+                    <tr
+                      key={p.id}
+                      style={
+                        isCurrent(p)
+                          ? { background: 'var(--surface-2, rgba(0,0,0,0.03))' }
+                          : undefined
+                      }
+                    >
+                      <td>
+                        {p.label}
+                        {isCurrent(p) ? (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
+                            {t('periods.current')}
+                          </span>
+                        ) : null}
+                      </td>
                       <td style={{ color: 'var(--text-2)' }}>
                         {p.startDate} → {p.endDate}
                       </td>
