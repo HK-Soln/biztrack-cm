@@ -150,6 +150,7 @@ const SECTION_LABEL: Record<SectionKey, MessageKey> = {
 const SECTION_KEYS: SectionKey[] = [
   'business',
   'hours',
+  'periods',
   'security',
   'subscription',
   'billing',
