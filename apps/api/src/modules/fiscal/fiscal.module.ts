@@ -8,6 +8,7 @@ import { BusinessCalendarModule } from '@/modules/business-calendar/business-cal
 import { FiscalYearsService } from './fiscal-years.service'
 import { FiscalYearsScheduler } from './fiscal-years.scheduler'
 import { FiscalPeriodsService } from './fiscal-periods.service'
+import { PostingDateService } from './posting-date.service'
 import { FiscalController } from './fiscal.controller'
 import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
 
@@ -28,8 +29,9 @@ import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
     FiscalYearsService,
     FiscalYearsScheduler,
     FiscalPeriodsService,
+    PostingDateService,
     { provide: PERIOD_CLOSE_STEPS, useValue: [] as PeriodCloseStep[] },
   ],
-  exports: [FiscalYearsService],
+  exports: [FiscalYearsService, PostingDateService],
 })
 export class FiscalModule {}

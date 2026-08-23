@@ -14,6 +14,7 @@ import { DepositsModule } from '@/modules/savings/savings.module'
 import { DocumentsModule } from '@/modules/documents/documents.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
+import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 import { SalesController } from './controllers/sales.controller'
 import { DailySalesSummaryService } from './services/daily-sales-summary.service'
 import { SaleNumberService } from './services/sale-number.service'
@@ -28,6 +29,7 @@ import { SalesService } from './services/sales.service'
     DocumentsModule,
     AuditModule,
     BusinessCalendarModule,
+    FiscalModule,
     TypeOrmModule.forFeature([
       Business,
       Contact,

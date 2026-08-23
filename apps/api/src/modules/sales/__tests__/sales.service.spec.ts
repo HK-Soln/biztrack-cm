@@ -51,6 +51,13 @@ function makeService() {
       computeForBusiness: async () => '2026-01-01',
       resolveForSync: async () => '2026-01-01',
     } as any, // calendar
+    {
+      resolve: async (_b: string, businessDate: string) => ({
+        postingDate: businessDate,
+        isLateArrival: false,
+        originalPeriodId: null,
+      }),
+    } as any, // postingDate
     i18n as any,
     logger as any,
   )

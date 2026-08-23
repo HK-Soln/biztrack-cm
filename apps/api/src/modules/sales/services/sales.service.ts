@@ -42,6 +42,7 @@ import {
 import { Business } from '@/entities/business.entity'
 import { AuditService } from '@/modules/audit/audit.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
+import { PostingDateService } from '@/modules/fiscal/posting-date.service'
 import type { AuditContext } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
@@ -166,6 +167,7 @@ export class SalesService {
     private readonly dailySummaryService: DailySalesSummaryService,
     private readonly auditService: AuditService,
     private readonly calendar: BusinessCalendarService,
+    private readonly postingDate: PostingDateService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -246,6 +248,8 @@ export class SalesService {
         // Local trading day (BIZ-5.1). API-direct sales aren't rung at a till (no shift), so
         // this comes from the business timezone + cutover; distinct from the UTC saleDate.
         const businessDate = await this.calendar.computeForBusiness(businessId, soldAt)
+        // BIZ-5.4: the accounting day this sale posts to (redated forward if its period is closed).
+        const posting = await this.postingDate.resolve(businessId, businessDate, manager)
 
         const sale = await saleRepo.save(
           saleRepo.create({
@@ -271,6 +275,9 @@ export class SalesService {
             priceDriftWarning: computed.priceDriftWarning,
             saleDate,
             businessDate,
+            postingDate: posting.postingDate,
+            isLateArrival: posting.isLateArrival,
+            originalPeriodId: posting.originalPeriodId,
             soldAt,
             syncedAt: now,
           }),
@@ -383,6 +390,9 @@ export class SalesService {
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
               businessDate,
+              postingDate: posting.postingDate,
+              isLateArrival: posting.isLateArrival,
+              originalPeriodId: posting.originalPeriodId,
             }),
           ),
         )
@@ -619,6 +629,8 @@ export class SalesService {
           payload.businessDate,
           payload.cashSessionId ?? null,
         )
+        // BIZ-5.4: a sale that synced up after its period closed is redated forward (late arrival).
+        const posting = await this.postingDate.resolve(businessId, businessDate, manager)
 
         const sale = await saleRepo.save(
           saleRepo.create({
@@ -647,6 +659,9 @@ export class SalesService {
             priceDriftWarning: computed.priceDriftWarning,
             saleDate,
             businessDate,
+            postingDate: posting.postingDate,
+            isLateArrival: posting.isLateArrival,
+            originalPeriodId: posting.originalPeriodId,
             soldAt,
             cashSessionId: payload.cashSessionId ?? null,
             syncedAt: now,
@@ -695,6 +710,9 @@ export class SalesService {
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
               businessDate,
+              postingDate: posting.postingDate,
+              isLateArrival: posting.isLateArrival,
+              originalPeriodId: posting.originalPeriodId,
             }),
           ),
         )

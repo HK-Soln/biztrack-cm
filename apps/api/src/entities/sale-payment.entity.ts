@@ -59,4 +59,15 @@ export class SalePayment extends ImmutableBaseEntity {
   // the sale; the collection day for a later COD payment / refund.
   @Column({ name: 'business_date', type: 'date', nullable: true })
   businessDate?: string | null
+
+  // Accounting day this payment posts to (BIZ-5.4). See Sale.postingDate — a payment landing in an
+  // already-closed period is redated forward to the earliest open period as a late arrival.
+  @Column({ name: 'posting_date', type: 'date', nullable: true })
+  postingDate?: string | null
+
+  @Column({ name: 'is_late_arrival', type: 'boolean', default: false })
+  isLateArrival!: boolean
+
+  @Column({ name: 'original_period_id', type: 'uuid', nullable: true })
+  originalPeriodId?: string | null
 }

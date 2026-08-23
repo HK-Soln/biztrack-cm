@@ -21,6 +21,7 @@ import {
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
 import { Expense } from '@/entities/expense.entity'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
+import { PostingDateService } from '@/modules/fiscal/posting-date.service'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import type { CreateExpenseDto } from '../dto/create-expense.dto'
@@ -66,6 +67,7 @@ export class ExpensesService {
     private readonly categoriesService: ExpenseCategoriesService,
     private readonly monthlySummaryService: MonthlyExpenseSummaryService,
     private readonly calendar: BusinessCalendarService,
+    private readonly postingDate: PostingDateService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
@@ -82,6 +84,8 @@ export class ExpensesService {
       const expenseDate = this.parseExpenseDate(dto.expenseDate)
       // Local trading day (BIZ-5.1) from the business timezone + cutover (back-office write).
       const businessDate = await this.calendar.computeForBusiness(businessId, expenseDate)
+      // BIZ-5.4: accounting day this expense posts to (redated forward if its period is closed).
+      const posting = await this.postingDate.resolve(businessId, businessDate)
       const expense = await this.expensesRepo.save(
         this.expensesRepo.create({
           businessId,
@@ -102,6 +106,9 @@ export class ExpensesService {
           status: dto.status ?? ExpenseStatus.PAID,
           date: expenseDate,
           businessDate,
+          postingDate: posting.postingDate,
+          isLateArrival: posting.isLateArrival,
+          originalPeriodId: posting.originalPeriodId,
         }),
       )
 
@@ -547,6 +554,15 @@ export class ExpensesService {
         expenseDate,
         payload.businessDate,
       )
+      // BIZ-5.4: stamp the posting day once, on first arrival. On a re-sync keep what was posted
+      // (never move an already-posted expense between periods).
+      const posting = existing?.postingDate
+        ? {
+            postingDate: existing.postingDate,
+            isLateArrival: existing.isLateArrival,
+            originalPeriodId: existing.originalPeriodId ?? null,
+          }
+        : await this.postingDate.resolve(businessId, businessDate)
 
       await this.expensesRepo.save(
         this.expensesRepo.create({
@@ -569,6 +585,9 @@ export class ExpensesService {
             payload.status === ExpenseStatus.PENDING ? ExpenseStatus.PENDING : ExpenseStatus.PAID,
           date: expenseDate,
           businessDate,
+          postingDate: posting.postingDate,
+          isLateArrival: posting.isLateArrival,
+          originalPeriodId: posting.originalPeriodId,
           createdAt,
           updatedAt: recordUpdatedAt,
           deletedAt: null,
