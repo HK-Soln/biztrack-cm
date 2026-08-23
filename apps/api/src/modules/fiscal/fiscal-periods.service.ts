@@ -8,7 +8,7 @@ import { AppBadRequestException, AppNotFoundException } from '@/common/exception
 import { AccountingPeriod } from '@/entities/accounting-period.entity'
 import { PeriodCloseRun } from '@/entities/period-close-run.entity'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
-import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
+import { CloseStepRegistry } from '@/modules/modules/close-step-registry.service'
 
 /**
  * BIZ-5.3 — the period close pipeline. Closing a period runs the (initially empty) registered
@@ -21,7 +21,8 @@ export class FiscalPeriodsService implements OnModuleInit {
   constructor(
     @InjectRepository(AccountingPeriod) private readonly periodRepo: Repository<AccountingPeriod>,
     @InjectRepository(PeriodCloseRun) private readonly runRepo: Repository<PeriodCloseRun>,
-    @Inject(PERIOD_CLOSE_STEPS) private readonly steps: PeriodCloseStep[],
+    // Close steps registered by feature modules (BIZ-5.5); empty today → the loop is a no-op.
+    private readonly closeSteps: CloseStepRegistry,
     private readonly dataSource: DataSource,
     private readonly calendar: BusinessCalendarService,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -93,7 +94,7 @@ export class FiscalPeriodsService implements OnModuleInit {
     await this.periodRepo.save(period)
 
     // Run each registered step once per (period, close_version). Empty today → a no-op loop.
-    for (const step of this.steps) {
+    for (const step of this.closeSteps.all()) {
       const already = await this.runRepo.findOne({
         where: { periodId: period.id, stepKey: step.key, closeVersion: period.closeVersion },
       })

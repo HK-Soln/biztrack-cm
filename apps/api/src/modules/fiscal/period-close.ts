@@ -21,5 +21,6 @@ export interface PeriodCloseStep {
   run(ctx: PeriodCloseContext): Promise<Record<string, unknown> | void>
 }
 
-/** DI token for the (initially empty) ordered list of close steps. */
-export const PERIOD_CLOSE_STEPS = 'PERIOD_CLOSE_STEPS'
+// A feature module registers a close step by injecting the global CloseStepRegistry (BIZ-5.5,
+// modules/close-step-registry.service.ts) and calling `register(step)` in its onModuleInit — the
+// close pipeline reads them at close time. Registration, not surgery on the close code.

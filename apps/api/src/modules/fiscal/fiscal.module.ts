@@ -10,14 +10,14 @@ import { FiscalYearsScheduler } from './fiscal-years.scheduler'
 import { FiscalPeriodsService } from './fiscal-periods.service'
 import { PostingDateService } from './posting-date.service'
 import { FiscalController } from './fiscal.controller'
-import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
-
 /**
- * BIZ-5.2/5.3 — fiscal years + accounting periods + the idempotent close pipeline. The API
+ * BIZ-5.2/5.3/5.5 — fiscal years + accounting periods + the idempotent close pipeline. The API
  * generates the calendar (business setup + daily scheduler), owns closing/locking, and syncs
  * periods down to the desktop. Exported for BusinessModule (setup hook) and SyncModule (pull).
  *
- * PERIOD_CLOSE_STEPS ships EMPTY — a later module (Fixed Assets, etc.) registers steps here.
+ * The close pipeline runs EMPTY today. A feature module (Fixed Assets, etc.) contributes a step by
+ * exporting `{ provide: PERIOD_CLOSE_STEP, useClass: MyStep, multi: true }` and being imported here;
+ * FiscalPeriodsService injects every registered step as an array with no surgery on the close code.
  */
 @Module({
   imports: [
@@ -25,13 +25,7 @@ import { PERIOD_CLOSE_STEPS, type PeriodCloseStep } from './period-close'
     BusinessCalendarModule,
   ],
   controllers: [FiscalController],
-  providers: [
-    FiscalYearsService,
-    FiscalYearsScheduler,
-    FiscalPeriodsService,
-    PostingDateService,
-    { provide: PERIOD_CLOSE_STEPS, useValue: [] as PeriodCloseStep[] },
-  ],
+  providers: [FiscalYearsService, FiscalYearsScheduler, FiscalPeriodsService, PostingDateService],
   exports: [FiscalYearsService, PostingDateService],
 })
 export class FiscalModule {}
