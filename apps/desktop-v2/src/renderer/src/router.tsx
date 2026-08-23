@@ -1,7 +1,8 @@
 import { createHashRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { AuthShell } from '@/components/layout/AuthShell'
-import { RequireAuth, RequireGuest, RequireOwner } from '@/components/RouteGuards'
+import { RequireAuth, RequireGuest, RequireOwner, RequireResource } from '@/components/RouteGuards'
+import { Resource } from '@biztrack/types'
 import { RouteError } from '@/components/RouteError'
 import { Dashboard } from '@/routes/Dashboard'
 import { SignIn } from '@/routes/SignIn'
@@ -106,9 +107,30 @@ export const router = createHashRouter([
           { path: '/inventory/restock', element: <ReceiveStock /> },
           { path: '/sales', element: <Sales /> },
           { path: '/activity', element: <Activity /> },
-          { path: '/online/orders', element: <OnlineOrders /> },
-          { path: '/online/products', element: <OnlineProducts /> },
-          { path: '/online/store', element: <OnlineStore /> },
+          {
+            path: '/online/orders',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineOrders />
+              </RequireResource>
+            ),
+          },
+          {
+            path: '/online/products',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineProducts />
+              </RequireResource>
+            ),
+          },
+          {
+            path: '/online/store',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineStore />
+              </RequireResource>
+            ),
+          },
           { path: '/contacts', element: <Contacts /> },
           { path: '/contacts/new', element: <ContactForm /> },
           { path: '/contacts/:id', element: <ContactDetail /> },

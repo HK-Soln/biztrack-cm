@@ -30,7 +30,7 @@ function planState(effectivePermissions: Resource[]): PlanStateResponse {
       plan: SubscriptionPlan.BUSINESS,
       effectivePermissions,
       specialPermissions: [],
-      permissionsIssuedAt: now,
+      permissionsIssuedAt: 1_700_000_000_000,
       permissionsExpiresAt: null,
     },
     quotas: {} as PlanStateResponse['quotas'],
