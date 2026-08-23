@@ -1002,8 +1002,9 @@ export class SalesService {
     query: { customerId?: string | null; dateFrom?: string; dateTo?: string },
   ): Promise<SalesSummary> {
     try {
-      // BIZ-5.1: range reports bucket by the local trading day (fallback sale_date).
-      const day = 'COALESCE(s.business_date, s.sale_date)'
+      // Financial revenue summary → bucket by the accounting posting day (BIZ-5.4), falling back to
+      // business_date then sale_date for pre-migration history.
+      const day = 'COALESCE(s.posting_date, s.business_date, s.sale_date)'
       const params: unknown[] = [businessId]
       const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
       if (query.customerId) {
@@ -1190,12 +1191,19 @@ export class SalesService {
     }
   }
 
-  private rangeWhere(query: { dateFrom?: string; dateTo?: string }): {
+  private rangeWhere(
+    query: { dateFrom?: string; dateTo?: string },
+    grain: 'operational' | 'financial' = 'operational',
+  ): {
     where: string
     params: unknown[]
   } {
-    // BIZ-5.1: report date range is the local trading day (business_date, fallback sale_date).
-    const day = 'COALESCE(s.business_date, s.sale_date)'
+    // Operational reports range by the local trading day (business_date, BIZ-5.1). Financial reports
+    // range by the accounting posting day (posting_date, BIZ-5.4) so a closed period never shifts.
+    const day =
+      grain === 'financial'
+        ? 'COALESCE(s.posting_date, s.business_date, s.sale_date)'
+        : 'COALESCE(s.business_date, s.sale_date)'
     const params: unknown[] = []
     const conds = ['s.business_id = $1', 's.deleted_at IS NULL']
     params.push('')
@@ -1220,7 +1228,8 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<SalesByProductRow[]> {
     try {
-      const { where, params } = this.rangeWhere(query)
+      // Financial (gross-profit-by-product) → range by posting_date (BIZ-5.4).
+      const { where, params } = this.rangeWhere(query, 'financial')
       params[0] = businessId
       const rows = (await this.salesRepo.manager.query(
         `SELECT si.product_id AS "productId", si.product_name AS name, c.name AS category,
@@ -1341,7 +1350,8 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<{ revenue: number; cogs: number }> {
     try {
-      const { where, params } = this.rangeWhere(query)
+      // Financial (feeds the P&L) → range by posting_date (BIZ-5.4).
+      const { where, params } = this.rangeWhere(query, 'financial')
       params[0] = businessId
       const [row] = (await this.salesRepo.manager.query(
         `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,

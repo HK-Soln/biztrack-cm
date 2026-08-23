@@ -374,13 +374,16 @@ export class ExpensesService {
         params.push(query.status)
         conds.push(`e.status = $${params.length}`)
       }
+      // Financial expense summary → range by the accounting posting day (BIZ-5.4), falling back to
+      // business_date then date for pre-migration history.
+      const eDay = 'COALESCE(e.posting_date, e.business_date, e.date)'
       if (query.dateFrom) {
         params.push(query.dateFrom)
-        conds.push(`e.date >= $${params.length}`)
+        conds.push(`${eDay} >= $${params.length}`)
       }
       if (query.dateTo) {
         params.push(query.dateTo)
-        conds.push(`e.date <= $${params.length}`)
+        conds.push(`${eDay} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
       const mgr = this.expensesRepo.manager
@@ -431,7 +434,7 @@ export class ExpensesService {
         const prevFrom = new Date(prevTo.getTime() - spanMs)
         const iso = (d: Date) => d.toISOString().slice(0, 10)
         const [prev] = (await mgr.query(
-          `SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE business_id = $1 AND deleted_at IS NULL AND date >= $2 AND date <= $3`,
+          `SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE business_id = $1 AND deleted_at IS NULL AND COALESCE(posting_date, business_date, date) >= $2 AND COALESCE(posting_date, business_date, date) <= $3`,
           [businessId, iso(prevFrom), iso(prevTo)],
         )) as Array<{ t: string }>
         previousTotal = this.roundMoney(Number(prev?.t ?? 0))
@@ -465,8 +468,11 @@ export class ExpensesService {
       since.setDate(1)
       const sinceIso = since.toISOString().slice(0, 10)
       const rows = (await this.expensesRepo.manager.query(
-        `SELECT to_char(e.date, 'YYYY-MM') AS ym, COALESCE(SUM(e.amount), 0) AS total
-         FROM expenses e WHERE e.business_id = $1 AND e.deleted_at IS NULL AND e.date >= $2
+        // Financial monthly trend → bucket by the accounting posting day (BIZ-5.4).
+        `SELECT to_char(COALESCE(e.posting_date, e.business_date, e.date), 'YYYY-MM') AS ym,
+                COALESCE(SUM(e.amount), 0) AS total
+         FROM expenses e WHERE e.business_id = $1 AND e.deleted_at IS NULL
+           AND COALESCE(e.posting_date, e.business_date, e.date) >= $2
          GROUP BY ym ORDER BY ym`,
         [businessId, sinceIso],
       )) as Array<{ ym: string; total: string }>

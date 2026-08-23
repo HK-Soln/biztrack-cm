@@ -135,8 +135,9 @@ export class FiscalPeriodsService implements OnModuleInit {
   }
 
   /** Freeze the period's headline figures at close, so later drift can be detected. Uses the
-   *  business_date grain (BIZ-5.1); this is a summary, not a full trial balance (which arrives
-   *  with the ledger). */
+   *  posting_date grain (BIZ-5.4) — the accounting day — so a late arrival that redated out of this
+   *  period is correctly excluded. A summary, not a full trial balance (which arrives with the
+   *  ledger). */
   private async computeSnapshot(
     businessId: string,
     period: AccountingPeriod,
@@ -146,14 +147,14 @@ export class FiscalPeriodsService implements OnModuleInit {
       `SELECT COALESCE(SUM(total_amount), 0) AS total, COUNT(*)::int AS count
          FROM sales
         WHERE business_id = $1 AND status = 'COMPLETED' AND deleted_at IS NULL
-          AND COALESCE(business_date, sale_date) BETWEEN $2 AND $3`,
+          AND COALESCE(posting_date, business_date, sale_date) BETWEEN $2 AND $3`,
       [businessId, period.startDate, period.endDate],
     )) as Array<{ total: string; count: number }>
     const expenseRows = (await this.dataSource.query(
       `SELECT COALESCE(SUM(amount), 0) AS total
          FROM expenses
         WHERE business_id = $1 AND deleted_at IS NULL
-          AND COALESCE(business_date, date) BETWEEN $2 AND $3`,
+          AND COALESCE(posting_date, business_date, date) BETWEEN $2 AND $3`,
       [businessId, period.startDate, period.endDate],
     )) as Array<{ total: string }>
 
