@@ -29,8 +29,12 @@ export class FiscalController {
 
   @Get('calendar')
   @ApiOperation({ summary: 'List fiscal years and their accounting periods' })
-  calendar(@CurrentUser() user: JwtPayload) {
-    return this.fiscalYears.listCalendar(user.businessId as string)
+  async calendar(@CurrentUser() user: JwtPayload) {
+    const businessId = user.businessId as string
+    // Self-heal: a business created before the fiscal calendar shipped (or whose setup hook was
+    // missed) has no periods yet. Generate them on first view (idempotent), then list.
+    await this.fiscalYears.ensureUpcoming(businessId).catch(() => undefined)
+    return this.fiscalYears.listCalendar(businessId)
   }
 
   @Post('periods/:id/close')

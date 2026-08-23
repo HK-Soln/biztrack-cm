@@ -180,18 +180,16 @@ export function Settings() {
   const bp = useBreakpoint()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const initial = params.get('section')
-  const [section, setSection] = useState<SectionKey>(
-    initial && (SECTION_KEYS as string[]).includes(initial) ? (initial as SectionKey) : 'business',
-  )
+  // The active section is DERIVED from the ?section= search param (single source of truth), so a
+  // refresh or deep-link always lands on the same tab and back/forward navigates tabs.
+  const rawSection = params.get('section')
+  const validSection = !!rawSection && (SECTION_KEYS as string[]).includes(rawSection)
+  const section: SectionKey = validSection ? (rawSection as SectionKey) : 'business'
   // On mobile the page is a drill-in: the section list, then the chosen section.
   // Deep-linking to ?section=… opens that section directly.
-  const [mobileOpen, setMobileOpen] = useState(
-    !!initial && (SECTION_KEYS as string[]).includes(initial),
-  )
+  const [mobileOpen, setMobileOpen] = useState(validSection)
 
   function selectSection(key: SectionKey) {
-    setSection(key)
     setParams(key === 'business' ? {} : { section: key }, { replace: true })
   }
 
