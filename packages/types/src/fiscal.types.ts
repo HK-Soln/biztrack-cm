@@ -29,6 +29,10 @@ export interface FiscalYear {
   updatedAt: IsoDateString
 }
 
+export interface FiscalYearWithPeriods extends FiscalYear {
+  periods: AccountingPeriod[]
+}
+
 export interface AccountingPeriod {
   id: string
   businessId: string

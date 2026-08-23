@@ -51,4 +51,12 @@ export class AccountingPeriod extends BaseEntity {
 
   @Column({ name: 'closed_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
   closedAt?: Date | null
+
+  // Figures frozen at close (BIZ-5.3), so later drift is detectable. Server-only (not synced).
+  @Column({ name: 'close_snapshot', type: 'jsonb', nullable: true })
+  closeSnapshot?: Record<string, unknown> | null
+
+  // Bumps on any future reopen so a re-close re-runs its steps under a fresh idempotency scope.
+  @Column({ name: 'close_version', type: 'int', default: 0 })
+  closeVersion!: number
 }

@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
-import { PeriodStatus, type AccountingPeriodSyncRecord } from '@biztrack/types'
+import {
+  PeriodStatus,
+  type AccountingPeriodSyncRecord,
+  type FiscalYearWithPeriods,
+} from '@biztrack/types'
 import {
   DEFAULT_BUSINESS_TIMEZONE,
   clampFiscalYearStartMonth,
@@ -96,6 +100,20 @@ export class FiscalYearsService {
     for (const b of businesses) {
       await this.ensureUpcoming(b.id).catch(() => undefined)
     }
+  }
+
+  /** All fiscal years for a business, each with its periods (newest year first). For the
+   *  Accounting periods management screen. */
+  async listCalendar(businessId: string): Promise<FiscalYearWithPeriods[]> {
+    const years = await this.fyRepo.find({ where: { businessId }, order: { year: 'DESC' } })
+    const periods = await this.periodRepo.find({
+      where: { businessId },
+      order: { periodNumber: 'ASC' },
+    })
+    return years.map((y) => ({
+      ...y,
+      periods: periods.filter((p) => p.fiscalYearId === y.id),
+    })) as unknown as FiscalYearWithPeriods[]
   }
 
   /** Sync pull: fiscal years + periods for a business changed in the (cursor, pulledAt] window. */
