@@ -248,6 +248,9 @@ export interface DailySalesRow {
 export interface DailySalesSeriesReportData {
   rows: DailySalesRow[]
   currency: string
+  /** Number of TRADING days in the report period (business-hours aware, BIZ-5.9) — the correct
+   *  denominator for "average per day". When absent, the report falls back to days-with-sales. */
+  tradingDays?: number
 }
 
 export interface CashierPerformanceRow {

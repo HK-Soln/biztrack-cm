@@ -488,13 +488,16 @@ export function buildDailySalesReport(
       }
   const totalSales = data.rows.reduce((s, r) => s + r.total, 0)
   const txns = data.rows.reduce((s, r) => s + r.transactions, 0)
-  const days = data.rows.length || 1
+  // BIZ-5.9: average over TRADING days (days the shop was open — so an open day with zero sales
+  // still counts, and closed days don't). Falls back to days-with-sales when hours are unknown.
+  const tradingDays = data.tradingDays && data.tradingDays > 0 ? data.tradingDays : null
+  const days = tradingDays ?? (data.rows.length || 1)
   const document = baseDoc(L.title, opts, [
     {
       kind: 'kpis',
       items: [
         { label: L.totalSales, value: m(totalSales) },
-        { label: L.txns, value: n(txns), hint: `${n(data.rows.length)} ${L.days}` },
+        { label: L.txns, value: n(txns), hint: `${n(days)} ${L.days}` },
         { label: L.avgDay, value: m(Math.round(totalSales / days)) },
         { label: L.basket, value: m(txns ? Math.round(totalSales / txns) : 0), hint: L.perTxn },
       ],

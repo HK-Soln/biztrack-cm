@@ -26,6 +26,7 @@ import {
 } from '@biztrack/templates'
 import type { BuiltReportResult, ReportBuildOptions } from '@biztrack/types'
 import { DebtDirection } from '@biztrack/types'
+import { countTradingDays } from '@biztrack/utils'
 import type { DataClient } from '@/lib/data-client'
 
 export type ReportCategory = 'sales' | 'inventory' | 'financial' | 'tax'
@@ -455,7 +456,18 @@ export const LOADERS: Record<string, ReportLoader> = {
   },
   'daily-sales': async ({ client, range, currency, opts }) => {
     const rows = await client.sales.dailySeries(range)
-    return buildDailySalesReport({ rows, currency }, opts)
+    // BIZ-5.9: the "avg / day" denominator = trading days in the period (business-hours aware).
+    // Best-effort: needs the business hours (getProfile); offline it falls back to days-with-sales.
+    let tradingDays: number | undefined
+    if (range.dateFrom && range.dateTo) {
+      try {
+        const profile = await client.business.getProfile()
+        tradingDays = countTradingDays(profile?.businessHours ?? null, range.dateFrom, range.dateTo)
+      } catch {
+        tradingDays = undefined
+      }
+    }
+    return buildDailySalesReport({ rows, currency, tradingDays }, opts)
   },
   'cash-close': async ({ range, currency, opts }) => {
     // Desktop-only: the till (cash sessions) lives on the device, not the cloud DataClient.
