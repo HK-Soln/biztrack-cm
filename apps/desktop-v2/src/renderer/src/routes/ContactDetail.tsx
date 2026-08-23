@@ -10,6 +10,7 @@ import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { ActionMenu } from '@/components/ActionMenu'
 import { ContactPaymentModal } from '@/components/ContactPaymentModal'
+import { CustomerDebtActions } from '@/components/contacts/CustomerDebtActions'
 import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
 import type { ContactStatement, ContactStatementEntry } from '@shared/ipc'
 
@@ -60,6 +61,11 @@ export function ContactDetail() {
     queryFn: () => dataClient.debts.statement(id, DebtDirection.PAYABLE),
     enabled: !!id && isSupplier,
   })
+  // Business name for the WhatsApp reminder templates (per-customer debt tools).
+  const { data: businessProfile } = useQuery({
+    queryKey: ['business', 'profile'],
+    queryFn: () => dataClient.business.getProfile(),
+  })
 
   const refresh = () => {
     void refetch()
@@ -90,6 +96,7 @@ export function ContactDetail() {
 
   const typeLabel = isBoth ? t('ct.bothLong') : isSupplier ? t('ct.supplier') : t('ct.customer')
   const net = contact.totalReceivable - contact.totalPayable
+
   const since = new Date(contact.createdAt).toLocaleDateString(undefined, {
     month: 'short',
     year: 'numeric',
@@ -273,6 +280,23 @@ export function ContactDetail() {
       </svg>
       {t('ct.sendStatement')}
     </button>
+  )
+
+  // Per-customer debt tools (⋮ menu: WhatsApp reminder + view all debts) — receivable side
+  // only, self-hides when the customer owes nothing. Defined after statementHtml/exportName
+  // so the reminder can optionally attach the receivable statement.
+  const custDebtActions = (
+    <CustomerDebtActions
+      contact={{
+        id,
+        name: contact.name,
+        phone: contact.phone,
+        totalReceivable: contact.totalReceivable,
+      }}
+      businessName={businessProfile?.name ?? ''}
+      statementHtml={recvStmt ? statementHtml(recvStmt, t('ct.statement')) : null}
+      statementFilename={exportName(t('ct.statement'))}
+    />
   )
 
   return (
@@ -541,9 +565,14 @@ export function ContactDetail() {
               </button>
             </div>
             <div className="spacer" style={{ flex: 1 }} />
-            {ledgerTab === DebtDirection.RECEIVABLE
-              ? sendBtn(recvStmt, t('ct.ledgerAsCustomer'))
-              : sendBtn(payStmt, t('ct.ledgerAsSupplier'))}
+            {ledgerTab === DebtDirection.RECEIVABLE ? (
+              <>
+                {sendBtn(recvStmt, t('ct.ledgerAsCustomer'))}
+                {custDebtActions}
+              </>
+            ) : (
+              sendBtn(payStmt, t('ct.ledgerAsSupplier'))
+            )}
           </div>
           {ledgerTab === DebtDirection.RECEIVABLE
             ? ledgerView(recvStmt, t('ct.ledgerCustFoot'))
@@ -563,6 +592,7 @@ export function ContactDetail() {
                 isSupplier ? payStmt : recvStmt,
                 isSupplier ? t('ct.supplierAccount') : t('ct.statement'),
               )}
+              {!isSupplier ? custDebtActions : null}
             </div>
             {ledgerView(isSupplier ? payStmt : recvStmt, t('ct.countEntries'))}
           </div>

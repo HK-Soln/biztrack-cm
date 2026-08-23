@@ -16,6 +16,8 @@ import { PlansModule } from '@/modules/plans/plans.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SubscriptionsModule } from '@/modules/subscriptions/subscriptions.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
+import { DailyDigestModule } from '@/modules/daily-digest/daily-digest.module'
+import { DebtRemindersModule } from '@/modules/debt-reminders/debt-reminders.module'
 import { MarketingModule } from '@/modules/marketing/marketing.module'
 import { StorageModule } from '@/modules/storage/storage.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
@@ -25,6 +27,9 @@ import { RfqsModule } from '@/modules/rfqs/rfqs.module'
 import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
+import { CashSessionsModule } from '@/modules/cash-sessions/cash-sessions.module'
+import { FiscalModule } from '@/modules/fiscal/fiscal.module'
+import { ModulesModule } from '@/modules/modules/modules.module'
 import { LoggerModule } from './logger/logger.module'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
@@ -111,6 +116,9 @@ function resolveI18nPath() {
     SalesModule,
     SyncModule,
     DepositsModule,
+    CashSessionsModule,
+    FiscalModule,
+    ModulesModule,
     RolesModule,
     PermissionsModule,
     PlansModule,
@@ -119,6 +127,8 @@ function resolveI18nPath() {
     OnlineModule,
     SubscriptionsModule,
     NotificationsModule,
+    DailyDigestModule,
+    DebtRemindersModule,
     MarketingModule,
     StorageModule,
     RedisModule,

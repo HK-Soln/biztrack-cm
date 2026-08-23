@@ -17,7 +17,10 @@ import { Contact } from './contact.entity'
 
 @Entity('savings_accounts')
 // At most one OPEN session per customer; closed sessions accumulate as history.
-@Index('uq_savings_open_per_customer', ['businessId', 'customerId'], { unique: true, where: `status = 'OPEN' AND is_deleted = false` })
+@Index('uq_savings_open_per_customer', ['businessId', 'customerId'], {
+  unique: true,
+  where: `status = 'OPEN' AND is_deleted = false`,
+})
 @Unique('unq_savings_business_account_number', ['businessId', 'accountNumber'])
 @Index('idx_savings_accounts_business_created_at', ['businessId', 'createdAt'])
 export class CustomerDeposit extends TypeOrmBaseEntity {
@@ -125,9 +128,17 @@ export class CustomerDeposit extends TypeOrmBaseEntity {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz', transformer: dateTransformer })
   updatedAt!: Date
 
-  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true, transformer: dateTransformer })
+  @DeleteDateColumn({
+    name: 'deleted_at',
+    type: 'timestamptz',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   deletedAt?: Date | null
 
+  // Local trading day (BIZ-5.1), stamped at write time from the business timezone + cutover.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
 }
 
 // Backwards-compat alias

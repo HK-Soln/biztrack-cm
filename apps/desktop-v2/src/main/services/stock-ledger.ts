@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { StockMovementType } from '../../shared/ipc'
+import { localBusinessDate } from './business-calendar'
 
 /**
  * Shared stock-ledger helpers (used by products.service + inventory.service) so
@@ -134,11 +135,13 @@ export function recordStockMovement(
       ? 'OPENING_STOCK'
       : 'MANUAL_ADJUSTMENT')
   setInventoryLevel(db, businessId, productId, after, now)
+  // Local trading day (BIZ-5.1) from the movement's timestamp.
+  const businessDate = localBusinessDate(now)
   db.run(
     `INSERT INTO inventory_movements
       (id, business_id, product_id, variant_id, type, quantity_change, quantity_before, quantity_after,
-       reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+       reference_type, reference_id, notes, performed_by_id, performed_by_name, business_date, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
     [
       id,
       businessId,
@@ -151,6 +154,7 @@ export function recordStockMovement(
       opts.referenceType,
       opts.referenceId,
       opts.notes,
+      businessDate,
       now,
     ],
   )

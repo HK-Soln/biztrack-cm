@@ -9,7 +9,7 @@ import {
 import type { AuthService } from '../services/auth.service'
 
 export function registerAuthIpc(auth: AuthService): void {
-  ipcMain.handle(IPC.authGetSession, () => auth.getSession())
+  ipcMain.handle(IPC.authGetSession, () => auth.resolveSession())
   ipcMain.handle(IPC.authLogin, (_e, identifier: string, password: string) =>
     auth.login(identifier, password),
   )

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Resource } from '@biztrack/types'
 import type { MessageKey } from '@/i18n/messages'
 
 // Minimal inline icon set mirroring the design (stroke icons). Kept app-local for
@@ -152,6 +153,11 @@ export type NavLeaf = {
   icon?: keyof typeof Icon
   badge?: MessageKey
   owner?: boolean
+  /** Manager-oversight item — shown only to roles that can authorize (can_authorize). */
+  manager?: boolean
+  /** Plan-tier feature that unlocks this item (BIZ-5.5). Hidden when the plan lacks it; the route is
+   * guarded too. Absent = core (always shown). */
+  resource?: Resource
 }
 export type NavEntry = NavLeaf | { label: MessageKey; icon: keyof typeof Icon; children: NavLeaf[] }
 
@@ -190,9 +196,24 @@ export const NAV: NavEntry[] = [
     label: 'nav.online',
     icon: 'store',
     children: [
-      { to: '/online/orders', label: 'nav.onlineOrders', icon: 'sell' },
-      { to: '/online/products', label: 'nav.onlineProducts', icon: 'products' },
-      { to: '/online/store', label: 'nav.onlineStore', icon: 'settings' },
+      {
+        to: '/online/orders',
+        label: 'nav.onlineOrders',
+        icon: 'sell',
+        resource: Resource.ONLINE_STORE,
+      },
+      {
+        to: '/online/products',
+        label: 'nav.onlineProducts',
+        icon: 'products',
+        resource: Resource.ONLINE_STORE,
+      },
+      {
+        to: '/online/store',
+        label: 'nav.onlineStore',
+        icon: 'settings',
+        resource: Resource.ONLINE_STORE,
+      },
     ],
   },
   { to: '/contacts', label: 'nav.contacts', icon: 'contacts' },
@@ -203,6 +224,7 @@ export const NAV: NavEntry[] = [
     label: 'nav.organization',
     icon: 'org',
     children: [
+      { to: '/activity', label: 'nav.activity', icon: 'shield', manager: true },
       { to: '/team', label: 'nav.team', icon: 'contacts' },
       { to: '/roles', label: 'nav.roles', icon: 'shield', owner: true },
     ],
@@ -210,9 +232,18 @@ export const NAV: NavEntry[] = [
   { to: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
 
-/** NAV with owner-only items removed for non-owners (and empty groups dropped). */
-export function filterNav(isOwner: boolean): NavEntry[] {
-  const keepLeaf = (l: NavLeaf) => isOwner || !l.owner
+/** NAV with owner-only + manager-only items removed for those who lack the role, and plan-gated
+ * items removed when the plan lacks the resource (BIZ-5.5), and empty groups dropped. `hasResource`
+ * defaults to permissive (shows everything) so callers without entitlement context are unaffected. */
+export function filterNav(
+  isOwner: boolean,
+  canManage = false,
+  hasResource: (r: Resource) => boolean = () => true,
+): NavEntry[] {
+  const keepLeaf = (l: NavLeaf) =>
+    (isOwner || !l.owner) &&
+    (isOwner || canManage || !l.manager) &&
+    (!l.resource || hasResource(l.resource))
   return NAV.flatMap<NavEntry>((entry) => {
     if (isGroup(entry)) {
       const children = entry.children.filter(keepLeaf)

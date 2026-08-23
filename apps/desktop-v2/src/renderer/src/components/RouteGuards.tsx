@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import type { Resource } from '@biztrack/types'
 import { useSessionStore } from '@/stores/session.store'
+import { useHasResource } from '@/lib/entitlements'
 import { isDashboardStep, routeForNextStep } from '@/lib/auth-routing'
 
 function Splash() {
@@ -15,8 +17,14 @@ function Splash() {
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { status, hydrated } = useSessionStore()
   if (!hydrated) return <Splash />
-  if (isDashboardStep(status.nextStep)) return <>{children}</>
-  return <Navigate to={routeForNextStep(status.nextStep)} replace />
+  // Must be a genuine signed-in session (phase-2 + business) AND onboarding-complete.
+  // nextStep alone is not enough: a stale/expired session can carry nextStep:"dashboard"
+  // while authenticated is false — that must go to sign-in, not render an empty app.
+  if (status.authenticated && isDashboardStep(status.nextStep)) return <>{children}</>
+  const target = routeForNextStep(status.nextStep)
+  // Never bounce a non-ready session back to the dashboard route (would loop into this
+  // guard). If the step resolves to "/", fall back to sign-in.
+  return <Navigate to={target === '/' ? '/signin' : target} replace />
 }
 
 /**
@@ -26,7 +34,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 export function RequireGuest({ children }: { children: ReactNode }) {
   const { status, hydrated } = useSessionStore()
   if (!hydrated) return <Splash />
-  if (isDashboardStep(status.nextStep)) return <Navigate to="/" replace />
+  if (status.authenticated && isDashboardStep(status.nextStep)) return <Navigate to="/" replace />
   return <>{children}</>
 }
 
@@ -38,5 +46,24 @@ export function RequireOwner({ children }: { children: ReactNode }) {
   const { status, hydrated } = useSessionStore()
   if (!hydrated) return <Splash />
   if ((status.user?.role ?? '').toUpperCase() !== 'OWNER') return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
+/**
+ * Plan-gated routes (BIZ-5.5). Bounced to the dashboard when the plan lacks the module's resource —
+ * the hard backstop behind the hidden nav. Permissive when entitlements are unknown (offline / not
+ * yet fetched): the server still rejects the writes, so this never falsely locks a legitimate user.
+ */
+export function RequireResource({
+  resource,
+  children,
+}: {
+  resource: Resource
+  children: ReactNode
+}) {
+  const hydrated = useSessionStore((s) => s.hydrated)
+  const allowed = useHasResource(resource)
+  if (!hydrated) return <Splash />
+  if (!allowed) return <Navigate to="/" replace />
   return <>{children}</>
 }

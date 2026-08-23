@@ -151,6 +151,31 @@ export class Sale extends BaseEntity {
   @Column({ name: 'sale_date', type: 'date' })
   saleDate!: string
 
+  // The local trading day this sale belongs to (BIZ-5.1), stamped at write time from the
+  // business timezone + cutover (or inherited from the open shift). Distinct from sale_date
+  // (the UTC date, which drives receipt numbering). Nullable for pre-migration history.
+  @Column({ name: 'business_date', type: 'date', nullable: true })
+  businessDate?: string | null
+
+  // The accounting day this sale posts to (BIZ-5.4). Same as business_date unless that day's
+  // period was already closed when the sale landed — then it is redated forward to the earliest
+  // open period (is_late_arrival = true, original_period_id = the closed period it belonged to),
+  // so a closed period's financial totals never change after the fact. Financial reports read
+  // posting_date; operational reports keep using business_date.
+  @Column({ name: 'posting_date', type: 'date', nullable: true })
+  postingDate?: string | null
+
+  @Column({ name: 'is_late_arrival', type: 'boolean', default: false })
+  isLateArrival!: boolean
+
+  @Column({ name: 'original_period_id', type: 'uuid', nullable: true })
+  originalPeriodId?: string | null
+
+  // The cash session (shift) this sale was rung in, or null ("vente hors caisse").
+  // Soft ref (no FK) — tags the sale to a shift for cash reconciliation (BIZ-2.2).
+  @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })
+  cashSessionId?: string | null
+
   @Column({ name: 'sold_at', type: 'timestamptz', transformer: dateTransformer })
   soldAt!: Date
 

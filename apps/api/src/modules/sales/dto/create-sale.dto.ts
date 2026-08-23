@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -54,7 +55,9 @@ export class CreateSalePaymentDto implements CreateSalePaymentRequest {
   @MaxLength(100)
   mobileMoneyReference?: string
 
-  @ApiPropertyOptional({ description: 'Customer deposit/savings account drawn from (SAVINGS method).' })
+  @ApiPropertyOptional({
+    description: 'Customer deposit/savings account drawn from (SAVINGS method).',
+  })
   @IsOptional()
   @IsUUID()
   savingsAccountId?: string | null
@@ -81,7 +84,10 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @IsUUID()
   serialUnitId?: string
 
-  @ApiPropertyOptional({ type: [String], description: 'Serialised units sold; one sale item is created per unit.' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Serialised units sold; one sale item is created per unit.',
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(500)
@@ -108,6 +114,14 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @Max(MAX_MONEY)
   unitPrice!: number
 
+  @ApiPropertyOptional({ example: 500, description: 'Catalogue price at sale time' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(MAX_MONEY)
+  unitPriceListed?: number
+
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @Type(() => Number)
@@ -123,6 +137,18 @@ export class CreateSaleItemDto implements CreateSaleItemRequest {
   @Min(0)
   @Max(MAX_MONEY)
   costPrice?: number
+
+  @ApiPropertyOptional({ description: 'Reason for a price override on this line.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  reasonCode?: string | null
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reasonNote?: string | null
 }
 
 export class CreateSaleChargeDto implements CreateSaleChargeRequest {
@@ -154,15 +180,24 @@ export class CreateSaleChargeDto implements CreateSaleChargeRequest {
   amount!: number
 }
 
+const DISCOUNT_TYPES = [
+  'PERCENTAGE',
+  'FIXED_AMOUNT',
+  'OVERRIDE',
+  'ROUNDING',
+  'DAMAGE',
+  'STAFF_PURCHASE',
+] as const
+
 export class CreateSaleDiscountDto implements CreateSaleDiscountRequest {
   @ApiProperty({ maxLength: 200 })
   @IsString()
   @MaxLength(200)
   description!: string
 
-  @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'] })
-  @IsIn(['PERCENTAGE', 'FIXED_AMOUNT'])
-  discountType!: 'PERCENTAGE' | 'FIXED_AMOUNT'
+  @ApiProperty({ enum: DISCOUNT_TYPES })
+  @IsIn(DISCOUNT_TYPES)
+  discountType!: (typeof DISCOUNT_TYPES)[number]
 
   @ApiPropertyOptional({ example: 10 })
   @IsOptional()
@@ -177,6 +212,23 @@ export class CreateSaleDiscountDto implements CreateSaleDiscountRequest {
   @Min(0)
   @Max(MAX_MONEY)
   amount!: number
+
+  @ApiPropertyOptional({ description: 'Set for a LINE-scoped discount; omit for cart-level.' })
+  @IsOptional()
+  @IsUUID()
+  saleItemId?: string | null
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  reasonCode?: string | null
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reasonNote?: string | null
 }
 
 export class CreateSaleDto implements CreateSaleRequest {
@@ -257,4 +309,17 @@ export class CreateSaleDto implements CreateSaleRequest {
   @ValidateNested({ each: true })
   @Type(() => CreateSaleItemDto)
   items!: CreateSaleItemDto[]
+
+  @ApiPropertyOptional({ description: 'Manager userId who authorized an over-limit discount.' })
+  @IsOptional()
+  @IsUUID()
+  authorizedByUserId?: string | null
+
+  @ApiPropertyOptional({
+    example: '2026-05-23',
+    description: "Optional expected payment date for the sale's credit portion (YYYY-MM-DD).",
+  })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'creditDueDate must be YYYY-MM-DD' })
+  creditDueDate?: string | null
 }

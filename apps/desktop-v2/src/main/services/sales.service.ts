@@ -1,10 +1,22 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod } from '@biztrack/types'
+import {
+  allocateProRata,
+  evaluateDiscountAuthorization,
+  isBelowCost,
+  toWholeXaf,
+  type RoleDiscountLimits,
+} from '@biztrack/utils'
 import type { SaleReceipt } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
+import { localBusinessDate } from './business-calendar'
 import type {
   CashierPerformanceRow,
   DailySalesRow,
+  DiscountSummary,
+  DiscountByCashierRow,
+  DiscountByProductRow,
+  FlaggedDiscountRow,
   LocalSale,
   LocalSaleDetail,
   LocalSaleItem,
@@ -85,6 +97,9 @@ export class SalesService {
     private readonly debts: DebtsService,
     private readonly savings: SavingsService,
     private readonly audit?: AuditLogger,
+    /** The device's live cash session id, for tagging the sale to a shift (BIZ-2.2).
+     * Null when no shift is open ("vente hors caisse"). */
+    private readonly getOpenCashSessionId: () => string | null = () => null,
   ) {}
 
   createSale(input: SaleInput): LocalSaleDetail {
@@ -105,6 +120,19 @@ export class SalesService {
     const soldAt = input.soldAt?.trim() || now
     const saleId = randomUUID()
     const currency = this.businessCurrency(businessId)
+    // Tag the sale to the open shift (BIZ-2.2). NULL = rung outside a session
+    // ("vente hors caisse"). Drives the expected-cash reconciliation.
+    const cashSessionId = this.getOpenCashSessionId()
+    // Local trading day (BIZ-5.1): a sale rung in an open shift inherits that shift's day (so a
+    // shift straddling midnight stays one day); otherwise compute from the local calendar.
+    let businessDate = localBusinessDate(soldAt)
+    if (cashSessionId) {
+      const shift = this.db.get<{ business_date: string | null }>(
+        `SELECT business_date FROM cash_sessions WHERE id = ?`,
+        [cashSessionId],
+      )
+      if (shift?.business_date) businessDate = shift.business_date
+    }
 
     // --- expand cart lines into persisted sale items (one per serial unit) ----
     type Emit = {
@@ -119,9 +147,13 @@ export class SalesService {
       serialNumber: string | null
       quantity: number
       unitPrice: number
+      unitPriceListed: number
+      cartDiscountAlloc: number
       discountAmount: number
       lineTotal: number
       costPrice: number | null
+      reasonCode: string | null
+      reasonNote: string | null
     }
     const emits: Emit[] = []
     // stock to decrement per (product, variant): qty
@@ -135,9 +167,12 @@ export class SalesService {
 
     for (const line of input.items) {
       const meta = this.requireProduct(line.productId, businessId)
-      const unitPrice = round2(line.unitPrice)
+      const unitPrice = toWholeXaf(line.unitPrice)
       if (!Number.isFinite(unitPrice) || unitPrice < 0)
         throw new Error(`Invalid price for “${meta.name}”.`)
+      // Catalogue price snapshot; the charged price is the fallback when the cart did
+      // not capture a separate listed price. cart_discount_alloc is 0 until BIZ-1.3.
+      const unitPriceListed = toWholeXaf(line.unitPriceListed ?? unitPrice)
       const variantId = line.variantId ?? null
       let variantName = line.variantName ?? null
       let cost = line.costPrice ?? meta.cost
@@ -180,9 +215,13 @@ export class SalesService {
             serialNumber: su.serial_number,
             quantity: 1,
             unitPrice,
+            unitPriceListed,
+            cartDiscountAlloc: 0,
             discountAmount: 0,
             lineTotal: unitPrice,
             costPrice: cost,
+            reasonCode: line.reasonCode ?? null,
+            reasonNote: line.reasonNote ?? null,
           })
           soldSerialIds.push(su.id)
         }
@@ -196,8 +235,11 @@ export class SalesService {
         const qty = line.quantity
         if (!Number.isFinite(qty) || qty <= 0)
           throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
-        const lineDiscount = round2(Math.max(0, line.discountAmount ?? 0))
-        const lineTotal = round2(Math.max(0, unitPrice * qty - lineDiscount))
+        const lineDiscount = toWholeXaf(Math.max(0, line.discountAmount ?? 0))
+        const cartDiscountAlloc = 0
+        const lineTotal = toWholeXaf(
+          Math.max(0, unitPrice * qty - lineDiscount - cartDiscountAlloc),
+        )
         emits.push({
           id: randomUUID(),
           productId: line.productId,
@@ -210,9 +252,13 @@ export class SalesService {
           serialNumber: null,
           quantity: qty,
           unitPrice,
+          unitPriceListed,
+          cartDiscountAlloc,
           discountAmount: lineDiscount,
           lineTotal,
           costPrice: cost,
+          reasonCode: line.reasonCode ?? null,
+          reasonNote: line.reasonNote ?? null,
         })
         if (meta.trackInventory)
           decrements.push({
@@ -224,37 +270,132 @@ export class SalesService {
       }
     }
 
+    // BIZ-1.2 OVERRIDE model: rung at the listed price, with any bargain folded into
+    // discount_amount + a LINE-scoped sale_discounts row, so each line's discount_amount
+    // reconciles with its discount rows. lineTotal is unchanged (listed*qty − discount ===
+    // charged*qty − explicit). A charged price at/above listed stays a markup, no override.
+    const lineDiscountRows: Array<{
+      id: string
+      saleItemId: string
+      description: string
+      discountType: string
+      amount: number
+      reasonCode: string | null
+      reasonNote: string | null
+    }> = []
+    for (const e of emits) {
+      const explicit = e.discountAmount
+      const overrideGap =
+        e.unitPrice < e.unitPriceListed
+          ? toWholeXaf((e.unitPriceListed - e.unitPrice) * e.quantity)
+          : 0
+      if (overrideGap > 0) {
+        e.unitPrice = e.unitPriceListed
+        e.discountAmount = toWholeXaf(overrideGap + explicit)
+        lineDiscountRows.push({
+          id: randomUUID(),
+          saleItemId: e.id,
+          description: 'Prix négocié',
+          discountType: 'OVERRIDE',
+          amount: overrideGap,
+          reasonCode: e.reasonCode ?? 'NEGOTIATED',
+          reasonNote: e.reasonNote,
+        })
+      }
+      if (explicit > 0) {
+        lineDiscountRows.push({
+          id: randomUUID(),
+          saleItemId: e.id,
+          description: 'Remise',
+          discountType: 'FIXED_AMOUNT',
+          amount: explicit,
+          reasonCode: null,
+          reasonNote: null,
+        })
+      }
+    }
+
     // --- settlement (tax 0; matches the API computeSale) ----------------------
-    const subtotal = round2(emits.reduce((s, e) => s + e.lineTotal, 0))
+    const subtotal = toWholeXaf(emits.reduce((s, e) => s + e.lineTotal, 0))
     const discountLines = (input.discounts ?? []).map((d) => ({
       ...d,
       id: d.id ?? randomUUID(),
-      amount: round2(Math.max(0, d.amount)),
+      amount: toWholeXaf(Math.max(0, d.amount)),
     }))
     const chargeLines = (input.charges ?? []).map((c) => ({
       ...c,
       id: c.id ?? randomUUID(),
-      amount: round2(Math.max(0, c.amount)),
+      amount: toWholeXaf(Math.max(0, c.amount)),
     }))
-    const discountAmount = round2(
+    const discountAmount = toWholeXaf(
       Math.min(
         subtotal,
         discountLines.reduce((s, d) => s + d.amount, 0),
       ),
     )
-    const chargesAmount = round2(chargeLines.reduce((s, c) => s + c.amount, 0))
-    const totalAmount = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
+    const chargesAmount = toWholeXaf(chargeLines.reduce((s, c) => s + c.amount, 0))
+    const totalAmount = toWholeXaf(Math.max(0, subtotal - discountAmount + chargesAmount))
+
+    // BIZ-1.3: allocate the cart-level discount across lines (weight = line total),
+    // remainder to the largest line, folding each share into that line's total. Uses
+    // the same shared helper as the API so both runtimes agree.
+    if (discountAmount > 0 && emits.length > 0) {
+      const allocations = allocateProRata(
+        discountAmount,
+        emits.map((e) => e.lineTotal),
+      )
+      emits.forEach((e, i) => {
+        e.cartDiscountAlloc = allocations[i] ?? 0
+        e.lineTotal = toWholeXaf(Math.max(0, e.lineTotal - e.cartDiscountAlloc))
+      })
+    }
+
+    // BIZ-1.4: evaluate the cashier's role discount limits (offline, from the synced
+    // roles table). Over-limit discounts still complete (APPROVE) but are flagged
+    // unauthorized unless a manager authorized them via step-up. Same shared evaluator
+    // as the API, so both runtimes agree.
+    const authorizedBy = input.authorizedByUserId ?? null
+    const { overLimit } = evaluateDiscountAuthorization(this.roleLimits(businessId, cashierId), {
+      lines: emits.map((e) => ({
+        discountAmount: e.discountAmount,
+        listedLineValue: toWholeXaf(e.unitPriceListed * e.quantity),
+      })),
+      cartDiscount: discountAmount,
+      subtotal,
+    })
+    // BIZ-1.5: a line sold below its cost needs the same authorization unless the role
+    // may sell below cost. The effective charged unit price nets the line discount; a
+    // null cost is skipped. Cost stays in main — it never reaches the renderer.
+    const belowCost = isBelowCost(
+      emits.map((e) => ({
+        chargedUnitPrice:
+          e.quantity > 0 ? (e.unitPrice * e.quantity - e.discountAmount) / e.quantity : 0,
+        cost: e.costPrice,
+      })),
+    )
+    const discountUnauthorized =
+      (overLimit || (belowCost && !this.roleAllowsBelowCost(businessId, cashierId))) &&
+      !authorizedBy
 
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
     )
-    const amountPaid = round2(paymentLines.reduce((s, p) => s + p.amount, 0))
-    const creditAmount = round2(Math.max(0, totalAmount - amountPaid))
-    const changeGiven = round2(Math.max(0, amountPaid - totalAmount))
+    const amountPaid = toWholeXaf(paymentLines.reduce((s, p) => s + p.amount, 0))
+    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
+    const changeGiven = toWholeXaf(Math.max(0, amountPaid - totalAmount))
+
+    // One stable id per payment, shared by the local sale_payments row AND the sync payload.
+    // If the payload minted fresh ids, the pushed sale echoing back on pull would upsert on
+    // an id the local row doesn't have and INSERT a second payment — double-counting the
+    // cash it represents in the drawer's expected total. Same id on both sides = idempotent.
+    const paymentRows = paymentLines.map((p) => ({ ...p, id: randomUUID() }))
 
     const customerId = input.customerId?.trim() || null
     if (creditAmount > 0 && !customerId)
       throw new Error('Credit sales must be linked to a registered customer.')
+    // Optional expected payment date for the credit portion; when omitted the debt falls
+    // back to created_at + the business's default credit period (D9).
+    const creditDueDate = input.creditDueDate?.trim() || null
 
     // Deposit (savings) payments must reference an account with enough balance — validate
     // up front so a shortfall can never leave a half-written sale.
@@ -264,7 +405,7 @@ export class SalesService {
         if (!p.savingsAccountId) throw new Error('Deposit payment is missing the savings account.')
         savingsNeed.set(
           p.savingsAccountId,
-          round2((savingsNeed.get(p.savingsAccountId) ?? 0) + p.amount),
+          toWholeXaf((savingsNeed.get(p.savingsAccountId) ?? 0) + p.amount),
         )
       }
     }
@@ -298,8 +439,8 @@ export class SalesService {
         (id, business_id, client_id, cashier_id, cashier_name, sale_number, receipt_number, subtotal, total_amount,
          discount_amount, charges_amount, tax_amount, net_amount, amount_paid, credit_amount, change_given,
          payment_method, momo_reference, customer_id, customer_name, customer_phone, notes, currency, sale_date,
-         sold_at, status, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+         sold_at, cash_session_id, business_date, status, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
       [
         saleId,
         businessId,
@@ -325,6 +466,8 @@ export class SalesService {
         currency,
         soldAt.slice(0, 10),
         soldAt,
+        cashSessionId,
+        businessDate,
         now,
         now,
       ],
@@ -334,9 +477,9 @@ export class SalesService {
       this.db.run(
         `INSERT INTO sale_items
           (id, sale_id, business_id, product_id, product_name, product_sku, unit_of_measure, variant_id, variant_name,
-           serial_unit_id, serial_number, quantity, unit_price, discount_amount, line_total, total_price, cost_price,
-           is_deleted, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+           serial_unit_id, serial_number, quantity, unit_price, unit_price_listed, cart_discount_alloc, discount_amount,
+           line_total, total_price, cost_price, is_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
         [
           e.id,
           saleId,
@@ -351,6 +494,8 @@ export class SalesService {
           e.serialNumber,
           e.quantity,
           e.unitPrice,
+          e.unitPriceListed,
+          e.cartDiscountAlloc,
           e.discountAmount,
           e.lineTotal,
           e.lineTotal,
@@ -379,22 +524,65 @@ export class SalesService {
     }
     for (const d of discountLines) {
       this.db.run(
-        `INSERT INTO sale_discounts (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount, created_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
-        [d.id, saleId, businessId, d.description, d.discountType, d.rate ?? null, d.amount, now],
+        `INSERT INTO sale_discounts
+          (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
+           reason_code, reason_note, applied_by, authorized_by, unauthorized, below_cost, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          d.id,
+          saleId,
+          d.saleItemId ?? null,
+          businessId,
+          d.description,
+          d.discountType,
+          d.rate ?? null,
+          d.amount,
+          d.reasonCode ?? null,
+          d.reasonNote ?? null,
+          cashierId,
+          authorizedBy,
+          discountUnauthorized ? 1 : 0,
+          belowCost ? 1 : 0,
+          now,
+        ],
       )
     }
-    for (const p of paymentLines) {
+    for (const d of lineDiscountRows) {
       this.db.run(
-        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, mobile_money_reference, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sale_discounts
+          (id, sale_id, sale_item_id, business_id, description, discount_type, rate, amount,
+           reason_code, reason_note, applied_by, authorized_by, unauthorized, below_cost, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          randomUUID(),
+          d.id,
+          saleId,
+          d.saleItemId,
+          businessId,
+          d.description,
+          d.discountType,
+          d.amount,
+          d.reasonCode,
+          d.reasonNote,
+          cashierId,
+          authorizedBy,
+          discountUnauthorized ? 1 : 0,
+          belowCost ? 1 : 0,
+          now,
+        ],
+      )
+    }
+    for (const p of paymentRows) {
+      this.db.run(
+        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, mobile_money_reference, business_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          p.id,
           saleId,
           businessId,
           p.method,
-          round2(p.amount),
+          toWholeXaf(p.amount),
           p.mobileMoneyReference ?? null,
+          businessDate,
           now,
         ],
       )
@@ -406,7 +594,7 @@ export class SalesService {
         this.savings.recordSaleUsage({
           accountId: p.savingsAccountId,
           saleId,
-          amount: round2(p.amount),
+          amount: toWholeXaf(p.amount),
           now,
           recordedById: cashierId,
         })
@@ -461,6 +649,7 @@ export class SalesService {
         clientId: input.clientId,
         saleNumber,
         soldAt,
+        cashSessionId,
         cashierId,
         cashierName: this.getActorName(),
         customerId,
@@ -470,11 +659,12 @@ export class SalesService {
         discountAmount,
         chargesAmount,
         creditAmount,
+        creditDueDate,
         status: 'COMPLETED',
-        payments: paymentLines.map((p) => ({
-          id: randomUUID(),
+        payments: paymentRows.map((p) => ({
+          id: p.id,
           method: p.method,
-          amount: round2(p.amount),
+          amount: toWholeXaf(p.amount),
           mobileMoneyReference: p.mobileMoneyReference ?? null,
           savingsAccountId: p.savingsAccountId ?? null,
         })),
@@ -499,13 +689,36 @@ export class SalesService {
           rateValue: c.rateValue,
           amount: c.amount,
         })),
-        discounts: discountLines.map((d) => ({
-          id: d.id,
-          description: d.description,
-          discountType: d.discountType,
-          rate: d.rate ?? null,
-          amount: d.amount,
-        })),
+        discounts: [
+          ...discountLines.map((d) => ({
+            id: d.id,
+            description: d.description,
+            discountType: d.discountType,
+            rate: d.rate ?? null,
+            amount: d.amount,
+            saleItemId: d.saleItemId ?? null,
+            reasonCode: d.reasonCode ?? null,
+            reasonNote: d.reasonNote ?? null,
+            appliedBy: cashierId,
+            authorizedBy,
+            unauthorized: discountUnauthorized,
+            belowCost,
+          })),
+          ...lineDiscountRows.map((d) => ({
+            id: d.id,
+            description: d.description,
+            discountType: d.discountType,
+            rate: null,
+            amount: d.amount,
+            saleItemId: d.saleItemId,
+            reasonCode: d.reasonCode,
+            reasonNote: d.reasonNote,
+            appliedBy: cashierId,
+            authorizedBy,
+            unauthorized: discountUnauthorized,
+            belowCost,
+          })),
+        ],
       },
       now,
     )
@@ -520,6 +733,7 @@ export class SalesService {
         sourceId: saleId,
         sourceReference: saleNumber,
         originalAmount: creditAmount,
+        dueDate: creditDueDate,
         notes,
         createdAt: soldAt,
       })
@@ -545,6 +759,17 @@ export class SalesService {
         },
       },
     })
+    // BIZ-2.9: a flagged discount (unauthorized or below-cost) is separately auditable.
+    if (discountUnauthorized || belowCost) {
+      this.audit?.log({
+        action: 'DISCOUNT_APPLIED',
+        entityType: 'sale',
+        entityId: saleId,
+        entityLabel: saleNumber,
+        amount: toWholeXaf(discountAmount + emits.reduce((sum, e) => sum + e.discountAmount, 0)),
+        changes: { before: null, after: { unauthorized: discountUnauthorized, belowCost } },
+      })
+    }
     this.onMutated()
     return this.get(saleId)!
   }
@@ -565,8 +790,13 @@ export class SalesService {
     const actorId = this.getActorId()
     if (!actorId) throw new Error('No active session.')
 
-    const sale = this.db.get<{ id: string; status: string; sale_number: string }>(
-      `SELECT id, status, sale_number FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+    const sale = this.db.get<{
+      id: string
+      status: string
+      sale_number: string
+      total_amount: number
+    }>(
+      `SELECT id, status, sale_number, total_amount FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
       [saleId, businessId],
     )
     if (!sale) throw new Error('Sale not found.')
@@ -653,10 +883,11 @@ export class SalesService {
     )
 
     this.audit?.log({
-      action: 'VOID',
+      action: 'SALE_VOIDED',
       entityType: 'sale',
       entityId: saleId,
       entityLabel: sale.sale_number,
+      amount: sale.total_amount,
       changes: {
         before: { status: 'COMPLETED' },
         after: { status: 'VOIDED', voidReason: trimmed },
@@ -758,7 +989,7 @@ export class SalesService {
       payments: payments.map((p) => ({
         id: p.id,
         method: p.method,
-        amount: round2(p.amount),
+        amount: toWholeXaf(p.amount),
         mobileMoneyReference: p.mobile_money_reference,
         savingsAccountId: null,
       })),
@@ -863,14 +1094,14 @@ export class SalesService {
       params,
     )
     const transactions = agg?.txns ?? 0
-    const revenue = round2(agg?.revenue ?? 0)
+    const revenue = toWholeXaf(agg?.revenue ?? 0)
     return {
       revenue,
       transactions,
-      averageBasket: transactions > 0 ? round2(revenue / transactions) : 0,
+      averageBasket: transactions > 0 ? toWholeXaf(revenue / transactions) : 0,
       itemsSold: agg?.units ?? 0,
       refundCount: refunds?.n ?? 0,
-      refundAmount: round2(refunds?.amt ?? 0),
+      refundAmount: toWholeXaf(refunds?.amt ?? 0),
       currency,
     }
   }
@@ -883,14 +1114,17 @@ export class SalesService {
   dailySeries(query: SalesListQuery = {}): DailySalesRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    // BIZ-5.1: bucket by the local trading day (business_date), fallback to the UTC sale_date
+    // for pre-migration rows. Kept identical to the API getDailySeries so synced rows tie out.
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const conds = ['s.business_id = ?', 's.is_deleted = 0']
     const params: unknown[] = [businessId]
     if (query.dateFrom) {
-      conds.push('s.sale_date >= ?')
+      conds.push(`${day} >= ?`)
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      conds.push('s.sale_date <= ?')
+      conds.push(`${day} <= ?`)
       params.push(query.dateTo)
     }
     const where = conds.join(' AND ')
@@ -905,35 +1139,35 @@ export class SalesService {
       momo: number
       card: number
     }>(
-      `SELECT d.sale_date AS date, d.txns, d.total, d.credit,
+      `SELECT d.bday AS date, d.txns, d.total, d.credit,
               COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
        FROM (
-         SELECT s.sale_date, COUNT(*) AS txns,
+         SELECT ${day} AS bday, COUNT(*) AS txns,
                 COALESCE(SUM(s.total_amount), 0) AS total,
                 COALESCE(SUM(s.credit_amount), 0) AS credit
          FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
-         GROUP BY s.sale_date
+         GROUP BY ${day}
        ) d
        LEFT JOIN (
-         SELECT s.sale_date,
+         SELECT ${day} AS bday,
                 SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
                 SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
                 SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
          FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
          WHERE ${where} AND s.status = 'COMPLETED'
-         GROUP BY s.sale_date
-       ) p ON p.sale_date = d.sale_date
-       ORDER BY d.sale_date ASC`,
+         GROUP BY ${day}
+       ) p ON p.bday = d.bday
+       ORDER BY d.bday ASC`,
       [...params, ...params],
     )
     return rows.map((r) => ({
       date: String(r.date).slice(0, 10),
       transactions: Number(r.txns ?? 0),
-      total: round2(Number(r.total ?? 0)),
-      cash: round2(Number(r.cash ?? 0)),
-      momo: round2(Number(r.momo ?? 0)),
-      card: round2(Number(r.card ?? 0)),
-      credit: round2(Number(r.credit ?? 0)),
+      total: toWholeXaf(Number(r.total ?? 0)),
+      cash: toWholeXaf(Number(r.cash ?? 0)),
+      momo: toWholeXaf(Number(r.momo ?? 0)),
+      card: toWholeXaf(Number(r.card ?? 0)),
+      credit: toWholeXaf(Number(r.credit ?? 0)),
     }))
   }
 
@@ -945,14 +1179,16 @@ export class SalesService {
   cashierRoster(query: SalesListQuery = {}): CashierPerformanceRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    // BIZ-5.1: trading day = business_date (fallback sale_date). "shifts" = distinct days.
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const conds = ['s.business_id = ?', 's.is_deleted = 0']
     const params: unknown[] = [businessId]
     if (query.dateFrom) {
-      conds.push('s.sale_date >= ?')
+      conds.push(`${day} >= ?`)
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      conds.push('s.sale_date <= ?')
+      conds.push(`${day} <= ?`)
       params.push(query.dateTo)
     }
     const where = conds.join(' AND ')
@@ -966,7 +1202,7 @@ export class SalesService {
       discounts: number
     }>(
       `SELECT s.cashier_id AS cashier_id, s.cashier_name AS name,
-              COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN s.sale_date END) AS shifts,
+              COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN ${day} END) AS shifts,
               COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END) AS transactions,
               COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
               COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
@@ -982,25 +1218,27 @@ export class SalesService {
       name: r.name || '—',
       shifts: Number(r.shifts ?? 0),
       transactions: Number(r.transactions ?? 0),
-      sales: round2(Number(r.sales ?? 0)),
-      refunds: round2(Number(r.refunds ?? 0)),
-      discounts: round2(Number(r.discounts ?? 0)),
+      sales: toWholeXaf(Number(r.sales ?? 0)),
+      refunds: toWholeXaf(Number(r.refunds ?? 0)),
+      discounts: toWholeXaf(Number(r.discounts ?? 0)),
     }))
   }
 
-  /** Shared sale_date-range WHERE for the report aggregations (parity with the API). */
+  /** Shared trading-day-range WHERE for the report aggregations (parity with the API):
+   *  business_date, falling back to the UTC sale_date for pre-migration rows (BIZ-5.1). */
   private reportWhere(
     businessId: string,
     query: SalesListQuery,
   ): { where: string; params: unknown[] } {
+    const day = 'COALESCE(s.business_date, s.sale_date)'
     const conds = ['s.business_id = ?', 's.is_deleted = 0']
     const params: unknown[] = [businessId]
     if (query.dateFrom) {
-      conds.push('s.sale_date >= ?')
+      conds.push(`${day} >= ?`)
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      conds.push('s.sale_date <= ?')
+      conds.push(`${day} <= ?`)
       params.push(query.dateTo)
     }
     return { where: conds.join(' AND '), params }
@@ -1040,8 +1278,205 @@ export class SalesService {
       name: r.name,
       category: r.category ?? null,
       quantity: Number(r.quantity ?? 0),
-      revenue: round2(Number(r.revenue ?? 0)),
-      cogs: round2(Number(r.cogs ?? 0)),
+      revenue: toWholeXaf(Number(r.revenue ?? 0)),
+      cogs: toWholeXaf(Number(r.cogs ?? 0)),
+    }))
+  }
+
+  // ── Discount reports (BIZ-1.7) ────────────────────────────────────────────
+  // All read the LOCAL sale_discounts rows written at checkout, joined to sales for
+  // the sale_date period filter (parity with the other report methods). Gross sales
+  // is booked net revenue (SUM(total_amount)); the discount rate is discount / gross.
+
+  /** Headline discount figures for the range (Discount Summary report). */
+  discountSummary(query: SalesListQuery = {}): DiscountSummary {
+    const empty: DiscountSummary = {
+      totalDiscount: 0,
+      grossSales: 0,
+      saleCount: 0,
+      discountedSaleCount: 0,
+      unauthorizedCount: 0,
+      belowCostCount: 0,
+      byReason: [],
+    }
+    const businessId = this.getBusinessId()
+    if (!businessId) return empty
+    const { where, params } = this.reportWhere(businessId, query)
+
+    const disc = this.db.get<{
+      total: number
+      discountedSales: number
+      unauthorized: number
+      belowCost: number
+    }>(
+      `SELECT COALESCE(SUM(sd.amount), 0) AS total,
+              COUNT(DISTINCT sd.sale_id) AS discountedSales,
+              COALESCE(SUM(sd.unauthorized), 0) AS unauthorized,
+              COALESCE(SUM(sd.below_cost), 0) AS belowCost
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'`,
+      params,
+    )
+    const gross = this.db.get<{ gross: number; saleCount: number }>(
+      `SELECT COALESCE(SUM(s.total_amount), 0) AS gross, COUNT(*) AS saleCount
+       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+      params,
+    )
+    const byReason = this.db.query<{ reasonCode: string | null; count: number; amount: number }>(
+      `SELECT sd.reason_code AS reasonCode, COUNT(*) AS count, COALESCE(SUM(sd.amount), 0) AS amount
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY sd.reason_code
+       ORDER BY amount DESC`,
+      params,
+    )
+    return {
+      totalDiscount: toWholeXaf(Number(disc?.total ?? 0)),
+      grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
+      saleCount: Number(gross?.saleCount ?? 0),
+      discountedSaleCount: Number(disc?.discountedSales ?? 0),
+      unauthorizedCount: Number(disc?.unauthorized ?? 0),
+      belowCostCount: Number(disc?.belowCost ?? 0),
+      byReason: byReason.map((r) => ({
+        reasonCode: r.reasonCode ?? null,
+        count: Number(r.count ?? 0),
+        amount: toWholeXaf(Number(r.amount ?? 0)),
+      })),
+    }
+  }
+
+  /** Discount total + gross + flagged count per cashier (Discounts by Cashier report). */
+  discountsByCashier(query: SalesListQuery = {}): DiscountByCashierRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    // Discount and gross are aggregated separately to avoid a join fan-out (a sale
+    // with N discount rows would multiply its total_amount N times), then merged.
+    const disc = this.db.query<{
+      cashierId: string
+      cashierName: string | null
+      discountTotal: number
+      unauthorized: number
+      discountCount: number
+    }>(
+      `SELECT s.cashier_id AS cashierId, s.cashier_name AS cashierName,
+              COALESCE(SUM(sd.amount), 0) AS discountTotal,
+              COALESCE(SUM(sd.unauthorized), 0) AS unauthorized,
+              COUNT(*) AS discountCount
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY s.cashier_id, s.cashier_name`,
+      params,
+    )
+    const gross = this.db.query<{ cashierId: string; grossSales: number }>(
+      `SELECT s.cashier_id AS cashierId, COALESCE(SUM(s.total_amount), 0) AS grossSales
+       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+       GROUP BY s.cashier_id`,
+      params,
+    )
+    const grossBy = new Map(gross.map((g) => [g.cashierId, toWholeXaf(Number(g.grossSales ?? 0))]))
+    return disc.map((r) => ({
+      cashierId: r.cashierId,
+      cashierName: r.cashierName ?? '—',
+      discountTotal: toWholeXaf(Number(r.discountTotal ?? 0)),
+      grossSales: grossBy.get(r.cashierId) ?? 0,
+      unauthorizedCount: Number(r.unauthorized ?? 0),
+      discountCount: Number(r.discountCount ?? 0),
+    }))
+  }
+
+  /** Discount total + margin-after-discount per product (Discounts by Product report).
+   * Only LINE-scoped discounts map to a product (sale_item_id → sale_items → products);
+   * cart-level discounts have no product and are excluded. */
+  discountsByProduct(query: SalesListQuery = {}): DiscountByProductRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    // Discount per product from the line-scoped discount rows…
+    const disc = this.db.query<{
+      productId: string
+      name: string
+      category: string | null
+      discountTotal: number
+      discountCount: number
+    }>(
+      `SELECT si.product_id AS productId, si.product_name AS name, c.name AS category,
+              COALESCE(SUM(sd.amount), 0) AS discountTotal, COUNT(*) AS discountCount
+       FROM sale_discounts sd
+         JOIN sale_items si ON si.id = sd.sale_item_id
+         JOIN sales s ON s.id = sd.sale_id
+         LEFT JOIN products p ON p.id = si.product_id
+         LEFT JOIN product_categories c ON c.id = p.category_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND sd.sale_item_id IS NOT NULL
+       GROUP BY si.product_id, si.product_name, c.name`,
+      params,
+    )
+    // …and revenue/COGS per product from the line totals, merged in for margin.
+    const rev = this.db.query<{ productId: string; revenue: number; cogs: number }>(
+      `SELECT si.product_id AS productId,
+              COALESCE(SUM(si.line_total), 0) AS revenue,
+              COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0
+       GROUP BY si.product_id`,
+      params,
+    )
+    const revBy = new Map(
+      rev.map((r) => [
+        r.productId,
+        { revenue: toWholeXaf(Number(r.revenue ?? 0)), cogs: toWholeXaf(Number(r.cogs ?? 0)) },
+      ]),
+    )
+    return disc.map((r) => ({
+      productId: r.productId,
+      name: r.name,
+      category: r.category ?? null,
+      discountTotal: toWholeXaf(Number(r.discountTotal ?? 0)),
+      discountCount: Number(r.discountCount ?? 0),
+      revenue: revBy.get(r.productId)?.revenue ?? 0,
+      cogs: revBy.get(r.productId)?.cogs ?? 0,
+    }))
+  }
+
+  /** Over-limit (unauthorized) and below-cost discount rows, most recent first
+   * (Flagged Discounts report — the owner's red list). */
+  flaggedDiscounts(query: SalesListQuery = {}): FlaggedDiscountRow[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.reportWhere(businessId, query)
+    const rows = this.db.query<{
+      id: string
+      saleId: string
+      saleNumber: string
+      soldAt: string
+      cashierName: string | null
+      amount: number
+      reasonCode: string | null
+      unauthorized: number
+      belowCost: number
+      authorizedBy: string | null
+    }>(
+      `SELECT sd.id AS id, s.id AS saleId, s.sale_number AS saleNumber, s.sold_at AS soldAt,
+              s.cashier_name AS cashierName, sd.amount AS amount, sd.reason_code AS reasonCode,
+              sd.unauthorized AS unauthorized, sd.below_cost AS belowCost,
+              sd.authorized_by AS authorizedBy
+       FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
+       WHERE ${where} AND s.status = 'COMPLETED' AND (sd.unauthorized = 1 OR sd.below_cost = 1)
+       ORDER BY s.sold_at DESC
+       LIMIT 300`,
+      params,
+    )
+    return rows.map((r) => ({
+      id: r.id,
+      saleId: r.saleId,
+      saleNumber: r.saleNumber,
+      soldAt: r.soldAt,
+      cashierName: r.cashierName ?? null,
+      amount: toWholeXaf(Number(r.amount ?? 0)),
+      reasonCode: r.reasonCode ?? null,
+      unauthorized: !!r.unauthorized,
+      belowCost: !!r.belowCost,
+      authorized: !!r.authorizedBy,
     }))
   }
 
@@ -1061,7 +1496,7 @@ export class SalesService {
     return rows.map((r) => ({
       method: r.method,
       transactions: Number(r.transactions ?? 0),
-      amount: round2(Number(r.amount ?? 0)),
+      amount: toWholeXaf(Number(r.amount ?? 0)),
     }))
   }
 
@@ -1104,15 +1539,15 @@ export class SalesService {
       byReason: byReason.map((r) => ({
         reason: r.reason ?? null,
         count: Number(r.count ?? 0),
-        amount: round2(Number(r.amount ?? 0)),
+        amount: toWholeXaf(Number(r.amount ?? 0)),
       })),
       byCashier: byCashier.map((r) => ({
         cashierId: r.cashierId,
         name: r.name || '—',
-        refunds: round2(Number(r.refunds ?? 0)),
-        sales: round2(Number(r.sales ?? 0)),
+        refunds: toWholeXaf(Number(r.refunds ?? 0)),
+        sales: toWholeXaf(Number(r.sales ?? 0)),
       })),
-      grossSales: round2(Number(gross?.gross ?? 0)),
+      grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
     }
   }
 
@@ -1128,7 +1563,10 @@ export class SalesService {
        WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0`,
       params,
     )
-    return { revenue: round2(Number(row?.revenue ?? 0)), cogs: round2(Number(row?.cogs ?? 0)) }
+    return {
+      revenue: toWholeXaf(Number(row?.revenue ?? 0)),
+      cogs: toWholeXaf(Number(row?.cogs ?? 0)),
+    }
   }
 
   /** Shared WHERE for list/listAll/summary (excludes free-text search, which list() adds). */
@@ -1159,14 +1597,15 @@ export class SalesService {
         params.push(query.paymentMethod)
       }
     }
-    // Compare on the LOCAL calendar day of sold_at (sale_date is stored as the UTC date, so
-    // a straight string compare drops sales near the day boundary / in non-UTC zones).
+    // BIZ-5.1: filter by the local trading day (business_date, computed with the business
+    // timezone + cutover), falling back to the UTC sale_date for pre-migration rows. This
+    // replaces the old machine-localtime approximation on sold_at.
     if (query.dateFrom) {
-      where += " AND date(s.sold_at, 'localtime') >= ?"
+      where += ' AND COALESCE(s.business_date, s.sale_date) >= ?'
       params.push(query.dateFrom)
     }
     if (query.dateTo) {
-      where += " AND date(s.sold_at, 'localtime') <= ?"
+      where += ' AND COALESCE(s.business_date, s.sale_date) <= ?'
       params.push(query.dateTo)
     }
     return { where, params }
@@ -1189,10 +1628,11 @@ export class SalesService {
       serial_number: string | null
       quantity: number
       unit_price: number
+      unit_price_listed: number | null
       discount_amount: number
       line_total: number
     }>(
-      `SELECT id, product_id, product_name, variant_id, variant_name, serial_number, quantity, unit_price, discount_amount, line_total
+      `SELECT id, product_id, product_name, variant_id, variant_name, serial_number, quantity, unit_price, unit_price_listed, discount_amount, line_total
        FROM sale_items WHERE sale_id = ? AND is_deleted = 0 ORDER BY created_at ASC`,
       [id],
     )
@@ -1216,6 +1656,7 @@ export class SalesService {
         serialNumber: i.serial_number,
         quantity: i.quantity,
         unitPrice: i.unit_price,
+        unitPriceListed: i.unit_price_listed,
         discountAmount: i.discount_amount,
         lineTotal: i.line_total,
       })),
@@ -1229,6 +1670,28 @@ export class SalesService {
   }
 
   /** Build the shareable receipt view-model + the customer's contact channels (for send). */
+  /**
+   * Record a receipt REPRINT (BIZ-2.9). Reprinting a completed sale's receipt is a known
+   * fraud vector (a second cash copy), so it's audited. The initial print at checkout passes
+   * reprint=false and does not reach here.
+   */
+  logReceiptReprint(saleId: string): void {
+    const businessId = this.getBusinessId()
+    if (!businessId) return
+    const row = this.db.get<{ sale_number: string; total_amount: number }>(
+      `SELECT sale_number, total_amount FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+      [saleId, businessId],
+    )
+    if (!row) return
+    this.audit?.log({
+      action: 'RECEIPT_REPRINTED',
+      entityType: 'sale',
+      entityId: saleId,
+      entityLabel: row.sale_number,
+      amount: row.total_amount,
+    })
+  }
+
   buildReceipt(
     saleId: string,
   ): { receipt: SaleReceipt; phone: string | null; email: string | null } | null {
@@ -1266,6 +1729,8 @@ export class SalesService {
         name: `${i.productName}${i.variantName ? ' · ' + i.variantName : ''}${i.serialNumber ? ' · ' + i.serialNumber : ''}`,
         qty: i.quantity,
         unitPrice: i.unitPrice,
+        unitPriceListed: i.unitPriceListed,
+        discountAmount: i.discountAmount,
         total: i.lineTotal,
       })),
       subtotal: sale.subtotal,
@@ -1337,6 +1802,85 @@ export class SalesService {
     )
   }
 
+  /** The current cashier's role discount limits — for the renderer to detect an
+   * over-limit discount at checkout and prompt manager step-up before submitting. */
+  myDiscountLimits(): RoleDiscountLimits {
+    return this.roleLimits(this.requireBusinessId(), this.getActorId())
+  }
+
+  /**
+   * Whether any cart line would sell below cost AND the cashier's role may not — i.e.
+   * the sale needs manager authorization on margin grounds (BIZ-1.5). Resolves cost
+   * entirely in the main process and returns only a boolean, so the cost figure NEVER
+   * reaches the renderer/cashier. Returns false when the role allows below-cost sales.
+   */
+  belowCostNeedsAuth(
+    lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
+  ): boolean {
+    const businessId = this.requireBusinessId()
+    if (this.roleAllowsBelowCost(businessId, this.getActorId())) return false
+    const withCost = lines.map((l) => {
+      const product = this.db.get<{ cost_price: number | null }>(
+        `SELECT cost_price FROM products WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+        [l.productId, businessId],
+      )
+      let cost = product?.cost_price ?? null
+      if (l.variantId) {
+        const v = this.db.get<{ cost_price_override: number | null }>(
+          `SELECT cost_price_override FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`,
+          [l.variantId, l.productId],
+        )
+        if (v?.cost_price_override != null) cost = v.cost_price_override
+      }
+      return { chargedUnitPrice: l.unitPrice, cost }
+    })
+    return isBelowCost(withCost)
+  }
+
+  /** Whether the cashier's role may sell below cost without a manager PIN (BIZ-1.5).
+   * Resolved in main from the synced roles table; cost never reaches the renderer. */
+  private roleAllowsBelowCost(businessId: string, userId: string | null): boolean {
+    if (!userId) return false
+    const row = this.db.get<{ allow_below_cost: number }>(
+      `SELECT r.allow_below_cost
+         FROM business_members m
+         JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0
+        LIMIT 1`,
+      [businessId, userId],
+    )
+    return !!row?.allow_below_cost
+  }
+
+  /** The cashier's role discount limits from the synced roles table (null = no limit,
+   * so a role-less member or a member on a limitless role is unrestricted). */
+  private roleLimits(businessId: string, userId: string | null): RoleDiscountLimits {
+    const none: RoleDiscountLimits = {
+      maxDiscountPercent: null,
+      maxCartDiscountPercent: null,
+      maxDiscountAmountXaf: null,
+    }
+    if (!userId) return none
+    const row = this.db.get<{
+      max_discount_percent: number | null
+      max_cart_discount_percent: number | null
+      max_discount_amount_xaf: number | null
+    }>(
+      `SELECT r.max_discount_percent, r.max_cart_discount_percent, r.max_discount_amount_xaf
+         FROM business_members m
+         JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0
+        LIMIT 1`,
+      [businessId, userId],
+    )
+    if (!row) return none
+    return {
+      maxDiscountPercent: row.max_discount_percent,
+      maxCartDiscountPercent: row.max_cart_discount_percent,
+      maxDiscountAmountXaf: row.max_discount_amount_xaf,
+    }
+  }
+
   private requireBusinessId(): string {
     const businessId = this.getBusinessId()
     if (!businessId) throw new Error('No active business.')
@@ -1391,8 +1935,4 @@ function toLocalSale(r: SaleRow): LocalSale {
     itemCount: r.item_count,
     syncStatus: r.sync_status === 'pending' ? 'pending' : 'synced',
   }
-}
-
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100
 }

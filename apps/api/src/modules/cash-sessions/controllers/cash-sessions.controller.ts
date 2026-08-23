@@ -1,0 +1,159 @@
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import type {
+  AuditContext,
+  CashDailyReportData,
+  CashSessionExpectedCash,
+  CashShiftReportData,
+  CashVarianceHistory,
+  JwtPayload,
+  PaginatedResult,
+} from '@biztrack/types'
+import { CurrentUser } from '@/common/decorators/current-user.decorator'
+import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
+import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
+import type { CashSession } from '@/entities/cash-session.entity'
+import type { CashMovement } from '@/entities/cash-movement.entity'
+import {
+  CloseCashSessionDto,
+  DailyReportQueryDto,
+  ListCashSessionsQueryDto,
+  OpenCashSessionDto,
+  RecordCashMovementDto,
+  SetCashVarianceReasonDto,
+  ShiftReportQueryDto,
+  TransitionCashSessionDto,
+  VarianceHistoryQueryDto,
+} from '../dto/cash-session.dto'
+import { CashSessionsService } from '../services/cash-sessions.service'
+
+/**
+ * Cash sessions REST surface (BIZ-2.1) — the cloud app's parity path for the desktop's
+ * local till writes. Open / list / current / transition; the denomination-count close
+ * lands in BIZ-2.4. Gated by Phase2Guard (an authenticated business user runs a till).
+ */
+@ApiTags('Cash Sessions')
+@ApiBearerAuth()
+@UseGuards(Phase2Guard)
+@Controller('cash-sessions')
+export class CashSessionsController {
+  constructor(private readonly cashSessions: CashSessionsService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Open a cash session (start a till shift)' })
+  open(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: OpenCashSessionDto,
+    @CurrentAuditContext() context: AuditContext,
+  ): Promise<CashSession> {
+    return this.cashSessions.openSession(user.businessId as string, user, dto, context)
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List cash sessions' })
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListCashSessionsQueryDto,
+  ): Promise<PaginatedResult<CashSession>> {
+    return this.cashSessions.list(user.businessId as string, query)
+  }
+
+  @Get('current')
+  @ApiOperation({ summary: "This device's live cash session (or null)" })
+  current(@CurrentUser() user: JwtPayload): Promise<CashSession | null> {
+    return this.cashSessions.getCurrent(user.businessId as string, user.deviceId ?? 'unknown')
+  }
+
+  @Get('variance-history')
+  @ApiOperation({ summary: 'Per-cashier drawer-accuracy history over the last N days' })
+  varianceHistory(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: VarianceHistoryQueryDto,
+  ): Promise<CashVarianceHistory> {
+    return this.cashSessions.varianceHistory(user.businessId as string, query)
+  }
+
+  @Get('daily-report')
+  @ApiOperation({
+    summary: "Daily close — the day's shifts + totals, reconciled vs the daily summary",
+  })
+  dailyReport(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: DailyReportQueryDto,
+  ): Promise<CashDailyReportData> {
+    return this.cashSessions.dailyReport(user.businessId as string, query)
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a cash session' })
+  get(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<CashSession> {
+    return this.cashSessions.findById(id, user.businessId as string)
+  }
+
+  @Get(':id/report')
+  @ApiOperation({ summary: 'Z-report (close) or X-report (mid-shift read) for a shift' })
+  shiftReport(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Query() query: ShiftReportQueryDto,
+  ): Promise<CashShiftReportData> {
+    return this.cashSessions.shiftReport(user.businessId as string, id, query.kind ?? 'Z')
+  }
+
+  @Get(':id/expected-cash')
+  @ApiOperation({ summary: 'Expected drawer cash + breakdown for a session' })
+  expectedCash(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<CashSessionExpectedCash> {
+    return this.cashSessions.expectedCash(user.businessId as string, id)
+  }
+
+  @Patch(':id/status')
+  @ApiOperation({ summary: 'Transition a cash session through its lifecycle' })
+  transition(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: TransitionCashSessionDto,
+  ): Promise<CashSession> {
+    return this.cashSessions.transition(user.businessId as string, id, dto)
+  }
+
+  @Post(':id/close')
+  @ApiOperation({ summary: 'Close a shift with a blind denomination count' })
+  close(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CloseCashSessionDto,
+    @CurrentAuditContext() context: AuditContext,
+  ): Promise<CashSession> {
+    return this.cashSessions.closeSession(user.businessId as string, id, dto, context)
+  }
+
+  @Post(':id/variance-reason')
+  @ApiOperation({ summary: 'Record why a closed shift was out of tolerance' })
+  setVarianceReason(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SetCashVarianceReasonDto,
+  ): Promise<CashSession> {
+    return this.cashSessions.setVarianceReason(user.businessId as string, id, dto)
+  }
+
+  @Post(':id/movements')
+  @ApiOperation({ summary: 'Record a cash movement against a shift' })
+  recordMovement(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: RecordCashMovementDto,
+    @CurrentAuditContext() context: AuditContext,
+  ): Promise<CashMovement> {
+    return this.cashSessions.recordMovement(user.businessId as string, user, id, dto, context)
+  }
+
+  @Get(':id/movements')
+  @ApiOperation({ summary: 'List cash movements for a shift' })
+  listMovements(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<CashMovement[]> {
+    return this.cashSessions.listMovements(user.businessId as string, id)
+  }
+}

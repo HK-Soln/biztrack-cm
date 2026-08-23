@@ -47,6 +47,11 @@ const makeService = () => {
     variantsRepo as any,
     variantOptionsRepo as any,
     inventoryLevelsRepo as any,
+    {
+      computeForBusiness: async () => '2026-01-01',
+      resolveForSync: async () => '2026-01-01',
+      businessDateFor: async () => '2026-01-01',
+    } as any,
     i18n as any,
     logger as any,
   )
@@ -96,8 +101,20 @@ describe('ProductVariantsService.previewVariantMatrix', () => {
     expect(blue256?.excluded).toBe(true)
     const black128 = result.variants.find((v) => v.name === 'Black 128GB')
     expect(black128?.attributes).toEqual([
-      { groupId: 'g-color', groupName: 'Color', optionId: 'o-black', optionValue: 'Black', colorHex: '#000' },
-      { groupId: 'g-storage', groupName: 'Storage', optionId: 'o-128', optionValue: '128GB', colorHex: null },
+      {
+        groupId: 'g-color',
+        groupName: 'Color',
+        optionId: 'o-black',
+        optionValue: 'Black',
+        colorHex: '#000',
+      },
+      {
+        groupId: 'g-storage',
+        groupName: 'Storage',
+        optionId: 'o-128',
+        optionValue: '128GB',
+        colorHex: null,
+      },
     ])
   })
 
@@ -151,7 +168,9 @@ describe('ProductVariantsService.createVariantsFromAttributeSelections', () => {
     const manager = {
       getRepository: (entity: any) => {
         if (entity === AttributeGroup) {
-          return { findOne: async ({ where }: any) => GROUPS.find((g) => g.id === where.id) ?? null }
+          return {
+            findOne: async ({ where }: any) => GROUPS.find((g) => g.id === where.id) ?? null,
+          }
         }
         if (entity === AttributeOption) {
           return {

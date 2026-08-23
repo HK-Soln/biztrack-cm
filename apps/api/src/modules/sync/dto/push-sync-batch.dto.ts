@@ -39,6 +39,9 @@ enum SyncEntityDto {
   EXPENSE = 'expense',
   SAVINGS = 'savings',
   SAVINGS_TRANSACTION = 'savings_transaction',
+  CASH_SESSION = 'cash_session',
+  CASH_COUNT_LINE = 'cash_count_line',
+  CASH_MOVEMENT = 'cash_movement',
 }
 
 enum SyncActionDto {

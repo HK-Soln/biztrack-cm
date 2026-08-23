@@ -29,6 +29,17 @@ import type {
   // business
   BusinessProfile,
   UpdateBusinessRequest,
+  // notification settings
+  NotificationSettings,
+  NotificationRecipientLookupResult,
+  FiscalYearWithPeriods,
+  AccountingPeriod,
+  PostingAdjustment,
+  UpdateNotificationRecipientRequest,
+  UpdateNotificationMatrixRequest,
+  UpdateNotificationQuietHoursRequest,
+  AddNotificationRecipientRequest,
+  UpdateRecipientSubscriptionsRequest,
   // plans
   ListPlansResponse,
   CurrentSubscriptionResponse,
@@ -138,8 +149,47 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     city: b.city ?? null,
     currency: b.currency ?? 'XAF',
     logoUrl: b.logoUrl ?? null,
+    businessHours: b.businessHours ?? null,
+    defaultCreditDays: b.defaultCreditDays ?? null,
+    timezone: b.timezone ?? null,
+    dayCutoverTime: b.dayCutoverTime ?? null,
+    fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
+    country: b.country ?? null,
+    niu: b.niu ?? null,
+    rccm: b.rccm ?? null,
+    vatRegistered: b.vatRegistered ?? false,
+    defaultVatRate: b.defaultVatRate ?? null,
+    fiscalRegime: b.fiscalRegime ?? null,
     role,
   }
+}
+
+export const cloudFiscal = {
+  calendar: () => cget<FiscalYearWithPeriods[]>('/fiscal/calendar'),
+  adjustments: () => cget<PostingAdjustment[]>('/fiscal/adjustments'),
+  closePeriod: (id: string) => cpost<AccountingPeriod>(`/fiscal/periods/${id}/close`, {}),
+  lockPeriod: (id: string) => cpost<AccountingPeriod>(`/fiscal/periods/${id}/lock`, {}),
+}
+
+export const cloudNotificationSettings = {
+  get: () => cget<NotificationSettings>('/notifications/settings'),
+  listTimezones: () => cget<string[]>('/notifications/settings/timezones'),
+  lookupContact: (q: string) =>
+    cget<NotificationRecipientLookupResult>(
+      `/notifications/settings/recipients/lookup?q=${encodeURIComponent(q)}`,
+    ),
+  updateMatrix: (body: UpdateNotificationMatrixRequest) =>
+    cput<NotificationSettings>('/notifications/settings/matrix', body),
+  updateQuietHours: (body: UpdateNotificationQuietHoursRequest) =>
+    cput<NotificationSettings>('/notifications/settings/quiet-hours', body),
+  addRecipient: (body: AddNotificationRecipientRequest) =>
+    cpost<NotificationSettings>('/notifications/settings/recipients', body),
+  updateRecipient: (id: string, body: UpdateNotificationRecipientRequest) =>
+    cput<NotificationSettings>(`/notifications/settings/recipients/${id}`, body),
+  updateRecipientSubscriptions: (id: string, body: UpdateRecipientSubscriptionsRequest) =>
+    cput<NotificationSettings>(`/notifications/settings/recipients/${id}/subscriptions`, body),
+  removeRecipient: (id: string) =>
+    cdelete<NotificationSettings>(`/notifications/settings/recipients/${id}`),
 }
 
 export const cloudBusiness = {

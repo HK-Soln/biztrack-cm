@@ -9,6 +9,8 @@ import type {
 } from '@biztrack/types'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { AppUnauthorizedException } from '@/common/exceptions/app-exceptions'
+import { AuditService } from '@/modules/audit/audit.service'
+import { AuditIngestDto } from '@/modules/audit/dto/audit-ingest.dto'
 import { Phase2Guard } from '../auth/guards/phase2.guard'
 import { IssueSyncTokenDto } from './dto/issue-sync-token.dto'
 import { PullSyncQueryDto } from './dto/pull-sync-query.dto'
@@ -24,6 +26,7 @@ export class SyncController {
   constructor(
     private readonly syncService: SyncService,
     private readonly syncAuthService: SyncAuthService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Post('token')
@@ -46,7 +49,10 @@ export class SyncController {
     summary: 'Queue a sync push batch',
     description: 'Stores client sync operations and queues background processing.',
   })
-  pushBatch(@CurrentUser() user: JwtPayload, @Body() dto: PushSyncBatchDto): Promise<SyncPushResponse> {
+  pushBatch(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: PushSyncBatchDto,
+  ): Promise<SyncPushResponse> {
     this.assertDeviceBinding(user, dto.deviceId)
     return this.syncService.enqueueBatch(user.businessId as string, user, dto)
   }
@@ -63,6 +69,21 @@ export class SyncController {
       batchId,
       user.deviceId as string,
     )
+  }
+
+  @Post('audit')
+  @UseGuards(SyncTokenGuard)
+  @ApiOperation({
+    summary: 'Ingest a batch of device audit rows (desktop→server audit bridge)',
+    description:
+      'Append-only ingest of local_audit_logs rows. Idempotent (re-push safe); server stamps the ingest time and normalises the actor type.',
+  })
+  ingestAudit(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: AuditIngestDto,
+  ): Promise<{ ingested: number }> {
+    this.assertDeviceBinding(user, dto.deviceId)
+    return this.auditService.ingestBatch(user.businessId ?? null, user.deviceId ?? null, dto.rows)
   }
 
   @Get('pull')

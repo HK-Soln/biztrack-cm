@@ -152,7 +152,7 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
   const print = async () => {
     setPrinting(true)
     try {
-      const r = await dataClient.sales.printReceipt(sale.id, lang)
+      const r = await dataClient.sales.printReceipt(sale.id, lang, true)
       flash(r.printed ? t('sales.printed') : t('sales.printSaved'))
     } catch {
       flash(t('sales.printFailed'))

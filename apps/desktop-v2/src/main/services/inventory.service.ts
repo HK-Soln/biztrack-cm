@@ -1,5 +1,12 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
+import {
+  REORDER_WINDOW_DAYS,
+  computeReorderVelocity,
+  computeStockoutMs,
+  type StockPoint,
+  type VelocityResult,
+} from '@biztrack/utils'
 import type {
   AdjustStockInput,
   DeadStockRow,
@@ -19,6 +26,7 @@ import type {
 } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import { COST_EXPR, STOCK_EXPR, effectiveStock, recordStockMovement } from './stock-ledger'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 import type { ProductsService } from './products.service'
 import type { DebtsService } from './debts.service'
@@ -169,16 +177,27 @@ export class InventoryService {
     const targetExpr = `CASE WHEN ${hasVariants}
         THEN (SELECT COALESCE(SUM(COALESCE(pv.low_stock_threshold, 0)), 0) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0)
         ELSE ${INV_THRESHOLD} END`
+    // Last supplier who restocked this product (grouping key for À-commander, BIZ-4.5).
+    const lastSupplier = (col: string) =>
+      `(SELECT rr.${col} FROM restock_items ri JOIN restock_records rr ON rr.id = ri.restock_record_id
+         WHERE ri.product_id = p.id ORDER BY rr.created_at DESC LIMIT 1)`
     const rows = this.db.query<{
       id: string
       name: string
       sku: string | null
       cost_price: number | null
+      selling_price: number | null
       currency: string | null
       stock: number | null
       target: number | null
+      created_at: string
+      has_variants: number
+      supplier_id: string | null
+      supplier_name: string | null
     }>(
-      `SELECT p.id, p.name, p.sku, p.cost_price, p.currency, ${STOCK_EXPR} AS stock, (${targetExpr}) AS target
+      `SELECT p.id, p.name, p.sku, p.cost_price, p.price AS selling_price, p.currency, ${STOCK_EXPR} AS stock, (${targetExpr}) AS target,
+              p.created_at, (${hasVariants}) AS has_variants,
+              ${lastSupplier('supplier_id')} AS supplier_id, ${lastSupplier('supplier_name')} AS supplier_name
        FROM products p
        WHERE p.business_id = ? AND p.is_deleted = 0 AND p.track_inventory = 1
          AND (
@@ -188,12 +207,33 @@ export class InventoryService {
        ORDER BY ${STOCK_EXPR} ASC`,
       [businessId],
     )
+    // Velocity (BIZ-4.6) is computed for direct products only: variant products track
+    // stock per variant, so a product-level stock timeline would misread as empty.
+    const velocities = this.computeVelocities(
+      businessId,
+      rows
+        .filter((r) => !r.has_variants)
+        .map((r) => ({ id: r.id, stock: Math.max(0, r.stock ?? 0), createdAt: r.created_at })),
+    )
+    // Resolve supplier phones in one pass (for the per-supplier WhatsApp draft).
+    const supplierIds = [...new Set(rows.map((r) => r.supplier_id).filter(Boolean))] as string[]
+    const phones = new Map<string, string | null>()
+    if (supplierIds.length) {
+      const ph = supplierIds.map(() => '?').join(', ')
+      for (const c of this.db.query<{ id: string; phone: string | null }>(
+        `SELECT id, phone FROM contacts WHERE id IN (${ph})`,
+        supplierIds,
+      )) {
+        phones.set(c.id, c.phone ?? null)
+      }
+    }
     return rows.map((r) => {
       const stock = Math.max(0, r.stock ?? 0)
       const target = r.target ?? 0
       // Restock to a par level of 2× the reorder point so the order actually clears
       // the alert (restocking to exactly the reorder point leaves it still flagged).
       const suggestedQty = target > 0 ? Math.max(target * 2 - stock, 1) : 1
+      const v = velocities.get(r.id)
       return {
         productId: r.id,
         name: r.name,
@@ -203,8 +243,97 @@ export class InventoryService {
         suggestedQty,
         unitCost: r.cost_price ?? null,
         currency: r.currency ?? 'XAF',
+        velocity: v?.velocity ?? null,
+        daysCover: v?.daysCover ?? null,
+        stockoutDays: v?.stockoutDays ?? null,
+        sellingPrice: r.selling_price ?? null,
+        supplierId: r.supplier_id ?? null,
+        supplierName: r.supplier_name ?? null,
+        supplierPhone: r.supplier_id ? (phones.get(r.supplier_id) ?? null) : null,
       }
     })
+  }
+
+  /** Trailing-window sales velocity + days-of-cover per product (BIZ-4.6), keyed by
+   * productId. Excludes stock-out days (reconstructed from the movement ledger's
+   * `quantity_after`) and returns null velocity/cover for products with too little
+   * history/sales to trust — the shared @biztrack/utils calculator decides. */
+  private computeVelocities(
+    businessId: string,
+    items: { id: string; stock: number; createdAt: string }[],
+  ): Map<string, VelocityResult> {
+    const out = new Map<string, VelocityResult>()
+    if (items.length === 0) return out
+    const now = Date.now()
+    const windowStart = now - REORDER_WINDOW_DAYS * 86_400_000
+    const windowStartIso = new Date(windowStart).toISOString()
+    const windowStartDate = windowStartIso.slice(0, 10) // sale_date is a calendar date
+    const ids = items.map((i) => i.id)
+    const ph = ids.map(() => '?').join(', ')
+
+    // Units sold per product in the window (COMPLETED, non-deleted sales).
+    const unitRows = this.db.query<{ productId: string; units: number }>(
+      `SELECT si.product_id AS productId, COALESCE(SUM(si.quantity), 0) AS units
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE s.business_id = ? AND s.is_deleted = 0 AND s.status = 'COMPLETED'
+         AND si.is_deleted = 0 AND s.sale_date >= ? AND si.product_id IN (${ph})
+       GROUP BY si.product_id`,
+      [businessId, windowStartDate, ...ids],
+    )
+    const unitsById = new Map(unitRows.map((r) => [r.productId, Number(r.units ?? 0)]))
+
+    // Product-level movements INSIDE the window (variant_id IS NULL), ascending — the
+    // stepwise stock timeline used to find the empty stretches.
+    const moveRows = this.db.query<{
+      product_id: string
+      quantity_after: number
+      created_at: string
+    }>(
+      `SELECT product_id, quantity_after, created_at
+       FROM inventory_movements
+       WHERE business_id = ? AND variant_id IS NULL AND product_id IN (${ph}) AND created_at >= ?
+       ORDER BY product_id ASC, created_at ASC`,
+      [businessId, ...ids, windowStartIso],
+    )
+    const pointsById = new Map<string, StockPoint[]>()
+    for (const r of moveRows) {
+      const arr = pointsById.get(r.product_id) ?? []
+      arr.push({ at: Date.parse(r.created_at), after: Number(r.quantity_after ?? 0) })
+      pointsById.set(r.product_id, arr)
+    }
+
+    // Stock level at window start = quantity_after of the last movement BEFORE the window.
+    const priorRows = this.db.query<{ product_id: string; quantity_after: number }>(
+      `SELECT m.product_id, m.quantity_after
+       FROM inventory_movements m
+       WHERE m.business_id = ? AND m.variant_id IS NULL AND m.product_id IN (${ph}) AND m.created_at < ?
+         AND m.created_at = (
+           SELECT MAX(m2.created_at) FROM inventory_movements m2
+           WHERE m2.product_id = m.product_id AND m2.variant_id IS NULL
+             AND m2.business_id = m.business_id AND m2.created_at < ?
+         )`,
+      [businessId, ...ids, windowStartIso, windowStartIso],
+    )
+    const startById = new Map(priorRows.map((r) => [r.product_id, Number(r.quantity_after ?? 0)]))
+
+    for (const it of items) {
+      const stockoutMs = computeStockoutMs(
+        windowStart,
+        now,
+        startById.get(it.id) ?? 0,
+        pointsById.get(it.id) ?? [],
+      )
+      out.set(
+        it.id,
+        computeReorderVelocity({
+          unitsSold: unitsById.get(it.id) ?? 0,
+          stockoutMs,
+          currentStock: it.stock,
+          productAgeDays: (now - Date.parse(it.createdAt)) / 86_400_000,
+        }),
+      )
+    }
+    return out
   }
 
   /** Manually adjust stock. Direct products adjust the product's own stock; passing a
@@ -270,7 +399,7 @@ export class InventoryService {
       now,
     )
     this.audit?.log({
-      action: 'UPDATE',
+      action: 'STOCK_ADJUSTED',
       entityType: 'inventory',
       entityId: productId,
       entityLabel: meta.name,
@@ -342,7 +471,7 @@ export class InventoryService {
       now,
     )
     this.audit?.log({
-      action: 'UPDATE',
+      action: 'STOCK_ADJUSTED',
       entityType: 'inventory',
       entityId: productId,
       entityLabel: `${meta.name} — ${variant.name}`,
@@ -480,10 +609,12 @@ export class InventoryService {
           ?.name ?? null)
       : null
     const movementNote = reference ? `Restock ${reference}` : 'Restock'
+    // Local trading day (BIZ-5.1) from the receipt's timestamp; movements inherit it below.
+    const businessDate = localBusinessDate(now)
 
     this.db.run(
-      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, discount_amount, charges_amount, amount_paid, credit_amount, invoice_number, invoice_date, invoice_file_url, notes, performed_by_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO restock_records (id, business_id, reference_number, supplier_id, supplier_name, purchase_order_id, total_amount, total_cost, discount_amount, charges_amount, amount_paid, credit_amount, invoice_number, invoice_date, invoice_file_url, notes, performed_by_id, business_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       [
         restockId,
         businessId,
@@ -501,6 +632,7 @@ export class InventoryService {
         invoiceDate,
         invoiceFileUrl,
         notes,
+        businessDate,
         now,
       ],
     )

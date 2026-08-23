@@ -5,7 +5,13 @@ export interface DepositTaggedProduct {
   productName: string
 }
 
-export type DepositTransactionType = 'deposit' | 'refund' | 'sale' | 'voided_sale' | 'transfer_in' | 'transfer_out'
+export type DepositTransactionType =
+  | 'deposit'
+  | 'refund'
+  | 'sale'
+  | 'voided_sale'
+  | 'transfer_in'
+  | 'transfer_out'
 export type DepositTransactionDirection = 'inbound' | 'outbound'
 
 /** A deposit session is OPEN (active) until it's CLOSED with a balance of zero. */
@@ -18,7 +24,11 @@ export type DepositStatus = 'OPEN' | 'CLOSED'
  * - COLLECTED_TRANSFERRED  — goods collected; leftover transferred to a new session
  * - REFUNDED               — no goods collected; deposit refunded (cancellation)
  */
-export type DepositOutcome = 'COLLECTED' | 'COLLECTED_REFUNDED' | 'COLLECTED_TRANSFERRED' | 'REFUNDED'
+export type DepositOutcome =
+  | 'COLLECTED'
+  | 'COLLECTED_REFUNDED'
+  | 'COLLECTED_TRANSFERRED'
+  | 'REFUNDED'
 
 // Backwards-compat aliases
 export type SavingsTransactionType = DepositTransactionType
@@ -171,9 +181,22 @@ export interface AddDepositPaymentInput {
 /** How to settle the leftover balance when closing a session. */
 export type DepositCloseSettlement = 'NONE' | 'REFUND' | 'TRANSFER'
 
+/** One line of a (possibly split) refund — a customer can be paid back part cash, part MoMo, etc. */
+export interface DepositRefundLine {
+  method: string
+  amount: number
+  mobileMoneyReference?: string | null
+}
+
 export interface CloseDepositInput {
   settlement: DepositCloseSettlement
-  /** Required for REFUND (how the money was returned). */
+  /**
+   * Split refund lines (REFUND only). Their amounts must sum to the leftover balance. Only the
+   * CASH portion feeds the drawer. When omitted, `method`/`mobileMoneyReference` below settle the
+   * whole leftover as a single line (back-compat).
+   */
+  refunds?: DepositRefundLine[] | null
+  /** @deprecated single-method refund; prefer `refunds`. */
   method?: string | null
   mobileMoneyReference?: string | null
   notes?: string | null

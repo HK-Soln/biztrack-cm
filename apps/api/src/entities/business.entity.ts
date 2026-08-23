@@ -11,6 +11,7 @@ import { MonthlyExpenseSummary } from './monthly-expense-summary.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
 import { SubscriptionPlan, BusinessStatus, FiscalRegime, BillingCycle } from '@biztrack/types'
+import type { BusinessHours } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
 import { SubscriptionEvent } from './subscription-event.entity'
 import { BusinessMember } from './business-member.entity'
@@ -70,6 +71,32 @@ export class Business extends BaseEntity {
   @Column({ name: 'logo_url', nullable: true, type: 'varchar' })
   logoUrl?: string | null
 
+  /** Per-weekday opening hours (null day = closed). Drives the daily-digest send time. */
+  @Column({ name: 'business_hours', type: 'jsonb', nullable: true })
+  businessHours?: BusinessHours | null
+
+  /** Default credit period (days) for on-account sales; drives the effective due date
+   * used by ageing + debt-due reminders when a debt has no explicit due_date (D9). */
+  @Column({ name: 'default_credit_days', type: 'int', default: 30 })
+  defaultCreditDays!: number
+
+  /** Canonical business timezone (IANA, e.g. Africa/Douala). The single source of truth
+   * for every local-time decision — business_date (BIZ-5.1), digest send time, quiet
+   * hours. Notifications read this, not the (now dormant) notification_settings.timezone. */
+  @Column({ name: 'timezone', type: 'varchar', length: 64, default: 'Africa/Douala' })
+  timezone!: string
+
+  /** Local time of day at which the trading day rolls over (HH:mm). Default 00:00 = the
+   * business_date is the local calendar date; a late-night trade sets a dead-hour cutover
+   * (e.g. 03:00) so a 01:00 sale counts to the previous trading day (BIZ-5.1). */
+  @Column({ name: 'day_cutover_time', type: 'varchar', length: 5, default: '00:00' })
+  dayCutoverTime!: string
+
+  /** Month (1–12) the fiscal year begins in; default 1 = January (OHADA). Anchors the fiscal
+   * calendar — the fiscal_years + accounting_periods generated for the business (BIZ-5.2). */
+  @Column({ name: 'fiscal_year_start_month', type: 'int', default: 1 })
+  fiscalYearStartMonth!: number
+
   @Column({ name: 'owner_id' })
   ownerId!: string
 
@@ -86,25 +113,60 @@ export class Business extends BaseEntity {
   @Column({ type: 'enum', enum: SubscriptionPlan, default: SubscriptionPlan.FREE })
   plan!: SubscriptionPlan
 
-  @Column({ name: 'subscription_status', type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIAL })
+  @Column({
+    name: 'subscription_status',
+    type: 'enum',
+    enum: SubscriptionStatus,
+    default: SubscriptionStatus.TRIAL,
+  })
   subscriptionStatus!: SubscriptionStatus
 
-  @Column({ name: 'billing_cycle', type: 'enum', enum: BillingCycle, default: BillingCycle.MONTHLY })
+  @Column({
+    name: 'billing_cycle',
+    type: 'enum',
+    enum: BillingCycle,
+    default: BillingCycle.MONTHLY,
+  })
   billingCycle!: BillingCycle
 
-  @Column({ name: 'business_status', type: 'enum', enum: BusinessStatus, default: BusinessStatus.ONBOARDING })
+  @Column({
+    name: 'business_status',
+    type: 'enum',
+    enum: BusinessStatus,
+    default: BusinessStatus.ONBOARDING,
+  })
   businessStatus!: BusinessStatus
 
-  @Column({ name: 'trial_started_at', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'trial_started_at',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   trialStartedAt?: Date | null
 
-  @Column({ name: 'trial_ends_at', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'trial_ends_at',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   trialEndsAt?: Date | null
 
-  @Column({ name: 'current_period_start', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'current_period_start',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   currentPeriodStart?: Date | null
 
-  @Column({ name: 'current_period_end', type: 'timestamp', nullable: true, transformer: dateTransformer })
+  @Column({
+    name: 'current_period_end',
+    type: 'timestamp',
+    nullable: true,
+    transformer: dateTransformer,
+  })
   currentPeriodEnd?: Date | null
 
   @Column({ name: 'cancel_at_period_end', default: false })

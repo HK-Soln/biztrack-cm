@@ -11,9 +11,17 @@ import { RolesModule } from '@/modules/roles/roles.module'
 import { ProductsModule } from '@/modules/products/products.module'
 import { RedisModule } from '@/common/redis/redis.module'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Business, User, BusinessMember]), RolesModule, ProductsModule, RedisModule, AuditModule],
+  imports: [
+    TypeOrmModule.forFeature([Business, User, BusinessMember]),
+    RolesModule,
+    ProductsModule,
+    RedisModule,
+    AuditModule,
+    FiscalModule,
+  ],
   controllers: [BusinessesController],
   providers: [BusinessesRepository, BusinessMembersRepository, BusinessService],
   exports: [BusinessService, BusinessesRepository],

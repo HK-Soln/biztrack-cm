@@ -55,6 +55,26 @@ export class SaleDiscount extends TypeOrmBaseEntity {
   })
   amount!: number
 
+  // Reason + authorization metadata (BIZ-1.2). reason_note is required by the UI when
+  // reason_code = OTHER. applied_by = cashier; authorized_by = manager on step-up.
+  @Column({ name: 'reason_code', type: 'varchar', length: 30, nullable: true })
+  reasonCode?: string | null
+
+  @Column({ name: 'reason_note', type: 'text', nullable: true })
+  reasonNote?: string | null
+
+  @Column({ name: 'applied_by', type: 'uuid', nullable: true })
+  appliedBy?: string | null
+
+  @Column({ name: 'authorized_by', type: 'uuid', nullable: true })
+  authorizedBy?: string | null
+
+  @Column({ name: 'unauthorized', type: 'boolean', default: false })
+  unauthorized!: boolean
+
+  @Column({ name: 'below_cost', type: 'boolean', default: false })
+  belowCost!: boolean
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date
 }

@@ -32,6 +32,7 @@ import {
   recordStockMovement as recordStockMovementFn,
   setInventoryLevel as setInventoryLevelFn,
 } from './stock-ledger'
+import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
 
 interface ProductRow {
@@ -230,11 +231,12 @@ export class ProductsService {
     private readonly audit?: AuditLogger,
   ) {}
 
-  list(query: ProductListQuery = {}): PaginatedResult<LocalProduct> {
-    const businessId = this.getBusinessId()
-    if (!businessId)
-      return toPaginated<LocalProduct>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
-
+  /** Shared filter (category/brand/active/stock/search) for `list` and `listAll`, so the paged
+   * grid and the export always select the same rows. */
+  private buildListFilter(
+    businessId: string,
+    query: ProductListQuery,
+  ): { where: string; params: unknown[] } {
     let where = 'p.business_id = ? AND p.is_deleted = 0'
     const params: unknown[] = [businessId]
     if (query.categoryId) {
@@ -275,6 +277,15 @@ export class ProductsService {
       const like = `%${search}%`
       params.push(like, like, like, like, like, like, like)
     }
+    return { where, params }
+  }
+
+  list(query: ProductListQuery = {}): PaginatedResult<LocalProduct> {
+    const businessId = this.getBusinessId()
+    if (!businessId)
+      return toPaginated<LocalProduct>([], { total: 0, page: 1, limit: 20, totalPages: 1 })
+
+    const { where, params } = this.buildListFilter(businessId, query)
 
     const { rows, ...meta } = paginateRows<ProductRow>(
       this.db,
@@ -294,6 +305,18 @@ export class ProductsService {
       query,
     )
     return toPaginated(rows.map(toLocalProduct), meta)
+  }
+
+  /** Every product matching the filters, unpaginated — for CSV/PDF export of the catalogue. */
+  listAll(query: ProductListQuery = {}): LocalProduct[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const { where, params } = this.buildListFilter(businessId, query)
+    const rows = this.db.query<ProductRow>(
+      `SELECT ${COLS} FROM ${FROM} WHERE ${where} ORDER BY p.name ASC`,
+      params,
+    )
+    return rows.map(toLocalProduct)
   }
 
   /**
@@ -565,6 +588,21 @@ export class ProductsService {
       entityLabel: after.name,
       changes: diffProduct(before, after),
     })
+    // BIZ-2.9: a selling-price change is its own auditable event (price manipulation), on top
+    // of the generic UPDATE above.
+    if (before && before.sellingPrice !== after.sellingPrice) {
+      this.audit?.log({
+        action: 'PRICE_CHANGED',
+        entityType: 'product',
+        entityId: id,
+        entityLabel: after.name,
+        amount: after.sellingPrice,
+        changes: {
+          before: { sellingPrice: before.sellingPrice },
+          after: { sellingPrice: after.sellingPrice },
+        },
+      })
+    }
     return after
   }
 
@@ -1844,12 +1882,24 @@ export class ProductsService {
     const qty = this.effectiveStock(productId)
     if (qty <= 0) return
     this.setInventoryLevel(productId, businessId, qty, now)
+    // Local trading day (BIZ-5.1) from the movement's timestamp.
+    const businessDate = localBusinessDate(now)
     this.db.run(
       `INSERT INTO inventory_movements
         (id, business_id, product_id, type, quantity_change, quantity_before, quantity_after,
-         reference_type, reference_id, notes, performed_by_id, performed_by_name, created_at)
-       VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?)`,
-      [randomUUID(), businessId, productId, qty, qty, productId, OPENING_STOCK_NOTE, now],
+         reference_type, reference_id, notes, performed_by_id, performed_by_name, business_date, created_at)
+       VALUES (?, ?, ?, 'OPENING_STOCK', ?, 0, ?, 'product', ?, ?, NULL, NULL, ?, ?)`,
+      [
+        randomUUID(),
+        businessId,
+        productId,
+        qty,
+        qty,
+        productId,
+        OPENING_STOCK_NOTE,
+        businessDate,
+        now,
+      ],
     )
   }
 

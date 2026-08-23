@@ -9,7 +9,7 @@ import { usePaged } from '@/lib/usePaged'
 import { useCurrency } from '@/lib/currency'
 import { useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
-import type { LocalProduct, StockStatus } from '@shared/ipc'
+import type { LocalProduct, ProductListQuery, StockStatus } from '@shared/ipc'
 
 function marginInfo(p: LocalProduct): { text: string; good: boolean } {
   const cost = p.effectiveCostPrice
@@ -17,6 +17,24 @@ function marginInfo(p: LocalProduct): { text: string; good: boolean } {
   if (cost == null || cost <= 0 || price <= 0) return { text: '—', good: false }
   const pct = ((price - cost) / price) * 100
   return { text: `${pct.toFixed(1)}%`, good: pct > 0 }
+}
+
+/** Gross margin %, rounded to 1dp, or null when it can't be computed (no cost / no price). */
+function marginPct(p: LocalProduct): number | null {
+  const cost = p.effectiveCostPrice
+  const price = p.effectiveSellingPrice
+  if (cost == null || cost <= 0 || price <= 0) return null
+  return Math.round(((price - cost) / price) * 1000) / 10
+}
+
+/** RFC-4180 quoting: wrap in quotes and double any embedded quotes when needed. */
+function csvCell(v: string | number | null | undefined): string {
+  const s = v == null ? '' : String(v)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function htmlEsc(s: string): string {
+  return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'))
 }
 
 /** Derived stock state for the status pill (mirrors the API/list-filter logic). */
@@ -98,6 +116,165 @@ export function Products() {
     setStatus('all')
     setPage(1)
   }
+
+  // --- Export the catalogue (respects the active filters + search) -----------
+  const [exportMenu, setExportMenu] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  const exportQuery = (): ProductListQuery => ({
+    ...(search.trim() ? { search: search.trim() } : {}),
+    ...(categoryId ? { categoryId } : {}),
+    ...(stockStatus !== 'all' ? { stockStatus } : {}),
+    ...(brandId ? { brandId } : {}),
+    ...(status !== 'all' ? { isActive: status === 'active' } : {}),
+  })
+
+  const exportCsv = async () => {
+    setExporting(true)
+    setExportMenu(false)
+    try {
+      const all = await dataClient.products.listAll(exportQuery())
+      const header = [
+        t('prod.colProduct'),
+        'SKU',
+        t('prod.colBarcode'),
+        t('prod.colCategory'),
+        t('prod.colBrand'),
+        t('prod.colCost'),
+        t('prod.colPrice'),
+        t('prod.colMargin'),
+        t('prod.colStock'),
+        t('prod.colStatus'),
+      ]
+      const rows = all.map((p) => [
+        p.name,
+        p.sku ?? '',
+        p.barcode ?? '',
+        p.categoryName ?? '',
+        p.brandName ?? '',
+        p.effectiveCostPrice ?? '',
+        p.effectiveSellingPrice,
+        marginPct(p) ?? '',
+        p.trackInventory ? p.currentStock : '',
+        p.isActive ? t('prod.active') : t('prod.inactive'),
+      ])
+      const csv = [header, ...rows].map((line) => line.map(csvCell).join(',')).join('\r\n')
+      // Prepend a BOM so Excel opens UTF-8 (accented product names) correctly.
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `products-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const exportPdf = async () => {
+    setExporting(true)
+    setExportMenu(false)
+    try {
+      const all = await dataClient.products.listAll(exportQuery())
+      const date = new Date().toLocaleDateString()
+      const body = all
+        .map(
+          (p) => `<tr>
+            <td>${htmlEsc(p.name)}${p.sku ? `<div class="sub">${htmlEsc(p.sku)}</div>` : ''}</td>
+            <td>${htmlEsc(p.categoryName ?? '—')}</td>
+            <td>${htmlEsc(p.brandName ?? '—')}</td>
+            <td class="num">${p.effectiveCostPrice != null ? htmlEsc(money.format(p.effectiveCostPrice)) : '—'}</td>
+            <td class="num">${htmlEsc(money.format(p.effectiveSellingPrice))}</td>
+            <td class="num">${marginPct(p) != null ? `${marginPct(p)!.toFixed(1)}%` : '—'}</td>
+            <td class="num">${p.trackInventory ? htmlEsc(String(p.currentStock)) : '—'}</td>
+            <td>${p.isActive ? htmlEsc(t('prod.active')) : htmlEsc(t('prod.inactive'))}</td>
+          </tr>`,
+        )
+        .join('')
+      const html = `<style>
+          * { font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #1a1a1a; }
+          h1 { font-size: 18px; margin: 0 0 2px; }
+          .meta { color: #666; font-size: 11px; margin-bottom: 14px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+          th { text-transform: uppercase; font-size: 9.5px; letter-spacing: .04em; color: #888; border-bottom: 1.5px solid #ccc; }
+          td.num, th.num { text-align: right; white-space: nowrap; }
+          .sub { color: #999; font-size: 9.5px; margin-top: 1px; }
+        </style>
+        <h1>${htmlEsc(t('prod.exportTitle'))}</h1>
+        <div class="meta">${htmlEsc(t('prod.exportCount').replace('{n}', String(all.length)))} · ${htmlEsc(
+          t('prod.exportGenerated').replace('{date}', date),
+        )}</div>
+        <table>
+          <thead><tr>
+            <th>${htmlEsc(t('prod.colProduct'))}</th>
+            <th>${htmlEsc(t('prod.colCategory'))}</th>
+            <th>${htmlEsc(t('prod.colBrand'))}</th>
+            <th class="num">${htmlEsc(t('prod.colCost'))}</th>
+            <th class="num">${htmlEsc(t('prod.colPrice'))}</th>
+            <th class="num">${htmlEsc(t('prod.colMargin'))}</th>
+            <th class="num">${htmlEsc(t('prod.colStock'))}</th>
+            <th>${htmlEsc(t('prod.colStatus'))}</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>`
+      await dataClient.documents.downloadHtmlPdf(
+        html,
+        `products-${new Date().toISOString().slice(0, 10)}`,
+      )
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const exportControl = (
+    <div style={{ position: 'relative' }}>
+      <Button
+        variant="default"
+        onClick={() => setExportMenu((v) => !v)}
+        loading={exporting}
+        disabled={exporting}
+        title={t('prod.export')}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path d="M12 3v12M8 11l4 4 4-4" />
+          <path d="M5 21h14" />
+        </svg>
+        {t('prod.export')}
+      </Button>
+      {exportMenu ? (
+        <>
+          <div
+            onClick={() => setExportMenu(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 60 }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 'calc(100% + 6px)',
+              zIndex: 61,
+              minWidth: 190,
+              padding: 4,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              boxShadow: 'var(--shadow)',
+            }}
+          >
+            <button type="button" className="xp-item" onClick={() => void exportCsv()}>
+              {t('prod.exportCsv')}
+            </button>
+            <button type="button" className="xp-item" onClick={() => void exportPdf()}>
+              {t('prod.exportPdf')}
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
 
   const statusPill = (p: LocalProduct) => {
     const s = stockState(p)
@@ -314,7 +491,10 @@ export function Products() {
                 : t('prod.subtitle')}
             </div>
           </div>
-          {filterControl}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {exportControl}
+            {filterControl}
+          </div>
         </header>
 
         <div className="msearch" style={{ marginBottom: 13 }}>
@@ -462,6 +642,7 @@ export function Products() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {exportControl}
           {/* CSV import isn't built yet — shown per design, disabled + flagged. */}
           <Button variant="default" disabled title={t('prod.importSoon')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

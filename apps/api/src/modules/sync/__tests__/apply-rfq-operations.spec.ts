@@ -11,12 +11,25 @@ const makeService = (existing: unknown) => {
     create: jest.fn((e) => e),
     softDelete: jest.fn(),
   }
-  const rfqItemsRepo = { delete: jest.fn(), save: jest.fn(async (e) => e), create: jest.fn((e) => e) }
-  const rfqSuppliersRepo = { delete: jest.fn(), save: jest.fn(async (e) => e), create: jest.fn((e) => e) }
+  const rfqItemsRepo = {
+    delete: jest.fn(),
+    save: jest.fn(async (e) => e),
+    create: jest.fn((e) => e),
+  }
+  const rfqSuppliersRepo = {
+    delete: jest.fn(),
+    save: jest.fn(async (e) => e),
+    create: jest.fn((e) => e),
+  }
   const service = Object.create(SyncService.prototype) as any
   service.rfqsRepo = rfqsRepo
   service.rfqItemsRepo = rfqItemsRepo
   service.rfqSuppliersRepo = rfqSuppliersRepo
+  service.calendar = {
+    resolveForSync: async () => '2026-01-01',
+    computeForBusiness: async () => '2026-01-01',
+    businessDateFor: async () => '2026-01-01',
+  }
   return { service, rfqsRepo, rfqItemsRepo, rfqSuppliersRepo }
 }
 
@@ -40,13 +53,23 @@ describe('SyncService.applyRfqOperation', () => {
     } as any)
     expect(result.status).toBe('applied')
     expect(rfqsRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'rfq-1', businessId: 'biz-1', number: 'RFQ-00001', status: 'QUOTED' }),
+      expect.objectContaining({
+        id: 'rfq-1',
+        businessId: 'biz-1',
+        number: 'RFQ-00001',
+        status: 'QUOTED',
+      }),
     )
     expect(rfqItemsRepo.delete).toHaveBeenCalledWith({ rfqId: 'rfq-1' })
     expect(rfqItemsRepo.save).toHaveBeenCalledTimes(1)
     expect(rfqSuppliersRepo.delete).toHaveBeenCalledWith({ rfqId: 'rfq-1' })
     expect(rfqSuppliersRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'rs-1', supplierId: 'c-1', status: 'QUOTED', quotedTotal: 50000 }),
+      expect.objectContaining({
+        id: 'rs-1',
+        supplierId: 'c-1',
+        status: 'QUOTED',
+        quotedTotal: 50000,
+      }),
     )
   })
 

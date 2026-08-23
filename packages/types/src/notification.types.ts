@@ -18,6 +18,102 @@ export enum NotificationType {
   OTP = 'otp',
   PAYMENT_REMINDER = 'payment_reminder',
   MARKETING = 'marketing',
+  /** System alert: the business's synced data is stale, so a digest was skipped and the
+   * owner is asked to sync. Not a configurable event — always delivered in-app. */
+  SYNC_STALE = 'sync_stale',
+  // --- Configurable business events (the Settings notification matrix rows). Each is
+  // owner-configurable per channel + per recipient and dispatched by the shared
+  // NotificationDispatcher. See docs/design/notifications-initiative-plan.md. ---
+  LOW_STOCK = 'low_stock',
+  NEW_ORDER = 'new_order',
+  PAYMENT_RECEIVED = 'payment_received',
+  DEBT_DUE = 'debt_due',
+  DAILY_SUMMARY = 'daily_summary',
+  TEAM_ACTIVITY = 'team_activity',
+  BILLING = 'billing',
+}
+
+/**
+ * The subset of NotificationType that is owner-configurable (the 7 Settings matrix
+ * rows). System types (INVITE/OTP/PAYMENT_REMINDER/MARKETING) are always sent and are
+ * NOT part of the matrix.
+ */
+export type NotificationEvent =
+  | NotificationType.LOW_STOCK
+  | NotificationType.NEW_ORDER
+  | NotificationType.PAYMENT_RECEIVED
+  | NotificationType.DEBT_DUE
+  | NotificationType.DAILY_SUMMARY
+  | NotificationType.TEAM_ACTIVITY
+  | NotificationType.BILLING
+
+/** All configurable events, in the order the Settings matrix lists them. */
+export const NOTIFICATION_EVENTS: readonly NotificationEvent[] = [
+  NotificationType.LOW_STOCK,
+  NotificationType.NEW_ORDER,
+  NotificationType.PAYMENT_RECEIVED,
+  NotificationType.DEBT_DUE,
+  NotificationType.DAILY_SUMMARY,
+  NotificationType.TEAM_ACTIVITY,
+  NotificationType.BILLING,
+]
+
+/** All channels, in the order the Settings matrix lists them (columns). */
+export const NOTIFICATION_CHANNELS: readonly NotificationChannel[] = [
+  NotificationChannel.IN_APP,
+  NotificationChannel.EMAIL,
+  NotificationChannel.SMS,
+  NotificationChannel.WHATSAPP,
+]
+
+/**
+ * Channels that cannot currently be enabled because there is no real provider behind
+ * them. SMS is routed through WAHA (a WhatsApp transport, not an SMS gateway), so it
+ * stays off — its Settings toggle is disabled and the dispatcher hard-skips it — until
+ * a dedicated SMS provider is wired (N3).
+ */
+export const UNAVAILABLE_NOTIFICATION_CHANNELS: readonly NotificationChannel[] = [
+  NotificationChannel.SMS,
+]
+
+export function isNotificationChannelAvailable(channel: NotificationChannel): boolean {
+  return !UNAVAILABLE_NOTIFICATION_CHANNELS.includes(channel)
+}
+
+/**
+ * High-priority events that must always reach the owner on at least one channel — the
+ * matrix cannot disable every channel for these (e.g. billing / subscription). The owner
+ * still picks WHICH channel(s); they just can't turn off the last one.
+ */
+export const MANDATORY_NOTIFICATION_EVENTS: readonly NotificationEvent[] = [
+  NotificationType.BILLING,
+]
+
+export function isMandatoryNotificationEvent(event: NotificationEvent): boolean {
+  return MANDATORY_NOTIFICATION_EVENTS.includes(event)
+}
+
+/**
+ * The timezone a business's scheduled notifications and quiet hours are evaluated in.
+ * The server can be in any region, so quiet hours / digest times must use the business's
+ * own zone. This is the fallback; the full IANA list is served by GET
+ * /notifications/settings/timezones (from the runtime's Intl tz database).
+ */
+export const DEFAULT_NOTIFICATION_TIMEZONE = 'Africa/Douala'
+
+/**
+ * The owner's daily summary is sent this many minutes after the business's closing time
+ * (evaluated per-weekday in the business timezone). Presets surface as quick picks in the
+ * UI; any positive integer in [0, MAX] is accepted (custom minutes).
+ */
+export const DEFAULT_DAILY_DIGEST_OFFSET_MINUTES = 30
+export const MAX_DAILY_DIGEST_OFFSET_MINUTES = 180
+export const DAILY_DIGEST_OFFSET_PRESETS: readonly number[] = [0, 15, 30, 60, 120]
+
+/** Clamp a requested offset to a valid integer within [0, MAX]. */
+export function clampDailyDigestOffset(minutes: number): number {
+  if (!Number.isFinite(minutes)) return DEFAULT_DAILY_DIGEST_OFFSET_MINUTES
+  return Math.min(MAX_DAILY_DIGEST_OFFSET_MINUTES, Math.max(0, Math.round(minutes)))
 }
 
 export enum NotificationStatus {
@@ -74,4 +170,103 @@ export interface MarkAllNotificationsReadResponse {
 export interface NotificationEventPayload {
   notification: NotificationItem
   unreadCount: number
+}
+
+// ---------------------------------------------------------------------------
+// Notification preferences (the Settings → Notifications control plane). The
+// owner configures a business-level event×channel matrix + quiet hours, plus a
+// per-recipient subscription (which alerts each added recipient receives). The
+// shared NotificationDispatcher reads these before fanning out.
+// ---------------------------------------------------------------------------
+
+/** One (event, channel) cell of the business notification matrix. */
+export interface NotificationChannelToggle {
+  event: NotificationEvent
+  channel: NotificationChannel
+  enabled: boolean
+}
+
+/** Business-level quiet hours — hold non-urgent notifications overnight. */
+export interface NotificationQuietHours {
+  enabled: boolean
+  /** Local 'HH:mm' (24h). */
+  from: string
+  /** Local 'HH:mm' (24h). */
+  until: string
+}
+
+/** A destination for this business's notifications — a name plus up to three contacts
+ * (email, SMS number, WhatsApp number), optionally linked to a platform user (which
+ * unlocks in-app delivery + verification). Owner-curated. */
+export interface NotificationRecipient {
+  id: string
+  /** The linked platform user, when the email/phone matches one; null for an external contact. */
+  userId: string | null
+  name: string
+  email: string | null
+  /** Phone that receives SMS (kept separate from WhatsApp — they may differ). */
+  smsContact: string | null
+  /** Phone that receives WhatsApp. */
+  whatsappContact: string | null
+  emailVerified: boolean
+  smsVerified: boolean
+  whatsappVerified: boolean
+  isOwner: boolean
+  /** Which events this recipient is subscribed to (per-recipient routing). */
+  subscriptions: Record<NotificationEvent, boolean>
+}
+
+/** Full notification-settings payload for the Settings tab (one GET). */
+export interface NotificationSettings {
+  matrix: NotificationChannelToggle[]
+  quietHours: NotificationQuietHours
+  /** IANA timezone quiet hours + scheduled digests are evaluated in (the business's zone). */
+  timezone: string
+  /** Minutes after closing time the daily summary is sent (0–180). */
+  dailyDigestOffsetMinutes: number
+  recipients: NotificationRecipient[]
+  /** Channels with no live provider (echoed so the UI can disable their toggles). */
+  unavailableChannels: NotificationChannel[]
+}
+
+export interface UpdateNotificationMatrixRequest {
+  /** Cells to upsert; unlisted cells are left unchanged. */
+  toggles: NotificationChannelToggle[]
+}
+
+export interface UpdateNotificationQuietHoursRequest extends NotificationQuietHours {
+  /** IANA timezone the schedule is evaluated in. */
+  timezone: string
+  /** Minutes after closing time the daily summary is sent (0–180); optional (unchanged if omitted). */
+  dailyDigestOffsetMinutes?: number
+}
+
+export interface AddNotificationRecipientRequest {
+  /** Link to a platform user when the contact matches one (enables in-app + verification). */
+  userId?: string | null
+  name: string
+  email?: string | null
+  smsContact?: string | null
+  whatsappContact?: string | null
+}
+
+export interface UpdateRecipientSubscriptionsRequest {
+  /** Events to set for this recipient; unlisted events are left unchanged. */
+  subscriptions: Partial<Record<NotificationEvent, boolean>>
+}
+
+/** Edit a recipient's name/contacts. Only provided fields change; null clears one. */
+export interface UpdateNotificationRecipientRequest {
+  name?: string
+  email?: string | null
+  smsContact?: string | null
+  whatsappContact?: string | null
+}
+
+/** Result of looking up an email/phone before adding a recipient — prefills the form. */
+export interface NotificationRecipientLookupResult {
+  /** The platform user that owns this email/phone, if any. */
+  user: { userId: string; name: string; email: string | null; phone: string | null } | null
+  /** An existing recipient in this business with the same identity (add will merge events). */
+  existingRecipientId: string | null
 }
