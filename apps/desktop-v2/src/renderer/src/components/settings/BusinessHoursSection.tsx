@@ -88,7 +88,10 @@ export function BusinessHoursSection() {
   const [tz, setTz] = useState(DEFAULT_BUSINESS_TIMEZONE)
   const [cutover, setCutover] = useState(DEFAULT_DAY_CUTOVER)
   const [fyStart, setFyStart] = useState('1')
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{
+    section: 'hours' | 'credit' | 'calendar'
+    msg: string
+  } | null>(null)
   useEffect(() => {
     if (q.data) {
       setDays(seed(q.data.businessHours ?? null))
@@ -137,7 +140,7 @@ export function BusinessHoursSection() {
       return dataClient.business.update({ businessHours: normalizeBusinessHours(hours) })
     },
     onSuccess: (updated) => {
-      setToast(t('hours.saved'))
+      setToast({ section: 'hours', msg: t('hours.saved') })
       qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
         ...updated,
         role: prev?.role ?? updated.role,
@@ -149,7 +152,7 @@ export function BusinessHoursSection() {
     mutationFn: () =>
       dataClient.business.update({ defaultCreditDays: clampCreditDays(Number(creditDays)) }),
     onSuccess: (updated) => {
-      setToast(t('hours.saved'))
+      setToast({ section: 'credit', msg: t('credit.saved') })
       setCreditDays(String(updated.defaultCreditDays ?? DEFAULT_CREDIT_DAYS))
       qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
         ...updated,
@@ -166,7 +169,7 @@ export function BusinessHoursSection() {
         fiscalYearStartMonth: Number(fyStart) || 1,
       }),
     onSuccess: (updated) => {
-      setToast(t('hours.saved'))
+      setToast({ section: 'calendar', msg: t('calendar.saved') })
       setTz(updated.timezone || DEFAULT_BUSINESS_TIMEZONE)
       setCutover(updated.dayCutoverTime || DEFAULT_DAY_CUTOVER)
       setFyStart(String(updated.fiscalYearStartMonth ?? 1))
@@ -254,9 +257,9 @@ export function BusinessHoursSection() {
             justifyContent: 'flex-end',
           }}
         >
-          {toast ? (
+          {toast?.section === 'hours' ? (
             <span style={{ color: 'var(--success)', fontSize: 13, marginRight: 'auto' }}>
-              {toast}
+              {toast.msg}
             </span>
           ) : null}
           <Button
@@ -292,10 +295,15 @@ export function BusinessHoursSection() {
               <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{t('credit.unit')}</span>
             </div>
           </div>
+          {toast?.section === 'credit' ? (
+            <span style={{ color: 'var(--success)', fontSize: 13, marginLeft: 'auto' }}>
+              {toast.msg}
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="primary"
-            style={{ marginLeft: 'auto' }}
+            style={toast?.section === 'credit' ? undefined : { marginLeft: 'auto' }}
             disabled={!canEdit || creditSave.isPending}
             onClick={() => creditSave.mutate()}
           >
@@ -356,6 +364,11 @@ export function BusinessHoursSection() {
             justifyContent: 'flex-end',
           }}
         >
+          {toast?.section === 'calendar' ? (
+            <span style={{ color: 'var(--success)', fontSize: 13, marginRight: 'auto' }}>
+              {toast.msg}
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="primary"
