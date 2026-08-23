@@ -3085,6 +3085,7 @@ export const en = {
   'credit.sub':
     'Default time customers get to pay when a sale is on credit. Each debt keeps the due date set when it was created.',
   'credit.label': 'Default credit period',
+  'credit.save': 'Save credit terms',
   'credit.unit': 'days',
   'hours.ownerOnly': 'Only the business owner can edit business hours.',
   'calendar.title': 'Business day',
@@ -3099,6 +3100,7 @@ export const en = {
   'calendar.fyStart': 'Fiscal year starts in',
   'calendar.fyStartHelp':
     'Anchors your accounting periods. Monthly periods are generated automatically for each fiscal year.',
+  'calendar.save': 'Save business day',
   'hours.onlineOnly': "You're offline — business hours load when you reconnect.",
   'hours.mon': 'Monday',
   'hours.tue': 'Tuesday',
@@ -6601,6 +6603,7 @@ export const fr: Record<MessageKey, string> = {
   'credit.sub':
     'Délai de paiement par défaut pour une vente à crédit. Chaque dette conserve l’échéance fixée à sa création.',
   'credit.label': 'Délai de crédit par défaut',
+  'credit.save': 'Enregistrer les conditions',
   'credit.unit': 'jours',
   'hours.ownerOnly': 'Seul le propriétaire peut modifier les horaires.',
   'calendar.title': 'Journée commerciale',
@@ -6616,6 +6619,7 @@ export const fr: Record<MessageKey, string> = {
   'calendar.fyStart': 'Début de l’exercice',
   'calendar.fyStartHelp':
     'Ancre vos périodes comptables. Les périodes mensuelles sont générées automatiquement pour chaque exercice.',
+  'calendar.save': 'Enregistrer la journée',
   'hours.onlineOnly': 'Vous êtes hors ligne — les horaires se chargeront à la reconnexion.',
   'hours.mon': 'Lundi',
   'hours.tue': 'Mardi',

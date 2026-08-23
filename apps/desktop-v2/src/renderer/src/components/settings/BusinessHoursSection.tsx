@@ -245,7 +245,20 @@ export function BusinessHoursSection() {
           })}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginTop: 16,
+            justifyContent: 'flex-end',
+          }}
+        >
+          {toast ? (
+            <span style={{ color: 'var(--success)', fontSize: 13, marginRight: 'auto' }}>
+              {toast}
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="primary"
@@ -254,7 +267,6 @@ export function BusinessHoursSection() {
           >
             {t('hours.save')}
           </Button>
-          {toast ? <span style={{ color: 'var(--success)', fontSize: 13 }}>{toast}</span> : null}
         </div>
       </div>
 
@@ -265,8 +277,8 @@ export function BusinessHoursSection() {
             <p>{t('credit.sub')}</p>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, maxWidth: 320 }}>
-          <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+          <div style={{ width: 280 }}>
             <label className="lbl">{t('credit.label')}</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Input
@@ -283,10 +295,11 @@ export function BusinessHoursSection() {
           <Button
             type="button"
             variant="primary"
+            style={{ marginLeft: 'auto' }}
             disabled={!canEdit || creditSave.isPending}
             onClick={() => creditSave.mutate()}
           >
-            {t('hours.save')}
+            {t('credit.save')}
           </Button>
         </div>
       </div>
@@ -303,6 +316,7 @@ export function BusinessHoursSection() {
             <label className="lbl">{t('calendar.timezone')}</label>
             <CommandSelect
               value={tz}
+              valueLabel={tz.replace(/_/g, ' ')}
               disabled={!canEdit}
               loadOptions={loadTimezones}
               searchPlaceholder={t('calendar.timezoneSearch')}
@@ -333,14 +347,22 @@ export function BusinessHoursSection() {
             <div className="help">{t('calendar.fyStartHelp')}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginTop: 4,
+            justifyContent: 'flex-end',
+          }}
+        >
           <Button
             type="button"
             variant="primary"
             disabled={!canEdit || calendarSave.isPending}
             onClick={() => calendarSave.mutate()}
           >
-            {t('hours.save')}
+            {t('calendar.save')}
           </Button>
         </div>
       </div>
