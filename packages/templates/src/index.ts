@@ -30,6 +30,7 @@ export {
   buildDiscountByCashierReport,
   buildDiscountByProductReport,
   buildFlaggedDiscountsReport,
+  buildPriorPeriodAdjustmentsReport,
 } from './report-builders'
 export { buildCashShiftReport, buildCashDailyReport } from './cash-report-builders'
 export { purchaseOrderMessageText, rfqMessageText } from './message'

@@ -16,6 +16,7 @@ import {
   buildIncomeStatementReport,
   buildInventoryTurnoverReport,
   buildLowStockReport,
+  buildPriorPeriodAdjustmentsReport,
   buildRefundsReport,
   buildSalesByCategoryReport,
   buildSalesByPaymentReport,
@@ -296,6 +297,16 @@ export const REPORTS: ReportMeta[] = [
     built: true,
   },
   {
+    id: 'prior-period-adj',
+    cat: 'financial',
+    name: 'Prior-Period Adjustments',
+    fr: 'Ajustements de période antérieure',
+    desc: 'Late arrivals redated into a later open period',
+    descFr: 'Arrivées tardives reportées sur une période ouverte',
+    formats: ['pdf', 'csv'],
+    built: true,
+  },
+  {
     id: 'balance',
     cat: 'financial',
     name: 'Trial Balance',
@@ -559,6 +570,31 @@ export const LOADERS: Record<string, ReportLoader> = {
     }
     const rows = [...map.values()].sort((a, b) => b.revenue - a.revenue)
     return buildSalesByCategoryReport({ rows, currency }, opts)
+  },
+  'prior-period-adj': async ({ client, range, currency, opts }) => {
+    // Server-owned (BIZ-5.4). Filter to what posted INTO the selected range — the day the
+    // adjustment hit the open books, not the day it originally happened.
+    const all = await client.fiscal.adjustments()
+    const rows = all.filter(
+      (a) =>
+        a.postingDate != null &&
+        (!range.dateFrom || a.postingDate >= range.dateFrom) &&
+        (!range.dateTo || a.postingDate <= range.dateTo),
+    )
+    return buildPriorPeriodAdjustmentsReport(
+      {
+        rows: rows.map((a) => ({
+          kind: a.kind,
+          reference: a.reference,
+          amount: a.amount,
+          businessDate: a.businessDate,
+          originalPeriodLabel: a.originalPeriodLabel,
+          postingPeriodLabel: a.postingPeriodLabel,
+        })),
+        currency,
+      },
+      opts,
+    )
   },
   cr: async ({ client, range, currency, opts }) => {
     const [gp, exp] = await Promise.all([

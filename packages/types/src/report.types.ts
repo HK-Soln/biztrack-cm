@@ -347,6 +347,22 @@ export interface FlaggedDiscountReportData {
   currency: string
 }
 
+// BIZ-5.4 — prior-period adjustments: transactions that arrived after their period closed and
+// were redated forward. `label` fields are the machine 'YYYY-MM' of the period; the builder
+// localizes them.
+export interface PriorPeriodAdjustmentRow {
+  kind: 'SALE' | 'EXPENSE'
+  reference: string
+  amount: number
+  businessDate: string | null
+  originalPeriodLabel: string | null
+  postingPeriodLabel: string | null
+}
+export interface PriorPeriodAdjustmentsReportData {
+  rows: PriorPeriodAdjustmentRow[]
+  currency: string
+}
+
 export interface SalesByCategoryRow {
   category: string
   quantity: number

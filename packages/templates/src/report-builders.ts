@@ -13,6 +13,7 @@ import type {
   DiscountByProductReportData,
   FlaggedDiscountReportData,
   FlaggedDiscountRow,
+  PriorPeriodAdjustmentsReportData,
   ExpenseBreakdownReportData,
   IncomeStatementReportData,
   InventoryTurnoverReportData,
@@ -2042,6 +2043,106 @@ export function buildFlaggedDiscountsReport(
       String(r.amount),
       reasonLabel(r.reasonCode, fr),
       flagText(r),
+    ]),
+  )
+  return { document, csv }
+}
+
+/** BIZ-5.4 — prior-period adjustments: sales/expenses that arrived after their period had closed
+ *  and were redated into a later, still-open one. Lists what moved, from which period to which. */
+export function buildPriorPeriodAdjustmentsReport(
+  data: PriorPeriodAdjustmentsReportData,
+  opts: ReportBuildOptions,
+): BuiltReportResult {
+  const fr = isFr(opts.locale)
+  const m = (x: number) => formatMoney(x, data.currency, opts.locale)
+  // Machine 'YYYY-MM' → localized 'Jan 2027' / 'janv. 2027'.
+  const period = (label: string | null): string => {
+    if (!label) return '—'
+    const [y, mo] = label.split('-').map((n) => Number(n))
+    if (!y || !mo) return label
+    try {
+      return new Intl.DateTimeFormat(opts.locale, {
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(Date.UTC(y, mo - 1, 1)))
+    } catch {
+      return label
+    }
+  }
+  const L = fr
+    ? {
+        title: 'Ajustements de période antérieure',
+        count: 'Nombre',
+        total: 'Montant total',
+        what: 'Transaction',
+        happened: 'Survenue le',
+        amount: 'Montant',
+        belonged: 'Rattachée à',
+        posted: 'Comptabilisée sur',
+        sale: 'Vente',
+        expense: 'Dépense',
+        sec: 'Arrivées après clôture',
+        empty:
+          'Aucun ajustement — rien n’est arrivé après la clôture de sa période sur cet intervalle.',
+        note: 'Ces ventes et dépenses sont arrivées après la clôture de leur période et ont été comptabilisées sur une période ultérieure encore ouverte, afin que la période clôturée reste figée.',
+      }
+    : {
+        title: 'Prior-period adjustments',
+        count: 'Count',
+        total: 'Total amount',
+        what: 'Transaction',
+        happened: 'Happened',
+        amount: 'Amount',
+        belonged: 'Belonged to',
+        posted: 'Posted to',
+        sale: 'Sale',
+        expense: 'Expense',
+        sec: 'Arrived after close',
+        empty: 'No adjustments — nothing arrived after its period closed in this range.',
+        note: 'These sales and expenses arrived after their period had closed and were posted to a later, still-open period so the closed period stays fixed.',
+      }
+  const kindLabel = (k: 'SALE' | 'EXPENSE'): string => (k === 'SALE' ? L.sale : L.expense)
+  const total = data.rows.reduce((s, r) => s + r.amount, 0)
+  const document = baseDoc(L.title, opts, [
+    {
+      kind: 'kpis',
+      items: [
+        { label: L.count, value: formatNumber(data.rows.length, opts.locale) },
+        { label: L.total, value: m(total) },
+      ],
+    },
+    {
+      kind: 'table',
+      title: L.sec,
+      columns: [
+        { key: 'what', label: L.what },
+        { key: 'amount', label: L.amount, align: 'right' },
+        { key: 'happened', label: L.happened },
+        { key: 'belonged', label: L.belonged },
+        { key: 'posted', label: L.posted },
+      ],
+      rows: data.rows.map((r) => ({
+        what: `${kindLabel(r.kind)} · ${r.reference}`,
+        amount: m(r.amount),
+        happened: r.businessDate ?? '—',
+        belonged: period(r.originalPeriodLabel),
+        posted: period(r.postingPeriodLabel),
+      })),
+      empty: L.empty,
+    },
+    { kind: 'note', text: L.note },
+  ])
+  document.unit = data.currency
+  const csv = toCsv(
+    [L.what, L.amount, L.happened, L.belonged, L.posted],
+    data.rows.map((r) => [
+      `${kindLabel(r.kind)} ${r.reference}`,
+      String(r.amount),
+      r.businessDate ?? '',
+      period(r.originalPeriodLabel),
+      period(r.postingPeriodLabel),
     ]),
   )
   return { document, csv }
