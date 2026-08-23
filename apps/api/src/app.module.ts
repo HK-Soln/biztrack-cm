@@ -28,6 +28,7 @@ import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
 import { CashSessionsModule } from '@/modules/cash-sessions/cash-sessions.module'
+import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 import { LoggerModule } from './logger/logger.module'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
@@ -115,6 +116,7 @@ function resolveI18nPath() {
     SyncModule,
     DepositsModule,
     CashSessionsModule,
+    FiscalModule,
     RolesModule,
     PermissionsModule,
     PlansModule,

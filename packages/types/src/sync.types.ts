@@ -47,6 +47,8 @@ export type SyncEntity =
   | 'cash_session'
   | 'cash_count_line'
   | 'cash_movement'
+  | 'fiscal_year'
+  | 'accounting_period'
 
 /**
  * Canonical push-processing dependency plan for sync entities.
@@ -115,6 +117,9 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   cash_session: 2,
   cash_count_line: 3,
   cash_movement: 3,
+  // Fiscal year is a root config (references only the business); periods reference the year.
+  fiscal_year: 1,
+  accounting_period: 2,
 }
 
 export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
@@ -147,6 +152,8 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   cash_session: 26,
   cash_count_line: 27,
   cash_movement: 28,
+  fiscal_year: 29,
+  accounting_period: 30,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -210,6 +217,8 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   cash_session: [],
   cash_count_line: ['cash_session'],
   cash_movement: ['cash_session'],
+  fiscal_year: [],
+  accounting_period: ['fiscal_year'],
 }
 
 /**
@@ -760,6 +769,28 @@ export interface CashMovementSyncRecord extends SyncRecord {
   createdAt: string
 }
 
+export interface FiscalYearSyncRecord extends SyncRecord {
+  businessId: string
+  year: number
+  label: string
+  startMonth: number
+  startDate: string
+  endDate: string
+  createdAt: string
+}
+
+export interface AccountingPeriodSyncRecord extends SyncRecord {
+  businessId: string
+  fiscalYearId: string
+  periodNumber: number
+  label: string
+  startDate: string
+  endDate: string
+  status: string
+  closedAt?: string | null
+  createdAt: string
+}
+
 export interface OpeningBalanceSyncPayload {
   contactId: string
   direction: DebtDirection
@@ -814,6 +845,8 @@ export interface ChangeSet {
   cashSessions?: CashSessionSyncRecord[]
   cashCountLines?: CashCountLineSyncRecord[]
   cashMovements?: CashMovementSyncRecord[]
+  fiscalYears?: FiscalYearSyncRecord[]
+  accountingPeriods?: AccountingPeriodSyncRecord[]
 }
 
 export interface InventoryThresholdSyncPayload {

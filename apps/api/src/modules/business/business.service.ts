@@ -23,7 +23,12 @@ import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
-import { generateSlug, DEFAULT_BUSINESS_TIMEZONE, normalizeDayCutover } from '@biztrack/utils'
+import {
+  generateSlug,
+  DEFAULT_BUSINESS_TIMEZONE,
+  normalizeDayCutover,
+  clampFiscalYearStartMonth,
+} from '@biztrack/utils'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -43,6 +48,7 @@ import {
 } from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
+import { FiscalYearsService } from '@/modules/fiscal/fiscal-years.service'
 
 @Injectable()
 export class BusinessService {
@@ -51,6 +57,7 @@ export class BusinessService {
     private membersRepo: BusinessMembersRepository,
     private rolesService: RolesService,
     private attributeGroupsService: AttributeGroupsService,
+    private fiscalYears: FiscalYearsService,
     private i18n: I18nService<I18nTranslations>,
     private redis: RedisService,
     private auditService: AuditService,
@@ -71,6 +78,7 @@ export class BusinessService {
         defaultCreditDays: rawCreditDays,
         timezone: rawTimezone,
         dayCutoverTime: rawCutover,
+        fiscalYearStartMonth: rawFyStart,
         ...createRest
       } = dto
       const business = this.businessRepo.create({
@@ -79,6 +87,7 @@ export class BusinessService {
         defaultCreditDays: clampCreditDays(rawCreditDays),
         timezone: rawTimezone?.trim() || DEFAULT_BUSINESS_TIMEZONE,
         dayCutoverTime: normalizeDayCutover(rawCutover),
+        fiscalYearStartMonth: clampFiscalYearStartMonth(rawFyStart),
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -90,6 +99,9 @@ export class BusinessService {
       // Seed the default attribute groups (Color, Size, Storage, …). Idempotent
       // and error-swallowing, so it never blocks business creation.
       await this.attributeGroupsService.seedDefaults(business.id)
+      // Generate the current + next fiscal year eagerly (BIZ-5.2). Error-swallowing so a
+      // generation hiccup never blocks business creation.
+      await this.fiscalYears.ensureUpcoming(business.id).catch(() => undefined)
       const ownerRole = await this.rolesService.findOwnerRole(business.id)
 
       const member = this.membersRepo.create({
@@ -172,6 +184,7 @@ export class BusinessService {
         defaultCreditDays: rawUpdateCreditDays,
         timezone: rawUpdateTimezone,
         dayCutoverTime: rawUpdateCutover,
+        fiscalYearStartMonth: rawUpdateFyStart,
         ...updateRest
       } = dto
       await this.businessRepo.update(id, {
@@ -187,7 +200,14 @@ export class BusinessService {
         ...(rawUpdateCutover !== undefined
           ? { dayCutoverTime: normalizeDayCutover(rawUpdateCutover) }
           : {}),
+        ...(rawUpdateFyStart != null
+          ? { fiscalYearStartMonth: clampFiscalYearStartMonth(rawUpdateFyStart) }
+          : {}),
       })
+      // Ensure the fiscal calendar exists once onboarding details (incl. the start month) are set
+      // (BIZ-5.2). Idempotent; error-swallowing. NOTE: changing the start month after periods
+      // already exist does NOT regenerate them here — that needs the close-aware regen (BIZ-5.3).
+      await this.fiscalYears.ensureUpcoming(id).catch(() => undefined)
       return this.businessRepo.findOne({ where: { id } })
     } catch (error) {
       return this.handleServiceError('update', error, { id, ownerId })

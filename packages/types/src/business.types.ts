@@ -21,6 +21,8 @@ export interface Business {
   timezone?: string | null
   /** Local time of day the trading day rolls over ('HH:mm', default 00:00). */
   dayCutoverTime?: string | null
+  /** Month (1–12) the fiscal year begins in; default 1 = January (OHADA) (BIZ-5.2). */
+  fiscalYearStartMonth?: number | null
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
@@ -199,6 +201,8 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   timezone?: string | null
   /** Local trading-day cutover ('HH:mm'); default 00:00. */
   dayCutoverTime?: string | null
+  /** Month (1–12) the fiscal year begins in; default 1 (January). */
+  fiscalYearStartMonth?: number | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -223,6 +227,7 @@ export interface BusinessProfile {
   defaultCreditDays: number | null
   timezone: string | null
   dayCutoverTime: string | null
+  fiscalYearStartMonth: number | null
   // Legal / fiscal identity captured at onboarding (editable afterward — Settings → Tax).
   niu: string | null
   rccm: string | null
@@ -251,6 +256,7 @@ export interface BusinessMembershipBusinessSummary {
   defaultCreditDays?: number | null
   timezone?: string | null
   dayCutoverTime?: string | null
+  fiscalYearStartMonth?: number | null
   niu?: string | null
   rccm?: string | null
   vatRegistered?: boolean

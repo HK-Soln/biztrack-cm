@@ -59,6 +59,7 @@ import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
 import { CashSessionsModule } from '@/modules/cash-sessions/cash-sessions.module'
+import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
@@ -84,6 +85,7 @@ import { SyncService } from './sync.service'
     PermissionsModule,
     DepositsModule,
     CashSessionsModule,
+    FiscalModule,
     BusinessCalendarModule,
     AuditModule,
     NotificationsModule,

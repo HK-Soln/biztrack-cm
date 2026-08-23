@@ -86,6 +86,7 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
   defaultCreditDays!: BusinessMembershipBusinessSummary['defaultCreditDays']
   timezone!: BusinessMembershipBusinessSummary['timezone']
   dayCutoverTime!: BusinessMembershipBusinessSummary['dayCutoverTime']
+  fiscalYearStartMonth!: BusinessMembershipBusinessSummary['fiscalYearStartMonth']
   niu!: BusinessMembershipBusinessSummary['niu']
   rccm!: BusinessMembershipBusinessSummary['rccm']
   vatRegistered!: BusinessMembershipBusinessSummary['vatRegistered']
@@ -122,6 +123,7 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
     dto.defaultCreditDays = entity.defaultCreditDays ?? null
     dto.timezone = entity.timezone ?? null
     dto.dayCutoverTime = entity.dayCutoverTime ?? null
+    dto.fiscalYearStartMonth = entity.fiscalYearStartMonth ?? 1
     dto.niu = entity.niu ?? null
     dto.rccm = entity.rccm ?? null
     dto.vatRegistered = entity.vatRegistered ?? false

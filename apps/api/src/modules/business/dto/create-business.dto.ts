@@ -106,6 +106,16 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @MaxLength(5)
   dayCutoverTime?: string | null
 
+  @ApiPropertyOptional({
+    description: 'Month (1–12) the fiscal year begins in; default 1 (January, OHADA).',
+    example: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(12)
+  fiscalYearStartMonth?: number | null
+
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })
   @IsOptional()

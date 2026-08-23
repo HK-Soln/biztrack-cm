@@ -92,6 +92,11 @@ export class Business extends BaseEntity {
   @Column({ name: 'day_cutover_time', type: 'varchar', length: 5, default: '00:00' })
   dayCutoverTime!: string
 
+  /** Month (1–12) the fiscal year begins in; default 1 = January (OHADA). Anchors the fiscal
+   * calendar — the fiscal_years + accounting_periods generated for the business (BIZ-5.2). */
+  @Column({ name: 'fiscal_year_start_month', type: 'int', default: 1 })
+  fiscalYearStartMonth!: number
+
   @Column({ name: 'owner_id' })
   ownerId!: string
 

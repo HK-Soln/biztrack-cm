@@ -94,6 +94,8 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   cashSessions: 'cash_session',
   cashCountLines: 'cash_count_line',
   cashMovements: 'cash_movement',
+  // Accounting-period status changes (BIZ-5.3 closes) push back; fiscal_year is server-only.
+  accountingPeriods: 'accounting_period',
 }
 
 const TERMINAL_BATCH_STATUSES: SyncBatchStatus[] = [
@@ -410,6 +412,30 @@ const CASH_MOVEMENT_MAP: Record<string, string> = {
   reference_type: 'referenceType',
   reference_id: 'referenceId',
   business_date: 'businessDate',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const FISCAL_YEAR_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  year: 'year',
+  label: 'label',
+  start_month: 'startMonth',
+  start_date: 'startDate',
+  end_date: 'endDate',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+}
+const ACCOUNTING_PERIOD_MAP: Record<string, string> = {
+  id: 'id',
+  business_id: 'businessId',
+  fiscal_year_id: 'fiscalYearId',
+  period_number: 'periodNumber',
+  label: 'label',
+  start_date: 'startDate',
+  end_date: 'endDate',
+  status: 'status',
+  closed_at: 'closedAt',
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
@@ -845,6 +871,8 @@ export class SyncService {
     pushAll(changes.cashSessions, 'cash_sessions', CASH_SESSION_MAP)
     pushAll(changes.cashCountLines, 'cash_count_lines', CASH_COUNT_LINE_MAP)
     pushAll(changes.cashMovements, 'cash_movements', CASH_MOVEMENT_MAP)
+    pushAll(changes.fiscalYears, 'fiscal_years', FISCAL_YEAR_MAP)
+    pushAll(changes.accountingPeriods, 'accounting_periods', ACCOUNTING_PERIOD_MAP)
 
     if (ops.length > 0) {
       try {

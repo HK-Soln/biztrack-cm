@@ -38,6 +38,8 @@ import type {
   CashSessionSyncRecord,
   CashCountLineSyncRecord,
   CashMovementSyncRecord,
+  FiscalYearSyncRecord,
+  AccountingPeriodSyncRecord,
   SyncBatchStatus,
   SyncBatchStatusResponse,
   SyncEntity,
@@ -108,6 +110,8 @@ import { DepositTransaction } from '@/entities/deposit-transaction.entity'
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
 import { CashMovement } from '@/entities/cash-movement.entity'
+import { FiscalYear } from '@/entities/fiscal-year.entity'
+import { AccountingPeriod } from '@/entities/accounting-period.entity'
 import { SyncBatch } from '@/entities/sync-batch.entity'
 import { SyncOperation } from '@/entities/sync-operation.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
@@ -144,6 +148,7 @@ import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { DepositsService } from '@/modules/savings/services/savings.service'
 import { CashSessionsService } from '@/modules/cash-sessions/services/cash-sessions.service'
+import { FiscalYearsService } from '@/modules/fiscal/fiscal-years.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { QuotaService } from '@/modules/permissions/quota.service'
 import {
@@ -549,6 +554,7 @@ export class SyncService {
     private readonly salesService: SalesService,
     private readonly savingsService: DepositsService,
     private readonly cashSessionsService: CashSessionsService,
+    private readonly fiscalYearsService: FiscalYearsService,
     private readonly calendar: BusinessCalendarService,
     private readonly quotaService: QuotaService,
     private readonly slugService: SlugService,
@@ -1026,6 +1032,7 @@ export class SyncService {
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
       const cashData = await this.cashSessionsService.findByBusiness(businessId, since, pulledAt)
+      const fiscalData = await this.fiscalYearsService.findByBusiness(businessId, since, pulledAt)
 
       const restockQuantityMap = new Map(
         inventoryMovements
@@ -1118,6 +1125,10 @@ export class SyncService {
         cashSessions: cashData.sessions.map((record) => this.toCashSessionSyncRecord(record)),
         cashCountLines: cashData.countLines.map((record) => this.toCashCountLineSyncRecord(record)),
         cashMovements: cashData.movements.map((record) => this.toCashMovementSyncRecord(record)),
+        fiscalYears: fiscalData.fiscalYears.map((record) => this.toFiscalYearSyncRecord(record)),
+        accountingPeriods: fiscalData.periods.map((record) =>
+          this.toAccountingPeriodSyncRecord(record),
+        ),
         attributeGroups: attributeGroups.map((record) => ({
           id: record.id,
           businessId: record.businessId,
@@ -1565,6 +1576,8 @@ export class SyncService {
       expense: (b, o) => this.applyExpenseOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
+      fiscal_year: () => this.applyFiscalYearOperation(),
+      accounting_period: (b, o) => this.applyAccountingPeriodOperation(b, o),
       cash_session: (b, o) => this.applyCashSessionOperation(b, o),
       cash_count_line: (b, o) => this.applyCashCountLineOperation(b, o),
       cash_movement: (b, o) => this.applyCashMovementOperation(b, o),
@@ -3873,6 +3886,37 @@ export class SyncService {
     return payload as unknown as CashMovementSyncRecord
   }
 
+  // Fiscal years are generated server-side and sync DOWN only; a device never pushes them, so
+  // this is a defensive no-op (BIZ-5.2).
+  private async applyFiscalYearOperation(): Promise<BatchProcessingResult> {
+    return { status: 'applied' }
+  }
+
+  // Accounting periods are generated server-side; the only thing a device pushes back is a status
+  // change (BIZ-5.3 close). applyPeriodStatusFromSync only ever UPDATES an existing period.
+  private async applyAccountingPeriodOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    if (operation.action === 'DELETE') {
+      return {
+        status: 'failed',
+        errorMessage: 'Deleting synced accounting periods is not supported.',
+      }
+    }
+    if (!operation.payload || typeof operation.payload !== 'object') {
+      throw new AppBadRequestException(
+        'Accounting period sync payload is required.',
+        'SYNC_ACCOUNTING_PERIOD_PAYLOAD_REQUIRED',
+      )
+    }
+    await this.fiscalYearsService.applyPeriodStatusFromSync(
+      businessId,
+      operation.payload as unknown as AccountingPeriodSyncRecord,
+    )
+    return { status: 'applied' }
+  }
+
   private readSavingsTransactionPayload(
     payload: Record<string, unknown> | null,
   ): SavingsTransactionSyncPayload {
@@ -4966,6 +5010,40 @@ export class SyncService {
       referenceType: record.referenceType ?? null,
       referenceId: record.referenceId ?? null,
       businessDate: record.businessDate ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toFiscalYearSyncRecord(record: FiscalYear): FiscalYearSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      year: record.year,
+      label: record.label,
+      startMonth: record.startMonth,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: record.deletedAt != null,
+    }
+  }
+
+  private toAccountingPeriodSyncRecord(record: AccountingPeriod): AccountingPeriodSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      fiscalYearId: record.fiscalYearId,
+      periodNumber: record.periodNumber,
+      label: record.label,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      status: record.status,
+      closedAt: record.closedAt?.toISOString() ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: record.deletedAt?.toISOString() ?? null,

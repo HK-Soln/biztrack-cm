@@ -74,6 +74,7 @@ import { migration_0072 } from './0072_audit_sequence'
 import { migration_0073 } from './0073_audit_prune_delete'
 import { migration_0074 } from './0074_transaction_currency_outlet'
 import { migration_0075 } from './0075_business_date'
+import { migration_0076 } from './0076_fiscal_years_accounting_periods'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -155,6 +156,7 @@ export const MIGRATIONS: Migration[] = [
   migration_0073,
   migration_0074,
   migration_0075,
+  migration_0076,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

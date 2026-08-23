@@ -150,6 +150,7 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     defaultCreditDays: b.defaultCreditDays ?? null,
     timezone: b.timezone ?? null,
     dayCutoverTime: b.dayCutoverTime ?? null,
+    fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
     country: b.country ?? null,
     niu: b.niu ?? null,
     rccm: b.rccm ?? null,
