@@ -424,9 +424,9 @@ export interface DataClient {
     flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
-    /** Refund/return a sale in full or partially (BIZ-1.8). Online-only; the renderer refetches
-     * the sale (and syncs on desktop) afterwards. */
-    refund: (saleId: string, input: RefundSaleInput) => Promise<void>
+    /** Refund/return a sale in full or partially (BIZ-1.8). Offline-first on desktop (local write
+     * + sync); returns the updated sale. */
+    refund: (saleId: string, input: RefundSaleInput) => Promise<LocalSaleDetail>
     sendReceipt: (
       saleId: string,
       channel: DocumentSendChannel,

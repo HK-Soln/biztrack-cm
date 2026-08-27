@@ -143,8 +143,8 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
     onError: (e) => setVoidErr(errorMessage(e, t('sales.voidFailed'))),
   })
 
-  // Partial/full refund (BIZ-1.8). Online-only — the server records the return + REFUND payment +
-  // restock; we sync it back down, then refetch so the drawer + drawer-cash reflect it.
+  // Partial/full refund (BIZ-1.8) — offline-first on desktop: writes the return locally + syncs.
+  // It restocks and touches deposits/debts too, so refresh those views.
   const refundM = useMutation({
     mutationFn: () => {
       const items = (sale?.items ?? [])
@@ -155,8 +155,7 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
         reason: refundReason.trim() || undefined,
       })
     },
-    onSuccess: async () => {
-      await dataClient.sync.trigger()
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['sales'] })
       void qc.invalidateQueries({ queryKey: ['sales', 'detail', saleId] })
       void qc.invalidateQueries({ queryKey: queryKeys.products })

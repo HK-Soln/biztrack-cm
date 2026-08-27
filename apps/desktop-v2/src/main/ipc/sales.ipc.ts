@@ -53,11 +53,11 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) =>
     sales.voidSale(saleId, reason),
   )
-  // Refund/return is online-only (BIZ-1.8): the server records the return + REFUND payment +
-  // restock, and it syncs back down. Proxy straight to the API; the renderer refetches after.
-  ipcMain.handle(IPC.salesRefund, async (_e, saleId: string, input: RefundSaleInput) => {
-    await http.post(`/sales/${encodeURIComponent(saleId)}/refund`, input)
-  })
+  // Refund/return (BIZ-1.8) — offline-first like void: records the return locally + re-enqueues
+  // the sale so the API applies its own authoritative return on sync.
+  ipcMain.handle(IPC.salesRefund, (_e, saleId: string, input: RefundSaleInput) =>
+    sales.refundSale(saleId, input),
+  )
   ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) =>
     savings.getForCustomer(customerId),
   )

@@ -2218,9 +2218,9 @@ export interface BridgeApi {
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
-    /** Refund/return a sale in full or partially (BIZ-1.8). Online-only — the server records the
-     * return + REFUND payment + restock; the result syncs down. Renderer refetches after. */
-    refund: (saleId: string, input: RefundSaleInput) => Promise<void>
+    /** Refund/return a sale in full or partially (BIZ-1.8). Offline-first — records the return
+     * locally + syncs; returns the updated sale. */
+    refund: (saleId: string, input: RefundSaleInput) => Promise<LocalSaleDetail>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (
       saleId: string,

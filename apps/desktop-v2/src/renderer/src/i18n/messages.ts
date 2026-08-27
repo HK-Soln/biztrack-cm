@@ -991,7 +991,8 @@ export const en = {
   'sales.refundAmount': 'Refund amount',
   'sales.refundOf': 'of {n}',
   'sales.refundReasonPh': 'Reason (optional)',
-  'sales.refundOnlineNote': 'Refunds need a connection — the drawer updates after it syncs.',
+  'sales.refundOnlineNote':
+    'Returned items are restocked and the drawer is adjusted automatically.',
   'sales.refundDone': 'Refund recorded',
   'sales.refundFailed': 'Could not record the refund',
   'sales.voidFailed': 'Could not void this sale.',
@@ -4519,7 +4520,7 @@ export const fr: Record<MessageKey, string> = {
   'sales.refundOf': 'sur {n}',
   'sales.refundReasonPh': 'Motif (facultatif)',
   'sales.refundOnlineNote':
-    'Le remboursement nécessite une connexion — la caisse se met à jour après la synchronisation.',
+    'Les articles retournés sont remis en stock et la caisse est ajustée automatiquement.',
   'sales.refundDone': 'Remboursement enregistré',
   'sales.refundFailed': 'Impossible d’enregistrer le remboursement',
   'sales.voidFailed': "Impossible d'annuler cette vente.",

@@ -986,6 +986,25 @@ export interface SaleSyncDiscountLinePayload {
   belowCost?: boolean
 }
 
+/** A return (refund) the device recorded against the sale (BIZ-1.8). Rides inside the re-pushed
+ * sale aggregate; the server creates the SaleReturn + REFUND payment on apply (idempotent by id)
+ * so it converges with the row that pulls back down. */
+export interface SaleReturnPayload {
+  id: string
+  reason?: string | null
+  restock: boolean
+  refundAmount: number
+  items: Array<{
+    id: string
+    saleItemId: string
+    quantity: number
+    serialUnitId?: string | null
+  }>
+  /** The REFUND-kind sale_payment this return created (same id as the local row, so pull-down
+   * de-duplicates). Absent when the refund returned no money (e.g. an unpaid credit sale). */
+  refundPayment?: { id: string; method: string; amount: number } | null
+}
+
 export interface SaleSyncPayload {
   saleId: string
   clientId: string
@@ -1021,6 +1040,9 @@ export interface SaleSyncPayload {
   items: SaleSyncItemPayload[]
   charges?: SaleSyncChargeLinePayload[]
   discounts?: SaleSyncDiscountLinePayload[]
+  /** Returns/refunds recorded against this sale (BIZ-1.8). Present when the sale is REFUNDED or
+   * PARTIALLY_REFUNDED; the server applies each new one idempotently by return id. */
+  returns?: SaleReturnPayload[]
 }
 
 export interface ExpenseCategorySyncPayload {
