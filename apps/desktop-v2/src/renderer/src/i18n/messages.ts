@@ -3079,6 +3079,12 @@ export const en = {
   'reorder.waClosing': 'Please confirm availability and price. Thank you.',
   'settings.hours': 'Business hours',
   'settings.periods': 'Accounting periods',
+  'profile.label': 'Business profile',
+  'profile.help':
+    'Sets sensible defaults and how things are worded — a micro shop sees plainer terms; an SME sees the full accounting vocabulary.',
+  'profile.micro': 'Micro',
+  'profile.small': 'Small business',
+  'profile.sme': 'SME',
   'periods.title': 'Accounting periods',
   'periods.sub':
     'Close each month once its books are final. A closed period can be locked to prevent further changes.',
@@ -6621,6 +6627,12 @@ export const fr: Record<MessageKey, string> = {
   'reorder.waClosing': 'Merci de confirmer disponibilité et prix.',
   'settings.hours': 'Horaires',
   'settings.periods': 'Périodes comptables',
+  'profile.label': 'Profil de l’entreprise',
+  'profile.help':
+    'Définit des valeurs par défaut et le vocabulaire — une micro-boutique voit des termes simples ; une PME voit le vocabulaire comptable complet.',
+  'profile.micro': 'Micro',
+  'profile.small': 'Petite entreprise',
+  'profile.sme': 'PME',
   'periods.title': 'Périodes comptables',
   'periods.sub':
     'Clôturez chaque mois une fois les comptes arrêtés. Une période clôturée peut être verrouillée pour empêcher toute modification.',

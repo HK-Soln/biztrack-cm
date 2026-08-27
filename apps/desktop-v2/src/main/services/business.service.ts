@@ -50,6 +50,7 @@ export class BusinessService {
       timezone: b.timezone ?? null,
       dayCutoverTime: b.dayCutoverTime ?? null,
       fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
+      profile: b.profile ?? null,
       niu: b.niu ?? null,
       rccm: b.rccm ?? null,
       vatRegistered: b.vatRegistered ?? false,
@@ -68,7 +69,9 @@ export class BusinessService {
     // Keep the offline cache (which backs the sidebar/topbar name) in step.
     const userId = this.getUserId()
     if (userId && b?.id) {
-      this.cache.saveBusinesses(userId, [{ id: b.id, name: b.name, currency: b.currency ?? 'XAF' }])
+      this.cache.saveBusinesses(userId, [
+        { id: b.id, name: b.name, currency: b.currency ?? 'XAF', profile: b.profile ?? null },
+      ])
     }
     return {
       id: b.id,
@@ -87,6 +90,7 @@ export class BusinessService {
       timezone: b.timezone ?? null,
       dayCutoverTime: b.dayCutoverTime ?? null,
       fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
+      profile: b.profile ?? null,
       niu: b.niu ?? null,
       rccm: b.rccm ?? null,
       vatRegistered: b.vatRegistered ?? false,

@@ -13,6 +13,7 @@ import type {
   SessionStatus,
 } from '../../shared/ipc'
 import type { PlanStateResponse } from '@biztrack/types'
+import { normalizeBusinessProfile } from '@biztrack/types'
 import { decodeJwt, isJwtExpired } from './jwt'
 import type { LocalCache } from './local-cache'
 import type { StoredTokens, TokenStore } from './token-store'
@@ -41,6 +42,7 @@ const EMPTY: SessionStatus = {
   businessId: null,
   businessName: null,
   businessCurrency: null,
+  profile: null,
   nextStep: null,
 }
 
@@ -418,6 +420,7 @@ export class AuthService {
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
+      profile: cb?.profile ? normalizeBusinessProfile(cb.profile) : null,
       // BIZ-5.5: last-known entitlements from the offline cache (undefined ⇒ permissive).
       effectivePermissions: businessId ? this.cache.getEffectivePermissions(businessId) : undefined,
       nextStep,
@@ -492,6 +495,7 @@ export class AuthService {
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
+      profile: cb?.profile ? normalizeBusinessProfile(cb.profile) : null,
       // BIZ-5.5: last-known plan-tier entitlements for client module gating. undefined ⇒ permissive.
       effectivePermissions: businessId ? this.cache.getEffectivePermissions(businessId) : undefined,
       nextStep,
@@ -575,6 +579,8 @@ export class AuthService {
       name,
       role: (rec.role as string | undefined) ?? null,
       status: (biz.businessStatus as string | undefined) ?? null,
+      currency: (biz.currency as string | undefined) ?? null,
+      profile: (biz.profile as string | undefined) ?? null,
     }
   }
 

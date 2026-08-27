@@ -10,7 +10,13 @@ import { Expense } from './expense.entity'
 import { MonthlyExpenseSummary } from './monthly-expense-summary.entity'
 import { StockMovement } from './stock-movement.entity'
 import { SyncLog } from './sync-log.entity'
-import { SubscriptionPlan, BusinessStatus, FiscalRegime, BillingCycle } from '@biztrack/types'
+import {
+  SubscriptionPlan,
+  BusinessStatus,
+  FiscalRegime,
+  BillingCycle,
+  BusinessProfileTier,
+} from '@biztrack/types'
 import type { BusinessHours } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
 import { SubscriptionEvent } from './subscription-event.entity'
@@ -96,6 +102,11 @@ export class Business extends BaseEntity {
    * calendar — the fiscal_years + accounting_periods generated for the business (BIZ-5.2). */
   @Column({ name: 'fiscal_year_start_month', type: 'int', default: 1 })
   fiscalYearStartMonth!: number
+
+  /** Business size profile (MICRO | SMALL | SME) — sets defaults + drives profile-aware
+   * vocabulary in the client (BIZ-5.7). */
+  @Column({ name: 'profile', type: 'varchar', length: 16, default: BusinessProfileTier.SMALL })
+  profile!: BusinessProfileTier
 
   @Column({ name: 'owner_id' })
   ownerId!: string

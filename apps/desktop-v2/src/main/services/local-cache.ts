@@ -5,6 +5,8 @@ export interface CachedBusiness {
   id: string
   name: string
   currency: string
+  /** Business size profile (BIZ-5.7) — cached so offline sessions drive the right vocabulary. */
+  profile: string | null
   role: string | null
 }
 
@@ -77,34 +79,58 @@ export class LocalCache {
 
   saveBusinesses(
     userId: string,
-    list: Array<{ id: string; name: string; currency?: string | null; role?: string | null }>,
+    list: Array<{
+      id: string
+      name: string
+      currency?: string | null
+      profile?: string | null
+      role?: string | null
+    }>,
   ): void {
     const now = new Date().toISOString()
     for (const b of list) {
       this.db.run(
-        `INSERT INTO local_businesses (id, name, currency, user_id, saved_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO local_businesses (id, name, currency, profile, user_id, saved_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET name=excluded.name, currency=excluded.currency,
-           user_id=excluded.user_id, saved_at=excluded.saved_at`,
-        [b.id, b.name, b.currency ?? 'XAF', userId, now],
+           profile=excluded.profile, user_id=excluded.user_id, saved_at=excluded.saved_at`,
+        [b.id, b.name, b.currency ?? 'XAF', b.profile ?? null, userId, now],
       )
     }
   }
 
   getBusiness(id: string): CachedBusiness | null {
-    const row = this.db.get<{ id: string; name: string; currency: string }>(
-      'SELECT id, name, currency FROM local_businesses WHERE id = ?',
+    const row = this.db.get<{ id: string; name: string; currency: string; profile: string | null }>(
+      'SELECT id, name, currency, profile FROM local_businesses WHERE id = ?',
       [id],
     )
-    return row ? { id: row.id, name: row.name, currency: row.currency, role: null } : null
+    return row
+      ? {
+          id: row.id,
+          name: row.name,
+          currency: row.currency,
+          profile: row.profile ?? null,
+          role: null,
+        }
+      : null
   }
 
   listBusinesses(userId: string): CachedBusiness[] {
-    const rows = this.db.query<{ id: string; name: string; currency: string }>(
-      'SELECT id, name, currency FROM local_businesses WHERE user_id = ? ORDER BY name',
-      [userId],
-    )
-    return rows.map((r) => ({ id: r.id, name: r.name, currency: r.currency, role: null }))
+    const rows = this.db.query<{
+      id: string
+      name: string
+      currency: string
+      profile: string | null
+    }>('SELECT id, name, currency, profile FROM local_businesses WHERE user_id = ? ORDER BY name', [
+      userId,
+    ])
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      currency: r.currency,
+      profile: r.profile ?? null,
+      role: null,
+    }))
   }
 
   /**

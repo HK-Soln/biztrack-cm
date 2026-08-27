@@ -14,7 +14,7 @@ import {
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import type { BusinessHours, CreateBusinessRequest } from '@biztrack/types'
-import { BusinessType, FiscalRegime } from '@biztrack/types'
+import { BusinessType, FiscalRegime, BusinessProfileTier } from '@biztrack/types'
 
 export class CreateBusinessDto implements CreateBusinessRequest {
   @ApiProperty({ example: 'Boutique Kamga' })
@@ -115,6 +115,11 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @Min(1)
   @Max(12)
   fiscalYearStartMonth?: number | null
+
+  @ApiPropertyOptional({ enum: BusinessProfileTier, description: 'Business size profile.' })
+  @IsOptional()
+  @IsEnum(BusinessProfileTier)
+  profile?: BusinessProfileTier | null
 
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })

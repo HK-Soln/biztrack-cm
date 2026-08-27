@@ -313,6 +313,7 @@ import type {
 import type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
 import type { ChargeType as ChargeTypeT } from '@biztrack/types'
 import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
+import type { BusinessProfileTier } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
@@ -700,6 +701,9 @@ export interface BusinessOption {
   /** Business lifecycle: 'ONBOARDING' | 'PLAN_PENDING' | 'ACTIVE' (or null if unknown).
    * A non-owner can only enter an ACTIVE business. */
   status: string | null
+  /** Cached alongside the option so the offline session has the right currency/vocabulary. */
+  currency?: string | null
+  profile?: string | null
 }
 
 export type OtpChannel = 'SMS' | 'WHATSAPP' | 'EMAIL'
@@ -764,6 +768,8 @@ export interface BusinessSetupPayload {
   fiscalRegime?: string
   /** Month (1–12) the fiscal year begins in; default 1 (January, OHADA). (BIZ-5.2) */
   fiscalYearStartMonth?: number
+  /** Business size profile (MICRO | SMALL | SME) — BIZ-5.7. */
+  profile?: BusinessProfileTier
 }
 
 /** A product category as stored locally (mirrors the synced server record). */

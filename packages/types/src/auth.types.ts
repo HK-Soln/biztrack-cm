@@ -1,4 +1,4 @@
-import { SubscriptionPlan, BusinessMemberRole } from './business.types'
+import { SubscriptionPlan, BusinessMemberRole, BusinessProfileTier } from './business.types'
 import type { AuthPermissions, Resource } from './permissions.types'
 import type { IsoDateString } from './http.types'
 
@@ -327,6 +327,9 @@ export interface SessionStatus {
   businessName: string | null
   /** Active business currency (ISO 4217, e.g. XAF). null until a business is selected. */
   businessCurrency: string | null
+  /** Active business size profile (BIZ-5.7) — drives profile-aware vocabulary in the renderer.
+   * null until a business is selected / when unknown ⇒ base vocabulary (never a wrong label). */
+  profile?: BusinessProfileTier | null
   /**
    * BIZ-5.5 — the business's plan-tier feature entitlements, for client-side module/surface gating.
    * `undefined` means "unknown" (never fetched, or offline with no cache) → treat as PERMISSIVE: the

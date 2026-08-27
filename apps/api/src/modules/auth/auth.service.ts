@@ -21,6 +21,7 @@ import {
   BusinessMemberRole,
   BusinessMemberStatus,
   BusinessStatus,
+  BusinessProfileTier,
 } from '@biztrack/types'
 import type { AuthPhase, SessionStatus } from '@biztrack/types'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -1820,6 +1821,7 @@ export class AuthService {
 
     let businessName: string | null = null
     let businessCurrency: string | null = null
+    let businessProfile: BusinessProfileTier | null = null
     // phase1 (verified, pre-business) → pick a business; phase2 → business-driven step.
     let nextStep: string = AuthNextStep.SELECT_BUSINESS
 
@@ -1830,6 +1832,7 @@ export class AuthService {
       ])
       businessName = business?.name ?? null
       businessCurrency = business?.currency ?? null
+      businessProfile = business?.profile ?? null
       nextStep = this.resolveBusinessNextStep(
         membership?.role ?? BusinessMemberRole.CASHIER,
         business?.businessStatus ?? null,
@@ -1852,6 +1855,7 @@ export class AuthService {
       businessId,
       businessName,
       businessCurrency,
+      profile: businessProfile,
       nextStep,
     }
   }
