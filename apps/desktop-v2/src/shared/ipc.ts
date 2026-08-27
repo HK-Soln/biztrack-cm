@@ -251,6 +251,7 @@ export const IPC = {
   salesFlaggedDiscounts: 'sales:flagged-discounts',
   salesGet: 'sales:get',
   salesVoid: 'sales:void',
+  salesRefund: 'sales:refund',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
   salesReceiptHtml: 'sales:receipt-html',
@@ -314,6 +315,8 @@ import type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@bizt
 import type { ChargeType as ChargeTypeT } from '@biztrack/types'
 import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
 import type { BusinessProfileTier } from '@biztrack/types'
+import type { RefundSaleInput } from '@biztrack/types'
+export type { RefundSaleInput } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
@@ -2215,6 +2218,9 @@ export interface BridgeApi {
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
+    /** Refund/return a sale in full or partially (BIZ-1.8). Online-only — the server records the
+     * return + REFUND payment + restock; the result syncs down. Renderer refetches after. */
+    refund: (saleId: string, input: RefundSaleInput) => Promise<void>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (
       saleId: string,

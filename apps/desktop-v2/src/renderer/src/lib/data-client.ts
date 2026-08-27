@@ -164,6 +164,7 @@ import type {
   RestockInput,
   SaleInput,
   SalesListQuery,
+  RefundSaleInput,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -423,6 +424,9 @@ export interface DataClient {
     flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
+    /** Refund/return a sale in full or partially (BIZ-1.8). Online-only; the renderer refetches
+     * the sale (and syncs on desktop) afterwards. */
+    refund: (saleId: string, input: RefundSaleInput) => Promise<void>
     sendReceipt: (
       saleId: string,
       channel: DocumentSendChannel,
@@ -819,6 +823,7 @@ function electronAdapter(): DataClient {
       flaggedDiscounts: (query) => window.api.sales.flaggedDiscounts(query),
       get: (id) => window.api.sales.get(id),
       void: (saleId, reason) => window.api.sales.void(saleId, reason),
+      refund: (saleId, input) => window.api.sales.refund(saleId, input),
       sendReceipt: (saleId, channel, locale, opts) =>
         window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale, reprint) =>

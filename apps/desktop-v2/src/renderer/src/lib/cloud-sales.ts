@@ -6,6 +6,7 @@ import type {
   LocalSalesSummary,
   SalesListQuery,
   SaleInput,
+  RefundSaleInput,
   DocumentSendChannel,
   DocumentRecipient,
   PaginatedResult,
@@ -302,6 +303,11 @@ export const cloudSales = {
       items: (s.items ?? []).map(toLocalSaleItem),
       payments: (s.payments ?? []).map(toLocalSalePayment),
     }
+  },
+  // Refund/return a sale in full or partially (BIZ-1.8) — the API records the return + REFUND
+  // payment + restock. The caller refetches the sale afterwards.
+  refund: async (saleId: string, input: RefundSaleInput): Promise<void> => {
+    await cpost<ApiSaleDetail>(`/sales/${saleId}/refund`, input)
   },
   // Render the receipt server-side payload + dispatch via the API (email/WhatsApp).
   sendReceipt: async (

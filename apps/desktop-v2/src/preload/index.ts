@@ -248,6 +248,7 @@ const api: BridgeApi = {
     flaggedDiscounts: (query) => ipcRenderer.invoke(IPC.salesFlaggedDiscounts, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
     void: (saleId, reason) => ipcRenderer.invoke(IPC.salesVoid, saleId, reason),
+    refund: (saleId, input) => ipcRenderer.invoke(IPC.salesRefund, saleId, input),
     sendReceipt: (saleId, channel, locale, opts) =>
       ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
     printReceipt: (saleId, locale, reprint) =>

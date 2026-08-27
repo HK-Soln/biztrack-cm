@@ -326,15 +326,21 @@ export class CashSessionsService {
   async expectedCash(businessId: string, sessionId: string): Promise<CashSessionExpectedCash> {
     const session = await this.findById(sessionId, businessId)
 
+    // Net CASH into the drawer from sales: tendered PAYMENTs minus REFUND-kind rows (a refund
+    // hands cash back out). Include refunded sales — their original tender is real drawer cash;
+    // only VOIDED (fully reversed) is excluded (BIZ-1.8).
     const cashRow = await this.sessionsRepo.manager
       .createQueryBuilder()
-      .select('COALESCE(SUM(sp.amount), 0)', 'v')
+      .select(
+        "COALESCE(SUM(CASE WHEN sp.kind = 'REFUND' THEN -sp.amount ELSE sp.amount END), 0)",
+        'v',
+      )
       .from('sale_payments', 'sp')
       .innerJoin('sales', 's', 's.id = sp.sale_id')
       .where('s.cash_session_id = :sessionId', { sessionId })
       .andWhere('s.business_id = :businessId', { businessId })
       .andWhere("sp.method = 'CASH'")
-      .andWhere("s.status = 'COMPLETED'")
+      .andWhere("s.status IN ('COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED')")
       .andWhere('s.deleted_at IS NULL')
       .getRawOne<{ v: string }>()
 
@@ -344,7 +350,7 @@ export class CashSessionsService {
       .from('sales', 's')
       .where('s.cash_session_id = :sessionId', { sessionId })
       .andWhere('s.business_id = :businessId', { businessId })
-      .andWhere("s.status = 'COMPLETED'")
+      .andWhere("s.status IN ('COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED')")
       .andWhere('s.deleted_at IS NULL')
       .getRawOne<{ v: string }>()
 

@@ -43,7 +43,7 @@ import { Business } from '@/entities/business.entity'
 import { AuditService } from '@/modules/audit/audit.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { PostingDateService } from '@/modules/fiscal/posting-date.service'
-import type { AuditContext } from '@biztrack/types'
+import type { AuditContext, RefundSaleInput } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
@@ -91,17 +91,6 @@ export interface RecordSalePaymentInput {
   note?: string | null
   /** YYYY-MM-DD for the receivable payment; defaults to today. */
   paymentDate?: string
-}
-
-/** Input for {@link SalesService.refund} — a full or partial return/refund of a sale. */
-export interface RefundSaleInput {
-  /** Money to return; defaults to the goods value of returned lines, capped at amountPaid. */
-  amount?: number
-  /** Returned lines; omit for a full return of every line. */
-  items?: Array<{ saleItemId: string; quantity: number; serialUnitId?: string | null }>
-  /** Restore inventory + release serial units (default true). */
-  restock?: boolean
-  reason?: string
 }
 
 type ComputedSaleItem = {

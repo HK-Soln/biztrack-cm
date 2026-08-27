@@ -201,6 +201,17 @@ export interface CreateSaleRequest {
   cashSessionId?: string | null
 }
 
+/** A full or partial return/refund of a completed sale (BIZ-1.8). */
+export interface RefundSaleInput {
+  /** Money to return; defaults to the goods value of returned lines, capped at amountPaid. */
+  amount?: number
+  /** Returned lines; omit for a full return of every line. */
+  items?: Array<{ saleItemId: string; quantity: number; serialUnitId?: string | null }>
+  /** Restore inventory + release serial units (default true). */
+  restock?: boolean
+  reason?: string
+}
+
 export interface VoidSaleRequest {
   reason: string
 }
