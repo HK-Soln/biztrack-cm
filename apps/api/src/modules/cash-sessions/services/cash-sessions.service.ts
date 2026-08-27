@@ -717,6 +717,7 @@ export class CashSessionsService {
     const row = (await this.sessionsRepo.manager.query(
       `SELECT
          COALESCE(SUM(total_revenue), 0) AS revenue,
+         COALESCE(SUM(total_transacted), 0) AS transacted,
          COALESCE(SUM(cash_collected), 0) AS cash,
          COALESCE(SUM(mtn_momo_collected), 0) AS mtn,
          COALESCE(SUM(orange_money_collected), 0) AS orange,
@@ -728,6 +729,9 @@ export class CashSessionsService {
     )) as Array<Record<string, string | number>>
     const num = (v: unknown): number => Number(v ?? 0)
     const totalRevenue = num(row[0]?.revenue)
+    // Reconcile the shift's SUM(sales.total_amount) against the posted transaction total, NOT the
+    // accounting revenue (total_revenue is Σ line_total, excl. charges — BIZ-4.1/D7).
+    const totalTransacted = num(row[0]?.transacted)
     const cashCollected = num(row[0]?.cash)
     const mtnMomoCollected = num(row[0]?.mtn)
     const orangeMoneyCollected = num(row[0]?.orange)
@@ -735,7 +739,7 @@ export class CashSessionsService {
     const creditIssued = num(row[0]?.credit)
     const close = (a: number, b: number): boolean => Math.abs(a - b) <= 1
     const matches =
-      close(totals.netSales, totalRevenue) &&
+      close(totals.netSales, totalTransacted) &&
       close(totals.cash, cashCollected) &&
       close(totals.mtnMomo, mtnMomoCollected) &&
       close(totals.orangeMoney, orangeMoneyCollected) &&
