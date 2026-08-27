@@ -196,6 +196,9 @@ export interface CreateSaleRequest {
   /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale.
    * When omitted, the debt falls back to created_at + the business's default credit days. */
   creditDueDate?: string | null
+  /** The open cash session (till shift) this sale is rung at, so the drawer reconciles
+   * (BIZ-2 cloud). Set by a cloud cashier's client; desktop tags it locally at write time. */
+  cashSessionId?: string | null
 }
 
 export interface VoidSaleRequest {

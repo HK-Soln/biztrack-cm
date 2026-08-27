@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Modal } from '@biztrack/ui/biztrack'
 import type { CashSession } from '@biztrack/types'
 import { useT } from '@/i18n'
+import { dataClient } from '@/lib/data-client'
 
 /**
  * Orphaned-shift recovery (BIZ-2.5). On low-end Android with force-kills, an OPEN shift is
@@ -17,10 +18,10 @@ export function StaleShiftRecovery() {
   const [session, setSession] = useState<CashSession | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const api = dataClient.cashSessions
 
   useEffect(() => {
-    if (!api || checkedThisSession) return
+    if (checkedThisSession) return
     checkedThisSession = true
     let cancelled = false
     void (async () => {
@@ -36,7 +37,7 @@ export function StaleShiftRecovery() {
     }
   }, [api])
 
-  if (!api || !session) return null
+  if (!session) return null
 
   const resume = () => setSession(null)
   const closeNow = async () => {

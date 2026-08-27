@@ -72,6 +72,19 @@ export class CashSessionsService {
     private readonly calendar: BusinessCalendarService,
   ) {}
 
+  /** Whether the caller's role runs a till — mirrors the desktop's local roles lookup so the
+   *  cloud build can decide the login shift prompt (BIZ-2 cloud). */
+  async roleTracksDrawer(businessId: string, userId: string): Promise<boolean> {
+    const rows = (await this.sessionsRepo.manager.query(
+      `SELECT r.tracks_cash_drawer AS tracks
+       FROM business_members m JOIN roles r ON r.id = m.role_id
+       WHERE m.business_id = $1 AND m.user_id = $2 AND m.status = 'ACTIVE'
+       LIMIT 1`,
+      [businessId, userId],
+    )) as Array<{ tracks: boolean }>
+    return rows[0]?.tracks === true
+  }
+
   async openSession(
     businessId: string,
     user: JwtPayload,

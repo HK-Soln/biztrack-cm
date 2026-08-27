@@ -274,6 +274,22 @@ export type {
   RefundCashierRow,
 } from '@biztrack/types'
 export type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
+// Cash-session types re-exported canonically so the renderer (dataClient interface, cloud
+// adapter) can consume them from the one @shared/ipc hub.
+export type {
+  CashSession,
+  CashMovement,
+  CashSessionExpectedCash,
+  CashShiftReportData,
+  CashDailyReportData,
+  CashVarianceHistory,
+  CashReportKind,
+  CloseCashSessionInput,
+  SetCashVarianceReasonInput,
+  RecordCashMovementInput,
+  CashVarianceHistoryQuery,
+  CashDailyReportQuery,
+} from '@biztrack/types'
 export type {
   DiscountSummary,
   DiscountByCashierRow,
@@ -1214,6 +1230,9 @@ export interface SaleInput {
   authorizedByUserId?: string | null
   /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale. */
   creditDueDate?: string | null
+  /** Open cash session (till shift) this sale is rung at, so the drawer reconciles. The cloud
+   * build sets it from the current session; desktop tags it locally at write time. */
+  cashSessionId?: string | null
 }
 /** An opening balance brought forward for a contact (one per direction). */
 export interface OpeningBalanceInput {

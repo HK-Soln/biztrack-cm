@@ -245,9 +245,14 @@ export class SalesService {
         const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
         const now = new Date()
-        // Local trading day (BIZ-5.1). API-direct sales aren't rung at a till (no shift), so
-        // this comes from the business timezone + cutover; distinct from the UTC saleDate.
-        const businessDate = await this.calendar.computeForBusiness(businessId, soldAt)
+        // Local trading day (BIZ-5.1). A cloud cashier's sale rung at a till inherits its shift's
+        // business_date so a shift straddling the cutover keeps one day; otherwise it comes from the
+        // business timezone + cutover. Distinct from the UTC saleDate.
+        const businessDate = await this.calendar.businessDateFor(
+          businessId,
+          soldAt,
+          dto.cashSessionId ?? null,
+        )
         // BIZ-5.4: the accounting day this sale posts to (redated forward if its period is closed).
         const posting = await this.postingDate.resolve(businessId, businessDate, manager)
 
@@ -279,6 +284,7 @@ export class SalesService {
             isLateArrival: posting.isLateArrival,
             originalPeriodId: posting.originalPeriodId,
             soldAt,
+            cashSessionId: dto.cashSessionId ?? null,
             syncedAt: now,
           }),
         )

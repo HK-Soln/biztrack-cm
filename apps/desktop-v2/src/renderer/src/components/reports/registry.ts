@@ -153,7 +153,6 @@ export const REPORTS: ReportMeta[] = [
     descFr: 'Postes, totaux de caisse & écarts sur la période',
     formats: ['pdf', 'csv'],
     built: true,
-    desktopOnly: true,
     managerOnly: true,
   },
   {
@@ -483,41 +482,13 @@ export const LOADERS: Record<string, ReportLoader> = {
     }
     return buildDailySalesReport({ rows, currency, tradingDays }, opts)
   },
-  'cash-close': async ({ range, currency, opts }) => {
-    // Desktop-only: the till (cash sessions) lives on the device, not the cloud DataClient.
-    const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  'cash-close': async ({ range, opts, client }) => {
     const fromIso = new Date(`${range.dateFrom}T00:00:00.000Z`).toISOString()
     // dateTo is inclusive → extend to the end of that day (dailyReport filters [from, to)).
     const toIso = new Date(
       new Date(`${range.dateTo}T00:00:00.000Z`).getTime() + 86_400_000,
     ).toISOString()
-    const data = api
-      ? await api.dailyReport({ fromIso, toIso })
-      : {
-          currency,
-          fromDate: fromIso,
-          toDate: toIso,
-          generatedAt: new Date().toISOString(),
-          shifts: [],
-          totals: {
-            shifts: 0,
-            salesCount: 0,
-            voidCount: 0,
-            grossSales: 0,
-            discountTotal: 0,
-            netSales: 0,
-            creditIssued: 0,
-            cash: 0,
-            mtnMomo: 0,
-            orangeMoney: 0,
-            card: 0,
-            openingFloat: 0,
-            expectedCash: 0,
-            countedCash: 0,
-            varianceCash: 0,
-          },
-          reconciliation: null,
-        }
+    const data = await client.cashSessions.dailyReport({ fromIso, toIso })
     return buildCashDailyReport(data, opts)
   },
   cashier: async ({ client, range, currency, opts }) => {

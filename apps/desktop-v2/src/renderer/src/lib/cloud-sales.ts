@@ -247,6 +247,7 @@ export const cloudSales = {
     const body = clean({
       clientId: input.clientId,
       soldAt: input.soldAt ?? new Date().toISOString(),
+      cashSessionId: input.cashSessionId,
       customerId: input.customerId,
       customerName: input.customerName,
       customerPhone: input.customerPhone,

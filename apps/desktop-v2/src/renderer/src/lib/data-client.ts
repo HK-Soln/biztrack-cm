@@ -146,6 +146,21 @@ import type {
   InventoryTurnoverRow,
   DeadStockRow,
   SupplierPriceRow,
+  CashSession,
+  CashMovement,
+  CashSessionExpectedCash,
+  CashShiftReportData,
+  CashDailyReportData,
+  CashVarianceHistory,
+  CashReportKind,
+  CloseCashSessionInput,
+  SetCashVarianceReasonInput,
+  RecordCashMovementInput,
+  CashVarianceHistoryQuery,
+  CashDailyReportQuery,
+  CashSessionsListQuery,
+  OpenCashSessionInput,
+  TransitionCashSessionInput,
   RestockInput,
   SaleInput,
   SalesListQuery,
@@ -455,6 +470,25 @@ export interface DataClient {
     getProfile: () => Promise<BusinessProfile | null>
     update: (payload: UpdateBusinessRequest) => Promise<BusinessProfile>
   }
+  /** Cash sessions (till shifts). Local-first on desktop; REST-backed in the cloud build. */
+  cashSessions: {
+    list: (query?: CashSessionsListQuery) => Promise<PaginatedResult<CashSession>>
+    get: (id: string) => Promise<CashSession | null>
+    current: () => Promise<CashSession | null>
+    open: (input?: OpenCashSessionInput) => Promise<CashSession>
+    transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSession>
+    close: (id: string, input: CloseCashSessionInput) => Promise<CashSession>
+    setVarianceReason: (id: string, input: SetCashVarianceReasonInput) => Promise<CashSession>
+    varianceHistory: (query?: CashVarianceHistoryQuery) => Promise<CashVarianceHistory>
+    shiftReport: (id: string, kind?: CashReportKind) => Promise<CashShiftReportData | null>
+    dailyReport: (query?: CashDailyReportQuery) => Promise<CashDailyReportData>
+    roleTracksDrawer: () => Promise<boolean>
+    staleOpen: () => Promise<CashSession | null>
+    recover: (id: string) => Promise<CashSession>
+    expectedCash: (id: string) => Promise<CashSessionExpectedCash | null>
+    recordMovement: (input: RecordCashMovementInput) => Promise<CashMovement>
+    listMovements: (sessionId: string) => Promise<CashMovement[]>
+  }
   notificationSettings: {
     get: () => Promise<NotificationSettings>
     listTimezones: () => Promise<string[]>
@@ -590,6 +624,7 @@ import { cloudInventory } from './cloud-inventory'
 import { cloudExpenses } from './cloud-expenses'
 import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
 import { cloudSavings, cloudDeposits } from './cloud-deposits'
+import { cloudCashSessions } from './cloud-cash'
 import { cloudRfqs, cloudPurchaseOrders } from './cloud-procurement'
 import { cloudAudit, cloudCharges, cloudDocuments } from './cloud-misc'
 
@@ -825,6 +860,7 @@ function electronAdapter(): DataClient {
       getProfile: () => window.api.business.getProfile(),
       update: (payload) => window.api.business.update(payload),
     },
+    cashSessions: window.api.cashSessions,
     notificationSettings: {
       get: () => window.api.notificationSettings.get(),
       listTimezones: () => window.api.notificationSettings.listTimezones(),
@@ -964,6 +1000,7 @@ function cloudAdapter(): DataClient {
     deposits: cloudDeposits,
     online: cloudOnline,
     business: cloudBusiness,
+    cashSessions: cloudCashSessions,
     notificationSettings: cloudNotificationSettings,
     fiscal: cloudFiscal,
     plans: cloudPlans,

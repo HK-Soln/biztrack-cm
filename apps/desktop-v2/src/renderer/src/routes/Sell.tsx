@@ -678,11 +678,20 @@ export function Sell() {
 
   const itemCount = cart.reduce((a, l) => a + l.quantity, 0)
 
+  // The open till shift, so a cloud cashier's sale attaches to their drawer and it reconciles.
+  // Desktop tags cash_session_id in the main process; the cloud API reads it off the request.
+  const currentShiftQ = useQuery({
+    queryKey: ['cash', 'current-shift'],
+    queryFn: () => dataClient.cashSessions.current(),
+    staleTime: 60_000,
+  })
+
   const buildInput = (
     payments: SaleInput['payments'],
     creditDueDate?: string | null,
   ): SaleInput => ({
     clientId: crypto.randomUUID(),
+    cashSessionId: currentShiftQ.data?.id ?? null,
     customerId: customer?.id ?? null,
     customerName: customer?.name ?? null,
     customerPhone: customer?.phone ?? null,
