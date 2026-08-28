@@ -93,7 +93,21 @@ export class PinService {
    * matches. Refuses on a stale device (demands a sync) or while locked out after
    * repeated failures. Each failure is audited; never reveals which manager was tried.
    */
+  /** Verify a manager PIN (BIZ-3.2). Thin wrapper over the method-aware verifier. */
   async verifyManagerPin(pin: string): Promise<PinVerifyResult> {
+    return this.verifyAuthorization({ method: 'PIN', secret: pin })
+  }
+
+  /**
+   * BIZ-3.3 — verify an authorization by any credential method (PIN, and CARD in slice 3). Hashes
+   * the presented secret against every authorizing member's live credential of that type and
+   * returns the matching identity. Same rate-limit / lockout / stale-device rules as the PIN path.
+   */
+  async verifyAuthorization(input: {
+    method: 'PIN' | 'CARD'
+    secret: string
+  }): Promise<PinVerifyResult> {
+    const { method, secret } = input
     const { businessId } = this.getContext()
     if (!businessId) throw new Error('No active business session.')
 
@@ -106,24 +120,12 @@ export class PinService {
     }
 
     if (this.isDeviceStale()) return DENIED('STALE_DEVICE')
-    if (!PIN_PATTERN.test(pin)) return DENIED('INVALID_FORMAT')
+    if (method === 'PIN' && !PIN_PATTERN.test(secret)) return DENIED('INVALID_FORMAT')
 
-    // Any ACTIVE member whose role is flagged can_authorize (Supervisor, Manager,
-    // Owner…) may authorize; role-less members fall back to the OWNER/MANAGER enum.
-    const managers = this.db.query<{ user_id: string; name: string | null; pin_hash: string }>(
-      `SELECT m.user_id, m.name, m.pin_hash
-         FROM business_members m
-         LEFT JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
-        WHERE m.business_id = ?
-          AND m.is_deleted = 0
-          AND m.status = 'ACTIVE'
-          AND m.pin_hash IS NOT NULL
-          AND (r.can_authorize = 1 OR (m.role_id IS NULL AND m.role IN ('OWNER', 'MANAGER')))`,
-      [businessId],
-    )
+    const managers = this.loadAuthorizers(businessId, method)
 
     for (const manager of managers) {
-      if (await bcrypt.compare(pin, manager.pin_hash)) {
+      if (await bcrypt.compare(secret, manager.hash)) {
         this.failedAttempts = 0
         this.lockedUntil = null
         return {
@@ -176,6 +178,48 @@ export class PinService {
       [businessId, userId],
     )
     return !!row
+  }
+
+  /**
+   * Authorizing members' credential hashes for a method. Any ACTIVE member whose role is flagged
+   * can_authorize (Supervisor, Manager, Owner…) qualifies; role-less members fall back to the
+   * OWNER/MANAGER enum. For PIN this is transition-safe (BIZ-3.3): it prefers the member's live
+   * member_auth_credentials PIN row and falls back to the legacy business_members.pin_hash until
+   * credentials have synced down.
+   */
+  private loadAuthorizers(
+    businessId: string,
+    method: 'PIN' | 'CARD',
+  ): Array<{ user_id: string; name: string | null; hash: string }> {
+    if (method === 'PIN') {
+      return this.db.query<{ user_id: string; name: string | null; hash: string }>(
+        `SELECT m.user_id, m.name, COALESCE(c.secret_hash, m.pin_hash) AS hash
+           FROM business_members m
+           LEFT JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+           LEFT JOIN member_auth_credentials c
+             ON c.member_id = m.id AND c.type = 'PIN' AND c.revoked_at IS NULL AND c.deleted_at IS NULL
+          WHERE m.business_id = ?
+            AND m.is_deleted = 0
+            AND m.status = 'ACTIVE'
+            AND COALESCE(c.secret_hash, m.pin_hash) IS NOT NULL
+            AND (r.can_authorize = 1 OR (m.role_id IS NULL AND m.role IN ('OWNER', 'MANAGER')))`,
+        [businessId],
+      )
+    }
+    return this.db.query<{ user_id: string; name: string | null; hash: string }>(
+      `SELECT m.user_id, m.name, c.secret_hash AS hash
+         FROM member_auth_credentials c
+         JOIN business_members m ON m.id = c.member_id
+         LEFT JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
+        WHERE c.business_id = ?
+          AND c.type = 'CARD'
+          AND c.revoked_at IS NULL
+          AND c.deleted_at IS NULL
+          AND m.is_deleted = 0
+          AND m.status = 'ACTIVE'
+          AND (r.can_authorize = 1 OR (m.role_id IS NULL AND m.role IN ('OWNER', 'MANAGER')))`,
+      [businessId],
+    )
   }
 
   private lockedResult(): PinVerifyResult {

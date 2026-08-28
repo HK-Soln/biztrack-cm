@@ -20,6 +20,7 @@ import type { AuditContext } from '@biztrack/types'
 import { RedisService } from '@/common/redis/redis.service'
 import { AuditService } from '@/modules/audit/audit.service'
 import { RealtimeService } from '@/modules/realtime/services/realtime.service'
+import { CredentialsService } from '@/modules/credentials/credentials.service'
 import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
@@ -63,6 +64,7 @@ export class BusinessService {
     private redis: RedisService,
     private auditService: AuditService,
     private realtime: RealtimeService,
+    private credentials: CredentialsService,
     @Inject(LOGGER) private logger: Logger,
   ) {
     this.logger.setContext('BusinessService')
@@ -377,26 +379,8 @@ export class BusinessService {
   ): Promise<SetMemberPinResponse> {
     this.logger.debug('Set own PIN', 'BusinessService', { businessId, userId })
     try {
-      const member = await this.membersRepo.findOne({
-        where: { businessId, userId, status: BusinessMemberStatus.ACTIVE },
-      })
-      if (!member) {
-        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
-      }
-      const pinVersion = (member.pinVersion ?? 0) + 1
-      const pinSetAt = new Date()
-      await this.membersRepo.update(member.id, { pinHash, pinVersion, pinSetAt })
-
-      this.auditService.log(context, {
-        action: 'UPDATE',
-        entityType: 'business_member',
-        entityId: member.id,
-        entityLabel: 'PIN',
-        // Never log the hash; record only that a PIN was set and its new version.
-        changes: { before: { pinVersion: member.pinVersion ?? 0 }, after: { pinVersion } },
-      })
-
-      return { memberId: member.id, pinVersion, pinSetAt: pinSetAt.toISOString() }
+      // BIZ-3.3: the PIN is now a member_auth_credentials row (one model for PIN + cards).
+      return await this.credentials.setPin(businessId, userId, pinHash, context)
     } catch (error) {
       return this.handleServiceError('setOwnPin', error, { businessId, userId })
     }

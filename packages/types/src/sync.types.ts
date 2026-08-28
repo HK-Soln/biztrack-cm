@@ -657,6 +657,24 @@ export interface TeamMemberSyncRecord extends SyncRecord {
   createdAt: string
 }
 
+/** A member authorization credential (BIZ-3.3) — a PIN or a scannable card. Pull-only:
+ * credentials are set/issued server-side and distributed to devices so authorization can be
+ * verified offline. The `secretHash` (bcrypt of the PIN / hash of the card token) rides the pull;
+ * high-entropy card hashes are safe on-device. A revoked credential (`revokedAt` set) is dead. */
+export interface MemberAuthCredentialSyncRecord extends SyncRecord {
+  businessId: string
+  memberId: string
+  userId: string
+  /** 'PIN' | 'CARD' (future 'NFC'). */
+  type: string
+  secretHash: string
+  version: number
+  issuedById: string | null
+  label: string | null
+  createdAt: string
+  revokedAt: string | null
+}
+
 export interface RoleSyncRecord extends SyncRecord {
   businessId: string
   name: string
@@ -839,6 +857,7 @@ export interface ChangeSet {
   purchaseOrderItems?: SyncRecord[]
   expenses?: ExpenseSyncRecord[]
   teamMembers?: TeamMemberSyncRecord[]
+  memberAuthCredentials?: MemberAuthCredentialSyncRecord[]
   roles?: RoleSyncRecord[]
   savingsAccounts?: SavingsAccountSyncRecord[]
   savingsTransactions?: SavingsTransactionSyncRecord[]

@@ -359,6 +359,22 @@ const TEAM_MEMBER_MAP: Record<string, string> = {
   created_at: 'createdAt',
   updated_at: 'updatedAt',
 }
+// BIZ-3.3 — member authorization credentials (PIN + scannable cards), pull-only.
+const AUTH_CREDENTIAL_MAP: Record<string, string> = {
+  id: 'id',
+  member_id: 'memberId',
+  business_id: 'businessId',
+  user_id: 'userId',
+  type: 'type',
+  secret_hash: 'secretHash',
+  version: 'version',
+  issued_by_id: 'issuedById',
+  label: 'label',
+  revoked_at: 'revokedAt',
+  created_at: 'createdAt',
+  updated_at: 'updatedAt',
+  deleted_at: 'deletedAt',
+}
 const CASH_SESSION_MAP: Record<string, string> = {
   id: 'id',
   business_id: 'businessId',
@@ -833,6 +849,7 @@ export class SyncService {
     }
     pushAll(changes.roles, 'roles', ROLE_MAP)
     pushAll(changes.teamMembers, 'business_members', TEAM_MEMBER_MAP)
+    pushAll(changes.memberAuthCredentials, 'member_auth_credentials', AUTH_CREDENTIAL_MAP)
     pushAll(changes.productBundleComponents, 'product_bundle_components', BUNDLE_COMPONENT_MAP)
     pushAll(changes.inventoryLevels, 'inventory_levels', INVENTORY_LEVEL_MAP)
     pushAll(changes.inventoryMovements, 'inventory_movements', INVENTORY_MOVEMENT_MAP)
