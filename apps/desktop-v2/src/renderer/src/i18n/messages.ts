@@ -3097,6 +3097,26 @@ export const en = {
   'profile.micro': 'Micro',
   'profile.small': 'Small business',
   'profile.sme': 'SME',
+  'cards.title': 'Authorization cards',
+  'cards.sub':
+    'A scannable card lets a manager approve at the till without typing a PIN. The owner issues it; nobody memorises a secret.',
+  'cards.none': 'No card',
+  'cards.card': 'Card',
+  'cards.issue': 'Issue card',
+  'cards.revoke': 'Revoke',
+  'cards.issueTitle': 'Issue a card',
+  'cards.issueBody':
+    'A new card will be created for {name}. You will get a QR to print — it is shown once.',
+  'cards.label': 'Label (optional)',
+  'cards.labelPh': 'e.g. Sam’s card',
+  'cards.cancel': 'Cancel',
+  'cards.readyTitle': 'Card ready',
+  'cards.readyBody':
+    'Download the card PDF and print it. The code is shown only now — if you lose it, revoke the card and issue a new one.',
+  'cards.done': 'Done',
+  'cards.download': 'Download card PDF',
+  'cards.issueFailed': 'Could not issue the card',
+  'cards.revokeFailed': 'Could not revoke the card',
   'periods.title': 'Accounting periods',
   'periods.sub':
     'Close each month once its books are final. A closed period can be locked to prevent further changes.',
@@ -6657,6 +6677,26 @@ export const fr: Record<MessageKey, string> = {
   'profile.micro': 'Micro',
   'profile.small': 'Petite entreprise',
   'profile.sme': 'PME',
+  'cards.title': 'Cartes d’autorisation',
+  'cards.sub':
+    'Une carte à scanner permet à un responsable d’approuver en caisse sans taper de code PIN. Le propriétaire l’émet ; personne ne mémorise de secret.',
+  'cards.none': 'Aucune carte',
+  'cards.card': 'Carte',
+  'cards.issue': 'Émettre une carte',
+  'cards.revoke': 'Révoquer',
+  'cards.issueTitle': 'Émettre une carte',
+  'cards.issueBody':
+    'Une nouvelle carte sera créée pour {name}. Vous obtiendrez un QR à imprimer — affiché une seule fois.',
+  'cards.label': 'Libellé (facultatif)',
+  'cards.labelPh': 'ex. Carte de Sam',
+  'cards.cancel': 'Annuler',
+  'cards.readyTitle': 'Carte prête',
+  'cards.readyBody':
+    'Téléchargez le PDF de la carte et imprimez-le. Le code n’est affiché que maintenant — en cas de perte, révoquez la carte et émettez-en une nouvelle.',
+  'cards.done': 'Terminé',
+  'cards.download': 'Télécharger le PDF',
+  'cards.issueFailed': 'Impossible d’émettre la carte',
+  'cards.revokeFailed': 'Impossible de révoquer la carte',
   'periods.title': 'Périodes comptables',
   'periods.sub':
     'Clôturez chaque mois une fois les comptes arrêtés. Une période clôturée peut être verrouillée pour empêcher toute modification.',

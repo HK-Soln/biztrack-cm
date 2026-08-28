@@ -165,6 +165,9 @@ import type {
   SaleInput,
   SalesListQuery,
   RefundSaleInput,
+  MemberAuthCredential,
+  IssueCardRequest,
+  IssueCardResponse,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -394,6 +397,12 @@ export interface DataClient {
     set: (pin: string) => Promise<{ pinVersion: number }>
     verify: (pin: string) => Promise<PinVerifyResult>
     canManage: () => Promise<boolean>
+  }
+  /** Authorization cards (BIZ-3.3) — owner-only, online. */
+  credentials: {
+    list: () => Promise<MemberAuthCredential[]>
+    issueCard: (input: IssueCardRequest) => Promise<IssueCardResponse>
+    revoke: (id: string) => Promise<MemberAuthCredential>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -629,6 +638,7 @@ import { cloudExpenses } from './cloud-expenses'
 import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
 import { cloudSavings, cloudDeposits } from './cloud-deposits'
 import { cloudCashSessions } from './cloud-cash'
+import { cloudCredentials } from './cloud-credentials'
 import { cloudRfqs, cloudPurchaseOrders } from './cloud-procurement'
 import { cloudAudit, cloudCharges, cloudDocuments } from './cloud-misc'
 
@@ -797,6 +807,11 @@ function electronAdapter(): DataClient {
       set: (pin) => window.api.pin.set(pin),
       verify: (pin) => window.api.pin.verify(pin),
       canManage: () => window.api.pin.canManage(),
+    },
+    credentials: {
+      list: () => window.api.credentials.list(),
+      issueCard: (input) => window.api.credentials.issueCard(input),
+      revoke: (id) => window.api.credentials.revoke(id),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -998,6 +1013,7 @@ function cloudAdapter(): DataClient {
     audit: cloudAudit,
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
     pin: { set: notWired, verify: notWired, canManage: async () => false },
+    credentials: cloudCredentials,
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,

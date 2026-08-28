@@ -30,6 +30,9 @@ export const IPC = {
   pinSet: 'pin:set',
   pinVerify: 'pin:verify',
   pinCanManage: 'pin:can-manage',
+  credentialsList: 'credentials:list',
+  credentialsIssueCard: 'credentials:issue-card',
+  credentialsRevoke: 'credentials:revoke',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -317,6 +320,12 @@ import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
 import type { BusinessProfileTier } from '@biztrack/types'
 import type { RefundSaleInput } from '@biztrack/types'
 export type { RefundSaleInput } from '@biztrack/types'
+import type {
+  MemberAuthCredential as MemberAuthCredentialT,
+  IssueCardRequest as IssueCardRequestT,
+  IssueCardResponse as IssueCardResponseT,
+} from '@biztrack/types'
+export type { MemberAuthCredential, IssueCardRequest, IssueCardResponse } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
@@ -1920,6 +1929,12 @@ export interface BridgeApi {
     verify: (pin: string) => Promise<PinVerifyResult>
     /** Whether the current user's role may set a PIN and authorize step-up. */
     canManage: () => Promise<boolean>
+  }
+  /** Authorization cards (BIZ-3.3). Owner-only; online — the server owns issuance/revocation. */
+  credentials: {
+    list: () => Promise<MemberAuthCredentialT[]>
+    issueCard: (input: IssueCardRequestT) => Promise<IssueCardResponseT>
+    revoke: (id: string) => Promise<MemberAuthCredentialT>
   }
   sync: {
     /** Run a push+pull cycle now. */
