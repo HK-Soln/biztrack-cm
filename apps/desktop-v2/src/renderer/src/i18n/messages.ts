@@ -3541,6 +3541,8 @@ export const en = {
   'stepUp.authorize': 'Authorize',
   'stepUp.cancel': 'Cancel',
   'stepUp.wrongPin': 'Incorrect PIN.',
+  'stepUp.orScan': 'Or scan an authorization card.',
+  'stepUp.cardFailed': 'Card not recognized.',
   'stepUp.attemptsLeft': 'attempts left',
   'stepUp.lockedOut': 'Too many attempts. Try again in a few minutes.',
   'stepUp.staleDevice':
@@ -7125,6 +7127,8 @@ export const fr: Record<MessageKey, string> = {
   'stepUp.authorize': 'Autoriser',
   'stepUp.cancel': 'Annuler',
   'stepUp.wrongPin': 'Code PIN incorrect.',
+  'stepUp.orScan': 'Ou scannez une carte d’autorisation.',
+  'stepUp.cardFailed': 'Carte non reconnue.',
   'stepUp.attemptsLeft': 'tentatives restantes',
   'stepUp.lockedOut': 'Trop de tentatives. Réessayez dans quelques minutes.',
   'stepUp.staleDevice':

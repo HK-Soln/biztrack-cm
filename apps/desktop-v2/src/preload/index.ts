@@ -217,6 +217,7 @@ const api: BridgeApi = {
   pin: {
     set: (pin) => ipcRenderer.invoke(IPC.pinSet, pin),
     verify: (pin) => ipcRenderer.invoke(IPC.pinVerify, pin),
+    verifyCard: (token) => ipcRenderer.invoke(IPC.pinVerifyCard, token),
     canManage: () => ipcRenderer.invoke(IPC.pinCanManage),
   },
   credentials: {

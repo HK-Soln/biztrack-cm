@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Button, Modal, OtpInput } from '@biztrack/ui/biztrack'
-import type { PinVerifyReason } from '@shared/ipc'
+import type { PinVerifyReason, PinVerifyResult } from '@shared/ipc'
 import { useT } from '@/i18n'
 import { dataClient } from '@/lib/data-client'
+import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useStepUpStore } from '@/stores/step-up.store'
 
 const PIN_LENGTH = 6
@@ -45,12 +46,11 @@ export function ManagerStepUpModal() {
     }
   }
 
-  const submit = async (code: string) => {
-    if (busy || code.length < PIN_LENGTH) return
+  const authorizeWith = async (verify: () => Promise<PinVerifyResult>, onFail: string) => {
     setBusy(true)
     setError(null)
     try {
-      const result = await dataClient.pin.verify(code)
+      const result = await verify()
       if (result.authorized && result.authorizedByUserId) {
         resolve({
           authorizedByUserId: result.authorizedByUserId,
@@ -61,12 +61,26 @@ export function ManagerStepUpModal() {
       setError(messageFor(result.reason, result.attemptsRemaining))
       setPin('')
     } catch {
-      setError(t('stepUp.wrongPin'))
+      setError(onFail)
       setPin('')
     } finally {
       setBusy(false)
     }
   }
+
+  const submit = async (code: string) => {
+    if (busy || code.length < PIN_LENGTH) return
+    await authorizeWith(() => dataClient.pin.verify(code), t('stepUp.wrongPin'))
+  }
+
+  // BIZ-3.3 — scanning an authorization card verifies its token directly (no PIN typed/shown).
+  useBarcodeScanner(
+    (token) => {
+      if (open && !busy)
+        void authorizeWith(() => dataClient.pin.verifyCard(token), t('stepUp.cardFailed'))
+    },
+    { enabled: open },
+  )
 
   return (
     <Modal
@@ -95,6 +109,9 @@ export function ManagerStepUpModal() {
         onComplete={(v) => void submit(v)}
         error={!!error}
       />
+      <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>
+        {t('stepUp.orScan')}
+      </p>
       {error ? (
         <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
           {error}

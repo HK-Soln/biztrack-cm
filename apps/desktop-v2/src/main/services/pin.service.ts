@@ -98,6 +98,11 @@ export class PinService {
     return this.verifyAuthorization({ method: 'PIN', secret: pin })
   }
 
+  /** Verify a scanned authorization card token (BIZ-3.3) — same throttle/lockout as the PIN. */
+  async verifyCard(token: string): Promise<PinVerifyResult> {
+    return this.verifyAuthorization({ method: 'CARD', secret: (token ?? '').trim() })
+  }
+
   /**
    * BIZ-3.3 — verify an authorization by any credential method (PIN, and CARD in slice 3). Hashes
    * the presented secret against every authorizing member's live credential of that type and

@@ -396,6 +396,7 @@ export interface DataClient {
   pin: {
     set: (pin: string) => Promise<{ pinVersion: number }>
     verify: (pin: string) => Promise<PinVerifyResult>
+    verifyCard: (token: string) => Promise<PinVerifyResult>
     canManage: () => Promise<boolean>
   }
   /** Authorization cards (BIZ-3.3) — owner-only, online. */
@@ -806,6 +807,7 @@ function electronAdapter(): DataClient {
     pin: {
       set: (pin) => window.api.pin.set(pin),
       verify: (pin) => window.api.pin.verify(pin),
+      verifyCard: (token) => window.api.pin.verifyCard(token),
       canManage: () => window.api.pin.canManage(),
     },
     credentials: {
@@ -1012,7 +1014,7 @@ function cloudAdapter(): DataClient {
     documents: cloudDocuments,
     audit: cloudAudit,
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
-    pin: { set: notWired, verify: notWired, canManage: async () => false },
+    pin: { set: notWired, verify: notWired, verifyCard: notWired, canManage: async () => false },
     credentials: cloudCredentials,
     uploads: cloudUploads,
     charges: cloudCharges,

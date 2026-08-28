@@ -29,6 +29,7 @@ export const IPC = {
   authLogout: 'auth:logout',
   pinSet: 'pin:set',
   pinVerify: 'pin:verify',
+  pinVerifyCard: 'pin:verify-card',
   pinCanManage: 'pin:can-manage',
   credentialsList: 'credentials:list',
   credentialsIssueCard: 'credentials:issue-card',
@@ -1927,6 +1928,8 @@ export interface BridgeApi {
     set: (pin: string) => Promise<{ pinVersion: number }>
     /** Verify a manager PIN offline for step-up authorization. */
     verify: (pin: string) => Promise<PinVerifyResult>
+    /** Verify a scanned authorization card token offline (BIZ-3.3). */
+    verifyCard: (token: string) => Promise<PinVerifyResult>
     /** Whether the current user's role may set a PIN and authorize step-up. */
     canManage: () => Promise<boolean>
   }
