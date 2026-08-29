@@ -3117,6 +3117,9 @@ export const en = {
   'cards.download': 'Download card PDF',
   'cards.issueFailed': 'Could not issue the card',
   'cards.revokeFailed': 'Could not revoke the card',
+  'cards.allowPin': 'Allow PIN at the till',
+  'cards.needCardFirst': 'issue a card before turning this off',
+  'cards.methodsFailed': 'Could not update the allowed methods',
   'periods.title': 'Accounting periods',
   'periods.sub':
     'Close each month once its books are final. A closed period can be locked to prevent further changes.',
@@ -3543,6 +3546,7 @@ export const en = {
   'stepUp.wrongPin': 'Incorrect PIN.',
   'stepUp.orScan': 'Or scan an authorization card.',
   'stepUp.cardFailed': 'Card not recognized.',
+  'stepUp.scanOnly': 'Scan an authorization card to approve.',
   'stepUp.attemptsLeft': 'attempts left',
   'stepUp.lockedOut': 'Too many attempts. Try again in a few minutes.',
   'stepUp.staleDevice':
@@ -6699,6 +6703,9 @@ export const fr: Record<MessageKey, string> = {
   'cards.download': 'Télécharger le PDF',
   'cards.issueFailed': 'Impossible d’émettre la carte',
   'cards.revokeFailed': 'Impossible de révoquer la carte',
+  'cards.allowPin': 'Autoriser le code PIN en caisse',
+  'cards.needCardFirst': 'émettez une carte avant de le désactiver',
+  'cards.methodsFailed': 'Impossible de mettre à jour les méthodes autorisées',
   'periods.title': 'Périodes comptables',
   'periods.sub':
     'Clôturez chaque mois une fois les comptes arrêtés. Une période clôturée peut être verrouillée pour empêcher toute modification.',
@@ -7129,6 +7136,7 @@ export const fr: Record<MessageKey, string> = {
   'stepUp.wrongPin': 'Code PIN incorrect.',
   'stepUp.orScan': 'Ou scannez une carte d’autorisation.',
   'stepUp.cardFailed': 'Carte non reconnue.',
+  'stepUp.scanOnly': 'Scannez une carte d’autorisation pour approuver.',
   'stepUp.attemptsLeft': 'tentatives restantes',
   'stepUp.lockedOut': 'Trop de tentatives. Réessayez dans quelques minutes.',
   'stepUp.staleDevice':

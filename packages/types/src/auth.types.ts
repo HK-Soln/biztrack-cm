@@ -1,4 +1,5 @@
 import { SubscriptionPlan, BusinessMemberRole, BusinessProfileTier } from './business.types'
+import type { MemberAuthCredentialType } from './credential.types'
 import type { AuthPermissions, Resource } from './permissions.types'
 import type { IsoDateString } from './http.types'
 
@@ -330,6 +331,9 @@ export interface SessionStatus {
   /** Active business size profile (BIZ-5.7) — drives profile-aware vocabulary in the renderer.
    * null until a business is selected / when unknown ⇒ base vocabulary (never a wrong label). */
   profile?: BusinessProfileTier | null
+  /** Authorization methods the active business accepts at step-up (BIZ-3.3). undefined/null ⇒
+   * both PIN + CARD (the safe default — never lock the owner out of authorizing). */
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
   /**
    * BIZ-5.5 — the business's plan-tier feature entitlements, for client-side module/surface gating.
    * `undefined` means "unknown" (never fetched, or offline with no cache) → treat as PERMISSIVE: the

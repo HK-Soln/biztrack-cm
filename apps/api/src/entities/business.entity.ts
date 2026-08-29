@@ -16,6 +16,7 @@ import {
   FiscalRegime,
   BillingCycle,
   BusinessProfileTier,
+  MemberAuthCredentialType,
 } from '@biztrack/types'
 import type { BusinessHours } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
@@ -107,6 +108,10 @@ export class Business extends BaseEntity {
    * vocabulary in the client (BIZ-5.7). */
   @Column({ name: 'profile', type: 'varchar', length: 16, default: BusinessProfileTier.SMALL })
   profile!: BusinessProfileTier
+
+  /** Authorization methods accepted at step-up (BIZ-3.3). null ⇒ both PIN + CARD. */
+  @Column({ name: 'allowed_auth_methods', type: 'jsonb', nullable: true })
+  allowedAuthMethods!: MemberAuthCredentialType[] | null
 
   @Column({ name: 'owner_id' })
   ownerId!: string

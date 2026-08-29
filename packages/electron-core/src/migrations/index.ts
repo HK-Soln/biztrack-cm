@@ -77,6 +77,7 @@ import { migration_0075 } from './0075_business_date'
 import { migration_0076 } from './0076_fiscal_years_accounting_periods'
 import { migration_0077 } from './0077_local_businesses_profile'
 import { migration_0078 } from './0078_member_auth_credentials'
+import { migration_0079 } from './0079_local_businesses_auth_methods'
 
 /**
  * Ordered list of all local-SQLite migrations, shared by every consumer of
@@ -161,6 +162,7 @@ export const MIGRATIONS: Migration[] = [
   migration_0076,
   migration_0077,
   migration_0078,
+  migration_0079,
 ]
 
 export { runMigrations, ensureColumn } from './runner'

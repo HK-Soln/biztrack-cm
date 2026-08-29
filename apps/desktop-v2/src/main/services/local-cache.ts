@@ -1,12 +1,26 @@
 import type { DatabaseService } from '@biztrack/electron-core'
 import type { PlanStateResponse, Resource } from '@biztrack/types'
 
+/** Parse the cached allowed-auth-methods JSON; null (default = both) on absence or bad data. */
+function parseAuthMethods(raw: string | null): string[] | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : null
+  } catch {
+    return null
+  }
+}
+
 export interface CachedBusiness {
   id: string
   name: string
   currency: string
   /** Business size profile (BIZ-5.7) — cached so offline sessions drive the right vocabulary. */
   profile: string | null
+  /** Allowed step-up methods (BIZ-3.3) — cached so the offline verifier honours a PIN-dropped shop.
+   * null ⇒ both PIN + CARD. */
+  allowedAuthMethods: string[] | null
   role: string | null
 }
 
@@ -84,24 +98,40 @@ export class LocalCache {
       name: string
       currency?: string | null
       profile?: string | null
+      allowedAuthMethods?: string[] | null
       role?: string | null
     }>,
   ): void {
     const now = new Date().toISOString()
     for (const b of list) {
       this.db.run(
-        `INSERT INTO local_businesses (id, name, currency, profile, user_id, saved_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO local_businesses (id, name, currency, profile, allowed_auth_methods, user_id, saved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET name=excluded.name, currency=excluded.currency,
-           profile=excluded.profile, user_id=excluded.user_id, saved_at=excluded.saved_at`,
-        [b.id, b.name, b.currency ?? 'XAF', b.profile ?? null, userId, now],
+           profile=excluded.profile, allowed_auth_methods=excluded.allowed_auth_methods,
+           user_id=excluded.user_id, saved_at=excluded.saved_at`,
+        [
+          b.id,
+          b.name,
+          b.currency ?? 'XAF',
+          b.profile ?? null,
+          b.allowedAuthMethods ? JSON.stringify(b.allowedAuthMethods) : null,
+          userId,
+          now,
+        ],
       )
     }
   }
 
   getBusiness(id: string): CachedBusiness | null {
-    const row = this.db.get<{ id: string; name: string; currency: string; profile: string | null }>(
-      'SELECT id, name, currency, profile FROM local_businesses WHERE id = ?',
+    const row = this.db.get<{
+      id: string
+      name: string
+      currency: string
+      profile: string | null
+      allowed_auth_methods: string | null
+    }>(
+      'SELECT id, name, currency, profile, allowed_auth_methods FROM local_businesses WHERE id = ?',
       [id],
     )
     return row
@@ -110,6 +140,7 @@ export class LocalCache {
           name: row.name,
           currency: row.currency,
           profile: row.profile ?? null,
+          allowedAuthMethods: parseAuthMethods(row.allowed_auth_methods),
           role: null,
         }
       : null
@@ -121,14 +152,17 @@ export class LocalCache {
       name: string
       currency: string
       profile: string | null
-    }>('SELECT id, name, currency, profile FROM local_businesses WHERE user_id = ? ORDER BY name', [
-      userId,
-    ])
+      allowed_auth_methods: string | null
+    }>(
+      'SELECT id, name, currency, profile, allowed_auth_methods FROM local_businesses WHERE user_id = ? ORDER BY name',
+      [userId],
+    )
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
       currency: r.currency,
       profile: r.profile ?? null,
+      allowedAuthMethods: parseAuthMethods(r.allowed_auth_methods),
       role: null,
     }))
   }

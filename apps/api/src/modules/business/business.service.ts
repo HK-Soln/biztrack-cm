@@ -47,6 +47,7 @@ import {
   clampCreditDays,
   normalizeBusinessHours,
   normalizeBusinessProfile,
+  normalizeAuthMethods,
 } from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
@@ -83,6 +84,7 @@ export class BusinessService {
         dayCutoverTime: rawCutover,
         fiscalYearStartMonth: rawFyStart,
         profile: rawProfile,
+        allowedAuthMethods: rawAllowedAuthMethods,
         ...createRest
       } = dto
       const business = this.businessRepo.create({
@@ -93,6 +95,9 @@ export class BusinessService {
         dayCutoverTime: normalizeDayCutover(rawCutover),
         fiscalYearStartMonth: clampFiscalYearStartMonth(rawFyStart),
         profile: normalizeBusinessProfile(rawProfile),
+        allowedAuthMethods: rawAllowedAuthMethods
+          ? normalizeAuthMethods(rawAllowedAuthMethods)
+          : null,
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -191,6 +196,7 @@ export class BusinessService {
         dayCutoverTime: rawUpdateCutover,
         fiscalYearStartMonth: rawUpdateFyStart,
         profile: rawUpdateProfile,
+        allowedAuthMethods: rawUpdateAuthMethods,
         ...updateRest
       } = dto
       await this.businessRepo.update(id, {
@@ -211,6 +217,9 @@ export class BusinessService {
           : {}),
         ...(rawUpdateProfile != null
           ? { profile: normalizeBusinessProfile(rawUpdateProfile) }
+          : {}),
+        ...(rawUpdateAuthMethods !== undefined
+          ? { allowedAuthMethods: normalizeAuthMethods(rawUpdateAuthMethods) }
           : {}),
       })
       // Ensure the fiscal calendar exists once onboarding details (incl. the start month) are set

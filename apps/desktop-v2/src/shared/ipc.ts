@@ -717,6 +717,7 @@ export interface BusinessOption {
   /** Cached alongside the option so the offline session has the right currency/vocabulary. */
   currency?: string | null
   profile?: string | null
+  allowedAuthMethods?: string[] | null
 }
 
 export type OtpChannel = 'SMS' | 'WHATSAPP' | 'EMAIL'

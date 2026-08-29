@@ -2,6 +2,7 @@ import {
   IsString,
   IsOptional,
   IsEnum,
+  IsArray,
   IsObject,
   MinLength,
   MaxLength,
@@ -14,7 +15,12 @@ import {
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import type { BusinessHours, CreateBusinessRequest } from '@biztrack/types'
-import { BusinessType, FiscalRegime, BusinessProfileTier } from '@biztrack/types'
+import {
+  BusinessType,
+  FiscalRegime,
+  BusinessProfileTier,
+  MemberAuthCredentialType,
+} from '@biztrack/types'
 
 export class CreateBusinessDto implements CreateBusinessRequest {
   @ApiProperty({ example: 'Boutique Kamga' })
@@ -120,6 +126,16 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @IsOptional()
   @IsEnum(BusinessProfileTier)
   profile?: BusinessProfileTier | null
+
+  @ApiPropertyOptional({
+    isArray: true,
+    enum: MemberAuthCredentialType,
+    description: 'Authorization methods accepted at step-up (PIN / CARD). Omit for both.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(MemberAuthCredentialType, { each: true })
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
 
   // --- Fiscal / OHADA (stored, not yet used by tax logic) ---
   @ApiPropertyOptional({ example: 'P012345678901A' })

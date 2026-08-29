@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Button, Modal, OtpInput } from '@biztrack/ui/biztrack'
+import { MemberAuthCredentialType } from '@biztrack/types'
 import type { PinVerifyReason, PinVerifyResult } from '@shared/ipc'
 import { useT } from '@/i18n'
 import { dataClient } from '@/lib/data-client'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
+import { useSessionStore } from '@/stores/session.store'
 import { useStepUpStore } from '@/stores/step-up.store'
 
 const PIN_LENGTH = 6
@@ -17,6 +19,10 @@ export function ManagerStepUpModal() {
   const t = useT()
   const open = useStepUpStore((s) => s.open)
   const resolve = useStepUpStore((s) => s.resolve)
+  const allowedMethods = useSessionStore((s) => s.status.allowedAuthMethods)
+  // null/absent ⇒ both allowed (never lock the owner out).
+  const pinAllowed = !allowedMethods || allowedMethods.includes(MemberAuthCredentialType.PIN)
+  const cardAllowed = !allowedMethods || allowedMethods.includes(MemberAuthCredentialType.CARD)
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -94,24 +100,39 @@ export function ManagerStepUpModal() {
           <Button variant="soft" type="button" onClick={cancel} disabled={busy}>
             {t('stepUp.cancel')}
           </Button>
-          <Button variant="primary" type="submit" loading={busy} disabled={pin.length < PIN_LENGTH}>
-            {t('stepUp.authorize')}
-          </Button>
+          {pinAllowed ? (
+            <Button
+              variant="primary"
+              type="submit"
+              loading={busy}
+              disabled={pin.length < PIN_LENGTH}
+            >
+              {t('stepUp.authorize')}
+            </Button>
+          ) : null}
         </>
       }
     >
       <p style={{ marginBottom: 12 }}>{t('stepUp.subtitle')}</p>
-      <label className="lbl2">{t('stepUp.pinLabel')}</label>
-      <OtpInput
-        length={PIN_LENGTH}
-        value={pin}
-        onChange={setPin}
-        onComplete={(v) => void submit(v)}
-        error={!!error}
-      />
-      <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>
-        {t('stepUp.orScan')}
-      </p>
+      {pinAllowed ? (
+        <>
+          <label className="lbl2">{t('stepUp.pinLabel')}</label>
+          <OtpInput
+            length={PIN_LENGTH}
+            value={pin}
+            onChange={setPin}
+            onComplete={(v) => void submit(v)}
+            error={!!error}
+          />
+          {cardAllowed ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>
+              {t('stepUp.orScan')}
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p style={{ fontSize: 13.5, marginTop: 4 }}>{t('stepUp.scanOnly')}</p>
+      )}
       {error ? (
         <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
           {error}

@@ -62,6 +62,16 @@ export function AuthCardsSection() {
     onError: (e) => setError(errorMessage(e, t('cards.revokeFailed'))),
   })
 
+  // BIZ-3.3 slice 4 — a shop on cards can turn the PIN off (but never drop its last method).
+  const allowedMethods = useSessionStore((s) => s.status.allowedAuthMethods)
+  const pinEnabled = !allowedMethods || allowedMethods.includes(MemberAuthCredentialType.PIN)
+  const setMethods = useMutation({
+    mutationFn: (methods: MemberAuthCredentialType[]) =>
+      dataClient.business.update({ allowedAuthMethods: methods }),
+    onSuccess: () => void useSessionStore.getState().refresh(),
+    onError: (e) => setError(errorMessage(e, t('cards.methodsFailed'))),
+  })
+
   const download = async () => {
     if (!issued) return
     const html = await buildAuthCardHtml({
@@ -80,6 +90,9 @@ export function AuthCardsSection() {
     (credsQ.data ?? []).filter(
       (c) => c.memberId === memberId && c.type === MemberAuthCredentialType.CARD && !c.revokedAt,
     )
+  const hasAnyCard = (credsQ.data ?? []).some(
+    (c) => c.type === MemberAuthCredentialType.CARD && !c.revokedAt,
+  )
 
   return (
     <div className="settings-card" style={{ marginTop: 18 }}>
@@ -93,6 +106,28 @@ export function AuthCardsSection() {
           <span>{error}</span>
         </div>
       ) : null}
+
+      {/* Allow-PIN toggle — can only be turned off once at least one card exists. */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <input
+          type="checkbox"
+          checked={pinEnabled}
+          disabled={setMethods.isPending || (pinEnabled && !hasAnyCard)}
+          onChange={(e) =>
+            setMethods.mutate(
+              e.target.checked
+                ? [MemberAuthCredentialType.PIN, MemberAuthCredentialType.CARD]
+                : [MemberAuthCredentialType.CARD],
+            )
+          }
+        />
+        <span>
+          {t('cards.allowPin')}
+          {pinEnabled && !hasAnyCard ? (
+            <span className="cash-muted"> — {t('cards.needCardFirst')}</span>
+          ) : null}
+        </span>
+      </label>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {members.map((m) => {

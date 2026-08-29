@@ -125,6 +125,9 @@ export class PinService {
     }
 
     if (this.isDeviceStale()) return DENIED('STALE_DEVICE')
+    // Defense-in-depth: reject a method the business has switched off (BIZ-3.3 slice 4). The UI
+    // already hides a disabled input; this stops a bypass.
+    if (!this.isMethodAllowed(businessId, method)) return DENIED('NO_MATCH')
     if (method === 'PIN' && !PIN_PATTERN.test(secret)) return DENIED('INVALID_FORMAT')
 
     const managers = this.loadAuthorizers(businessId, method)
@@ -225,6 +228,23 @@ export class PinService {
           AND (r.can_authorize = 1 OR (m.role_id IS NULL AND m.role IN ('OWNER', 'MANAGER')))`,
       [businessId],
     )
+  }
+
+  /** Whether the business accepts a given step-up method (BIZ-3.3 slice 4). Reads the cached
+   *  allowed_auth_methods; absent/blank ⇒ both PIN + CARD allowed. */
+  private isMethodAllowed(businessId: string, method: 'PIN' | 'CARD'): boolean {
+    const row = this.db.get<{ v: string | null }>(
+      'SELECT allowed_auth_methods AS v FROM local_businesses WHERE id = ?',
+      [businessId],
+    )
+    if (!row?.v) return true
+    try {
+      const list = JSON.parse(row.v) as unknown
+      if (!Array.isArray(list) || list.length === 0) return true
+      return list.includes(method)
+    } catch {
+      return true
+    }
   }
 
   private lockedResult(): PinVerifyResult {

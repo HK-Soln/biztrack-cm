@@ -1,4 +1,5 @@
 import type { IsoDateString } from './http.types'
+import type { MemberAuthCredentialType } from './credential.types'
 
 export interface Business {
   id: string
@@ -25,6 +26,8 @@ export interface Business {
   fiscalYearStartMonth?: number | null
   /** Business size profile (MICRO | SMALL | SME) — sets defaults + drives vocabulary (BIZ-5.7). */
   profile?: BusinessProfileTier | null
+  /** Authorization methods accepted at step-up (BIZ-3.3). null/absent ⇒ both PIN + CARD. */
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
@@ -233,6 +236,8 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   fiscalYearStartMonth?: number | null
   /** Business size profile (MICRO | SMALL | SME) — sets defaults + drives vocabulary. */
   profile?: BusinessProfileTier | null
+  /** Authorization methods accepted at step-up (BIZ-3.3). null/absent ⇒ both PIN + CARD. */
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -259,6 +264,7 @@ export interface BusinessProfile {
   dayCutoverTime: string | null
   fiscalYearStartMonth: number | null
   profile: BusinessProfileTier | null
+  allowedAuthMethods: MemberAuthCredentialType[] | null
   // Legal / fiscal identity captured at onboarding (editable afterward — Settings → Tax).
   niu: string | null
   rccm: string | null
@@ -289,6 +295,7 @@ export interface BusinessMembershipBusinessSummary {
   dayCutoverTime?: string | null
   fiscalYearStartMonth?: number | null
   profile?: BusinessProfileTier | null
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
   niu?: string | null
   rccm?: string | null
   vatRegistered?: boolean

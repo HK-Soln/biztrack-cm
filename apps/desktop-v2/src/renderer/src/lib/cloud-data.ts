@@ -155,6 +155,7 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     dayCutoverTime: b.dayCutoverTime ?? null,
     fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
     profile: b.profile ?? null,
+    allowedAuthMethods: b.allowedAuthMethods ?? null,
     country: b.country ?? null,
     niu: b.niu ?? null,
     rccm: b.rccm ?? null,

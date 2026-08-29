@@ -51,6 +51,7 @@ export class BusinessService {
       dayCutoverTime: b.dayCutoverTime ?? null,
       fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
       profile: b.profile ?? null,
+      allowedAuthMethods: b.allowedAuthMethods ?? null,
       niu: b.niu ?? null,
       rccm: b.rccm ?? null,
       vatRegistered: b.vatRegistered ?? false,
@@ -70,7 +71,13 @@ export class BusinessService {
     const userId = this.getUserId()
     if (userId && b?.id) {
       this.cache.saveBusinesses(userId, [
-        { id: b.id, name: b.name, currency: b.currency ?? 'XAF', profile: b.profile ?? null },
+        {
+          id: b.id,
+          name: b.name,
+          currency: b.currency ?? 'XAF',
+          profile: b.profile ?? null,
+          allowedAuthMethods: b.allowedAuthMethods ?? null,
+        },
       ])
     }
     return {
@@ -91,6 +98,7 @@ export class BusinessService {
       dayCutoverTime: b.dayCutoverTime ?? null,
       fiscalYearStartMonth: b.fiscalYearStartMonth ?? 1,
       profile: b.profile ?? null,
+      allowedAuthMethods: b.allowedAuthMethods ?? null,
       niu: b.niu ?? null,
       rccm: b.rccm ?? null,
       vatRegistered: b.vatRegistered ?? false,

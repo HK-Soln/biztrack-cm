@@ -9,6 +9,26 @@ export enum MemberAuthCredentialType {
   // NFC is a future type — same model, new input source.
 }
 
+/** BIZ-3.3 slice 4 — the authorization methods a business accepts at step-up. A shop on cards can
+ * drop 'PIN'. Both are allowed by default. Removing a method here hides its input AND makes the
+ * verifier reject it, with no code change. */
+export const DEFAULT_AUTH_METHODS: MemberAuthCredentialType[] = [
+  MemberAuthCredentialType.PIN,
+  MemberAuthCredentialType.CARD,
+]
+
+/** Coerce a value to a valid, de-duplicated set of auth methods, never empty (empty ⇒ default). */
+export function normalizeAuthMethods(value: unknown): MemberAuthCredentialType[] {
+  const valid = Array.isArray(value)
+    ? value.filter(
+        (v): v is MemberAuthCredentialType =>
+          v === MemberAuthCredentialType.PIN || v === MemberAuthCredentialType.CARD,
+      )
+    : []
+  const unique = Array.from(new Set(valid))
+  return unique.length > 0 ? unique : DEFAULT_AUTH_METHODS
+}
+
 /** A credential as shown to the owner (never carries the secret hash). */
 export interface MemberAuthCredential {
   id: string

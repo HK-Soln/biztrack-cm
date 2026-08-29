@@ -88,6 +88,7 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
   dayCutoverTime!: BusinessMembershipBusinessSummary['dayCutoverTime']
   fiscalYearStartMonth!: BusinessMembershipBusinessSummary['fiscalYearStartMonth']
   profile!: BusinessMembershipBusinessSummary['profile']
+  allowedAuthMethods!: BusinessMembershipBusinessSummary['allowedAuthMethods']
   niu!: BusinessMembershipBusinessSummary['niu']
   rccm!: BusinessMembershipBusinessSummary['rccm']
   vatRegistered!: BusinessMembershipBusinessSummary['vatRegistered']
@@ -126,6 +127,7 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
     dto.dayCutoverTime = entity.dayCutoverTime ?? null
     dto.fiscalYearStartMonth = entity.fiscalYearStartMonth ?? 1
     dto.profile = entity.profile ?? null
+    dto.allowedAuthMethods = entity.allowedAuthMethods ?? null
     dto.niu = entity.niu ?? null
     dto.rccm = entity.rccm ?? null
     dto.vatRegistered = entity.vatRegistered ?? false
