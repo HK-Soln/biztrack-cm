@@ -961,11 +961,16 @@ function CloseModal({
   const [refunds, setRefunds] = useState<{ method: string; amount: string }[]>([
     { method: 'CASH', amount: String(leftover) },
   ])
+  // SCRUM-46: a cancellation charge kept by the business (booked as other income). It reduces the
+  // refundable amount — the refund lines must add up to (leftover − charge), not the full leftover.
+  const [charge, setCharge] = useState('0')
   const [error, setError] = useState<string | null>(null)
 
   const parseAmt = (s: string) => Math.max(0, Number(s.replace(/\s/g, '').replace(',', '.')) || 0)
+  const chargeAmt = Math.min(leftover, Math.round(parseAmt(charge)))
+  const refundable = Math.round((leftover - chargeAmt) * 100) / 100
   const refundTotal = refunds.reduce((sum, r) => sum + parseAmt(r.amount), 0)
-  const refundRemaining = Math.round((leftover - refundTotal) * 100) / 100
+  const refundRemaining = Math.round((refundable - refundTotal) * 100) / 100
 
   const outcomeLabel = !hasSales
     ? t('dep.outcomeRefunded')
@@ -979,9 +984,12 @@ function CloseModal({
     mutationFn: () =>
       dataClient.deposits.close(deposit.id, {
         settlement,
+        cancellationCharge: settlement === 'REFUND' ? chargeAmt : 0,
         refunds:
           settlement === 'REFUND'
-            ? refunds.map((r) => ({ method: r.method, amount: parseAmt(r.amount) }))
+            ? refunds
+                .map((r) => ({ method: r.method, amount: parseAmt(r.amount) }))
+                .filter((r) => r.amount > 0)
             : null,
       } as CloseDepositInput),
     onSuccess: onSaved,
@@ -1052,6 +1060,30 @@ function CloseModal({
               </div>
               {settlement === 'REFUND' ? (
                 <div style={{ marginTop: 10 }}>
+                  <label className="lbl2">{t('dep.cancellationCharge')}</label>
+                  <p className="hint" style={{ margin: '2px 0 8px' }}>
+                    {t('dep.cancellationChargeHint')}
+                  </p>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={charge}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setCharge(next)
+                      // Keep a single refund line in step with the new refundable amount so the
+                      // owner doesn't have to rebalance by hand; split lines are left untouched.
+                      const nextCharge = Math.min(leftover, Math.round(parseAmt(next)))
+                      const nextRefundable = Math.round((leftover - nextCharge) * 100) / 100
+                      setRefunds((rs) =>
+                        rs.length === 1 && rs[0]
+                          ? [{ method: rs[0].method, amount: String(nextRefundable) }]
+                          : rs,
+                      )
+                    }}
+                    placeholder="0"
+                    style={{ marginBottom: 12 }}
+                  />
                   <label className="lbl2">{t('dep.refundMethod')}</label>
                   <p className="hint" style={{ margin: '2px 0 8px' }}>
                     {t('dep.refundSplitHint')}

@@ -571,14 +571,16 @@ export const LOADERS: Record<string, ReportLoader> = {
     )
   },
   cr: async ({ client, range, currency, opts }) => {
-    const [gp, exp] = await Promise.all([
+    const [gp, exp, oi] = await Promise.all([
       client.sales.grossProfit(range),
       client.expenses.summary(range),
+      client.deposits.otherIncome(range),
     ])
     return buildIncomeStatementReport(
       {
         revenue: gp.revenue,
         cogs: gp.cogs,
+        otherIncome: oi.total,
         expensesByCategory: exp.byCategory.map((c) => ({ name: c.name, amount: c.amount })),
         totalExpenses: exp.total,
         currency,

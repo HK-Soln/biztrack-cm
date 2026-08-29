@@ -459,6 +459,7 @@ export interface DataClient {
     get: (id: string) => Promise<LocalDepositDetail | null>
     statement: (id: string) => Promise<DepositStatement | null>
     summary: () => Promise<LocalDepositSummary>
+    otherIncome: (query?: { dateFrom?: string; dateTo?: string }) => Promise<{ total: number }>
     create: (input: CreateDepositInput) => Promise<CustomerDeposit>
     addPayment: (id: string, input: AddDepositPaymentInput) => Promise<CustomerDeposit>
     close: (id: string, input: CloseDepositInput) => Promise<CustomerDeposit>
@@ -856,6 +857,7 @@ function electronAdapter(): DataClient {
       get: (id) => window.api.deposits.get(id),
       statement: (id) => window.api.deposits.statement(id),
       summary: () => window.api.deposits.summary(),
+      otherIncome: (query) => window.api.deposits.otherIncome(query),
       create: (input) => window.api.deposits.create(input),
       addPayment: (id, input) => window.api.deposits.addPayment(id, input),
       close: (id, input) => window.api.deposits.close(id, input),

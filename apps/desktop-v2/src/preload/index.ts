@@ -271,6 +271,7 @@ const api: BridgeApi = {
     get: (id) => ipcRenderer.invoke(IPC.depositsGet, id),
     statement: (id) => ipcRenderer.invoke(IPC.depositsStatement, id),
     summary: () => ipcRenderer.invoke(IPC.depositsSummary),
+    otherIncome: (query) => ipcRenderer.invoke(IPC.depositsOtherIncome, query),
     create: (input) => ipcRenderer.invoke(IPC.depositsCreate, input),
     addPayment: (id, input) => ipcRenderer.invoke(IPC.depositsAddPayment, id, input),
     close: (id, input) => ipcRenderer.invoke(IPC.depositsClose, id, input),

@@ -369,8 +369,18 @@ export class ExpensesService {
       }
       totalExpenses = this.roundMoney(totalExpenses)
 
+      // SCRUM-46 — non-trading income (deposit-cancellation charges) over the same window.
+      const [oi] = (await this.dailySaleSummariesRepo.manager.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM savings_transactions
+         WHERE business_id = $1 AND type = 'charge' AND is_deleted = false
+           AND COALESCE(business_date, occurred_at::date) >= $2
+           AND COALESCE(business_date, occurred_at::date) < $3`,
+        [businessId, startDate, endDate],
+      )) as Array<{ total: string | number | null }>
+      const otherIncome = this.roundMoney(Number(oi?.total ?? 0))
+
       const grossProfit = this.roundMoney(revenue - costOfGoods)
-      const netProfit = this.roundMoney(grossProfit - totalExpenses)
+      const netProfit = this.roundMoney(grossProfit + otherIncome - totalExpenses)
 
       return {
         year,
@@ -379,6 +389,7 @@ export class ExpensesService {
         costOfGoods,
         grossProfit,
         grossMarginPercent: revenue > 0 ? this.roundPercentage((grossProfit / revenue) * 100) : 0,
+        otherIncome,
         totalExpenses,
         expenseBreakdown,
         netProfit,

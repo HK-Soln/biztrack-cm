@@ -135,6 +135,7 @@ export const IPC = {
   depositsGet: 'deposits:get',
   depositsStatement: 'deposits:statement',
   depositsSummary: 'deposits:summary',
+  depositsOtherIncome: 'deposits:other-income',
   depositsCreate: 'deposits:create',
   depositsAddPayment: 'deposits:add-payment',
   depositsClose: 'deposits:close',
@@ -2268,6 +2269,8 @@ export interface BridgeApi {
     get: (id: string) => Promise<LocalDepositDetail | null>
     statement: (id: string) => Promise<DepositStatementT | null>
     summary: () => Promise<LocalDepositSummary>
+    /** Total cancellation charges over a range — booked as other income on the P&L (SCRUM-46). */
+    otherIncome: (query?: { dateFrom?: string; dateTo?: string }) => Promise<{ total: number }>
     create: (input: CreateDepositInputT) => Promise<CustomerDepositT>
     addPayment: (id: string, input: AddDepositPaymentInputT) => Promise<CustomerDepositT>
     close: (id: string, input: CloseDepositInputT) => Promise<CustomerDepositT>

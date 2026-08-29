@@ -1149,9 +1149,12 @@ export const en = {
   'dep.refund': 'Refund to customer',
   'dep.transfer': 'Transfer to new session',
   'dep.transferNeedsSales': 'No goods collected — transfer not allowed',
+  'dep.cancellationCharge': 'Cancellation charge (kept as income)',
+  'dep.cancellationChargeHint':
+    'An optional fee the business keeps from the balance. It is booked as other income; only the rest is refunded.',
   'dep.refundMethod': 'Refund method',
   'dep.refundSplitHint':
-    'Split the refund across methods if needed — the total must equal the leftover.',
+    'Split the refund across methods if needed — the total must equal the refundable amount.',
   'dep.addRefundLine': 'Add method',
   'dep.remaining': 'Remaining',
   'dep.removeLine': 'Remove',
@@ -4704,9 +4707,12 @@ export const fr: Record<MessageKey, string> = {
   'dep.refund': 'Rembourser au client',
   'dep.transfer': 'Transférer vers une nouvelle session',
   'dep.transferNeedsSales': 'Aucune marchandise retirée — transfert impossible',
+  'dep.cancellationCharge': "Frais d'annulation (conservés comme produit)",
+  'dep.cancellationChargeHint':
+    "Des frais optionnels que l'entreprise retient sur le solde. Ils sont comptabilisés en autres produits ; seul le reste est remboursé.",
   'dep.refundMethod': 'Méthode de remboursement',
   'dep.refundSplitHint':
-    'Répartissez le remboursement entre les méthodes si besoin — le total doit égaler le solde restant.',
+    'Répartissez le remboursement entre les méthodes si besoin — le total doit égaler le montant remboursable.',
   'dep.addRefundLine': 'Ajouter une méthode',
   'dep.remaining': 'Restant',
   'dep.removeLine': 'Retirer',
