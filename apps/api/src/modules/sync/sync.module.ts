@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { PasswordManager } from '@/common/security/password-manager'
 import { BusinessMember } from '@/entities/business-member.entity'
+import { MemberAuthCredential } from '@/entities/member-auth-credential.entity'
 import { Business } from '@/entities/business.entity'
 import { ContactOpeningBalance } from '@/entities/contact-opening-balance.entity'
 import { Contact } from '@/entities/contact.entity'
@@ -117,6 +118,7 @@ import { SyncService } from './sync.service'
       PurchaseOrder,
       PurchaseOrderItem,
       BusinessMember,
+      MemberAuthCredential,
       Business,
       Contact,
       ContactOpeningBalance,

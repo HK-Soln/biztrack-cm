@@ -3,6 +3,7 @@ import { Type } from 'class-transformer'
 import {
   IsArray,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -150,6 +151,12 @@ export class CloseDepositDto implements CloseDepositInput {
   @IsString()
   @MaxLength(2000)
   notes?: string
+
+  @ApiPropertyOptional({ description: 'Cancellation charge kept by the business (SCRUM-46).' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cancellationCharge?: number
 }
 
 export class ListDepositsQueryDto extends ListQueryDto {

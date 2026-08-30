@@ -12,7 +12,9 @@ import { Business } from './business.entity'
 import { decimalTransformer, dateTransformer } from '@/common/entities/transformers'
 
 @Entity('daily_sale_summaries')
-@Index('unq_daily_sale_summaries_business_id_summary_date', ['businessId', 'summaryDate'], { unique: true })
+@Index('unq_daily_sale_summaries_business_id_summary_date', ['businessId', 'summaryDate'], {
+  unique: true,
+})
 export class DailySaleSummary extends TypeOrmBaseEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string
@@ -21,7 +23,10 @@ export class DailySaleSummary extends TypeOrmBaseEntity {
   businessId!: string
 
   @ManyToOne(() => Business, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'business_id', foreignKeyConstraintName: 'fk_daily_sale_summaries_business_id' })
+  @JoinColumn({
+    name: 'business_id',
+    foreignKeyConstraintName: 'fk_daily_sale_summaries_business_id',
+  })
   business?: Business
 
   @Column({ name: 'summary_date', type: 'date' })
@@ -39,6 +44,21 @@ export class DailySaleSummary extends TypeOrmBaseEntity {
     transformer: decimalTransformer,
   })
   totalRevenue!: number
+
+  /**
+   * Σ `sale.total_amount` (incl. sale-level charges) — the transaction total. `total_revenue` holds
+   * the accounting figure (Σ line_total, D7); this preserves the tender-side total that the
+   * cash-close reconciliation ties a shift's sales against.
+   */
+  @Column({
+    name: 'total_transacted',
+    type: 'decimal',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  totalTransacted!: number
 
   @Column({
     name: 'total_cost',

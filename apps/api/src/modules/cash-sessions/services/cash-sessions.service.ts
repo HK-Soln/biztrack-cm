@@ -72,6 +72,19 @@ export class CashSessionsService {
     private readonly calendar: BusinessCalendarService,
   ) {}
 
+  /** Whether the caller's role runs a till — mirrors the desktop's local roles lookup so the
+   *  cloud build can decide the login shift prompt (BIZ-2 cloud). */
+  async roleTracksDrawer(businessId: string, userId: string): Promise<boolean> {
+    const rows = (await this.sessionsRepo.manager.query(
+      `SELECT r.tracks_cash_drawer AS tracks
+       FROM business_members m JOIN roles r ON r.id = m.role_id
+       WHERE m.business_id = $1 AND m.user_id = $2 AND m.status = 'ACTIVE'
+       LIMIT 1`,
+      [businessId, userId],
+    )) as Array<{ tracks: boolean }>
+    return rows[0]?.tracks === true
+  }
+
   async openSession(
     businessId: string,
     user: JwtPayload,
@@ -313,15 +326,21 @@ export class CashSessionsService {
   async expectedCash(businessId: string, sessionId: string): Promise<CashSessionExpectedCash> {
     const session = await this.findById(sessionId, businessId)
 
+    // Net CASH into the drawer from sales: tendered PAYMENTs minus REFUND-kind rows (a refund
+    // hands cash back out). Include refunded sales — their original tender is real drawer cash;
+    // only VOIDED (fully reversed) is excluded (BIZ-1.8).
     const cashRow = await this.sessionsRepo.manager
       .createQueryBuilder()
-      .select('COALESCE(SUM(sp.amount), 0)', 'v')
+      .select(
+        "COALESCE(SUM(CASE WHEN sp.kind = 'REFUND' THEN -sp.amount ELSE sp.amount END), 0)",
+        'v',
+      )
       .from('sale_payments', 'sp')
       .innerJoin('sales', 's', 's.id = sp.sale_id')
       .where('s.cash_session_id = :sessionId', { sessionId })
       .andWhere('s.business_id = :businessId', { businessId })
       .andWhere("sp.method = 'CASH'")
-      .andWhere("s.status = 'COMPLETED'")
+      .andWhere("s.status IN ('COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED')")
       .andWhere('s.deleted_at IS NULL')
       .getRawOne<{ v: string }>()
 
@@ -331,7 +350,7 @@ export class CashSessionsService {
       .from('sales', 's')
       .where('s.cash_session_id = :sessionId', { sessionId })
       .andWhere('s.business_id = :businessId', { businessId })
-      .andWhere("s.status = 'COMPLETED'")
+      .andWhere("s.status IN ('COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED')")
       .andWhere('s.deleted_at IS NULL')
       .getRawOne<{ v: string }>()
 
@@ -717,6 +736,7 @@ export class CashSessionsService {
     const row = (await this.sessionsRepo.manager.query(
       `SELECT
          COALESCE(SUM(total_revenue), 0) AS revenue,
+         COALESCE(SUM(total_transacted), 0) AS transacted,
          COALESCE(SUM(cash_collected), 0) AS cash,
          COALESCE(SUM(mtn_momo_collected), 0) AS mtn,
          COALESCE(SUM(orange_money_collected), 0) AS orange,
@@ -728,6 +748,9 @@ export class CashSessionsService {
     )) as Array<Record<string, string | number>>
     const num = (v: unknown): number => Number(v ?? 0)
     const totalRevenue = num(row[0]?.revenue)
+    // Reconcile the shift's SUM(sales.total_amount) against the posted transaction total, NOT the
+    // accounting revenue (total_revenue is Σ line_total, excl. charges — BIZ-4.1/D7).
+    const totalTransacted = num(row[0]?.transacted)
     const cashCollected = num(row[0]?.cash)
     const mtnMomoCollected = num(row[0]?.mtn)
     const orangeMoneyCollected = num(row[0]?.orange)
@@ -735,7 +758,7 @@ export class CashSessionsService {
     const creditIssued = num(row[0]?.credit)
     const close = (a: number, b: number): boolean => Math.abs(a - b) <= 1
     const matches =
-      close(totals.netSales, totalRevenue) &&
+      close(totals.netSales, totalTransacted) &&
       close(totals.cash, cashCollected) &&
       close(totals.mtnMomo, mtnMomoCollected) &&
       close(totals.orangeMoney, orangeMoneyCollected) &&

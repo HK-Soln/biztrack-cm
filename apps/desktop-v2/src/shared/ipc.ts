@@ -29,7 +29,12 @@ export const IPC = {
   authLogout: 'auth:logout',
   pinSet: 'pin:set',
   pinVerify: 'pin:verify',
+  pinVerifyCard: 'pin:verify-card',
   pinCanManage: 'pin:can-manage',
+  credentialsList: 'credentials:list',
+  credentialsIssueCard: 'credentials:issue-card',
+  credentialsRevoke: 'credentials:revoke',
+  credentialsReplace: 'credentials:replace',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -131,6 +136,7 @@ export const IPC = {
   depositsGet: 'deposits:get',
   depositsStatement: 'deposits:statement',
   depositsSummary: 'deposits:summary',
+  depositsOtherIncome: 'deposits:other-income',
   depositsCreate: 'deposits:create',
   depositsAddPayment: 'deposits:add-payment',
   depositsClose: 'deposits:close',
@@ -251,6 +257,7 @@ export const IPC = {
   salesFlaggedDiscounts: 'sales:flagged-discounts',
   salesGet: 'sales:get',
   salesVoid: 'sales:void',
+  salesRefund: 'sales:refund',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
   salesReceiptHtml: 'sales:receipt-html',
@@ -274,6 +281,22 @@ export type {
   RefundCashierRow,
 } from '@biztrack/types'
 export type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
+// Cash-session types re-exported canonically so the renderer (dataClient interface, cloud
+// adapter) can consume them from the one @shared/ipc hub.
+export type {
+  CashSession,
+  CashMovement,
+  CashSessionExpectedCash,
+  CashShiftReportData,
+  CashDailyReportData,
+  CashVarianceHistory,
+  CashReportKind,
+  CloseCashSessionInput,
+  SetCashVarianceReasonInput,
+  RecordCashMovementInput,
+  CashVarianceHistoryQuery,
+  CashDailyReportQuery,
+} from '@biztrack/types'
 export type {
   DiscountSummary,
   DiscountByCashierRow,
@@ -297,6 +320,21 @@ import type {
 import type { InventoryTurnoverRow, DeadStockRow, SupplierPriceRow } from '@biztrack/types'
 import type { ChargeType as ChargeTypeT } from '@biztrack/types'
 import type { PaymentMethod as PaymentMethodT } from '@biztrack/types'
+import type { BusinessProfileTier } from '@biztrack/types'
+import type { RefundSaleInput } from '@biztrack/types'
+export type { RefundSaleInput } from '@biztrack/types'
+import type {
+  MemberAuthCredential as MemberAuthCredentialT,
+  IssueCardRequest as IssueCardRequestT,
+  IssueCardResponse as IssueCardResponseT,
+  ReplaceCardRequest as ReplaceCardRequestT,
+} from '@biztrack/types'
+export type {
+  MemberAuthCredential,
+  IssueCardRequest,
+  IssueCardResponse,
+  ReplaceCardRequest,
+} from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
@@ -684,6 +722,10 @@ export interface BusinessOption {
   /** Business lifecycle: 'ONBOARDING' | 'PLAN_PENDING' | 'ACTIVE' (or null if unknown).
    * A non-owner can only enter an ACTIVE business. */
   status: string | null
+  /** Cached alongside the option so the offline session has the right currency/vocabulary. */
+  currency?: string | null
+  profile?: string | null
+  allowedAuthMethods?: string[] | null
 }
 
 export type OtpChannel = 'SMS' | 'WHATSAPP' | 'EMAIL'
@@ -748,6 +790,8 @@ export interface BusinessSetupPayload {
   fiscalRegime?: string
   /** Month (1–12) the fiscal year begins in; default 1 (January, OHADA). (BIZ-5.2) */
   fiscalYearStartMonth?: number
+  /** Business size profile (MICRO | SMALL | SME) — BIZ-5.7. */
+  profile?: BusinessProfileTier
 }
 
 /** A product category as stored locally (mirrors the synced server record). */
@@ -1214,6 +1258,9 @@ export interface SaleInput {
   authorizedByUserId?: string | null
   /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale. */
   creditDueDate?: string | null
+  /** Open cash session (till shift) this sale is rung at, so the drawer reconciles. The cloud
+   * build sets it from the current session; desktop tags it locally at write time. */
+  cashSessionId?: string | null
 }
 /** An opening balance brought forward for a contact (one per direction). */
 export interface OpeningBalanceInput {
@@ -1890,8 +1937,18 @@ export interface BridgeApi {
     set: (pin: string) => Promise<{ pinVersion: number }>
     /** Verify a manager PIN offline for step-up authorization. */
     verify: (pin: string) => Promise<PinVerifyResult>
+    /** Verify a scanned authorization card token offline (BIZ-3.3). */
+    verifyCard: (token: string) => Promise<PinVerifyResult>
     /** Whether the current user's role may set a PIN and authorize step-up. */
     canManage: () => Promise<boolean>
+  }
+  /** Authorization cards (BIZ-3.3). Owner-only; online — the server owns issuance/revocation. */
+  credentials: {
+    list: () => Promise<MemberAuthCredentialT[]>
+    issueCard: (input: IssueCardRequestT) => Promise<IssueCardResponseT>
+    revoke: (id: string) => Promise<MemberAuthCredentialT>
+    /** Replace (rotate) a card: revoke + reissue to the same member in one step. */
+    replace: (id: string, input: ReplaceCardRequestT) => Promise<IssueCardResponseT>
   }
   sync: {
     /** Run a push+pull cycle now. */
@@ -2190,6 +2247,9 @@ export interface BridgeApi {
     get: (id: string) => Promise<LocalSaleDetail | null>
     /** Void a completed sale (reverses stock/serials/deposit/debt locally + syncs). Reason 10-1000 chars. */
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
+    /** Refund/return a sale in full or partially (BIZ-1.8). Offline-first — records the return
+     * locally + syncs; returns the updated sale. */
+    refund: (saleId: string, input: RefundSaleInput) => Promise<LocalSaleDetail>
     /** Send the receipt to the customer. Online → server dispatches; offline → share composer. */
     sendReceipt: (
       saleId: string,
@@ -2218,6 +2278,8 @@ export interface BridgeApi {
     get: (id: string) => Promise<LocalDepositDetail | null>
     statement: (id: string) => Promise<DepositStatementT | null>
     summary: () => Promise<LocalDepositSummary>
+    /** Total cancellation charges over a range — booked as other income on the P&L (SCRUM-46). */
+    otherIncome: (query?: { dateFrom?: string; dateTo?: string }) => Promise<{ total: number }>
     create: (input: CreateDepositInputT) => Promise<CustomerDepositT>
     addPayment: (id: string, input: AddDepositPaymentInputT) => Promise<CustomerDepositT>
     close: (id: string, input: CloseDepositInputT) => Promise<CustomerDepositT>
