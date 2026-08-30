@@ -457,6 +457,8 @@ export interface IncomeStatementReportData {
   revenue: number
   /** Cost of goods sold (Σ cost_price × qty). */
   cogs: number
+  /** Non-trading income (e.g. deposit-cancellation charges, SCRUM-46) — booked below gross profit. */
+  otherIncome: number
   expensesByCategory: IncomeStatementExpenseLine[]
   totalExpenses: number
   currency: string

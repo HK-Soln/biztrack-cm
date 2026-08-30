@@ -57,6 +57,7 @@ import { UploadService } from './services/upload.service'
 import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { OnlineService } from './services/online.service'
 import { registerOnlineIpc } from './ipc/online.ipc'
+import { registerCredentialsIpc } from './ipc/credentials.ipc'
 import { BusinessService } from './services/business.service'
 import { registerBusinessIpc } from './ipc/business.ipc'
 import { PlansService } from './services/plans.service'
@@ -560,6 +561,9 @@ app.whenReady().then(() => {
   // Online store/orders: API-only, proxied through main (tokens never reach the renderer).
   registerOnlineIpc(new OnlineService(authHttp))
 
+  // Authorization cards (BIZ-3.3): owner-only, server-owned, proxied through main.
+  registerCredentialsIpc(authHttp)
+
   // Business profile (Settings → General): server-owned, proxied through main.
   registerBusinessIpc(
     new BusinessService(
@@ -568,6 +572,9 @@ app.whenReady().then(() => {
       () => authService.getSession().user?.id ?? null,
       localCache,
     ),
+    // Keep the live session's allowed step-up methods (+ name/currency) fresh so the cards toggle
+    // and the manager step-up modal reflect a Settings save immediately, not after a re-login.
+    (profile) => authService.applyBusinessProfile(profile),
   )
 
   // Plans / subscription (Settings → Subscription): API-only, proxied through main.

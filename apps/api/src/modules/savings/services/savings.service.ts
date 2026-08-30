@@ -353,6 +353,28 @@ export class DepositsService {
     return this.findById(id, businessId)
   }
 
+  /** Total deposit-cancellation charges over a range (SCRUM-46) — the "other income" line on the
+   * income statement. Bucketed by the local trading day, falling back to the charge timestamp. */
+  async getOtherIncome(
+    businessId: string,
+    query: { dateFrom?: string; dateTo?: string },
+  ): Promise<{ total: number }> {
+    const qb = this.savingsTransactionsRepo
+      .createQueryBuilder('t')
+      .select('COALESCE(SUM(t.amount), 0)', 'total')
+      .where('t.business_id = :businessId', { businessId })
+      .andWhere("t.type = 'charge'")
+      .andWhere('t.is_deleted = false')
+    if (query.dateFrom)
+      qb.andWhere('COALESCE(t.business_date, t.occurred_at::date) >= :from', {
+        from: query.dateFrom,
+      })
+    if (query.dateTo)
+      qb.andWhere('COALESCE(t.business_date, t.occurred_at::date) <= :to', { to: query.dateTo })
+    const row = await qb.getRawOne<{ total: string | number | null }>()
+    return { total: round(Number(row?.total ?? 0)) }
+  }
+
   async close(
     id: string,
     businessId: string,
@@ -379,31 +401,43 @@ export class DepositsService {
         if (leftover <= 0)
           throw new AppBadRequestException('Nothing to refund.', 'DEPOSIT_NOTHING_TO_REFUND')
 
+        // SCRUM-46: a cancellation charge is kept by the business (booked as other income). The
+        // refund lines then settle (leftover − charge); the charge stays in the drawer, no cash out.
+        const charge = round(Math.max(0, dto.cancellationCharge ?? 0))
+        if (charge > leftover)
+          throw new AppBadRequestException(
+            'The cancellation charge cannot exceed the balance.',
+            'DEPOSIT_CHARGE_TOO_HIGH',
+          )
+        const refundTotal = round(leftover - charge)
+
         // Split refund: one txn per method (part cash, part MoMo…). No lines → settle the whole
-        // leftover as a single line (back-compat with the deprecated method field).
+        // refundable amount as a single line (back-compat with the deprecated method field).
         const lines =
-          dto.refunds && dto.refunds.length > 0
-            ? dto.refunds.map((r) => ({
-                method: r.method || 'CASH',
-                amount: round(r.amount),
-                mobileMoneyReference: r.mobileMoneyReference,
-              }))
-            : [
-                {
-                  method: dto.method ?? 'CASH',
-                  amount: leftover,
-                  mobileMoneyReference: dto.mobileMoneyReference,
-                },
-              ]
+          refundTotal <= 0
+            ? []
+            : dto.refunds && dto.refunds.length > 0
+              ? dto.refunds.map((r) => ({
+                  method: r.method || 'CASH',
+                  amount: round(r.amount),
+                  mobileMoneyReference: r.mobileMoneyReference,
+                }))
+              : [
+                  {
+                    method: dto.method ?? 'CASH',
+                    amount: refundTotal,
+                    mobileMoneyReference: dto.mobileMoneyReference,
+                  },
+                ]
 
         if (lines.some((l) => !(l.amount > 0)))
           throw new AppBadRequestException(
             'Each refund line must be greater than 0.',
             'DEPOSIT_REFUND_LINE_INVALID',
           )
-        if (round(lines.reduce((s, l) => s + l.amount, 0)) !== leftover)
+        if (round(lines.reduce((s, l) => s + l.amount, 0)) !== refundTotal)
           throw new AppBadRequestException(
-            'The refund must add up to the exact leftover balance.',
+            'The refund must add up to the balance minus the charge.',
             'DEPOSIT_REFUND_MISMATCH',
           )
 
@@ -424,9 +458,24 @@ export class DepositsService {
             now,
           )
         }
+        if (charge > 0) {
+          await this.insertTxn(
+            m,
+            id,
+            businessId,
+            {
+              type: 'charge',
+              direction: 'outbound',
+              amount: charge,
+              notes: dto.notes,
+              recordedById: user.sub,
+            },
+            now,
+          )
+        }
         await repo.update(id, {
           balance: 0,
-          totalRefunded: round(acc.totalRefunded + leftover),
+          totalRefunded: round(acc.totalRefunded + refundTotal),
           updatedAt: now,
         })
       } else {

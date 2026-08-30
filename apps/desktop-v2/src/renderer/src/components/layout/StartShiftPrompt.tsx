@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Modal } from '@biztrack/ui/biztrack'
 import { useT } from '@/i18n'
+import { dataClient } from '@/lib/data-client'
 
 /**
  * Login-time start-shift prompt (BIZ-2.4). Shown once per app session to users whose role
  * runs a till (tracks_cash_drawer) when no shift is open — they can start one with an
- * opening float or dismiss (sales then are "ventes hors caisse"). Desktop-only; the nav
- * shift chip remains available to start/close anytime.
+ * opening float or dismiss (sales then are "ventes hors caisse"). Works in both builds; the
+ * nav shift chip remains available to start/close anytime.
  */
 let promptedThisSession = false
 
@@ -17,10 +18,10 @@ export function StartShiftPrompt() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const api = dataClient.cashSessions
 
   useEffect(() => {
-    if (!api || promptedThisSession) return
+    if (promptedThisSession) return
     let cancelled = false
     void (async () => {
       try {
@@ -37,8 +38,6 @@ export function StartShiftPrompt() {
       cancelled = true
     }
   }, [api])
-
-  if (!api) return null
 
   const start = async () => {
     if (busy) return

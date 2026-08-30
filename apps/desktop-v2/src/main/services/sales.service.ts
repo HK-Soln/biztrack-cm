@@ -25,6 +25,7 @@ import type {
   PaginatedResult,
   RefundCashierRow,
   RefundReasonRow,
+  RefundSaleInput,
   SaleInput,
   SalesByPaymentRow,
   SalesByProductRow,
@@ -905,6 +906,18 @@ export class SalesService {
     reason: string,
     now: string,
   ): Record<string, unknown> {
+    return {
+      ...this.buildSalePayload(saleId, businessId),
+      status: 'VOIDED',
+      voidedAt: now,
+      voidedById: actorId,
+      voidReason: reason,
+    }
+  }
+
+  /** Rebuild the base SaleSyncPayload (header + items + payments + charges + discounts) from
+   * stored rows — the common shape re-pushed by void and refund. */
+  private buildSalePayload(saleId: string, businessId: string): Record<string, unknown> {
     const s = this.db.get<{
       client_id: string
       sale_number: string
@@ -982,10 +995,6 @@ export class SalesService {
       discountAmount: s.discount_amount,
       chargesAmount: s.charges_amount,
       creditAmount: s.credit_amount,
-      status: 'VOIDED',
-      voidedAt: now,
-      voidedById: actorId,
-      voidReason: reason,
       payments: payments.map((p) => ({
         id: p.id,
         method: p.method,
@@ -1021,6 +1030,279 @@ export class SalesService {
         rate: d.rate,
         amount: d.amount,
       })),
+    }
+  }
+
+  /**
+   * Full or partial refund/return (BIZ-1.8) — offline-first, mirroring voidSale. Records
+   * SaleReturn + SaleReturnItem rows and a REFUND-kind sale_payment, restocks the returned lines
+   * (with a VOID_REVERSAL movement) + releases their serials, recomputes settlement, flips the
+   * sale to REFUNDED / PARTIALLY_REFUNDED, and re-enqueues the sale (with the return embedded) so
+   * the API applies its own authoritative return on sync. Role gating is enforced by the UI.
+   */
+  refundSale(saleId: string, input: RefundSaleInput): LocalSaleDetail {
+    const businessId = this.requireBusinessId()
+    const actorId = this.getActorId()
+    if (!actorId) throw new Error('No active session.')
+
+    const sale = this.db.get<{
+      id: string
+      status: string
+      sale_number: string
+      total_amount: number
+      amount_paid: number
+      payment_method: string | null
+    }>(
+      `SELECT id, status, sale_number, total_amount, amount_paid, payment_method
+       FROM sales WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+      [saleId, businessId],
+    )
+    if (!sale) throw new Error('Sale not found.')
+    if (sale.status === 'VOIDED') throw new Error('A voided sale cannot be refunded.')
+
+    const saleItems = this.db.query<{
+      id: string
+      product_id: string
+      variant_id: string | null
+      serial_unit_id: string | null
+      quantity: number
+      line_total: number
+    }>(
+      `SELECT id, product_id, variant_id, serial_unit_id, quantity, line_total
+       FROM sale_items WHERE sale_id = ? AND is_deleted = 0`,
+      [saleId],
+    )
+
+    // Resolve returned lines — explicit selection, else every line (full return).
+    const requested =
+      input.items && input.items.length > 0
+        ? input.items
+        : saleItems.map((si) => ({ saleItemId: si.id, quantity: si.quantity, serialUnitId: null }))
+    const returnedLines = requested
+      .map((r) => {
+        const item = saleItems.find((si) => si.id === r.saleItemId)
+        if (!item) throw new Error('Returned line does not belong to this sale.')
+        return {
+          item,
+          quantity: Math.min(Math.max(0, Math.floor(r.quantity)), item.quantity),
+          serialUnitId: r.serialUnitId ?? item.serial_unit_id ?? null,
+        }
+      })
+      .filter((r) => r.quantity > 0)
+    if (returnedLines.length === 0) throw new Error('Select at least one item to return.')
+
+    const isFullReturn =
+      !input.items ||
+      input.items.length === 0 ||
+      saleItems.every((si) => {
+        const rq = returnedLines
+          .filter((r) => r.item.id === si.id)
+          .reduce((s, r) => s + r.quantity, 0)
+        return rq >= si.quantity
+      })
+
+    // Money to return: goods value of the returned lines (discounted line_total per unit), capped
+    // at what was actually paid — fees stay, and an unpaid credit return refunds 0.
+    const goodsValue = toWholeXaf(
+      returnedLines.reduce((sum, r) => {
+        const perUnit =
+          r.item.quantity > 0 ? r.item.line_total / r.item.quantity : r.item.line_total
+        return sum + perUnit * r.quantity
+      }, 0),
+    )
+    const requestedAmount = input.amount != null ? toWholeXaf(input.amount) : goodsValue
+    const moneyRefund = toWholeXaf(Math.min(Math.max(0, requestedAmount), sale.amount_paid))
+    const restock = input.restock !== false
+    const now = new Date().toISOString()
+    const reason = (input.reason ?? '').trim() || null
+
+    // 1) Return records.
+    const returnId = randomUUID()
+    this.db.run(
+      `INSERT INTO sale_returns (id, sale_id, business_id, reason, restock, refund_amount, created_by_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [returnId, saleId, businessId, reason, restock ? 1 : 0, moneyRefund, actorId, now],
+    )
+    const returnItems = returnedLines.map((r) => ({
+      id: randomUUID(),
+      saleItemId: r.item.id,
+      quantity: r.quantity,
+      serialUnitId: r.serialUnitId,
+    }))
+    for (const ri of returnItems) {
+      this.db.run(
+        `INSERT INTO sale_return_items (id, sale_return_id, business_id, sale_item_id, quantity, serial_unit_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [ri.id, returnId, businessId, ri.saleItemId, ri.quantity, ri.serialUnitId, now],
+      )
+    }
+
+    // 2) REFUND payment (cash/MoMo leaves via the sale's original method).
+    let refundPayment: { id: string; method: string; amount: number } | null = null
+    if (moneyRefund > 0) {
+      const pid = randomUUID()
+      const method = sale.payment_method ?? PaymentMethod.CASH
+      this.db.run(
+        `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, kind, created_at)
+         VALUES (?, ?, ?, ?, ?, 'REFUND', ?)`,
+        [pid, saleId, businessId, method, moneyRefund, now],
+      )
+      refundPayment = { id: pid, method, amount: moneyRefund }
+    }
+
+    // 3) Restock the returned lines + release their serial units.
+    if (restock) {
+      const byKey = new Map<string, { productId: string; variantId: string | null; qty: number }>()
+      const serialIds: string[] = []
+      for (const r of returnedLines) {
+        if (r.serialUnitId) serialIds.push(r.serialUnitId)
+        const key = `${r.item.product_id}:${r.item.variant_id ?? ''}`
+        const cur = byKey.get(key) ?? {
+          productId: r.item.product_id,
+          variantId: r.item.variant_id,
+          qty: 0,
+        }
+        cur.qty += r.quantity
+        byKey.set(key, cur)
+      }
+      for (const { productId, variantId, qty } of byKey.values()) {
+        const meta = this.db.get<{ track_inventory: number }>(
+          `SELECT track_inventory FROM products WHERE id = ? AND business_id = ?`,
+          [productId, businessId],
+        )
+        if (!meta?.track_inventory) continue
+        if (variantId) {
+          this.db.run(
+            `UPDATE product_variants SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ?`,
+            [qty, now, variantId],
+          )
+        } else {
+          this.db.run(
+            `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = ? WHERE id = ? AND business_id = ?`,
+            [qty, now, productId, businessId],
+          )
+        }
+        recordStockMovement(
+          this.db,
+          businessId,
+          productId,
+          qty,
+          {
+            referenceType: 'sale',
+            referenceId: saleId,
+            variantId,
+            notes: `Return ${sale.sale_number}`,
+            type: 'VOID_REVERSAL',
+          },
+          now,
+        )
+      }
+      if (serialIds.length > 0) {
+        const ph = serialIds.map(() => '?').join(', ')
+        this.db.run(
+          `UPDATE product_serial_units SET status = 'IN_STOCK', sale_id = NULL, sold_at = NULL, customer_id = NULL, updated_at = ?
+           WHERE id IN (${ph})`,
+          [now, ...serialIds],
+        )
+      }
+    }
+
+    // 4) Recompute settlement from the signed payment ledger + set status. The
+    //    trg_sales_source_debt trigger recomputes the receivable off the new credit_amount.
+    const net = this.db.get<{ v: number }>(
+      `SELECT COALESCE(SUM(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END), 0) AS v
+       FROM sale_payments WHERE sale_id = ?`,
+      [saleId],
+    )
+    const amountPaid = toWholeXaf(Math.max(0, net?.v ?? 0))
+    const creditAmount = toWholeXaf(Math.max(0, sale.total_amount - amountPaid))
+    const status = isFullReturn ? 'REFUNDED' : 'PARTIALLY_REFUNDED'
+    this.db.run(
+      `UPDATE sales SET amount_paid = ?, credit_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
+      [amountPaid, creditAmount, status, now, saleId],
+    )
+
+    // 5) A full return cancels any receivable — the goods came back (mirrors the API; the trigger
+    //    would otherwise leave it OUTSTANDING at the recomputed credit).
+    if (isFullReturn) {
+      this.db.run(
+        `UPDATE debts SET status = 'WRITTEN_OFF', written_off_at = ?, written_off_by = ?, written_off_reason = ?
+         WHERE business_id = ? AND source_type = 'SALE' AND source_id = ? AND direction = 'RECEIVABLE'
+           AND status <> 'WRITTEN_OFF'`,
+        [now, actorId, `Sale ${sale.sale_number} returned`, businessId, saleId],
+      )
+    }
+
+    // 6) Re-enqueue the sale with the return embedded so the API applies its own authoritative
+    //    return on sync (coalesces the existing ('sales', saleId) outbox row).
+    this.enqueueSale(
+      saleId,
+      businessId,
+      this.buildRefundPayload(saleId, businessId, {
+        status,
+        returnId,
+        reason,
+        restock,
+        refundAmount: moneyRefund,
+        items: returnItems,
+        refundPayment,
+      }),
+      now,
+    )
+
+    this.audit?.log({
+      action: 'SALE_REFUNDED',
+      entityType: 'sale',
+      entityId: saleId,
+      entityLabel: sale.sale_number,
+      amount: moneyRefund,
+      changes: {
+        before: { status: sale.status },
+        after: { status, refundAmount: moneyRefund, fullReturn: isFullReturn },
+      },
+    })
+    this.onMutated()
+    return this.get(saleId)!
+  }
+
+  /** Rebuild the SaleSyncPayload stamped REFUNDED/PARTIALLY_REFUNDED, with the return embedded. */
+  private buildRefundPayload(
+    saleId: string,
+    businessId: string,
+    ret: {
+      status: string
+      returnId: string
+      reason: string | null
+      restock: boolean
+      refundAmount: number
+      items: Array<{
+        id: string
+        saleItemId: string
+        quantity: number
+        serialUnitId: string | null
+      }>
+      refundPayment: { id: string; method: string; amount: number } | null
+    },
+  ): Record<string, unknown> {
+    const base = this.buildSalePayload(saleId, businessId)
+    return {
+      ...base,
+      status: ret.status,
+      returns: [
+        {
+          id: ret.returnId,
+          reason: ret.reason,
+          restock: ret.restock,
+          refundAmount: ret.refundAmount,
+          items: ret.items.map((i) => ({
+            id: i.id,
+            saleItemId: i.saleItemId,
+            quantity: i.quantity,
+            serialUnitId: i.serialUnitId,
+          })),
+          refundPayment: ret.refundPayment,
+        },
+      ],
     }
   }
 

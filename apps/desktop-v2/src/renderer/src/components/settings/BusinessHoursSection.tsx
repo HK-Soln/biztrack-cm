@@ -9,8 +9,10 @@ import {
 } from '@biztrack/ui/biztrack'
 import {
   DEFAULT_CREDIT_DAYS,
+  DEFAULT_BUSINESS_PROFILE,
   MAX_CREDIT_DAYS,
   WEEKDAYS,
+  BusinessProfileTier,
   clampCreditDays,
   normalizeBusinessHours,
   type BusinessHours,
@@ -23,6 +25,7 @@ import {
   normalizeDayCutover,
 } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
+import { useSessionStore } from '@/stores/session.store'
 import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 
@@ -88,6 +91,7 @@ export function BusinessHoursSection() {
   const [tz, setTz] = useState(DEFAULT_BUSINESS_TIMEZONE)
   const [cutover, setCutover] = useState(DEFAULT_DAY_CUTOVER)
   const [fyStart, setFyStart] = useState('1')
+  const [profile, setProfile] = useState<BusinessProfileTier>(DEFAULT_BUSINESS_PROFILE)
   const [toast, setToast] = useState<{
     section: 'hours' | 'credit' | 'calendar'
     msg: string
@@ -99,8 +103,15 @@ export function BusinessHoursSection() {
       setTz(q.data.timezone || DEFAULT_BUSINESS_TIMEZONE)
       setCutover(q.data.dayCutoverTime || DEFAULT_DAY_CUTOVER)
       setFyStart(String(q.data.fiscalYearStartMonth ?? 1))
+      setProfile(q.data.profile ?? DEFAULT_BUSINESS_PROFILE)
     }
   }, [q.data])
+
+  const profileOptions = [
+    { value: BusinessProfileTier.MICRO, label: t('profile.micro') },
+    { value: BusinessProfileTier.SMALL, label: t('profile.small') },
+    { value: BusinessProfileTier.SME, label: t('profile.sme') },
+  ]
 
   // Locale-aware month names for the fiscal-year start picker.
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
@@ -167,16 +178,20 @@ export function BusinessHoursSection() {
         timezone: tz,
         dayCutoverTime: normalizeDayCutover(cutover),
         fiscalYearStartMonth: Number(fyStart) || 1,
+        profile,
       }),
     onSuccess: (updated) => {
       setToast({ section: 'calendar', msg: t('calendar.saved') })
       setTz(updated.timezone || DEFAULT_BUSINESS_TIMEZONE)
       setCutover(updated.dayCutoverTime || DEFAULT_DAY_CUTOVER)
       setFyStart(String(updated.fiscalYearStartMonth ?? 1))
+      setProfile(updated.profile ?? DEFAULT_BUSINESS_PROFILE)
       qc.setQueryData<BusinessProfile | null>(['business', 'profile'], (prev) => ({
         ...updated,
         role: prev?.role ?? updated.role,
       }))
+      // Refresh the session so profile-aware vocabulary (useT) updates immediately.
+      void useSessionStore.getState().refresh()
     },
   })
 
@@ -353,6 +368,18 @@ export function BusinessHoursSection() {
               options={monthOptions}
             />
             <div className="help">{t('calendar.fyStartHelp')}</div>
+          </div>
+        </div>
+        <div className="field-row">
+          <div>
+            <label className="lbl">{t('profile.label')}</label>
+            <Select
+              value={profile}
+              disabled={!canEdit}
+              onChange={(e) => setProfile(e.target.value as BusinessProfileTier)}
+              options={profileOptions}
+            />
+            <div className="help">{t('profile.help')}</div>
           </div>
         </div>
         <div

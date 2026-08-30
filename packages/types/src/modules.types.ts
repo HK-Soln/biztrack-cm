@@ -41,7 +41,9 @@ export interface BusinessModuleManifest {
   postingRules?: readonly never[]
   /** Chart-of-accounts epic — no account entity exists to require yet. */
   requiredAccounts?: readonly never[]
-  /** BIZ-5.7 profile-aware vocabulary — the flat catalog has no profile dimension yet. */
+  /** Profile-aware vocabulary landed in BIZ-5.7 at the client i18n layer (a profile axis on
+   *  `useT()` — see the renderer's i18n/vocabulary), not via the module manifest. This slot stays
+   *  reserved for a future world where a module contributes its own vocabulary keys. */
   vocabulary?: Record<string, never>
 }
 

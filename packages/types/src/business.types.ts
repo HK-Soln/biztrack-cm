@@ -1,4 +1,5 @@
 import type { IsoDateString } from './http.types'
+import type { MemberAuthCredentialType } from './credential.types'
 
 export interface Business {
   id: string
@@ -23,6 +24,10 @@ export interface Business {
   dayCutoverTime?: string | null
   /** Month (1–12) the fiscal year begins in; default 1 = January (OHADA) (BIZ-5.2). */
   fiscalYearStartMonth?: number | null
+  /** Business size profile (MICRO | SMALL | SME) — sets defaults + drives vocabulary (BIZ-5.7). */
+  profile?: BusinessProfileTier | null
+  /** Authorization methods accepted at step-up (BIZ-3.3). null/absent ⇒ both PIN + CARD. */
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
   ownerId: string
   plan: SubscriptionPlan
   subscriptionStatus: SubscriptionStatus
@@ -110,6 +115,19 @@ export enum FiscalRegime {
   REEL = 'REEL',
 }
 
+/**
+ * BIZ-5.7 — business size profile. Sets sensible defaults and, above all, drives profile-aware
+ * VOCABULARY: the same operation reads "Clôture du jour" to a MICRO boutique and "Clôture de
+ * période" to an SME/accountant. A MICRO owner must never meet accounting jargon like "période".
+ * Every module stays independently switchable — the profile only picks defaults. Capped at SME
+ * (multi-entity/corporate is a different product).
+ */
+export enum BusinessProfileTier {
+  MICRO = 'MICRO',
+  SMALL = 'SMALL',
+  SME = 'SME',
+}
+
 /** Fiscal/legal identifiers + tax settings. Persisted on the business; NOT consumed
  * by any tax computation yet (see deferred OHADA feature plan). */
 export interface BusinessFiscalFields {
@@ -181,6 +199,19 @@ export function clampCreditDays(days: number | null | undefined): number {
   return Math.min(MAX_CREDIT_DAYS, Math.max(0, Math.round(days)))
 }
 
+/** Default business profile — the neutral middle. MICRO opts into simplified wording, SME into
+ * full accounting vocabulary. */
+export const DEFAULT_BUSINESS_PROFILE = BusinessProfileTier.SMALL
+
+/** Coerce an arbitrary value to a valid BusinessProfileTier, falling back to the default. */
+export function normalizeBusinessProfile(value: unknown): BusinessProfileTier {
+  return value === BusinessProfileTier.MICRO ||
+    value === BusinessProfileTier.SMALL ||
+    value === BusinessProfileTier.SME
+    ? value
+    : DEFAULT_BUSINESS_PROFILE
+}
+
 export interface CreateBusinessRequest extends BusinessFiscalFields {
   name: string
   description?: string
@@ -203,6 +234,10 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   dayCutoverTime?: string | null
   /** Month (1–12) the fiscal year begins in; default 1 (January). */
   fiscalYearStartMonth?: number | null
+  /** Business size profile (MICRO | SMALL | SME) — sets defaults + drives vocabulary. */
+  profile?: BusinessProfileTier | null
+  /** Authorization methods accepted at step-up (BIZ-3.3). null/absent ⇒ both PIN + CARD. */
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -228,6 +263,8 @@ export interface BusinessProfile {
   timezone: string | null
   dayCutoverTime: string | null
   fiscalYearStartMonth: number | null
+  profile: BusinessProfileTier | null
+  allowedAuthMethods: MemberAuthCredentialType[] | null
   // Legal / fiscal identity captured at onboarding (editable afterward — Settings → Tax).
   niu: string | null
   rccm: string | null
@@ -257,6 +294,8 @@ export interface BusinessMembershipBusinessSummary {
   timezone?: string | null
   dayCutoverTime?: string | null
   fiscalYearStartMonth?: number | null
+  profile?: BusinessProfileTier | null
+  allowedAuthMethods?: MemberAuthCredentialType[] | null
   niu?: string | null
   rccm?: string | null
   vatRegistered?: boolean

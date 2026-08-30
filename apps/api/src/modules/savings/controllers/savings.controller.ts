@@ -12,7 +12,12 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { RequireResource, ResourceGuard } from '@/modules/permissions/guards/resource.guard'
 import type { CustomerDeposit } from '@/entities/customer-deposit.entity'
-import { AddDepositPaymentDto, CloseDepositDto, CreateDepositDto, ListDepositsQueryDto } from '../dto/deposit.dto'
+import {
+  AddDepositPaymentDto,
+  CloseDepositDto,
+  CreateDepositDto,
+  ListDepositsQueryDto,
+} from '../dto/deposit.dto'
 import { DepositsService, type DepositSummary } from '../services/savings.service'
 
 @ApiTags('Deposits')
@@ -32,7 +37,10 @@ export class SavingsController {
   @Get()
   @RequireResource(Resource.DEPOSITS)
   @ApiOperation({ summary: 'List deposit sessions' })
-  list(@CurrentUser() user: JwtPayload, @Query() query: ListDepositsQueryDto): Promise<PaginatedResult<CustomerDeposit>> {
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ListDepositsQueryDto,
+  ): Promise<PaginatedResult<CustomerDeposit>> {
     return this.depositsService.list(user.businessId as string, query)
   }
 
@@ -43,10 +51,24 @@ export class SavingsController {
     return this.depositsService.getSummary(user.businessId as string)
   }
 
+  @Get('other-income')
+  @RequireResource(Resource.DEPOSITS)
+  @ApiOperation({ summary: 'Total deposit-cancellation charges over a range (income statement)' })
+  getOtherIncome(
+    @CurrentUser() user: JwtPayload,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ): Promise<{ total: number }> {
+    return this.depositsService.getOtherIncome(user.businessId as string, { dateFrom, dateTo })
+  }
+
   @Get('open/:customerId')
   @RequireResource(Resource.DEPOSITS)
   @ApiOperation({ summary: "A customer's open deposit session (or null)" })
-  getOpen(@CurrentUser() user: JwtPayload, @Param('customerId') customerId: string): Promise<CustomerDeposit | null> {
+  getOpen(
+    @CurrentUser() user: JwtPayload,
+    @Param('customerId') customerId: string,
+  ): Promise<CustomerDeposit | null> {
     return this.depositsService.getOpenForCustomer(customerId, user.businessId as string)
   }
 
@@ -84,14 +106,22 @@ export class SavingsController {
   @Post(':id/payments')
   @RequireResource(Resource.DEPOSITS)
   @ApiOperation({ summary: 'Add a deposit (top-up) to a session' })
-  addPayment(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: AddDepositPaymentDto): Promise<CustomerDeposit> {
+  addPayment(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: AddDepositPaymentDto,
+  ): Promise<CustomerDeposit> {
     return this.depositsService.addPayment(id, user.businessId as string, user, dto)
   }
 
   @Post(':id/close')
   @RequireResource(Resource.DEPOSITS)
   @ApiOperation({ summary: 'Close a session (settle leftover, set outcome)' })
-  close(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: CloseDepositDto): Promise<CustomerDeposit> {
+  close(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CloseDepositDto,
+  ): Promise<CustomerDeposit> {
     return this.depositsService.close(id, user.businessId as string, user, dto)
   }
 }

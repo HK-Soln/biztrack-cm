@@ -6,7 +6,7 @@ import type { LocalDebt } from '@shared/ipc'
 import { dataClient } from '@/lib/data-client'
 import { ActionMenu } from '@/components/ActionMenu'
 import { useCurrency } from '@/lib/currency'
-import { errorMessage } from '@/lib/error'
+import { openExternal, whatsappUrl } from '@/lib/share'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 
@@ -14,6 +14,11 @@ import type { MessageKey } from '@/i18n/messages'
 // a one-tap WhatsApp reminder (3 tones + optional itemised breakdown) and a "view all
 // debts" modal that lists the outstanding debts making up the balance, with per-debt
 // editable due dates (D9). Self-hides when the customer owes nothing.
+//
+// BIZ-4.3: the reminder OPENS WhatsApp via a wa.me deep link with the message pre-filled and
+// editable — the owner reviews and sends it themselves. It never auto-sends: in a small
+// community the owner must keep control of the tone. (The full account statement has its own
+// dedicated "send statement" action on the contact page.)
 
 type Tone = 'gentle' | 'neutral' | 'firm'
 const TONE_KEY: Record<Tone, MessageKey> = {
@@ -53,14 +58,9 @@ interface CustomerRef {
 export function CustomerDebtActions({
   contact,
   businessName,
-  statementHtml,
-  statementFilename,
 }: {
   contact: CustomerRef
   businessName: string
-  /** Pre-built receivable statement HTML (for the optional 'send with statement' attach). */
-  statementHtml: string | null
-  statementFilename: string
 }) {
   const t = useT()
   const [remind, setRemind] = useState(false)
@@ -94,8 +94,6 @@ export function CustomerDebtActions({
         <ReminderModal
           contact={contact}
           businessName={businessName}
-          statementHtml={statementHtml}
-          statementFilename={statementFilename}
           onClose={() => setRemind(false)}
         />
       ) : null}
@@ -114,35 +112,60 @@ export function CustomerDebtActions({
 function ReminderModal({
   contact,
   businessName,
-  statementHtml,
-  statementFilename,
   onClose,
 }: {
   contact: CustomerRef
   businessName: string
-  statementHtml: string | null
-  statementFilename: string
   onClose: () => void
 }) {
   const t = useT()
   const money = useCurrency()
-  const genMessage = (tone: Tone) =>
-    t(TONE_KEY[tone])
+
+  // Outstanding receivable debts, for the optional itemised breakdown ("3 sacs de riz le 13
+  // avril, 2 cartons de lait le 20" ends an argument that "vous devez 5 900" starts).
+  const debtsQ = useQuery({
+    queryKey: ['debtorDebts', contact.id],
+    queryFn: async () => {
+      const res = await dataClient.debts.listByContact(contact.id, { limit: 100 })
+      return res.data.filter(
+        (d) => d.direction === DebtDirection.RECEIVABLE && d.outstandingAmount > 0,
+      )
+    },
+  })
+
+  const [tone, setTone] = useState<Tone>('neutral')
+  const [itemised, setItemised] = useState(false)
+  const [phone, setPhone] = useState(contact.phone ?? '')
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const buildMessage = (tk: Tone, withItems: boolean) => {
+    let msg = t(TONE_KEY[tk])
       .replace('{name}', contact.name)
       .replace('{amount}', money.format(contact.totalReceivable))
       .replace('{business}', businessName)
+    const debts = debtsQ.data ?? []
+    if (withItems && debts.length > 0) {
+      const lines = debts
+        .map((d) => {
+          const ref =
+            d.sourceType === DebtSource.OPENING_BALANCE ? t('debtors.opening') : d.sourceReference
+          const date = new Date(d.createdAt).toLocaleDateString()
+          return `• ${ref} (${date}) : ${money.format(d.outstandingAmount)}`
+        })
+        .join('\n')
+      msg += `\n\n${t('debtors.waItems')}\n${lines}`
+    }
+    return msg
+  }
 
-  const [tone, setTone] = useState<Tone>('neutral')
-  const [message, setMessage] = useState(() => genMessage('neutral'))
-  const [phone, setPhone] = useState(contact.phone ?? '')
-  const [withStatement, setWithStatement] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [done, setDone] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState(() => buildMessage('neutral', false))
 
-  const pickTone = (tk: Tone) => {
+  // Picking a tone / toggling the breakdown regenerates the draft; the owner then refines it.
+  const regen = (tk: Tone, withItems: boolean) => {
     setTone(tk)
-    setMessage(genMessage(tk)) // regenerate; the user can then refine the text
+    setItemised(withItems)
+    setMessage(buildMessage(tk, withItems))
   }
 
   const copy = async () => {
@@ -155,26 +178,12 @@ function ReminderModal({
     }
   }
 
-  const send = useMutation({
-    mutationFn: () =>
-      dataClient.documents.shareHtmlPdf({
-        channel: 'whatsapp',
-        message: message.trim(),
-        phone: phone.trim(),
-        subject: t('debtors.reminderSubject').replace('{business}', businessName),
-        html: withStatement ? (statementHtml ?? undefined) : undefined,
-        filename: withStatement ? statementFilename : undefined,
-      }),
-    onSuccess: () => setDone(t('debtors.reminderSent')),
-    onError: (e) =>
-      setError(
-        typeof navigator !== 'undefined' && !navigator.onLine
-          ? t('debtors.reminderOffline')
-          : errorMessage(e, t('share.error')),
-      ),
-  })
+  const openInWhatsapp = () => {
+    setError(null)
+    openExternal(whatsappUrl(message.trim(), phone.trim()))
+  }
 
-  const canSend = !!message.trim() && !!phone.trim() && !send.isPending
+  const canOpen = !!message.trim()
 
   return (
     <Overlay onClose={onClose} title={t('debtors.remind')} width={460}>
@@ -184,7 +193,7 @@ function ReminderModal({
             key={tk}
             type="button"
             className={`ofs-chip${tone === tk ? ' on' : ''}`}
-            onClick={() => pickTone(tk)}
+            onClick={() => regen(tk, itemised)}
           >
             {t(TONE_LABEL[tk])}
           </button>
@@ -194,27 +203,23 @@ function ReminderModal({
         className="dbtr-msg"
         rows={6}
         value={message}
-        onChange={(e) => {
-          setMessage(e.target.value)
-          setDone(null)
-        }}
+        onChange={(e) => setMessage(e.target.value)}
       />
       <label className="dbtr-itemised" style={{ marginTop: 10 }}>
         <input
           type="checkbox"
-          checked={withStatement}
-          disabled={!statementHtml}
-          onChange={(e) => setWithStatement(e.target.checked)}
+          checked={itemised}
+          disabled={debtsQ.isLoading || (debtsQ.data?.length ?? 0) === 0}
+          onChange={(e) => regen(tone, e.target.checked)}
         />
-        {t('debtors.withStatement')}
+        {t('debtors.itemised')}
       </label>
       <div className="ff" style={{ marginTop: 12 }}>
         <label className="lbl2">{t('share.recipientPhone')}</label>
         <PhoneInput value={phone} onChange={(v) => setPhone(v ?? '')} />
       </div>
-      {done ? (
-        <p style={{ color: 'var(--success)', fontSize: 12.5, marginTop: 10 }}>{done}</p>
-      ) : error ? (
+      <p style={{ color: 'var(--text-2)', fontSize: 12, marginTop: 8 }}>{t('debtors.openHint')}</p>
+      {error ? (
         <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
           {error}
         </p>
@@ -231,17 +236,8 @@ function ReminderModal({
         <Button type="button" variant="soft" onClick={copy}>
           {copied ? t('debtors.copied') : t('debtors.copy')}
         </Button>
-        <Button
-          type="button"
-          variant="primary"
-          loading={send.isPending}
-          disabled={!canSend}
-          onClick={() => {
-            setError(null)
-            send.mutate()
-          }}
-        >
-          {t('debtors.sendWhatsapp')}
+        <Button type="button" variant="primary" disabled={!canOpen} onClick={openInWhatsapp}>
+          {t('debtors.openWhatsapp')}
         </Button>
       </div>
     </Overlay>

@@ -12,6 +12,7 @@ import { ProductsModule } from '@/modules/products/products.module'
 import { RedisModule } from '@/common/redis/redis.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { FiscalModule } from '@/modules/fiscal/fiscal.module'
+import { CredentialsModule } from '@/modules/credentials/credentials.module'
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { FiscalModule } from '@/modules/fiscal/fiscal.module'
     RedisModule,
     AuditModule,
     FiscalModule,
+    CredentialsModule,
   ],
   controllers: [BusinessesController],
   providers: [BusinessesRepository, BusinessMembersRepository, BusinessService],

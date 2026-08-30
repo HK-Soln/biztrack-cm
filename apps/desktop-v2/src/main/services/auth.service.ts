@@ -13,6 +13,7 @@ import type {
   SessionStatus,
 } from '../../shared/ipc'
 import type { PlanStateResponse } from '@biztrack/types'
+import { normalizeBusinessProfile, normalizeAuthMethods } from '@biztrack/types'
 import { decodeJwt, isJwtExpired } from './jwt'
 import type { LocalCache } from './local-cache'
 import type { StoredTokens, TokenStore } from './token-store'
@@ -41,6 +42,8 @@ const EMPTY: SessionStatus = {
   businessId: null,
   businessName: null,
   businessCurrency: null,
+  profile: null,
+  allowedAuthMethods: null,
   nextStep: null,
 }
 
@@ -83,6 +86,28 @@ export class AuthService {
   }
 
   getSession(): SessionStatus {
+    return this.session
+  }
+
+  /**
+   * Patch the live session's business-derived fields after a Settings save (e.g. the owner flipping
+   * the allowed step-up methods, or renaming the business). getSession() is the renderer's source of
+   * truth, so without this the toggle / step-up modal keep the stale value until the next login.
+   */
+  applyBusinessProfile(p: {
+    id?: string
+    name?: string
+    currency?: string | null
+    allowedAuthMethods?: string[] | null
+  }): SessionStatus {
+    // Defensive: Settings only edits the active business — ignore a mismatched id.
+    if (p.id && this.session.businessId && p.id !== this.session.businessId) return this.session
+    this.session = {
+      ...this.session,
+      businessName: p.name ?? this.session.businessName,
+      businessCurrency: p.currency ?? this.session.businessCurrency,
+      allowedAuthMethods: p.allowedAuthMethods ? normalizeAuthMethods(p.allowedAuthMethods) : null,
+    }
     return this.session
   }
 
@@ -418,6 +443,10 @@ export class AuthService {
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
+      profile: cb?.profile ? normalizeBusinessProfile(cb.profile) : null,
+      allowedAuthMethods: cb?.allowedAuthMethods
+        ? normalizeAuthMethods(cb.allowedAuthMethods)
+        : null,
       // BIZ-5.5: last-known entitlements from the offline cache (undefined ⇒ permissive).
       effectivePermissions: businessId ? this.cache.getEffectivePermissions(businessId) : undefined,
       nextStep,
@@ -492,6 +521,10 @@ export class AuthService {
       businessId,
       businessName: cb?.name ?? null,
       businessCurrency: cb?.currency ?? null,
+      profile: cb?.profile ? normalizeBusinessProfile(cb.profile) : null,
+      allowedAuthMethods: cb?.allowedAuthMethods
+        ? normalizeAuthMethods(cb.allowedAuthMethods)
+        : null,
       // BIZ-5.5: last-known plan-tier entitlements for client module gating. undefined ⇒ permissive.
       effectivePermissions: businessId ? this.cache.getEffectivePermissions(businessId) : undefined,
       nextStep,
@@ -575,6 +608,9 @@ export class AuthService {
       name,
       role: (rec.role as string | undefined) ?? null,
       status: (biz.businessStatus as string | undefined) ?? null,
+      currency: (biz.currency as string | undefined) ?? null,
+      profile: (biz.profile as string | undefined) ?? null,
+      allowedAuthMethods: (biz.allowedAuthMethods as string[] | undefined) ?? null,
     }
   }
 

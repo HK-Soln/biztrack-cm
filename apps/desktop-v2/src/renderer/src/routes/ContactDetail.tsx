@@ -294,8 +294,6 @@ export function ContactDetail() {
         totalReceivable: contact.totalReceivable,
       }}
       businessName={businessProfile?.name ?? ''}
-      statementHtml={recvStmt ? statementHtml(recvStmt, t('ct.statement')) : null}
-      statementFilename={exportName(t('ct.statement'))}
     />
   )
 
