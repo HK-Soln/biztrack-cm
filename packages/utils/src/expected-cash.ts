@@ -6,10 +6,14 @@ import { toWholeXaf } from './currency'
 // agree by construction.
 //
 //   expected_cash = opening_float
-//                 + Σ CASH sale_payments on non-voided sales   (tendered)
+//                 + Σ CASH sale_payments on non-voided sales   (tendered, NET of refunds)
 //                 − Σ change_given on those sales              (dispensed from the drawer)
 //                 + Σ cash_movements IN
 //                 − Σ cash_movements OUT
+//
+// "Net of refunds" (BIZ-1.8): a partial/full refund writes a REFUND-kind CASH sale_payment
+// (cash handed back), so the caller nets those out of cashPayments. Refunded sales stay IN the
+// sum (their original tender is real drawer cash); only VOIDED sales — fully reversed — drop out.
 //
 // Why subtract change: a CASH payment is recorded at the amount TENDERED, and the
 // overpayment is handed back from the drawer as change_given. Net cash into the
@@ -26,7 +30,8 @@ import { toWholeXaf } from './currency'
 export interface ExpectedCashInput {
   /** The float the drawer was opened with (whole XAF). */
   openingFloat: number
-  /** Σ tendered CASH `sale_payments.amount` on non-voided (COMPLETED) sales in the session. */
+  /** Σ tendered CASH `sale_payments.amount` on non-voided sales in the session, NET of
+   * REFUND-kind rows (BIZ-1.8). */
   cashPayments: number
   /** Σ `change_given` on those sales — cash handed back out of the drawer. */
   changeGiven: number

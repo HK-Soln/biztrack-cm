@@ -6,6 +6,7 @@ import {
   type DocumentRecipient,
   type DocumentSendChannel,
   type SaleInput,
+  type RefundSaleInput,
   type SalesListQuery,
 } from '../../shared/ipc'
 import type { SalesService } from '../services/sales.service'
@@ -51,6 +52,11 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesGet, (_e, id: string) => sales.get(id))
   ipcMain.handle(IPC.salesVoid, (_e, saleId: string, reason: string) =>
     sales.voidSale(saleId, reason),
+  )
+  // Refund/return (BIZ-1.8) — offline-first like void: records the return locally + re-enqueues
+  // the sale so the API applies its own authoritative return on sync.
+  ipcMain.handle(IPC.salesRefund, (_e, saleId: string, input: RefundSaleInput) =>
+    sales.refundSale(saleId, input),
   )
   ipcMain.handle(IPC.savingsGetForCustomer, (_e, customerId: string) =>
     savings.getForCustomer(customerId),

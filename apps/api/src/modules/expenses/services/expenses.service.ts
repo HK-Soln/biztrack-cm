@@ -319,26 +319,68 @@ export class ExpensesService {
 
   async getPnlSummary(businessId: string, year: number, month: number): Promise<ExpensePnlSummary> {
     try {
-      const expenseSummary = await this.monthlySummaryService.getMonthly(businessId, year, month)
       const { start, endExclusive } = this.getMonthWindow(year, month)
-      const raw = await this.dailySaleSummariesRepo
-        .createQueryBuilder('summary')
-        .select('COALESCE(SUM(summary.total_revenue), 0)', 'revenue')
-        .addSelect('COALESCE(SUM(summary.total_cost), 0)', 'costOfGoods')
-        .where('summary.business_id = :businessId', { businessId })
-        .andWhere('summary.summary_date >= :startDate', {
-          startDate: start.toISOString().slice(0, 10),
-        })
-        .andWhere('summary.summary_date < :endDate', {
-          endDate: endExclusive.toISOString().slice(0, 10),
-        })
-        .getRawOne<{ revenue: string | number | null; costOfGoods: string | number | null }>()
+      const startDate = start.toISOString().slice(0, 10)
+      const endDate = endExclusive.toISOString().slice(0, 10)
 
-      const revenue = this.roundMoney(Number(raw?.revenue ?? 0))
-      const costOfGoods = this.roundMoney(Number(raw?.costOfGoods ?? 0))
+      // BIZ-5.4 — the P&L is a FINANCIAL statement, so revenue/COGS are ranged by posting_date
+      // (redated forward for late arrivals into closed periods), computed from source exactly like
+      // SalesService.getGrossProfit. The daily_sale_summaries rollup keys off sale_date — it is the
+      // OPERATIONAL grain (daily summary + cash-close reconciliation) and must not be re-keyed.
+      const [sales] = (await this.dailySaleSummariesRepo.manager.query(
+        `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
+                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE s.business_id = $1
+           AND COALESCE(s.posting_date, s.business_date, s.sale_date) >= $2
+           AND COALESCE(s.posting_date, s.business_date, s.sale_date) < $3
+           AND s.status = 'COMPLETED' AND s.deleted_at IS NULL AND si.deleted_at IS NULL`,
+        [businessId, startDate, endDate],
+      )) as Array<{ revenue: string | number | null; cogs: string | number | null }>
+      const revenue = this.roundMoney(Number(sales?.revenue ?? 0))
+      const costOfGoods = this.roundMoney(Number(sales?.cogs ?? 0))
+
+      // Expenses on the same financial (posting_date) grain, grouped by category slug.
+      const expenseRows = await this.expensesRepo
+        .createQueryBuilder('expense')
+        .innerJoin('expense.category', 'category')
+        .select('category.slug', 'slug')
+        .addSelect('SUM(expense.amount)', 'amount')
+        .where('expense.business_id = :businessId', { businessId })
+        .andWhere('expense.deleted_at IS NULL')
+        .andWhere('category.deleted_at IS NULL')
+        .andWhere(
+          'COALESCE(expense.posting_date, expense.business_date, expense.date) >= :startDate',
+          { startDate },
+        )
+        .andWhere(
+          'COALESCE(expense.posting_date, expense.business_date, expense.date) < :endDate',
+          { endDate },
+        )
+        .groupBy('category.slug')
+        .getRawMany<{ slug: string; amount: string | number | null }>()
+
+      const expenseBreakdown: Record<string, number> = {}
+      let totalExpenses = 0
+      for (const row of expenseRows) {
+        const amount = this.roundMoney(Number(row.amount ?? 0))
+        expenseBreakdown[row.slug] = amount
+        totalExpenses += amount
+      }
+      totalExpenses = this.roundMoney(totalExpenses)
+
+      // SCRUM-46 — non-trading income (deposit-cancellation charges) over the same window.
+      const [oi] = (await this.dailySaleSummariesRepo.manager.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM savings_transactions
+         WHERE business_id = $1 AND type = 'charge' AND is_deleted = false
+           AND COALESCE(business_date, occurred_at::date) >= $2
+           AND COALESCE(business_date, occurred_at::date) < $3`,
+        [businessId, startDate, endDate],
+      )) as Array<{ total: string | number | null }>
+      const otherIncome = this.roundMoney(Number(oi?.total ?? 0))
+
       const grossProfit = this.roundMoney(revenue - costOfGoods)
-      const totalExpenses = expenseSummary.totalAmount
-      const netProfit = this.roundMoney(grossProfit - totalExpenses)
+      const netProfit = this.roundMoney(grossProfit + otherIncome - totalExpenses)
 
       return {
         year,
@@ -347,8 +389,9 @@ export class ExpensesService {
         costOfGoods,
         grossProfit,
         grossMarginPercent: revenue > 0 ? this.roundPercentage((grossProfit / revenue) * 100) : 0,
+        otherIncome,
         totalExpenses,
-        expenseBreakdown: expenseSummary.categoryBreakdown,
+        expenseBreakdown,
         netProfit,
         netMarginPercent: revenue > 0 ? this.roundPercentage((netProfit / revenue) * 100) : 0,
         isProfitable: netProfit > 0,

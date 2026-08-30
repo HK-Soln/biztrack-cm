@@ -6,6 +6,7 @@ import type {
   LocalSalesSummary,
   SalesListQuery,
   SaleInput,
+  RefundSaleInput,
   DocumentSendChannel,
   DocumentRecipient,
   PaginatedResult,
@@ -247,6 +248,7 @@ export const cloudSales = {
     const body = clean({
       clientId: input.clientId,
       soldAt: input.soldAt ?? new Date().toISOString(),
+      cashSessionId: input.cashSessionId,
       customerId: input.customerId,
       customerName: input.customerName,
       customerPhone: input.customerPhone,
@@ -296,6 +298,16 @@ export const cloudSales = {
   // Void a completed sale — the API reverses stock/serials/deposit/debt server-side.
   void: async (saleId: string, reason: string): Promise<LocalSaleDetail> => {
     const s = await cpost<ApiSaleDetail>(`/sales/${saleId}/void`, { reason })
+    return {
+      ...toLocalSale(s),
+      items: (s.items ?? []).map(toLocalSaleItem),
+      payments: (s.payments ?? []).map(toLocalSalePayment),
+    }
+  },
+  // Refund/return a sale in full or partially (BIZ-1.8) — the API records the return + REFUND
+  // payment + restock and returns the updated sale (cloud build; desktop writes locally).
+  refund: async (saleId: string, input: RefundSaleInput): Promise<LocalSaleDetail> => {
+    const s = await cpost<ApiSaleDetail>(`/sales/${saleId}/refund`, input)
     return {
       ...toLocalSale(s),
       items: (s.items ?? []).map(toLocalSaleItem),

@@ -104,6 +104,10 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
   const [voidOpen, setVoidOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [voidErr, setVoidErr] = useState<string | null>(null)
+  const [refundOpen, setRefundOpen] = useState(false)
+  const [returnQty, setReturnQty] = useState<Record<string, number>>({})
+  const [refundReason, setRefundReason] = useState('')
+  const [refundErr, setRefundErr] = useState<string | null>(null)
 
   const { data: sale, isPending } = useQuery({
     queryKey: ['sales', 'detail', saleId],
@@ -139,6 +143,33 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
     onError: (e) => setVoidErr(errorMessage(e, t('sales.voidFailed'))),
   })
 
+  // Partial/full refund (BIZ-1.8) — offline-first on desktop: writes the return locally + syncs.
+  // It restocks and touches deposits/debts too, so refresh those views.
+  const refundM = useMutation({
+    mutationFn: () => {
+      const items = (sale?.items ?? [])
+        .filter((it) => (returnQty[it.id] ?? 0) > 0)
+        .map((it) => ({ saleItemId: it.id, quantity: returnQty[it.id]! }))
+      return dataClient.sales.refund(saleId, {
+        items,
+        reason: refundReason.trim() || undefined,
+      })
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sales'] })
+      void qc.invalidateQueries({ queryKey: ['sales', 'detail', saleId] })
+      void qc.invalidateQueries({ queryKey: queryKeys.products })
+      void qc.invalidateQueries({ queryKey: queryKeys.inventory })
+      void qc.invalidateQueries({ queryKey: queryKeys.contacts })
+      setRefundOpen(false)
+      setReturnQty({})
+      setRefundReason('')
+      setRefundErr(null)
+      flash(t('sales.refundDone'))
+    },
+    onError: (e) => setRefundErr(errorMessage(e, t('sales.refundFailed'))),
+  })
+
   if (isPending || !sale) {
     return (
       <div className="drawer-b">
@@ -161,7 +192,16 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
     }
   }
 
-  const isVoided = (sale.status ?? '').toUpperCase() === 'VOIDED'
+  const status = (sale.status ?? '').toUpperCase()
+  const isVoided = status === 'VOIDED'
+  // A completed sale can be refunded; a partly-refunded one can be refunded further.
+  const isRefundable = status === 'COMPLETED' || status === 'PARTIALLY_REFUNDED'
+  const refundPreview = sale.items.reduce((sum, it) => {
+    const q = returnQty[it.id] ?? 0
+    const perUnit = it.quantity > 0 ? it.lineTotal / it.quantity : it.lineTotal
+    return sum + perUnit * q
+  }, 0)
+  const refundSelected = sale.items.some((it) => (returnQty[it.id] ?? 0) > 0)
 
   return (
     <>
@@ -282,7 +322,26 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
           </div>
         </div>
 
-        {canVoid && !isVoided ? (
+        {canVoid && isRefundable ? (
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button
+              type="button"
+              className="btn"
+              style={{ flex: 1, justifyContent: 'center' }}
+              onClick={() => setRefundOpen(true)}
+            >
+              {t('sales.refund')}
+            </button>
+            <button
+              type="button"
+              className="void-btn"
+              style={{ flex: 1, marginTop: 0 }}
+              onClick={() => setVoidOpen(true)}
+            >
+              {t('sales.voidSale')}
+            </button>
+          </div>
+        ) : canVoid && !isVoided ? (
           <button type="button" className="void-btn" onClick={() => setVoidOpen(true)}>
             {t('sales.voidSale')}
           </button>
@@ -373,6 +432,103 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
         {voidErr ? (
           <div className="msg err" style={{ marginTop: 8 }}>
             <span>{voidErr}</span>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={refundOpen}
+        onClose={() => {
+          if (refundM.isPending) return
+          setRefundOpen(false)
+          setRefundErr(null)
+        }}
+        title={t('sales.refundTitle')}
+        footer={
+          <>
+            <Button
+              variant="soft"
+              onClick={() => setRefundOpen(false)}
+              disabled={refundM.isPending}
+            >
+              {t('sales.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={refundM.isPending}
+              disabled={!refundSelected}
+              onClick={() => refundM.mutate()}
+            >
+              {t('sales.refundAction').replace('{amount}', money.format(Math.round(refundPreview)))}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 12 }}>
+          {t('sales.refundBody')}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sale.items.map((it) => {
+            const q = returnQty[it.id] ?? 0
+            return (
+              <div
+                key={it.id}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600 }}>
+                    {it.productName}
+                    {it.variantName ? ` · ${it.variantName}` : ''}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    {t('sales.refundOf').replace('{n}', String(it.quantity))}
+                  </div>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  max={it.quantity}
+                  value={q === 0 ? '' : String(q)}
+                  placeholder="0"
+                  style={{ width: 64 }}
+                  onChange={(e) => {
+                    const n = Math.max(
+                      0,
+                      Math.min(it.quantity, Math.floor(Number(e.target.value) || 0)),
+                    )
+                    setReturnQty((prev) => ({ ...prev, [it.id]: n }))
+                    if (refundErr) setRefundErr(null)
+                  }}
+                />
+              </div>
+            )
+          })}
+        </div>
+        <div
+          className="tr g"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginTop: 12,
+            fontWeight: 700,
+          }}
+        >
+          <span>{t('sales.refundAmount')}</span>
+          <span>{money.format(Math.round(refundPreview))}</span>
+        </div>
+        <textarea
+          className="void-reason"
+          style={{ marginTop: 12 }}
+          value={refundReason}
+          placeholder={t('sales.refundReasonPh')}
+          rows={2}
+          maxLength={1000}
+          onChange={(e) => setRefundReason(e.target.value)}
+        />
+        <div className="void-hint">{t('sales.refundOnlineNote')}</div>
+        {refundErr ? (
+          <div className="msg err" style={{ marginTop: 8 }}>
+            <span>{refundErr}</span>
           </div>
         ) : null}
       </Modal>

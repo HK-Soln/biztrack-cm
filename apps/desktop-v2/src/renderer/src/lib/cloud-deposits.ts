@@ -32,7 +32,6 @@ function clean<T extends Record<string, unknown>>(o: T): Record<string, unknown>
  * receipt/report HTML renders from the API's structured payload via @biztrack/templates.
  */
 
-
 function qs(query?: Record<string, unknown>): string {
   if (!query) return ''
   const p = new URLSearchParams()
@@ -88,10 +87,16 @@ export const cloudDeposits = {
     }
   },
   summary: (): Promise<LocalDepositSummary> => cget<LocalDepositSummary>('/deposits/summary'),
+  otherIncome: (query?: { dateFrom?: string; dateTo?: string }): Promise<{ total: number }> =>
+    cget<{ total: number }>(`/deposits/other-income${qs(query as Record<string, unknown>)}`),
   create: (input: CreateDepositInput): Promise<CustomerDeposit> =>
     cpost<CustomerDeposit>(
       '/deposits',
-      clean({ customerId: input.customerId, taggedProducts: input.taggedProducts, initialDeposit: input.initialDeposit }),
+      clean({
+        customerId: input.customerId,
+        taggedProducts: input.taggedProducts,
+        initialDeposit: input.initialDeposit,
+      }),
     ),
   addPayment: (id: string, input: AddDepositPaymentInput): Promise<CustomerDeposit> =>
     cpost<CustomerDeposit>(`/deposits/${id}/payments`, clean({ ...input })),

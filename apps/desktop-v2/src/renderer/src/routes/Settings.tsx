@@ -19,6 +19,7 @@ import { ReceiptsSection } from '@/components/settings/ReceiptsSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
 import { BusinessHoursSection } from '@/components/settings/BusinessHoursSection'
 import { AccountingPeriodsSection } from '@/components/settings/AccountingPeriodsSection'
+import { AuthCardsSection } from '@/components/settings/AuthCardsSection'
 
 // Settings is a SINGLE route with an in-page side-nav (per design-settings.html).
 // Team & Roles live under the separate "Organization" nav group — they are not
@@ -202,7 +203,10 @@ export function Settings() {
     ) : section === 'periods' ? (
       <AccountingPeriodsSection />
     ) : section === 'security' ? (
-      <BusinessSecuritySection />
+      <>
+        <BusinessSecuritySection />
+        <AuthCardsSection />
+      </>
     ) : section === 'subscription' ? (
       <SubscriptionSection onManageBilling={() => selectSection('billing')} />
     ) : section === 'billing' ? (

@@ -217,7 +217,14 @@ const api: BridgeApi = {
   pin: {
     set: (pin) => ipcRenderer.invoke(IPC.pinSet, pin),
     verify: (pin) => ipcRenderer.invoke(IPC.pinVerify, pin),
+    verifyCard: (token) => ipcRenderer.invoke(IPC.pinVerifyCard, token),
     canManage: () => ipcRenderer.invoke(IPC.pinCanManage),
+  },
+  credentials: {
+    list: () => ipcRenderer.invoke(IPC.credentialsList),
+    issueCard: (input) => ipcRenderer.invoke(IPC.credentialsIssueCard, input),
+    revoke: (id) => ipcRenderer.invoke(IPC.credentialsRevoke, id),
+    replace: (id, input) => ipcRenderer.invoke(IPC.credentialsReplace, id, input),
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
@@ -248,6 +255,7 @@ const api: BridgeApi = {
     flaggedDiscounts: (query) => ipcRenderer.invoke(IPC.salesFlaggedDiscounts, query),
     get: (id) => ipcRenderer.invoke(IPC.salesGet, id),
     void: (saleId, reason) => ipcRenderer.invoke(IPC.salesVoid, saleId, reason),
+    refund: (saleId, input) => ipcRenderer.invoke(IPC.salesRefund, saleId, input),
     sendReceipt: (saleId, channel, locale, opts) =>
       ipcRenderer.invoke(IPC.salesSendReceipt, saleId, channel, locale, opts),
     printReceipt: (saleId, locale, reprint) =>
@@ -264,6 +272,7 @@ const api: BridgeApi = {
     get: (id) => ipcRenderer.invoke(IPC.depositsGet, id),
     statement: (id) => ipcRenderer.invoke(IPC.depositsStatement, id),
     summary: () => ipcRenderer.invoke(IPC.depositsSummary),
+    otherIncome: (query) => ipcRenderer.invoke(IPC.depositsOtherIncome, query),
     create: (input) => ipcRenderer.invoke(IPC.depositsCreate, input),
     addPayment: (id, input) => ipcRenderer.invoke(IPC.depositsAddPayment, id, input),
     close: (id, input) => ipcRenderer.invoke(IPC.depositsClose, id, input),

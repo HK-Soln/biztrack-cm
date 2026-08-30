@@ -1148,7 +1148,8 @@ export function buildIncomeStatementReport(
   const fr = isFr(opts.locale)
   const m = (x: number) => formatMoney(x, data.currency, opts.locale)
   const grossMargin = data.revenue - data.cogs
-  const operating = grossMargin - data.totalExpenses
+  const otherIncome = data.otherIncome ?? 0
+  const operating = grossMargin + otherIncome - data.totalExpenses
   const L = fr
     ? {
         title: 'Compte de résultat',
@@ -1156,6 +1157,7 @@ export function buildIncomeStatementReport(
         revenue: 'Ventes (produits)',
         cogs: 'Coût des marchandises vendues',
         margin: 'MARGE BRUTE',
+        otherIncome: 'Autres produits (frais d’annulation)',
         opex: 'Charges d’exploitation',
         totalOpex: 'Total des charges d’exploitation',
         result: "RÉSULTAT D'EXPLOITATION",
@@ -1170,6 +1172,7 @@ export function buildIncomeStatementReport(
         revenue: 'Sales revenue',
         cogs: 'Cost of goods sold',
         margin: 'GROSS MARGIN',
+        otherIncome: 'Other income (cancellation charges)',
         opex: 'Operating expenses',
         totalOpex: 'Total operating expenses',
         result: 'OPERATING RESULT',
@@ -1198,6 +1201,9 @@ export function buildIncomeStatementReport(
           subtotal: true,
           tone: grossMargin >= 0 ? 'up' : 'down',
         },
+        ...(otherIncome > 0
+          ? [{ label: L.otherIncome, value: `+ ${m(otherIncome)}`, tone: 'up' as const }]
+          : []),
       ],
     },
     {

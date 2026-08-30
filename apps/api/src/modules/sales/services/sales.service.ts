@@ -43,7 +43,7 @@ import { Business } from '@/entities/business.entity'
 import { AuditService } from '@/modules/audit/audit.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { PostingDateService } from '@/modules/fiscal/posting-date.service'
-import type { AuditContext } from '@biztrack/types'
+import type { AuditContext, RefundSaleInput } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
@@ -91,17 +91,6 @@ export interface RecordSalePaymentInput {
   note?: string | null
   /** YYYY-MM-DD for the receivable payment; defaults to today. */
   paymentDate?: string
-}
-
-/** Input for {@link SalesService.refund} — a full or partial return/refund of a sale. */
-export interface RefundSaleInput {
-  /** Money to return; defaults to the goods value of returned lines, capped at amountPaid. */
-  amount?: number
-  /** Returned lines; omit for a full return of every line. */
-  items?: Array<{ saleItemId: string; quantity: number; serialUnitId?: string | null }>
-  /** Restore inventory + release serial units (default true). */
-  restock?: boolean
-  reason?: string
 }
 
 type ComputedSaleItem = {
@@ -245,9 +234,14 @@ export class SalesService {
         const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
         const now = new Date()
-        // Local trading day (BIZ-5.1). API-direct sales aren't rung at a till (no shift), so
-        // this comes from the business timezone + cutover; distinct from the UTC saleDate.
-        const businessDate = await this.calendar.computeForBusiness(businessId, soldAt)
+        // Local trading day (BIZ-5.1). A cloud cashier's sale rung at a till inherits its shift's
+        // business_date so a shift straddling the cutover keeps one day; otherwise it comes from the
+        // business timezone + cutover. Distinct from the UTC saleDate.
+        const businessDate = await this.calendar.businessDateFor(
+          businessId,
+          soldAt,
+          dto.cashSessionId ?? null,
+        )
         // BIZ-5.4: the accounting day this sale posts to (redated forward if its period is closed).
         const posting = await this.postingDate.resolve(businessId, businessDate, manager)
 
@@ -279,6 +273,7 @@ export class SalesService {
             isLateArrival: posting.isLateArrival,
             originalPeriodId: posting.originalPeriodId,
             soldAt,
+            cashSessionId: dto.cashSessionId ?? null,
             syncedAt: now,
           }),
         )
@@ -574,6 +569,12 @@ export class SalesService {
             existingInTransaction.status !== SaleStatus.VOIDED
           ) {
             await this.applyVoidFromSync(manager, businessId, existingInTransaction.id, payload)
+          } else if (
+            (targetStatus === SaleStatus.REFUNDED ||
+              targetStatus === SaleStatus.PARTIALLY_REFUNDED) &&
+            (payload.returns?.length ?? 0) > 0
+          ) {
+            await this.applyRefundFromSync(manager, businessId, existingInTransaction.id, payload)
           }
 
           return
@@ -816,6 +817,13 @@ export class SalesService {
 
         if (targetStatus === SaleStatus.VOIDED) {
           await this.applyVoidFromSync(manager, businessId, sale.id, payload)
+        } else if (
+          (targetStatus === SaleStatus.REFUNDED ||
+            targetStatus === SaleStatus.PARTIALLY_REFUNDED) &&
+          (payload.returns?.length ?? 0) > 0
+        ) {
+          // A sale rung + returned offline before its first sync — apply the return after insert.
+          await this.applyRefundFromSync(manager, businessId, sale.id, payload)
         }
         saleId = sale.id
       })
@@ -2522,6 +2530,145 @@ export class SalesService {
     // (cloud, no local savings state) is the one that refunds savings itself.
   }
 
+  /**
+   * Apply a refund/return the device recorded offline (BIZ-1.8) — the sync counterpart of the
+   * direct `refund()` endpoint. Idempotent by return id (a return that already exists — e.g.
+   * pulled back down — is skipped). Mirrors applyVoidFromSync: the server does its own authoritative
+   * restock/settlement/debt; savings are client-authoritative and left alone.
+   */
+  private async applyRefundFromSync(
+    manager: EntityManager,
+    businessId: string,
+    saleId: string,
+    payload: SaleSyncPayload,
+  ) {
+    const returns = payload.returns ?? []
+    if (returns.length === 0) return
+    const sale = await this.findSaleDetailBy('sale.id = :id', { id: saleId, businessId }, manager)
+    if (!sale || sale.status === SaleStatus.VOIDED) return
+
+    const returnRepo = manager.getRepository(SaleReturn)
+    const returnItemRepo = manager.getRepository(SaleReturnItem)
+    const paymentRepo = manager.getRepository(SalePayment)
+    const saleItems = sale.items ?? []
+    const now = new Date()
+
+    for (const ret of returns) {
+      // Idempotent: this return already landed (a prior sync, or it pulled back down).
+      if (await returnRepo.findOne({ where: { id: ret.id } })) continue
+
+      const returnedLines = (ret.items ?? [])
+        .map((r) => {
+          const item = saleItems.find((si) => si.id === r.saleItemId)
+          if (!item) return null
+          return {
+            item,
+            quantity: Math.min(this.roundQuantity(r.quantity), item.quantity),
+            serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
+          }
+        })
+        .filter((r): r is { item: SaleItem; quantity: number; serialUnitId: string | null } => {
+          return !!r && r.quantity > 0
+        })
+      if (returnedLines.length === 0) continue
+
+      await returnRepo.save(
+        returnRepo.create({
+          id: ret.id,
+          saleId: sale.id,
+          businessId,
+          onlineOrderId: sale.onlineOrderId ?? null,
+          reason: this.normalizeOptionalString(ret.reason) ?? null,
+          restock: ret.restock !== false,
+          refundAmount: toWholeXaf(ret.refundAmount ?? 0),
+          createdById: sale.cashierId,
+        }),
+      )
+      await returnItemRepo.save(
+        (ret.items ?? [])
+          .filter((r) => returnedLines.some((rl) => rl.item.id === r.saleItemId))
+          .map((r) =>
+            returnItemRepo.create({
+              id: r.id ?? randomUUID(),
+              saleReturnId: ret.id,
+              businessId,
+              saleItemId: r.saleItemId,
+              quantity: this.roundQuantity(r.quantity),
+              serialUnitId: r.serialUnitId ?? null,
+            }),
+          ),
+      )
+
+      if (ret.refundPayment && ret.refundPayment.amount > 0) {
+        if (!(await paymentRepo.findOne({ where: { id: ret.refundPayment.id } }))) {
+          await paymentRepo.save(
+            paymentRepo.create({
+              id: ret.refundPayment.id,
+              saleId: sale.id,
+              businessId,
+              method: (ret.refundPayment.method as PaymentMethod) ?? PaymentMethod.CASH,
+              amount: toWholeXaf(ret.refundPayment.amount),
+              kind: SalePaymentKind.REFUND,
+              recordedAt: now,
+              recordedById: sale.cashierId,
+              note: this.normalizeOptionalString(ret.reason) ?? 'Refund',
+            }),
+          )
+        }
+      }
+
+      if (ret.restock !== false) {
+        await this.inventoryService.reverseForVoidedSale(
+          businessId,
+          sale.id,
+          sale.saleNumber,
+          sale.cashierId,
+          await this.expandSaleItemsForInventory(
+            manager,
+            businessId,
+            returnedLines.map((r) => ({
+              productId: r.item.productId,
+              variantId: r.item.variantId ?? null,
+              productName: r.item.productName,
+              quantity: r.quantity,
+            })),
+          ),
+          manager,
+        )
+        await this.releaseSerialUnitsForVoid(
+          manager,
+          businessId,
+          returnedLines
+            .filter((r) => r.serialUnitId)
+            .map((r) => ({ serialUnitId: r.serialUnitId })),
+        )
+      }
+    }
+
+    // Recompute settlement from the signed payment ledger + set status authoritatively.
+    const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
+    const status =
+      payload.status === SaleStatus.REFUNDED ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED
+    await manager.getRepository(Sale).update(sale.id, {
+      amountPaid: settlement.amountPaid,
+      creditAmount: settlement.creditAmount,
+      status,
+      syncedAt: new Date(),
+    })
+
+    // A full return cancels the receivable — the goods came back.
+    if (status === SaleStatus.REFUNDED) {
+      await this.debtsService.writeOffSourceDebt(manager, {
+        businessId,
+        sourceType: DebtSource.SALE,
+        sourceId: sale.id,
+        reason: `Sale ${sale.saleNumber} returned (synced).`,
+        writtenOffAt: now,
+        writtenOffById: sale.cashierId,
+      })
+    }
+  }
+
   private resolveSortField(sortBy?: string) {
     // Entity PROPERTY paths (not raw columns): findAll uses loadRelationCountAndMap on the
     // items collection + skip/take, so TypeORM paginates via a distinct subquery and
@@ -2612,8 +2759,11 @@ export class SalesService {
     }
   }
 
-  private normalizeSyncSaleStatus(value?: SaleStatus | null) {
-    return value === SaleStatus.VOIDED ? SaleStatus.VOIDED : SaleStatus.COMPLETED
+  private normalizeSyncSaleStatus(value?: SaleStatus | null): SaleStatus {
+    if (value === SaleStatus.VOIDED) return SaleStatus.VOIDED
+    if (value === SaleStatus.REFUNDED) return SaleStatus.REFUNDED
+    if (value === SaleStatus.PARTIALLY_REFUNDED) return SaleStatus.PARTIALLY_REFUNDED
+    return SaleStatus.COMPLETED
   }
 
   private roundQuantity(value: number) {

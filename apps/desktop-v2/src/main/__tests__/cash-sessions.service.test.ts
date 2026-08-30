@@ -179,6 +179,38 @@ describe('CashSessionsService', () => {
     expect(result?.expectedCash).toBe(17500)
   })
 
+  it('nets a REFUND-kind cash payment out of expected cash and keeps the refunded sale (BIZ-1.8)', () => {
+    const svc = makeService(db)
+    const session = svc.openSession({ openingFloat: 10000 })
+    const now = new Date().toISOString()
+
+    // A cash sale of 5000, then a 2000 partial refund → status PARTIALLY_REFUNDED.
+    db.run(
+      `INSERT INTO sales
+        (id, business_id, client_id, cashier_id, sale_number, receipt_number, subtotal,
+         total_amount, discount_amount, charges_amount, tax_amount, net_amount, amount_paid,
+         credit_amount, change_given, payment_method, currency, sale_date, sold_at,
+         cash_session_id, status, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, 'u-1', ?, ?, 5000, 5000, 0, 0, 0, 5000, 3000, 0, 0, 'CASH', 'XAF', ?, ?, ?, 'PARTIALLY_REFUNDED', 0, ?, ?)`,
+      ['ref-a', BIZ, 'ref-a', 'ref-a', 'ref-a', now.slice(0, 10), now, session.id, now, now],
+    )
+    db.run(
+      `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, kind, created_at)
+       VALUES (?, ?, ?, 'CASH', 5000, 'PAYMENT', ?)`,
+      ['p-ref-a', 'ref-a', BIZ, now],
+    )
+    db.run(
+      `INSERT INTO sale_payments (id, sale_id, business_id, method, amount, kind, created_at)
+       VALUES (?, ?, ?, 'CASH', 2000, 'REFUND', ?)`,
+      ['r-ref-a', 'ref-a', BIZ, now],
+    )
+
+    const result = svc.expectedCash(session.id)
+    // Original 5000 tender still counts (refunded ≠ voided); the 2000 refund nets out.
+    expect(result?.cashPayments).toBe(3000)
+    expect(result?.expectedCash).toBe(13000) // 10000 float + 5000 − 2000
+  })
+
   it('excludes a non-CASH sale and an untagged sale from expected cash', () => {
     const svc = makeService(db)
     const session = svc.openSession({ openingFloat: 5000 })

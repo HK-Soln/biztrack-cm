@@ -49,6 +49,7 @@ import type {
   SyncPushResponse,
   SyncRecord,
   TeamMemberSyncRecord,
+  MemberAuthCredentialSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
 import {
@@ -86,6 +87,7 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { Business } from '@/entities/business.entity'
 import { BusinessMember } from '@/entities/business-member.entity'
+import { MemberAuthCredential } from '@/entities/member-auth-credential.entity'
 import { ContactOpeningBalance } from '@/entities/contact-opening-balance.entity'
 import { Role } from '@/entities/role.entity'
 import { Contact } from '@/entities/contact.entity'
@@ -478,6 +480,8 @@ export class SyncService {
     private readonly businessesRepo: Repository<Business>,
     @InjectRepository(BusinessMember)
     private readonly businessMembersRepo: Repository<BusinessMember>,
+    @InjectRepository(MemberAuthCredential)
+    private readonly memberAuthCredentialsRepo: Repository<MemberAuthCredential>,
     @InjectRepository(Contact)
     private readonly contactsRepo: Repository<Contact>,
     @InjectRepository(ContactOpeningBalance)
@@ -715,6 +719,7 @@ export class SyncService {
         debts,
         expenses,
         teamMembers,
+        memberAuthCredentials,
         roles,
         attributeGroups,
         attributeOptions,
@@ -862,6 +867,16 @@ export class SyncService {
           .andWhere('member.updated_at > :since', { since })
           .andWhere('member.updated_at <= :pulledAt', { pulledAt })
           .orderBy('member.updated_at', 'ASC')
+          .getMany(),
+        this.memberAuthCredentialsRepo
+          .createQueryBuilder('cred')
+          // withDeleted: a revoked card is soft-deleted (deleted_at set). The tombstone MUST ride
+          // the pull so an offline device drops the card — TypeORM would otherwise hide it (BIZ-3.3).
+          .withDeleted()
+          .where('cred.business_id = :businessId', { businessId })
+          .andWhere('cred.updated_at > :since', { since })
+          .andWhere('cred.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('cred.updated_at', 'ASC')
           .getMany(),
         this.rolesRepo
           .createQueryBuilder('role')
@@ -1115,6 +1130,9 @@ export class SyncService {
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
         teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
+        memberAuthCredentials: memberAuthCredentials.map((record) =>
+          this.toMemberAuthCredentialSyncRecord(record),
+        ),
         roles: roles.map((record) => this.toRoleSyncRecord(record)),
         savingsAccounts: savingsData.accounts.map((record) =>
           this.toSavingsAccountSyncRecord(record),
@@ -4872,6 +4890,27 @@ export class SyncService {
       updatedAt: record.updatedAt.toISOString(),
       deletedAt: null,
       isDeleted: false,
+    }
+  }
+
+  private toMemberAuthCredentialSyncRecord(
+    record: MemberAuthCredential,
+  ): MemberAuthCredentialSyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      memberId: record.memberId,
+      userId: record.userId,
+      type: record.type,
+      secretHash: record.secretHash,
+      version: record.version,
+      issuedById: record.issuedById ?? null,
+      label: record.label ?? null,
+      revokedAt: record.revokedAt ? record.revokedAt.toISOString() : null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt ? record.deletedAt.toISOString() : null,
+      isDeleted: !!record.deletedAt,
     }
   }
 

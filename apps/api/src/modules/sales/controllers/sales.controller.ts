@@ -45,6 +45,7 @@ import {
   SaleResponseDto,
 } from '../dto/sale-response.dto'
 import { VoidSaleDto } from '../dto/void-sale.dto'
+import { RefundSaleDto } from '../dto/refund-sale.dto'
 import { SendSaleReceiptDto } from '../dto/send-sale-receipt.dto'
 import { SalesService, type SalesSummary } from '../services/sales.service'
 
@@ -254,6 +255,21 @@ export class SalesController {
     return serializeDto(
       SaleResponseDto.fromEntity(
         await this.salesService.void(id, user.businessId as string, user, dto, auditContext),
+      ),
+    )
+  }
+
+  @Post(':id/refund')
+  @RequireResource(Resource.SALES_VOID)
+  @ApiOperation({ summary: 'Refund/return a sale, in full or partially' })
+  async refund(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: RefundSaleDto,
+  ): Promise<Sale> {
+    return serializeDto(
+      SaleResponseDto.fromEntity(
+        await this.salesService.refund(id, user.businessId as string, user, dto),
       ),
     )
   }

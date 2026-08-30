@@ -146,9 +146,29 @@ import type {
   InventoryTurnoverRow,
   DeadStockRow,
   SupplierPriceRow,
+  CashSession,
+  CashMovement,
+  CashSessionExpectedCash,
+  CashShiftReportData,
+  CashDailyReportData,
+  CashVarianceHistory,
+  CashReportKind,
+  CloseCashSessionInput,
+  SetCashVarianceReasonInput,
+  RecordCashMovementInput,
+  CashVarianceHistoryQuery,
+  CashDailyReportQuery,
+  CashSessionsListQuery,
+  OpenCashSessionInput,
+  TransitionCashSessionInput,
   RestockInput,
   SaleInput,
   SalesListQuery,
+  RefundSaleInput,
+  MemberAuthCredential,
+  IssueCardRequest,
+  IssueCardResponse,
+  ReplaceCardRequest,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -377,7 +397,15 @@ export interface DataClient {
   pin: {
     set: (pin: string) => Promise<{ pinVersion: number }>
     verify: (pin: string) => Promise<PinVerifyResult>
+    verifyCard: (token: string) => Promise<PinVerifyResult>
     canManage: () => Promise<boolean>
+  }
+  /** Authorization cards (BIZ-3.3) — owner-only, online. */
+  credentials: {
+    list: () => Promise<MemberAuthCredential[]>
+    issueCard: (input: IssueCardRequest) => Promise<IssueCardResponse>
+    revoke: (id: string) => Promise<MemberAuthCredential>
+    replace: (id: string, input: ReplaceCardRequest) => Promise<IssueCardResponse>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -408,6 +436,9 @@ export interface DataClient {
     flaggedDiscounts: (query?: SalesListQuery) => Promise<FlaggedDiscountRow[]>
     get: (id: string) => Promise<LocalSaleDetail | null>
     void: (saleId: string, reason: string) => Promise<LocalSaleDetail>
+    /** Refund/return a sale in full or partially (BIZ-1.8). Offline-first on desktop (local write
+     * + sync); returns the updated sale. */
+    refund: (saleId: string, input: RefundSaleInput) => Promise<LocalSaleDetail>
     sendReceipt: (
       saleId: string,
       channel: DocumentSendChannel,
@@ -430,6 +461,7 @@ export interface DataClient {
     get: (id: string) => Promise<LocalDepositDetail | null>
     statement: (id: string) => Promise<DepositStatement | null>
     summary: () => Promise<LocalDepositSummary>
+    otherIncome: (query?: { dateFrom?: string; dateTo?: string }) => Promise<{ total: number }>
     create: (input: CreateDepositInput) => Promise<CustomerDeposit>
     addPayment: (id: string, input: AddDepositPaymentInput) => Promise<CustomerDeposit>
     close: (id: string, input: CloseDepositInput) => Promise<CustomerDeposit>
@@ -454,6 +486,25 @@ export interface DataClient {
   business: {
     getProfile: () => Promise<BusinessProfile | null>
     update: (payload: UpdateBusinessRequest) => Promise<BusinessProfile>
+  }
+  /** Cash sessions (till shifts). Local-first on desktop; REST-backed in the cloud build. */
+  cashSessions: {
+    list: (query?: CashSessionsListQuery) => Promise<PaginatedResult<CashSession>>
+    get: (id: string) => Promise<CashSession | null>
+    current: () => Promise<CashSession | null>
+    open: (input?: OpenCashSessionInput) => Promise<CashSession>
+    transition: (id: string, input: TransitionCashSessionInput) => Promise<CashSession>
+    close: (id: string, input: CloseCashSessionInput) => Promise<CashSession>
+    setVarianceReason: (id: string, input: SetCashVarianceReasonInput) => Promise<CashSession>
+    varianceHistory: (query?: CashVarianceHistoryQuery) => Promise<CashVarianceHistory>
+    shiftReport: (id: string, kind?: CashReportKind) => Promise<CashShiftReportData | null>
+    dailyReport: (query?: CashDailyReportQuery) => Promise<CashDailyReportData>
+    roleTracksDrawer: () => Promise<boolean>
+    staleOpen: () => Promise<CashSession | null>
+    recover: (id: string) => Promise<CashSession>
+    expectedCash: (id: string) => Promise<CashSessionExpectedCash | null>
+    recordMovement: (input: RecordCashMovementInput) => Promise<CashMovement>
+    listMovements: (sessionId: string) => Promise<CashMovement[]>
   }
   notificationSettings: {
     get: () => Promise<NotificationSettings>
@@ -590,6 +641,8 @@ import { cloudInventory } from './cloud-inventory'
 import { cloudExpenses } from './cloud-expenses'
 import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
 import { cloudSavings, cloudDeposits } from './cloud-deposits'
+import { cloudCashSessions } from './cloud-cash'
+import { cloudCredentials } from './cloud-credentials'
 import { cloudRfqs, cloudPurchaseOrders } from './cloud-procurement'
 import { cloudAudit, cloudCharges, cloudDocuments } from './cloud-misc'
 
@@ -757,7 +810,14 @@ function electronAdapter(): DataClient {
     pin: {
       set: (pin) => window.api.pin.set(pin),
       verify: (pin) => window.api.pin.verify(pin),
+      verifyCard: (token) => window.api.pin.verifyCard(token),
       canManage: () => window.api.pin.canManage(),
+    },
+    credentials: {
+      list: () => window.api.credentials.list(),
+      issueCard: (input) => window.api.credentials.issueCard(input),
+      revoke: (id) => window.api.credentials.revoke(id),
+      replace: (id, input) => window.api.credentials.replace(id, input),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -784,6 +844,7 @@ function electronAdapter(): DataClient {
       flaggedDiscounts: (query) => window.api.sales.flaggedDiscounts(query),
       get: (id) => window.api.sales.get(id),
       void: (saleId, reason) => window.api.sales.void(saleId, reason),
+      refund: (saleId, input) => window.api.sales.refund(saleId, input),
       sendReceipt: (saleId, channel, locale, opts) =>
         window.api.sales.sendReceipt(saleId, channel, locale, opts),
       printReceipt: (saleId, locale, reprint) =>
@@ -799,6 +860,7 @@ function electronAdapter(): DataClient {
       get: (id) => window.api.deposits.get(id),
       statement: (id) => window.api.deposits.statement(id),
       summary: () => window.api.deposits.summary(),
+      otherIncome: (query) => window.api.deposits.otherIncome(query),
       create: (input) => window.api.deposits.create(input),
       addPayment: (id, input) => window.api.deposits.addPayment(id, input),
       close: (id, input) => window.api.deposits.close(id, input),
@@ -825,6 +887,7 @@ function electronAdapter(): DataClient {
       getProfile: () => window.api.business.getProfile(),
       update: (payload) => window.api.business.update(payload),
     },
+    cashSessions: window.api.cashSessions,
     notificationSettings: {
       get: () => window.api.notificationSettings.get(),
       listTimezones: () => window.api.notificationSettings.listTimezones(),
@@ -956,7 +1019,8 @@ function cloudAdapter(): DataClient {
     documents: cloudDocuments,
     audit: cloudAudit,
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
-    pin: { set: notWired, verify: notWired, canManage: async () => false },
+    pin: { set: notWired, verify: notWired, verifyCard: notWired, canManage: async () => false },
+    credentials: cloudCredentials,
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,
@@ -964,6 +1028,7 @@ function cloudAdapter(): DataClient {
     deposits: cloudDeposits,
     online: cloudOnline,
     business: cloudBusiness,
+    cashSessions: cloudCashSessions,
     notificationSettings: cloudNotificationSettings,
     fiscal: cloudFiscal,
     plans: cloudPlans,
