@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BrandMark, Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
+import { BusinessProfileTier, DEFAULT_BUSINESS_PROFILE } from '@biztrack/types'
 import { useT, useLangStore } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import type { BusinessSetupPayload } from '@shared/ipc'
@@ -64,6 +65,13 @@ export function SetupBusiness() {
   const [vatRate, setVatRate] = useState('19.25')
   const [fiscalRegime, setFiscalRegime] = useState<string>('IMPOT_LIBERATOIRE')
   const [fiscalYearStartMonth, setFiscalYearStartMonth] = useState('1')
+  const [profile, setProfile] = useState<BusinessProfileTier>(DEFAULT_BUSINESS_PROFILE)
+
+  const profileOptions = [
+    { value: BusinessProfileTier.MICRO, label: t('profile.micro') },
+    { value: BusinessProfileTier.SMALL, label: t('profile.small') },
+    { value: BusinessProfileTier.SME, label: t('profile.sme') },
+  ]
 
   const validateStep = (s: number): boolean => {
     if (s === 0 && !name.trim()) {
@@ -97,6 +105,7 @@ export function SetupBusiness() {
       defaultVatRate: vatRegistered && Number.isFinite(rate) ? rate : undefined,
       fiscalRegime: fiscalRegime || undefined,
       fiscalYearStartMonth: Number(fiscalYearStartMonth) || 1,
+      profile,
     }
     const res = await dataClient.auth.setupBusiness(payload)
     setBusy(false)
@@ -350,6 +359,20 @@ export function SetupBusiness() {
                 style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}
               >
                 {t('setup.fyStartHelp')}
+              </div>
+            </div>
+            <div className="ff">
+              <label className="lbl2">{t('profile.label')}</label>
+              <Select
+                value={profile}
+                onChange={(e) => setProfile(e.target.value as BusinessProfileTier)}
+                options={profileOptions}
+              />
+              <div
+                className="help"
+                style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}
+              >
+                {t('profile.help')}
               </div>
             </div>
           </>

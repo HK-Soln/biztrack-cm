@@ -30,7 +30,7 @@ import { useLangStore, useT } from '@/i18n'
  * float, record off-book cash movements (owner draw, drop, change, supplier payment,
  * transfers to MoMo/Orange/bank), and close with a blind denomination count that reveals
  * the variance. The operate view deliberately shows NO expected/running total — the
- * count is blind. Desktop-only (the till lives on the device).
+ * count is blind. Works in both builds — a local SQLite till on desktop, the REST till in the cloud.
  */
 
 // Only drawer-native movements that have no other home. Supplier/customer payments,
@@ -57,34 +57,39 @@ const VARIANCE_REASONS: CashVarianceReason[] = [
 
 /**
  * Per-cashier drawer-accuracy over the last 30 days (BIZ-2.6) — "a single gap means nothing;
- * a pattern is everything". Ranked worst-first by total drawer error. Desktop-only; read from
- * the local shift history so it works offline.
+ * a pattern is everything". Ranked worst-first by total drawer error. Manager-only; reads the
+ * shift history (local on desktop, REST in the cloud).
  */
 function CashierAccuracy({ t }: { t: ReturnType<typeof useT> }) {
-  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const api = dataClient.cashSessions
   const canManage = useCanManage()
   const [hist, setHist] = useState<CashVarianceHistory | null>(null)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     let alive = true
-    if (!api?.varianceHistory || !canManage) {
+    if (!canManage) {
       setLoaded(true)
       return
     }
-    void api.varianceHistory().then((h) => {
-      if (alive) {
-        setHist(h)
-        setLoaded(true)
-      }
-    })
+    void api
+      .varianceHistory()
+      .then((h) => {
+        if (alive) {
+          setHist(h)
+          setLoaded(true)
+        }
+      })
+      .catch(() => {
+        if (alive) setLoaded(true)
+      })
     return () => {
       alive = false
     }
   }, [api, canManage])
 
   // Per-cashier accuracy is manager oversight — hide the whole panel from cashiers.
-  if (!api?.varianceHistory || !canManage) return null
+  if (!canManage) return null
   return (
     <div
       className="cash-accuracy"
@@ -182,7 +187,7 @@ function CashReportButton({
   const t = useT()
   const lang = useLangStore((s) => s.lang)
   const money = useCurrency()
-  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const api = dataClient.cashSessions
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [doc, setDoc] = useState<{
@@ -195,7 +200,7 @@ function CashReportButton({
   } | null>(null)
 
   const generate = async () => {
-    if (!api || busy) return
+    if (busy) return
     setBusy(true)
     setError(null)
     try {
@@ -255,7 +260,6 @@ function CashReportButton({
     }
   }
 
-  if (!api) return null
   return (
     <>
       <Button variant={variant} title={hint} onClick={() => void generate()} loading={busy}>
@@ -307,7 +311,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   const [varReason, setVarReason] = useState<CashVarianceReason | null>(null)
   const [varNote, setVarNote] = useState('')
 
-  const api = typeof window !== 'undefined' ? window.api?.cashSessions : undefined
+  const api = dataClient.cashSessions
 
   const kindOptions = useMemo(
     () =>
@@ -338,13 +342,11 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   )
 
   const refresh = useCallback(async () => {
-    if (!api) {
-      setLoading(false)
-      return
-    }
     setLoading(true)
     try {
       setSession(await api.current())
+    } catch {
+      setSession(null)
     } finally {
       setLoading(false)
     }
@@ -365,7 +367,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   }, [open, refresh])
 
   const openShift = async () => {
-    if (!api || busy) return
+    if (busy) return
     const openingFloat = openingFloatTotal
     if (openingFloat < 0) return
     setBusy(true)
@@ -382,7 +384,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   }
 
   const record = async () => {
-    if (!api || busy) return
+    if (busy) return
     const amount = Math.round(Number(amountInput) || 0)
     if (amount <= 0) {
       setError(t('cash.amountRequired'))
@@ -403,7 +405,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   }
 
   const submitClose = async () => {
-    if (!api || !session || busy) return
+    if (!session || busy) return
     setBusy(true)
     setError(null)
     try {
@@ -422,7 +424,7 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
   }
 
   const finishClose = async () => {
-    if (!api || !closed || busy) return
+    if (!closed || busy) return
     const needsReason = !isCashVarianceWithinTolerance(closed.varianceCash ?? 0)
     if (needsReason && !varReason) {
       setError(t('cash.reasonRequired'))
@@ -450,8 +452,6 @@ export function CashDrawerSheet({ open, onClose }: { open: boolean; onClose: () 
     <Modal open={open} onClose={onClose} title={t('cash.title')} dismissable={false}>
       {loading ? (
         <p className="cash-muted">{t('cash.loading')}</p>
-      ) : !api ? (
-        <p className="cash-muted">{t('cash.desktopOnly')}</p>
       ) : !session ? (
         <div className="cash-open">
           <p style={{ marginBottom: 12 }}>{t('cash.noShift')}</p>

@@ -208,18 +208,21 @@ export class CashSessionsService {
     const session = this.get(sessionId)
     if (!session) return null
 
+    // Net CASH into the drawer: tendered PAYMENTs minus REFUND-kind rows (a refund hands cash
+    // back out). Include refunded sales — their original tender is real drawer cash; only VOIDED
+    // (fully reversed) is excluded (BIZ-1.8).
     const cash = this.db.get<{ v: number }>(
-      `SELECT COALESCE(SUM(sp.amount), 0) AS v
+      `SELECT COALESCE(SUM(CASE WHEN sp.kind = 'REFUND' THEN -sp.amount ELSE sp.amount END), 0) AS v
        FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
        WHERE s.cash_session_id = ? AND s.business_id = ? AND sp.method = 'CASH'
-         AND s.status = 'COMPLETED' AND s.is_deleted = 0`,
+         AND s.status IN ('COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED') AND s.is_deleted = 0`,
       [sessionId, businessId],
     )
     const change = this.db.get<{ v: number }>(
       `SELECT COALESCE(SUM(s.change_given), 0) AS v
        FROM sales s
-       WHERE s.cash_session_id = ? AND s.business_id = ? AND s.status = 'COMPLETED'
-         AND s.is_deleted = 0`,
+       WHERE s.cash_session_id = ? AND s.business_id = ?
+         AND s.status IN ('COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED') AND s.is_deleted = 0`,
       [sessionId, businessId],
     )
     const movements = this.db.get<{ cin: number; cout: number }>(

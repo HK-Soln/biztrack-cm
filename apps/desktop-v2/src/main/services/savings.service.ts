@@ -216,6 +216,27 @@ export class SavingsService {
     }
   }
 
+  /** SCRUM-46: total deposit-cancellation charges over a range — booked as other income. */
+  getOtherIncome(query: { dateFrom?: string; dateTo?: string } = {}): { total: number } {
+    const businessId = this.getBusinessId()
+    if (!businessId) return { total: 0 }
+    const conds = ['business_id = ?', "type = 'charge'"]
+    const params: unknown[] = [businessId]
+    if (query.dateFrom) {
+      conds.push('COALESCE(business_date, substr(occurred_at, 1, 10)) >= ?')
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      conds.push('COALESCE(business_date, substr(occurred_at, 1, 10)) <= ?')
+      params.push(query.dateTo)
+    }
+    const row = this.db.get<{ total: number }>(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM savings_transactions WHERE ${conds.join(' AND ')}`,
+      params,
+    )
+    return { total: round2(row?.total ?? 0) }
+  }
+
   private businessCurrency(): string {
     const businessId = this.getBusinessId()
     if (!businessId) return 'XAF'
@@ -368,28 +389,35 @@ export class SavingsService {
     } else if (input.settlement === 'REFUND') {
       if (leftover <= 0) throw new Error('Nothing to refund.')
 
-      // A split refund pays the leftover back across several methods (part cash, part MoMo…).
-      // When no explicit lines are given, settle the whole leftover as one line (back-compat).
+      // SCRUM-46: a cancellation charge is kept by the business (booked as other income). The
+      // refund lines then settle (leftover − charge); the charge stays in the drawer, no cash out.
+      const charge = round2(Math.max(0, input.cancellationCharge ?? 0))
+      if (charge > leftover) throw new Error('The cancellation charge cannot exceed the balance.')
+      const refundTotal = round2(leftover - charge)
+
+      // A split refund pays the refundable amount back across several methods (part cash, part
+      // MoMo…). When no explicit lines are given, settle the whole refundable amount as one line.
       const lines =
-        input.refunds && input.refunds.length > 0
-          ? input.refunds.map((r) => ({
-              method: r.method || 'CASH',
-              amount: round2(r.amount),
-              mobileMoneyReference: r.mobileMoneyReference ?? null,
-            }))
-          : [
-              {
-                method: input.method ?? 'CASH',
-                amount: leftover,
-                mobileMoneyReference: input.mobileMoneyReference ?? null,
-              },
-            ]
+        refundTotal <= 0
+          ? []
+          : input.refunds && input.refunds.length > 0
+            ? input.refunds.map((r) => ({
+                method: r.method || 'CASH',
+                amount: round2(r.amount),
+                mobileMoneyReference: r.mobileMoneyReference ?? null,
+              }))
+            : [
+                {
+                  method: input.method ?? 'CASH',
+                  amount: refundTotal,
+                  mobileMoneyReference: input.mobileMoneyReference ?? null,
+                },
+              ]
 
       if (lines.some((l) => !(l.amount > 0)))
         throw new Error('Each refund line must be greater than 0.')
-      const refundTotal = round2(lines.reduce((s, l) => s + l.amount, 0))
-      if (refundTotal !== leftover)
-        throw new Error('The refund must add up to the exact leftover balance.')
+      if (round2(lines.reduce((s, l) => s + l.amount, 0)) !== refundTotal)
+        throw new Error('The refund must add up to the balance minus the charge.')
 
       for (const line of lines) {
         this.insertTxn(
@@ -406,9 +434,17 @@ export class SavingsService {
           now,
         )
       }
+      if (charge > 0) {
+        this.insertTxn(
+          id,
+          businessId,
+          { type: 'charge', direction: 'outbound', amount: charge, notes: input.notes ?? null },
+          now,
+        )
+      }
       this.db.run(
         `UPDATE savings_accounts SET balance = 0, total_refunded = ?, updated_at = ? WHERE id = ?`,
-        [round2(acc.total_refunded + leftover), now, id],
+        [round2(acc.total_refunded + refundTotal), now, id],
       )
       // Only the cash portion leaves the till.
       const cashRefunded = round2(

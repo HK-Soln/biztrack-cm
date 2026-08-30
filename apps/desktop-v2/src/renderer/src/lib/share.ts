@@ -9,7 +9,11 @@ export function canWebShare(): boolean {
 }
 
 /** Opens the native share sheet. Returns false if unavailable or dismissed. */
-export async function webShare(data: { title?: string; text?: string; url: string }): Promise<boolean> {
+export async function webShare(data: {
+  title?: string
+  text?: string
+  url: string
+}): Promise<boolean> {
   if (!canWebShare()) return false
   try {
     await navigator.share(data)
@@ -34,8 +38,13 @@ export function openExternal(url: string): void {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-export function whatsappUrl(text: string): string {
-  return `https://wa.me/?text=${encodeURIComponent(text)}`
+/** A wa.me deep link that opens WhatsApp with the message pre-filled and editable — the owner
+ * reviews and sends it themselves (never an auto-send). Pass a phone to target a specific
+ * contact; without one, WhatsApp lets the owner pick the recipient. */
+export function whatsappUrl(text: string, phone?: string | null): string {
+  const digits = (phone ?? '').replace(/\D/g, '')
+  const base = digits ? `https://wa.me/${digits}` : 'https://wa.me/'
+  return `${base}?text=${encodeURIComponent(text)}`
 }
 
 export function mailtoUrl(subject: string, body: string): string {

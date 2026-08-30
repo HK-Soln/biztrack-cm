@@ -133,7 +133,9 @@ export class ExpenseMonthlySummaryDto implements ExpenseMonthlySummary {
   oneOffAmount!: number
   categoryBreakdown!: Record<string, number>
 
-  static fromEntity(entity: MonthlyExpenseSummaryEntity | ExpenseMonthlySummary): ExpenseMonthlySummaryDto {
+  static fromEntity(
+    entity: MonthlyExpenseSummaryEntity | ExpenseMonthlySummary,
+  ): ExpenseMonthlySummaryDto {
     const dto = new ExpenseMonthlySummaryDto()
     dto.year = 'summaryYear' in entity ? entity.summaryYear : entity.year
     dto.month = 'summaryMonth' in entity ? entity.summaryMonth : entity.month
@@ -179,6 +181,7 @@ export class ExpensePnlSummaryDto implements ExpensePnlSummary {
   costOfGoods!: number
   grossProfit!: number
   grossMarginPercent!: number
+  otherIncome!: number
   totalExpenses!: number
   expenseBreakdown!: Record<string, number>
   netProfit!: number

@@ -196,6 +196,20 @@ export interface CreateSaleRequest {
   /** Optional expected payment date ('YYYY-MM-DD') for the credit portion of the sale.
    * When omitted, the debt falls back to created_at + the business's default credit days. */
   creditDueDate?: string | null
+  /** The open cash session (till shift) this sale is rung at, so the drawer reconciles
+   * (BIZ-2 cloud). Set by a cloud cashier's client; desktop tags it locally at write time. */
+  cashSessionId?: string | null
+}
+
+/** A full or partial return/refund of a completed sale (BIZ-1.8). */
+export interface RefundSaleInput {
+  /** Money to return; defaults to the goods value of returned lines, capped at amountPaid. */
+  amount?: number
+  /** Returned lines; omit for a full return of every line. */
+  items?: Array<{ saleItemId: string; quantity: number; serialUnitId?: string | null }>
+  /** Restore inventory + release serial units (default true). */
+  restock?: boolean
+  reason?: string
 }
 
 export interface VoidSaleRequest {

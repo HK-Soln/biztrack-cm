@@ -86,6 +86,8 @@ export interface ExpensePnlSummary {
   costOfGoods: number
   grossProfit: number
   grossMarginPercent: number
+  /** Non-trading income (deposit-cancellation charges, SCRUM-46) — added below gross profit. */
+  otherIncome: number
   totalExpenses: number
   expenseBreakdown: Record<string, number>
   netProfit: number

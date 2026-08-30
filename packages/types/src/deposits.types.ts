@@ -12,6 +12,9 @@ export type DepositTransactionType =
   | 'voided_sale'
   | 'transfer_in'
   | 'transfer_out'
+  // A cancellation fee kept by the business when a deposit is closed early (SCRUM-46). Retained
+  // from the balance (no cash leaves) and booked as OTHER INCOME in the income statement.
+  | 'charge'
 export type DepositTransactionDirection = 'inbound' | 'outbound'
 
 /** A deposit session is OPEN (active) until it's CLOSED with a balance of zero. */
@@ -200,6 +203,9 @@ export interface CloseDepositInput {
   method?: string | null
   mobileMoneyReference?: string | null
   notes?: string | null
+  /** Cancellation charge kept by the business (SCRUM-46). The refund lines then settle
+   * (leftover − charge); the charge is retained from the balance and booked as other income. */
+  cancellationCharge?: number | null
 }
 
 export interface DepositsQuery {

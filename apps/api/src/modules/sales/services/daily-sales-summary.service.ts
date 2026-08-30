@@ -46,6 +46,7 @@ export class DailySalesSummaryService {
           summary_date,
           total_sales,
           total_revenue,
+          total_transacted,
           total_cost,
           gross_profit,
           total_discounts,
@@ -59,11 +60,12 @@ export class DailySalesSummaryService {
           voided_amount,
           updated_at
         )
-        VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 0, now())
+        VALUES ($1, $2, 1, $3, $13, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 0, now())
         ON CONFLICT (business_id, summary_date)
         DO UPDATE SET
           total_sales = daily_sale_summaries.total_sales + 1,
           total_revenue = daily_sale_summaries.total_revenue + $3,
+          total_transacted = daily_sale_summaries.total_transacted + $13,
           total_cost = daily_sale_summaries.total_cost + $4,
           gross_profit = daily_sale_summaries.gross_profit + $5,
           total_discounts = daily_sale_summaries.total_discounts + $6,
@@ -78,7 +80,7 @@ export class DailySalesSummaryService {
       [
         sale.businessId,
         sale.saleDate,
-        sale.totalAmount,
+        totals.revenue,
         totals.totalCost,
         totals.grossProfit,
         totals.totalDiscounts,
@@ -88,6 +90,7 @@ export class DailySalesSummaryService {
         totals.cardCollected,
         sale.creditAmount,
         sale.creditAmount > 0 ? 1 : 0,
+        sale.totalAmount,
       ],
     )
   }
@@ -108,6 +111,7 @@ export class DailySalesSummaryService {
           summary_date,
           total_sales,
           total_revenue,
+          total_transacted,
           total_cost,
           gross_profit,
           total_discounts,
@@ -121,11 +125,12 @@ export class DailySalesSummaryService {
           voided_amount,
           updated_at
         )
-        VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, $3, now())
+        VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, $13, now())
         ON CONFLICT (business_id, summary_date)
         DO UPDATE SET
           total_sales = GREATEST(daily_sale_summaries.total_sales - 1, 0),
           total_revenue = GREATEST(daily_sale_summaries.total_revenue - $3, 0),
+          total_transacted = GREATEST(daily_sale_summaries.total_transacted - $13, 0),
           total_cost = GREATEST(daily_sale_summaries.total_cost - $4, 0),
           gross_profit = daily_sale_summaries.gross_profit - $5,
           total_discounts = GREATEST(daily_sale_summaries.total_discounts - $6, 0),
@@ -136,13 +141,13 @@ export class DailySalesSummaryService {
           credit_issued = GREATEST(daily_sale_summaries.credit_issued - $11, 0),
           credit_sales = GREATEST(daily_sale_summaries.credit_sales - $12, 0),
           voided_sales = daily_sale_summaries.voided_sales + 1,
-          voided_amount = daily_sale_summaries.voided_amount + $3,
+          voided_amount = daily_sale_summaries.voided_amount + $13,
           updated_at = now()
       `,
       [
         sale.businessId,
         sale.saleDate,
-        sale.totalAmount,
+        totals.revenue,
         totals.totalCost,
         totals.grossProfit,
         totals.totalDiscounts,
@@ -152,11 +157,15 @@ export class DailySalesSummaryService {
         totals.cardCollected,
         sale.creditAmount,
         sale.creditAmount > 0 ? 1 : 0,
+        sale.totalAmount,
       ],
     )
   }
 
   private computeTotals(sale: Sale, items: SaleItem[], payments: SalePayment[]) {
+    // D7 canonical revenue = Σ line_total (net of line + allocated cart discounts, EXCLUDING
+    // sale-level charges) — the same basis as SalesService.getGrossProfit and the owner digest.
+    const revenue = this.roundMoney(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0))
     const totalCost = this.roundMoney(
       items.reduce((sum, item) => sum + (item.costPrice ?? 0) * item.quantity, 0),
     )
@@ -166,8 +175,9 @@ export class DailySalesSummaryService {
     const breakdown = this.computePaymentBreakdown(payments)
 
     return {
+      revenue,
       totalCost,
-      grossProfit: this.roundMoney(sale.totalAmount - totalCost),
+      grossProfit: this.roundMoney(revenue - totalCost),
       totalDiscounts: this.roundMoney(sale.discountAmount + lineDiscounts),
       ...breakdown,
     }

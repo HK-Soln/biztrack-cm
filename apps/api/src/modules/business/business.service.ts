@@ -20,6 +20,7 @@ import type { AuditContext } from '@biztrack/types'
 import { RedisService } from '@/common/redis/redis.service'
 import { AuditService } from '@/modules/audit/audit.service'
 import { RealtimeService } from '@/modules/realtime/services/realtime.service'
+import { CredentialsService } from '@/modules/credentials/credentials.service'
 import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
@@ -33,6 +34,7 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
+  AppBadRequestException,
   AppForbiddenException,
   AppInternalServerException,
   AppNotFoundException,
@@ -45,6 +47,9 @@ import {
   BusinessStatus,
   clampCreditDays,
   normalizeBusinessHours,
+  normalizeBusinessProfile,
+  normalizeAuthMethods,
+  MemberAuthCredentialType,
 } from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
@@ -62,6 +67,7 @@ export class BusinessService {
     private redis: RedisService,
     private auditService: AuditService,
     private realtime: RealtimeService,
+    private credentials: CredentialsService,
     @Inject(LOGGER) private logger: Logger,
   ) {
     this.logger.setContext('BusinessService')
@@ -79,6 +85,8 @@ export class BusinessService {
         timezone: rawTimezone,
         dayCutoverTime: rawCutover,
         fiscalYearStartMonth: rawFyStart,
+        profile: rawProfile,
+        allowedAuthMethods: rawAllowedAuthMethods,
         ...createRest
       } = dto
       const business = this.businessRepo.create({
@@ -88,6 +96,10 @@ export class BusinessService {
         timezone: rawTimezone?.trim() || DEFAULT_BUSINESS_TIMEZONE,
         dayCutoverTime: normalizeDayCutover(rawCutover),
         fiscalYearStartMonth: clampFiscalYearStartMonth(rawFyStart),
+        profile: normalizeBusinessProfile(rawProfile),
+        allowedAuthMethods: rawAllowedAuthMethods
+          ? normalizeAuthMethods(rawAllowedAuthMethods)
+          : null,
         slug,
         ownerId,
         businessStatus: BusinessStatus.ONBOARDING,
@@ -185,8 +197,24 @@ export class BusinessService {
         timezone: rawUpdateTimezone,
         dayCutoverTime: rawUpdateCutover,
         fiscalYearStartMonth: rawUpdateFyStart,
+        profile: rawUpdateProfile,
+        allowedAuthMethods: rawUpdateAuthMethods,
         ...updateRest
       } = dto
+      // Never leave the shop with no usable step-up method: dropping PIN is only allowed once at
+      // least one live authorization card exists (BIZ-3.3). Mirrors the desktop's toggle guard.
+      if (rawUpdateAuthMethods !== undefined) {
+        const nextMethods = normalizeAuthMethods(rawUpdateAuthMethods)
+        if (
+          !nextMethods.includes(MemberAuthCredentialType.PIN) &&
+          (await this.credentials.activeCardCount(id)) === 0
+        ) {
+          throw new AppBadRequestException(
+            'Issue at least one authorization card before turning the PIN off.',
+            'CANNOT_DISABLE_PIN_WITHOUT_CARD',
+          )
+        }
+      }
       await this.businessRepo.update(id, {
         ...updateRest,
         businessStatus: nextStatus,
@@ -202,6 +230,12 @@ export class BusinessService {
           : {}),
         ...(rawUpdateFyStart != null
           ? { fiscalYearStartMonth: clampFiscalYearStartMonth(rawUpdateFyStart) }
+          : {}),
+        ...(rawUpdateProfile != null
+          ? { profile: normalizeBusinessProfile(rawUpdateProfile) }
+          : {}),
+        ...(rawUpdateAuthMethods !== undefined
+          ? { allowedAuthMethods: normalizeAuthMethods(rawUpdateAuthMethods) }
           : {}),
       })
       // Ensure the fiscal calendar exists once onboarding details (incl. the start month) are set
@@ -370,26 +404,8 @@ export class BusinessService {
   ): Promise<SetMemberPinResponse> {
     this.logger.debug('Set own PIN', 'BusinessService', { businessId, userId })
     try {
-      const member = await this.membersRepo.findOne({
-        where: { businessId, userId, status: BusinessMemberStatus.ACTIVE },
-      })
-      if (!member) {
-        throw new AppNotFoundException(await this.i18n.translate('errors.not_found'), 'NOT_FOUND')
-      }
-      const pinVersion = (member.pinVersion ?? 0) + 1
-      const pinSetAt = new Date()
-      await this.membersRepo.update(member.id, { pinHash, pinVersion, pinSetAt })
-
-      this.auditService.log(context, {
-        action: 'UPDATE',
-        entityType: 'business_member',
-        entityId: member.id,
-        entityLabel: 'PIN',
-        // Never log the hash; record only that a PIN was set and its new version.
-        changes: { before: { pinVersion: member.pinVersion ?? 0 }, after: { pinVersion } },
-      })
-
-      return { memberId: member.id, pinVersion, pinSetAt: pinSetAt.toISOString() }
+      // BIZ-3.3: the PIN is now a member_auth_credentials row (one model for PIN + cards).
+      return await this.credentials.setPin(businessId, userId, pinHash, context)
     } catch (error) {
       return this.handleServiceError('setOwnPin', error, { businessId, userId })
     }

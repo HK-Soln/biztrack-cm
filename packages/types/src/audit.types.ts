@@ -17,6 +17,9 @@ export type AuditAction =
   | 'PERMISSION_CHANGE'
   // BIZ-2.9 — financially/security sensitive domain events (single union across both runtimes).
   | 'SALE_VOIDED'
+  | 'SALE_REFUNDED'
+  | 'CREDENTIAL_ISSUED'
+  | 'CREDENTIAL_REVOKED'
   | 'DISCOUNT_APPLIED'
   | 'PRICE_CHANGED'
   | 'STOCK_ADJUSTED'

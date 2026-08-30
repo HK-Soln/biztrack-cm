@@ -98,6 +98,30 @@ describe('PinService.verifyManagerPin', () => {
     expect(result.authorizedByName).toBe('Mercy Manager')
   })
 
+  it('authorizes a scanned card token and rejects a wrong one (BIZ-3.3)', async () => {
+    db.run(
+      `INSERT INTO member_auth_credentials
+         (id, member_id, business_id, user_id, type, secret_hash, version, created_at, updated_at)
+       VALUES (?, 'm-mgr', ?, 'u-mgr', 'CARD', ?, 1, ?, ?)`,
+      ['cred-1', BIZ, await bcrypt.hash('CARD-TOKEN-abc', 12), FRESH(), FRESH()],
+    )
+    const svc = makeService(db, FRESH)
+    const ok = await svc.verifyCard('CARD-TOKEN-abc')
+    expect(ok.authorized).toBe(true)
+    expect(ok.authorizedByUserId).toBe('u-mgr')
+    expect((await makeService(db, FRESH).verifyCard('CARD-TOKEN-wrong')).authorized).toBe(false)
+  })
+
+  it('does not accept a revoked card (BIZ-3.3)', async () => {
+    db.run(
+      `INSERT INTO member_auth_credentials
+         (id, member_id, business_id, user_id, type, secret_hash, version, revoked_at, created_at, updated_at)
+       VALUES (?, 'm-mgr', ?, 'u-mgr', 'CARD', ?, 1, ?, ?, ?)`,
+      ['cred-2', BIZ, await bcrypt.hash('CARD-TOKEN-xyz', 12), FRESH(), FRESH(), FRESH()],
+    )
+    expect((await makeService(db, FRESH).verifyCard('CARD-TOKEN-xyz')).authorized).toBe(false)
+  })
+
   it('rejects a wrong PIN as NO_MATCH without naming a manager', async () => {
     const svc = makeService(db, FRESH)
     const result = await svc.verifyManagerPin('999999')

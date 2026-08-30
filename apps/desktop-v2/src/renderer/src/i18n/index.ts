@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { catalogs, en, type MessageKey } from './messages'
+import { profileVocab } from './vocabulary'
+import { useSessionStore } from '@/stores/session.store'
 
 export type Lang = 'en' | 'fr'
 
@@ -27,8 +29,11 @@ export const useLangStore = create<LangState>((set) => ({
   },
 }))
 
-/** Translation hook. Re-renders consumers when the language changes. */
+/** Translation hook. Re-renders consumers when the language OR the business profile changes.
+ * Resolution order: profile-specific override (BIZ-5.7) → language catalog → English → the key. */
 export function useT(): (key: MessageKey) => string {
   const lang = useLangStore((s) => s.lang)
-  return (key) => catalogs[lang][key] ?? en[key] ?? key
+  const profile = useSessionStore((s) => s.status.profile)
+  const overrides = profile ? profileVocab[profile]?.[lang] : undefined
+  return (key) => overrides?.[key] ?? catalogs[lang][key] ?? en[key] ?? key
 }

@@ -46,6 +46,7 @@ import { OnlineOrders } from '@/routes/OnlineOrders'
 import { OnlineProducts } from '@/routes/OnlineProducts'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
+import { AuthCards } from '@/routes/AuthCards'
 import { UserSettings } from '@/routes/UserSettings'
 import { More } from '@/routes/More'
 import { Team } from '@/routes/Team'
@@ -173,6 +174,14 @@ export const router = createHashRouter([
             ),
           },
           { path: '/settings', element: <Settings /> },
+          {
+            path: '/settings/auth-cards',
+            element: (
+              <RequireOwner>
+                <AuthCards />
+              </RequireOwner>
+            ),
+          },
           { path: '/profile', element: <UserSettings /> },
           { path: '/more', element: <More /> },
         ],

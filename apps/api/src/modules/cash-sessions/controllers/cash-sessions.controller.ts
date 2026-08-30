@@ -84,6 +84,12 @@ export class CashSessionsController {
     return this.cashSessions.dailyReport(user.businessId as string, query)
   }
 
+  @Get('role-tracks-drawer')
+  @ApiOperation({ summary: "Whether the caller's role runs a till (drives the shift prompt)" })
+  roleTracksDrawer(@CurrentUser() user: JwtPayload): Promise<boolean> {
+    return this.cashSessions.roleTracksDrawer(user.businessId as string, user.sub)
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a cash session' })
   get(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<CashSession> {

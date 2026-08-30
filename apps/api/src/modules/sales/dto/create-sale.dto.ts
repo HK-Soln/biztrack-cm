@@ -322,4 +322,11 @@ export class CreateSaleDto implements CreateSaleRequest {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'creditDueDate must be YYYY-MM-DD' })
   creditDueDate?: string | null
+
+  @ApiPropertyOptional({
+    description: 'Open cash session (till shift) this sale is rung at, so the drawer reconciles.',
+  })
+  @IsOptional()
+  @IsUUID()
+  cashSessionId?: string | null
 }
