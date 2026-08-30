@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal, OtpInput } from '@biztrack/ui/biztrack'
+import { Button, Modal, OtpInput, ScanInput } from '@biztrack/ui/biztrack'
 import { MemberAuthCredentialType } from '@biztrack/types'
 import type { PinVerifyReason, PinVerifyResult } from '@shared/ipc'
 import { useT } from '@/i18n'
@@ -11,9 +11,10 @@ import { useStepUpStore } from '@/stores/step-up.store'
 const PIN_LENGTH = 6
 
 /**
- * App-root manager step-up modal (BIZ-3.2). Any flow can trigger it via
- * requestManagerStepUp(); a manager enters their PIN in place — no navigation away
- * from the cart, the cashier stays logged in. Verification is offline (dataClient.pin).
+ * App-root manager step-up modal (BIZ-3.2/3.3). Any flow can trigger it via requestManagerStepUp().
+ * A manager authorizes in place — no navigation away from the cart — with a PIN and/or a scanned
+ * authorization card (camera or hardware scanner), depending on the business's allowed methods.
+ * Three outcomes: Approve (verified), Continue anyway (ring up unapproved), Cancel (abort the sale).
  */
 export function ManagerStepUpModal() {
   const t = useT()
@@ -35,7 +36,10 @@ export function ManagerStepUpModal() {
     }
   }, [open])
 
-  const cancel = () => resolve(null)
+  // Cancel = abort the action: close the modal and do NOT ring up the sale.
+  const cancel = () => resolve({ type: 'cancelled' })
+  // Continue anyway = ring up the sale WITHOUT approval (flagged unauthorized on the backend).
+  const override = () => resolve({ type: 'override' })
 
   const messageFor = (reason: PinVerifyReason | undefined, attemptsRemaining?: number): string => {
     switch (reason) {
@@ -59,6 +63,7 @@ export function ManagerStepUpModal() {
       const result = await verify()
       if (result.authorized && result.authorizedByUserId) {
         resolve({
+          type: 'approved',
           authorizedByUserId: result.authorizedByUserId,
           authorizedByName: result.authorizedByName,
         })
@@ -74,16 +79,23 @@ export function ManagerStepUpModal() {
     }
   }
 
-  const submit = async (code: string) => {
+  const submitPin = async (code: string) => {
     if (busy || code.length < PIN_LENGTH) return
     await authorizeWith(() => dataClient.pin.verify(code), t('stepUp.wrongPin'))
   }
 
   // BIZ-3.3 — scanning an authorization card verifies its token directly (no PIN typed/shown).
+  const submitCard = async (token: string) => {
+    const value = (token ?? '').trim()
+    if (busy || !value) return
+    await authorizeWith(() => dataClient.pin.verifyCard(value), t('stepUp.cardFailed'))
+  }
+
+  // Global hardware-scanner capture — works even when the PIN field is focused. (It stops the
+  // event before the ScanInput's own burst detector, so a hardware scan never double-fires.)
   useBarcodeScanner(
     (token) => {
-      if (open && !busy)
-        void authorizeWith(() => dataClient.pin.verifyCard(token), t('stepUp.cardFailed'))
+      if (open && !busy) void submitCard(token)
     },
     { enabled: open },
   )
@@ -94,11 +106,14 @@ export function ManagerStepUpModal() {
       onClose={cancel}
       title={t('stepUp.title')}
       overlayClassName="modal-overlay-top"
-      onSubmit={() => void submit(pin)}
+      onSubmit={pinAllowed ? () => void submitPin(pin) : undefined}
       footer={
         <>
           <Button variant="soft" type="button" onClick={cancel} disabled={busy}>
             {t('stepUp.cancel')}
+          </Button>
+          <Button variant="ghost" type="button" onClick={override} disabled={busy}>
+            {t('stepUp.override')}
           </Button>
           {pinAllowed ? (
             <Button
@@ -107,13 +122,14 @@ export function ManagerStepUpModal() {
               loading={busy}
               disabled={pin.length < PIN_LENGTH}
             >
-              {t('stepUp.authorize')}
+              {t('stepUp.approve')}
             </Button>
           ) : null}
         </>
       }
     >
-      <p style={{ marginBottom: 12 }}>{t('stepUp.subtitle')}</p>
+      <p style={{ marginBottom: 14 }}>{t('stepUp.subtitle')}</p>
+
       {pinAllowed ? (
         <>
           <label className="lbl2">{t('stepUp.pinLabel')}</label>
@@ -121,18 +137,45 @@ export function ManagerStepUpModal() {
             length={PIN_LENGTH}
             value={pin}
             onChange={setPin}
-            onComplete={(v) => void submit(v)}
+            onComplete={(v) => void submitPin(v)}
             error={!!error}
           />
-          {cardAllowed ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>
-              {t('stepUp.orScan')}
-            </p>
-          ) : null}
         </>
-      ) : (
-        <p style={{ fontSize: 13.5, marginTop: 4 }}>{t('stepUp.scanOnly')}</p>
-      )}
+      ) : null}
+
+      {pinAllowed && cardAllowed ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            margin: '16px 0 12px',
+            color: 'var(--text-muted)',
+            fontSize: 12,
+          }}
+        >
+          <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          {t('stepUp.or')}
+          <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        </div>
+      ) : null}
+
+      {cardAllowed ? (
+        <>
+          <label className="lbl2">{t('stepUp.scanLabel')}</label>
+          <ScanInput
+            autoFocus={!pinAllowed}
+            placeholder={t('stepUp.scanPlaceholder')}
+            onScan={(v) => void submitCard(v)}
+            error={!!error}
+            scanTitle={t('stepUp.scanBtn')}
+            cameraTitle={t('stepUp.scanCamTitle')}
+            cameraHint={t('stepUp.scanCamHint')}
+            cameraError={t('stepUp.scanCamError')}
+          />
+        </>
+      ) : null}
+
       {error ? (
         <p style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 10 }} role="alert">
           {error}

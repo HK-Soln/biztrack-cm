@@ -572,6 +572,9 @@ app.whenReady().then(() => {
       () => authService.getSession().user?.id ?? null,
       localCache,
     ),
+    // Keep the live session's allowed step-up methods (+ name/currency) fresh so the cards toggle
+    // and the manager step-up modal reflect a Settings save immediately, not after a re-login.
+    (profile) => authService.applyBusinessProfile(profile),
   )
 
   // Plans / subscription (Settings → Subscription): API-only, proxied through main.

@@ -90,6 +90,28 @@ export class AuthService {
   }
 
   /**
+   * Patch the live session's business-derived fields after a Settings save (e.g. the owner flipping
+   * the allowed step-up methods, or renaming the business). getSession() is the renderer's source of
+   * truth, so without this the toggle / step-up modal keep the stale value until the next login.
+   */
+  applyBusinessProfile(p: {
+    id?: string
+    name?: string
+    currency?: string | null
+    allowedAuthMethods?: string[] | null
+  }): SessionStatus {
+    // Defensive: Settings only edits the active business — ignore a mismatched id.
+    if (p.id && this.session.businessId && p.id !== this.session.businessId) return this.session
+    this.session = {
+      ...this.session,
+      businessName: p.name ?? this.session.businessName,
+      businessCurrency: p.currency ?? this.session.businessCurrency,
+      allowedAuthMethods: p.allowedAuthMethods ? normalizeAuthMethods(p.allowedAuthMethods) : null,
+    }
+    return this.session
+  }
+
+  /**
    * Renderer launch entry point. Returns the current session, but first self-heals a
    * valid session whose local cache is incomplete — first launch on a device, or the
    * SQLite cache was cleared — by fetching the profile + business from the server so the

@@ -788,7 +788,10 @@ export function Sell() {
     )
     if (overLimit || belowCost) {
       const result = await requestManagerStepUp()
-      authorizedByUserId = result?.authorizedByUserId ?? null
+      // Cancel aborts the whole checkout — nothing is rung up. "Continue anyway" rings it up
+      // unapproved (authorizedByUserId stays null → flagged unauthorized on the backend).
+      if (result.type === 'cancelled') return
+      authorizedByUserId = result.type === 'approved' ? result.authorizedByUserId : null
     }
     checkout.mutate({ ...buildInput(payments, creditDueDate), authorizedByUserId })
   }

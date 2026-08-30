@@ -32,7 +32,12 @@ export function AuthCardsSection() {
   const setMethods = useMutation({
     mutationFn: (methods: MemberAuthCredentialType[]) =>
       dataClient.business.update({ allowedAuthMethods: methods }),
-    onSuccess: () => void useSessionStore.getState().refresh(),
+    // Reflect the saved value in the session immediately (the toggle + step-up modal read it from
+    // here). The main process also patches its live session, so a later refresh() stays consistent.
+    onSuccess: (profile) => {
+      const store = useSessionStore.getState()
+      store.setStatus({ ...store.status, allowedAuthMethods: profile.allowedAuthMethods ?? null })
+    },
     onError: (e) => setError(errorMessage(e, t('cards.methodsFailed'))),
   })
 
@@ -57,27 +62,36 @@ export function AuthCardsSection() {
         </div>
       ) : null}
 
-      {/* Allow-PIN toggle — can only be turned off once at least one card exists. */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <input
-          type="checkbox"
-          checked={pinEnabled}
+      {/* Allow-PIN toggle. ON = a manager can authorize at the till with a PIN OR a card scan;
+          OFF = card scan only (the PIN is turned off). It can only be switched OFF once at least
+          one card exists — otherwise the till would be left with no way to authorize. */}
+      <div className="set-line">
+        <div>
+          <div className="nm">{t('cards.allowPin')}</div>
+          <div className="ds">
+            {pinEnabled ? t('cards.allowPinOnDesc') : t('cards.allowPinOffDesc')}
+          </div>
+        </div>
+        <button
+          type="button"
+          className={`switch${pinEnabled ? ' on' : ''}`}
+          aria-pressed={pinEnabled}
+          aria-label={t('cards.allowPin')}
           disabled={setMethods.isPending || (pinEnabled && !hasAnyCard)}
-          onChange={(e) =>
+          onClick={() =>
             setMethods.mutate(
-              e.target.checked
-                ? [MemberAuthCredentialType.PIN, MemberAuthCredentialType.CARD]
-                : [MemberAuthCredentialType.CARD],
+              pinEnabled
+                ? [MemberAuthCredentialType.CARD]
+                : [MemberAuthCredentialType.PIN, MemberAuthCredentialType.CARD],
             )
           }
         />
-        <span>
-          {t('cards.allowPin')}
-          {pinEnabled && !hasAnyCard ? (
-            <span className="cash-muted"> — {t('cards.needCardFirst')}</span>
-          ) : null}
-        </span>
-      </label>
+      </div>
+      {pinEnabled && !hasAnyCard ? (
+        <div className="help" style={{ marginTop: 6, marginBottom: 4 }}>
+          {t('cards.needCardFirst')}
+        </div>
+      ) : null}
 
       {/* Summary row: N cards issued + Manage → the dedicated cards page. */}
       <div
