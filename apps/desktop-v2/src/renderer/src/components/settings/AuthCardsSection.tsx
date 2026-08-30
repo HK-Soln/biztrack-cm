@@ -1,65 +1,29 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Modal } from '@biztrack/ui/biztrack'
+import { useNavigate } from 'react-router-dom'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Button } from '@biztrack/ui/biztrack'
 import { MemberAuthCredentialType } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
-import { buildAuthCardHtml } from '@/lib/auth-card'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 
 /**
- * BIZ-3.3 — owner-only management of scannable authorization cards. Issue a card for a member
- * (the token is shown once, as a QR, to print), and revoke a lost/stale card. A card is a
- * higher-security, no-memorization alternative to the PIN.
+ * BIZ-3.3 — owner-only summary of scannable authorization cards. The section keeps the allow-PIN
+ * toggle and a one-line count; issuing, listing and revoking cards live on the dedicated
+ * /settings/auth-cards page (so a shop with many members never floods this panel).
  */
 export function AuthCardsSection() {
   const t = useT()
-  const qc = useQueryClient()
+  const nav = useNavigate()
   const role = useSessionStore((s) => s.status.user?.role)
-  const businessName = useSessionStore((s) => s.status.businessName) ?? ''
   const isOwner = (role ?? '').toUpperCase() === 'OWNER'
+  const [error, setError] = useState<string | null>(null)
 
-  const membersQ = useQuery({
-    queryKey: ['team', 'members'],
-    queryFn: () => dataClient.team.listMembers(),
-    enabled: isOwner,
-  })
   const credsQ = useQuery({
     queryKey: ['credentials'],
     queryFn: () => dataClient.credentials.list(),
     enabled: isOwner,
-  })
-
-  const [issueFor, setIssueFor] = useState<{ memberId: string; name: string } | null>(null)
-  const [label, setLabel] = useState('')
-  const [issued, setIssued] = useState<{
-    token: string
-    holderName: string
-    label: string | null
-  } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const issue = useMutation({
-    mutationFn: (input: { memberId: string; label?: string | null }) =>
-      dataClient.credentials.issueCard(input),
-    onSuccess: (res) => {
-      setIssued({
-        token: res.token,
-        holderName: issueFor?.name ?? '',
-        label: res.credential.label,
-      })
-      setIssueFor(null)
-      setLabel('')
-      void qc.invalidateQueries({ queryKey: ['credentials'] })
-    },
-    onError: (e) => setError(errorMessage(e, t('cards.issueFailed'))),
-  })
-
-  const revoke = useMutation({
-    mutationFn: (id: string) => dataClient.credentials.revoke(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['credentials'] }),
-    onError: (e) => setError(errorMessage(e, t('cards.revokeFailed'))),
   })
 
   // BIZ-3.3 slice 4 — a shop on cards can turn the PIN off (but never drop its last method).
@@ -72,27 +36,13 @@ export function AuthCardsSection() {
     onError: (e) => setError(errorMessage(e, t('cards.methodsFailed'))),
   })
 
-  const download = async () => {
-    if (!issued) return
-    const html = await buildAuthCardHtml({
-      token: issued.token,
-      holderName: issued.holderName,
-      businessName,
-      label: issued.label,
-    })
-    await dataClient.documents.downloadHtmlPdf(html, `card-${issued.holderName || 'member'}.pdf`)
-  }
-
   if (!isOwner) return null
 
-  const members = (membersQ.data?.members ?? []).filter((m) => m.status === 'ACTIVE')
-  const cardsFor = (memberId: string) =>
-    (credsQ.data ?? []).filter(
-      (c) => c.memberId === memberId && c.type === MemberAuthCredentialType.CARD && !c.revokedAt,
-    )
-  const hasAnyCard = (credsQ.data ?? []).some(
+  const activeCards = (credsQ.data ?? []).filter(
     (c) => c.type === MemberAuthCredentialType.CARD && !c.revokedAt,
   )
+  const cardCount = activeCards.length
+  const hasAnyCard = cardCount > 0
 
   return (
     <div className="settings-card" style={{ marginTop: 18 }}>
@@ -108,7 +58,7 @@ export function AuthCardsSection() {
       ) : null}
 
       {/* Allow-PIN toggle — can only be turned off once at least one card exists. */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <input
           type="checkbox"
           checked={pinEnabled}
@@ -129,105 +79,30 @@ export function AuthCardsSection() {
         </span>
       </label>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {members.map((m) => {
-          const cards = cardsFor(m.memberId)
-          return (
-            <div
-              key={m.memberId}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '8px 0',
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>{m.name || m.email || '—'}</div>
-                <div className="cash-muted" style={{ fontSize: 12 }}>
-                  {cards.length === 0
-                    ? t('cards.none')
-                    : cards.map((c) => c.label || t('cards.card')).join(' · ')}
-                </div>
-              </div>
-              {cards.map((c) => (
-                <Button
-                  key={c.id}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => revoke.mutate(c.id)}
-                  disabled={revoke.isPending}
-                >
-                  {t('cards.revoke')}
-                </Button>
-              ))}
-              <Button
-                type="button"
-                variant="soft"
-                onClick={() => setIssueFor({ memberId: m.memberId, name: m.name || '' })}
-              >
-                {t('cards.issue')}
-              </Button>
-            </div>
-          )
-        })}
+      {/* Summary row: N cards issued + Manage → the dedicated cards page. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 0 2px',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600 }}>
+            {cardCount === 1
+              ? t('cards.countOne')
+              : t('cards.countN').replace('{n}', String(cardCount))}
+          </div>
+          <div className="cash-muted" style={{ fontSize: 12 }}>
+            {t('cards.manageHint')}
+          </div>
+        </div>
+        <Button type="button" variant="soft" onClick={() => nav('/settings/auth-cards')}>
+          {t('cards.manage')}
+        </Button>
       </div>
-
-      {/* Issue dialog — optional label. */}
-      <Modal
-        open={!!issueFor}
-        onClose={() => setIssueFor(null)}
-        title={t('cards.issueTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setIssueFor(null)} disabled={issue.isPending}>
-              {t('cards.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              loading={issue.isPending}
-              onClick={() =>
-                issueFor &&
-                issue.mutate({ memberId: issueFor.memberId, label: label.trim() || null })
-              }
-            >
-              {t('cards.issue')}
-            </Button>
-          </>
-        }
-      >
-        <p style={{ fontSize: 13.5, color: 'var(--text-2)', marginBottom: 10 }}>
-          {t('cards.issueBody').replace('{name}', issueFor?.name ?? '')}
-        </p>
-        <label className="lbl2">{t('cards.label')}</label>
-        <Input
-          value={label}
-          placeholder={t('cards.labelPh')}
-          onChange={(e) => setLabel(e.target.value)}
-        />
-      </Modal>
-
-      {/* Issued card — show the QR once, offer the printable PDF. */}
-      <Modal
-        open={!!issued}
-        onClose={() => setIssued(null)}
-        title={t('cards.readyTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setIssued(null)}>
-              {t('cards.done')}
-            </Button>
-            <Button variant="primary" onClick={() => void download()}>
-              {t('cards.download')}
-            </Button>
-          </>
-        }
-      >
-        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          {t('cards.readyBody')}
-        </p>
-      </Modal>
     </div>
   )
 }

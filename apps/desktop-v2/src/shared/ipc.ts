@@ -34,6 +34,7 @@ export const IPC = {
   credentialsList: 'credentials:list',
   credentialsIssueCard: 'credentials:issue-card',
   credentialsRevoke: 'credentials:revoke',
+  credentialsReplace: 'credentials:replace',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -326,8 +327,14 @@ import type {
   MemberAuthCredential as MemberAuthCredentialT,
   IssueCardRequest as IssueCardRequestT,
   IssueCardResponse as IssueCardResponseT,
+  ReplaceCardRequest as ReplaceCardRequestT,
 } from '@biztrack/types'
-export type { MemberAuthCredential, IssueCardRequest, IssueCardResponse } from '@biztrack/types'
+export type {
+  MemberAuthCredential,
+  IssueCardRequest,
+  IssueCardResponse,
+  ReplaceCardRequest,
+} from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
 export interface CategoryListQuery extends ListQueryT {
@@ -1940,6 +1947,8 @@ export interface BridgeApi {
     list: () => Promise<MemberAuthCredentialT[]>
     issueCard: (input: IssueCardRequestT) => Promise<IssueCardResponseT>
     revoke: (id: string) => Promise<MemberAuthCredentialT>
+    /** Replace (rotate) a card: revoke + reissue to the same member in one step. */
+    replace: (id: string, input: ReplaceCardRequestT) => Promise<IssueCardResponseT>
   }
   sync: {
     /** Run a push+pull cycle now. */

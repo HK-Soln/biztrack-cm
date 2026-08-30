@@ -34,6 +34,7 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
+  AppBadRequestException,
   AppForbiddenException,
   AppInternalServerException,
   AppNotFoundException,
@@ -48,6 +49,7 @@ import {
   normalizeBusinessHours,
   normalizeBusinessProfile,
   normalizeAuthMethods,
+  MemberAuthCredentialType,
 } from '@biztrack/types'
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
@@ -199,6 +201,20 @@ export class BusinessService {
         allowedAuthMethods: rawUpdateAuthMethods,
         ...updateRest
       } = dto
+      // Never leave the shop with no usable step-up method: dropping PIN is only allowed once at
+      // least one live authorization card exists (BIZ-3.3). Mirrors the desktop's toggle guard.
+      if (rawUpdateAuthMethods !== undefined) {
+        const nextMethods = normalizeAuthMethods(rawUpdateAuthMethods)
+        if (
+          !nextMethods.includes(MemberAuthCredentialType.PIN) &&
+          (await this.credentials.activeCardCount(id)) === 0
+        ) {
+          throw new AppBadRequestException(
+            'Issue at least one authorization card before turning the PIN off.',
+            'CANNOT_DISABLE_PIN_WITHOUT_CARD',
+          )
+        }
+      }
       await this.businessRepo.update(id, {
         ...updateRest,
         businessStatus: nextStatus,

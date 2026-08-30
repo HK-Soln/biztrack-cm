@@ -57,3 +57,12 @@ export interface IssueCardResponse {
   /** The one-time card token to encode in the QR. Shown once; only its hash is stored. */
   token: string
 }
+
+/** Replace (rotate) a member's card in one step: the old card is revoked and a fresh one is issued
+ * to the same member atomically. This is how a COMPROMISED card is rotated — because it never dips
+ * to zero cards, it works even for the business's last card in a PIN-off shop, and it upholds the
+ * one-active-card-per-member rule (still exactly one card after). The member is taken from the card
+ * being replaced; only an optional new label is supplied (blank keeps the old label). */
+export interface ReplaceCardRequest {
+  label?: string | null
+}

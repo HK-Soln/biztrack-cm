@@ -5,6 +5,7 @@ import {
   type IssueCardRequest,
   type IssueCardResponse,
   type MemberAuthCredential,
+  type ReplaceCardRequest,
 } from '../../shared/ipc'
 
 type ApiEnvelope<T> = { success?: boolean; data: T }
@@ -27,6 +28,12 @@ export function registerCredentialsIpc(http: HttpClient): void {
     IPC.credentialsRevoke,
     async (_e, id: string) =>
       (await http.post<ApiEnvelope<MemberAuthCredential>>(`/credentials/${id}/revoke`, {})).data
+        .data,
+  )
+  ipcMain.handle(
+    IPC.credentialsReplace,
+    async (_e, id: string, input: ReplaceCardRequest) =>
+      (await http.post<ApiEnvelope<IssueCardResponse>>(`/credentials/${id}/replace`, input)).data
         .data,
   )
 }

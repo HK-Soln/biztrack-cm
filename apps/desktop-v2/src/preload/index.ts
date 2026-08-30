@@ -224,6 +224,7 @@ const api: BridgeApi = {
     list: () => ipcRenderer.invoke(IPC.credentialsList),
     issueCard: (input) => ipcRenderer.invoke(IPC.credentialsIssueCard, input),
     revoke: (id) => ipcRenderer.invoke(IPC.credentialsRevoke, id),
+    replace: (id, input) => ipcRenderer.invoke(IPC.credentialsReplace, id, input),
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),

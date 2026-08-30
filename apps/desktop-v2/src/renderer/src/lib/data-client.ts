@@ -168,6 +168,7 @@ import type {
   MemberAuthCredential,
   IssueCardRequest,
   IssueCardResponse,
+  ReplaceCardRequest,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -404,6 +405,7 @@ export interface DataClient {
     list: () => Promise<MemberAuthCredential[]>
     issueCard: (input: IssueCardRequest) => Promise<IssueCardResponse>
     revoke: (id: string) => Promise<MemberAuthCredential>
+    replace: (id: string, input: ReplaceCardRequest) => Promise<IssueCardResponse>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -815,6 +817,7 @@ function electronAdapter(): DataClient {
       list: () => window.api.credentials.list(),
       issueCard: (input) => window.api.credentials.issueCard(input),
       revoke: (id) => window.api.credentials.revoke(id),
+      replace: (id, input) => window.api.credentials.replace(id, input),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),

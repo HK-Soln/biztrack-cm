@@ -870,6 +870,9 @@ export class SyncService {
           .getMany(),
         this.memberAuthCredentialsRepo
           .createQueryBuilder('cred')
+          // withDeleted: a revoked card is soft-deleted (deleted_at set). The tombstone MUST ride
+          // the pull so an offline device drops the card — TypeORM would otherwise hide it (BIZ-3.3).
+          .withDeleted()
           .where('cred.business_id = :businessId', { businessId })
           .andWhere('cred.updated_at > :since', { since })
           .andWhere('cred.updated_at <= :pulledAt', { pulledAt })

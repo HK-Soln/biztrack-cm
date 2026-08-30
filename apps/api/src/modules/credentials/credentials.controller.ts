@@ -13,6 +13,7 @@ import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { CredentialsService } from './credentials.service'
 import { IssueCardDto } from './dto/issue-card.dto'
+import { ReplaceCardDto } from './dto/replace-card.dto'
 
 /**
  * BIZ-3.3 — member authorization credentials (scannable cards). Issuing/revoking is an OWNER
@@ -59,5 +60,17 @@ export class CredentialsController {
   ): Promise<MemberAuthCredential> {
     this.assertOwner(user)
     return this.credentials.revokeCard(user.businessId as string, id, context)
+  }
+
+  @Post(':id/replace')
+  @ApiOperation({ summary: 'Replace (rotate) a card — revoke + reissue in one step (owner-only)' })
+  replace(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: ReplaceCardDto,
+    @CurrentAuditContext() context: AuditContext,
+  ): Promise<IssueCardResponse> {
+    this.assertOwner(user)
+    return this.credentials.replaceCard(user.businessId as string, user.sub, id, dto, context)
   }
 }

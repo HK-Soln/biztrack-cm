@@ -67,6 +67,10 @@ export class PinService {
   async setPin(pin: string): Promise<{ pinVersion: number }> {
     const { businessId, userId } = this.getContext()
     if (!businessId || !userId) throw new Error('No active business session.')
+    // A shop that upgraded to card scanning no longer accepts PINs (BIZ-3.3 slice 4). Refuse to set
+    // one even if the UI is bypassed; the API rejects it too.
+    if (!this.isMethodAllowed(businessId, 'PIN'))
+      throw new Error('This business uses card scanning; the PIN is disabled.')
     // Enforce strength server-of-record-side too: the renderer guides the user, but
     // the main process must never store a weak PIN even if the UI is bypassed.
     if (!isStrongPin(pin)) throw new Error('PIN is too easy to guess.')
@@ -173,6 +177,9 @@ export class PinService {
   canManage(): boolean {
     const { businessId, userId } = this.getContext()
     if (!businessId || !userId) return false
+    // Hide the PIN card entirely once the shop is on card scanning — there is nothing to manage
+    // when PINs are turned off (BIZ-3.3 slice 4).
+    if (!this.isMethodAllowed(businessId, 'PIN')) return false
     const row = this.db.get<{ ok: number }>(
       `SELECT 1 AS ok
          FROM business_members m
