@@ -80,7 +80,13 @@ export interface PaymentProviderAdapter {
     providerRef: string,
   ): Promise<ProviderTxnState>
 
-  verifyWebhookSignature(rawBody: Buffer, headers: Record<string, unknown>, secret: string): boolean
+  /** Verify the provider's webhook signature. Given the decrypted credentials so each adapter can
+   * pick its own webhook/signing secret (Stripe's signing secret, a telco's shared secret, …). */
+  verifyWebhookSignature(
+    rawBody: Buffer,
+    headers: Record<string, unknown>,
+    credentials: Record<string, string>,
+  ): boolean
   parseWebhook(rawBody: Buffer): ProviderEvent
 
   /** Present where the capability advertises it (supports_payment_links). */

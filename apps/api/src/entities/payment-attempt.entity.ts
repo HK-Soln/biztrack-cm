@@ -90,5 +90,5 @@ export class PaymentAttempt extends BaseEntity {
   confirmationType!: PaymentConfirmationType | null
 
   @Column({ name: 'raw_callback', type: 'jsonb', nullable: true })
-  rawCallback!: unknown
+  rawCallback!: Record<string, unknown> | null
 }

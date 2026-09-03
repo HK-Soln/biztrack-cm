@@ -9,6 +9,7 @@ import { BusinessPaymentRoute } from '@/entities/business-payment-route.entity'
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { Business } from '@/entities/business.entity'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { RedisModule } from '@/common/redis/redis.module'
 import {
   EnvMasterKeyProvider,
   MASTER_KEY_PROVIDER,
@@ -19,7 +20,10 @@ import { PaymentCatalogueService } from './services/payment-catalogue.service'
 import { PaymentCredentialsService } from './services/payment-credentials.service'
 import { PaymentVerificationService } from './services/payment-verification.service'
 import { PaymentRoutingService } from './services/payment-routing.service'
+import { PaymentAttemptsService } from './services/payment-attempts.service'
 import { PaymentProvidersController } from './controllers/payment-providers.controller'
+import { PaymentWebhookController } from './controllers/payment-webhook.controller'
+import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
 import { PaymentsScheduler } from './payments.scheduler'
 import { PAYMENT_ADAPTERS, PaymentAdapterRegistry } from './adapters/adapter.registry'
 import { FakeProviderAdapter } from './adapters/fake.adapter'
@@ -41,13 +45,16 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       Business,
     ]),
     AuditModule,
+    RedisModule,
   ],
-  controllers: [PaymentProvidersController],
+  controllers: [PaymentProvidersController, PaymentWebhookController],
   providers: [
     PaymentCatalogueService,
     PaymentCredentialsService,
     PaymentVerificationService,
     PaymentRoutingService,
+    PaymentAttemptsService,
+    PaymentWebhookGuard,
     PaymentAdapterRegistry,
     PaymentsScheduler,
     {
@@ -73,6 +80,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentCatalogueService,
     PaymentVerificationService,
     PaymentRoutingService,
+    PaymentAttemptsService,
   ],
 })
 export class PaymentsModule {}
