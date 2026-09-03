@@ -128,6 +128,16 @@ export class PaymentCredentialsService {
     return this.toView(saved)
   }
 
+  /** A single connection as a masked view. */
+  async getConnectionView(
+    businessId: string,
+    connectionId: string,
+  ): Promise<BusinessPaymentProviderView> {
+    const conn = await this.connRepo.findOne({ where: { id: connectionId, businessId } })
+    if (!conn) throw new AppNotFoundException('Connection not found.', 'NOT_FOUND')
+    return this.toView(conn)
+  }
+
   /** The merchant's connections (masked — never a secret). */
   async listForBusiness(businessId: string): Promise<BusinessPaymentProviderView[]> {
     const rows = await this.connRepo.find({

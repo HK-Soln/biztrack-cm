@@ -23,7 +23,8 @@ describe('envelope-crypto (AES-256-GCM, AAD = business_id)', () => {
 
   it('rejects a tampered ciphertext (GCM auth tag)', () => {
     const blob = encryptCredential('secret', key, biz)
-    blob[blob.length - 1] ^= 0xff
+    const last = blob.length - 1
+    blob.writeUInt8((blob.readUInt8(last) ^ 0xff) & 0xff, last)
     expect(() => decryptCredential(blob, key, biz)).toThrow()
   })
 

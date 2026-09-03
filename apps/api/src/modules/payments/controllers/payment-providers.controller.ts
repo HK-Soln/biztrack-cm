@@ -15,6 +15,7 @@ import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.decorator'
 import { PaymentCatalogueService } from '../services/payment-catalogue.service'
 import { PaymentCredentialsService } from '../services/payment-credentials.service'
+import { PaymentVerificationService } from '../services/payment-verification.service'
 import { ConnectProviderDto } from '../dto/connect-provider.dto'
 
 /**
@@ -30,6 +31,7 @@ export class PaymentProvidersController {
   constructor(
     private readonly catalogue: PaymentCatalogueService,
     private readonly credentials: PaymentCredentialsService,
+    private readonly verification: PaymentVerificationService,
   ) {}
 
   private assertOwner(user: JwtPayload): void {
@@ -70,13 +72,25 @@ export class PaymentProvidersController {
     @CurrentAuditContext() context: AuditContext,
   ): Promise<ConnectPaymentProviderResponse> {
     this.assertOwner(user)
-    const connection = await this.credentials.connect(
-      user.businessId as string,
-      user.sub,
-      dto,
-      context,
-    )
-    return { connection }
+    const businessId = user.businessId as string
+    const connection = await this.credentials.connect(businessId, user.sub, dto, context)
+    // Verify immediately so the merchant sees ACTIVE/FAILED at once; best-effort (a provider/network
+    // error leaves it PENDING/PROVIDER_UNAVAILABLE and the daily sweep retries).
+    try {
+      return { connection: await this.verification.verify(businessId, connection.id) }
+    } catch {
+      return { connection }
+    }
+  }
+
+  @Post('connections/:id/verify')
+  @ApiOperation({ summary: 'Re-verify a provider connection now (owner-only)' })
+  verify(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<BusinessPaymentProviderView> {
+    this.assertOwner(user)
+    return this.verification.verify(user.businessId as string, id)
   }
 
   @Delete('connections/:id')
