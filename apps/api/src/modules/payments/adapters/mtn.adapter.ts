@@ -37,8 +37,8 @@ export class MtnAdapter implements PaymentProviderAdapter {
   private readonly logger = new Logger(MtnAdapter.name)
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>()
 
-  /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host; otherwise it's derived per-connection from
-   * the credential's `environment` (sandbox → sandbox.api.mtn.com, production → api.mtn.com). */
+  /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host; otherwise it's the per-connection `base_url`
+   * (production, per-tenant) when set, else the global default `https://api.mtn.com` (sandbox). */
   constructor(private readonly overrideBaseUrl?: string) {}
 
   private baseUrlFor(credentials: Record<string, string>): string {
@@ -54,14 +54,12 @@ export class MtnAdapter implements PaymentProviderAdapter {
    * exactly what MTN returned on failure and accept either the flat or `{data}`-enveloped shape.
    */
   private async fetchToken(credentials: Record<string, string>): Promise<string> {
-    console.log(credentials, 'credentials')
     const consumerKey = credentials.consumer_key ?? ''
     const consumerSecret = credentials.consumer_secret ?? ''
     const cached = this.tokenCache.get(consumerKey)
     if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token
 
     const url = `${this.baseUrlFor(credentials)}/v1/oauth/access_token?grant_type=client_credentials`
-    console.log(url, 'oauth url')
     const host = new URL(url).host
     const res = await fetch(url, {
       method: 'POST',
