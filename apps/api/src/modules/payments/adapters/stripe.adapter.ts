@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { PaymentMethod } from '@biztrack/types'
 import type {
+  CreatePaymentLinkRequest,
   PaymentAttemptStatus,
   PaymentProviderAdapter,
   ProviderEvent,
@@ -18,9 +19,11 @@ interface StripeObject {
   id?: string
   amount?: number
   amount_received?: number
+  amount_total?: number
   currency?: string
   status?: string
   payment_intent?: string
+  url?: string
 }
 interface StripeEvent {
   id?: string
@@ -47,11 +50,16 @@ function mapEventType(type?: string): PaymentAttemptStatus {
   switch (type) {
     case 'payment_intent.succeeded':
     case 'charge.succeeded':
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded':
       return 'CONFIRMED'
     case 'payment_intent.payment_failed':
     case 'charge.failed':
     case 'payment_intent.canceled':
+    case 'checkout.session.async_payment_failed':
       return 'FAILED'
+    case 'checkout.session.expired':
+      return 'EXPIRED'
     default:
       return 'PENDING'
   }
@@ -180,10 +188,66 @@ export class StripeAdapter implements PaymentProviderAdapter {
     return {
       providerRef,
       status: mapEventType(event.type),
-      amountMinor: object.amount_received ?? object.amount,
+      amountMinor: object.amount_received ?? object.amount ?? object.amount_total,
       currency: object.currency?.toUpperCase(),
       eventId: event.id ?? '',
       raw: event,
+    }
+  }
+
+  /**
+   * Online checkout (build 9): create a Stripe Checkout Session (hosted payment page). Returns the
+   * URL to redirect the customer to and the underlying PaymentIntent id as `providerRef` — the same
+   * ref `payment_intent.succeeded` / `checkout.session.completed` confirm against. Carries an
+   * idempotency key so a retried initiation reuses the session rather than double-charging.
+   */
+  async createPaymentLink(
+    credentials: Record<string, string>,
+    req: CreatePaymentLinkRequest,
+  ): Promise<{ providerRef: string; url: string; expiresAt: string }> {
+    const key = credentials.secret_key?.trim() ?? ''
+    if (!req.successUrl || !req.cancelUrl)
+      throw new Error('Stripe Checkout needs success and cancel URLs.')
+
+    // Checkout Sessions expire between 30 min and 24h from creation; clamp the requested TTL.
+    const ttl = Math.min(Math.max(req.expiresInSeconds, 1800), 86_400)
+    const expiresAtUnix = Math.floor(Date.now() / 1000) + ttl
+
+    const form = new URLSearchParams({
+      mode: 'payment',
+      success_url: req.successUrl,
+      cancel_url: req.cancelUrl,
+      client_reference_id: req.reference,
+      expires_at: String(expiresAtUnix),
+      'line_items[0][quantity]': '1',
+      'line_items[0][price_data][currency]': req.currency.toLowerCase(),
+      'line_items[0][price_data][unit_amount]': String(req.amountMinor),
+      'line_items[0][price_data][product_data][name]': `Order ${req.reference}`,
+    })
+
+    const res = await fetch(`${this.base}/v1/checkout/sessions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        // Provider-side idempotency: a retried initiation returns the same session, never a 2nd charge.
+        'Idempotency-Key': req.idempotencyKey,
+      },
+      body: form.toString(),
+    })
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 300)
+      this.logger.warn(`Stripe createPaymentLink HTTP ${res.status}: ${body}`)
+      throw new Error(`Stripe returned HTTP ${res.status}.`)
+    }
+    const session = (await res.json()) as StripeObject
+    if (!session.url) throw new Error('Stripe Checkout Session had no URL.')
+    // Prefer the PaymentIntent id as the ref; fall back to the session id when it's not yet populated
+    // (checkout.session.completed then carries the session id as its own ref).
+    return {
+      providerRef: session.payment_intent ?? session.id ?? '',
+      url: session.url,
+      expiresAt: new Date(expiresAtUnix * 1000).toISOString(),
     }
   }
 }

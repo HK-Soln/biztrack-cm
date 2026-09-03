@@ -577,6 +577,23 @@ export interface CheckoutRequest {
   deliveryNotes?: string
   notes?: string
   paymentMethod?: string
+  /** Where the provider returns the customer after a hosted payment (Spec 07 build 9). The storefront
+   * supplies its own return URLs; required for a provider-backed method, ignored for COD. */
+  successUrl?: string
+  cancelUrl?: string
+}
+
+/** Checkout result. `payment` is present only when a provider-backed method started a hosted payment
+ * (Spec 07 build 9) — the storefront redirects the customer to `url`. */
+export interface CheckoutResult {
+  orderNumber: string
+  trackingToken: string
+  status: OnlineOrderStatus
+  payment?: {
+    url: string
+    attemptId: string
+    expiresAt: string | null
+  }
 }
 
 export interface OnlineOrderEvent {

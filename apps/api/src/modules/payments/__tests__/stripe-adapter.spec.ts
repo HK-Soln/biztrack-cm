@@ -89,6 +89,23 @@ describe('StripeAdapter', () => {
       const parsed = adapter.parseWebhook(Buffer.from(JSON.stringify(event)))
       expect(parsed.status).toBe('PENDING')
     })
+
+    it('maps checkout.session.completed to CONFIRMED via the payment_intent + amount_total', () => {
+      const event = {
+        id: 'evt_cs',
+        type: 'checkout.session.completed',
+        data: {
+          object: { id: 'cs_1', payment_intent: 'pi_cs', amount_total: 7500, currency: 'xaf' },
+        },
+      }
+      const parsed = adapter.parseWebhook(Buffer.from(JSON.stringify(event)))
+      expect(parsed).toMatchObject({
+        providerRef: 'pi_cs',
+        status: 'CONFIRMED',
+        amountMinor: 7500,
+        currency: 'XAF',
+      })
+    })
   })
 
   describe('verifyCredentials + getTransaction (mocked Stripe API)', () => {
@@ -136,6 +153,49 @@ describe('StripeAdapter', () => {
       }))
       const state = await adapter.getTransaction({ secret_key: 'rk_good' }, 'pi_1')
       expect(state).toMatchObject({ status: 'CONFIRMED', providerRef: 'pi_1', amountMinor: 1500 })
+    })
+
+    it('creates a Checkout Session and returns the URL + PaymentIntent ref', async () => {
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'cs_1',
+          url: 'https://checkout.stripe/cs_1',
+          payment_intent: 'pi_9',
+        }),
+      })) as unknown as typeof fetch
+      const link = await adapter.createPaymentLink(
+        { secret_key: 'rk_good' },
+        {
+          amountMinor: 5000,
+          currency: 'XAF',
+          method: PaymentMethod.CARD,
+          reference: 'ORD-1',
+          idempotencyKey: 'online_o1_1',
+          expiresInSeconds: 1800,
+          successUrl: 'https://shop/success',
+          cancelUrl: 'https://shop/cancel',
+        },
+      )
+      expect(link.url).toBe('https://checkout.stripe/cs_1')
+      expect(link.providerRef).toBe('pi_9')
+    })
+
+    it('refuses to create a link without return URLs', async () => {
+      await expect(
+        adapter.createPaymentLink(
+          { secret_key: 'rk_good' },
+          {
+            amountMinor: 5000,
+            currency: 'XAF',
+            method: PaymentMethod.CARD,
+            reference: 'ORD-1',
+            idempotencyKey: 'k',
+            expiresInSeconds: 1800,
+          },
+        ),
+      ).rejects.toThrow()
     })
   })
 })

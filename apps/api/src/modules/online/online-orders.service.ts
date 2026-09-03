@@ -54,6 +54,9 @@ import { SalesService } from '@/modules/sales/services/sales.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
+import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
+import { ROUTABLE_PAYMENT_METHODS } from '@biztrack/types'
+import { majorToMinor } from '@biztrack/utils'
 
 const cartItemKey = (item: {
   productId: string
@@ -124,6 +127,7 @@ export class OnlineOrdersService {
     private readonly orderEmail: OrderEmailService,
     private readonly dispatcher: NotificationDispatcher,
     private readonly calendar: BusinessCalendarService,
+    private readonly paymentInitiation: PaymentInitiationService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -304,10 +308,43 @@ export class OnlineOrdersService {
       // Notify the owner a new online order came in (BIZ-4 newOrder producer).
       void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, totalAmount)
 
+      // Provider-backed payment (Spec 07 build 9): if the chosen method routes to a verified provider
+      // with a hosted-link flow, start a payment and hand the storefront a redirect URL. Best-effort —
+      // a failure here must never unplace an order that's already saved; it just falls back to unpaid.
+      let payment: { url: string; attemptId: string; expiresAt: string | null } | undefined
+      const method = this.mapPaymentMethod(dto.paymentMethod)
+      if (ROUTABLE_PAYMENT_METHODS.includes(method)) {
+        try {
+          const initiated = await this.paymentInitiation.initiateOnlineCheckout({
+            businessId: store.businessId,
+            onlineOrderId: order.id,
+            method,
+            amountMinor: majorToMinor(totalAmount, config.currency),
+            currency: config.currency,
+            reference: order.orderNumber,
+            customerPhone: order.customerPhone,
+            successUrl: dto.successUrl,
+            cancelUrl: dto.cancelUrl,
+          })
+          if (initiated)
+            payment = {
+              url: initiated.url,
+              attemptId: initiated.attemptId,
+              expiresAt: initiated.expiresAt,
+            }
+        } catch (error) {
+          this.logger.warn('Online payment initiation failed', 'OnlineOrdersService.checkout', {
+            orderId: order.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+
       return {
         orderNumber: order.orderNumber,
         trackingToken: order.trackingToken,
         status: order.status,
+        ...(payment ? { payment } : {}),
       }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })

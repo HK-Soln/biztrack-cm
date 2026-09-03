@@ -36,6 +36,10 @@ export interface CreatePaymentLinkRequest extends Money {
   idempotencyKey: string
   customerPhone?: string
   expiresInSeconds: number
+  /** Where the provider returns the customer after a hosted-payment flow (e.g. a Stripe Checkout
+   * Session). Supplied by the storefront; a hosted provider that requires them errors without. */
+  successUrl?: string
+  cancelUrl?: string
 }
 
 export interface InitiateUssdPushRequest extends Money {

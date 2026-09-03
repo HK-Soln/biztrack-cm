@@ -7,6 +7,8 @@ import {
   canTransitionPaymentAttempt,
 } from '@biztrack/types'
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
+import { OnlineOrder } from '@/entities/online-order.entity'
+import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import type { ProviderEvent } from '../adapters/payment-provider.adapter'
 
 /**
@@ -22,6 +24,10 @@ export class PaymentAttemptsService {
   constructor(
     @InjectRepository(PaymentAttempt)
     private readonly attempts: Repository<PaymentAttempt>,
+    @InjectRepository(OnlineOrder)
+    private readonly onlineOrders: Repository<OnlineOrder>,
+    @InjectRepository(OnlineOrderEvent)
+    private readonly onlineOrderEvents: Repository<OnlineOrderEvent>,
   ) {}
 
   findByProviderRef(businessId: string, providerRef: string): Promise<PaymentAttempt | null> {
@@ -66,14 +72,46 @@ export class PaymentAttemptsService {
   }
 
   /**
-   * Feed the two sinks that own truth once an attempt settles (§2.4):
-   *  - ONLINE  → online_orders.payment_status + payment_reference + a PAYMENT_GATEWAY event.
-   *  - IN-STORE → append a sale_payments row (mobile_money_reference = provider_ref, payment_attempt_id).
-   * TODO(build 9/10): implement. Kept as a seam so the webhook path is complete and testable now.
+   * Feed the sinks that own truth once an attempt settles (§2.4):
+   *  - ONLINE  → online_orders.payment_status = PAID + payment_reference + a PAYMENT_GATEWAY event
+   *    (build 9, below).
+   *  - IN-STORE → append a sale_payments row (mobile_money_reference = provider_ref,
+   *    payment_attempt_id) — TODO(build 10); attempt.sale_id is the seam.
    */
   private async applyDownstreamEffects(attempt: PaymentAttempt): Promise<void> {
     if (attempt.status !== PaymentAttemptStatus.CONFIRMED) return
-    // Intentionally a no-op until online checkout (build 9) + in-store execution (build 10) wire the
-    // sinks. The attempt record is already authoritative; nothing is lost by deferring the effects.
+    if (attempt.onlineOrderId) await this.settleOnlineOrder(attempt)
+    // attempt.saleId (in-store) is handled by build 10.
+  }
+
+  /**
+   * Online sink (§6.1 step 2): a confirmed gateway payment marks the order PAID and records the
+   * provider ref + a customer-visible PAYMENT_GATEWAY event. The Sale itself posts later, at merchant
+   * confirm (§6.1 step 3), sourcing the ref from the CONFIRMED attempt. Idempotent — a duplicate
+   * webhook that already ran leaves an already-PAID order untouched.
+   */
+  private async settleOnlineOrder(attempt: PaymentAttempt): Promise<void> {
+    const order = await this.onlineOrders.findOne({ where: { id: attempt.onlineOrderId! } })
+    if (!order) {
+      this.logger.warn(`Confirmed attempt ${attempt.id} references unknown online order.`)
+      return
+    }
+    if (order.paymentStatus === 'PAID') return
+
+    await this.onlineOrders.update(order.id, {
+      paymentStatus: 'PAID',
+      paymentReference: attempt.providerRef ?? order.paymentReference,
+    })
+    await this.onlineOrderEvents.save(
+      this.onlineOrderEvents.create({
+        onlineOrderId: order.id,
+        businessId: order.businessId,
+        eventType: 'PAYMENT_RECEIVED',
+        triggeredBy: 'PAYMENT_GATEWAY',
+        isCustomerVisible: true,
+        customerMessage: 'Payment received.',
+        trackingToken: order.trackingToken,
+      }),
+    )
   }
 }

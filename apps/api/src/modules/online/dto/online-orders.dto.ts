@@ -186,6 +186,21 @@ export class CheckoutDto implements CheckoutRequest {
   @IsString()
   @MaxLength(40)
   paymentMethod?: string
+
+  // Return URLs for a provider-backed hosted payment (Spec 07 build 9). Passed to the provider as the
+  // customer's redirect targets; the storefront supplies its own. @IsString (not @IsUrl) so localhost
+  // dev URLs are accepted — they are never fetched by us, only handed to the provider.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  successUrl?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  cancelUrl?: string
 }
 
 export class ContactMessageDto implements ContactMessageRequest {

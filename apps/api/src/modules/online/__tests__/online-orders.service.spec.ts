@@ -100,6 +100,7 @@ const makeService = (opts: {
       resolveForSync: async () => '2026-01-01',
       businessDateFor: async () => '2026-01-01',
     } as any,
+    { initiateOnlineCheckout: jest.fn(async () => null) } as any,
   )
   return { service, cartsRepo, ordersRepo, eventsRepo, contactsRepo, salesService, storeService }
 }

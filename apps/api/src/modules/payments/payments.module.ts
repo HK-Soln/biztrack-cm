@@ -6,6 +6,8 @@ import { PaymentProviderCapability } from '@/entities/payment-provider-capabilit
 import { BusinessPaymentProvider } from '@/entities/business-payment-provider.entity'
 import { BusinessPaymentRoute } from '@/entities/business-payment-route.entity'
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
+import { OnlineOrder } from '@/entities/online-order.entity'
+import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { Business } from '@/entities/business.entity'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { RedisModule } from '@/common/redis/redis.module'
@@ -20,6 +22,7 @@ import { PaymentCredentialsService } from './services/payment-credentials.servic
 import { PaymentVerificationService } from './services/payment-verification.service'
 import { PaymentRoutingService } from './services/payment-routing.service'
 import { PaymentAttemptsService } from './services/payment-attempts.service'
+import { PaymentInitiationService } from './services/payment-initiation.service'
 import { PaymentProvidersController } from './controllers/payment-providers.controller'
 import { PaymentWebhookController } from './controllers/payment-webhook.controller'
 import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
@@ -43,6 +46,8 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       BusinessPaymentProvider,
       BusinessPaymentRoute,
       PaymentAttempt,
+      OnlineOrder,
+      OnlineOrderEvent,
       Business,
     ]),
     AuditModule,
@@ -55,6 +60,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentVerificationService,
     PaymentRoutingService,
     PaymentAttemptsService,
+    PaymentInitiationService,
     PaymentWebhookGuard,
     PaymentAdapterRegistry,
     PaymentsScheduler,
@@ -84,6 +90,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentVerificationService,
     PaymentRoutingService,
     PaymentAttemptsService,
+    PaymentInitiationService,
   ],
 })
 export class PaymentsModule {}
