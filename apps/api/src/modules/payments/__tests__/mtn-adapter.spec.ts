@@ -28,8 +28,12 @@ const GOOD = {
 }
 
 describe('MtnAdapter (MoMo Collection) — verifyCredentials', () => {
-  const adapter = new MtnAdapter()
+  // Fresh adapter per test so the per-api_user token cache never bleeds between cases.
+  let adapter: MtnAdapter
   const realFetch = global.fetch
+  beforeEach(() => {
+    adapter = new MtnAdapter()
+  })
   afterEach(() => {
     global.fetch = realFetch
   })
@@ -42,27 +46,17 @@ describe('MtnAdapter (MoMo Collection) — verifyCredentials', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  it('valid when token + Collection balance both succeed, enabling MTN_MOMO', async () => {
-    mockFetch({
-      token: ok({ access_token: 'tok', expires_in: 3600 }),
-      balance: ok({ availableBalance: '0', currency: 'EUR' }),
-    })
+  it('valid when the Collection token succeeds, enabling MTN_MOMO', async () => {
+    mockFetch({ token: ok({ access_token: 'tok', expires_in: 3600 }) })
     const res = await adapter.verifyCredentials(GOOD)
     expect(res.valid).toBe(true)
     expect(res.enabledMethods).toContain(PaymentMethod.MTN_MOMO)
   })
 
-  it('invalid when the token is rejected (bad api user/key or subscription key)', async () => {
+  it('invalid when the token is rejected — bad api user/key, or a non-Collection subscription key', async () => {
     mockFetch({ token: fail(401) })
     const res = await adapter.verifyCredentials(GOOD)
     expect(res.valid).toBe(false)
-  })
-
-  it('invalid when the key is not the Collection key (token ok, balance 403)', async () => {
-    mockFetch({ token: ok({ access_token: 'tok', expires_in: 3600 }), balance: fail(403) })
-    const res = await adapter.verifyCredentials(GOOD)
-    expect(res.valid).toBe(false)
-    expect(res.error).toMatch(/Collection/i)
   })
 
   it('requires a base URL in production', async () => {

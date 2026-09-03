@@ -20,12 +20,11 @@ interface MomoTokenBody {
 /**
  * Spec 07 — MTN adapter on the MTN MoMo Open API (Collection product).
  *
- * verifyCredentials is REAL and product-aware:
- *   1) mint an OAuth token — POST {base}/collection/token/ with Basic(api_user:api_key) +
- *      Ocp-Apim-Subscription-Key. A 200 proves the three secrets are internally consistent.
- *   2) call a Collection-scoped read — GET {base}/collection/v1_0/account/balance. Each MoMo product
- *      has its OWN subscription key, so a wrong-product key mints a token but fails here. This makes
- *      "the key is the Collection key" a hard condition for enabling (never a test charge).
+ * verifyCredentials is REAL and product-aware: it mints an OAuth token — POST {base}/collection/token/
+ * with Basic(api_user:api_key) + Ocp-Apim-Subscription-Key. That endpoint is Collection-scoped (gated
+ * by the Collection product's subscription key), so a 200 proves the three secrets are consistent AND
+ * that the subscription key is the Collection key — a wrong-product key is rejected with a 401. Never
+ * a test charge. (No balance probe: a fresh sandbox api_user has no wallet, so account/balance 404s.)
  *
  * TODO(execution): request-to-pay (POST /collection/v1_0/requesttopay, async 202), status polling
  * (GET /collection/v1_0/requesttopay/{X-Reference-Id}) and the PUT callback are the next slice —
@@ -75,7 +74,7 @@ export class MtnAdapter implements PaymentProviderAdapter {
       this.logger.warn(`MoMo token HTTP ${res.status}: ${raw.slice(0, 200)}`)
       throw new Error(
         res.status === 401
-          ? 'MTN rejected the API user/key or subscription key.'
+          ? 'MTN rejected the credentials — check the API user, API key, and that the subscription key is for the Collection product.'
           : `MTN token request returned HTTP ${res.status}.`,
       )
     }
@@ -113,27 +112,11 @@ export class MtnAdapter implements PaymentProviderAdapter {
 
     const base = this.baseUrlFor(credentials)
     try {
-      const token = await this.fetchToken(base, credentials)
-      // Collection-scoped read — proves the subscription key is the Collection product's key.
-      const res = await fetch(`${base}/collection/v1_0/account/balance`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'X-Target-Environment': this.targetEnv(credentials),
-          'Ocp-Apim-Subscription-Key': credentials.subscription_key,
-        },
-      })
-      if (!res.ok) {
-        const raw = (await res.text()).slice(0, 200)
-        this.logger.warn(`MoMo balance HTTP ${res.status}: ${raw}`)
-        return {
-          valid: false,
-          enabledMethods: [],
-          error:
-            res.status === 401 || res.status === 403
-              ? 'The subscription key is not valid for the Collection product.'
-              : `MTN returned HTTP ${res.status} verifying the Collection product.`,
-        }
-      }
+      // The token endpoint is Collection-scoped (POST /collection/token/), gated by the Collection
+      // product's subscription key — a successful token proves the credentials AND that the key is the
+      // Collection key (a wrong-product key is rejected here with a 401). No balance probe: in the
+      // sandbox a fresh api_user has no wallet, so GET account/balance returns RESOURCE_NOT_FOUND.
+      await this.fetchToken(base, credentials)
       return {
         valid: true,
         enabledMethods: [PaymentMethod.MTN_MOMO],
