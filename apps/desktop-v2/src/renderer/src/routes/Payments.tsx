@@ -268,6 +268,10 @@ export function Payments() {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {connections.map((c) => {
               const s = STATUS_STYLE[c.status] ?? STATUS_MUTED
+              // Only dashboard-registered providers (Stripe) have a webhook to set up in-app. MoMo
+              // registers its callback host at provisioning time, so it needs no webhook step here.
+              const needsWebhook =
+                providerByCode.get(c.providerCode)?.requiresWebhookRegistration ?? false
               return (
                 <div
                   key={c.id}
@@ -298,36 +302,31 @@ export function Payments() {
                         {c.verificationError}
                       </div>
                     ) : null}
-                    <div
-                      style={{
-                        fontSize: 12,
-                        marginTop: 4,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        color: c.webhookConfigured ? 'var(--success)' : 'var(--text-muted)',
-                      }}
-                    >
-                      {c.webhookConfigured ? t('pay.webhookConfigured') : t('pay.webhookPending')}
-                      {!c.webhookConfigured ? (
-                        <span
-                          style={{
-                            color: providerByCode.get(c.providerCode)?.requiresWebhookRegistration
-                              ? 'var(--warn, #b26a00)'
-                              : 'var(--text-muted)',
-                          }}
-                        >
-                          ·{' '}
-                          {providerByCode.get(c.providerCode)?.requiresWebhookRegistration
-                            ? t('pay.webhookRequired')
-                            : t('pay.webhookOptional')}
-                        </span>
-                      ) : null}
-                    </div>
+                    {needsWebhook ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          marginTop: 4,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          color: c.webhookConfigured ? 'var(--success)' : 'var(--text-muted)',
+                        }}
+                      >
+                        {c.webhookConfigured ? t('pay.webhookConfigured') : t('pay.webhookPending')}
+                        {!c.webhookConfigured ? (
+                          <span style={{ color: 'var(--warn, #b26a00)' }}>
+                            · {t('pay.webhookRequired')}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-                  <Button type="button" variant="soft" onClick={() => openWebhook(c)}>
-                    {c.webhookConfigured ? t('pay.webhookUpdate') : t('pay.webhookSetup')}
-                  </Button>
+                  {needsWebhook ? (
+                    <Button type="button" variant="soft" onClick={() => openWebhook(c)}>
+                      {c.webhookConfigured ? t('pay.webhookUpdate') : t('pay.webhookSetup')}
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="soft"
