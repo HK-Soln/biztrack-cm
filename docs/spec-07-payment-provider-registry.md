@@ -98,9 +98,10 @@ payment_attempts
   payment_method     TEXT,
   provider_id        UUID → business_payment_providers,
   provider_ref       TEXT,        -- authoritative provider txn id
-  amount_xaf         BIGINT,      -- integer whole XAF (§3)
-  fee_xaf            BIGINT NULL,
-  net_xaf            BIGINT NULL,
+  amount_minor       BIGINT,      -- integer, minor units of `currency` (§3)
+  currency           TEXT,        -- ISO-4217, from business/store settings (not assumed)
+  fee_minor          BIGINT NULL,
+  net_minor          BIGINT NULL,
   status             TEXT,        -- INITIATED | PENDING | CONFIRMED | FAILED | EXPIRED
   attempt_number     INT,
   idempotency_key    TEXT UNIQUE,
@@ -132,11 +133,17 @@ Add nullable `payment_attempt_id UUID` to `sale_payments`. Append-only (BIZ-2.8)
 
 ---
 
-## 3. Money representation `[D]`
+## 3. Money representation — currency-aware `[D]` `[A13]`
 
-Canonical at the provider boundary and in `payment_attempts`: **integer whole XAF** (`bigint`) — XAF has no minor unit, `online_orders` already uses `int`, and Epic 0 (`whole_xaf_money`) shipped.
-**The sales ledger stays `sale_payments.amount decimal(12,2)` holding whole values** — the shipped D1 decision. **Do NOT re-type `sale_payments.amount`** (out of scope — a separate heavier migration).
-Single conversion point: **integer XAF → decimal when a `payment_attempts` success appends a `sale_payments` row** — one function in `packages/domain`, with a test.
+**Not XAF-specific.** BizTrack already has a non-XAF merchant (a UAE store priced in AED), and AED has **two** decimal places where XAF has **zero** — so a single "whole XAF integer" is wrong. Money on the provider boundary and in `payment_attempts` is **`(amountMinor, currency)`**: an integer in the currency's **minor units** plus an ISO-4217 `currency`. This is the exact, currency-agnostic form providers consume (Stripe et al. take integer minor units + currency).
+
+- `currency` comes from **business settings** (`businesses.currency`, default `'XAF'`) / the store's currency — **never assumed**.
+- Minor units follow the currency's ISO-4217 exponent: **XAF = 0** (minor == major), **AED = 2** (fils), most currencies = 2. A small exponent map lives in `packages/domain` (default 2; XAF/other 0-decimal currencies listed explicitly).
+- **Backward-compatible:** the existing `online_orders` **int** columns are already _minor-units-of-the-store-currency_ — "whole XAF" is simply XAF's minor unit — so XAF merchants are unaffected and the AED store's fils already fit.
+- **The sales ledger stays `sale_payments.amount decimal(12,2)` (major units)** — the shipped D1 decision; do NOT re-type it. `decimal(12,2)` holds both XAF (never uses the decimals) and AED (10.50).
+- **Single conversion point:** `amountMinor` (currency) → decimal major units when a `payment_attempts` success appends a `sale_payments` row — one function in `packages/domain` keyed on the currency exponent, with a test.
+
+> **Broader note (founder scope):** full multi-currency across products/prices/sales/reports/cash-rounding is larger than this spec. Any remaining hardcoded-XAF assumptions in those surfaces need a separate pass for the UAE store. This spec makes the **payments layer** currency-correct; it does not multi-currency the whole app.
 
 ---
 
@@ -145,17 +152,21 @@ Single conversion point: **integer XAF → decimal when a `payment_attempts` suc
 One adapter per provider in a new **`packages/payments` — server-only**.
 
 ```ts
+interface Money { amountMinor: number; currency: string }  // §3 — never assume XAF
+
 interface PaymentProviderAdapter {
   code: string
   verifyCredentials(cred): Promise<{ valid: boolean; enabledMethods: PaymentMethod[]; accountRef?: string; error?: string }>
-  createPaymentLink(req: { amountXaf: number; method: PaymentMethod; reference: string; idempotencyKey: string; customerPhone?: string; expiresInSeconds: number }): Promise<{ providerRef: string; url: string; expiresAt: string }>
-  initiateUssdPush(req: { amountXaf: number; method: PaymentMethod; customerPhone: string; reference: string; idempotencyKey: string }): Promise<{ providerRef: string; status: AttemptStatus }>
+  createPaymentLink(req: Money & { method: PaymentMethod; reference: string; idempotencyKey: string; customerPhone?: string; expiresInSeconds: number }): Promise<{ providerRef: string; url: string; expiresAt: string }>
+  initiateUssdPush(req: Money & { method: PaymentMethod; customerPhone: string; reference: string; idempotencyKey: string }): Promise<{ providerRef: string; status: AttemptStatus }>
   getTransaction(providerRef: string): Promise<ProviderTxnState>   // NOT optional — the poll safety net
   verifyWebhookSignature(rawBody: Buffer, headers, secret): boolean
   parseWebhook(rawBody: Buffer): ProviderEvent
-  refund?(providerRef: string, amountXaf: number, idempotencyKey: string): Promise<…>
+  refund?(providerRef: string, amount: Money, idempotencyKey: string): Promise<…>
 }
 ```
+
+Each adapter converts `(amountMinor, currency)` to its provider's expected wire format (Stripe already wants integer minor units + currency; a telco adapter formats as needed). The currency's decimal exponent lives in `packages/domain`, not in adapters.
 
 - Every outbound call carries an **idempotency key derived from the attempt id**.
 - **Reuse `packages/utils/src/phone.ts`** (`getCameroonNetwork()` / `detectMoMoOperator()`) to infer operator, not the customer.

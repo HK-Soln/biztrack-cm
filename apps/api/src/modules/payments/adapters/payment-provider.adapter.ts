@@ -10,6 +10,18 @@ import type { PaymentMethod } from '@biztrack/types'
 
 export type PaymentAttemptStatus = 'INITIATED' | 'PENDING' | 'CONFIRMED' | 'FAILED' | 'EXPIRED'
 
+/**
+ * Money on the provider boundary is (amountMinor, currency): an integer in the currency's MINOR
+ * units — the exact, currency-agnostic form providers consume. The currency comes from business
+ * settings (`businesses.currency`) / the store, never assumed. Minor units depend on the currency's
+ * ISO-4217 exponent: XAF = 0 (minor == major), AED = 2 (fils), most = 2. Convert to the ledger's
+ * decimal major units at the single sale_payments-append point (packages/domain).
+ */
+export interface Money {
+  amountMinor: number
+  currency: string
+}
+
 export interface VerifyCredentialsResult {
   valid: boolean
   /** What the merchant's account is ACTUALLY approved for (may be narrower than the catalogue). */
@@ -18,8 +30,7 @@ export interface VerifyCredentialsResult {
   error?: string
 }
 
-export interface CreatePaymentLinkRequest {
-  amountXaf: number
+export interface CreatePaymentLinkRequest extends Money {
   method: PaymentMethod
   reference: string
   idempotencyKey: string
@@ -27,8 +38,7 @@ export interface CreatePaymentLinkRequest {
   expiresInSeconds: number
 }
 
-export interface InitiateUssdPushRequest {
-  amountXaf: number
+export interface InitiateUssdPushRequest extends Money {
   method: PaymentMethod
   customerPhone: string
   reference: string
@@ -38,18 +48,21 @@ export interface InitiateUssdPushRequest {
 export interface ProviderTxnState {
   status: PaymentAttemptStatus
   providerRef: string
-  amountXaf?: number
-  feeXaf?: number
-  netXaf?: number
+  /** Settled amounts as reported by the provider (minor units of `currency`). */
+  amountMinor?: number
+  feeMinor?: number
+  netMinor?: number
+  currency?: string
   raw?: unknown
 }
 
 export interface ProviderEvent {
   providerRef: string
   status: PaymentAttemptStatus
-  amountXaf?: number
-  feeXaf?: number
-  netXaf?: number
+  amountMinor?: number
+  feeMinor?: number
+  netMinor?: number
+  currency?: string
   /** Provider event id — used for `whook:<provider>:<event-id>` idempotency. */
   eventId: string
   raw: unknown
@@ -85,7 +98,7 @@ export interface PaymentProviderAdapter {
   refund?(
     credentials: Record<string, string>,
     providerRef: string,
-    amountXaf: number,
+    amount: Money,
     idempotencyKey: string,
   ): Promise<{ providerRef: string; status: PaymentAttemptStatus }>
 }

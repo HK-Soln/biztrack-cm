@@ -63,7 +63,8 @@ export class FakeProviderAdapter implements PaymentProviderAdapter {
     return {
       providerRef: parsed.providerRef ?? '',
       status: parsed.status ?? 'PENDING',
-      amountXaf: parsed.amountXaf,
+      amountMinor: parsed.amountMinor,
+      currency: parsed.currency,
       eventId: parsed.eventId ?? this.ref(rawBody.toString('utf8')),
       raw: parsed,
     }
