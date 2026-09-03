@@ -203,7 +203,7 @@ export function CheckoutView({
             <h3>{paid ? t('momoPaidTitle') : t('momoFailedTitle')}</h3>
             <p>{paid ? t('momoPaidDesc') : t('momoFailed')}</p>
             <p style={{ marginTop: 10, color: 'var(--muted)' }}>
-              {t('momoRedirectIn').replace('{n}', String(countdown))}
+              {t('momoRedirectIn', { n: countdown })}
             </p>
             <button
               type="button"
@@ -218,7 +218,7 @@ export function CheckoutView({
           <>
             <div className="ei">{IcLock}</div>
             <h3>{t('momoWaitTitle')}</h3>
-            <p>{t('momoWaitDesc').replace('{phone}', phone ?? '')}</p>
+            <p>{t('momoWaitDesc', { phone: phone ?? '' })}</p>
             <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
           </>
         )}
