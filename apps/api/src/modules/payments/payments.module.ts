@@ -27,6 +27,7 @@ import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
 import { PaymentsScheduler } from './payments.scheduler'
 import { PAYMENT_ADAPTERS, PaymentAdapterRegistry } from './adapters/adapter.registry'
 import { FakeProviderAdapter } from './adapters/fake.adapter'
+import { MtnAdapter } from './adapters/mtn.adapter'
 import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter'
 
 /**
@@ -69,9 +70,11 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       // TODO(sandbox): register the real Stripe (build 8) + MTN (build 13) adapters here in place of
       // the fakes. Keeping the interface means this is a registry change, not a caller change.
       provide: PAYMENT_ADAPTERS,
+      // MTN: real OAuth verifyCredentials (execution pending the payment API). Stripe: fake until its
+      // adapter lands (build 8). TODO(sandbox): replace the Stripe fake with the real Stripe adapter.
       useValue: [
+        new MtnAdapter(),
         new FakeProviderAdapter('STRIPE', [PaymentMethod.CARD]),
-        new FakeProviderAdapter('MTN', [PaymentMethod.MTN_MOMO]),
       ] satisfies PaymentProviderAdapter[],
     },
   ],
