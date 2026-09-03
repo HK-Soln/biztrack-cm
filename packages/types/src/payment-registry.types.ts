@@ -53,3 +53,38 @@ export const ROUTABLE_PAYMENT_METHODS: PaymentMethod[] = [
   PaymentMethod.ORANGE_MONEY,
   PaymentMethod.CARD,
 ]
+
+/** Lifecycle of a merchant's connection to a provider (§2.2). */
+export enum PaymentProviderConnectionStatus {
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+  ACTIVE = 'ACTIVE',
+  FAILED = 'FAILED',
+  REVOKED = 'REVOKED',
+  PROVIDER_UNAVAILABLE = 'PROVIDER_UNAVAILABLE',
+}
+
+/** A merchant→provider connection as returned by the WRITE-ONLY API — never carries the secret.
+ * Reads expose only provider, last-four, fingerprint, status and verification metadata. */
+export interface BusinessPaymentProviderView {
+  id: string
+  providerCode: string
+  status: PaymentProviderConnectionStatus
+  lastFour: string | null
+  fingerprint: string | null
+  verifiedMethods: PaymentMethod[]
+  lastVerifiedAt: string | null
+  verificationError: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Connect or rotate a provider's credentials. `credentials` is a map keyed by the provider's
+ * `credential_schema` field keys; secret fields are encrypted and never returned. */
+export interface ConnectPaymentProviderRequest {
+  providerCode: string
+  credentials: Record<string, string>
+}
+
+export interface ConnectPaymentProviderResponse {
+  connection: BusinessPaymentProviderView
+}

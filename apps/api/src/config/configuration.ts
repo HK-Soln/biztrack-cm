@@ -110,6 +110,11 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.preprocess(normalizeEnvString, z.string()).optional(),
   S3_SECRET_ACCESS_KEY: z.preprocess(normalizeEnvString, z.string()).optional(),
   S3_PUBLIC_URL: z.preprocess(normalizeEnvString, z.string()).optional(),
+  // Spec 07 — payment provider credential encryption. A versioned JSON map of AES-256 master keys,
+  // base64, 32 bytes each: {"1":"<base64>"}. Optional (the payments feature is off when absent);
+  // when present, credentials are envelope-encrypted (AES-256-GCM, AAD = business_id). Rotate by
+  // adding a higher version and re-encrypting; drop the old version only when no row references it.
+  PAYMENT_MASTER_KEYS: z.preprocess(normalizeEnvString, z.string()).optional(),
 })
 
 export type AppConfig = z.infer<typeof envSchema>
