@@ -341,6 +341,15 @@ _(Q1 answered: ~5 live merchant stores. A3b answered: no new tenders near-term. 
 
 ---
 
+## 11.5 Deferred ideas (post-v1, not in scope now)
+
+Captured for a follow-up phase after the core execution layer ships — **do not wire these up in v1**:
+
+- **Deposit / part-payment at online checkout** — a common CM pattern: the customer prepays a minimum share of the order at checkout (a configurable floor, default **> 50%**) and settles the balance on delivery. Fits the existing model: the prepay is a CONFIRMED `payment_attempt` moving the order to `PARTIALLY_PAID`; the balance is collected on delivery exactly like today's COD `collectOnCompletion`. New work = a per-store minimum-deposit-percent setting + a checkout UI that offers "pay deposit now / balance on delivery" and validates the floor. Interacts with the whole-order sale-posting at merchant confirm (the sale posts with a partial payment + a receivable for the balance).
+- **Split payments on the online store** — let a customer combine tenders (e.g. part MoMo, part card / part deposit) at checkout. The `payment_attempts`-are-plural design already supports several CONFIRMED attempts per order composing the total; the new work is the checkout UX + a rule that the attempts must sum to the required amount (or the deposit floor) before the order proceeds. Mirrors the in-store `MIXED` (multiple `sale_payments` rows) behaviour, not a new `PaymentMethod`.
+
+Both are extensions of paths that exist (`PARTIALLY_PAID`, plural attempts, balance-on-delivery); revisit once execution + the first real adapter are proven.
+
 ## 12. Build order
 
 | #   | Step                                                                                                                                                        | Size  | Notes                                    |
