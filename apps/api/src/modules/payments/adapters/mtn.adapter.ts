@@ -7,119 +7,139 @@ import type {
   VerifyCredentialsResult,
 } from './payment-provider.adapter'
 
-/** MTN may return the token flat or wrapped in their `{ data: {...} }` envelope (their JSON
- * conventions) — accept both. */
-interface MtnTokenBody {
+/** MoMo sandbox host — production is a country-specific host the merchant supplies as `base_url`. */
+const SANDBOX_BASE = 'https://sandbox.momodeveloper.mtn.com'
+
+/** POST /collection/token/ response (RFC 6749 client-credentials). */
+interface MomoTokenBody {
   access_token?: string
-  expires_in?: string
   token_type?: string
-  data?: { access_token?: string; expires_in?: string; token_type?: string }
+  expires_in?: number | string
 }
 
 /**
- * Spec 07 build-order 13 (partial) — MTN adapter, OAuth 2.0 client-credentials.
+ * Spec 07 — MTN adapter on the MTN MoMo Open API (Collection product).
  *
- * verifyCredentials is REAL: it exchanges the merchant's Consumer Key + Secret for a Bearer token at
- * `POST {base}/v1/oauth/access_token?grant_type=client_credentials` (body: client_id/client_secret).
- * A 200 with an access_token proves the credentials. Tokens are cached per consumer key until shortly
- * before expiry.
+ * verifyCredentials is REAL and product-aware:
+ *   1) mint an OAuth token — POST {base}/collection/token/ with Basic(api_user:api_key) +
+ *      Ocp-Apim-Subscription-Key. A 200 proves the three secrets are internally consistent.
+ *   2) call a Collection-scoped read — GET {base}/collection/v1_0/account/balance. Each MoMo product
+ *      has its OWN subscription key, so a wrong-product key mints a token but fails here. This makes
+ *      "the key is the Collection key" a hard condition for enabling (never a test charge).
  *
- * TODO(sandbox): payment EXECUTION (request-to-pay / status) and webhook signature verification need
- * MTN's payment API endpoints + signing details, which aren't wired yet — those methods throw/false
- * until provided. Verification (this file's real part) is enough to connect + validate sandbox keys.
+ * TODO(execution): request-to-pay (POST /collection/v1_0/requesttopay, async 202), status polling
+ * (GET /collection/v1_0/requesttopay/{X-Reference-Id}) and the PUT callback are the next slice —
+ * getTransaction/parseWebhook throw/false until then.
  */
-/** Global host — serves sandbox with the right credentials/product. Production is a per-tenant host
- * MTN issues after onboarding; the merchant supplies it as `base_url`. */
-const DEFAULT_MTN_HOST = 'https://api.mtn.com'
-
 export class MtnAdapter implements PaymentProviderAdapter {
   readonly code = 'MTN'
   private readonly logger = new Logger(MtnAdapter.name)
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>()
 
-  /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host; otherwise it's the per-connection `base_url`
-   * (production, per-tenant) when set, else the global default `https://api.mtn.com` (sandbox). */
+  /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host — for tests; otherwise it's the per-connection
+   * `base_url` (production) when set, else the MoMo sandbox host. */
   constructor(private readonly overrideBaseUrl?: string) {}
 
   private baseUrlFor(credentials: Record<string, string>): string {
     if (this.overrideBaseUrl) return this.overrideBaseUrl
     const custom = credentials.base_url?.trim()
-    if (custom) return custom.replace(/\/+$/, '') // per-tenant production host
-    return DEFAULT_MTN_HOST
+    if (custom) return custom.replace(/\/+$/, '') // per-country production host
+    return SANDBOX_BASE
   }
 
-  /**
-   * Read the token response as RAW TEXT and parse defensively — the shared http-client force-parses
-   * on a JSON content-type and would throw before we could see MTN's status or body. This lets us log
-   * exactly what MTN returned on failure and accept either the flat or `{data}`-enveloped shape.
-   */
-  private async fetchToken(credentials: Record<string, string>): Promise<string> {
-    const consumerKey = credentials.consumer_key ?? ''
-    const consumerSecret = credentials.consumer_secret ?? ''
-    const cached = this.tokenCache.get(consumerKey)
-    if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token
+  /** X-Target-Environment: fixed to `sandbox` in sandbox; the country string in production. */
+  private targetEnv(credentials: Record<string, string>): string {
+    if (credentials.environment === 'production')
+      return credentials.target_environment?.trim() || 'production'
+    return 'sandbox'
+  }
 
-    const url = `${this.baseUrlFor(credentials)}/v1/oauth/access_token?grant_type=client_credentials`
-    const host = new URL(url).host
-    const res = await fetch(url, {
+  /** OAuth token via Basic(api_user:api_key). Cached per api_user until shortly before expiry. */
+  private async fetchToken(base: string, credentials: Record<string, string>): Promise<string> {
+    const apiUser = credentials.api_user?.trim() ?? ''
+    const apiKey = credentials.api_key ?? ''
+    const subscriptionKey = credentials.subscription_key ?? ''
+    const cached = this.tokenCache.get(apiUser)
+    if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token
+
+    const basic = Buffer.from(`${apiUser}:${apiKey}`).toString('base64')
+    const res = await fetch(`${base}/collection/token/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-      body: new URLSearchParams({
-        client_id: consumerKey,
-        client_secret: consumerSecret,
-      }).toString(),
+      headers: {
+        Authorization: `Basic ${basic}`,
+        'Ocp-Apim-Subscription-Key': subscriptionKey,
+      },
     })
     const raw = await res.text()
-
     if (!res.ok) {
-      this.logger.warn(`MTN token HTTP ${res.status} from ${host}: ${raw.slice(0, 300)}`)
-      throw new Error(`MTN returned HTTP ${res.status}.`)
+      this.logger.warn(`MoMo token HTTP ${res.status}: ${raw.slice(0, 200)}`)
+      throw new Error(
+        res.status === 401
+          ? 'MTN rejected the API user/key or subscription key.'
+          : `MTN token request returned HTTP ${res.status}.`,
+      )
     }
-
-    let parsed: MtnTokenBody
+    let body: MomoTokenBody
     try {
-      parsed = JSON.parse(raw) as MtnTokenBody
+      body = JSON.parse(raw) as MomoTokenBody
     } catch {
-      // Body is an error/non-JSON despite the request — log it (no token present) so it's diagnosable.
-      this.logger.warn(`MTN token: unparseable body from ${host}: ${raw.slice(0, 300)}`)
-      throw new Error("MTN returned a response that wasn't valid JSON.")
+      throw new Error('MTN returned a non-JSON token response.')
     }
-
-    const token = parsed.access_token ?? parsed.data?.access_token
-    if (!token) {
-      this.logger.warn(`MTN token: no access_token in body from ${host}: ${raw.slice(0, 200)}`)
-      throw new Error('MTN response had no access_token.')
-    }
-    const expiresIn = parsed.expires_in ?? parsed.data?.expires_in
-    const ttlMs = (Number(expiresIn ?? '3599') || 3599) * 1000
-    this.tokenCache.set(consumerKey, { token, expiresAt: Date.now() + ttlMs })
-    return token
+    if (!body.access_token) throw new Error('MTN token response had no access_token.')
+    const ttlMs = (Number(body.expires_in ?? 3600) || 3600) * 1000
+    this.tokenCache.set(apiUser, { token: body.access_token, expiresAt: Date.now() + ttlMs })
+    return body.access_token
   }
 
   async verifyCredentials(credentials: Record<string, string>): Promise<VerifyCredentialsResult> {
-    if (!credentials.consumer_key || !credentials.consumer_secret) {
-      return { valid: false, enabledMethods: [], error: 'Missing consumer key/secret.' }
+    if (!credentials.subscription_key || !credentials.api_user || !credentials.api_key) {
+      return {
+        valid: false,
+        enabledMethods: [],
+        error: 'Enter the Collection subscription key, API user and API key.',
+      }
     }
-    // base_url is OPTIONAL: production is a per-tenant host, but if the merchant leaves it blank we
-    // fall back to the global default (https://api.mtn.com) rather than hard-blocking. Only validate
-    // it when a value is supplied.
     const custom = credentials.base_url?.trim()
+    if (credentials.environment === 'production' && !this.overrideBaseUrl && !custom) {
+      return { valid: false, enabledMethods: [], error: 'Enter your production MoMo base URL.' }
+    }
     if (custom) {
       try {
         new URL(custom)
       } catch {
-        return { valid: false, enabledMethods: [], error: 'The MTN base URL is not a valid URL.' }
+        return { valid: false, enabledMethods: [], error: 'The MoMo base URL is not a valid URL.' }
       }
     }
+
+    const base = this.baseUrlFor(credentials)
     try {
-      await this.fetchToken(credentials)
+      const token = await this.fetchToken(base, credentials)
+      // Collection-scoped read — proves the subscription key is the Collection product's key.
+      const res = await fetch(`${base}/collection/v1_0/account/balance`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Target-Environment': this.targetEnv(credentials),
+          'Ocp-Apim-Subscription-Key': credentials.subscription_key,
+        },
+      })
+      if (!res.ok) {
+        const raw = (await res.text()).slice(0, 200)
+        this.logger.warn(`MoMo balance HTTP ${res.status}: ${raw}`)
+        return {
+          valid: false,
+          enabledMethods: [],
+          error:
+            res.status === 401 || res.status === 403
+              ? 'The subscription key is not valid for the Collection product.'
+              : `MTN returned HTTP ${res.status} verifying the Collection product.`,
+        }
+      }
       return {
         valid: true,
         enabledMethods: [PaymentMethod.MTN_MOMO],
-        accountRef: credentials.consumer_key.slice(0, 6),
+        accountRef: credentials.api_user.slice(0, 8),
       }
     } catch (error) {
-      // fetchToken already logged the raw MTN response; surface its clear message to the merchant.
       return {
         valid: false,
         enabledMethods: [],
@@ -128,17 +148,17 @@ export class MtnAdapter implements PaymentProviderAdapter {
     }
   }
 
-  // --- Execution + webhooks: pending the MTN payment API details (TODO sandbox) ---------------
+  // --- Execution + callbacks: pending the request-to-pay slice ---------------------------------
 
   getTransaction(): Promise<ProviderTxnState> {
-    return Promise.reject(new Error('MTN getTransaction not implemented (payment API pending).'))
+    return Promise.reject(new Error('MTN getTransaction not implemented (request-to-pay pending).'))
   }
 
   verifyWebhookSignature(): boolean {
-    return false // MTN webhook signing not wired yet — reject until implemented.
+    return false // MoMo callback auth is handled at the tenant-token layer — wired with execution.
   }
 
   parseWebhook(): ProviderEvent {
-    throw new Error('MTN parseWebhook not implemented (payment API pending).')
+    throw new Error('MTN parseWebhook not implemented (request-to-pay pending).')
   }
 }
