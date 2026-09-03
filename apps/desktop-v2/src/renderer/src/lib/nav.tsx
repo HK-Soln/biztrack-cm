@@ -233,6 +233,30 @@ export const NAV: NavEntry[] = [
   { to: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
 
+// Every sidebar destination (top-level leaves + group children), flattened. Used to resolve
+// "most specific match wins" for active highlighting.
+const ALL_NAV_PATHS: string[] = NAV.flatMap((e) =>
+  isGroup(e) ? e.children.map((c) => c.to) : [e.to],
+)
+
+/** Does `to` match `pathname` as an exact hit or a path-segment prefix? `/` matches only exactly. */
+function pathMatches(to: string, pathname: string): boolean {
+  if (to === '/') return pathname === '/'
+  return pathname === to || pathname.startsWith(to + '/')
+}
+
+/**
+ * True when `to` is the *most specific* sidebar destination matching the current path. When both a
+ * parent ("/products") and one of its subroutes ("/products/categories") match, only the longer
+ * (subroute) is active — so opening a subroute no longer lights up its parent too. A path with no
+ * dedicated nav entry (e.g. a "/products/123" detail page) still lights its nearest parent.
+ */
+export function isNavLeafActive(to: string, pathname: string): boolean {
+  if (!pathMatches(to, pathname)) return false
+  // A deeper nav path that also matches is the more specific one, so it wins over this leaf.
+  return !ALL_NAV_PATHS.some((p) => p.length > to.length && pathMatches(p, pathname))
+}
+
 /** NAV with owner-only + manager-only items removed for those who lack the role, and plan-gated
  * items removed when the plan lacks the resource (BIZ-5.5), and empty groups dropped. `hasResource`
  * defaults to permissive (shows everything) so callers without entitlement context are unaffected. */
