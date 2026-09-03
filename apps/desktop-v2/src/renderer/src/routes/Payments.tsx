@@ -326,6 +326,11 @@ export function Payments() {
         <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
           {t('pay.connectBody')}
         </p>
+        {error ? (
+          <div className="msg err" style={{ marginBottom: 12 }}>
+            <span>{error}</span>
+          </div>
+        ) : null}
         {connectFor?.credentialSchema.map((f) => (
           <div key={f.key} style={{ marginBottom: 12 }}>
             <label className="lbl2">{f.labelEn}</label>

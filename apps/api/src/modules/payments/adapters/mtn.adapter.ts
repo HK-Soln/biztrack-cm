@@ -1,4 +1,5 @@
-import { createHttpClient } from '@biztrack/http-client'
+import { Logger } from '@nestjs/common'
+import { createHttpClient, HttpError } from '@biztrack/http-client'
 import { PaymentMethod } from '@biztrack/types'
 import type {
   PaymentProviderAdapter,
@@ -34,6 +35,7 @@ const MTN_HOSTS = {
 
 export class MtnAdapter implements PaymentProviderAdapter {
   readonly code = 'MTN'
+  private readonly logger = new Logger(MtnAdapter.name)
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>()
   private readonly clients = new Map<string, HttpClient>()
 
@@ -92,11 +94,15 @@ export class MtnAdapter implements PaymentProviderAdapter {
         accountRef: credentials.consumer_key.slice(0, 6),
       }
     } catch (error) {
-      return {
-        valid: false,
-        enabledMethods: [],
-        error: error instanceof Error ? error.message : 'MTN verification failed.',
-      }
+      const status = error instanceof HttpError ? error.response?.status : undefined
+      const detail = error instanceof Error ? error.message : 'unknown error'
+      this.logger.warn(
+        `MTN verifyCredentials failed${status ? ` (HTTP ${status})` : ''}: ${detail}`,
+      )
+      const message = status
+        ? `MTN rejected the credentials (HTTP ${status}).`
+        : `Could not read MTN's response (it was not valid JSON). ${detail}`
+      return { valid: false, enabledMethods: [], error: message }
     }
   }
 
