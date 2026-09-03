@@ -25,6 +25,7 @@ import { PaymentProvidersController } from './controllers/payment-providers.cont
 import { PaymentWebhookController } from './controllers/payment-webhook.controller'
 import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
 import { PaymentsScheduler } from './payments.scheduler'
+import { PaymentsDevBootstrap } from './payments-dev-bootstrap'
 import { PAYMENT_ADAPTERS, PaymentAdapterRegistry } from './adapters/adapter.registry'
 import { FakeProviderAdapter } from './adapters/fake.adapter'
 import { MtnAdapter } from './adapters/mtn.adapter'
@@ -58,6 +59,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentWebhookGuard,
     PaymentAdapterRegistry,
     PaymentsScheduler,
+    PaymentsDevBootstrap,
     {
       provide: MASTER_KEY_PROVIDER,
       inject: [ConfigService],
@@ -72,10 +74,11 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       provide: PAYMENT_ADAPTERS,
       // MTN: real OAuth verifyCredentials (execution pending the payment API). Stripe: fake until its
       // adapter lands (build 8). TODO(sandbox): replace the Stripe fake with the real Stripe adapter.
-      useValue: [
-        new MtnAdapter(),
+      inject: [ConfigService],
+      useFactory: (config: ConfigService): PaymentProviderAdapter[] => [
+        new MtnAdapter(config.get<string>('MTN_API_BASE_URL')),
         new FakeProviderAdapter('STRIPE', [PaymentMethod.CARD]),
-      ] satisfies PaymentProviderAdapter[],
+      ],
     },
   ],
   exports: [
