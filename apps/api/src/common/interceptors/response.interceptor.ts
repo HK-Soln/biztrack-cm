@@ -5,15 +5,29 @@ import {
   NestInterceptor,
   StreamableFile,
 } from '@nestjs/common'
+import { Reflector } from '@nestjs/core'
 import { Observable, map } from 'rxjs'
 import type { ApiResponse } from '@biztrack/types'
 import type { RequestWithId } from '../http/http-types'
+import { RAW_RESPONSE_KEY } from '../decorators/raw-response.decorator'
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
+  constructor(private readonly reflector: Reflector) {}
+
   intercept(context: ExecutionContext, next: CallHandler<T>): Observable<ApiResponse<T>> {
     const req = context.switchToHttp().getRequest<RequestWithId>()
     const requestId = req?.id ?? 'unknown'
+
+    // Handlers marked @RawResponse() (e.g. payment webhooks needing an exact literal ack body) are
+    // sent verbatim — never enveloped.
+    const raw = this.reflector.getAllAndOverride<boolean>(RAW_RESPONSE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ])
+    if (raw) {
+      return next.handle() as unknown as Observable<ApiResponse<T>>
+    }
 
     return next.handle().pipe(
       map((data) => {
@@ -22,7 +36,13 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>
           return data as unknown as ApiResponse<T>
         }
 
-        if (data && typeof data === 'object' && 'success' in (data as object) && 'requestId' in (data as object) && 'timestamp' in (data as object)) {
+        if (
+          data &&
+          typeof data === 'object' &&
+          'success' in (data as object) &&
+          'requestId' in (data as object) &&
+          'timestamp' in (data as object)
+        ) {
           return data as unknown as ApiResponse<T>
         }
 
