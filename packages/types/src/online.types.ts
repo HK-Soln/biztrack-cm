@@ -583,17 +583,26 @@ export interface CheckoutRequest {
   returnUrl?: string
 }
 
-/** Checkout result. `payment` is present only when a provider-backed method started a hosted payment
- * (Spec 07 build 9) — the storefront redirects the customer to `url`. */
+/** Checkout result. `payment` is present only when a provider-backed method started a payment
+ * (Spec 07). Two shapes: a hosted redirect (`url`, e.g. Stripe) the storefront navigates to, or a
+ * push (`pending`, e.g. MTN MoMo request-to-pay) where the customer approves on their phone and the
+ * storefront shows a wait screen + polls `GET .../orders/{token}/payment`. */
 export interface CheckoutResult {
   orderNumber: string
   trackingToken: string
   status: OnlineOrderStatus
   payment?: {
-    url: string
     attemptId: string
-    expiresAt: string | null
+    url?: string
+    pending?: boolean
+    expiresAt?: string | null
   }
+}
+
+/** Public payment status for the storefront wait screen (polled while a push payment is pending).
+ * PENDING → keep polling; PAID → go to the order page; FAILED → let the customer retry. */
+export interface PublicPaymentStatus {
+  status: 'PENDING' | 'PAID' | 'FAILED'
 }
 
 export interface OnlineOrderEvent {

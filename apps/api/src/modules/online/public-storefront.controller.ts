@@ -114,4 +114,10 @@ export class PublicStorefrontController {
   trackOrder(@Param('slug') slug: string, @Param('trackingToken') trackingToken: string) {
     return this.orders.getTracking(slug, trackingToken)
   }
+
+  @Get(':slug/orders/:trackingToken/payment')
+  @ApiOperation({ summary: 'Poll the payment status of an order (storefront wait screen)' })
+  orderPaymentStatus(@Param('slug') slug: string, @Param('trackingToken') trackingToken: string) {
+    return this.orders.getPaymentStatus(slug, trackingToken)
+  }
 }

@@ -24,6 +24,7 @@ import {
   type OnlineStorePublishedConfig,
   type OrderSerialSelection,
   type PublicOrderTracking,
+  type PublicPaymentStatus,
   type SaleSyncChargeLinePayload,
   type SaleSyncPayload,
   type UpdateOrderPaymentRequest,
@@ -311,7 +312,9 @@ export class OnlineOrdersService {
       // Provider-backed payment (Spec 07 build 9): if the chosen method routes to a verified provider
       // with a hosted-link flow, start a payment and hand the storefront a redirect URL. Best-effort —
       // a failure here must never unplace an order that's already saved; it just falls back to unpaid.
-      let payment: { url: string; attemptId: string; expiresAt: string | null } | undefined
+      let payment:
+        | { attemptId: string; url?: string; pending?: boolean; expiresAt?: string | null }
+        | undefined
       const method = this.mapPaymentMethod(dto.paymentMethod)
       if (ROUTABLE_PAYMENT_METHODS.includes(method)) {
         try {
@@ -330,12 +333,14 @@ export class OnlineOrdersService {
             successUrl: track ? `${track}?paid=1` : undefined,
             cancelUrl: track ? `${track}?canceled=1` : undefined,
           })
-          if (initiated)
+          if (initiated?.kind === 'redirect')
             payment = {
-              url: initiated.url,
               attemptId: initiated.attemptId,
+              url: initiated.url,
               expiresAt: initiated.expiresAt,
             }
+          else if (initiated?.kind === 'pending')
+            payment = { attemptId: initiated.attemptId, pending: true }
         } catch (error) {
           this.logger.warn('Online payment initiation failed', 'OnlineOrdersService.checkout', {
             orderId: order.id,
@@ -453,6 +458,27 @@ export class OnlineOrdersService {
         createdAt: event.createdAt.toISOString(),
       })),
     }
+  }
+
+  /**
+   * Storefront wait-screen poll (public): reconcile the order's latest payment attempt against the
+   * provider and return a tri-state — PENDING (keep polling), PAID (go to the order page), FAILED
+   * (let the customer retry). Short-circuits to PAID when the order is already settled.
+   */
+  async getPaymentStatus(slug: string, trackingToken: string): Promise<PublicPaymentStatus> {
+    const { store } = await this.requireStore(slug)
+    const order = await this.ordersRepo.findOne({
+      where: { onlineStoreId: store.id, trackingToken },
+    })
+    if (!order) {
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.online_order_not_found'),
+        'ONLINE_ORDER_NOT_FOUND',
+      )
+    }
+    if (order.paymentStatus === 'PAID') return { status: 'PAID' }
+    const state = await this.paymentInitiation.pollOnlineOrderPayment(store.businessId, order.id)
+    return { status: state ?? 'PENDING' }
   }
 
   // ---- Owner order management --------------------------------------------
