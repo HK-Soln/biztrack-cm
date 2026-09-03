@@ -1,5 +1,4 @@
 import { Logger } from '@nestjs/common'
-import { createHttpClient, HttpError } from '@biztrack/http-client'
 import { PaymentMethod } from '@biztrack/types'
 import type {
   PaymentProviderAdapter,
@@ -8,12 +7,13 @@ import type {
   VerifyCredentialsResult,
 } from './payment-provider.adapter'
 
-type HttpClient = ReturnType<typeof createHttpClient>
-
-interface MtnTokenResponse {
+/** MTN may return the token flat or wrapped in their `{ data: {...} }` envelope (their JSON
+ * conventions) — accept both. */
+interface MtnTokenBody {
   access_token?: string
   expires_in?: string
   token_type?: string
+  data?: { access_token?: string; expires_in?: string; token_type?: string }
 }
 
 /**
@@ -37,7 +37,6 @@ export class MtnAdapter implements PaymentProviderAdapter {
   readonly code = 'MTN'
   private readonly logger = new Logger(MtnAdapter.name)
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>()
-  private readonly clients = new Map<string, HttpClient>()
 
   /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host; otherwise it's derived per-connection from
    * the credential's `environment` (sandbox → sandbox.api.mtn.com, production → api.mtn.com). */
@@ -48,38 +47,52 @@ export class MtnAdapter implements PaymentProviderAdapter {
     return credentials.environment === 'sandbox' ? MTN_HOSTS.sandbox : MTN_HOSTS.production
   }
 
-  /** One @biztrack/http-client per host (form-urlencoded for the token endpoint). */
-  private clientFor(baseUrl: string): HttpClient {
-    let client = this.clients.get(baseUrl)
-    if (!client) {
-      client = createHttpClient({
-        baseURL: baseUrl,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      })
-      this.clients.set(baseUrl, client)
-    }
-    return client
-  }
-
+  /**
+   * Read the token response as RAW TEXT and parse defensively — the shared http-client force-parses
+   * on a JSON content-type and would throw before we could see MTN's status or body. This lets us log
+   * exactly what MTN returned on failure and accept either the flat or `{data}`-enveloped shape.
+   */
   private async fetchToken(credentials: Record<string, string>): Promise<string> {
     const consumerKey = credentials.consumer_key ?? ''
     const consumerSecret = credentials.consumer_secret ?? ''
     const cached = this.tokenCache.get(consumerKey)
     if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token
 
-    const body = new URLSearchParams({ client_id: consumerKey, client_secret: consumerSecret })
-    // Throws HttpError on a non-2xx (bad keys) — surfaced by verifyCredentials as invalid.
-    const res = await this.clientFor(this.baseUrlFor(credentials)).post<MtnTokenResponse>(
-      '/v1/oauth/access_token?grant_type=client_credentials',
-      body.toString(),
-    )
-    if (!res.data.access_token) throw new Error('MTN token response had no access_token')
-    const ttlMs = (Number(res.data.expires_in ?? '3599') || 3599) * 1000
-    this.tokenCache.set(consumerKey, {
-      token: res.data.access_token,
-      expiresAt: Date.now() + ttlMs,
+    const url = `${this.baseUrlFor(credentials)}/v1/oauth/access_token?grant_type=client_credentials`
+    const host = new URL(url).host
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        client_id: consumerKey,
+        client_secret: consumerSecret,
+      }).toString(),
     })
-    return res.data.access_token
+    const raw = await res.text()
+
+    if (!res.ok) {
+      this.logger.warn(`MTN token HTTP ${res.status} from ${host}: ${raw.slice(0, 300)}`)
+      throw new Error(`MTN returned HTTP ${res.status}.`)
+    }
+
+    let parsed: MtnTokenBody
+    try {
+      parsed = JSON.parse(raw) as MtnTokenBody
+    } catch {
+      // Body is an error/non-JSON despite the request — log it (no token present) so it's diagnosable.
+      this.logger.warn(`MTN token: unparseable body from ${host}: ${raw.slice(0, 300)}`)
+      throw new Error("MTN returned a response that wasn't valid JSON.")
+    }
+
+    const token = parsed.access_token ?? parsed.data?.access_token
+    if (!token) {
+      this.logger.warn(`MTN token: no access_token in body from ${host}: ${raw.slice(0, 200)}`)
+      throw new Error('MTN response had no access_token.')
+    }
+    const expiresIn = parsed.expires_in ?? parsed.data?.expires_in
+    const ttlMs = (Number(expiresIn ?? '3599') || 3599) * 1000
+    this.tokenCache.set(consumerKey, { token, expiresAt: Date.now() + ttlMs })
+    return token
   }
 
   async verifyCredentials(credentials: Record<string, string>): Promise<VerifyCredentialsResult> {
@@ -94,15 +107,12 @@ export class MtnAdapter implements PaymentProviderAdapter {
         accountRef: credentials.consumer_key.slice(0, 6),
       }
     } catch (error) {
-      const status = error instanceof HttpError ? error.response?.status : undefined
-      const detail = error instanceof Error ? error.message : 'unknown error'
-      this.logger.warn(
-        `MTN verifyCredentials failed${status ? ` (HTTP ${status})` : ''}: ${detail}`,
-      )
-      const message = status
-        ? `MTN rejected the credentials (HTTP ${status}).`
-        : `Could not read MTN's response (it was not valid JSON). ${detail}`
-      return { valid: false, enabledMethods: [], error: message }
+      // fetchToken already logged the raw MTN response; surface its clear message to the merchant.
+      return {
+        valid: false,
+        enabledMethods: [],
+        error: error instanceof Error ? error.message : 'MTN verification failed.',
+      }
     }
   }
 
