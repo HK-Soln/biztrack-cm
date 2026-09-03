@@ -1,4 +1,4 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm'
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm'
 import type { PaymentMethod, PaymentProviderConnectionStatus } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { Business } from './business.entity'
@@ -11,7 +11,12 @@ import { Business } from './business.entity'
  */
 @Entity('business_payment_providers')
 @Index('idx_business_payment_providers_business', ['businessId'])
-@Unique('unq_business_payment_providers_business_provider', ['businessId', 'providerCode'])
+// Partial unique index (live rows only) — one connection per provider, but soft-deleted (revoked)
+// tombstones may coexist so a provider can be reconnected without a duplicate-key collision.
+@Index('unq_business_payment_providers_business_provider', ['businessId', 'providerCode'], {
+  unique: true,
+  where: '"deleted_at" IS NULL',
+})
 export class BusinessPaymentProvider extends BaseEntity {
   @Column({ name: 'business_id', type: 'uuid' })
   businessId!: string

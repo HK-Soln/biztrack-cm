@@ -84,8 +84,12 @@ export class PaymentCredentialsService {
         'PAYMENT_CREDENTIALS_INCOMPLETE',
       )
 
+    // Include soft-deleted (revoked) rows: the partial unique index only covers live rows, so a
+    // reconnect must REVIVE the revoked connection in place (preserving its id, webhook token and
+    // any routes pointing at it) rather than insert a second row.
     const existing = await this.connRepo.findOne({
       where: { businessId, providerCode: input.providerCode },
+      withDeleted: true,
     })
 
     // Step 1 (connect/reconnect) submits only NON-webhook fields. On a rotation, preserve any webhook
@@ -116,8 +120,9 @@ export class PaymentCredentialsService {
 
     let saved: BusinessPaymentProvider
     if (existing) {
-      // Rotation resets verification; the webhook token + webhook-configured state are stable across
-      // a rotation (only the API key changed, not the registered webhook).
+      // Rotation resets verification and revives the row if it was revoked (deleted_at → null). The
+      // webhook token + webhook-configured state are stable across a rotation (only the API key
+      // changed, not the registered webhook).
       await this.connRepo.update(existing.id, {
         encryptedCredentials,
         keyVersion,
@@ -127,6 +132,7 @@ export class PaymentCredentialsService {
         verifiedMethods: [],
         lastVerifiedAt: null,
         verificationError: null,
+        deletedAt: null,
       })
       saved = (await this.connRepo.findOne({ where: { id: existing.id } }))!
     } else {
