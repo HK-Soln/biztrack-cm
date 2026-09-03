@@ -67,3 +67,54 @@ describe('MtnAdapter (MoMo Collection) — verifyCredentials', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 })
+
+describe('MtnAdapter (MoMo Collection) — execution', () => {
+  let adapter: MtnAdapter
+  const realFetch = global.fetch
+  beforeEach(() => {
+    adapter = new MtnAdapter()
+  })
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+
+  const tokenOk = () => ok({ access_token: 'tok', expires_in: 3600 })
+  const route = (impl: (url: string) => unknown) => {
+    global.fetch = jest.fn((url: string) =>
+      Promise.resolve(String(url).includes('/collection/token/') ? tokenOk() : impl(String(url))),
+    ) as unknown as typeof fetch
+  }
+
+  it('initiateUssdPush posts requesttopay and returns PENDING + a reference', async () => {
+    route(() => ({ ok: true, status: 202, text: async () => '' }))
+    const res = await adapter.initiateUssdPush(GOOD, {
+      amountMinor: 5000,
+      currency: 'XAF',
+      method: PaymentMethod.MTN_MOMO,
+      customerPhone: '+237670000000',
+      reference: 'ORD-1',
+      idempotencyKey: 'k',
+    })
+    expect(res.status).toBe('PENDING')
+    expect(res.providerRef).toMatch(/[0-9a-f-]{36}/)
+  })
+
+  it('getTransaction maps SUCCESSFUL → CONFIRMED', async () => {
+    route(() => ok({ status: 'SUCCESSFUL', amount: '1000', currency: 'EUR' }))
+    const state = await adapter.getTransaction(GOOD, 'ref-1')
+    expect(state.status).toBe('CONFIRMED')
+    expect(state.providerRef).toBe('ref-1')
+  })
+
+  it('getTransaction maps FAILED → FAILED', async () => {
+    route(() => ok({ status: 'FAILED', reason: 'PAYER_NOT_FOUND' }))
+    const state = await adapter.getTransaction(GOOD, 'ref-1')
+    expect(state.status).toBe('FAILED')
+  })
+
+  it('getTransaction keeps PENDING while awaiting approval', async () => {
+    route(() => ok({ status: 'PENDING' }))
+    const state = await adapter.getTransaction(GOOD, 'ref-1')
+    expect(state.status).toBe('PENDING')
+  })
+})

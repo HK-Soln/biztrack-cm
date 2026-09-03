@@ -1,6 +1,10 @@
 import { Logger } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
 import { PaymentMethod } from '@biztrack/types'
+import { majorToMinor, minorToMajor } from '@biztrack/utils'
 import type {
+  InitiateUssdPushRequest,
+  PaymentAttemptStatus,
   PaymentProviderAdapter,
   ProviderEvent,
   ProviderTxnState,
@@ -9,6 +13,18 @@ import type {
 
 /** MoMo sandbox host — production is a country-specific host the merchant supplies as `base_url`. */
 const SANDBOX_BASE = 'https://sandbox.momodeveloper.mtn.com'
+
+/** Map a MoMo requesttopay status to our attempt lifecycle. */
+function mapMomoStatus(status?: string): PaymentAttemptStatus {
+  switch ((status ?? '').toUpperCase()) {
+    case 'SUCCESSFUL':
+      return 'CONFIRMED'
+    case 'FAILED':
+      return 'FAILED'
+    default:
+      return 'PENDING' // PENDING / TIMEOUT / unknown — keep polling
+  }
+}
 
 /** POST /collection/token/ response (RFC 6749 client-credentials). */
 interface MomoTokenBody {
@@ -131,17 +147,94 @@ export class MtnAdapter implements PaymentProviderAdapter {
     }
   }
 
-  // --- Execution + callbacks: pending the request-to-pay slice ---------------------------------
-
-  getTransaction(): Promise<ProviderTxnState> {
-    return Promise.reject(new Error('MTN getTransaction not implemented (request-to-pay pending).'))
+  /** Bearer + target-environment + subscription-key headers shared by the collection endpoints. */
+  private momoHeaders(token: string, credentials: Record<string, string>): Record<string, string> {
+    return {
+      Authorization: `Bearer ${token}`,
+      'X-Target-Environment': this.targetEnv(credentials),
+      'Ocp-Apim-Subscription-Key': credentials.subscription_key ?? '',
+    }
   }
 
+  // --- Execution: request-to-pay + status poll -------------------------------------------------
+
+  /**
+   * Request To Pay (§ online-shop checkout): POST /collection/v1_0/requesttopay. We generate the
+   * X-Reference-Id (returned as `providerRef` — the same id status/callback are keyed by). A 202 means
+   * the push was accepted and the attempt is PENDING; the customer approves on their phone. Sandbox
+   * only accepts EUR, so we send EUR there and the order currency in production.
+   */
+  async initiateUssdPush(
+    credentials: Record<string, string>,
+    req: InitiateUssdPushRequest,
+  ): Promise<{ providerRef: string; status: PaymentAttemptStatus }> {
+    const base = this.baseUrlFor(credentials)
+    const token = await this.fetchToken(base, credentials)
+    const referenceId = randomUUID()
+    const msisdn = req.customerPhone.replace(/\D/g, '') // MSISDN: digits only, no '+'
+    const currency = credentials.environment === 'production' ? req.currency : 'EUR'
+    const amount = String(minorToMajor(req.amountMinor, req.currency))
+
+    const res = await fetch(`${base}/collection/v1_0/requesttopay`, {
+      method: 'POST',
+      headers: {
+        ...this.momoHeaders(token, credentials),
+        'X-Reference-Id': referenceId,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount,
+        currency,
+        externalId: req.reference,
+        payer: { partyIdType: 'MSISDN', partyId: msisdn },
+        payerMessage: `Payment ${req.reference}`.slice(0, 160),
+        payeeNote: req.reference.slice(0, 160),
+      }),
+    })
+    if (res.status !== 202) {
+      const raw = (await res.text()).slice(0, 300)
+      this.logger.warn(`MoMo requesttopay HTTP ${res.status}: ${raw}`)
+      throw new Error(`MTN request-to-pay returned HTTP ${res.status}.`)
+    }
+    return { providerRef: referenceId, status: 'PENDING' }
+  }
+
+  /** Poll a request-to-pay by its X-Reference-Id — the safety net (and, for now, the primary path). */
+  async getTransaction(
+    credentials: Record<string, string>,
+    providerRef: string,
+  ): Promise<ProviderTxnState> {
+    const base = this.baseUrlFor(credentials)
+    const token = await this.fetchToken(base, credentials)
+    const res = await fetch(
+      `${base}/collection/v1_0/requesttopay/${encodeURIComponent(providerRef)}`,
+      { headers: this.momoHeaders(token, credentials) },
+    )
+    const raw = await res.text()
+    if (!res.ok) {
+      this.logger.warn(`MoMo status HTTP ${res.status}: ${raw.slice(0, 200)}`)
+      throw new Error(`MTN status query returned HTTP ${res.status}.`)
+    }
+    const body = JSON.parse(raw) as { status?: string; amount?: string; currency?: string }
+    return {
+      status: mapMomoStatus(body.status),
+      providerRef,
+      amountMinor:
+        body.amount != null && body.currency
+          ? majorToMinor(Number(body.amount), body.currency)
+          : undefined,
+      currency: body.currency,
+      raw: body,
+    }
+  }
+
+  // --- Callback (PUT): the single-shot MoMo callback is wired as a fast path in a later slice ---
+
   verifyWebhookSignature(): boolean {
-    return false // MoMo callback auth is handled at the tenant-token layer — wired with execution.
+    return false // MoMo callback correlates via the reference in the URL, not a signature.
   }
 
   parseWebhook(): ProviderEvent {
-    throw new Error('MTN parseWebhook not implemented (request-to-pay pending).')
+    throw new Error('MTN parseWebhook not implemented (callback fast-path pending — poll is used).')
   }
 }
