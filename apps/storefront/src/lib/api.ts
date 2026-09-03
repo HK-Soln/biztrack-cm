@@ -9,6 +9,7 @@ import type {
   PaginatedResult,
   PublicFacets,
   PublicOrderTracking,
+  PublicPaymentStatus,
   PublicProductDetail,
   PublicProductListItem,
   PublicProductsQuery,
@@ -174,6 +175,13 @@ export function checkout(slug: string, sessionToken: string, payload: CheckoutRe
     'POST',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout`,
     payload,
+  )
+}
+
+/** Poll a push payment's status (MoMo wait screen). Null (transient error) is treated as still pending. */
+export function getPaymentStatus(slug: string, trackingToken: string) {
+  return readJson<PublicPaymentStatus>(
+    `${storePath(slug)}/orders/${encodeURIComponent(trackingToken)}/payment`,
   )
 }
 

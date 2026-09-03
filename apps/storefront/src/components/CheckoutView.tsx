@@ -1,13 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import type { CheckoutRequest, OnlineFulfillmentType, PublicStore } from '@biztrack/types'
-import { checkout, formatMoney, getCart } from '@/lib/api'
+import { checkout, formatMoney, getCart, getPaymentStatus } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
 
@@ -111,19 +111,59 @@ export function CheckoutView({
     enabled: Boolean(sessionToken),
   })
 
+  // A pending push payment (MoMo request-to-pay): show the "approve on your phone" wait screen and
+  // poll the status endpoint until it settles.
+  const [awaiting, setAwaiting] = useState<string | null>(null) // tracking token
+  const [payError, setPayError] = useState<string | null>(null)
+
   const mutation = useMutation({
     mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
     onSuccess: (order) => {
       clearSession()
-      // Provider-backed method → the server started a hosted payment; send the customer there. They
-      // return to the order page (successUrl) once paid. COD → straight to the order page.
+      // Hosted redirect (Stripe) → send the customer to the provider's page.
       if (order.payment?.url) {
         window.location.href = order.payment.url
         return
       }
+      // Push (MoMo) → wait screen + poll; the customer approves on their phone.
+      if (order.payment?.pending) {
+        setPayError(null)
+        setAwaiting(order.trackingToken)
+        return
+      }
+      // COD / no provider payment → straight to the order page.
       router.push(`${base}/orders/${order.trackingToken}`)
     },
   })
+
+  // Poll the payment status while awaiting approval. PAID → order page; FAILED → let them retry;
+  // otherwise keep polling for ~2 min, then hand off to the order page (which shows live status).
+  const startedRef = useRef(0)
+  useEffect(() => {
+    if (!awaiting) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    startedRef.current = Date.now()
+    const tick = async () => {
+      const res = await getPaymentStatus(slug, awaiting)
+      if (!active) return
+      if (res?.status === 'PAID') {
+        router.push(`${base}/orders/${awaiting}?paid=1`)
+        return
+      }
+      if (res?.status === 'FAILED') {
+        setPayError(t('momoFailed'))
+        return
+      }
+      if (Date.now() - startedRef.current < 120_000) timer = setTimeout(tick, 3000)
+      else router.push(`${base}/orders/${awaiting}`)
+    }
+    timer = setTimeout(tick, 2500)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [awaiting, slug, base, router, t])
 
   const subtotal = cart?.subtotal ?? 0
   const isDelivery = fulfillmentType === 'DELIVERY'
@@ -131,6 +171,38 @@ export function CheckoutView({
   const total = subtotal + fee
   const belowMin = minOrder != null && subtotal < minOrder
   const items = cart?.items ?? []
+
+  // Awaiting a MoMo approval — takes precedence over the empty-cart check (the session is cleared on
+  // a successful checkout, so this must render before that guard).
+  if (awaiting) {
+    return (
+      <div className="empty" style={{ maxWidth: 480 }}>
+        {payError ? (
+          <>
+            <div className="ei" style={{ color: 'var(--danger)' }}>
+              {IcLock}
+            </div>
+            <h3>{t('momoFailedTitle')}</h3>
+            <p>{payError}</p>
+            <Link
+              className="btn btn-primary btn-lg"
+              style={{ marginTop: 22 }}
+              href={`${base}/orders/${awaiting}`}
+            >
+              {t('momoViewOrder')}
+            </Link>
+          </>
+        ) : (
+          <>
+            <div className="ei">{IcLock}</div>
+            <h3>{t('momoWaitTitle')}</h3>
+            <p>{t('momoWaitDesc').replace('{phone}', phone ?? '')}</p>
+            <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
+          </>
+        )}
+      </div>
+    )
+  }
 
   if (!sessionToken || (cart && items.length === 0)) {
     return (
