@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { BullModule } from '@nestjs/bullmq'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { PaymentProvider } from '@/entities/payment-provider.entity'
 import { PaymentProviderCapability } from '@/entities/payment-provider-capability.entity'
@@ -25,6 +26,9 @@ import { PaymentAttemptsService } from './services/payment-attempts.service'
 import { PaymentInitiationService } from './services/payment-initiation.service'
 import { PaymentProvidersController } from './controllers/payment-providers.controller'
 import { PaymentWebhookController } from './controllers/payment-webhook.controller'
+import { MomoCallbackController } from './controllers/momo-callback.controller'
+import { PaymentsPollProcessor } from './processors/payments-poll.processor'
+import { PAYMENTS_QUEUE } from './payments.constants'
 import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
 import { PaymentsScheduler } from './payments.scheduler'
 import { PaymentsDevBootstrap } from './payments-dev-bootstrap'
@@ -52,8 +56,9 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     ]),
     AuditModule,
     RedisModule,
+    BullModule.registerQueue({ name: PAYMENTS_QUEUE }),
   ],
-  controllers: [PaymentProvidersController, PaymentWebhookController],
+  controllers: [PaymentProvidersController, PaymentWebhookController, MomoCallbackController],
   providers: [
     PaymentCatalogueService,
     PaymentCredentialsService,
@@ -61,6 +66,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentRoutingService,
     PaymentAttemptsService,
     PaymentInitiationService,
+    PaymentsPollProcessor,
     PaymentWebhookGuard,
     PaymentAdapterRegistry,
     PaymentsScheduler,

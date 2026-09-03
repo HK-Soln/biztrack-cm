@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
+import { randomUUID } from 'node:crypto'
+import { Queue } from 'bullmq'
 import { IsNull, Repository } from 'typeorm'
 import {
   PAYMENT_ATTEMPT_TERMINAL,
@@ -14,6 +18,12 @@ import { PaymentAdapterRegistry } from '../adapters/adapter.registry'
 import { PaymentCredentialsService } from './payment-credentials.service'
 import { PaymentRoutingService } from './payment-routing.service'
 import { PaymentAttemptsService } from './payment-attempts.service'
+import {
+  PAYMENTS_QUEUE,
+  POLL_ATTEMPT_INTERVAL_MS,
+  POLL_ATTEMPT_WINDOW_MS,
+  POLL_PAYMENT_ATTEMPT_JOB,
+} from '../payments.constants'
 
 export interface InitiateOnlineCheckoutInput {
   businessId: string
@@ -71,6 +81,8 @@ export class PaymentInitiationService {
     private readonly adapters: PaymentAdapterRegistry,
     private readonly credentials: PaymentCredentialsService,
     private readonly attemptsService: PaymentAttemptsService,
+    private readonly config: ConfigService,
+    @InjectQueue(PAYMENTS_QUEUE) private readonly queue: Queue,
   ) {}
 
   async initiateOnlineCheckout(
@@ -145,6 +157,9 @@ export class PaymentInitiationService {
     if (adapter.initiateUssdPush) {
       const phone = input.customerPhone?.trim()
       if (!phone) return this.failAttempt(attempt.id, new Error('A phone number is required.'))
+      // Generate the reference up front so it's the provider ref AND the callback path segment.
+      const referenceId = randomUUID()
+      const callbackUrl = this.momoCallbackUrl(connection.webhookToken, referenceId)
       try {
         const push = await adapter.initiateUssdPush(creds, {
           amountMinor: input.amountMinor,
@@ -153,11 +168,23 @@ export class PaymentInitiationService {
           customerPhone: phone,
           reference: input.reference,
           idempotencyKey,
+          referenceId,
+          callbackUrl,
         })
         await this.attempts.update(attempt.id, {
           status: PaymentAttemptStatus.PENDING,
           providerRef: push.providerRef,
         })
+        // Background reconcile safety net (the callback is single-shot / may never arrive).
+        await this.queue.add(
+          POLL_PAYMENT_ATTEMPT_JOB,
+          {
+            businessId: input.businessId,
+            attemptId: attempt.id,
+            deadline: Date.now() + POLL_ATTEMPT_WINDOW_MS,
+          },
+          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
+        )
         return { kind: 'pending', attemptId: attempt.id, providerRef: push.providerRef }
       } catch (error) {
         return this.failAttempt(attempt.id, error)
@@ -176,6 +203,20 @@ export class PaymentInitiationService {
       failedReason: reason,
     })
     return null
+  }
+
+  /** The public URL MoMo PUTs its callback to — our signed connection token + the reference in the
+   * path (MoMo has no HMAC, so the path token is the authentication). Null when no token/API_URL. */
+  private momoCallbackUrl(webhookToken: string | null, referenceId: string): string | undefined {
+    const base = (this.config.get<string>('API_URL') ?? '').replace(/\/+$/, '')
+    if (!webhookToken || !base) return undefined
+    return `${base}/api/v1/webhooks/payments/momo/${webhookToken}/${referenceId}`
+  }
+
+  /** Callback entry point: a provider callback is only a trigger, so reconcile authoritative status. */
+  async reconcileByRef(businessId: string, providerRef: string): Promise<void> {
+    const attempt = await this.attempts.findOne({ where: { businessId, providerRef } })
+    if (attempt) await this.reconcileAttempt(attempt)
   }
 
   /**

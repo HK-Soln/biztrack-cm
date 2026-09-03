@@ -47,6 +47,11 @@ export interface InitiateUssdPushRequest extends Money {
   customerPhone: string
   reference: string
   idempotencyKey: string
+  /** The provider transaction id the caller generates up front (MoMo X-Reference-Id). It becomes the
+   * `providerRef` — the same id status polling and the callback correlate on. */
+  referenceId: string
+  /** Where the provider PUTs its one-shot callback (path carries our signed token + the reference). */
+  callbackUrl?: string
 }
 
 export interface ProviderTxnState {

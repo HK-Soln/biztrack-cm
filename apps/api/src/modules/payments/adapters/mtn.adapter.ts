@@ -170,7 +170,7 @@ export class MtnAdapter implements PaymentProviderAdapter {
   ): Promise<{ providerRef: string; status: PaymentAttemptStatus }> {
     const base = this.baseUrlFor(credentials)
     const token = await this.fetchToken(base, credentials)
-    const referenceId = randomUUID()
+    const referenceId = req.referenceId || randomUUID()
     const msisdn = req.customerPhone.replace(/\D/g, '') // MSISDN: digits only, no '+'
     const currency = credentials.environment === 'production' ? req.currency : 'EUR'
     const amount = String(minorToMajor(req.amountMinor, req.currency))
@@ -180,6 +180,7 @@ export class MtnAdapter implements PaymentProviderAdapter {
       headers: {
         ...this.momoHeaders(token, credentials),
         'X-Reference-Id': referenceId,
+        ...(req.callbackUrl ? { 'X-Callback-Url': req.callbackUrl } : {}),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

@@ -94,9 +94,11 @@ describe('MtnAdapter (MoMo Collection) — execution', () => {
       customerPhone: '+237670000000',
       reference: 'ORD-1',
       idempotencyKey: 'k',
+      referenceId: 'ref-abc',
+      callbackUrl: 'https://api/webhooks/payments/momo/tok/ref-abc',
     })
     expect(res.status).toBe('PENDING')
-    expect(res.providerRef).toMatch(/[0-9a-f-]{36}/)
+    expect(res.providerRef).toBe('ref-abc')
   })
 
   it('getTransaction maps SUCCESSFUL → CONFIRMED', async () => {
