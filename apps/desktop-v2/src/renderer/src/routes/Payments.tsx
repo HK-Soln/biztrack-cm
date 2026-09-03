@@ -6,6 +6,8 @@ import {
   PaymentMethod,
   PaymentProviderConnectionStatus,
   ROUTABLE_PAYMENT_METHODS,
+  isPaymentConnectionRouteReady,
+  type BusinessPaymentProviderView,
   type PaymentProvider,
 } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
@@ -63,11 +65,24 @@ export function Payments() {
   const [error, setError] = useState<string | null>(null)
   const [connectFor, setConnectFor] = useState<PaymentProvider | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
+  // Webhook setup (step 2). `pendingRoute` is a route to apply once setup completes — set when the
+  // merchant picked a provider in routing that still needs its webhook configured.
+  const [webhookFor, setWebhookFor] = useState<BusinessPaymentProviderView | null>(null)
+  const [webhookForm, setWebhookForm] = useState<Record<string, string>>({})
+  const [pendingRoute, setPendingRoute] = useState<{
+    paymentMethod: PaymentMethod
+    providerId: string
+  } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const providers = providersQ.data ?? []
   const connections = connsQ.data ?? []
   const routes = useMemo(() => routesQ.data ?? [], [routesQ.data])
   const routeByMethod = useMemo(() => new Map(routes.map((r) => [r.paymentMethod, r])), [routes])
+  const providerByCode = useMemo(
+    () => new Map((providersQ.data ?? []).map((p) => [p.code, p])),
+    [providersQ.data],
+  )
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['payments'] })
@@ -104,8 +119,51 @@ export function Payments() {
     onSuccess: invalidate,
     onError: (e) => setError(errorMessage(e, t('pay.routeFailed'))),
   })
+  const configureWebhook = useMutation({
+    mutationFn: (input: { id: string; credentials: Record<string, string> }) =>
+      dataClient.payments.configureWebhook(input.id, { credentials: input.credentials }),
+    onSuccess: () => {
+      // If this setup was triggered from routing, apply the pending route now that it's ready.
+      const route = pendingRoute
+      setWebhookFor(null)
+      setWebhookForm({})
+      setPendingRoute(null)
+      if (route) setRoute.mutate(route)
+      else invalidate()
+    },
+    onError: (e) => setError(errorMessage(e, t('pay.webhookFailed'))),
+  })
 
   if (!isOwner) return null
+
+  // Open step-2 webhook setup for a connection. `route` (optional) is applied once setup succeeds.
+  const openWebhook = (
+    conn: BusinessPaymentProviderView,
+    route?: { paymentMethod: PaymentMethod; providerId: string },
+  ) => {
+    setError(null)
+    setCopied(false)
+    setWebhookForm({})
+    setPendingRoute(route ?? null)
+    setWebhookFor(conn)
+  }
+
+  const copyWebhookUrl = (url: string) => {
+    void navigator.clipboard?.writeText(url)
+    setCopied(true)
+  }
+
+  // Route a method to a connection — but if the provider requires webhook setup and it isn't done,
+  // prompt that first and apply the route afterwards.
+  const routeTo = (method: PaymentMethod, conn: BusinessPaymentProviderView) => {
+    const provider = providerByCode.get(conn.providerCode)
+    if (provider && !isPaymentConnectionRouteReady(conn, provider)) {
+      openWebhook(conn, { paymentMethod: method, providerId: conn.id })
+      setError(t('pay.webhookRouteGate').replace('{name}', provider.name))
+      return
+    }
+    setRoute.mutate({ paymentMethod: method, providerId: conn.id })
+  }
 
   const openConnect = (p: PaymentProvider) => {
     setError(null)
@@ -205,7 +263,36 @@ export function Payments() {
                         {c.verificationError}
                       </div>
                     ) : null}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        marginTop: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        color: c.webhookConfigured ? 'var(--success)' : 'var(--text-muted)',
+                      }}
+                    >
+                      {c.webhookConfigured ? t('pay.webhookConfigured') : t('pay.webhookPending')}
+                      {!c.webhookConfigured ? (
+                        <span
+                          style={{
+                            color: providerByCode.get(c.providerCode)?.requiresWebhookRegistration
+                              ? 'var(--warn, #b26a00)'
+                              : 'var(--text-muted)',
+                          }}
+                        >
+                          ·{' '}
+                          {providerByCode.get(c.providerCode)?.requiresWebhookRegistration
+                            ? t('pay.webhookRequired')
+                            : t('pay.webhookOptional')}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
+                  <Button type="button" variant="soft" onClick={() => openWebhook(c)}>
+                    {c.webhookConfigured ? t('pay.webhookUpdate') : t('pay.webhookSetup')}
+                  </Button>
                   <Button
                     type="button"
                     variant="soft"
@@ -280,9 +367,10 @@ export function Payments() {
                       const providerId = e.target.value
                       if (!providerId) {
                         if (route) removeRoute.mutate(route.id)
-                      } else {
-                        setRoute.mutate({ paymentMethod: method, providerId })
+                        return
                       }
+                      const conn = connections.find((c) => c.id === providerId)
+                      if (conn) routeTo(method, conn)
                     }}
                     disabled={setRoute.isPending || removeRoute.isPending}
                   >
@@ -316,11 +404,15 @@ export function Payments() {
               loading={connect.isPending}
               onClick={() => {
                 if (!connectFor) return
-                // Only submit fields that are currently visible (a hidden field's stale value, e.g.
-                // a production base_url after switching to sandbox, must not be sent).
+                // Step 1 excludes webhook fields (collected in step 2). Only submit fields currently
+                // visible (a hidden field's stale value, e.g. a production base_url after switching
+                // to sandbox, must not be sent).
                 const credentials = Object.fromEntries(
                   connectFor.credentialSchema
-                    .filter((f) => !f.showWhen || form[f.showWhen.field] === f.showWhen.equals)
+                    .filter(
+                      (f) =>
+                        !f.webhook && (!f.showWhen || form[f.showWhen.field] === f.showWhen.equals),
+                    )
                     .map((f) => [f.key, form[f.key] ?? '']),
                 )
                 connect.mutate({ providerCode: connectFor.code, credentials })
@@ -340,7 +432,9 @@ export function Payments() {
           </div>
         ) : null}
         {connectFor?.credentialSchema
-          .filter((f) => !f.showWhen || form[f.showWhen.field] === f.showWhen.equals)
+          .filter(
+            (f) => !f.webhook && (!f.showWhen || form[f.showWhen.field] === f.showWhen.equals),
+          )
           .map((f) => (
             <div key={f.key} style={{ marginBottom: 12 }}>
               <label className="lbl2">{f.labelEn}</label>
@@ -365,6 +459,95 @@ export function Payments() {
               )}
             </div>
           ))}
+      </Modal>
+
+      {/* Webhook setup (step 2) — show the per-connection URL to register + collect any webhook creds. */}
+      <Modal
+        open={!!webhookFor}
+        onClose={() => setWebhookFor(null)}
+        title={
+          webhookFor
+            ? t('pay.webhookTitle').replace('{name}', providerName(webhookFor.providerCode))
+            : ''
+        }
+        footer={
+          <>
+            <Button
+              variant="soft"
+              onClick={() => setWebhookFor(null)}
+              disabled={configureWebhook.isPending}
+            >
+              {t('pay.webhookSkip')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={configureWebhook.isPending}
+              onClick={() => {
+                if (!webhookFor) return
+                configureWebhook.mutate({ id: webhookFor.id, credentials: webhookForm })
+              }}
+            >
+              {t('pay.webhookSave')}
+            </Button>
+          </>
+        }
+      >
+        {webhookFor
+          ? (() => {
+              const provider = providerByCode.get(webhookFor.providerCode)
+              const webhookFields = provider?.credentialSchema.filter((f) => f.webhook) ?? []
+              return (
+                <>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: 'var(--text-2)',
+                      marginBottom: 12,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {t('pay.webhookBody').replace('{name}', providerName(webhookFor.providerCode))}
+                  </p>
+                  {error ? (
+                    <div className="msg err" style={{ marginBottom: 12 }}>
+                      <span>{error}</span>
+                    </div>
+                  ) : null}
+                  <label className="lbl2">{t('pay.webhookUrlLabel')}</label>
+                  {webhookFor.webhookUrl ? (
+                    <div
+                      style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}
+                    >
+                      <Input readOnly value={webhookFor.webhookUrl} style={{ flex: 1 }} />
+                      <Button
+                        type="button"
+                        variant="soft"
+                        onClick={() => copyWebhookUrl(webhookFor.webhookUrl as string)}
+                      >
+                        {copied ? t('pay.webhookCopied') : t('pay.webhookCopy')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="cash-muted" style={{ fontSize: 12, marginBottom: 12 }}>
+                      {t('pay.webhookNoUrl')}
+                    </div>
+                  )}
+                  {webhookFields.map((f) => (
+                    <div key={f.key} style={{ marginBottom: 12 }}>
+                      <label className="lbl2">{f.labelEn}</label>
+                      <Input
+                        type={f.secret || f.type === 'password' ? 'password' : 'text'}
+                        value={webhookForm[f.key] ?? ''}
+                        onChange={(e) =>
+                          setWebhookForm((prev) => ({ ...prev, [f.key]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </>
+              )
+            })()
+          : null}
       </Modal>
     </div>
   )

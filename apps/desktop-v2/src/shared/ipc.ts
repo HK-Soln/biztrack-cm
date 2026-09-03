@@ -39,6 +39,7 @@ export const IPC = {
   paymentsCapabilities: 'payments:capabilities',
   paymentsConnections: 'payments:connections',
   paymentsConnect: 'payments:connect',
+  paymentsConfigureWebhook: 'payments:configure-webhook',
   paymentsVerify: 'payments:verify',
   paymentsRevoke: 'payments:revoke',
   paymentsRoutes: 'payments:routes',
@@ -351,6 +352,7 @@ import type {
   BusinessPaymentProviderView as BusinessPaymentProviderViewT,
   ConnectPaymentProviderRequest as ConnectPaymentProviderRequestT,
   ConnectPaymentProviderResponse as ConnectPaymentProviderResponseT,
+  ConfigureWebhookRequest as ConfigureWebhookRequestT,
   BusinessPaymentRouteView as BusinessPaymentRouteViewT,
   SetPaymentRouteRequest as SetPaymentRouteRequestT,
   AvailablePaymentMethod as AvailablePaymentMethodT,
@@ -361,6 +363,7 @@ export type {
   BusinessPaymentProviderView,
   ConnectPaymentProviderRequest,
   ConnectPaymentProviderResponse,
+  ConfigureWebhookRequest,
   BusinessPaymentRouteView,
   SetPaymentRouteRequest,
   AvailablePaymentMethod,
@@ -1986,6 +1989,10 @@ export interface BridgeApi {
     listCapabilities: (country?: string) => Promise<PaymentProviderCapabilityT[]>
     listConnections: () => Promise<BusinessPaymentProviderViewT[]>
     connect: (input: ConnectPaymentProviderRequestT) => Promise<ConnectPaymentProviderResponseT>
+    configureWebhook: (
+      id: string,
+      input: ConfigureWebhookRequestT,
+    ) => Promise<BusinessPaymentProviderViewT>
     verify: (id: string) => Promise<BusinessPaymentProviderViewT>
     revoke: (id: string) => Promise<BusinessPaymentProviderViewT>
     listRoutes: () => Promise<BusinessPaymentRouteViewT[]>

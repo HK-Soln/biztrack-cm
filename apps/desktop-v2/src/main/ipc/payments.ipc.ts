@@ -5,6 +5,7 @@ import {
   type AvailablePaymentMethod,
   type BusinessPaymentProviderView,
   type BusinessPaymentRouteView,
+  type ConfigureWebhookRequest,
   type ConnectPaymentProviderRequest,
   type ConnectPaymentProviderResponse,
   type PaymentProvider,
@@ -43,6 +44,16 @@ export function registerPaymentsIpc(http: HttpClient): void {
     async (_e, input: ConnectPaymentProviderRequest) =>
       (await http.post<ApiEnvelope<ConnectPaymentProviderResponse>>('/payments/connections', input))
         .data.data,
+  )
+  ipcMain.handle(
+    IPC.paymentsConfigureWebhook,
+    async (_e, id: string, input: ConfigureWebhookRequest) =>
+      (
+        await http.post<ApiEnvelope<BusinessPaymentProviderView>>(
+          `/payments/connections/${id}/webhook`,
+          input,
+        )
+      ).data.data,
   )
   ipcMain.handle(
     IPC.paymentsVerify,

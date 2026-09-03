@@ -174,6 +174,7 @@ import type {
   BusinessPaymentProviderView,
   ConnectPaymentProviderRequest,
   ConnectPaymentProviderResponse,
+  ConfigureWebhookRequest,
   BusinessPaymentRouteView,
   SetPaymentRouteRequest,
   AvailablePaymentMethod,
@@ -421,6 +422,10 @@ export interface DataClient {
     listCapabilities: (country?: string) => Promise<PaymentProviderCapability[]>
     listConnections: () => Promise<BusinessPaymentProviderView[]>
     connect: (input: ConnectPaymentProviderRequest) => Promise<ConnectPaymentProviderResponse>
+    configureWebhook: (
+      id: string,
+      input: ConfigureWebhookRequest,
+    ) => Promise<BusinessPaymentProviderView>
     verify: (id: string) => Promise<BusinessPaymentProviderView>
     revoke: (id: string) => Promise<BusinessPaymentProviderView>
     listRoutes: () => Promise<BusinessPaymentRouteView[]>
@@ -846,6 +851,7 @@ function electronAdapter(): DataClient {
       listCapabilities: (country) => window.api.payments.listCapabilities(country),
       listConnections: () => window.api.payments.listConnections(),
       connect: (input) => window.api.payments.connect(input),
+      configureWebhook: (id, input) => window.api.payments.configureWebhook(id, input),
       verify: (id) => window.api.payments.verify(id),
       revoke: (id) => window.api.payments.revoke(id),
       listRoutes: () => window.api.payments.listRoutes(),

@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import { randomBytes } from 'node:crypto'
 import { IsNull, Repository } from 'typeorm'
@@ -6,6 +7,7 @@ import {
   PaymentProviderConnectionStatus,
   type AuditContext,
   type BusinessPaymentProviderView,
+  type ConfigureWebhookRequest,
   type ConnectPaymentProviderRequest,
 } from '@biztrack/types'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
@@ -42,7 +44,16 @@ export class PaymentCredentialsService {
     private readonly providerRepo: Repository<PaymentProvider>,
     @Inject(MASTER_KEY_PROVIDER) private readonly keys: MasterKeyProvider,
     private readonly auditService: AuditService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** The public webhook URL a merchant registers in the provider dashboard (§8). Per-connection —
+   * carries the opaque token the guard resolves the tenant from. Null until a token exists. */
+  private webhookUrl(providerCode: string, webhookToken: string | null): string | null {
+    if (!webhookToken) return null
+    const base = (this.config.get<string>('API_URL') ?? '').replace(/\/+$/, '')
+    return `${base}/api/v1/webhooks/payments/${providerCode}/${webhookToken}`
+  }
 
   /** Connect or rotate a provider's credentials. Stored PENDING_VERIFICATION; the verification
    * lifecycle (build 3) flips it to ACTIVE/FAILED. */
@@ -57,9 +68,10 @@ export class PaymentCredentialsService {
     })
     if (!provider) throw new AppNotFoundException('Unknown payment provider.', 'NOT_FOUND')
 
-    // Required = not `optional`, and (no `showWhen` or its condition matches the submitted values).
+    // Required = not a webhook field (those are collected in step 2), not `optional`, and (no
+    // `showWhen` or its condition matches the submitted values).
     const isRequired = (f: (typeof provider.credentialSchema)[number]): boolean => {
-      if (f.optional) return false
+      if (f.webhook || f.optional) return false
       if (f.showWhen) return input.credentials[f.showWhen.field] === f.showWhen.equals
       return true
     }
@@ -72,7 +84,23 @@ export class PaymentCredentialsService {
         'PAYMENT_CREDENTIALS_INCOMPLETE',
       )
 
-    const plaintext = canonicalise(input.credentials)
+    const existing = await this.connRepo.findOne({
+      where: { businessId, providerCode: input.providerCode },
+    })
+
+    // Step 1 (connect/reconnect) submits only NON-webhook fields. On a rotation, preserve any webhook
+    // credential already configured (the signing secret is tied to the provider's webhook endpoint,
+    // not the API key being rotated) so webhook setup survives a key rotation.
+    const webhookKeys = provider.credentialSchema.filter((f) => f.webhook).map((f) => f.key)
+    const merged: Record<string, string> = { ...input.credentials }
+    if (existing && webhookKeys.length > 0) {
+      const prior = this.decrypt(existing, businessId)
+      for (const key of webhookKeys) {
+        if (!merged[key]?.trim() && prior[key]) merged[key] = prior[key]
+      }
+    }
+
+    const plaintext = canonicalise(merged)
     const keyVersion = this.keys.currentVersion()
     const encryptedCredentials = encryptCredential(
       plaintext,
@@ -82,17 +110,14 @@ export class PaymentCredentialsService {
     const fingerprint = credentialFingerprint(plaintext)
 
     // last-four comes from the first secret field (so the merchant recognises which key is stored).
-    const primarySecret = provider.credentialSchema.find((f) => f.secret)
-    const secretValue = primarySecret ? (input.credentials[primarySecret.key] ?? '') : ''
+    const primarySecret = provider.credentialSchema.find((f) => f.secret && !f.webhook)
+    const secretValue = primarySecret ? (merged[primarySecret.key] ?? '') : ''
     const lastFour = secretValue ? secretValue.slice(-4) : null
-
-    const existing = await this.connRepo.findOne({
-      where: { businessId, providerCode: input.providerCode },
-    })
 
     let saved: BusinessPaymentProvider
     if (existing) {
-      // Rotation resets verification; the webhook token is stable across a rotation.
+      // Rotation resets verification; the webhook token + webhook-configured state are stable across
+      // a rotation (only the API key changed, not the registered webhook).
       await this.connRepo.update(existing.id, {
         encryptedCredentials,
         keyVersion,
@@ -179,6 +204,65 @@ export class PaymentCredentialsService {
   }
 
   /**
+   * Complete (or update) webhook setup for a connection — step 2. Merges the provider's `webhook`
+   * fields (e.g. Stripe's signing secret) into the existing encrypted credential set and marks the
+   * connection webhook-configured. For providers with no webhook credential (MTN), `credentials` is
+   * empty and this just records that the merchant registered the URL. Verification is not reset —
+   * the account is unchanged; only the webhook was set up.
+   */
+  async configureWebhook(
+    businessId: string,
+    connectionId: string,
+    input: ConfigureWebhookRequest,
+    context: AuditContext,
+  ): Promise<BusinessPaymentProviderView> {
+    const conn = await this.connRepo.findOne({
+      where: { id: connectionId, businessId, deletedAt: IsNull() },
+    })
+    if (!conn) throw new AppNotFoundException('Connection not found.', 'NOT_FOUND')
+    const provider = await this.providerRepo.findOne({ where: { code: conn.providerCode } })
+    if (!provider) throw new AppNotFoundException('Unknown payment provider.', 'NOT_FOUND')
+
+    const prior = this.decrypt(conn, businessId)
+    const webhookFields = provider.credentialSchema.filter((f) => f.webhook)
+    // Only webhook-marked fields are accepted here; anything else is ignored (never a path to rotate
+    // the primary secret without re-verifying).
+    const submitted: Record<string, string> = {}
+    for (const f of webhookFields) {
+      const value = input.credentials[f.key]?.trim()
+      if (value) submitted[f.key] = value
+    }
+    const missing = webhookFields
+      .filter((f) => !f.optional && !submitted[f.key] && !prior[f.key])
+      .map((f) => f.key)
+    if (missing.length > 0)
+      throw new AppBadRequestException(
+        `Missing webhook fields: ${missing.join(', ')}.`,
+        'PAYMENT_WEBHOOK_INCOMPLETE',
+      )
+
+    const merged = { ...prior, ...submitted }
+    const plaintext = canonicalise(merged)
+    const keyVersion = this.keys.currentVersion()
+    await this.connRepo.update(conn.id, {
+      encryptedCredentials: encryptCredential(plaintext, this.keys.keyFor(keyVersion), businessId),
+      keyVersion,
+      fingerprint: credentialFingerprint(plaintext),
+      webhookConfiguredAt: new Date(),
+    })
+
+    this.auditService.log(context, {
+      action: 'UPDATE',
+      entityType: 'business_payment_provider',
+      entityId: conn.id,
+      entityLabel: conn.providerCode,
+      changes: { before: null, after: { webhookConfigured: true } },
+    })
+
+    return this.getConnectionView(businessId, conn.id)
+  }
+
+  /**
    * SERVER-ONLY — the decrypted credential set for an adapter / verification call. There is NO
    * controller path to this method; provider secrets never leave the server. Returns null if the
    * business has no live connection to the provider.
@@ -191,6 +275,11 @@ export class PaymentCredentialsService {
       where: { businessId, providerCode, deletedAt: IsNull() },
     })
     if (!conn) return null
+    return this.decrypt(conn, businessId)
+  }
+
+  /** Decrypt a connection's credential envelope (AAD = business_id). Server-only. */
+  private decrypt(conn: BusinessPaymentProvider, businessId: string): Record<string, string> {
     const plaintext = decryptCredential(
       conn.encryptedCredentials,
       this.keys.keyFor(conn.keyVersion),
@@ -209,6 +298,8 @@ export class PaymentCredentialsService {
       verifiedMethods: c.verifiedMethods ?? [],
       lastVerifiedAt: c.lastVerifiedAt ? c.lastVerifiedAt.toISOString() : null,
       verificationError: c.verificationError,
+      webhookUrl: this.webhookUrl(c.providerCode, c.webhookToken),
+      webhookConfigured: c.webhookConfiguredAt != null,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
     }

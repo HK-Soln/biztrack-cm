@@ -25,6 +25,10 @@ export interface ProviderCredentialField {
   /** Show (and require) this field only when another field equals a value — e.g. a production base
    * URL shown only when `environment = production`. */
   showWhen?: { field: string; equals: string }
+  /** This field belongs to WEBHOOK setup (step 2), not the initial connect (step 1) — e.g. Stripe's
+   * signing secret, which the merchant only obtains after registering the webhook URL. Collected via
+   * the configure-webhook flow, never required to connect. */
+  webhook?: boolean
 }
 
 export type ProviderCredentialSchema = ProviderCredentialField[]
@@ -36,6 +40,11 @@ export interface PaymentProvider {
   authType: PaymentProviderAuthType
   credentialSchema: ProviderCredentialSchema
   isActive: boolean
+  /** When true, the merchant MUST register the webhook URL in the provider's dashboard (and supply
+   * any webhook credential) before a method can be routed to this provider — the provider has no
+   * per-request callback fallback (e.g. Stripe). When false, webhook setup is offered but optional:
+   * the provider accepts a per-request callback URL, so routing is allowed without it (e.g. MTN). */
+  requiresWebhookRegistration: boolean
 }
 
 /** What a provider can do for a (method, country) — the first of the three verification layers.
@@ -79,6 +88,12 @@ export interface BusinessPaymentProviderView {
   verifiedMethods: PaymentMethod[]
   lastVerifiedAt: string | null
   verificationError: string | null
+  /** The public URL the merchant registers in the provider's dashboard so we receive confirmations
+   * (§8). Per-connection (carries the opaque webhook token). Not a secret. */
+  webhookUrl: string | null
+  /** Whether the merchant has completed webhook setup for this connection (registered the URL and
+   * supplied any webhook credential). Required before routing when `requiresWebhookRegistration`. */
+  webhookConfigured: boolean
   createdAt: string
   updatedAt: string
 }
@@ -92,6 +107,27 @@ export interface ConnectPaymentProviderRequest {
 
 export interface ConnectPaymentProviderResponse {
   connection: BusinessPaymentProviderView
+}
+
+/** Complete (or update) webhook setup for a connection — step 2. `credentials` carries only the
+ * provider's `webhook`-marked fields (e.g. a Stripe signing secret); they are merged into the
+ * existing encrypted credential set. May be empty for providers with no webhook credential (the
+ * merchant just registers the URL), which marks the connection webhook-configured. */
+export interface ConfigureWebhookRequest {
+  credentials: Record<string, string>
+}
+
+/** A connection is ready to be routed to a method when it is verified (ACTIVE) and, for providers
+ * that require it, webhook setup is complete. Shared by the routing guard (server) and the routing
+ * UI (which prompts webhook setup on select when this is false). */
+export function isPaymentConnectionRouteReady(
+  view: Pick<BusinessPaymentProviderView, 'status' | 'webhookConfigured'>,
+  provider: Pick<PaymentProvider, 'requiresWebhookRegistration'>,
+): boolean {
+  return (
+    view.status === PaymentProviderConnectionStatus.ACTIVE &&
+    (!provider.requiresWebhookRegistration || view.webhookConfigured)
+  )
 }
 
 /** A configured route: which provider executes a method for the business (§2.3). */

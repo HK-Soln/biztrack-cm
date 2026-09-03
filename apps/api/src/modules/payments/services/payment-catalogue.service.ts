@@ -30,6 +30,7 @@ export class PaymentCatalogueService {
       authType: p.authType,
       credentialSchema: p.credentialSchema,
       isActive: p.isActive,
+      requiresWebhookRegistration: p.requiresWebhookRegistration,
     }))
   }
 

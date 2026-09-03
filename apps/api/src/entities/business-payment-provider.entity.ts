@@ -57,6 +57,11 @@ export class BusinessPaymentProvider extends BaseEntity {
   @Column({ name: 'webhook_secret_encrypted', type: 'bytea', nullable: true })
   webhookSecretEncrypted!: Buffer | null
 
+  /** Set when the merchant completes webhook setup (registered the URL + supplied any webhook
+   * credential). Null = not yet configured. Required before routing when the provider demands it. */
+  @Column({ name: 'webhook_configured_at', type: 'timestamptz', nullable: true })
+  webhookConfiguredAt!: Date | null
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null
 }

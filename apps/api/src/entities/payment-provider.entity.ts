@@ -24,6 +24,11 @@ export class PaymentProvider {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean
 
+  /** When true, routing to this provider requires completed webhook setup (no per-request callback
+   * fallback, e.g. Stripe). When false, webhook setup is optional (e.g. MTN). */
+  @Column({ name: 'requires_webhook_registration', type: 'boolean', default: false })
+  requiresWebhookRegistration!: boolean
+
   @CreateDateColumn({ name: 'created_at', transformer: dateTransformer })
   createdAt!: Date
 

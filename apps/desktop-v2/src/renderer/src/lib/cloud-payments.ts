@@ -2,6 +2,7 @@ import type {
   AvailablePaymentMethod,
   BusinessPaymentProviderView,
   BusinessPaymentRouteView,
+  ConfigureWebhookRequest,
   ConnectPaymentProviderRequest,
   ConnectPaymentProviderResponse,
   PaymentProvider,
@@ -18,6 +19,10 @@ export const cloudPayments = {
   listConnections: (): Promise<BusinessPaymentProviderView[]> => cget('/payments/connections'),
   connect: (input: ConnectPaymentProviderRequest): Promise<ConnectPaymentProviderResponse> =>
     cpost('/payments/connections', input),
+  configureWebhook: (
+    id: string,
+    input: ConfigureWebhookRequest,
+  ): Promise<BusinessPaymentProviderView> => cpost(`/payments/connections/${id}/webhook`, input),
   verify: (id: string): Promise<BusinessPaymentProviderView> =>
     cpost(`/payments/connections/${id}/verify`, {}),
   revoke: (id: string): Promise<BusinessPaymentProviderView> =>

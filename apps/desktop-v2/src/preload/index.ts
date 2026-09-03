@@ -231,6 +231,7 @@ const api: BridgeApi = {
     listCapabilities: (country) => ipcRenderer.invoke(IPC.paymentsCapabilities, country),
     listConnections: () => ipcRenderer.invoke(IPC.paymentsConnections),
     connect: (input) => ipcRenderer.invoke(IPC.paymentsConnect, input),
+    configureWebhook: (id, input) => ipcRenderer.invoke(IPC.paymentsConfigureWebhook, id, input),
     verify: (id) => ipcRenderer.invoke(IPC.paymentsVerify, id),
     revoke: (id) => ipcRenderer.invoke(IPC.paymentsRevoke, id),
     listRoutes: () => ipcRenderer.invoke(IPC.paymentsRoutes),

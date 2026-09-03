@@ -13,6 +13,7 @@ import { AppBadRequestException, AppNotFoundException } from '@/common/exception
 import { Business } from '@/entities/business.entity'
 import { BusinessPaymentProvider } from '@/entities/business-payment-provider.entity'
 import { BusinessPaymentRoute } from '@/entities/business-payment-route.entity'
+import { PaymentProvider } from '@/entities/payment-provider.entity'
 import { PaymentProviderCapability } from '@/entities/payment-provider-capability.entity'
 
 /**
@@ -30,6 +31,8 @@ export class PaymentRoutingService {
     private readonly connections: Repository<BusinessPaymentProvider>,
     @InjectRepository(PaymentProviderCapability)
     private readonly capabilities: Repository<PaymentProviderCapability>,
+    @InjectRepository(PaymentProvider)
+    private readonly providers: Repository<PaymentProvider>,
     @InjectRepository(Business)
     private readonly businesses: Repository<Business>,
   ) {}
@@ -63,6 +66,16 @@ export class PaymentRoutingService {
       throw new AppBadRequestException(
         `The connected account is not approved for ${input.paymentMethod}.`,
         'PAYMENT_METHOD_NOT_VERIFIED',
+      )
+
+    // Webhook gate (§8): a provider with no per-request callback fallback (e.g. Stripe) must have
+    // completed webhook setup before any method can be routed to it — otherwise we could never
+    // confirm a payment. Providers that accept a per-request callback (MTN) are exempt.
+    const provider = await this.providers.findOne({ where: { code: connection.providerCode } })
+    if (provider?.requiresWebhookRegistration && connection.webhookConfiguredAt == null)
+      throw new AppBadRequestException(
+        `Complete webhook setup for ${connection.providerCode} before routing to it.`,
+        'PAYMENT_WEBHOOK_NOT_CONFIGURED',
       )
 
     const country = await this.businessCountry(businessId)

@@ -20,6 +20,7 @@ import { PaymentCredentialsService } from '../services/payment-credentials.servi
 import { PaymentVerificationService } from '../services/payment-verification.service'
 import { PaymentRoutingService } from '../services/payment-routing.service'
 import { ConnectProviderDto } from '../dto/connect-provider.dto'
+import { ConfigureWebhookDto } from '../dto/configure-webhook.dto'
 import { SetRouteDto } from '../dto/set-route.dto'
 
 /**
@@ -96,6 +97,18 @@ export class PaymentProvidersController {
   ): Promise<BusinessPaymentProviderView> {
     this.assertOwner(user)
     return this.verification.verify(user.businessId as string, id)
+  }
+
+  @Post('connections/:id/webhook')
+  @ApiOperation({ summary: 'Complete webhook setup for a connection — step 2 (owner-only)' })
+  configureWebhook(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: ConfigureWebhookDto,
+    @CurrentAuditContext() context: AuditContext,
+  ): Promise<BusinessPaymentProviderView> {
+    this.assertOwner(user)
+    return this.credentials.configureWebhook(user.businessId as string, id, dto, context)
   }
 
   @Delete('connections/:id')

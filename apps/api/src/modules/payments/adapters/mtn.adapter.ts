@@ -100,10 +100,10 @@ export class MtnAdapter implements PaymentProviderAdapter {
     if (!credentials.consumer_key || !credentials.consumer_secret) {
       return { valid: false, enabledMethods: [], error: 'Missing consumer key/secret.' }
     }
+    // base_url is OPTIONAL: production is a per-tenant host, but if the merchant leaves it blank we
+    // fall back to the global default (https://api.mtn.com) rather than hard-blocking. Only validate
+    // it when a value is supplied.
     const custom = credentials.base_url?.trim()
-    if (credentials.environment === 'production' && !this.overrideBaseUrl && !custom) {
-      return { valid: false, enabledMethods: [], error: 'Enter your production MTN base URL.' }
-    }
     if (custom) {
       try {
         new URL(custom)
