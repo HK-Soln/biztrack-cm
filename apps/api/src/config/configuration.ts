@@ -115,11 +115,10 @@ const envSchema = z.object({
   // when present, credentials are envelope-encrypted (AES-256-GCM, AAD = business_id). Rotate by
   // adding a higher version and re-encrypting; drop the old version only when no row references it.
   PAYMENT_MASTER_KEYS: z.preprocess(normalizeEnvString, z.string()).optional(),
-  // MTN OAuth/API base host (sandbox vs production is the same host with the right product/creds by
-  // default). Override if MTN's sandbox uses a different host.
-  MTN_API_BASE_URL: z
-    .preprocess(normalizeEnvString, z.string().url())
-    .default('https://api.mtn.com'),
+  // Optional OVERRIDE of the MTN API host. Normally the host is derived per-connection from the
+  // credential's `environment` (sandbox → sandbox.api.mtn.com, production → api.mtn.com); set this
+  // only to force a custom host (e.g. a local mock).
+  MTN_API_BASE_URL: z.preprocess(normalizeEnvString, z.string().url()).optional(),
   // DEV ONLY — activate the Stripe CARD/CM capability so the pipeline can be tested against Stripe
   // sandbox. Guarded to non-production; ignored when NODE_ENV=production.
   PAYMENTS_DEV_ACTIVATE_STRIPE_CM: z

@@ -24,11 +24,23 @@ interface MtnTokenResponse {
  * MTN's payment API endpoints + signing details, which aren't wired yet — those methods throw/false
  * until provided. Verification (this file's real part) is enough to connect + validate sandbox keys.
  */
+const MTN_HOSTS = {
+  sandbox: 'https://sandbox.api.mtn.com',
+  production: 'https://api.mtn.com',
+} as const
+
 export class MtnAdapter implements PaymentProviderAdapter {
   readonly code = 'MTN'
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>()
 
-  constructor(private readonly baseUrl = 'https://api.mtn.com') {}
+  /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host; otherwise it's derived per-connection from
+   * the credential's `environment` (sandbox → sandbox.api.mtn.com, production → api.mtn.com). */
+  constructor(private readonly overrideBaseUrl?: string) {}
+
+  private baseUrlFor(credentials: Record<string, string>): string {
+    if (this.overrideBaseUrl) return this.overrideBaseUrl
+    return credentials.environment === 'sandbox' ? MTN_HOSTS.sandbox : MTN_HOSTS.production
+  }
 
   private async fetchToken(credentials: Record<string, string>): Promise<string> {
     const consumerKey = credentials.consumer_key ?? ''
@@ -37,11 +49,14 @@ export class MtnAdapter implements PaymentProviderAdapter {
     if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token
 
     const body = new URLSearchParams({ client_id: consumerKey, client_secret: consumerSecret })
-    const res = await fetch(`${this.baseUrl}/v1/oauth/access_token?grant_type=client_credentials`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    })
+    const res = await fetch(
+      `${this.baseUrlFor(credentials)}/v1/oauth/access_token?grant_type=client_credentials`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      },
+    )
     if (!res.ok) {
       throw new Error(`MTN token endpoint returned ${res.status}`)
     }
