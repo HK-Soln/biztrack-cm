@@ -4743,6 +4743,7 @@ export class SyncService {
       recordedById: record.recordedById ?? null,
       note: record.note ?? null,
       businessDate: record.businessDate ?? null,
+      paymentAttemptId: record.paymentAttemptId ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.createdAt.toISOString(),
       deletedAt: null,

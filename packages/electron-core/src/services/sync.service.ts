@@ -207,6 +207,7 @@ const SALE_PAYMENT_MAP: Record<string, string> = {
   recorded_by_id: 'recordedById',
   note: 'note',
   business_date: 'businessDate',
+  payment_attempt_id: 'paymentAttemptId',
   created_at: 'createdAt',
 }
 const SALE_CHARGE_MAP: Record<string, string> = {
