@@ -5,6 +5,8 @@ import { PaymentMethod } from '@biztrack/types'
 import { PaymentProvider } from '@/entities/payment-provider.entity'
 import { PaymentProviderCapability } from '@/entities/payment-provider-capability.entity'
 import { BusinessPaymentProvider } from '@/entities/business-payment-provider.entity'
+import { BusinessPaymentRoute } from '@/entities/business-payment-route.entity'
+import { Business } from '@/entities/business.entity'
 import { AuditModule } from '@/modules/audit/audit.module'
 import {
   EnvMasterKeyProvider,
@@ -15,6 +17,7 @@ import {
 import { PaymentCatalogueService } from './services/payment-catalogue.service'
 import { PaymentCredentialsService } from './services/payment-credentials.service'
 import { PaymentVerificationService } from './services/payment-verification.service'
+import { PaymentRoutingService } from './services/payment-routing.service'
 import { PaymentProvidersController } from './controllers/payment-providers.controller'
 import { PaymentsScheduler } from './payments.scheduler'
 import { PAYMENT_ADAPTERS, PaymentAdapterRegistry } from './adapters/adapter.registry'
@@ -28,7 +31,13 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PaymentProvider, PaymentProviderCapability, BusinessPaymentProvider]),
+    TypeOrmModule.forFeature([
+      PaymentProvider,
+      PaymentProviderCapability,
+      BusinessPaymentProvider,
+      BusinessPaymentRoute,
+      Business,
+    ]),
     AuditModule,
   ],
   controllers: [PaymentProvidersController],
@@ -36,6 +45,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentCatalogueService,
     PaymentCredentialsService,
     PaymentVerificationService,
+    PaymentRoutingService,
     PaymentAdapterRegistry,
     PaymentsScheduler,
     {
@@ -56,6 +66,11 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       ] satisfies PaymentProviderAdapter[],
     },
   ],
-  exports: [PaymentCredentialsService, PaymentCatalogueService, PaymentVerificationService],
+  exports: [
+    PaymentCredentialsService,
+    PaymentCatalogueService,
+    PaymentVerificationService,
+    PaymentRoutingService,
+  ],
 })
 export class PaymentsModule {}

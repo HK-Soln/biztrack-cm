@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import {
   BusinessMemberRole,
   type AuditContext,
+  type AvailablePaymentMethod,
   type BusinessPaymentProviderView,
+  type BusinessPaymentRouteView,
   type ConnectPaymentProviderResponse,
   type JwtPayload,
   type PaymentProvider,
@@ -16,7 +18,9 @@ import { CurrentAuditContext } from '@/modules/audit/decorators/audit-context.de
 import { PaymentCatalogueService } from '../services/payment-catalogue.service'
 import { PaymentCredentialsService } from '../services/payment-credentials.service'
 import { PaymentVerificationService } from '../services/payment-verification.service'
+import { PaymentRoutingService } from '../services/payment-routing.service'
 import { ConnectProviderDto } from '../dto/connect-provider.dto'
+import { SetRouteDto } from '../dto/set-route.dto'
 
 /**
  * Spec 07 §2/§10 — owner-only payment provider configuration. The credential API is WRITE-ONLY: no
@@ -32,6 +36,7 @@ export class PaymentProvidersController {
     private readonly catalogue: PaymentCatalogueService,
     private readonly credentials: PaymentCredentialsService,
     private readonly verification: PaymentVerificationService,
+    private readonly routing: PaymentRoutingService,
   ) {}
 
   private assertOwner(user: JwtPayload): void {
@@ -102,5 +107,44 @@ export class PaymentProvidersController {
   ): Promise<BusinessPaymentProviderView> {
     this.assertOwner(user)
     return this.credentials.revoke(user.businessId as string, id, context)
+  }
+
+  // --- Routing (§2.3) -------------------------------------------------------
+
+  @Get('routes')
+  @ApiOperation({ summary: "The business's payment routes (owner-only)" })
+  listRoutes(@CurrentUser() user: JwtPayload): Promise<BusinessPaymentRouteView[]> {
+    this.assertOwner(user)
+    return this.routing.listRoutes(user.businessId as string)
+  }
+
+  @Put('routes')
+  @ApiOperation({ summary: 'Route a method to a verified provider (one provider per method)' })
+  setRoute(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SetRouteDto,
+  ): Promise<BusinessPaymentRouteView> {
+    this.assertOwner(user)
+    return this.routing.setRoute(user.businessId as string, dto)
+  }
+
+  @Delete('routes/:id')
+  @ApiOperation({ summary: 'Remove a payment route (owner-only)' })
+  async removeRoute(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<{ success: true }> {
+    this.assertOwner(user)
+    await this.routing.removeRoute(user.businessId as string, id)
+    return { success: true }
+  }
+
+  @Get('available-methods')
+  @ApiOperation({
+    summary: 'Methods the business can actually collect now (passed the 3-layer check)',
+  })
+  availableMethods(@CurrentUser() user: JwtPayload): Promise<AvailablePaymentMethod[]> {
+    this.assertOwner(user)
+    return this.routing.resolveAvailableMethods(user.businessId as string)
   }
 }

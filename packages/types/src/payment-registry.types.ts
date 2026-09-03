@@ -88,3 +88,27 @@ export interface ConnectPaymentProviderRequest {
 export interface ConnectPaymentProviderResponse {
   connection: BusinessPaymentProviderView
 }
+
+/** A configured route: which provider executes a method for the business (§2.3). */
+export interface BusinessPaymentRouteView {
+  id: string
+  paymentMethod: PaymentMethod
+  providerId: string
+  providerCode: string
+  countryCode: string
+  isEnabled: boolean
+}
+
+export interface SetPaymentRouteRequest {
+  paymentMethod: PaymentMethod
+  /** A verified, ACTIVE connection for this business. */
+  providerId: string
+  isEnabled?: boolean
+}
+
+/** A method the business can actually collect right now — passed the three-layer check (§5). The
+ * online checkout intersects this with the published-store snapshot flags to decide availability. */
+export interface AvailablePaymentMethod {
+  method: PaymentMethod
+  providerCode: string
+}
