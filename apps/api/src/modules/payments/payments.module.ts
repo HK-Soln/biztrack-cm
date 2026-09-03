@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { TypeOrmModule } from '@nestjs/typeorm'
-import { PaymentMethod } from '@biztrack/types'
 import { PaymentProvider } from '@/entities/payment-provider.entity'
 import { PaymentProviderCapability } from '@/entities/payment-provider-capability.entity'
 import { BusinessPaymentProvider } from '@/entities/business-payment-provider.entity'
@@ -27,8 +26,8 @@ import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
 import { PaymentsScheduler } from './payments.scheduler'
 import { PaymentsDevBootstrap } from './payments-dev-bootstrap'
 import { PAYMENT_ADAPTERS, PaymentAdapterRegistry } from './adapters/adapter.registry'
-import { FakeProviderAdapter } from './adapters/fake.adapter'
 import { MtnAdapter } from './adapters/mtn.adapter'
+import { StripeAdapter } from './adapters/stripe.adapter'
 import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter'
 
 /**
@@ -69,15 +68,13 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       },
     },
     {
-      // TODO(sandbox): register the real Stripe (build 8) + MTN (build 13) adapters here in place of
-      // the fakes. Keeping the interface means this is a registry change, not a caller change.
       provide: PAYMENT_ADAPTERS,
-      // MTN: real OAuth verifyCredentials (execution pending the payment API). Stripe: fake until its
-      // adapter lands (build 8). TODO(sandbox): replace the Stripe fake with the real Stripe adapter.
+      // MTN: real OAuth verifyCredentials (execution pending the payment API, build 13). Stripe: real
+      // verify + webhook signature/parse + PaymentIntent poll (execution is builds 9–12).
       inject: [ConfigService],
       useFactory: (config: ConfigService): PaymentProviderAdapter[] => [
         new MtnAdapter(config.get<string>('MTN_API_BASE_URL')),
-        new FakeProviderAdapter('STRIPE', [PaymentMethod.CARD]),
+        new StripeAdapter(config.get<string>('STRIPE_API_BASE_URL')),
       ],
     },
   ],
