@@ -112,3 +112,62 @@ export interface AvailablePaymentMethod {
   method: PaymentMethod
   providerCode: string
 }
+
+/** Lifecycle of a provider-execution attempt (§2.4). CONFIRMED/FAILED are terminal; a late provider
+ * confirmation on an EXPIRED attempt is a reconciliation exception (§7.5), never an auto-transition. */
+export enum PaymentAttemptStatus {
+  INITIATED = 'INITIATED',
+  PENDING = 'PENDING',
+  CONFIRMED = 'CONFIRMED',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+}
+
+/** How an attempt was started (§7.1). */
+export enum PaymentAttemptInitiationType {
+  ATTESTED = 'ATTESTED',
+  LINK = 'LINK',
+  USSD_PUSH = 'USSD_PUSH',
+  ONLINE_CHECKOUT = 'ONLINE_CHECKOUT',
+}
+
+/** How an attempt reached a terminal state. */
+export enum PaymentConfirmationType {
+  WEBHOOK = 'WEBHOOK',
+  POLL = 'POLL',
+  MANUAL = 'MANUAL',
+}
+
+/** Allowed forward transitions of a payment attempt. CONFIRMED/FAILED are terminal — a late
+ * provider event must NEVER regress or re-transition them (§8). EXPIRED is terminal too: a late
+ * confirmation on an expired attempt is handled as a reconciliation exception by a human (§7.5),
+ * not an automatic EXPIRED→CONFIRMED. Retries are NEW attempt rows, not transitions. */
+const PAYMENT_ATTEMPT_TRANSITIONS: Record<PaymentAttemptStatus, PaymentAttemptStatus[]> = {
+  [PaymentAttemptStatus.INITIATED]: [
+    PaymentAttemptStatus.PENDING,
+    PaymentAttemptStatus.CONFIRMED,
+    PaymentAttemptStatus.FAILED,
+    PaymentAttemptStatus.EXPIRED,
+  ],
+  [PaymentAttemptStatus.PENDING]: [
+    PaymentAttemptStatus.CONFIRMED,
+    PaymentAttemptStatus.FAILED,
+    PaymentAttemptStatus.EXPIRED,
+  ],
+  [PaymentAttemptStatus.CONFIRMED]: [],
+  [PaymentAttemptStatus.FAILED]: [],
+  [PaymentAttemptStatus.EXPIRED]: [],
+}
+
+export const PAYMENT_ATTEMPT_TERMINAL: PaymentAttemptStatus[] = [
+  PaymentAttemptStatus.CONFIRMED,
+  PaymentAttemptStatus.FAILED,
+  PaymentAttemptStatus.EXPIRED,
+]
+
+export function canTransitionPaymentAttempt(
+  from: PaymentAttemptStatus,
+  to: PaymentAttemptStatus,
+): boolean {
+  return PAYMENT_ATTEMPT_TRANSITIONS[from]?.includes(to) ?? false
+}

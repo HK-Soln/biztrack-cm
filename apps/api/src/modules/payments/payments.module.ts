@@ -6,6 +6,7 @@ import { PaymentProvider } from '@/entities/payment-provider.entity'
 import { PaymentProviderCapability } from '@/entities/payment-provider-capability.entity'
 import { BusinessPaymentProvider } from '@/entities/business-payment-provider.entity'
 import { BusinessPaymentRoute } from '@/entities/business-payment-route.entity'
+import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { Business } from '@/entities/business.entity'
 import { AuditModule } from '@/modules/audit/audit.module'
 import {
@@ -36,6 +37,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
       PaymentProviderCapability,
       BusinessPaymentProvider,
       BusinessPaymentRoute,
+      PaymentAttempt,
       Business,
     ]),
     AuditModule,
