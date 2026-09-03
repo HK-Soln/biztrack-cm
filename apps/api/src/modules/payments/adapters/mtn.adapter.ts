@@ -1,3 +1,4 @@
+import { createHttpClient } from '@biztrack/http-client'
 import { PaymentMethod } from '@biztrack/types'
 import type {
   PaymentProviderAdapter,
@@ -5,6 +6,8 @@ import type {
   ProviderTxnState,
   VerifyCredentialsResult,
 } from './payment-provider.adapter'
+
+type HttpClient = ReturnType<typeof createHttpClient>
 
 interface MtnTokenResponse {
   access_token?: string
@@ -32,6 +35,7 @@ const MTN_HOSTS = {
 export class MtnAdapter implements PaymentProviderAdapter {
   readonly code = 'MTN'
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>()
+  private readonly clients = new Map<string, HttpClient>()
 
   /** `overrideBaseUrl` (MTN_API_BASE_URL) forces a host; otherwise it's derived per-connection from
    * the credential's `environment` (sandbox → sandbox.api.mtn.com, production → api.mtn.com). */
@@ -42,6 +46,19 @@ export class MtnAdapter implements PaymentProviderAdapter {
     return credentials.environment === 'sandbox' ? MTN_HOSTS.sandbox : MTN_HOSTS.production
   }
 
+  /** One @biztrack/http-client per host (form-urlencoded for the token endpoint). */
+  private clientFor(baseUrl: string): HttpClient {
+    let client = this.clients.get(baseUrl)
+    if (!client) {
+      client = createHttpClient({
+        baseURL: baseUrl,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      })
+      this.clients.set(baseUrl, client)
+    }
+    return client
+  }
+
   private async fetchToken(credentials: Record<string, string>): Promise<string> {
     const consumerKey = credentials.consumer_key ?? ''
     const consumerSecret = credentials.consumer_secret ?? ''
@@ -49,22 +66,18 @@ export class MtnAdapter implements PaymentProviderAdapter {
     if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token
 
     const body = new URLSearchParams({ client_id: consumerKey, client_secret: consumerSecret })
-    const res = await fetch(
-      `${this.baseUrlFor(credentials)}/v1/oauth/access_token?grant_type=client_credentials`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      },
+    // Throws HttpError on a non-2xx (bad keys) — surfaced by verifyCredentials as invalid.
+    const res = await this.clientFor(this.baseUrlFor(credentials)).post<MtnTokenResponse>(
+      '/v1/oauth/access_token?grant_type=client_credentials',
+      body.toString(),
     )
-    if (!res.ok) {
-      throw new Error(`MTN token endpoint returned ${res.status}`)
-    }
-    const json = (await res.json()) as MtnTokenResponse
-    if (!json.access_token) throw new Error('MTN token response had no access_token')
-    const ttlMs = (Number(json.expires_in ?? '3599') || 3599) * 1000
-    this.tokenCache.set(consumerKey, { token: json.access_token, expiresAt: Date.now() + ttlMs })
-    return json.access_token
+    if (!res.data.access_token) throw new Error('MTN token response had no access_token')
+    const ttlMs = (Number(res.data.expires_in ?? '3599') || 3599) * 1000
+    this.tokenCache.set(consumerKey, {
+      token: res.data.access_token,
+      expiresAt: Date.now() + ttlMs,
+    })
+    return res.data.access_token
   }
 
   async verifyCredentials(credentials: Record<string, string>): Promise<VerifyCredentialsResult> {
