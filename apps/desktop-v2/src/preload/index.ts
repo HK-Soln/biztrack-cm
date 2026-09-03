@@ -226,6 +226,18 @@ const api: BridgeApi = {
     revoke: (id) => ipcRenderer.invoke(IPC.credentialsRevoke, id),
     replace: (id, input) => ipcRenderer.invoke(IPC.credentialsReplace, id, input),
   },
+  payments: {
+    listProviders: () => ipcRenderer.invoke(IPC.paymentsProviders),
+    listCapabilities: (country) => ipcRenderer.invoke(IPC.paymentsCapabilities, country),
+    listConnections: () => ipcRenderer.invoke(IPC.paymentsConnections),
+    connect: (input) => ipcRenderer.invoke(IPC.paymentsConnect, input),
+    verify: (id) => ipcRenderer.invoke(IPC.paymentsVerify, id),
+    revoke: (id) => ipcRenderer.invoke(IPC.paymentsRevoke, id),
+    listRoutes: () => ipcRenderer.invoke(IPC.paymentsRoutes),
+    setRoute: (input) => ipcRenderer.invoke(IPC.paymentsSetRoute, input),
+    removeRoute: (id) => ipcRenderer.invoke(IPC.paymentsRemoveRoute, id),
+    availableMethods: () => ipcRenderer.invoke(IPC.paymentsAvailable),
+  },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),
     saleLineRemoved: (input) => ipcRenderer.invoke(IPC.auditSaleLineRemoved, input),

@@ -35,6 +35,16 @@ export const IPC = {
   credentialsIssueCard: 'credentials:issue-card',
   credentialsRevoke: 'credentials:revoke',
   credentialsReplace: 'credentials:replace',
+  paymentsProviders: 'payments:providers',
+  paymentsCapabilities: 'payments:capabilities',
+  paymentsConnections: 'payments:connections',
+  paymentsConnect: 'payments:connect',
+  paymentsVerify: 'payments:verify',
+  paymentsRevoke: 'payments:revoke',
+  paymentsRoutes: 'payments:routes',
+  paymentsSetRoute: 'payments:set-route',
+  paymentsRemoveRoute: 'payments:remove-route',
+  paymentsAvailable: 'payments:available',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -334,6 +344,26 @@ export type {
   IssueCardRequest,
   IssueCardResponse,
   ReplaceCardRequest,
+} from '@biztrack/types'
+import type {
+  PaymentProvider as PaymentProviderT,
+  PaymentProviderCapability as PaymentProviderCapabilityT,
+  BusinessPaymentProviderView as BusinessPaymentProviderViewT,
+  ConnectPaymentProviderRequest as ConnectPaymentProviderRequestT,
+  ConnectPaymentProviderResponse as ConnectPaymentProviderResponseT,
+  BusinessPaymentRouteView as BusinessPaymentRouteViewT,
+  SetPaymentRouteRequest as SetPaymentRouteRequestT,
+  AvailablePaymentMethod as AvailablePaymentMethodT,
+} from '@biztrack/types'
+export type {
+  PaymentProvider,
+  PaymentProviderCapability,
+  BusinessPaymentProviderView,
+  ConnectPaymentProviderRequest,
+  ConnectPaymentProviderResponse,
+  BusinessPaymentRouteView,
+  SetPaymentRouteRequest,
+  AvailablePaymentMethod,
 } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
@@ -1949,6 +1979,19 @@ export interface BridgeApi {
     revoke: (id: string) => Promise<MemberAuthCredentialT>
     /** Replace (rotate) a card: revoke + reissue to the same member in one step. */
     replace: (id: string, input: ReplaceCardRequestT) => Promise<IssueCardResponseT>
+  }
+  /** Payment provider registry (Spec 07). Owner-only; online — server-owned, proxied. */
+  payments: {
+    listProviders: () => Promise<PaymentProviderT[]>
+    listCapabilities: (country?: string) => Promise<PaymentProviderCapabilityT[]>
+    listConnections: () => Promise<BusinessPaymentProviderViewT[]>
+    connect: (input: ConnectPaymentProviderRequestT) => Promise<ConnectPaymentProviderResponseT>
+    verify: (id: string) => Promise<BusinessPaymentProviderViewT>
+    revoke: (id: string) => Promise<BusinessPaymentProviderViewT>
+    listRoutes: () => Promise<BusinessPaymentRouteViewT[]>
+    setRoute: (input: SetPaymentRouteRequestT) => Promise<BusinessPaymentRouteViewT>
+    removeRoute: (id: string) => Promise<{ success: true }>
+    availableMethods: () => Promise<AvailablePaymentMethodT[]>
   }
   sync: {
     /** Run a push+pull cycle now. */

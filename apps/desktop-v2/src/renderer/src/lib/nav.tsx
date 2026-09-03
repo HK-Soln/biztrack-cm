@@ -227,6 +227,7 @@ export const NAV: NavEntry[] = [
       { to: '/activity', label: 'nav.activity', icon: 'shield', manager: true },
       { to: '/team', label: 'nav.team', icon: 'contacts' },
       { to: '/roles', label: 'nav.roles', icon: 'shield', owner: true },
+      { to: '/settings/payments', label: 'nav.payments', icon: 'deposits', owner: true },
     ],
   },
   { to: '/settings', label: 'nav.settings', icon: 'settings' },
