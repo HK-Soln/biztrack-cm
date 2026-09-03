@@ -13,6 +13,7 @@ import {
   SerialUnitStatus,
   canTransitionOnlineOrder,
   type AddCartItemRequest,
+  type CheckoutPayment,
   type CheckoutRequest,
   type JwtPayload,
   type OnlineCart as OnlineCartShape,
@@ -312,41 +313,18 @@ export class OnlineOrdersService {
       // Provider-backed payment (Spec 07 build 9): if the chosen method routes to a verified provider
       // with a hosted-link flow, start a payment and hand the storefront a redirect URL. Best-effort —
       // a failure here must never unplace an order that's already saved; it just falls back to unpaid.
-      let payment:
-        | { attemptId: string; url?: string; pending?: boolean; expiresAt?: string | null }
-        | undefined
+      let payment: CheckoutPayment | undefined
       const method = this.mapPaymentMethod(dto.paymentMethod)
+      // Only provider-backed methods start a payment; CASH/COD needs none.
       if (ROUTABLE_PAYMENT_METHODS.includes(method)) {
-        try {
-          // Build the provider's return URLs from the storefront origin + this order's tracking token,
-          // so the customer lands back on their own order page (paid or canceled).
-          const base = dto.returnUrl?.trim().replace(/\/+$/, '')
-          const track = base ? `${base}/orders/${order.trackingToken}` : undefined
-          const initiated = await this.paymentInitiation.initiateOnlineCheckout({
-            businessId: store.businessId,
-            onlineOrderId: order.id,
-            method,
-            amountMinor: majorToMinor(totalAmount, config.currency),
-            currency: config.currency,
-            reference: order.orderNumber,
-            customerPhone: order.customerPhone,
-            successUrl: track ? `${track}?paid=1` : undefined,
-            cancelUrl: track ? `${track}?canceled=1` : undefined,
-          })
-          if (initiated?.kind === 'redirect')
-            payment = {
-              attemptId: initiated.attemptId,
-              url: initiated.url,
-              expiresAt: initiated.expiresAt,
-            }
-          else if (initiated?.kind === 'pending')
-            payment = { attemptId: initiated.attemptId, pending: true }
-        } catch (error) {
-          this.logger.warn('Online payment initiation failed', 'OnlineOrdersService.checkout', {
-            orderId: order.id,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
+        // Build the provider's return URLs from the storefront origin + this order's tracking token
+        // (used by hosted-redirect providers like Stripe; ignored by MoMo push).
+        const base = dto.returnUrl?.trim().replace(/\/+$/, '')
+        const track = base ? `${base}/orders/${order.trackingToken}` : undefined
+        payment = await this.startOrderPayment(store.businessId, order, method, config.currency, {
+          successUrl: track ? `${track}?paid=1` : undefined,
+          cancelUrl: track ? `${track}?canceled=1` : undefined,
+        })
       }
 
       return {
@@ -479,6 +457,74 @@ export class OnlineOrdersService {
     if (order.paymentStatus === 'PAID') return { status: 'PAID' }
     const state = await this.paymentInitiation.pollOnlineOrderPayment(store.businessId, order.id)
     return { status: state ?? 'PENDING' }
+  }
+
+  /**
+   * Retry the provider payment for an already-placed order (storefront "try again" after a failure).
+   * Starts a fresh attempt with the order's stored method + phone. Guarded against a double charge:
+   * a PAID order is not re-initiated. COD has nothing to retry.
+   */
+  async retryPayment(
+    slug: string,
+    trackingToken: string,
+    payerPhone?: string,
+  ): Promise<CheckoutPayment> {
+    const { store, config } = await this.requireStore(slug)
+    const order = await this.ordersRepo.findOne({
+      where: { onlineStoreId: store.id, trackingToken },
+    })
+    if (!order) {
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.online_order_not_found'),
+        'ONLINE_ORDER_NOT_FOUND',
+      )
+    }
+    if (order.paymentStatus === 'PAID') return {} // already paid — storefront redirects
+    const method = this.mapPaymentMethod(order.paymentMethod)
+    if (!ROUTABLE_PAYMENT_METHODS.includes(method)) return { failed: true }
+    return this.startOrderPayment(store.businessId, order, method, config.currency, { payerPhone })
+  }
+
+  /**
+   * Start (or restart) a provider payment for an order. Maps the initiation outcome to the
+   * storefront payment shape; a null/error initiation becomes `{ failed: true }` so the storefront can
+   * keep the customer on the confirmation page and offer a retry (never a silent "order confirmed").
+   */
+  private async startOrderPayment(
+    businessId: string,
+    order: OnlineOrder,
+    method: PaymentMethod,
+    currency: string,
+    opts: { successUrl?: string; cancelUrl?: string; payerPhone?: string | null },
+  ): Promise<CheckoutPayment> {
+    try {
+      const initiated = await this.paymentInitiation.initiateOnlineCheckout({
+        businessId,
+        onlineOrderId: order.id,
+        method,
+        amountMinor: majorToMinor(order.totalAmount, currency),
+        currency,
+        reference: order.orderNumber,
+        // A retry may supply a different MoMo number; otherwise use the order's contact phone.
+        customerPhone: opts.payerPhone?.trim() || order.customerPhone,
+        successUrl: opts.successUrl,
+        cancelUrl: opts.cancelUrl,
+      })
+      if (initiated?.kind === 'redirect')
+        return {
+          attemptId: initiated.attemptId,
+          url: initiated.url,
+          expiresAt: initiated.expiresAt,
+        }
+      if (initiated?.kind === 'pending') return { attemptId: initiated.attemptId, pending: true }
+      return { failed: true }
+    } catch (error) {
+      this.logger.warn('Online payment initiation failed', 'OnlineOrdersService', {
+        orderId: order.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return { failed: true }
+    }
   }
 
   // ---- Owner order management --------------------------------------------

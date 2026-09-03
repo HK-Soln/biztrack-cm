@@ -7,7 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import type { CheckoutRequest, OnlineFulfillmentType, PublicStore } from '@biztrack/types'
-import { checkout, formatMoney, getCart, getPaymentStatus } from '@/lib/api'
+import { checkout, formatMoney, getCart, getPaymentStatus, retryPayment } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
 
@@ -116,45 +116,53 @@ export function CheckoutView({
     enabled: Boolean(sessionToken),
   })
 
-  // A pending push payment (MoMo request-to-pay): show the "approve on your phone" wait screen, poll
-  // the status endpoint, and on a result show it with a short countdown before redirecting.
+  // A pending push payment (MoMo). Phases: polling → paid | failed (offer a retry) | final (retries
+  // exhausted → "we'll call you"). The customer may retry from a different MoMo number.
+  const MAX_RETRIES = 2
   const [awaiting, setAwaiting] = useState<string | null>(null) // tracking token
-  const [result, setResult] = useState<'PAID' | 'FAILED' | null>(null)
+  const [phase, setPhase] = useState<'polling' | 'paid' | 'failed' | 'final'>('polling')
+  const [retries, setRetries] = useState(0)
+  const [retryPhone, setRetryPhone] = useState<string | undefined>(undefined)
+  const [retrying, setRetrying] = useState(false)
   const [countdown, setCountdown] = useState(10)
+  const startedRef = useRef(0)
 
   const mutation = useMutation({
     mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
     onSuccess: (order) => {
       clearSession()
-      // Hosted redirect (Stripe) → send the customer to the provider's page.
       if (order.payment?.url) {
-        window.location.href = order.payment.url
+        window.location.href = order.payment.url // hosted redirect (Stripe)
         return
       }
-      // Push (MoMo) → wait screen + poll; the customer approves on their phone.
       if (order.payment?.pending) {
-        setResult(null)
+        setRetryPhone(phone)
+        startedRef.current = 0
+        setPhase('polling')
         setAwaiting(order.trackingToken)
         return
       }
-      // COD / no provider payment → straight to the order page.
-      router.push(`${base}/orders/${order.trackingToken}`)
+      if (order.payment?.failed) {
+        setRetryPhone(phone)
+        setPhase('failed')
+        setAwaiting(order.trackingToken)
+        return
+      }
+      router.push(`${base}/orders/${order.trackingToken}`) // COD / no provider payment
     },
   })
 
-  // Poll the payment status while awaiting approval. On a terminal state, record the result (don't
-  // redirect yet — the countdown below handles that). After ~2 min still pending, hand off.
-  const startedRef = useRef(0)
+  // Poll status while in the polling phase. Terminal → set the phase; still pending after ~2 min → hand off.
   useEffect(() => {
-    if (!awaiting || result) return
+    if (!awaiting || phase !== 'polling') return
     let active = true
     let timer: ReturnType<typeof setTimeout>
     if (!startedRef.current) startedRef.current = Date.now()
     const tick = async () => {
       const res = await getPaymentStatus(slug, awaiting)
       if (!active) return
-      if (res?.status === 'PAID') return setResult('PAID')
-      if (res?.status === 'FAILED') return setResult('FAILED')
+      if (res?.status === 'PAID') return setPhase('paid')
+      if (res?.status === 'FAILED') return setPhase(retries >= MAX_RETRIES ? 'final' : 'failed')
       if (Date.now() - startedRef.current < 120_000) timer = setTimeout(tick, 3000)
       else router.push(`${base}/orders/${awaiting}`)
     }
@@ -163,24 +171,56 @@ export function CheckoutView({
       active = false
       clearTimeout(timer)
     }
-  }, [awaiting, result, slug, base, router])
+  }, [awaiting, phase, retries, slug, base, router])
 
-  // Once resolved, count down from 10s then redirect to the order page (or let them skip with a button).
+  // On a terminal phase (paid or final), count down 10s then redirect to the order page.
   useEffect(() => {
-    if (!awaiting || !result) return
+    if (!awaiting || (phase !== 'paid' && phase !== 'final')) return
     setCountdown(10)
     const id = setInterval(() => {
       setCountdown((c) => {
         if (c <= 1) {
           clearInterval(id)
-          router.push(`${base}/orders/${awaiting}${result === 'PAID' ? '?paid=1' : ''}`)
+          router.push(
+            `${base}/orders/${awaiting}${phase === 'paid' ? '?paid=1' : '?payment=failed'}`,
+          )
           return 0
         }
         return c - 1
       })
     }, 1000)
     return () => clearInterval(id)
-  }, [awaiting, result, base, router])
+  }, [awaiting, phase, base, router])
+
+  // Retry the payment (optionally from a new number). After the 2nd retry we move to the final screen.
+  const doRetry = async () => {
+    if (!awaiting || retrying) return
+    setRetrying(true)
+    const next = retries + 1
+    try {
+      const res = await retryPayment(slug, awaiting, retryPhone)
+      setRetries(next)
+      if (res?.url) {
+        window.location.href = res.url
+        return
+      }
+      if (res?.pending) {
+        startedRef.current = 0
+        setPhase('polling')
+        return
+      }
+      if (res?.failed) {
+        setPhase(next >= MAX_RETRIES ? 'final' : 'failed')
+        return
+      }
+      router.push(`${base}/orders/${awaiting}?paid=1`) // empty result = already paid
+    } catch {
+      setRetries(next)
+      setPhase(next >= MAX_RETRIES ? 'final' : 'failed')
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   const subtotal = cart?.subtotal ?? 0
   const isDelivery = fulfillmentType === 'DELIVERY'
@@ -189,39 +229,67 @@ export function CheckoutView({
   const belowMin = minOrder != null && subtotal < minOrder
   const items = cart?.items ?? []
 
-  // Awaiting a MoMo approval — takes precedence over the empty-cart check (the session is cleared on
-  // a successful checkout, so this must render before that guard).
+  // The MoMo payment flow — takes precedence over the empty-cart check (the session is cleared on a
+  // successful checkout, so this must render before that guard).
   if (awaiting) {
-    const paid = result === 'PAID'
+    if (phase === 'paid' || phase === 'final') {
+      const paid = phase === 'paid'
+      return (
+        <div className="empty" style={{ maxWidth: 480 }}>
+          <div className="ei" style={{ color: paid ? 'var(--success)' : 'var(--danger)' }}>
+            {paid ? IcCheck : IcLock}
+          </div>
+          <h3>{paid ? t('momoPaidTitle') : t('momoFinalTitle')}</h3>
+          <p>{paid ? t('momoPaidDesc') : t('momoFinalDesc')}</p>
+          <p style={{ marginTop: 10, color: 'var(--muted)' }}>
+            {t('momoRedirectIn', { n: countdown })}
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary btn-lg"
+            style={{ marginTop: 18 }}
+            onClick={() =>
+              router.push(`${base}/orders/${awaiting}${paid ? '?paid=1' : '?payment=failed'}`)
+            }
+          >
+            {t('momoContinueNow')}
+          </button>
+        </div>
+      )
+    }
+    if (phase === 'failed') {
+      return (
+        <div className="empty" style={{ maxWidth: 460 }}>
+          <div className="ei" style={{ color: 'var(--danger)' }}>
+            {IcLock}
+          </div>
+          <h3>{t('momoFailedTitle')}</h3>
+          <p>{t('momoFailed')}</p>
+          <div style={{ marginTop: 18, textAlign: 'left' }}>
+            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+              {t('momoRetryPhoneLabel')}
+            </label>
+            <PhoneInput value={retryPhone} onChange={setRetryPhone} defaultCountry="CM" />
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-lg btn-block"
+            style={{ marginTop: 16 }}
+            disabled={retrying}
+            onClick={doRetry}
+          >
+            {retrying ? t('placing') : t('momoRetry')}
+          </button>
+        </div>
+      )
+    }
+    // polling
     return (
       <div className="empty" style={{ maxWidth: 480 }}>
-        {result ? (
-          <>
-            <div className="ei" style={{ color: paid ? 'var(--success)' : 'var(--danger)' }}>
-              {paid ? IcCheck : IcLock}
-            </div>
-            <h3>{paid ? t('momoPaidTitle') : t('momoFailedTitle')}</h3>
-            <p>{paid ? t('momoPaidDesc') : t('momoFailed')}</p>
-            <p style={{ marginTop: 10, color: 'var(--muted)' }}>
-              {t('momoRedirectIn', { n: countdown })}
-            </p>
-            <button
-              type="button"
-              className="btn btn-primary btn-lg"
-              style={{ marginTop: 18 }}
-              onClick={() => router.push(`${base}/orders/${awaiting}${paid ? '?paid=1' : ''}`)}
-            >
-              {t('momoContinueNow')}
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="ei">{IcLock}</div>
-            <h3>{t('momoWaitTitle')}</h3>
-            <p>{t('momoWaitDesc', { phone: phone ?? '' })}</p>
-            <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
-          </>
-        )}
+        <div className="ei">{IcLock}</div>
+        <h3>{t('momoWaitTitle')}</h3>
+        <p>{t('momoWaitDesc', { phone: retryPhone ?? phone ?? '' })}</p>
+        <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
       </div>
     )
   }

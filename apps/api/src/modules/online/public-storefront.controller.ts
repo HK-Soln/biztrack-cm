@@ -7,6 +7,7 @@ import {
   CheckoutDto,
   ContactMessageDto,
   PublicProductsQueryDto,
+  RetryPaymentDto,
   UpdateCartItemDto,
 } from './dto/online-orders.dto'
 
@@ -119,5 +120,15 @@ export class PublicStorefrontController {
   @ApiOperation({ summary: 'Poll the payment status of an order (storefront wait screen)' })
   orderPaymentStatus(@Param('slug') slug: string, @Param('trackingToken') trackingToken: string) {
     return this.orders.getPaymentStatus(slug, trackingToken)
+  }
+
+  @Post(':slug/orders/:trackingToken/pay')
+  @ApiOperation({ summary: 'Retry the provider payment for an order (storefront "try again")' })
+  retryOrderPayment(
+    @Param('slug') slug: string,
+    @Param('trackingToken') trackingToken: string,
+    @Body() dto: RetryPaymentDto,
+  ) {
+    return this.orders.retryPayment(slug, trackingToken, dto.phone)
   }
 }

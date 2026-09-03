@@ -70,10 +70,14 @@ const IcMsg = (
 
 export default async function OrderTrackingPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ trackingToken: string }>
+  searchParams: Promise<{ payment?: string }>
 }) {
   const { trackingToken } = await params
+  const { payment } = await searchParams
+  const paymentFailed = payment === 'failed'
   const slug = await getStoreSlug()
   if (!slug) notFound()
   const [order, store, locale, t] = await Promise.all([
@@ -114,6 +118,22 @@ export default async function OrderTrackingPage({
           {t('orderLabel')} <span className="cur">#{order.orderNumber}</span>
         </div>
       </div>
+
+      {paymentFailed ? (
+        <div
+          style={{
+            background: 'var(--warn-soft, #fff4e5)',
+            color: 'var(--warn, #b26a00)',
+            fontSize: 14,
+            fontWeight: 600,
+            padding: '12px 16px',
+            borderRadius: 12,
+            margin: '0 0 18px',
+          }}
+        >
+          {t('paymentFailedBanner')}
+        </div>
+      ) : null}
 
       <div className="oc-grid">
         {/* tracking */}

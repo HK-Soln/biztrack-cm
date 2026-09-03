@@ -197,6 +197,16 @@ export class CheckoutDto implements CheckoutRequest {
   returnUrl?: string
 }
 
+/** Retry a provider payment for a placed order. An optional new phone lets the customer pay from a
+ * different MoMo number after a failure. */
+export class RetryPaymentDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string
+}
+
 export class ContactMessageDto implements ContactMessageRequest {
   @IsString()
   @MaxLength(120)

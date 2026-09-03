@@ -147,6 +147,10 @@
     "momoPaidDesc": "Merci ! Votre paiement a été confirmé.",
     "momoRedirectIn": "Redirection vers votre commande dans {n} s…",
     "momoContinueNow": "Continuer maintenant",
+    "momoRetry": "Réessayer le paiement",
+    "momoRetryPhoneLabel": "Payer depuis ce numéro Mobile Money",
+    "momoFinalTitle": "Commande reçue — paiement non abouti",
+    "momoFinalDesc": "Votre commande est enregistrée. Nous n'avons pas pu confirmer le paiement ; nous vous appellerons pour le finaliser avant de confirmer la commande.",
     "orderSummary": "Votre commande",
     "subtotal": "Sous-total",
     "deliveryLine": "Livraison",
@@ -176,6 +180,7 @@
     "cancelledBanner": "Cette commande a été annulée.",
     "returnedBanner": "Cette commande a été retournée.",
     "failedBanner": "La livraison a échoué. La boutique vous recontactera.",
+    "paymentFailedBanner": "Le paiement n'a pas abouti. Nous vous appellerons pour le finaliser avant de confirmer votre commande.",
     "status": {
       "PENDING": "Commande passée",
       "CONFIRMED": "Confirmée",
