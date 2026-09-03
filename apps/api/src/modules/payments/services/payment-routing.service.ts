@@ -93,8 +93,12 @@ export class PaymentRoutingService {
         'PAYMENT_CAPABILITY_UNAVAILABLE',
       )
 
+    // Include soft-deleted rows: a disconnected route is soft-deleted, but the unique constraint on
+    // (business_id, payment_method) still holds it — so re-routing must REVIVE that row (clear
+    // deleted_at), not INSERT a colliding one.
     const existing = await this.routes.findOne({
       where: { businessId, paymentMethod: input.paymentMethod },
+      withDeleted: true,
     })
     const patch = {
       providerId: connection.id,
@@ -104,7 +108,7 @@ export class PaymentRoutingService {
     }
     let saved: BusinessPaymentRoute
     if (existing) {
-      await this.routes.update(existing.id, patch)
+      await this.routes.update(existing.id, { ...patch, deletedAt: null })
       saved = (await this.routes.findOne({ where: { id: existing.id } }))!
     } else {
       saved = await this.routes.save(

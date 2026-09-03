@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal } from '@biztrack/ui/biztrack'
@@ -25,6 +25,33 @@ const Back = () => (
     <path d="m15 18-6-6 6-6" />
   </svg>
 )
+
+/** Copy text to the clipboard, tolerant of the Electron renderer where the async Clipboard API can be
+ * unavailable or blocked — falls back to a hidden textarea + execCommand. Returns whether it copied. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* fall through to the legacy path */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
 
 const STATUS_MUTED = { bg: 'var(--inset)', fg: 'var(--text-muted)' }
 const STATUS_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -83,6 +110,13 @@ export function Payments() {
     () => new Map((providersQ.data ?? []).map((p) => [p.code, p])),
     [providersQ.data],
   )
+
+  // Reset the "Copied" affordance a couple of seconds after a successful copy.
+  useEffect(() => {
+    if (!copied) return
+    const id = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(id)
+  }, [copied])
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['payments'] })
@@ -149,8 +183,9 @@ export function Payments() {
   }
 
   const copyWebhookUrl = (url: string) => {
-    void navigator.clipboard?.writeText(url)
-    setCopied(true)
+    void copyText(url).then((ok) => {
+      if (ok) setCopied(true)
+    })
   }
 
   // Route a method to a connection — but if the provider requires webhook setup and it isn't done,
