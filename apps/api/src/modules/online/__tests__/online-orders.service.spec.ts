@@ -16,17 +16,25 @@ const makeService = (opts: {
     save: jest.fn(async (input: any) => ({ id: 'cart-1', ...input })),
     delete: jest.fn(),
   }
+  const eventsRepo = {
+    create: jest.fn((i: any) => i),
+    save: jest.fn(async (i: any) => i),
+    find: jest.fn(),
+  }
   const ordersRepo = {
     create: jest.fn((input: any) => input),
     save: jest.fn(async (input: any) => ({ id: 'order-1', ...input })),
     findOne: jest.fn(),
     find: jest.fn(),
     update: jest.fn(),
-  }
-  const eventsRepo = {
-    create: jest.fn((i: any) => i),
-    save: jest.fn(async (i: any) => i),
-    find: jest.fn(),
+    // checkout() runs order + payment in a transaction; route getRepository to the same mocks.
+    manager: {
+      transaction: (cb: (mgr: any) => any) =>
+        cb({
+          getRepository: (entity: any) =>
+            (entity?.name ?? '') === 'OnlineOrderEvent' ? eventsRepo : ordersRepo,
+        }),
+    },
   }
   const storesRepo = { findOne: jest.fn().mockResolvedValue(opts.store ?? null) }
   const productsRepo = {

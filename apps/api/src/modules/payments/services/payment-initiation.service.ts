@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { randomUUID } from 'node:crypto'
 import { Queue } from 'bullmq'
-import { IsNull, Repository } from 'typeorm'
+import { EntityManager, IsNull, Repository } from 'typeorm'
 import {
   PAYMENT_ATTEMPT_TERMINAL,
   PaymentAttemptInitiationType,
@@ -87,7 +87,11 @@ export class PaymentInitiationService {
 
   async initiateOnlineCheckout(
     input: InitiateOnlineCheckoutInput,
+    manager?: EntityManager,
   ): Promise<InitiatedPayment | null> {
+    // When a manager is passed (checkout runs order + payment in one transaction), the attempt is
+    // created/updated through it, so a failed initiation rolls back with the order.
+    const attempts = manager ? manager.getRepository(PaymentAttempt) : this.attempts
     const routed = await this.routing.resolveProviderForMethod(input.businessId, input.method)
     if (!routed) return null // no verified route — caller uses the unpaid/COD path
 
@@ -102,11 +106,11 @@ export class PaymentInitiationService {
 
     // Attempts are plural per order (retries → new rows). Number this one after any existing.
     const attemptNumber =
-      (await this.attempts.count({ where: { onlineOrderId: input.onlineOrderId } })) + 1
+      (await attempts.count({ where: { onlineOrderId: input.onlineOrderId } })) + 1
     const idempotencyKey = `online_${input.onlineOrderId}_${attemptNumber}`
 
-    const attempt = await this.attempts.save(
-      this.attempts.create({
+    const attempt = await attempts.save(
+      attempts.create({
         businessId: input.businessId,
         onlineOrderId: input.onlineOrderId,
         providerId: connection.id,
@@ -135,7 +139,7 @@ export class PaymentInitiationService {
           successUrl: input.successUrl,
           cancelUrl: input.cancelUrl,
         })
-        await this.attempts.update(attempt.id, {
+        await attempts.update(attempt.id, {
           status: PaymentAttemptStatus.PENDING,
           providerRef: link.providerRef,
           linkUrl: link.url,
@@ -149,14 +153,15 @@ export class PaymentInitiationService {
           expiresAt: link.expiresAt,
         }
       } catch (error) {
-        return this.failAttempt(attempt.id, error)
+        return this.failAttempt(attempts, attempt.id, error)
       }
     }
 
     // Push provider (MoMo request-to-pay): the customer approves on their phone.
     if (adapter.initiateUssdPush) {
       const phone = input.customerPhone?.trim()
-      if (!phone) return this.failAttempt(attempt.id, new Error('A phone number is required.'))
+      if (!phone)
+        return this.failAttempt(attempts, attempt.id, new Error('A phone number is required.'))
       // Generate the reference up front so it's the provider ref AND the callback path segment.
       const referenceId = randomUUID()
       const callbackUrl = this.momoCallbackUrl(connection.webhookToken, referenceId)
@@ -171,7 +176,7 @@ export class PaymentInitiationService {
           referenceId,
           callbackUrl,
         })
-        await this.attempts.update(attempt.id, {
+        await attempts.update(attempt.id, {
           status: PaymentAttemptStatus.PENDING,
           providerRef: push.providerRef,
         })
@@ -187,18 +192,26 @@ export class PaymentInitiationService {
         )
         return { kind: 'pending', attemptId: attempt.id, providerRef: push.providerRef }
       } catch (error) {
-        return this.failAttempt(attempt.id, error)
+        return this.failAttempt(attempts, attempt.id, error)
       }
     }
 
     // Provider has no online execution path.
-    return this.failAttempt(attempt.id, new Error('Provider has no online payment method.'))
+    return this.failAttempt(
+      attempts,
+      attempt.id,
+      new Error('Provider has no online payment method.'),
+    )
   }
 
-  private async failAttempt(attemptId: string, error: unknown): Promise<null> {
+  private async failAttempt(
+    attempts: Repository<PaymentAttempt>,
+    attemptId: string,
+    error: unknown,
+  ): Promise<null> {
     const reason = error instanceof Error ? error.message : String(error)
     this.logger.warn(`Online checkout initiation failed for attempt ${attemptId}: ${reason}`)
-    await this.attempts.update(attemptId, {
+    await attempts.update(attemptId, {
       status: PaymentAttemptStatus.FAILED,
       failedReason: reason,
     })

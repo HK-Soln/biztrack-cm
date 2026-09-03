@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { ConfigService } from '@nestjs/config'
-import { In, IsNull, Repository } from 'typeorm'
+import { EntityManager, In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import type { AppConfig } from '@/config/configuration'
 import {
@@ -265,67 +265,81 @@ export class OnlineOrdersService {
 
       // Local trading day (BIZ-5.1) from the business timezone + cutover.
       const businessDate = await this.calendar.computeForBusiness(store.businessId, new Date())
-      const order = await this.ordersRepo.save(
-        this.ordersRepo.create({
-          onlineStoreId: store.id,
-          businessId: store.businessId,
-          saleId: null,
-          orderNumber: this.buildOrderNumber(),
-          trackingToken: crypto.randomUUID().replace(/-/g, ''),
-          items,
-          totalAmount,
-          customerName: dto.customerName.trim(),
-          customerEmail: dto.customerEmail?.trim() ?? null,
-          customerPhone: dto.customerPhone.trim(),
-          fulfillmentType,
-          deliveryAddress: dto.deliveryAddress?.trim() ?? null,
-          deliveryCity: dto.deliveryCity?.trim() ?? null,
-          deliveryNotes: dto.deliveryNotes?.trim() ?? null,
-          status: 'PENDING',
-          paymentMethod: dto.paymentMethod ?? null,
-          paymentStatus: 'PENDING',
-          businessDate,
-        }),
-      )
-
-      await this.eventsRepo.save(
-        this.eventsRepo.create({
-          onlineOrderId: order.id,
-          businessId: store.businessId,
-          eventType: 'ORDER_PLACED',
-          toStatus: 'PENDING',
-          triggeredBy: 'CUSTOMER',
-          isCustomerVisible: true,
-          customerMessage: STATUS_EVENT.PENDING.message,
-          trackingToken: order.trackingToken,
-        }),
-      )
-
-      // Cart consumed.
-      await this.cartsRepo.delete({ id: cart.id })
-
-      // Send the "order received" email (best-effort).
-      await this.orderEmail.sendStatusEmail(order, 'PENDING')
-
-      // Notify the owner a new online order came in (BIZ-4 newOrder producer).
-      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, totalAmount)
-
-      // Provider-backed payment (Spec 07 build 9): if the chosen method routes to a verified provider
-      // with a hosted-link flow, start a payment and hand the storefront a redirect URL. Best-effort —
-      // a failure here must never unplace an order that's already saved; it just falls back to unpaid.
-      let payment: CheckoutPayment | undefined
       const method = this.mapPaymentMethod(dto.paymentMethod)
-      // Only provider-backed methods start a payment; CASH/COD needs none.
-      if (ROUTABLE_PAYMENT_METHODS.includes(method)) {
-        // Build the provider's return URLs from the storefront origin + this order's tracking token
-        // (used by hosted-redirect providers like Stripe; ignored by MoMo push).
-        const base = dto.returnUrl?.trim().replace(/\/+$/, '')
-        const track = base ? `${base}/orders/${order.trackingToken}` : undefined
-        payment = await this.startOrderPayment(store.businessId, order, method, config.currency, {
-          successUrl: track ? `${track}?paid=1` : undefined,
-          cancelUrl: track ? `${track}?canceled=1` : undefined,
-        })
-      }
+      const isProviderPayment = ROUTABLE_PAYMENT_METHODS.includes(method)
+      const base = dto.returnUrl?.trim().replace(/\/+$/, '')
+
+      // Order creation + payment initiation are ATOMIC: if a provider payment can't be started, the
+      // whole order rolls back so there's no orphan unpaid order — the customer re-checks-out (a fresh
+      // order). CASH/COD orders never fail here. On success: the storefront gets a wait screen (MoMo
+      // push) or a redirect (Stripe); on failure checkout errors and the cart is left intact.
+      const { order, payment } = await this.ordersRepo.manager.transaction(async (mgr) => {
+        const ordersRepo = mgr.getRepository(OnlineOrder)
+        const created = await ordersRepo.save(
+          ordersRepo.create({
+            onlineStoreId: store.id,
+            businessId: store.businessId,
+            saleId: null,
+            orderNumber: this.buildOrderNumber(),
+            trackingToken: crypto.randomUUID().replace(/-/g, ''),
+            items,
+            totalAmount,
+            customerName: dto.customerName.trim(),
+            customerEmail: dto.customerEmail?.trim() ?? null,
+            customerPhone: dto.customerPhone.trim(),
+            fulfillmentType,
+            deliveryAddress: dto.deliveryAddress?.trim() ?? null,
+            deliveryCity: dto.deliveryCity?.trim() ?? null,
+            deliveryNotes: dto.deliveryNotes?.trim() ?? null,
+            status: 'PENDING',
+            paymentMethod: dto.paymentMethod ?? null,
+            paymentStatus: 'PENDING',
+            businessDate,
+          }),
+        )
+        const eventsRepo = mgr.getRepository(OnlineOrderEvent)
+        await eventsRepo.save(
+          eventsRepo.create({
+            onlineOrderId: created.id,
+            businessId: store.businessId,
+            eventType: 'ORDER_PLACED',
+            toStatus: 'PENDING',
+            triggeredBy: 'CUSTOMER',
+            isCustomerVisible: true,
+            customerMessage: STATUS_EVENT.PENDING.message,
+            trackingToken: created.trackingToken,
+          }),
+        )
+
+        let pay: CheckoutPayment | undefined
+        if (isProviderPayment) {
+          const track = base ? `${base}/orders/${created.trackingToken}` : undefined
+          pay = await this.startOrderPayment(
+            store.businessId,
+            created,
+            method,
+            config.currency,
+            {
+              successUrl: track ? `${track}?paid=1` : undefined,
+              cancelUrl: track ? `${track}?canceled=1` : undefined,
+            },
+            mgr,
+          )
+          // Couldn't start the payment → roll the whole order back; the customer re-checks-out.
+          if (pay.failed) {
+            throw new AppBadRequestException(
+              'We could not start the payment. Please try a different number or method.',
+              'ONLINE_PAYMENT_NOT_STARTED',
+            )
+          }
+        }
+        return { order: created, payment: pay }
+      })
+
+      // Committed → consume the cart, email and notify (all skipped if we rolled back above).
+      await this.cartsRepo.delete({ id: cart.id })
+      await this.orderEmail.sendStatusEmail(order, 'PENDING')
+      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
 
       return {
         orderNumber: order.orderNumber,
@@ -496,20 +510,24 @@ export class OnlineOrdersService {
     method: PaymentMethod,
     currency: string,
     opts: { successUrl?: string; cancelUrl?: string; payerPhone?: string | null },
+    manager?: EntityManager,
   ): Promise<CheckoutPayment> {
     try {
-      const initiated = await this.paymentInitiation.initiateOnlineCheckout({
-        businessId,
-        onlineOrderId: order.id,
-        method,
-        amountMinor: majorToMinor(order.totalAmount, currency),
-        currency,
-        reference: order.orderNumber,
-        // A retry may supply a different MoMo number; otherwise use the order's contact phone.
-        customerPhone: opts.payerPhone?.trim() || order.customerPhone,
-        successUrl: opts.successUrl,
-        cancelUrl: opts.cancelUrl,
-      })
+      const initiated = await this.paymentInitiation.initiateOnlineCheckout(
+        {
+          businessId,
+          onlineOrderId: order.id,
+          method,
+          amountMinor: majorToMinor(order.totalAmount, currency),
+          currency,
+          reference: order.orderNumber,
+          // A retry may supply a different MoMo number; otherwise use the order's contact phone.
+          customerPhone: opts.payerPhone?.trim() || order.customerPhone,
+          successUrl: opts.successUrl,
+          cancelUrl: opts.cancelUrl,
+        },
+        manager,
+      )
       if (initiated?.kind === 'redirect')
         return {
           attemptId: initiated.attemptId,
