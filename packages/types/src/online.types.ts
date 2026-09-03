@@ -577,10 +577,10 @@ export interface CheckoutRequest {
   deliveryNotes?: string
   notes?: string
   paymentMethod?: string
-  /** Where the provider returns the customer after a hosted payment (Spec 07 build 9). The storefront
-   * supplies its own return URLs; required for a provider-backed method, ignored for COD. */
-  successUrl?: string
-  cancelUrl?: string
+  /** The storefront's own origin (e.g. https://acme.example). For a provider-backed method the server
+   * builds the hosted-payment return URLs from this + the new order's tracking token, so the customer
+   * lands back on their order page. Ignored for COD. */
+  returnUrl?: string
 }
 
 /** Checkout result. `payment` is present only when a provider-backed method started a hosted payment

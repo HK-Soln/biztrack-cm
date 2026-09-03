@@ -315,6 +315,10 @@ export class OnlineOrdersService {
       const method = this.mapPaymentMethod(dto.paymentMethod)
       if (ROUTABLE_PAYMENT_METHODS.includes(method)) {
         try {
+          // Build the provider's return URLs from the storefront origin + this order's tracking token,
+          // so the customer lands back on their own order page (paid or canceled).
+          const base = dto.returnUrl?.trim().replace(/\/+$/, '')
+          const track = base ? `${base}/orders/${order.trackingToken}` : undefined
           const initiated = await this.paymentInitiation.initiateOnlineCheckout({
             businessId: store.businessId,
             onlineOrderId: order.id,
@@ -323,8 +327,8 @@ export class OnlineOrdersService {
             currency: config.currency,
             reference: order.orderNumber,
             customerPhone: order.customerPhone,
-            successUrl: dto.successUrl,
-            cancelUrl: dto.cancelUrl,
+            successUrl: track ? `${track}?paid=1` : undefined,
+            cancelUrl: track ? `${track}?canceled=1` : undefined,
           })
           if (initiated)
             payment = {

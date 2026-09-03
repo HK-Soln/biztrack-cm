@@ -3,6 +3,7 @@ import type {
   AddCartItemRequest,
   CategoryTreeResponse,
   CheckoutRequest,
+  CheckoutResult,
   ContactMessageRequest,
   OnlineCart,
   PaginatedResult,
@@ -169,7 +170,7 @@ export function sendContactMessage(slug: string, payload: ContactMessageRequest)
 }
 
 export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {
-  return send<{ orderNumber: string; trackingToken: string; status: string }>(
+  return send<CheckoutResult>(
     'POST',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout`,
     payload,

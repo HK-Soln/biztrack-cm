@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
+import { PaymentMethod } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
 import { STORE_ROOT_DOMAIN } from '@/lib/config'
@@ -190,6 +191,10 @@ type Form = {
   city: string
   allowOrderNotes: boolean
   minOrderAmount: string
+  paymentCashOnDelivery: boolean
+  paymentMtnMomo: boolean
+  paymentOrangeMoney: boolean
+  paymentCard: boolean
   offerDelivery: boolean
   offerPickup: boolean
   deliveryFee: string
@@ -225,6 +230,10 @@ function toForm(s: Store): Form {
     city: s.city ?? '',
     allowOrderNotes: s.allowOrderNotes,
     minOrderAmount: s.minOrderAmount != null ? String(s.minOrderAmount) : '',
+    paymentCashOnDelivery: s.paymentCashOnDelivery,
+    paymentMtnMomo: s.paymentMtnMomo,
+    paymentOrangeMoney: s.paymentOrangeMoney,
+    paymentCard: s.paymentCard,
     offerDelivery: s.offerDelivery,
     offerPickup: s.offerPickup,
     deliveryFee: s.deliveryFee != null ? String(s.deliveryFee) : '',
@@ -247,6 +256,41 @@ function toForm(s: Store): Form {
     whatsappNumber: s.whatsappNumber ?? '',
     socialTiktok: s.socialTiktok ?? '',
   }
+}
+
+/** One payment-method row. A provider-backed method is only interactive when its route is fully set
+ * up (`available`); otherwise it's shown locked with a "set up a provider first" hint and can't be
+ * switched on — so the store can never advertise a method it can't actually collect. */
+function PaymentToggle({
+  t,
+  label,
+  desc,
+  on,
+  available,
+  onToggle,
+}: {
+  t: ReturnType<typeof useT>
+  label: Parameters<ReturnType<typeof useT>>[0]
+  desc: Parameters<ReturnType<typeof useT>>[0]
+  on: boolean
+  available: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="set-line" style={available ? undefined : { opacity: 0.6 }}>
+      <div className="t">
+        <div className="nm">{t(label)}</div>
+        <div className="ds">{available ? t(desc) : t('online.payNeedsSetup')}</div>
+      </div>
+      <button
+        type="button"
+        className={`switch${on ? ' on' : ''}`}
+        aria-pressed={on}
+        disabled={!available}
+        onClick={onToggle}
+      />
+    </div>
+  )
 }
 
 /** Tag-style editor for the delivery-cities list (add on Enter/button, remove per chip). */
@@ -516,6 +560,19 @@ function StoreConfig({
   }, [store])
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }))
 
+  // Which provider-backed methods the business can actually collect (verified connection + routed +
+  // webhook-ready — a route can't exist otherwise). Owner-only endpoint; on error (a non-owner, or
+  // offline) treat as none so those methods stay locked and can't be published without real routing.
+  const availableQ = useQuery({
+    queryKey: ['payments', 'available'],
+    queryFn: () => dataClient.payments.availableMethods(),
+    retry: false,
+  })
+  const availableMethods = useMemo(
+    () => new Set((availableQ.data ?? []).map((m) => m.method)),
+    [availableQ.data],
+  )
+
   const brand = THEMES.find((x) => x.id === form.themeId)?.brand ?? '#16467A'
   const host = `${form.storeSlug || 'yourshop'}.${STORE_ROOT_DOMAIN}`
 
@@ -567,11 +624,13 @@ function StoreConfig({
         minOrderAmount: form.minOrderAmount.trim()
           ? Math.max(0, Math.round(Number(form.minOrderAmount)))
           : null,
-        // Online payments are COD-only until Paytrack ships (dynamic methods land then).
-        paymentCashOnDelivery: true,
-        paymentMtnMomo: false,
-        paymentOrangeMoney: false,
-        paymentCard: false,
+        // Provider-backed methods can only be enabled when their route is fully set up — coerce off
+        // anything not currently available so a broken/removed route can never stay published.
+        paymentCashOnDelivery: form.paymentCashOnDelivery,
+        paymentMtnMomo: form.paymentMtnMomo && availableMethods.has(PaymentMethod.MTN_MOMO),
+        paymentOrangeMoney:
+          form.paymentOrangeMoney && availableMethods.has(PaymentMethod.ORANGE_MONEY),
+        paymentCard: form.paymentCard && availableMethods.has(PaymentMethod.CARD),
         offerDelivery: form.offerDelivery,
         offerPickup: form.offerPickup,
         deliveryFee: form.deliveryFee.trim()
@@ -986,19 +1045,41 @@ function StoreConfig({
             <div className="reserved-note">{t('online.minOrderHint')}</div>
             <div className="divider" />
             <label className="lbl">{t('online.payments')}</label>
-            <div className="set-line">
-              <div className="t">
-                <div className="nm">{t('online.cod')}</div>
-                <div className="ds">{t('online.codDesc')}</div>
-              </div>
-              <span className="st st-ok">
-                <span className="d" />
-                {t('online.active')}
-              </span>
-            </div>
+            <PaymentToggle
+              t={t}
+              label="online.cod"
+              desc="online.codDesc"
+              on={form.paymentCashOnDelivery}
+              available
+              onToggle={() => set('paymentCashOnDelivery', !form.paymentCashOnDelivery)}
+            />
+            <PaymentToggle
+              t={t}
+              label="online.payMtnMomo"
+              desc="online.payMtnMomoDesc"
+              on={form.paymentMtnMomo && availableMethods.has(PaymentMethod.MTN_MOMO)}
+              available={availableMethods.has(PaymentMethod.MTN_MOMO)}
+              onToggle={() => set('paymentMtnMomo', !form.paymentMtnMomo)}
+            />
+            <PaymentToggle
+              t={t}
+              label="online.payOrangeMoney"
+              desc="online.payOrangeMoneyDesc"
+              on={form.paymentOrangeMoney && availableMethods.has(PaymentMethod.ORANGE_MONEY)}
+              available={availableMethods.has(PaymentMethod.ORANGE_MONEY)}
+              onToggle={() => set('paymentOrangeMoney', !form.paymentOrangeMoney)}
+            />
+            <PaymentToggle
+              t={t}
+              label="online.payCard"
+              desc="online.payCardDesc"
+              on={form.paymentCard && availableMethods.has(PaymentMethod.CARD)}
+              available={availableMethods.has(PaymentMethod.CARD)}
+              onToggle={() => set('paymentCard', !form.paymentCard)}
+            />
             <div className="form-note" style={{ marginTop: 12 }}>
               {ICO.lock}
-              <span>{t('online.paymentsSoon')}</span>
+              <span>{t('online.payGateHint')}</span>
             </div>
           </div>
 
