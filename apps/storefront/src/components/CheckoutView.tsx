@@ -30,6 +30,11 @@ const IcLock = (
     <path d="M8 11V8a4 4 0 0 1 8 0v3" />
   </svg>
 )
+const IcCheck = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+)
 
 export function CheckoutView({
   slug,
@@ -111,10 +116,11 @@ export function CheckoutView({
     enabled: Boolean(sessionToken),
   })
 
-  // A pending push payment (MoMo request-to-pay): show the "approve on your phone" wait screen and
-  // poll the status endpoint until it settles.
+  // A pending push payment (MoMo request-to-pay): show the "approve on your phone" wait screen, poll
+  // the status endpoint, and on a result show it with a short countdown before redirecting.
   const [awaiting, setAwaiting] = useState<string | null>(null) // tracking token
-  const [payError, setPayError] = useState<string | null>(null)
+  const [result, setResult] = useState<'PAID' | 'FAILED' | null>(null)
+  const [countdown, setCountdown] = useState(10)
 
   const mutation = useMutation({
     mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
@@ -127,7 +133,7 @@ export function CheckoutView({
       }
       // Push (MoMo) → wait screen + poll; the customer approves on their phone.
       if (order.payment?.pending) {
-        setPayError(null)
+        setResult(null)
         setAwaiting(order.trackingToken)
         return
       }
@@ -136,25 +142,19 @@ export function CheckoutView({
     },
   })
 
-  // Poll the payment status while awaiting approval. PAID → order page; FAILED → let them retry;
-  // otherwise keep polling for ~2 min, then hand off to the order page (which shows live status).
+  // Poll the payment status while awaiting approval. On a terminal state, record the result (don't
+  // redirect yet — the countdown below handles that). After ~2 min still pending, hand off.
   const startedRef = useRef(0)
   useEffect(() => {
-    if (!awaiting) return
+    if (!awaiting || result) return
     let active = true
     let timer: ReturnType<typeof setTimeout>
-    startedRef.current = Date.now()
+    if (!startedRef.current) startedRef.current = Date.now()
     const tick = async () => {
       const res = await getPaymentStatus(slug, awaiting)
       if (!active) return
-      if (res?.status === 'PAID') {
-        router.push(`${base}/orders/${awaiting}?paid=1`)
-        return
-      }
-      if (res?.status === 'FAILED') {
-        setPayError(t('momoFailed'))
-        return
-      }
+      if (res?.status === 'PAID') return setResult('PAID')
+      if (res?.status === 'FAILED') return setResult('FAILED')
       if (Date.now() - startedRef.current < 120_000) timer = setTimeout(tick, 3000)
       else router.push(`${base}/orders/${awaiting}`)
     }
@@ -163,7 +163,24 @@ export function CheckoutView({
       active = false
       clearTimeout(timer)
     }
-  }, [awaiting, slug, base, router, t])
+  }, [awaiting, result, slug, base, router])
+
+  // Once resolved, count down from 10s then redirect to the order page (or let them skip with a button).
+  useEffect(() => {
+    if (!awaiting || !result) return
+    setCountdown(10)
+    const id = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(id)
+          router.push(`${base}/orders/${awaiting}${result === 'PAID' ? '?paid=1' : ''}`)
+          return 0
+        }
+        return c - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [awaiting, result, base, router])
 
   const subtotal = cart?.subtotal ?? 0
   const isDelivery = fulfillmentType === 'DELIVERY'
@@ -175,22 +192,27 @@ export function CheckoutView({
   // Awaiting a MoMo approval — takes precedence over the empty-cart check (the session is cleared on
   // a successful checkout, so this must render before that guard).
   if (awaiting) {
+    const paid = result === 'PAID'
     return (
       <div className="empty" style={{ maxWidth: 480 }}>
-        {payError ? (
+        {result ? (
           <>
-            <div className="ei" style={{ color: 'var(--danger)' }}>
-              {IcLock}
+            <div className="ei" style={{ color: paid ? 'var(--success)' : 'var(--danger)' }}>
+              {paid ? IcCheck : IcLock}
             </div>
-            <h3>{t('momoFailedTitle')}</h3>
-            <p>{payError}</p>
-            <Link
+            <h3>{paid ? t('momoPaidTitle') : t('momoFailedTitle')}</h3>
+            <p>{paid ? t('momoPaidDesc') : t('momoFailed')}</p>
+            <p style={{ marginTop: 10, color: 'var(--muted)' }}>
+              {t('momoRedirectIn').replace('{n}', String(countdown))}
+            </p>
+            <button
+              type="button"
               className="btn btn-primary btn-lg"
-              style={{ marginTop: 22 }}
-              href={`${base}/orders/${awaiting}`}
+              style={{ marginTop: 18 }}
+              onClick={() => router.push(`${base}/orders/${awaiting}${paid ? '?paid=1' : ''}`)}
             >
-              {t('momoViewOrder')}
-            </Link>
+              {t('momoContinueNow')}
+            </button>
           </>
         ) : (
           <>

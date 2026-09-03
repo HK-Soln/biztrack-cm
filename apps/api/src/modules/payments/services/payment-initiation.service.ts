@@ -206,8 +206,15 @@ export class PaymentInitiationService {
   }
 
   /** The public URL MoMo PUTs its callback to — our signed connection token + the reference in the
-   * path (MoMo has no HMAC, so the path token is the authentication). Null when no token/API_URL. */
+   * path (MoMo has no HMAC, so the path token is the authentication).
+   *
+   * OPT-IN: MoMo validates the callback host against the `providerCallbackHost` on the API user and
+   * rejects the whole request-to-pay (INVALID_CALLBACK_URL_HOST) if it doesn't match — and it can
+   * never reach a localhost dev API. So we only send it when MTN_MOMO_CALLBACK_ENABLED=true (i.e. a
+   * public API whose host the merchant registered as their callback host). Otherwise the background
+   * poll job is the sole — and reliable — settle path. */
   private momoCallbackUrl(webhookToken: string | null, referenceId: string): string | undefined {
+    if (this.config.get<string>('MTN_MOMO_CALLBACK_ENABLED') !== 'true') return undefined
     const base = (this.config.get<string>('API_URL') ?? '').replace(/\/+$/, '')
     if (!webhookToken || !base) return undefined
     return `${base}/api/v1/webhooks/payments/momo/${webhookToken}/${referenceId}`
