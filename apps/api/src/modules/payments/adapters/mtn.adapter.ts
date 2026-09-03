@@ -28,10 +28,9 @@ interface MtnTokenBody {
  * MTN's payment API endpoints + signing details, which aren't wired yet — those methods throw/false
  * until provided. Verification (this file's real part) is enough to connect + validate sandbox keys.
  */
-const MTN_HOSTS = {
-  sandbox: 'https://sandbox.api.mtn.com',
-  production: 'https://api.mtn.com',
-} as const
+/** Global host — serves sandbox with the right credentials/product. Production is a per-tenant host
+ * MTN issues after onboarding; the merchant supplies it as `base_url`. */
+const DEFAULT_MTN_HOST = 'https://api.mtn.com'
 
 export class MtnAdapter implements PaymentProviderAdapter {
   readonly code = 'MTN'
@@ -44,7 +43,9 @@ export class MtnAdapter implements PaymentProviderAdapter {
 
   private baseUrlFor(credentials: Record<string, string>): string {
     if (this.overrideBaseUrl) return this.overrideBaseUrl
-    return credentials.environment === 'sandbox' ? MTN_HOSTS.sandbox : MTN_HOSTS.production
+    const custom = credentials.base_url?.trim()
+    if (custom) return custom.replace(/\/+$/, '') // per-tenant production host
+    return DEFAULT_MTN_HOST
   }
 
   /**
@@ -53,12 +54,14 @@ export class MtnAdapter implements PaymentProviderAdapter {
    * exactly what MTN returned on failure and accept either the flat or `{data}`-enveloped shape.
    */
   private async fetchToken(credentials: Record<string, string>): Promise<string> {
+    console.log(credentials, 'credentials')
     const consumerKey = credentials.consumer_key ?? ''
     const consumerSecret = credentials.consumer_secret ?? ''
     const cached = this.tokenCache.get(consumerKey)
     if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token
 
     const url = `${this.baseUrlFor(credentials)}/v1/oauth/access_token?grant_type=client_credentials`
+    console.log(url, 'oauth url')
     const host = new URL(url).host
     const res = await fetch(url, {
       method: 'POST',
@@ -98,6 +101,17 @@ export class MtnAdapter implements PaymentProviderAdapter {
   async verifyCredentials(credentials: Record<string, string>): Promise<VerifyCredentialsResult> {
     if (!credentials.consumer_key || !credentials.consumer_secret) {
       return { valid: false, enabledMethods: [], error: 'Missing consumer key/secret.' }
+    }
+    const custom = credentials.base_url?.trim()
+    if (credentials.environment === 'production' && !this.overrideBaseUrl && !custom) {
+      return { valid: false, enabledMethods: [], error: 'Enter your production MTN base URL.' }
+    }
+    if (custom) {
+      try {
+        new URL(custom)
+      } catch {
+        return { valid: false, enabledMethods: [], error: 'The MTN base URL is not a valid URL.' }
+      }
     }
     try {
       await this.fetchToken(credentials)

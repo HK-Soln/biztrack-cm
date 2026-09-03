@@ -17,9 +17,14 @@ export interface ProviderCredentialField {
   labelEn: string
   labelFr: string
   secret: boolean
-  type?: 'text' | 'password' | 'select'
+  type?: 'text' | 'password' | 'select' | 'url'
   /** For `type: 'select'` — allowed values (e.g. sandbox | production). */
   options?: string[]
+  /** When true the field may be left blank (unless made required by `showWhen`). */
+  optional?: boolean
+  /** Show (and require) this field only when another field equals a value — e.g. a production base
+   * URL shown only when `environment = production`. */
+  showWhen?: { field: string; equals: string }
 }
 
 export type ProviderCredentialSchema = ProviderCredentialField[]

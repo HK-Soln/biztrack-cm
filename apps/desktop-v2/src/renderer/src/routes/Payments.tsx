@@ -314,9 +314,17 @@ export function Payments() {
             <Button
               variant="primary"
               loading={connect.isPending}
-              onClick={() =>
-                connectFor && connect.mutate({ providerCode: connectFor.code, credentials: form })
-              }
+              onClick={() => {
+                if (!connectFor) return
+                // Only submit fields that are currently visible (a hidden field's stale value, e.g.
+                // a production base_url after switching to sandbox, must not be sent).
+                const credentials = Object.fromEntries(
+                  connectFor.credentialSchema
+                    .filter((f) => !f.showWhen || form[f.showWhen.field] === f.showWhen.equals)
+                    .map((f) => [f.key, form[f.key] ?? '']),
+                )
+                connect.mutate({ providerCode: connectFor.code, credentials })
+              }}
             >
               {t('pay.connectSave')}
             </Button>
@@ -331,30 +339,32 @@ export function Payments() {
             <span>{error}</span>
           </div>
         ) : null}
-        {connectFor?.credentialSchema.map((f) => (
-          <div key={f.key} style={{ marginBottom: 12 }}>
-            <label className="lbl2">{f.labelEn}</label>
-            {f.type === 'select' ? (
-              <select
-                className="input"
-                value={form[f.key] ?? ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              >
-                {(f.options ?? []).map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Input
-                type={f.secret || f.type === 'password' ? 'password' : 'text'}
-                value={form[f.key] ?? ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              />
-            )}
-          </div>
-        ))}
+        {connectFor?.credentialSchema
+          .filter((f) => !f.showWhen || form[f.showWhen.field] === f.showWhen.equals)
+          .map((f) => (
+            <div key={f.key} style={{ marginBottom: 12 }}>
+              <label className="lbl2">{f.labelEn}</label>
+              {f.type === 'select' ? (
+                <select
+                  className="input"
+                  value={form[f.key] ?? ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                >
+                  {(f.options ?? []).map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  type={f.secret || f.type === 'password' ? 'password' : 'text'}
+                  value={form[f.key] ?? ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                />
+              )}
+            </div>
+          ))}
       </Modal>
     </div>
   )

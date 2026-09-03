@@ -57,9 +57,14 @@ export class PaymentCredentialsService {
     })
     if (!provider) throw new AppNotFoundException('Unknown payment provider.', 'NOT_FOUND')
 
-    // Every secret/required field the schema declares must be present and non-empty.
+    // Required = not `optional`, and (no `showWhen` or its condition matches the submitted values).
+    const isRequired = (f: (typeof provider.credentialSchema)[number]): boolean => {
+      if (f.optional) return false
+      if (f.showWhen) return input.credentials[f.showWhen.field] === f.showWhen.equals
+      return true
+    }
     const missing = provider.credentialSchema
-      .filter((f) => !input.credentials[f.key]?.trim())
+      .filter((f) => isRequired(f) && !input.credentials[f.key]?.trim())
       .map((f) => f.key)
     if (missing.length > 0)
       throw new AppBadRequestException(
