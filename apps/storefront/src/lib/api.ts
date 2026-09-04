@@ -2,12 +2,15 @@ import { createHttpClient, HttpError } from '@biztrack/http-client/browser'
 import type {
   AddCartItemRequest,
   CategoryTreeResponse,
+  CheckoutPayment,
   CheckoutRequest,
+  CheckoutResult,
   ContactMessageRequest,
   OnlineCart,
   PaginatedResult,
   PublicFacets,
   PublicOrderTracking,
+  PublicPaymentStatus,
   PublicProductDetail,
   PublicProductListItem,
   PublicProductsQuery,
@@ -169,10 +172,26 @@ export function sendContactMessage(slug: string, payload: ContactMessageRequest)
 }
 
 export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {
-  return send<{ orderNumber: string; trackingToken: string; status: string }>(
+  return send<CheckoutResult>(
     'POST',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout`,
     payload,
+  )
+}
+
+/** Poll a push payment's status (MoMo wait screen). Null (transient error) is treated as still pending. */
+export function getPaymentStatus(slug: string, trackingToken: string) {
+  return readJson<PublicPaymentStatus>(
+    `${storePath(slug)}/orders/${encodeURIComponent(trackingToken)}/payment`,
+  )
+}
+
+/** Retry a failed provider payment for an order, optionally from a different MoMo number. */
+export function retryPayment(slug: string, trackingToken: string, phone?: string) {
+  return send<CheckoutPayment>(
+    'POST',
+    `${storePath(slug)}/orders/${encodeURIComponent(trackingToken)}/pay`,
+    { phone },
   )
 }
 

@@ -13,6 +13,7 @@ import {
   SerialUnitStatus,
   canTransitionOnlineOrder,
   type AddCartItemRequest,
+  type CheckoutPayment,
   type CheckoutRequest,
   type JwtPayload,
   type OnlineCart as OnlineCartShape,
@@ -24,6 +25,7 @@ import {
   type OnlineStorePublishedConfig,
   type OrderSerialSelection,
   type PublicOrderTracking,
+  type PublicPaymentStatus,
   type SaleSyncChargeLinePayload,
   type SaleSyncPayload,
   type UpdateOrderPaymentRequest,
@@ -54,6 +56,9 @@ import { SalesService } from '@/modules/sales/services/sales.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
+import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
+import { ROUTABLE_PAYMENT_METHODS } from '@biztrack/types'
+import { majorToMinor } from '@biztrack/utils'
 
 const cartItemKey = (item: {
   productId: string
@@ -124,6 +129,7 @@ export class OnlineOrdersService {
     private readonly orderEmail: OrderEmailService,
     private readonly dispatcher: NotificationDispatcher,
     private readonly calendar: BusinessCalendarService,
+    private readonly paymentInitiation: PaymentInitiationService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -259,6 +265,15 @@ export class OnlineOrdersService {
 
       // Local trading day (BIZ-5.1) from the business timezone + cutover.
       const businessDate = await this.calendar.computeForBusiness(store.businessId, new Date())
+      const method = this.mapPaymentMethod(dto.paymentMethod)
+      const isProviderPayment = ROUTABLE_PAYMENT_METHODS.includes(method)
+      const base = dto.returnUrl?.trim().replace(/\/+$/, '')
+
+      // Order creation is DECOUPLED from payment: the order is always placed first and a payment can
+      // never break (or roll back) it. Self-handled payments (MoMo request-to-pay) are NOT triggered
+      // here — the storefront takes the customer to our own payment page (`payment.mode === 'self'`)
+      // where the payment is started, polled, and retried in isolation. Hosted providers (Stripe) still
+      // get their link here so the storefront can redirect straight to the hosted page.
       const order = await this.ordersRepo.save(
         this.ordersRepo.create({
           onlineStoreId: store.id,
@@ -281,7 +296,6 @@ export class OnlineOrdersService {
           businessDate,
         }),
       )
-
       await this.eventsRepo.save(
         this.eventsRepo.create({
           onlineOrderId: order.id,
@@ -295,19 +309,35 @@ export class OnlineOrdersService {
         }),
       )
 
-      // Cart consumed.
+      // Order is placed — consume the cart, email and notify regardless of the payment path.
       await this.cartsRepo.delete({ id: cart.id })
-
-      // Send the "order received" email (best-effort).
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
+      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
 
-      // Notify the owner a new online order came in (BIZ-4 newOrder producer).
-      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, totalAmount)
+      // Decide how the storefront proceeds to payment (see CheckoutPayment.mode).
+      let payment: CheckoutPayment = { mode: 'none' }
+      if (isProviderPayment) {
+        const mode = await this.paymentInitiation.resolveOnlinePaymentMode(store.businessId, method)
+        if (mode === 'redirect') {
+          // Hosted provider (Stripe): generate the link now and hand back the redirect URL. Best-effort
+          // — if it can't be generated the order still stands and we fall back to our payment page.
+          const track = base ? `${base}/orders/${order.trackingToken}` : undefined
+          const pay = await this.startOrderPayment(store.businessId, order, method, config.currency, {
+            successUrl: track ? `${track}?paid=1` : undefined,
+            cancelUrl: track ? `${track}?canceled=1` : undefined,
+          })
+          payment = pay.url ? { ...pay, mode: 'redirect' } : { mode: 'self' }
+        } else if (mode === 'self') {
+          // Self-handled (MoMo): do NOT initiate here — the payment page owns it.
+          payment = { mode: 'self' }
+        }
+      }
 
       return {
         orderNumber: order.orderNumber,
         trackingToken: order.trackingToken,
         status: order.status,
+        payment,
       }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })
@@ -402,6 +432,9 @@ export class OnlineOrdersService {
       totalAmount: order.totalAmount,
       currency: config.currency,
       fulfillmentType: order.fulfillmentType,
+      paymentMethod: order.paymentMethod ?? null,
+      paymentStatus: order.paymentStatus,
+      customerPhone: order.customerPhone ?? null,
       events: events.map((event) => ({
         id: event.id,
         eventType: event.eventType,
@@ -411,6 +444,96 @@ export class OnlineOrdersService {
         customerMessage: event.customerMessage ?? null,
         createdAt: event.createdAt.toISOString(),
       })),
+    }
+  }
+
+  /**
+   * Storefront wait-screen poll (public): reconcile the order's latest payment attempt against the
+   * provider and return a tri-state — PENDING (keep polling), PAID (go to the order page), FAILED
+   * (let the customer retry). Short-circuits to PAID when the order is already settled.
+   */
+  async getPaymentStatus(slug: string, trackingToken: string): Promise<PublicPaymentStatus> {
+    const { store } = await this.requireStore(slug)
+    const order = await this.ordersRepo.findOne({
+      where: { onlineStoreId: store.id, trackingToken },
+    })
+    if (!order) {
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.online_order_not_found'),
+        'ONLINE_ORDER_NOT_FOUND',
+      )
+    }
+    if (order.paymentStatus === 'PAID') return { status: 'PAID' }
+    const state = await this.paymentInitiation.pollOnlineOrderPayment(store.businessId, order.id)
+    if (!state) return { status: 'PENDING' }
+    return state.reason ? { status: state.status, reason: state.reason } : { status: state.status }
+  }
+
+  /**
+   * Retry the provider payment for an already-placed order (storefront "try again" after a failure).
+   * Starts a fresh attempt with the order's stored method + phone. Guarded against a double charge:
+   * a PAID order is not re-initiated. COD has nothing to retry.
+   */
+  async retryPayment(
+    slug: string,
+    trackingToken: string,
+    payerPhone?: string,
+  ): Promise<CheckoutPayment> {
+    const { store, config } = await this.requireStore(slug)
+    const order = await this.ordersRepo.findOne({
+      where: { onlineStoreId: store.id, trackingToken },
+    })
+    if (!order) {
+      throw new AppNotFoundException(
+        await this.i18n.translate('errors.online_order_not_found'),
+        'ONLINE_ORDER_NOT_FOUND',
+      )
+    }
+    if (order.paymentStatus === 'PAID') return {} // already paid — storefront redirects
+    const method = this.mapPaymentMethod(order.paymentMethod)
+    if (!ROUTABLE_PAYMENT_METHODS.includes(method)) return { failed: true }
+    return this.startOrderPayment(store.businessId, order, method, config.currency, { payerPhone })
+  }
+
+  /**
+   * Start (or restart) a provider payment for an order. Maps the initiation outcome to the
+   * storefront payment shape; a null/error initiation becomes `{ failed: true }` so the storefront can
+   * keep the customer on the confirmation page and offer a retry (never a silent "order confirmed").
+   */
+  private async startOrderPayment(
+    businessId: string,
+    order: OnlineOrder,
+    method: PaymentMethod,
+    currency: string,
+    opts: { successUrl?: string; cancelUrl?: string; payerPhone?: string | null },
+  ): Promise<CheckoutPayment> {
+    try {
+      const initiated = await this.paymentInitiation.initiateOnlineCheckout({
+        businessId,
+        onlineOrderId: order.id,
+        method,
+        amountMinor: majorToMinor(order.totalAmount, currency),
+        currency,
+        reference: order.orderNumber,
+        // A payment may be started from a specific MoMo number; otherwise use the order's contact phone.
+        customerPhone: opts.payerPhone?.trim() || order.customerPhone,
+        successUrl: opts.successUrl,
+        cancelUrl: opts.cancelUrl,
+      })
+      if (initiated?.kind === 'redirect')
+        return {
+          attemptId: initiated.attemptId,
+          url: initiated.url,
+          expiresAt: initiated.expiresAt,
+        }
+      if (initiated?.kind === 'pending') return { attemptId: initiated.attemptId, pending: true }
+      return { failed: true }
+    } catch (error) {
+      this.logger.warn('Online payment initiation failed', 'OnlineOrdersService', {
+        orderId: order.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return { failed: true }
     }
   }
 

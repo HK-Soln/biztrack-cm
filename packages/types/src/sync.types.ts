@@ -463,6 +463,9 @@ export interface SalePaymentSyncRecord extends SyncRecord {
   recordedById?: string | null
   note?: string | null
   businessDate?: string | null
+  // Spec 07 [A11] — the provider-execution attempt this ledger row was posted from (null for
+  // cash/attested). Server-set on the online path; carried so it reaches every device.
+  paymentAttemptId?: string | null
   createdAt: string
 }
 

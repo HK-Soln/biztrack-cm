@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -64,6 +64,47 @@ export function CheckoutView({
   const [instructions, setInstructions] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
+  // Payment options come from the published store flags (which the admin can only enable when the
+  // provider route is fully set up). COD needs no provider; the others redirect to a hosted page.
+  const pm = store?.paymentMethods
+  const payOptions = useMemo(() => {
+    const opts: { key: string; title: string; desc: string; badge: string; color: string }[] = []
+    if (pm?.cashOnDelivery ?? true)
+      opts.push({
+        key: 'CASH',
+        title: t('codTitle'),
+        desc: t('codDesc'),
+        badge: 'CASH',
+        color: 'var(--success)',
+      })
+    if (pm?.card)
+      opts.push({
+        key: 'CARD',
+        title: t('cardTitle'),
+        desc: t('cardDesc'),
+        badge: 'CARD',
+        color: '#635bff',
+      })
+    if (pm?.mtnMomo)
+      opts.push({
+        key: 'MTN_MOMO',
+        title: t('mtnTitle'),
+        desc: t('momoDesc'),
+        badge: 'MTN',
+        color: '#f5b301',
+      })
+    if (pm?.orangeMoney)
+      opts.push({
+        key: 'ORANGE_MONEY',
+        title: t('orangeTitle'),
+        desc: t('momoDesc'),
+        badge: 'OM',
+        color: '#ff6a00',
+      })
+    return opts
+  }, [pm, t])
+  const [paymentMethod, setPaymentMethod] = useState<string>(payOptions[0]?.key ?? 'CASH')
+
   const { data: cart } = useQuery({
     queryKey: queryKeys.cart(slug, sessionToken ?? 'none'),
     queryFn: () => getCart(slug, sessionToken as string),
@@ -74,6 +115,19 @@ export function CheckoutView({
     mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
     onSuccess: (order) => {
       clearSession()
+      const pay = order.payment
+      // Hosted provider (Stripe): straight to the hosted checkout page.
+      if (pay?.mode === 'redirect' && pay.url) {
+        window.location.href = pay.url
+        return
+      }
+      // Self-handled provider (MoMo): our own payment page owns the request-to-pay + retries, so
+      // order creation never had to risk it.
+      if (pay?.mode === 'self') {
+        router.push(`${base}/orders/${order.trackingToken}/pay`)
+        return
+      }
+      // COD / no online payment.
       router.push(`${base}/orders/${order.trackingToken}`)
     },
   })
@@ -128,6 +182,9 @@ export function CheckoutView({
       deliveryAddress: isDelivery ? address.trim() : undefined,
       deliveryCity: isDelivery ? city.trim() || undefined : undefined,
       deliveryNotes: isDelivery && instructions.trim() ? instructions.trim() : undefined,
+      paymentMethod,
+      // Our origin — the server builds the hosted-payment return URLs from this + the order token.
+      returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
     })
   }
 
@@ -261,7 +318,7 @@ export function CheckoutView({
           ) : null}
         </div>
 
-        {/* payment — COD only for now */}
+        {/* payment */}
         <div className="cocard">
           <h3>
             <span className="sn">3</span>
@@ -269,16 +326,23 @@ export function CheckoutView({
           </h3>
           <p className="csub">{t('paymentSub')}</p>
           <div className="pay-list">
-            <div className="payopt on">
-              <span className="plogo" style={{ background: 'var(--success)' }}>
-                CASH
-              </span>
-              <span className="pi">
-                <span className="t">{t('codTitle')}</span>
-                <span className="d">{t('codDesc')}</span>
-              </span>
-              <span className="rdo" />
-            </div>
+            {payOptions.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                className={`payopt${paymentMethod === o.key ? ' on' : ''}`}
+                onClick={() => setPaymentMethod(o.key)}
+              >
+                <span className="plogo" style={{ background: o.color }}>
+                  {o.badge}
+                </span>
+                <span className="pi">
+                  <span className="t">{o.title}</span>
+                  <span className="d">{o.desc}</span>
+                </span>
+                <span className="rdo" />
+              </button>
+            ))}
           </div>
         </div>
       </div>

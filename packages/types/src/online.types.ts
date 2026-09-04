@@ -577,6 +577,52 @@ export interface CheckoutRequest {
   deliveryNotes?: string
   notes?: string
   paymentMethod?: string
+  /** The storefront's own origin (e.g. https://acme.example). For a provider-backed method the server
+   * builds the hosted-payment return URLs from this + the new order's tracking token, so the customer
+   * lands back on their order page. Ignored for COD. */
+  returnUrl?: string
+}
+
+/**
+ * The payment outcome/intent for an order (Spec 07). Two uses share this shape:
+ *
+ * At CHECKOUT, `mode` tells the storefront how to proceed (payment is NOT triggered here for
+ * self-handled providers — order creation is decoupled from payment):
+ *  - `redirect` → a hosted provider (Stripe): `url` is set, the storefront navigates there.
+ *  - `self`     → a self-handled provider (MTN MoMo request-to-pay): the storefront sends the
+ *                 customer to our own payment page `/orders/{token}/pay`, where the payment is
+ *                 started and managed (enter number → push → poll → retry) without ever having
+ *                 risked the order creation.
+ *  - `none`     → no online payment (COD): go straight to the order page.
+ *
+ * On the PAYMENT PAGE, starting/retrying a payment returns the per-attempt outcome:
+ *  - `url`     → hosted redirect: navigate there.
+ *  - `pending` → push accepted; the customer approves on their phone; poll `GET .../orders/{token}/payment`.
+ *  - `failed`  → the payment could not be started (provider error); show a retry.
+ */
+export interface CheckoutPayment {
+  mode?: 'redirect' | 'self' | 'none'
+  attemptId?: string
+  url?: string
+  pending?: boolean
+  failed?: boolean
+  expiresAt?: string | null
+}
+
+/** Checkout result. `payment` is present only when a provider-backed method was chosen. */
+export interface CheckoutResult {
+  orderNumber: string
+  trackingToken: string
+  status: OnlineOrderStatus
+  payment?: CheckoutPayment
+}
+
+/** Public payment status for the storefront payment page (polled while a push payment is pending).
+ * PENDING → keep waiting; PAID → done; FAILED → let the customer retry.
+ * `reason` is a provider failure-reason CODE (whitelisted, FAILED only) the storefront maps to copy. */
+export interface PublicPaymentStatus {
+  status: 'PENDING' | 'PAID' | 'FAILED'
+  reason?: string
 }
 
 export interface OnlineOrderEvent {
@@ -682,5 +728,12 @@ export interface PublicOrderTracking {
   totalAmount: number
   currency: string
   fulfillmentType: OnlineFulfillmentType
+  /** The chosen payment method (CASH/MTN_MOMO/ORANGE_MONEY/CARD) + its money-axis status — drive the
+   *  payment page (whether an online payment is still owed and how to collect it). */
+  paymentMethod: string | null
+  paymentStatus: OnlinePaymentStatus
+  /** The phone the customer gave at checkout — prefills the Mobile Money number on the payment page
+   *  (readable only with the order's secret tracking token). */
+  customerPhone: string | null
   events: OnlineOrderEvent[]
 }

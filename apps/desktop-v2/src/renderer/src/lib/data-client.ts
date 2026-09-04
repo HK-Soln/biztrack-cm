@@ -169,6 +169,15 @@ import type {
   IssueCardRequest,
   IssueCardResponse,
   ReplaceCardRequest,
+  PaymentProvider,
+  PaymentProviderCapability,
+  BusinessPaymentProviderView,
+  ConnectPaymentProviderRequest,
+  ConnectPaymentProviderResponse,
+  ConfigureWebhookRequest,
+  BusinessPaymentRouteView,
+  SetPaymentRouteRequest,
+  AvailablePaymentMethod,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -407,6 +416,23 @@ export interface DataClient {
     revoke: (id: string) => Promise<MemberAuthCredential>
     replace: (id: string, input: ReplaceCardRequest) => Promise<IssueCardResponse>
   }
+  /** Payment provider registry (Spec 07) — owner-only, online. */
+  payments: {
+    listProviders: () => Promise<PaymentProvider[]>
+    listCapabilities: (country?: string) => Promise<PaymentProviderCapability[]>
+    listConnections: () => Promise<BusinessPaymentProviderView[]>
+    connect: (input: ConnectPaymentProviderRequest) => Promise<ConnectPaymentProviderResponse>
+    configureWebhook: (
+      id: string,
+      input: ConfigureWebhookRequest,
+    ) => Promise<BusinessPaymentProviderView>
+    verify: (id: string) => Promise<BusinessPaymentProviderView>
+    revoke: (id: string) => Promise<BusinessPaymentProviderView>
+    listRoutes: () => Promise<BusinessPaymentRouteView[]>
+    setRoute: (input: SetPaymentRouteRequest) => Promise<BusinessPaymentRouteView>
+    removeRoute: (id: string) => Promise<{ success: true }>
+    availableMethods: () => Promise<AvailablePaymentMethod[]>
+  }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
   }
@@ -643,6 +669,7 @@ import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
 import { cloudSavings, cloudDeposits } from './cloud-deposits'
 import { cloudCashSessions } from './cloud-cash'
 import { cloudCredentials } from './cloud-credentials'
+import { cloudPayments } from './cloud-payments'
 import { cloudRfqs, cloudPurchaseOrders } from './cloud-procurement'
 import { cloudAudit, cloudCharges, cloudDocuments } from './cloud-misc'
 
@@ -818,6 +845,19 @@ function electronAdapter(): DataClient {
       issueCard: (input) => window.api.credentials.issueCard(input),
       revoke: (id) => window.api.credentials.revoke(id),
       replace: (id, input) => window.api.credentials.replace(id, input),
+    },
+    payments: {
+      listProviders: () => window.api.payments.listProviders(),
+      listCapabilities: (country) => window.api.payments.listCapabilities(country),
+      listConnections: () => window.api.payments.listConnections(),
+      connect: (input) => window.api.payments.connect(input),
+      configureWebhook: (id, input) => window.api.payments.configureWebhook(id, input),
+      verify: (id) => window.api.payments.verify(id),
+      revoke: (id) => window.api.payments.revoke(id),
+      listRoutes: () => window.api.payments.listRoutes(),
+      setRoute: (input) => window.api.payments.setRoute(input),
+      removeRoute: (id) => window.api.payments.removeRoute(id),
+      availableMethods: () => window.api.payments.availableMethods(),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -1021,6 +1061,7 @@ function cloudAdapter(): DataClient {
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
     pin: { set: notWired, verify: notWired, verifyCard: notWired, canManage: async () => false },
     credentials: cloudCredentials,
+    payments: cloudPayments,
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,

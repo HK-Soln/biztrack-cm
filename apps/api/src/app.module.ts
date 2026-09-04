@@ -10,6 +10,7 @@ import { BrandsModule } from '@/modules/brands/brands.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { ChargesModule } from '@/modules/charges/charges.module'
 import { OnlineModule } from '@/modules/online/online.module'
+import { PaymentsModule } from '@/modules/payments/payments.module'
 import { SyncModule } from '@/modules/sync/sync.module'
 import { RolesModule } from '@/modules/roles/roles.module'
 import { PlansModule } from '@/modules/plans/plans.module'
@@ -125,6 +126,7 @@ function resolveI18nPath() {
     AuditModule,
     ChargesModule,
     OnlineModule,
+    PaymentsModule,
     SubscriptionsModule,
     NotificationsModule,
     DailyDigestModule,

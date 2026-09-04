@@ -186,6 +186,25 @@ export class CheckoutDto implements CheckoutRequest {
   @IsString()
   @MaxLength(40)
   paymentMethod?: string
+
+  // The storefront's origin (Spec 07 build 9). The server builds the hosted-payment return URLs from
+  // this + the new order's tracking token. @IsString (not @IsUrl) so localhost dev origins are
+  // accepted — it is never fetched by us, only used to build the provider's redirect targets.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  returnUrl?: string
+}
+
+/** Retry a provider payment for a placed order. An optional new phone lets the customer pay from a
+ * different MoMo number after a failure. */
+export class RetryPaymentDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string
 }
 
 export class ContactMessageDto implements ContactMessageRequest {

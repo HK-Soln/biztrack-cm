@@ -58,6 +58,7 @@ import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { OnlineService } from './services/online.service'
 import { registerOnlineIpc } from './ipc/online.ipc'
 import { registerCredentialsIpc } from './ipc/credentials.ipc'
+import { registerPaymentsIpc } from './ipc/payments.ipc'
 import { BusinessService } from './services/business.service'
 import { registerBusinessIpc } from './ipc/business.ipc'
 import { PlansService } from './services/plans.service'
@@ -563,6 +564,9 @@ app.whenReady().then(() => {
 
   // Authorization cards (BIZ-3.3): owner-only, server-owned, proxied through main.
   registerCredentialsIpc(authHttp)
+
+  // Payment provider registry (Spec 07): owner-only, server-owned, proxied through main.
+  registerPaymentsIpc(authHttp)
 
   // Business profile (Settings → General): server-owned, proxied through main.
   registerBusinessIpc(

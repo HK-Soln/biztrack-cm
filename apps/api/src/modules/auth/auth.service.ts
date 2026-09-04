@@ -1585,7 +1585,6 @@ export class AuthService {
 
     const valid = await this.passwordManager.verifyOtp(code, record.codeHash)
     if (!valid) {
-      console.log('not valid code')
       throw new AppBadRequestException(
         await this.i18n.translate('auth.otp.invalid'),
         'INVALID_CODE',
