@@ -19,12 +19,14 @@ function makeService(opts: {
     create: jest.fn((x: unknown) => x),
     save: jest.fn(async (x: unknown) => x),
   }
+  const orderChannel = { emitPaymentStatus: jest.fn() }
   const service = new PaymentAttemptsService(
     attempts as never,
     onlineOrders as never,
     onlineOrderEvents as never,
+    orderChannel as never,
   )
-  return { service, attempts, onlineOrders, onlineOrderEvents }
+  return { service, attempts, onlineOrders, onlineOrderEvents, orderChannel }
 }
 
 const confirmedEvent: ProviderEvent = {
@@ -36,7 +38,7 @@ const confirmedEvent: ProviderEvent = {
 
 describe('PaymentAttemptsService — online settlement (build 9)', () => {
   it('marks the order PAID + writes a PAYMENT_GATEWAY event on a confirmed gateway payment', async () => {
-    const { service, onlineOrders, onlineOrderEvents } = makeService({
+    const { service, onlineOrders, onlineOrderEvents, orderChannel } = makeService({
       attempt: {
         id: 'a1',
         businessId: 'b1',
@@ -64,6 +66,8 @@ describe('PaymentAttemptsService — online settlement (build 9)', () => {
     expect(onlineOrderEvents.create).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'PAYMENT_RECEIVED', triggeredBy: 'PAYMENT_GATEWAY' }),
     )
+    // Live-notifies the storefront payment page.
+    expect(orderChannel.emitPaymentStatus).toHaveBeenCalledWith('t1', { status: 'PAID' })
   })
 
   it('is idempotent — an already-PAID order is not updated again', async () => {
@@ -101,5 +105,63 @@ describe('PaymentAttemptsService — online settlement (build 9)', () => {
     await service.applyProviderEvent('b1', confirmedEvent, PaymentConfirmationType.WEBHOOK)
 
     expect(onlineOrders.findOne).not.toHaveBeenCalled()
+  })
+
+  it('emits FAILED with a whitelisted provider reason, and leaves the order unpaid', async () => {
+    const { service, onlineOrders, orderChannel } = makeService({
+      attempt: {
+        id: 'a1',
+        businessId: 'b1',
+        providerRef: 'pi_1',
+        status: 'PENDING',
+        onlineOrderId: 'o1',
+        saleId: null,
+      },
+      order: { id: 'o1', businessId: 'b1', paymentStatus: 'PENDING', trackingToken: 't1' },
+    })
+
+    const failedEvent: ProviderEvent = {
+      providerRef: 'pi_1',
+      status: 'FAILED',
+      eventId: 'evt_2',
+      reason: 'NOT_ENOUGH_FUNDS',
+      raw: {},
+    }
+    await service.applyProviderEvent('b1', failedEvent, PaymentConfirmationType.POLL)
+
+    // Order stays unpaid (the customer can retry) but the page is live-notified with the reason.
+    expect(onlineOrders.update).not.toHaveBeenCalled()
+    expect(orderChannel.emitPaymentStatus).toHaveBeenCalledWith('t1', {
+      status: 'FAILED',
+      reason: 'NOT_ENOUGH_FUNDS',
+    })
+  })
+
+  it('drops a non-whitelisted failure reason (no internal leak) on the FAILED emit', async () => {
+    const { service, orderChannel } = makeService({
+      attempt: {
+        id: 'a1',
+        businessId: 'b1',
+        providerRef: 'pi_1',
+        status: 'PENDING',
+        onlineOrderId: 'o1',
+        saleId: null,
+      },
+      order: { id: 'o1', businessId: 'b1', paymentStatus: 'PENDING', trackingToken: 't1' },
+    })
+
+    const failedEvent: ProviderEvent = {
+      providerRef: 'pi_1',
+      status: 'FAILED',
+      eventId: 'evt_3',
+      reason: 'INVALID_CALLBACK_URL_HOST', // internal — not customer-facing
+      raw: {},
+    }
+    await service.applyProviderEvent('b1', failedEvent, PaymentConfirmationType.POLL)
+
+    expect(orderChannel.emitPaymentStatus).toHaveBeenCalledWith('t1', {
+      status: 'FAILED',
+      reason: undefined,
+    })
   })
 })

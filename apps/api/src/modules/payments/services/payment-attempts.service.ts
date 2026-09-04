@@ -9,6 +9,8 @@ import {
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
+import { OrderChannelService } from '@/modules/realtime/services/order-channel.service'
+import { PUBLIC_PROVIDER_FAILURE_REASONS } from '../payments.constants'
 import type { ProviderEvent } from '../adapters/payment-provider.adapter'
 
 /**
@@ -28,6 +30,7 @@ export class PaymentAttemptsService {
     private readonly onlineOrders: Repository<OnlineOrder>,
     @InjectRepository(OnlineOrderEvent)
     private readonly onlineOrderEvents: Repository<OnlineOrderEvent>,
+    private readonly orderChannel: OrderChannelService,
   ) {}
 
   findByProviderRef(businessId: string, providerRef: string): Promise<PaymentAttempt | null> {
@@ -80,9 +83,30 @@ export class PaymentAttemptsService {
    *    payment_attempt_id) — TODO(build 10); attempt.sale_id is the seam.
    */
   private async applyDownstreamEffects(attempt: PaymentAttempt): Promise<void> {
-    if (attempt.status !== PaymentAttemptStatus.CONFIRMED) return
-    if (attempt.onlineOrderId) await this.settleOnlineOrder(attempt)
+    if (attempt.onlineOrderId) {
+      if (attempt.status === PaymentAttemptStatus.CONFIRMED) await this.settleOnlineOrder(attempt)
+      else if (attempt.status === PaymentAttemptStatus.FAILED)
+        await this.notifyOnlineOrderFailed(attempt)
+    }
     // attempt.saleId (in-store) is handled by build 10.
+  }
+
+  /**
+   * FAILED gateway payment on an online order → push the live status to the storefront payment page
+   * (the order itself stays PENDING/unpaid so the customer can retry). The reason is whitelisted so
+   * only known, customer-meaningful provider codes leave the server.
+   */
+  private async notifyOnlineOrderFailed(attempt: PaymentAttempt): Promise<void> {
+    const order = await this.onlineOrders.findOne({
+      where: { id: attempt.onlineOrderId! },
+      select: { id: true, trackingToken: true },
+    })
+    if (!order) return
+    const reason =
+      attempt.failedReason && PUBLIC_PROVIDER_FAILURE_REASONS.has(attempt.failedReason)
+        ? attempt.failedReason
+        : undefined
+    this.orderChannel.emitPaymentStatus(order.trackingToken, { status: 'FAILED', reason })
   }
 
   /**
@@ -114,5 +138,7 @@ export class PaymentAttemptsService {
         trackingToken: order.trackingToken,
       }),
     )
+    // Live-notify the storefront payment page (poll is the fallback).
+    this.orderChannel.emitPaymentStatus(order.trackingToken, { status: 'PAID' })
   }
 }

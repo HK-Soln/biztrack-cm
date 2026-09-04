@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
-import type { PublicOrderTracking, PublicStore } from '@biztrack/types'
+import type { PublicOrderTracking, PublicStore, RealtimeOrderPaymentEvent } from '@biztrack/types'
 import { formatMoney, getPaymentStatus, retryPayment } from '@/lib/api'
+import { useOrderPaymentEvents } from '@/lib/use-order-payment'
 
 const IcLock = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -118,6 +119,16 @@ export function PaymentView({
       setStarting(false)
     }
   }
+
+  // Live settlement over WebSocket (primary transport) — active only while we're waiting. The poll
+  // below is the fallback; both drive the same terminal state, so either one settling is enough.
+  useOrderPaymentEvents(trackingToken, phase === 'pending', (payload: RealtimeOrderPaymentEvent) => {
+    if (payload.status === 'PAID') setPhase('paid')
+    else if (payload.status === 'FAILED') {
+      setReason(payload.reason ?? null)
+      setPhase('failed')
+    }
+  })
 
   // Poll while pending. Terminal → set the phase (capturing the provider reason on failure).
   useEffect(() => {
