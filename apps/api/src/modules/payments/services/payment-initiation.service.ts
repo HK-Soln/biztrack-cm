@@ -23,6 +23,7 @@ import {
   POLL_ATTEMPT_INTERVAL_MS,
   POLL_ATTEMPT_WINDOW_MS,
   POLL_PAYMENT_ATTEMPT_JOB,
+  PUBLIC_PROVIDER_FAILURE_REASONS,
 } from '../payments.constants'
 
 export interface InitiateOnlineCheckoutInput {
@@ -273,7 +274,13 @@ export class PaymentInitiationService {
       const state = await adapter.getTransaction(creds, attempt.providerRef)
       const updated = await this.attemptsService.applyProviderEvent(
         attempt.businessId,
-        { providerRef: attempt.providerRef, status: state.status, eventId: '', raw: state.raw },
+        {
+          providerRef: attempt.providerRef,
+          status: state.status,
+          eventId: '',
+          reason: state.reason,
+          raw: state.raw,
+        },
         PaymentConfirmationType.POLL,
       )
       return updated ?? attempt
@@ -285,18 +292,26 @@ export class PaymentInitiationService {
     }
   }
 
-  /** The storefront wait screen polls this: reconcile the order's latest attempt, return a tri-state. */
+  /** The storefront payment page polls this: reconcile the order's latest attempt, return a tri-state
+   *  plus (on FAILED) the provider's whitelisted reason code so the page can explain what went wrong. */
   async pollOnlineOrderPayment(
     businessId: string,
     onlineOrderId: string,
-  ): Promise<PublicPaymentState | null> {
+  ): Promise<{ status: PublicPaymentState; reason?: string } | null> {
     const attempt = await this.attempts.findOne({
       where: { businessId, onlineOrderId, deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
     })
     if (!attempt) return null
     const settled = await this.reconcileAttempt(attempt)
-    return this.toPublicState(settled.status)
+    const status = this.toPublicState(settled.status)
+    const reason =
+      status === 'FAILED' &&
+      settled.failedReason &&
+      PUBLIC_PROVIDER_FAILURE_REASONS.has(settled.failedReason)
+        ? settled.failedReason
+        : undefined
+    return { status, reason }
   }
 
   private toPublicState(status: PaymentAttemptStatus): PublicPaymentState {

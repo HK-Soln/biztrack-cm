@@ -62,6 +62,9 @@ export interface ProviderTxnState {
   feeMinor?: number
   netMinor?: number
   currency?: string
+  /** Provider-reported failure reason CODE on a FAILED status (e.g. MoMo `NOT_ENOUGH_FUNDS`).
+   *  Stored on the attempt and (whitelisted) surfaced to the customer on the payment page. */
+  reason?: string
   raw?: unknown
 }
 
@@ -74,6 +77,8 @@ export interface ProviderEvent {
   currency?: string
   /** Provider event id — used for `whook:<provider>:<event-id>` idempotency. */
   eventId: string
+  /** Provider-reported failure reason CODE (FAILED events only). */
+  reason?: string
   raw: unknown
 }
 

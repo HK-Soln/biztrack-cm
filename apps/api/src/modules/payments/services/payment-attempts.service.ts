@@ -63,7 +63,8 @@ export class PaymentAttemptsService {
     attempt.feeMinor = event.feeMinor ?? attempt.feeMinor
     attempt.netMinor = event.netMinor ?? attempt.netMinor
     if (to === PaymentAttemptStatus.CONFIRMED) attempt.confirmedAt = new Date()
-    if (to === PaymentAttemptStatus.FAILED) attempt.failedReason = 'Reported failed by provider.'
+    if (to === PaymentAttemptStatus.FAILED)
+      attempt.failedReason = event.reason || 'Reported failed by provider.'
     attempt.confirmationType = confirmationType
     attempt.rawCallback = (event.raw ?? null) as Record<string, unknown> | null
     const saved = await this.attempts.save(attempt)

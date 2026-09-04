@@ -216,7 +216,15 @@ export class MtnAdapter implements PaymentProviderAdapter {
       this.logger.warn(`MoMo status HTTP ${res.status}: ${raw.slice(0, 200)}`)
       throw new Error(`MTN status query returned HTTP ${res.status}.`)
     }
-    const body = JSON.parse(raw) as { status?: string; amount?: string; currency?: string }
+    const body = JSON.parse(raw) as {
+      status?: string
+      amount?: string
+      currency?: string
+      // MoMo returns a failure reason as either a bare code string or a { code, message } object.
+      reason?: string | { code?: string; message?: string }
+    }
+    const reasonCode =
+      typeof body.reason === 'string' ? body.reason : (body.reason?.code ?? undefined)
     return {
       status: mapMomoStatus(body.status),
       providerRef,
@@ -225,6 +233,7 @@ export class MtnAdapter implements PaymentProviderAdapter {
           ? majorToMinor(Number(body.amount), body.currency)
           : undefined,
       currency: body.currency,
+      reason: reasonCode,
       raw: body,
     }
   }

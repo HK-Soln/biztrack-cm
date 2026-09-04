@@ -465,7 +465,8 @@ export class OnlineOrdersService {
     }
     if (order.paymentStatus === 'PAID') return { status: 'PAID' }
     const state = await this.paymentInitiation.pollOnlineOrderPayment(store.businessId, order.id)
-    return { status: state ?? 'PENDING' }
+    if (!state) return { status: 'PENDING' }
+    return state.reason ? { status: state.status, reason: state.reason } : { status: state.status }
   }
 
   /**

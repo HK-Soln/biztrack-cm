@@ -617,10 +617,12 @@ export interface CheckoutResult {
   payment?: CheckoutPayment
 }
 
-/** Public payment status for the storefront wait screen (polled while a push payment is pending).
- * PENDING → keep polling; PAID → go to the order page; FAILED → let the customer retry. */
+/** Public payment status for the storefront payment page (polled while a push payment is pending).
+ * PENDING → keep waiting; PAID → done; FAILED → let the customer retry.
+ * `reason` is a provider failure-reason CODE (whitelisted, FAILED only) the storefront maps to copy. */
 export interface PublicPaymentStatus {
   status: 'PENDING' | 'PAID' | 'FAILED'
+  reason?: string
 }
 
 export interface OnlineOrderEvent {
