@@ -97,13 +97,6 @@ export function PaymentView({
     }
   }
 
-  // "I've already paid" — force a reconcile against the provider (handles the case where the customer
-  // approved on their phone but our poll hasn't caught it yet).
-  const recheck = async () => {
-    const res = await getPaymentStatus(slug, trackingToken)
-    if (res?.status === 'PAID') setPhase('paid')
-  }
-
   // Poll while pending. Terminal → set the phase; still pending after ~2 min → hand off to the order page.
   useEffect(() => {
     if (phase !== 'polling') return
@@ -171,14 +164,6 @@ export function PaymentView({
         <h3>{t('momoWaitTitle')}</h3>
         <p>{t('momoWaitDesc', { phone: phone ?? '' })}</p>
         <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
-        <button
-          type="button"
-          className="btn"
-          style={{ marginTop: 16 }}
-          onClick={recheck}
-        >
-          {t('payAlreadyPaid')}
-        </button>
       </div>
     )
   }
@@ -237,10 +222,6 @@ export function PaymentView({
             : isMomo
               ? t('payNow', { amount: amountLabel })
               : t('payCardCta')}
-      </button>
-
-      <button type="button" className="btn btn-block" style={{ marginTop: 10 }} onClick={recheck}>
-        {t('payAlreadyPaid')}
       </button>
     </div>
   )

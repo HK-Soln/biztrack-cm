@@ -159,8 +159,6 @@
     "payNow": "Pay {amount}",
     "payCardCta": "Pay by card",
     "payStarting": "Starting…",
-    "payAlreadyPaid": "Already paid?",
-    "payAlreadyPaidHint": "If you've already completed this payment, we'll verify it for you.",
     "orderSummary": "Your order",
     "subtotal": "Subtotal",
     "deliveryLine": "Delivery",
