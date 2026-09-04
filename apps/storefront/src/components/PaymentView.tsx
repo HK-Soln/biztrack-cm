@@ -52,7 +52,8 @@ export function PaymentView({
 
   const MAX_RETRIES = 2
   const [phase, setPhase] = useState<Phase>('idle')
-  const [phone, setPhone] = useState<string | undefined>(undefined)
+  // Prefill with the number given at checkout; the customer can still change it (e.g. pay from another).
+  const [phone, setPhone] = useState<string | undefined>(order.customerPhone ?? undefined)
   const [retries, setRetries] = useState(0)
   const [starting, setStarting] = useState(false)
   const [countdown, setCountdown] = useState(10)

@@ -434,6 +434,7 @@ export class OnlineOrdersService {
       fulfillmentType: order.fulfillmentType,
       paymentMethod: order.paymentMethod ?? null,
       paymentStatus: order.paymentStatus,
+      customerPhone: order.customerPhone ?? null,
       events: events.map((event) => ({
         id: event.id,
         eventType: event.eventType,

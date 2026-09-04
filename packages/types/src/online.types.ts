@@ -730,5 +730,8 @@ export interface PublicOrderTracking {
    *  payment page (whether an online payment is still owed and how to collect it). */
   paymentMethod: string | null
   paymentStatus: OnlinePaymentStatus
+  /** The phone the customer gave at checkout — prefills the Mobile Money number on the payment page
+   *  (readable only with the order's secret tracking token). */
+  customerPhone: string | null
   events: OnlineOrderEvent[]
 }
