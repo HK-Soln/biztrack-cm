@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { randomUUID } from 'node:crypto'
 import { Queue } from 'bullmq'
-import { EntityManager, IsNull, Repository } from 'typeorm'
+import { IsNull, Repository } from 'typeorm'
 import {
   PAYMENT_ATTEMPT_TERMINAL,
   PaymentAttemptInitiationType,
@@ -85,13 +85,28 @@ export class PaymentInitiationService {
     @InjectQueue(PAYMENTS_QUEUE) private readonly queue: Queue,
   ) {}
 
+  /**
+   * How a routed provider executes online — decides, at checkout, whether the storefront gets a
+   * hosted redirect URL ('redirect', Stripe) or is sent to our own payment page ('self', MoMo
+   * request-to-pay). 'none' when the method isn't routed/executable online (→ COD path).
+   */
+  async resolveOnlinePaymentMode(
+    businessId: string,
+    method: PaymentMethod,
+  ): Promise<'redirect' | 'self' | 'none'> {
+    const routed = await this.routing.resolveProviderForMethod(businessId, method)
+    if (!routed) return 'none'
+    const adapter = this.adapters.get(routed.connection.providerCode)
+    if (!adapter) return 'none'
+    if (adapter.createPaymentLink) return 'redirect'
+    if (adapter.initiateUssdPush) return 'self'
+    return 'none'
+  }
+
   async initiateOnlineCheckout(
     input: InitiateOnlineCheckoutInput,
-    manager?: EntityManager,
   ): Promise<InitiatedPayment | null> {
-    // When a manager is passed (checkout runs order + payment in one transaction), the attempt is
-    // created/updated through it, so a failed initiation rolls back with the order.
-    const attempts = manager ? manager.getRepository(PaymentAttempt) : this.attempts
+    const attempts = this.attempts
     const routed = await this.routing.resolveProviderForMethod(input.businessId, input.method)
     if (!routed) return null // no verified route — caller uses the unpaid/COD path
 

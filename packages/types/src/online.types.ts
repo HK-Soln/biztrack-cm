@@ -583,13 +583,25 @@ export interface CheckoutRequest {
   returnUrl?: string
 }
 
-/** The outcome of starting (or retrying) a provider payment for an order (Spec 07):
- *  - `url`     → hosted redirect (Stripe): the storefront navigates there.
- *  - `pending` → push (MTN MoMo request-to-pay): the customer approves on their phone; the storefront
- *                shows a wait screen and polls `GET .../orders/{token}/payment`.
- *  - `failed`  → the provider payment could not be started (no route, provider error). The storefront
- *                keeps the customer on the confirmation page and offers a retry. */
+/**
+ * The payment outcome/intent for an order (Spec 07). Two uses share this shape:
+ *
+ * At CHECKOUT, `mode` tells the storefront how to proceed (payment is NOT triggered here for
+ * self-handled providers — order creation is decoupled from payment):
+ *  - `redirect` → a hosted provider (Stripe): `url` is set, the storefront navigates there.
+ *  - `self`     → a self-handled provider (MTN MoMo request-to-pay): the storefront sends the
+ *                 customer to our own payment page `/orders/{token}/pay`, where the payment is
+ *                 started and managed (enter number → push → poll → retry) without ever having
+ *                 risked the order creation.
+ *  - `none`     → no online payment (COD): go straight to the order page.
+ *
+ * On the PAYMENT PAGE, starting/retrying a payment returns the per-attempt outcome:
+ *  - `url`     → hosted redirect: navigate there.
+ *  - `pending` → push accepted; the customer approves on their phone; poll `GET .../orders/{token}/payment`.
+ *  - `failed`  → the payment could not be started (provider error); show a retry.
+ */
 export interface CheckoutPayment {
+  mode?: 'redirect' | 'self' | 'none'
   attemptId?: string
   url?: string
   pending?: boolean
@@ -714,5 +726,9 @@ export interface PublicOrderTracking {
   totalAmount: number
   currency: string
   fulfillmentType: OnlineFulfillmentType
+  /** The chosen payment method (CASH/MTN_MOMO/ORANGE_MONEY/CARD) + its money-axis status — drive the
+   *  payment page (whether an online payment is still owed and how to collect it). */
+  paymentMethod: string | null
+  paymentStatus: OnlinePaymentStatus
   events: OnlineOrderEvent[]
 }

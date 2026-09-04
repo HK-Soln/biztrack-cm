@@ -27,13 +27,10 @@ const makeService = (opts: {
     findOne: jest.fn(),
     find: jest.fn(),
     update: jest.fn(),
-    // checkout() runs order + payment in a transaction; route getRepository to the same mocks.
+    // Some flows reach for repos via the shared manager (e.g. the owner Business row for notifications).
     manager: {
-      transaction: (cb: (mgr: any) => any) =>
-        cb({
-          getRepository: (entity: any) =>
-            (entity?.name ?? '') === 'OnlineOrderEvent' ? eventsRepo : ordersRepo,
-        }),
+      getRepository: (entity: any) =>
+        (entity?.name ?? '') === 'OnlineOrderEvent' ? eventsRepo : ordersRepo,
     },
   }
   const storesRepo = { findOne: jest.fn().mockResolvedValue(opts.store ?? null) }
@@ -108,7 +105,10 @@ const makeService = (opts: {
       resolveForSync: async () => '2026-01-01',
       businessDateFor: async () => '2026-01-01',
     } as any,
-    { initiateOnlineCheckout: jest.fn(async () => null) } as any,
+    {
+      initiateOnlineCheckout: jest.fn(async () => null),
+      resolveOnlinePaymentMode: jest.fn(async () => 'none'),
+    } as any,
   )
   return { service, cartsRepo, ordersRepo, eventsRepo, contactsRepo, salesService, storeService }
 }

@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import type { CheckoutRequest, OnlineFulfillmentType, PublicStore } from '@biztrack/types'
-import { checkout, formatMoney, getCart, getPaymentStatus, retryPayment } from '@/lib/api'
+import { checkout, formatMoney, getCart } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
 
@@ -28,11 +28,6 @@ const IcLock = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
     <rect x="5" y="11" width="14" height="9" rx="2" />
     <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-  </svg>
-)
-const IcCheck = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4}>
-    <path d="M20 6 9 17l-5-5" />
   </svg>
 )
 
@@ -116,111 +111,26 @@ export function CheckoutView({
     enabled: Boolean(sessionToken),
   })
 
-  // A pending push payment (MoMo). Phases: polling → paid | failed (offer a retry) | final (retries
-  // exhausted → "we'll call you"). The customer may retry from a different MoMo number.
-  const MAX_RETRIES = 2
-  const [awaiting, setAwaiting] = useState<string | null>(null) // tracking token
-  const [phase, setPhase] = useState<'polling' | 'paid' | 'failed' | 'final'>('polling')
-  const [retries, setRetries] = useState(0)
-  const [retryPhone, setRetryPhone] = useState<string | undefined>(undefined)
-  const [retrying, setRetrying] = useState(false)
-  const [countdown, setCountdown] = useState(10)
-  const startedRef = useRef(0)
-
   const mutation = useMutation({
     mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
     onSuccess: (order) => {
       clearSession()
-      if (order.payment?.url) {
-        window.location.href = order.payment.url // hosted redirect (Stripe)
+      const pay = order.payment
+      // Hosted provider (Stripe): straight to the hosted checkout page.
+      if (pay?.mode === 'redirect' && pay.url) {
+        window.location.href = pay.url
         return
       }
-      if (order.payment?.pending) {
-        setRetryPhone(phone)
-        startedRef.current = 0
-        setPhase('polling')
-        setAwaiting(order.trackingToken)
+      // Self-handled provider (MoMo): our own payment page owns the request-to-pay + retries, so
+      // order creation never had to risk it.
+      if (pay?.mode === 'self') {
+        router.push(`${base}/orders/${order.trackingToken}/pay`)
         return
       }
-      if (order.payment?.failed) {
-        setRetryPhone(phone)
-        setPhase('failed')
-        setAwaiting(order.trackingToken)
-        return
-      }
-      router.push(`${base}/orders/${order.trackingToken}`) // COD / no provider payment
+      // COD / no online payment.
+      router.push(`${base}/orders/${order.trackingToken}`)
     },
   })
-
-  // Poll status while in the polling phase. Terminal → set the phase; still pending after ~2 min → hand off.
-  useEffect(() => {
-    if (!awaiting || phase !== 'polling') return
-    let active = true
-    let timer: ReturnType<typeof setTimeout>
-    if (!startedRef.current) startedRef.current = Date.now()
-    const tick = async () => {
-      const res = await getPaymentStatus(slug, awaiting)
-      if (!active) return
-      if (res?.status === 'PAID') return setPhase('paid')
-      if (res?.status === 'FAILED') return setPhase(retries >= MAX_RETRIES ? 'final' : 'failed')
-      if (Date.now() - startedRef.current < 120_000) timer = setTimeout(tick, 3000)
-      else router.push(`${base}/orders/${awaiting}`)
-    }
-    timer = setTimeout(tick, 2500)
-    return () => {
-      active = false
-      clearTimeout(timer)
-    }
-  }, [awaiting, phase, retries, slug, base, router])
-
-  // On a terminal phase (paid or final), count down 10s then redirect to the order page.
-  useEffect(() => {
-    if (!awaiting || (phase !== 'paid' && phase !== 'final')) return
-    setCountdown(10)
-    const id = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          clearInterval(id)
-          router.push(
-            `${base}/orders/${awaiting}${phase === 'paid' ? '?paid=1' : '?payment=failed'}`,
-          )
-          return 0
-        }
-        return c - 1
-      })
-    }, 1000)
-    return () => clearInterval(id)
-  }, [awaiting, phase, base, router])
-
-  // Retry the payment (optionally from a new number). After the 2nd retry we move to the final screen.
-  const doRetry = async () => {
-    if (!awaiting || retrying) return
-    setRetrying(true)
-    const next = retries + 1
-    try {
-      const res = await retryPayment(slug, awaiting, retryPhone)
-      setRetries(next)
-      if (res?.url) {
-        window.location.href = res.url
-        return
-      }
-      if (res?.pending) {
-        startedRef.current = 0
-        setPhase('polling')
-        return
-      }
-      if (res?.failed) {
-        setPhase(next >= MAX_RETRIES ? 'final' : 'failed')
-        return
-      }
-      router.push(`${base}/orders/${awaiting}?paid=1`) // empty result = already paid
-    } catch {
-      setRetries(next)
-      setPhase(next >= MAX_RETRIES ? 'final' : 'failed')
-    } finally {
-      setRetrying(false)
-    }
-  }
 
   const subtotal = cart?.subtotal ?? 0
   const isDelivery = fulfillmentType === 'DELIVERY'
@@ -228,71 +138,6 @@ export function CheckoutView({
   const total = subtotal + fee
   const belowMin = minOrder != null && subtotal < minOrder
   const items = cart?.items ?? []
-
-  // The MoMo payment flow — takes precedence over the empty-cart check (the session is cleared on a
-  // successful checkout, so this must render before that guard).
-  if (awaiting) {
-    if (phase === 'paid' || phase === 'final') {
-      const paid = phase === 'paid'
-      return (
-        <div className="empty" style={{ maxWidth: 480 }}>
-          <div className="ei" style={{ color: paid ? 'var(--success)' : 'var(--danger)' }}>
-            {paid ? IcCheck : IcLock}
-          </div>
-          <h3>{paid ? t('momoPaidTitle') : t('momoFinalTitle')}</h3>
-          <p>{paid ? t('momoPaidDesc') : t('momoFinalDesc')}</p>
-          <p style={{ marginTop: 10, color: 'var(--muted)' }}>
-            {t('momoRedirectIn', { n: countdown })}
-          </p>
-          <button
-            type="button"
-            className="btn btn-primary btn-lg"
-            style={{ marginTop: 18 }}
-            onClick={() =>
-              router.push(`${base}/orders/${awaiting}${paid ? '?paid=1' : '?payment=failed'}`)
-            }
-          >
-            {t('momoContinueNow')}
-          </button>
-        </div>
-      )
-    }
-    if (phase === 'failed') {
-      return (
-        <div className="empty" style={{ maxWidth: 460 }}>
-          <div className="ei" style={{ color: 'var(--danger)' }}>
-            {IcLock}
-          </div>
-          <h3>{t('momoFailedTitle')}</h3>
-          <p>{t('momoFailed')}</p>
-          <div style={{ marginTop: 18, textAlign: 'left' }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
-              {t('momoRetryPhoneLabel')}
-            </label>
-            <PhoneInput value={retryPhone} onChange={setRetryPhone} defaultCountry="CM" />
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-lg btn-block"
-            style={{ marginTop: 16 }}
-            disabled={retrying}
-            onClick={doRetry}
-          >
-            {retrying ? t('placing') : t('momoRetry')}
-          </button>
-        </div>
-      )
-    }
-    // polling
-    return (
-      <div className="empty" style={{ maxWidth: 480 }}>
-        <div className="ei">{IcLock}</div>
-        <h3>{t('momoWaitTitle')}</h3>
-        <p>{t('momoWaitDesc', { phone: retryPhone ?? phone ?? '' })}</p>
-        <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
-      </div>
-    )
-  }
 
   if (!sessionToken || (cart && items.length === 0)) {
     return (

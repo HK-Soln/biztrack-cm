@@ -124,6 +124,9 @@ const envSchema = z.object({
   PAYMENTS_DEV_ACTIVATE_STRIPE_CM: z
     .preprocess(normalizeEnvString, z.enum(['true', 'false']))
     .default('false'),
+  MTN_MOMO_CALLBACK_ENABLED: z
+    .preprocess(normalizeEnvString, z.enum(['true', 'false']))
+    .default('false'),
 })
 
 export type AppConfig = z.infer<typeof envSchema>

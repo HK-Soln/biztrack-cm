@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { ConfigService } from '@nestjs/config'
-import { EntityManager, In, IsNull, Repository } from 'typeorm'
+import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import type { AppConfig } from '@/config/configuration'
 import {
@@ -269,83 +269,75 @@ export class OnlineOrdersService {
       const isProviderPayment = ROUTABLE_PAYMENT_METHODS.includes(method)
       const base = dto.returnUrl?.trim().replace(/\/+$/, '')
 
-      // Order creation + payment initiation are ATOMIC: if a provider payment can't be started, the
-      // whole order rolls back so there's no orphan unpaid order — the customer re-checks-out (a fresh
-      // order). CASH/COD orders never fail here. On success: the storefront gets a wait screen (MoMo
-      // push) or a redirect (Stripe); on failure checkout errors and the cart is left intact.
-      const { order, payment } = await this.ordersRepo.manager.transaction(async (mgr) => {
-        const ordersRepo = mgr.getRepository(OnlineOrder)
-        const created = await ordersRepo.save(
-          ordersRepo.create({
-            onlineStoreId: store.id,
-            businessId: store.businessId,
-            saleId: null,
-            orderNumber: this.buildOrderNumber(),
-            trackingToken: crypto.randomUUID().replace(/-/g, ''),
-            items,
-            totalAmount,
-            customerName: dto.customerName.trim(),
-            customerEmail: dto.customerEmail?.trim() ?? null,
-            customerPhone: dto.customerPhone.trim(),
-            fulfillmentType,
-            deliveryAddress: dto.deliveryAddress?.trim() ?? null,
-            deliveryCity: dto.deliveryCity?.trim() ?? null,
-            deliveryNotes: dto.deliveryNotes?.trim() ?? null,
-            status: 'PENDING',
-            paymentMethod: dto.paymentMethod ?? null,
-            paymentStatus: 'PENDING',
-            businessDate,
-          }),
-        )
-        const eventsRepo = mgr.getRepository(OnlineOrderEvent)
-        await eventsRepo.save(
-          eventsRepo.create({
-            onlineOrderId: created.id,
-            businessId: store.businessId,
-            eventType: 'ORDER_PLACED',
-            toStatus: 'PENDING',
-            triggeredBy: 'CUSTOMER',
-            isCustomerVisible: true,
-            customerMessage: STATUS_EVENT.PENDING.message,
-            trackingToken: created.trackingToken,
-          }),
-        )
+      // Order creation is DECOUPLED from payment: the order is always placed first and a payment can
+      // never break (or roll back) it. Self-handled payments (MoMo request-to-pay) are NOT triggered
+      // here — the storefront takes the customer to our own payment page (`payment.mode === 'self'`)
+      // where the payment is started, polled, and retried in isolation. Hosted providers (Stripe) still
+      // get their link here so the storefront can redirect straight to the hosted page.
+      const order = await this.ordersRepo.save(
+        this.ordersRepo.create({
+          onlineStoreId: store.id,
+          businessId: store.businessId,
+          saleId: null,
+          orderNumber: this.buildOrderNumber(),
+          trackingToken: crypto.randomUUID().replace(/-/g, ''),
+          items,
+          totalAmount,
+          customerName: dto.customerName.trim(),
+          customerEmail: dto.customerEmail?.trim() ?? null,
+          customerPhone: dto.customerPhone.trim(),
+          fulfillmentType,
+          deliveryAddress: dto.deliveryAddress?.trim() ?? null,
+          deliveryCity: dto.deliveryCity?.trim() ?? null,
+          deliveryNotes: dto.deliveryNotes?.trim() ?? null,
+          status: 'PENDING',
+          paymentMethod: dto.paymentMethod ?? null,
+          paymentStatus: 'PENDING',
+          businessDate,
+        }),
+      )
+      await this.eventsRepo.save(
+        this.eventsRepo.create({
+          onlineOrderId: order.id,
+          businessId: store.businessId,
+          eventType: 'ORDER_PLACED',
+          toStatus: 'PENDING',
+          triggeredBy: 'CUSTOMER',
+          isCustomerVisible: true,
+          customerMessage: STATUS_EVENT.PENDING.message,
+          trackingToken: order.trackingToken,
+        }),
+      )
 
-        let pay: CheckoutPayment | undefined
-        if (isProviderPayment) {
-          const track = base ? `${base}/orders/${created.trackingToken}` : undefined
-          pay = await this.startOrderPayment(
-            store.businessId,
-            created,
-            method,
-            config.currency,
-            {
-              successUrl: track ? `${track}?paid=1` : undefined,
-              cancelUrl: track ? `${track}?canceled=1` : undefined,
-            },
-            mgr,
-          )
-          // Couldn't start the payment → roll the whole order back; the customer re-checks-out.
-          if (pay.failed) {
-            throw new AppBadRequestException(
-              'We could not start the payment. Please try a different number or method.',
-              'ONLINE_PAYMENT_NOT_STARTED',
-            )
-          }
-        }
-        return { order: created, payment: pay }
-      })
-
-      // Committed → consume the cart, email and notify (all skipped if we rolled back above).
+      // Order is placed — consume the cart, email and notify regardless of the payment path.
       await this.cartsRepo.delete({ id: cart.id })
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
       void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
+
+      // Decide how the storefront proceeds to payment (see CheckoutPayment.mode).
+      let payment: CheckoutPayment = { mode: 'none' }
+      if (isProviderPayment) {
+        const mode = await this.paymentInitiation.resolveOnlinePaymentMode(store.businessId, method)
+        if (mode === 'redirect') {
+          // Hosted provider (Stripe): generate the link now and hand back the redirect URL. Best-effort
+          // — if it can't be generated the order still stands and we fall back to our payment page.
+          const track = base ? `${base}/orders/${order.trackingToken}` : undefined
+          const pay = await this.startOrderPayment(store.businessId, order, method, config.currency, {
+            successUrl: track ? `${track}?paid=1` : undefined,
+            cancelUrl: track ? `${track}?canceled=1` : undefined,
+          })
+          payment = pay.url ? { ...pay, mode: 'redirect' } : { mode: 'self' }
+        } else if (mode === 'self') {
+          // Self-handled (MoMo): do NOT initiate here — the payment page owns it.
+          payment = { mode: 'self' }
+        }
+      }
 
       return {
         orderNumber: order.orderNumber,
         trackingToken: order.trackingToken,
         status: order.status,
-        ...(payment ? { payment } : {}),
+        payment,
       }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })
@@ -440,6 +432,8 @@ export class OnlineOrdersService {
       totalAmount: order.totalAmount,
       currency: config.currency,
       fulfillmentType: order.fulfillmentType,
+      paymentMethod: order.paymentMethod ?? null,
+      paymentStatus: order.paymentStatus,
       events: events.map((event) => ({
         id: event.id,
         eventType: event.eventType,
@@ -510,24 +504,20 @@ export class OnlineOrdersService {
     method: PaymentMethod,
     currency: string,
     opts: { successUrl?: string; cancelUrl?: string; payerPhone?: string | null },
-    manager?: EntityManager,
   ): Promise<CheckoutPayment> {
     try {
-      const initiated = await this.paymentInitiation.initiateOnlineCheckout(
-        {
-          businessId,
-          onlineOrderId: order.id,
-          method,
-          amountMinor: majorToMinor(order.totalAmount, currency),
-          currency,
-          reference: order.orderNumber,
-          // A retry may supply a different MoMo number; otherwise use the order's contact phone.
-          customerPhone: opts.payerPhone?.trim() || order.customerPhone,
-          successUrl: opts.successUrl,
-          cancelUrl: opts.cancelUrl,
-        },
-        manager,
-      )
+      const initiated = await this.paymentInitiation.initiateOnlineCheckout({
+        businessId,
+        onlineOrderId: order.id,
+        method,
+        amountMinor: majorToMinor(order.totalAmount, currency),
+        currency,
+        reference: order.orderNumber,
+        // A payment may be started from a specific MoMo number; otherwise use the order's contact phone.
+        customerPhone: opts.payerPhone?.trim() || order.customerPhone,
+        successUrl: opts.successUrl,
+        cancelUrl: opts.cancelUrl,
+      })
       if (initiated?.kind === 'redirect')
         return {
           attemptId: initiated.attemptId,

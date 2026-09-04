@@ -73,11 +73,12 @@ export default async function OrderTrackingPage({
   searchParams,
 }: {
   params: Promise<{ trackingToken: string }>
-  searchParams: Promise<{ payment?: string }>
+  searchParams: Promise<{ payment?: string; paid?: string }>
 }) {
   const { trackingToken } = await params
-  const { payment } = await searchParams
+  const { payment, paid } = await searchParams
   const paymentFailed = payment === 'failed'
+  const paymentReceived = paid === '1'
   const slug = await getStoreSlug()
   if (!slug) notFound()
   const [order, store, locale, t] = await Promise.all([
@@ -119,7 +120,21 @@ export default async function OrderTrackingPage({
         </div>
       </div>
 
-      {paymentFailed ? (
+      {paymentReceived ? (
+        <div
+          style={{
+            background: 'var(--success-soft, #e6f6ec)',
+            color: 'var(--success, #1a7f45)',
+            fontSize: 14,
+            fontWeight: 600,
+            padding: '12px 16px',
+            borderRadius: 12,
+            margin: '0 0 18px',
+          }}
+        >
+          {t('paymentReceivedBanner')}
+        </div>
+      ) : paymentFailed ? (
         <div
           style={{
             background: 'var(--warn-soft, #fff4e5)',
