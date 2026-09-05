@@ -27,6 +27,7 @@ import { PaymentInitiationService } from './services/payment-initiation.service'
 import { PaymentProvidersController } from './controllers/payment-providers.controller'
 import { PaymentWebhookController } from './controllers/payment-webhook.controller'
 import { MomoCallbackController } from './controllers/momo-callback.controller'
+import { InStorePaymentsController } from './controllers/in-store-payments.controller'
 import { PaymentsPollProcessor } from './processors/payments-poll.processor'
 import { PAYMENTS_QUEUE } from './payments.constants'
 import { PaymentWebhookGuard } from './guards/payment-webhook.guard'
@@ -58,7 +59,12 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     RedisModule,
     BullModule.registerQueue({ name: PAYMENTS_QUEUE }),
   ],
-  controllers: [PaymentProvidersController, PaymentWebhookController, MomoCallbackController],
+  controllers: [
+    PaymentProvidersController,
+    PaymentWebhookController,
+    MomoCallbackController,
+    InStorePaymentsController,
+  ],
   providers: [
     PaymentCatalogueService,
     PaymentCredentialsService,

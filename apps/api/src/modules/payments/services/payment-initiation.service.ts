@@ -56,6 +56,8 @@ export type PublicPaymentState = 'PENDING' | 'PAID' | 'FAILED'
 
 /** Hosted checkout links live 30 minutes (providers clamp their own floor/ceiling). */
 const LINK_TTL_SECONDS = 30 * 60
+/** In-store links are short — the customer is standing at the till (§7.2). */
+const IN_STORE_LINK_TTL_SECONDS = 10 * 60
 
 /**
  * Spec 07 §6 — start and reconcile a provider payment for an online order.
@@ -220,13 +222,174 @@ export class PaymentInitiationService {
     )
   }
 
+  /**
+   * Spec 07 §7 (Build 10) — start a provider payment AT THE TILL for the cart being tendered. Unlike
+   * the online path, NO Sale exists yet: the client holds the cart and posts the Sale on confirmation
+   * (§7.2), so the attempt carries saleId=null (+ cashSessionId — the only shift link during the
+   * pending window). Returns a hosted link (card) or fires the MoMo push and returns pending; null when
+   * the method isn't routed to an executable provider. Idempotent on clientReference (double-submit
+   * safe → returns the existing attempt).
+   */
+  async initiateInStorePayment(input: {
+    businessId: string
+    method: PaymentMethod
+    amountMinor: number
+    currency: string
+    reference: string
+    customerPhone?: string | null
+    cashSessionId?: string | null
+    clientReference: string
+  }): Promise<InitiatedPayment | null> {
+    const idempotencyKey = `instore_${input.clientReference}`
+    const existing = await this.attempts.findOne({
+      where: { businessId: input.businessId, idempotencyKey },
+    })
+    if (existing) return this.describeAttempt(existing)
+
+    const routed = await this.routing.resolveProviderForMethod(input.businessId, input.method)
+    if (!routed) return null
+    const { connection } = routed
+    const adapter = this.adapters.get(connection.providerCode)
+    if (!adapter) return null
+    const creds = await this.credentials.getDecryptedCredentials(
+      input.businessId,
+      connection.providerCode,
+    )
+    if (!creds) return null
+
+    const attempt = await this.attempts.save(
+      this.attempts.create({
+        businessId: input.businessId,
+        saleId: null,
+        cashSessionId: input.cashSessionId ?? null,
+        providerId: connection.id,
+        paymentMethod: input.method,
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        status: PaymentAttemptStatus.INITIATED,
+        attemptNumber: 1,
+        idempotencyKey,
+        initiationType: adapter.createPaymentLink
+          ? PaymentAttemptInitiationType.LINK
+          : PaymentAttemptInitiationType.USSD_PUSH,
+        customerPhone: input.customerPhone ?? null,
+      }),
+    )
+
+    // Hosted-link provider (card): the customer pays via the link/QR shown at the till.
+    if (adapter.createPaymentLink) {
+      try {
+        const link = await adapter.createPaymentLink(creds, {
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          method: input.method,
+          reference: input.reference,
+          idempotencyKey,
+          customerPhone: input.customerPhone ?? undefined,
+          expiresInSeconds: IN_STORE_LINK_TTL_SECONDS,
+        })
+        await this.attempts.update(attempt.id, {
+          status: PaymentAttemptStatus.PENDING,
+          providerRef: link.providerRef,
+          linkUrl: link.url,
+          expiresAt: new Date(link.expiresAt),
+        })
+        return {
+          kind: 'redirect',
+          attemptId: attempt.id,
+          providerRef: link.providerRef,
+          url: link.url,
+          expiresAt: link.expiresAt,
+        }
+      } catch (error) {
+        return this.failAttempt(this.attempts, attempt.id, error)
+      }
+    }
+
+    // Push provider (MoMo request-to-pay): the customer approves on their phone.
+    if (adapter.initiateUssdPush) {
+      const phone = input.customerPhone?.trim()
+      if (!phone)
+        return this.failAttempt(this.attempts, attempt.id, new Error('A phone number is required.'))
+      const referenceId = randomUUID()
+      const callbackUrl = this.momoCallbackUrl(connection.webhookToken, referenceId)
+      try {
+        const push = await adapter.initiateUssdPush(creds, {
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          method: input.method,
+          customerPhone: phone,
+          reference: input.reference,
+          idempotencyKey,
+          referenceId,
+          callbackUrl,
+        })
+        await this.attempts.update(attempt.id, {
+          status: PaymentAttemptStatus.PENDING,
+          providerRef: push.providerRef,
+        })
+        await this.queue.add(
+          POLL_PAYMENT_ATTEMPT_JOB,
+          {
+            businessId: input.businessId,
+            attemptId: attempt.id,
+            deadline: Date.now() + POLL_ATTEMPT_WINDOW_MS,
+          },
+          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
+        )
+        return { kind: 'pending', attemptId: attempt.id, providerRef: push.providerRef }
+      } catch (error) {
+        return this.failAttempt(this.attempts, attempt.id, error)
+      }
+    }
+
+    return this.failAttempt(
+      this.attempts,
+      attempt.id,
+      new Error('Provider has no in-store payment method.'),
+    )
+  }
+
+  /** Map an already-created attempt back to the initiation shape (idempotent re-submit). */
+  private describeAttempt(attempt: PaymentAttempt): InitiatedPayment | null {
+    if (!attempt.providerRef) return null
+    if (attempt.linkUrl)
+      return {
+        kind: 'redirect',
+        attemptId: attempt.id,
+        providerRef: attempt.providerRef,
+        url: attempt.linkUrl,
+        expiresAt: attempt.expiresAt ? attempt.expiresAt.toISOString() : null,
+      }
+    return { kind: 'pending', attemptId: attempt.id, providerRef: attempt.providerRef }
+  }
+
+  /** Poll an in-store attempt (authed till): reconcile + return tri-state, reason, and providerRef
+   *  (which the client stores on the Sale's payment line when it posts on PAID). */
+  async getInStorePaymentStatus(
+    businessId: string,
+    attemptId: string,
+  ): Promise<{ status: PublicPaymentState; reason?: string; providerRef?: string } | null> {
+    const attempt = await this.attempts.findOne({ where: { businessId, id: attemptId } })
+    if (!attempt) return null
+    const settled = await this.reconcileAttempt(attempt)
+    const status = this.toPublicState(settled.status)
+    const reason =
+      status === 'FAILED' &&
+      settled.failedReason &&
+      PUBLIC_PROVIDER_FAILURE_REASONS.has(settled.failedReason)
+        ? settled.failedReason
+        : undefined
+    return { status, reason, providerRef: settled.providerRef ?? undefined }
+  }
+
   private async failAttempt(
     attempts: Repository<PaymentAttempt>,
     attemptId: string,
     error: unknown,
   ): Promise<null> {
     const reason = error instanceof Error ? error.message : String(error)
-    this.logger.warn(`Online checkout initiation failed for attempt ${attemptId}: ${reason}`)
+    this.logger.warn(`Payment initiation failed for attempt ${attemptId}: ${reason}`)
     await attempts.update(attemptId, {
       status: PaymentAttemptStatus.FAILED,
       failedReason: reason,

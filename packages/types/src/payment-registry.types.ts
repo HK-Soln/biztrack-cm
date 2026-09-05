@@ -212,3 +212,37 @@ export function canTransitionPaymentAttempt(
 ): boolean {
   return PAYMENT_ATTEMPT_TRANSITIONS[from]?.includes(to) ?? false
 }
+
+// ---- In-store (POS) provider payments (§7 / Build 10) ----------------------
+
+/** Start a provider payment at the till for the cart being tendered. The Sale is NOT posted yet —
+ *  the client holds the cart and posts it on confirmation (§7.2). `amount` is in MAJOR units of
+ *  `currency` (e.g. whole XAF). `clientReference` is a client-generated idempotency key, so a
+ *  double-submit returns the same attempt. `customerPhone` is required for a USSD push. */
+export interface InitiateInStorePaymentRequest {
+  method: PaymentMethod
+  amount: number
+  currency?: string
+  customerPhone?: string
+  cashSessionId?: string
+  clientReference: string
+  reference?: string
+}
+
+/** Result of starting an in-store payment: a hosted link the customer pays (kind 'redirect', card)
+ *  or a push the customer approves on their phone (kind 'pending', MoMo). */
+export interface InStorePaymentInitiated {
+  attemptId: string
+  kind: 'redirect' | 'pending'
+  providerRef: string
+  url?: string
+  expiresAt?: string | null
+}
+
+/** Poll state of an in-store attempt. On PAID the client posts the Sale carrying `providerRef`
+ *  (+ the attempt id) on the payment line. `reason` is a whitelisted provider failure code. */
+export interface InStorePaymentStatus {
+  status: 'PENDING' | 'PAID' | 'FAILED'
+  reason?: string
+  providerRef?: string
+}
