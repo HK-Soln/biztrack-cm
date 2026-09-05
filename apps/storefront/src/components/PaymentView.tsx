@@ -1,6 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import {
+  cloneElement,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
@@ -28,6 +35,31 @@ const IcAlert = (
 )
 
 type Phase = 'idle' | 'pending' | 'paid' | 'failed'
+
+/** A small status glyph — the panel isn't inside `.empty`, so it has no icon sizing of its own;
+ *  size the SVG explicitly (a bare viewBox SVG otherwise renders at its ~300px default). */
+function StatusBadge({ icon, tone }: { icon: ReactElement; tone: 'brand' | 'success' | 'danger' }) {
+  const color =
+    tone === 'success' ? 'var(--success)' : tone === 'danger' ? 'var(--danger)' : 'var(--brand)'
+  return (
+    <div
+      style={{
+        width: 48,
+        height: 48,
+        borderRadius: 14,
+        margin: '0 auto 12px',
+        display: 'grid',
+        placeItems: 'center',
+        color,
+        background: 'var(--brand-soft, rgba(0, 0, 0, 0.05))',
+      }}
+    >
+      {cloneElement(icon as ReactElement<{ style?: CSSProperties }>, {
+        style: { width: 22, height: 22 },
+      })}
+    </div>
+  )
+}
 
 // Provider failure-reason codes the API whitelists — each has localized copy under `payReason.*`.
 // Anything else (or absent) falls back to the generic decline message.
@@ -167,9 +199,7 @@ export function PaymentView({
     if (phase === 'paid') {
       return (
         <div style={{ textAlign: 'center' }}>
-          <div className="ei" style={{ color: 'var(--success)', margin: '0 auto 12px' }}>
-            {IcCheck}
-          </div>
+          <StatusBadge icon={IcCheck} tone="success" />
           <h3 style={{ margin: 0 }}>{t('momoPaidTitle')}</h3>
           <p style={{ color: 'var(--muted)', marginTop: 8 }}>{t('paySuccessDesc')}</p>
           <button
@@ -187,9 +217,7 @@ export function PaymentView({
     if (phase === 'pending') {
       return (
         <div style={{ textAlign: 'center' }}>
-          <div className="ei" style={{ margin: '0 auto 12px' }}>
-            {IcLock}
-          </div>
+          <StatusBadge icon={IcLock} tone="brand" />
           <h3 style={{ margin: 0 }}>{t('momoWaitTitle')}</h3>
           <p style={{ marginTop: 8 }}>{t('momoWaitDesc', { phone: phone ?? '' })}</p>
           <p style={{ marginTop: 10, color: 'var(--muted)' }}>{t('momoChecking')}</p>
@@ -216,7 +244,11 @@ export function PaymentView({
               borderRadius: 12,
             }}
           >
-            <span style={{ width: 20, height: 20, flex: '0 0 20px', marginTop: 1 }}>{IcAlert}</span>
+            <span style={{ flex: '0 0 18px', marginTop: 1, lineHeight: 0 }}>
+              {cloneElement(IcAlert as ReactElement<{ style?: CSSProperties }>, {
+                style: { width: 18, height: 18 },
+              })}
+            </span>
             <div>
               <div style={{ fontWeight: 700 }}>{t('payFailedTitle')}</div>
               {reasonText ? (
