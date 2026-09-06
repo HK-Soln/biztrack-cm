@@ -178,6 +178,9 @@ import type {
   BusinessPaymentRouteView,
   SetPaymentRouteRequest,
   AvailablePaymentMethod,
+  InitiateInStorePaymentRequest,
+  InStorePaymentInitiated,
+  InStorePaymentStatus,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -432,6 +435,9 @@ export interface DataClient {
     setRoute: (input: SetPaymentRouteRequest) => Promise<BusinessPaymentRouteView>
     removeRoute: (id: string) => Promise<{ success: true }>
     availableMethods: () => Promise<AvailablePaymentMethod[]>
+    /** Spec 07 §7 — start a provider payment at the till (MoMo push / card link). */
+    initiateInStore: (input: InitiateInStorePaymentRequest) => Promise<InStorePaymentInitiated>
+    getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatus>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -858,6 +864,8 @@ function electronAdapter(): DataClient {
       setRoute: (input) => window.api.payments.setRoute(input),
       removeRoute: (id) => window.api.payments.removeRoute(id),
       availableMethods: () => window.api.payments.availableMethods(),
+      initiateInStore: (input) => window.api.payments.initiateInStore(input),
+      getInStoreStatus: (attemptId) => window.api.payments.getInStoreStatus(attemptId),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),

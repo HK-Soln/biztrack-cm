@@ -46,6 +46,8 @@ export const IPC = {
   paymentsSetRoute: 'payments:set-route',
   paymentsRemoveRoute: 'payments:remove-route',
   paymentsAvailable: 'payments:available',
+  paymentsInitiateInStore: 'payments:initiate-in-store',
+  paymentsInStoreStatus: 'payments:in-store-status',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -356,6 +358,9 @@ import type {
   BusinessPaymentRouteView as BusinessPaymentRouteViewT,
   SetPaymentRouteRequest as SetPaymentRouteRequestT,
   AvailablePaymentMethod as AvailablePaymentMethodT,
+  InitiateInStorePaymentRequest as InitiateInStorePaymentRequestT,
+  InStorePaymentInitiated as InStorePaymentInitiatedT,
+  InStorePaymentStatus as InStorePaymentStatusT,
 } from '@biztrack/types'
 export type {
   PaymentProvider,
@@ -367,6 +372,9 @@ export type {
   BusinessPaymentRouteView,
   SetPaymentRouteRequest,
   AvailablePaymentMethod,
+  InitiateInStorePaymentRequest,
+  InStorePaymentInitiated,
+  InStorePaymentStatus,
 } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
@@ -2001,6 +2009,8 @@ export interface BridgeApi {
     setRoute: (input: SetPaymentRouteRequestT) => Promise<BusinessPaymentRouteViewT>
     removeRoute: (id: string) => Promise<{ success: true }>
     availableMethods: () => Promise<AvailablePaymentMethodT[]>
+    initiateInStore: (input: InitiateInStorePaymentRequestT) => Promise<InStorePaymentInitiatedT>
+    getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatusT>
   }
   sync: {
     /** Run a push+pull cycle now. */

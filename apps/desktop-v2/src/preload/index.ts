@@ -238,6 +238,8 @@ const api: BridgeApi = {
     setRoute: (input) => ipcRenderer.invoke(IPC.paymentsSetRoute, input),
     removeRoute: (id) => ipcRenderer.invoke(IPC.paymentsRemoveRoute, id),
     availableMethods: () => ipcRenderer.invoke(IPC.paymentsAvailable),
+    initiateInStore: (input) => ipcRenderer.invoke(IPC.paymentsInitiateInStore, input),
+    getInStoreStatus: (attemptId) => ipcRenderer.invoke(IPC.paymentsInStoreStatus, attemptId),
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),

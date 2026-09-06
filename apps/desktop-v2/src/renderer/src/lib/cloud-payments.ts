@@ -5,6 +5,9 @@ import type {
   ConfigureWebhookRequest,
   ConnectPaymentProviderRequest,
   ConnectPaymentProviderResponse,
+  InitiateInStorePaymentRequest,
+  InStorePaymentInitiated,
+  InStorePaymentStatus,
   PaymentProvider,
   PaymentProviderCapability,
   SetPaymentRouteRequest,
@@ -32,4 +35,8 @@ export const cloudPayments = {
     cput('/payments/routes', input),
   removeRoute: (id: string): Promise<{ success: true }> => cdelete(`/payments/routes/${id}`),
   availableMethods: (): Promise<AvailablePaymentMethod[]> => cget('/payments/available-methods'),
+  initiateInStore: (input: InitiateInStorePaymentRequest): Promise<InStorePaymentInitiated> =>
+    cpost('/payments/in-store/initiate', input),
+  getInStoreStatus: (attemptId: string): Promise<InStorePaymentStatus> =>
+    cget(`/payments/in-store/${encodeURIComponent(attemptId)}/status`),
 }

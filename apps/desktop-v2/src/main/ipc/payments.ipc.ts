@@ -8,6 +8,9 @@ import {
   type ConfigureWebhookRequest,
   type ConnectPaymentProviderRequest,
   type ConnectPaymentProviderResponse,
+  type InitiateInStorePaymentRequest,
+  type InStorePaymentInitiated,
+  type InStorePaymentStatus,
   type PaymentProvider,
   type PaymentProviderCapability,
   type SetPaymentRouteRequest,
@@ -91,5 +94,22 @@ export function registerPaymentsIpc(http: HttpClient): void {
     async () =>
       (await http.get<ApiEnvelope<AvailablePaymentMethod[]>>('/payments/available-methods')).data
         .data,
+  )
+  // In-store provider payments (Spec 07 §7 / Build 10) — start a MoMo push / card link at the till
+  // and poll it. Authed cashier context; proxied through the same authHttp client.
+  ipcMain.handle(
+    IPC.paymentsInitiateInStore,
+    async (_e, input: InitiateInStorePaymentRequest) =>
+      (await http.post<ApiEnvelope<InStorePaymentInitiated>>('/payments/in-store/initiate', input))
+        .data.data,
+  )
+  ipcMain.handle(
+    IPC.paymentsInStoreStatus,
+    async (_e, attemptId: string) =>
+      (
+        await http.get<ApiEnvelope<InStorePaymentStatus>>(
+          `/payments/in-store/${encodeURIComponent(attemptId)}/status`,
+        )
+      ).data.data,
   )
 }
