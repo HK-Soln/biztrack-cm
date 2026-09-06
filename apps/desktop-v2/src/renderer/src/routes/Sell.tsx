@@ -7,6 +7,7 @@ import { PaymentMethod } from '@biztrack/types'
 import { evaluateDiscountAuthorization } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
 import { requestManagerStepUp } from '@/stores/step-up.store'
+import { useSessionStore } from '@/stores/session.store'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
 import { useBreakpoint } from '@/lib/useBreakpoint'
@@ -1955,6 +1956,11 @@ function PaymentModal({
 }) {
   const t = useT()
   const money = useCurrency()
+  // Manual payment override (§7.6) is owner/manager-only.
+  const canOverride = useSessionStore((s) => {
+    const r = (s.status.user?.role ?? '').toUpperCase()
+    return r === 'OWNER' || r === 'MANAGER'
+  })
   const [method, setMethod] = useState<TenderKey>(defaultTender ?? 'cash')
   const [tendered, setTendered] = useState<number | null>(null)
   // Prefill the MoMo number with the selected customer's phone (if any); the cashier can override.
@@ -2176,6 +2182,25 @@ function PaymentModal({
     }
   }
 
+  // Manager override (§7.6): force the pending attempt to CONFIRMED/FAILED. The server transitions it
+  // and emits the settle → the WS/poll below handles the sale post / retry, so no local settle here.
+  const manualConfirm = async () => {
+    if (!charge?.attemptId) return
+    try {
+      await dataClient.payments.confirmInStore(charge.attemptId)
+    } catch {
+      /* leave the overlay as-is; the cashier can retry or collect manually */
+    }
+  }
+  const manualFail = async () => {
+    if (!charge?.attemptId) return
+    try {
+      await dataClient.payments.failInStore(charge.attemptId)
+    } catch {
+      /* no-op */
+    }
+  }
+
   // Poll the attempt to a terminal state. WebSocket will be the PRIMARY signal (next slice); this is
   // the fallback. On PAID, post the Sale ONCE with the attempt ref on the payment line (§7.2).
   useEffect(() => {
@@ -2337,6 +2362,17 @@ function PaymentModal({
                 >
                   {t('sell.cancelCharge')}
                 </button>
+                {canOverride ? (
+                  <div className="pm-override">
+                    <span className="pm-override-lbl">{t('sell.managerOverride')}</span>
+                    <button type="button" className="pm-copy" onClick={manualConfirm}>
+                      {t('sell.confirmManually')}
+                    </button>
+                    <button type="button" className="pm-cancel" onClick={manualFail}>
+                      {t('sell.markFailed')}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : charge.phase === 'paid' ? (
               <div className="pm-charge-wait ok">
@@ -2363,6 +2399,14 @@ function PaymentModal({
                     {t('sell.collectManually')}
                   </button>
                 </div>
+                {canOverride ? (
+                  <div className="pm-override">
+                    <span className="pm-override-lbl">{t('sell.managerOverride')}</span>
+                    <button type="button" className="pm-copy" onClick={manualConfirm}>
+                      {t('sell.confirmManually')}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

@@ -1,13 +1,18 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import {
+  BusinessMemberRole,
   type InStorePaymentInitiated,
   type InStorePaymentStatus,
   type JwtPayload,
 } from '@biztrack/types'
 import { majorToMinor } from '@biztrack/utils'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
-import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import {
+  AppBadRequestException,
+  AppForbiddenException,
+  AppNotFoundException,
+} from '@/common/exceptions/app-exceptions'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { PaymentInitiationService } from '../services/payment-initiation.service'
 import { InitiateInStorePaymentDto } from '../dto/initiate-in-store-payment.dto'
@@ -71,5 +76,49 @@ export class InStorePaymentsController {
       throw new AppNotFoundException('Payment attempt not found.', 'PAYMENT_ATTEMPT_NOT_FOUND')
     }
     return { status: state.status, reason: state.reason, providerRef: state.providerRef }
+  }
+
+  @Post(':attemptId/confirm')
+  @ApiOperation({ summary: 'Manager override: hard-confirm a pending in-store attempt (§7.6)' })
+  confirm(
+    @CurrentUser() user: JwtPayload,
+    @Param('attemptId') attemptId: string,
+  ): Promise<InStorePaymentStatus> {
+    return this.manualSettle(user, attemptId, 'confirm')
+  }
+
+  @Post(':attemptId/fail')
+  @ApiOperation({ summary: 'Manager override: mark a pending in-store attempt failed (§7.6)' })
+  fail(
+    @CurrentUser() user: JwtPayload,
+    @Param('attemptId') attemptId: string,
+  ): Promise<InStorePaymentStatus> {
+    return this.manualSettle(user, attemptId, 'fail')
+  }
+
+  /** Manual overrides are owner/manager-only (audited on the attempt via confirmationType=MANUAL +
+   *  confirmedBy). Cashier-with-step-up authorization is a future refinement. */
+  private async manualSettle(
+    user: JwtPayload,
+    attemptId: string,
+    action: 'confirm' | 'fail',
+  ): Promise<InStorePaymentStatus> {
+    if (
+      ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
+        user.role as BusinessMemberRole,
+      )
+    ) {
+      throw new AppForbiddenException('Only a manager can override a payment.', 'FORBIDDEN')
+    }
+    const state = await this.initiation.manualSettleInStore(
+      user.businessId as string,
+      attemptId,
+      action,
+      user.sub,
+    )
+    if (!state) {
+      throw new AppNotFoundException('Payment attempt not found.', 'PAYMENT_ATTEMPT_NOT_FOUND')
+    }
+    return { status: state.status, providerRef: state.providerRef }
   }
 }

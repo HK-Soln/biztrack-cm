@@ -112,4 +112,24 @@ export function registerPaymentsIpc(http: HttpClient): void {
         )
       ).data.data,
   )
+  ipcMain.handle(
+    IPC.paymentsConfirmInStore,
+    async (_e, attemptId: string) =>
+      (
+        await http.post<ApiEnvelope<InStorePaymentStatus>>(
+          `/payments/in-store/${encodeURIComponent(attemptId)}/confirm`,
+          {},
+        )
+      ).data.data,
+  )
+  ipcMain.handle(
+    IPC.paymentsFailInStore,
+    async (_e, attemptId: string) =>
+      (
+        await http.post<ApiEnvelope<InStorePaymentStatus>>(
+          `/payments/in-store/${encodeURIComponent(attemptId)}/fail`,
+          {},
+        )
+      ).data.data,
+  )
 }

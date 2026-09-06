@@ -39,4 +39,8 @@ export const cloudPayments = {
     cpost('/payments/in-store/initiate', input),
   getInStoreStatus: (attemptId: string): Promise<InStorePaymentStatus> =>
     cget(`/payments/in-store/${encodeURIComponent(attemptId)}/status`),
+  confirmInStore: (attemptId: string): Promise<InStorePaymentStatus> =>
+    cpost(`/payments/in-store/${encodeURIComponent(attemptId)}/confirm`, {}),
+  failInStore: (attemptId: string): Promise<InStorePaymentStatus> =>
+    cpost(`/payments/in-store/${encodeURIComponent(attemptId)}/fail`, {}),
 }

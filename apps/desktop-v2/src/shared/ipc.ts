@@ -48,6 +48,8 @@ export const IPC = {
   paymentsAvailable: 'payments:available',
   paymentsInitiateInStore: 'payments:initiate-in-store',
   paymentsInStoreStatus: 'payments:in-store-status',
+  paymentsConfirmInStore: 'payments:confirm-in-store',
+  paymentsFailInStore: 'payments:fail-in-store',
   paymentsAttemptEvent: 'payments:attempt-event',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
@@ -2014,6 +2016,9 @@ export interface BridgeApi {
     availableMethods: () => Promise<AvailablePaymentMethodT[]>
     initiateInStore: (input: InitiateInStorePaymentRequestT) => Promise<InStorePaymentInitiatedT>
     getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatusT>
+    /** Manager override (§7.6): hard-confirm / mark-failed a pending in-store attempt. */
+    confirmInStore: (attemptId: string) => Promise<InStorePaymentStatusT>
+    failInStore: (attemptId: string) => Promise<InStorePaymentStatusT>
     /** Subscribe to in-store attempt settlements (WebSocket, forwarded from main). */
     onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEventT) => void) => () => void
   }

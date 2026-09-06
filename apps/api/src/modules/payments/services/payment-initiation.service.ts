@@ -427,6 +427,46 @@ export class PaymentInitiationService {
     return { status, reason, providerRef: settled.providerRef ?? undefined }
   }
 
+  /**
+   * Spec 07 §7.6 — a manager overrides a PENDING in-store attempt: hard-confirm (the payment landed but
+   * wasn't auto-detected — avoids a double charge) or mark it failed. Recorded as MANUAL with
+   * confirmedBy, and it flows through the same state machine → emits the settle to the till.
+   */
+  async manualSettleInStore(
+    businessId: string,
+    attemptId: string,
+    action: 'confirm' | 'fail',
+    actorUserId: string,
+  ): Promise<{ status: PublicPaymentState; providerRef?: string } | null> {
+    const attempt = await this.attempts.findOne({ where: { businessId, id: attemptId } })
+    if (!attempt) return null
+    const isInStore =
+      attempt.initiationType === PaymentAttemptInitiationType.LINK ||
+      attempt.initiationType === PaymentAttemptInitiationType.USSD_PUSH
+    if (!isInStore || !attempt.providerRef) return null
+    // Idempotent: already terminal → return its state, no transition.
+    if (PAYMENT_ATTEMPT_TERMINAL.includes(attempt.status))
+      return { status: this.toPublicState(attempt.status), providerRef: attempt.providerRef }
+    const to = action === 'confirm' ? PaymentAttemptStatus.CONFIRMED : PaymentAttemptStatus.FAILED
+    const updated = await this.attemptsService.applyProviderEvent(
+      attempt.businessId,
+      {
+        providerRef: attempt.providerRef,
+        status: to,
+        eventId: `manual-${attemptId}`,
+        reason: action === 'fail' ? 'MANUAL' : undefined,
+        raw: { manual: true },
+      },
+      PaymentConfirmationType.MANUAL,
+      action === 'confirm' ? actorUserId : undefined,
+    )
+    const settled = updated ?? attempt
+    return {
+      status: this.toPublicState(settled.status),
+      providerRef: settled.providerRef ?? undefined,
+    }
+  }
+
   private async failAttempt(
     attempts: Repository<PaymentAttempt>,
     attemptId: string,

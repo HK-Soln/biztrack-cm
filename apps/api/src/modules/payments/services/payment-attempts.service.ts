@@ -49,6 +49,7 @@ export class PaymentAttemptsService {
     businessId: string,
     event: ProviderEvent,
     confirmationType: PaymentConfirmationType,
+    confirmedBy?: string,
   ): Promise<PaymentAttempt | null> {
     const attempt = await this.findByProviderRef(businessId, event.providerRef)
     if (!attempt) {
@@ -68,7 +69,10 @@ export class PaymentAttemptsService {
     attempt.status = to
     attempt.feeMinor = event.feeMinor ?? attempt.feeMinor
     attempt.netMinor = event.netMinor ?? attempt.netMinor
-    if (to === PaymentAttemptStatus.CONFIRMED) attempt.confirmedAt = new Date()
+    if (to === PaymentAttemptStatus.CONFIRMED) {
+      attempt.confirmedAt = new Date()
+      if (confirmedBy) attempt.confirmedBy = confirmedBy // MANUAL hard-confirm (§7.6): who overrode.
+    }
     if (to === PaymentAttemptStatus.FAILED)
       attempt.failedReason = event.reason || 'Reported failed by provider.'
     attempt.confirmationType = confirmationType

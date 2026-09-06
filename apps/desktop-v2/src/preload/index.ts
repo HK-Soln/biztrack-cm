@@ -240,6 +240,8 @@ const api: BridgeApi = {
     availableMethods: () => ipcRenderer.invoke(IPC.paymentsAvailable),
     initiateInStore: (input) => ipcRenderer.invoke(IPC.paymentsInitiateInStore, input),
     getInStoreStatus: (attemptId) => ipcRenderer.invoke(IPC.paymentsInStoreStatus, attemptId),
+    confirmInStore: (attemptId) => ipcRenderer.invoke(IPC.paymentsConfirmInStore, attemptId),
+    failInStore: (attemptId) => ipcRenderer.invoke(IPC.paymentsFailInStore, attemptId),
     onAttemptEvent: (cb) => {
       const listener = (_e: unknown, payload: Parameters<typeof cb>[0]) => cb(payload)
       ipcRenderer.on(IPC.paymentsAttemptEvent, listener)

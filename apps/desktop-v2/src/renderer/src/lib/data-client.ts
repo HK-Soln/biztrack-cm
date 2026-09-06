@@ -439,6 +439,9 @@ export interface DataClient {
     /** Spec 07 §7 — start a provider payment at the till (MoMo push / card link). */
     initiateInStore: (input: InitiateInStorePaymentRequest) => Promise<InStorePaymentInitiated>
     getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatus>
+    /** Manager override (§7.6): hard-confirm / mark-failed a pending in-store attempt. */
+    confirmInStore: (attemptId: string) => Promise<InStorePaymentStatus>
+    failInStore: (attemptId: string) => Promise<InStorePaymentStatus>
     /** Live in-store attempt settlements (WebSocket; poll is the fallback). */
     onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEvent) => void) => () => void
   }
@@ -873,6 +876,8 @@ function electronAdapter(): DataClient {
       availableMethods: () => window.api.payments.availableMethods(),
       initiateInStore: (input) => window.api.payments.initiateInStore(input),
       getInStoreStatus: (attemptId) => window.api.payments.getInStoreStatus(attemptId),
+      confirmInStore: (attemptId) => window.api.payments.confirmInStore(attemptId),
+      failInStore: (attemptId) => window.api.payments.failInStore(attemptId),
       onAttemptEvent: (cb) => window.api.payments.onAttemptEvent(cb),
     },
     uploads: {
