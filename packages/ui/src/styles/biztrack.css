@@ -10670,6 +10670,13 @@ textarea.input {
   border-color: var(--brand, #3b82f6);
   color: #fff;
 }
+.split-row .split-charged {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--success, #1a7f45);
+  white-space: nowrap;
+}
 .pm-duedate {
   display: flex;
   flex-direction: column;

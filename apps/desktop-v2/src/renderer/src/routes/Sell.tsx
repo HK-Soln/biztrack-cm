@@ -1978,14 +1978,22 @@ function PaymentModal({
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   )
   const [collectMode, setCollectMode] = useState<'attest' | 'charge'>('attest')
-  // Which split tender (if any) the cashier chose to charge via the provider (§7 v1: at most one).
+  // Which split tender is currently armed to charge. A split can charge SEVERAL provider portions,
+  // one at a time — each confirmed charge is recorded in `chargedRows` and the cashier returns to the
+  // split to charge the next / collect the rest / finalize. Only the Confirm button posts the sale.
   const [chargeSplitKey, setChargeSplitKey] = useState<'momo' | 'om' | 'card' | null>(null)
+  const [chargedRows, setChargedRows] = useState<
+    Record<string, { ref: string | null; attemptId: string }>
+  >({})
   const [charge, setCharge] = useState<{
     phase: 'starting' | 'pending' | 'paid' | 'failed'
     attemptId?: string
     url?: string
     providerRef?: string
     reason?: string
+    /** The split row this charge settles (undefined for a single-tender charge). */
+    key?: 'momo' | 'om' | 'card'
+    isSplit?: boolean
   } | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const clientRefRef = useRef('')
@@ -2079,6 +2087,7 @@ function PaymentModal({
   useEffect(() => {
     setCollectMode('attest')
     setChargeSplitKey(null)
+    setChargedRows({})
     setCharge(null)
     setQrDataUrl(null)
     postedRef.current = false
@@ -2086,64 +2095,48 @@ function PaymentModal({
 
   const chargeMode = chargeable && collectMode === 'charge'
 
-  // Build the split payment lines; the CHARGED tender (if any) carries the provider ref + attempt id,
-  // the rest are attested as usual.
-  const splitPayments = (charged?: {
-    key: TenderKey
-    ref: string | null
-    attemptId: string
-  }): SaleInput['payments'] =>
+  // Build the split payment lines; each CHARGED row carries its provider ref + attempt id, the rest
+  // are attested as usual. A split can have several charged rows (charged one at a time).
+  const splitPayments = (): SaleInput['payments'] =>
     splitKeys
       .filter((k) => (splits[k] || 0) > 0)
       .map((k) => {
         if (k === 'deposit')
           return { method: PaymentMethod.SAVINGS, amount: splits[k]!, savingsAccountId: depAccountId }
-        const isCharged = charged?.key === k
+        const charged = chargedRows[k]
         return {
           method: PM[k],
           amount: splits[k]!,
-          mobileMoneyReference: isCharged
-            ? charged!.ref
+          mobileMoneyReference: charged
+            ? charged.ref
             : (k === 'momo' || k === 'om') && momoRef.trim()
               ? momoRef.trim()
               : null,
-          paymentAttemptId: isCharged ? charged!.attemptId : undefined,
+          paymentAttemptId: charged?.attemptId,
         }
       })
 
-  // What a "Charge" collects — a single-tender provider payment, or one provider portion of a split
-  // (§7 v1 = at most one charged tender per sale). Null when no charge is armed → the button confirms.
+  // What the armed "Charge" collects — a single-tender payment, or ONE not-yet-charged provider portion
+  // of a split. Null when nothing is armed (→ the button confirms the sale).
   const chargeSpec: {
+    key: 'momo' | 'om' | 'card'
     method: PaymentMethod
     amount: number
     needsPhone: boolean
-    buildPayments: (ref: string | null, attemptId: string) => SaleInput['payments']
+    isSplit: boolean
   } | null = (() => {
     if (chargeMode) {
       const mk = method as 'momo' | 'om' | 'card'
-      const needsPhone = mk !== 'card'
-      return {
-        method: PM[mk],
-        amount: total,
-        needsPhone,
-        buildPayments: (ref, attemptId) => [
-          {
-            method: PM[mk],
-            amount: total,
-            mobileMoneyReference: ref ?? (needsPhone ? momoRef.trim() || null : null),
-            paymentAttemptId: attemptId,
-          },
-        ],
-      }
+      return { key: mk, method: PM[mk], amount: total, needsPhone: mk !== 'card', isSplit: false }
     }
-    if (method === 'split' && chargeSplitKey && (splits[chargeSplitKey] || 0) > 0) {
+    if (
+      method === 'split' &&
+      chargeSplitKey &&
+      (splits[chargeSplitKey] || 0) > 0 &&
+      !chargedRows[chargeSplitKey]
+    ) {
       const mk = chargeSplitKey
-      return {
-        method: PM[mk],
-        amount: splits[mk]!,
-        needsPhone: mk !== 'card',
-        buildPayments: (ref, attemptId) => splitPayments({ key: mk, ref, attemptId }),
-      }
+      return { key: mk, method: PM[mk], amount: splits[mk]!, needsPhone: mk !== 'card', isSplit: true }
     }
     return null
   })()
@@ -2175,6 +2168,8 @@ function PaymentModal({
         attemptId: res.attemptId,
         url: res.url,
         providerRef: res.providerRef,
+        key: chargeSpec.key,
+        isSplit: chargeSpec.isSplit,
       })
     } catch (e) {
       setCharge({ phase: 'failed', reason: e instanceof Error ? e.message : undefined })
@@ -2190,11 +2185,31 @@ function PaymentModal({
     let timer: ReturnType<typeof setTimeout>
     const started = Date.now()
     const settlePaid = (providerRef?: string) => {
-      setCharge((c) => (c ? { ...c, phase: 'paid', providerRef: providerRef ?? c.providerRef } : c))
       if (postedRef.current) return
       postedRef.current = true
-      // chargeSpec is frozen while charging (inputs are hidden), so this closure is stable.
-      onConfirm(chargeSpec?.buildPayments(providerRef ?? null, attemptId) ?? [], creditDue || null)
+      if (charge?.isSplit && charge.key) {
+        // Split: record this row as charged and RETURN to the split — the cashier charges the next
+        // provider portion / collects the rest / finalizes with Confirm. The sale is NOT posted yet.
+        const key = charge.key
+        setChargedRows((r) => ({ ...r, [key]: { ref: providerRef ?? null, attemptId } }))
+        setChargeSplitKey(null)
+        setCharge(null)
+        return
+      }
+      // Single tender: nothing else to collect → post the sale now.
+      setCharge((c) => (c ? { ...c, phase: 'paid', providerRef: providerRef ?? c.providerRef } : c))
+      const mk = method as 'momo' | 'om' | 'card'
+      onConfirm(
+        [
+          {
+            method: PM[mk],
+            amount: total,
+            mobileMoneyReference: providerRef ?? (mk !== 'card' ? momoRef.trim() || null : null),
+            paymentAttemptId: attemptId,
+          },
+        ],
+        creditDue || null,
+      )
     }
     const tick = async () => {
       let s: Awaited<ReturnType<typeof dataClient.payments.getInStoreStatus>> | null = null
@@ -2267,10 +2282,7 @@ function PaymentModal({
     ? `${t('sell.chargeBtn')} · ${money.format(chargeSpec.amount)}`
     : confirmLabel
   const buttonDisabled = chargeSpec
-    ? busy ||
-      !online ||
-      (chargeSpec.needsPhone && !isValidPhone(momoRef)) ||
-      (method === 'split' && !canConfirm)
+    ? busy || !online || (chargeSpec.needsPhone && !isValidPhone(momoRef))
     : !canConfirm || busy
   const onButton = chargeSpec ? startCharge : confirm
 
@@ -2344,6 +2356,7 @@ function PaymentModal({
                     className="pm-cancel"
                     onClick={() => {
                       setCharge(null)
+                      setChargeSplitKey(null)
                       setCollectMode('attest')
                     }}
                   >
@@ -2622,7 +2635,7 @@ function PaymentModal({
                           <div className="sf">
                             <input
                               inputMode="decimal"
-                              disabled={depDisabled}
+                              disabled={depDisabled || !!chargedRows[k]}
                               value={splits[k] ? String(splits[k]) : ''}
                               placeholder="0"
                               onChange={(e) => {
@@ -2633,9 +2646,11 @@ function PaymentModal({
                               }}
                             />
                           </div>
-                          {(k === 'momo' || k === 'om' || k === 'card') &&
-                          (splits[k] || 0) > 0 &&
-                          online ? (
+                          {chargedRows[k] ? (
+                            <span className="split-charged">✓ {t('sell.charged')}</span>
+                          ) : (k === 'momo' || k === 'om' || k === 'card') &&
+                            (splits[k] || 0) > 0 &&
+                            online ? (
                             <button
                               type="button"
                               className={`split-charge${chargeSplitKey === k ? ' on' : ''}`}

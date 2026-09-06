@@ -870,6 +870,7 @@ export const en = {
   'sell.chargeCardHint':
     'A payment link and QR code will be shown for the customer to pay on their phone.',
   'sell.chargeBtn': 'Charge',
+  'sell.charged': 'Charged',
   'sell.startingCharge': 'Starting…',
   'sell.scanToPay': 'Ask the customer to scan and pay',
   'sell.approveOnPhone': 'Waiting for approval on {phone}',
@@ -4540,6 +4541,7 @@ export const fr: Record<MessageKey, string> = {
   'sell.chargeCardHint':
     'Un lien de paiement et un QR code seront affichés pour que le client paie sur son téléphone.',
   'sell.chargeBtn': 'Débiter',
+  'sell.charged': 'Débité',
   'sell.startingCharge': 'Démarrage…',
   'sell.scanToPay': 'Demandez au client de scanner et payer',
   'sell.approveOnPhone': "En attente d'approbation sur {phone}",
