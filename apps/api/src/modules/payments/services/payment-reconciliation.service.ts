@@ -5,6 +5,8 @@ import {
   NotificationType,
   PaymentAttemptInitiationType,
   PaymentAttemptStatus,
+  PaymentConfirmationType,
+  type InStoreOverrideSummaryRow,
 } from '@biztrack/types'
 import { minorToMajor } from '@biztrack/utils'
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
@@ -51,6 +53,38 @@ export class PaymentReconciliationService {
     })
     for (const attempt of stranded) await this.notifyOne(attempt)
     return stranded.length
+  }
+
+  /**
+   * Spec 07 §7.6 / Build 11 — per-cashier manual hard-confirm tally over a window (default 30 days),
+   * the BIZ-2.11 risk feed. (Automated attestation matching against provider transactions is not built:
+   * MoMo's Collection API has no lookup by the payer's reference, only by our own request-to-pay ref.)
+   */
+  async manualOverrideSummary(
+    businessId: string,
+    sinceDays = 30,
+  ): Promise<InStoreOverrideSummaryRow[]> {
+    const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
+    const rows = await this.attempts
+      .createQueryBuilder('a')
+      .select('a.confirmedBy', 'cashierId')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(a.amountMinor), 0)', 'totalAmountMinor')
+      .where('a.businessId = :businessId', { businessId })
+      .andWhere('a.confirmationType = :manual', { manual: PaymentConfirmationType.MANUAL })
+      .andWhere('a.confirmedBy IS NOT NULL')
+      .andWhere('a.initiationType IN (:...inStore)', {
+        inStore: [PaymentAttemptInitiationType.LINK, PaymentAttemptInitiationType.USSD_PUSH],
+      })
+      .andWhere('a.confirmedAt >= :since', { since })
+      .groupBy('a.confirmedBy')
+      .orderBy('count', 'DESC')
+      .getRawMany<{ cashierId: string; count: string; totalAmountMinor: string }>()
+    return rows.map((r) => ({
+      cashierId: r.cashierId,
+      count: Number(r.count),
+      totalAmountMinor: Number(r.totalAmountMinor),
+    }))
   }
 
   private async notifyOne(attempt: PaymentAttempt): Promise<void> {

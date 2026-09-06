@@ -246,3 +246,11 @@ export interface InStorePaymentStatus {
   reason?: string
   providerRef?: string
 }
+
+/** Per-cashier manual hard-confirm tally (Spec 07 §7.6 → BIZ-2.11 risk signal). A cashier who
+ *  manually overrides many provider payments is a pattern the owner should review. */
+export interface InStoreOverrideSummaryRow {
+  cashierId: string | null
+  count: number
+  totalAmountMinor: number
+}

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import {
   BusinessMemberRole,
+  type InStoreOverrideSummaryRow,
   type InStorePaymentInitiated,
   type InStorePaymentStatus,
   type JwtPayload,
@@ -15,6 +16,7 @@ import {
 } from '@/common/exceptions/app-exceptions'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { PaymentInitiationService } from '../services/payment-initiation.service'
+import { PaymentReconciliationService } from '../services/payment-reconciliation.service'
 import { InitiateInStorePaymentDto } from '../dto/initiate-in-store-payment.dto'
 
 /**
@@ -28,7 +30,23 @@ import { InitiateInStorePaymentDto } from '../dto/initiate-in-store-payment.dto'
 @UseGuards(Phase2Guard)
 @Controller('payments/in-store')
 export class InStorePaymentsController {
-  constructor(private readonly initiation: PaymentInitiationService) {}
+  constructor(
+    private readonly initiation: PaymentInitiationService,
+    private readonly reconciliation: PaymentReconciliationService,
+  ) {}
+
+  @Get('override-summary')
+  @ApiOperation({ summary: 'Per-cashier manual hard-confirm tally (§7.6 → BIZ-2.11, owner/manager)' })
+  overrideSummary(@CurrentUser() user: JwtPayload): Promise<InStoreOverrideSummaryRow[]> {
+    if (
+      ![BusinessMemberRole.OWNER, BusinessMemberRole.MANAGER].includes(
+        user.role as BusinessMemberRole,
+      )
+    ) {
+      throw new AppForbiddenException('Only a manager can view overrides.', 'FORBIDDEN')
+    }
+    return this.reconciliation.manualOverrideSummary(user.businessId as string)
+  }
 
   @Post('initiate')
   @ApiOperation({ summary: 'Start a provider payment at the till (MoMo push / card link)' })

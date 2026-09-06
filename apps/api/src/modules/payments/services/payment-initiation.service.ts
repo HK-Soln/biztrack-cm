@@ -164,6 +164,17 @@ export class PaymentInitiationService {
           linkUrl: link.url,
           expiresAt: new Date(link.expiresAt),
         })
+        // Poll safety net over the link's life (a webhook can be lost) — and it captures the Stripe
+        // fee at settle even when the webhook (which carries none) settled it first (Build 12 §9).
+        await this.queue.add(
+          POLL_PAYMENT_ATTEMPT_JOB,
+          {
+            businessId: input.businessId,
+            attemptId: attempt.id,
+            deadline: Date.now() + LINK_TTL_SECONDS * 1000,
+          },
+          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
+        )
         return {
           kind: 'redirect',
           attemptId: attempt.id,
@@ -508,7 +519,12 @@ export class PaymentInitiationService {
    * updated) attempt; on any provider error it returns the attempt unchanged (a later poll retries).
    */
   async reconcileAttempt(attempt: PaymentAttempt): Promise<PaymentAttempt> {
-    if (PAYMENT_ATTEMPT_TERMINAL.includes(attempt.status) || !attempt.providerRef) return attempt
+    if (!attempt.providerRef) return attempt
+    const isTerminal = PAYMENT_ATTEMPT_TERMINAL.includes(attempt.status)
+    // A settled attempt is done UNLESS it's a CONFIRMED payment whose fee we never captured (e.g. a
+    // webhook settled it before any poll — Build 12 §9: capture fees now, unrecoverable later).
+    const needsFees = attempt.status === PaymentAttemptStatus.CONFIRMED && attempt.feeMinor == null
+    if (isTerminal && !needsFees) return attempt
     const connection = await this.connections.findOne({ where: { id: attempt.providerId } })
     const adapter = connection ? this.adapters.get(connection.providerCode) : null
     if (!connection || !adapter?.getTransaction) return attempt
@@ -519,6 +535,18 @@ export class PaymentInitiationService {
     if (!creds) return attempt
     try {
       const state = await adapter.getTransaction(creds, attempt.providerRef)
+      if (isTerminal) {
+        // Fee-only capture — NEVER re-transition a settled attempt.
+        if (state.feeMinor != null) {
+          await this.attempts.update(attempt.id, {
+            feeMinor: state.feeMinor,
+            netMinor: state.netMinor ?? null,
+          })
+          attempt.feeMinor = state.feeMinor
+          attempt.netMinor = state.netMinor ?? null
+        }
+        return attempt
+      }
       const updated = await this.attemptsService.applyProviderEvent(
         attempt.businessId,
         {
@@ -526,6 +554,8 @@ export class PaymentInitiationService {
           status: state.status,
           eventId: '',
           reason: state.reason,
+          feeMinor: state.feeMinor,
+          netMinor: state.netMinor,
           raw: state.raw,
         },
         PaymentConfirmationType.POLL,

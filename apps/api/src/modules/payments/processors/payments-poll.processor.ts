@@ -37,8 +37,10 @@ export class PaymentsPollProcessor extends WorkerHost {
     if (job.name !== POLL_PAYMENT_ATTEMPT_JOB) return
     const { attemptId, deadline } = job.data
     const attempt = await this.attempts.findOne({ where: { id: attemptId } })
-    if (!attempt || PAYMENT_ATTEMPT_TERMINAL.includes(attempt.status)) return
+    if (!attempt) return
 
+    // reconcileAttempt no-ops for a settled attempt UNLESS its fee is still uncaptured (a webhook may
+    // have settled it before any poll) — so we still call it once here to grab the fee, then stop.
     const settled = await this.initiation.reconcileAttempt(attempt)
     if (PAYMENT_ATTEMPT_TERMINAL.includes(settled.status)) return // done — settle already emitted
 

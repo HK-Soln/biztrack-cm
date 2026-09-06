@@ -14,6 +14,17 @@ const DEFAULT_STRIPE_HOST = 'https://api.stripe.com'
 /** Stripe's default replay window for webhook timestamps (seconds). */
 const SIGNATURE_TOLERANCE_S = 300
 
+/** A settled charge's balance transaction — where Stripe reports its fee + the net we receive.
+ *  In minor units of `currency` (the settlement currency, which may differ from the charge currency). */
+interface StripeBalanceTransaction {
+  fee?: number
+  net?: number
+  currency?: string
+}
+interface StripeCharge {
+  balance_transaction?: StripeBalanceTransaction | string | null
+}
+
 /** The slices of Stripe's JSON we read — everything else is carried through as `raw`. */
 interface StripeObject {
   id?: string
@@ -24,6 +35,9 @@ interface StripeObject {
   status?: string
   payment_intent?: string
   url?: string
+  /** Populated (as an object) only when the PaymentIntent is fetched with expand[]=latest_charge...; a
+   *  bare id string otherwise. */
+  latest_charge?: StripeCharge | string | null
 }
 interface StripeEvent {
   id?: string
@@ -125,20 +139,30 @@ export class StripeAdapter implements PaymentProviderAdapter {
     providerRef: string,
   ): Promise<ProviderTxnState> {
     const key = credentials.secret_key?.trim() ?? ''
-    const res = await fetch(`${this.base}/v1/payment_intents/${encodeURIComponent(providerRef)}`, {
-      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
-    })
+    // Expand the charge's balance transaction so we capture the fee + net at settle (Build 12 / §9).
+    const res = await fetch(
+      `${this.base}/v1/payment_intents/${encodeURIComponent(providerRef)}?expand[]=latest_charge.balance_transaction`,
+      { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } },
+    )
     if (!res.ok) {
       const body = (await res.text()).slice(0, 300)
       this.logger.warn(`Stripe getTransaction HTTP ${res.status}: ${body}`)
       throw new Error(`Stripe returned HTTP ${res.status}.`)
     }
     const intent = (await res.json()) as StripeObject
+    const charge =
+      intent.latest_charge && typeof intent.latest_charge === 'object' ? intent.latest_charge : null
+    const bt =
+      charge?.balance_transaction && typeof charge.balance_transaction === 'object'
+        ? charge.balance_transaction
+        : null
     return {
       status: mapIntentStatus(intent.status),
       providerRef: intent.id ?? providerRef,
       amountMinor: intent.amount_received ?? intent.amount,
       currency: intent.currency?.toUpperCase(),
+      feeMinor: bt?.fee,
+      netMinor: bt?.net,
       raw: intent,
     }
   }

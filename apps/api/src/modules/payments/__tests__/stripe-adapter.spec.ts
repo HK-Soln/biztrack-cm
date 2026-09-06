@@ -155,6 +155,36 @@ describe('StripeAdapter', () => {
       expect(state).toMatchObject({ status: 'CONFIRMED', providerRef: 'pi_1', amountMinor: 1500 })
     })
 
+    it('captures the fee + net from the expanded balance transaction (Build 12)', async () => {
+      const spy = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'pi_1',
+          status: 'succeeded',
+          amount: 1500,
+          currency: 'usd',
+          latest_charge: { balance_transaction: { fee: 74, net: 1426, currency: 'usd' } },
+        }),
+      }))
+      global.fetch = spy as unknown as typeof fetch
+      const state = await adapter.getTransaction({ secret_key: 'rk_good' }, 'pi_1')
+      expect(state).toMatchObject({ feeMinor: 74, netMinor: 1426 })
+      // The PaymentIntent is fetched with the balance-transaction expanded.
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('expand'), expect.anything())
+    })
+
+    it('leaves fee/net undefined when the charge is not expanded', async () => {
+      mockFetch(() => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'pi_1', status: 'succeeded', amount: 1500, currency: 'usd' }),
+      }))
+      const state = await adapter.getTransaction({ secret_key: 'rk_good' }, 'pi_1')
+      expect(state.feeMinor).toBeUndefined()
+      expect(state.netMinor).toBeUndefined()
+    })
+
     it('creates a Checkout Session and returns the URL + PaymentIntent ref', async () => {
       global.fetch = jest.fn(async () => ({
         ok: true,
