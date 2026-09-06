@@ -38,7 +38,8 @@ export class InStorePaymentsController {
       method: dto.method,
       amountMinor: majorToMinor(dto.amount, currency),
       currency,
-      reference: dto.reference?.trim() || 'In-store payment',
+      // Space-free reference — it becomes the provider externalId (MoMo rejects spaces with a 400).
+      reference: dto.reference?.trim().replace(/\s+/g, '-') || `POS-${dto.clientReference.slice(0, 8)}`,
       customerPhone: dto.customerPhone,
       cashSessionId: dto.cashSessionId,
       clientReference: dto.clientReference,

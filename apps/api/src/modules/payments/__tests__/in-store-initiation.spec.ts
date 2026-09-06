@@ -122,13 +122,13 @@ describe('PaymentInitiationService.initiateInStorePayment', () => {
     expect(adapter.initiateUssdPush).not.toHaveBeenCalled()
   })
 
-  it('fails (returns null) when a push has no phone number', async () => {
+  it('rejects (marks the attempt FAILED) when a push has no phone number', async () => {
     const adapter = { initiateUssdPush: jest.fn() }
     const { service, attempts } = make({ adapter, routed: mtnRoute })
 
-    const res = await service.initiateInStorePayment({ ...baseInput, method: PaymentMethod.MTN_MOMO })
-
-    expect(res).toBeNull()
+    await expect(
+      service.initiateInStorePayment({ ...baseInput, method: PaymentMethod.MTN_MOMO }),
+    ).rejects.toThrow()
     expect(adapter.initiateUssdPush).not.toHaveBeenCalled()
     expect(attempts.update).toHaveBeenCalledWith(
       'att-1',

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { AppBadRequestException } from '@/common/exceptions/app-exceptions'
 import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { randomUUID } from 'node:crypto'
@@ -276,8 +277,11 @@ export class PaymentInitiationService {
       }),
     )
 
-    // Hosted-link provider (card): the customer pays via the link/QR shown at the till.
+    // Hosted-link provider (card): the customer pays via the link/QR shown at the till. Stripe requires
+    // success/cancel URLs even though the till settles via WS/poll — the redirect is only where the
+    // customer's phone lands after paying.
     if (adapter.createPaymentLink) {
+      const returnUrl = this.inStoreReturnUrl()
       try {
         const link = await adapter.createPaymentLink(creds, {
           amountMinor: input.amountMinor,
@@ -287,6 +291,8 @@ export class PaymentInitiationService {
           idempotencyKey,
           customerPhone: input.customerPhone ?? undefined,
           expiresInSeconds: IN_STORE_LINK_TTL_SECONDS,
+          successUrl: returnUrl,
+          cancelUrl: returnUrl,
         })
         await this.attempts.update(attempt.id, {
           status: PaymentAttemptStatus.PENDING,
@@ -302,7 +308,12 @@ export class PaymentInitiationService {
           expiresAt: link.expiresAt,
         }
       } catch (error) {
-        return this.failAttempt(this.attempts, attempt.id, error)
+        return this.failInStore(
+          attempt.id,
+          error,
+          'PAYMENT_INITIATION_FAILED',
+          'We could not start the card payment. Please try again.',
+        )
       }
     }
 
@@ -310,7 +321,12 @@ export class PaymentInitiationService {
     if (adapter.initiateUssdPush) {
       const phone = input.customerPhone?.trim()
       if (!phone)
-        return this.failAttempt(this.attempts, attempt.id, new Error('A phone number is required.'))
+        return this.failInStore(
+          attempt.id,
+          new Error('A phone number is required.'),
+          'PHONE_REQUIRED',
+          'A Mobile Money number is required.',
+        )
       const referenceId = randomUUID()
       const callbackUrl = this.momoCallbackUrl(connection.webhookToken, referenceId)
       try {
@@ -339,15 +355,43 @@ export class PaymentInitiationService {
         )
         return { kind: 'pending', attemptId: attempt.id, providerRef: push.providerRef }
       } catch (error) {
-        return this.failAttempt(this.attempts, attempt.id, error)
+        return this.failInStore(
+          attempt.id,
+          error,
+          'PAYMENT_INITIATION_FAILED',
+          'We could not start the Mobile Money payment. Please try again.',
+        )
       }
     }
 
-    return this.failAttempt(
-      this.attempts,
+    return this.failInStore(
       attempt.id,
       new Error('Provider has no in-store payment method.'),
+      'PAYMENT_METHOD_NOT_ROUTABLE',
+      'This provider cannot be charged in store.',
     )
+  }
+
+  /** A generic return URL for in-store hosted links — Stripe requires success/cancel URLs, but the
+   *  till settles via WebSocket/poll, so this is only where the customer's phone lands after paying.
+   *  Configurable via IN_STORE_PAYMENT_RETURN_URL; falls back to the API origin. */
+  private inStoreReturnUrl(): string | undefined {
+    const configured = this.config.get<string>('IN_STORE_PAYMENT_RETURN_URL')?.trim()
+    if (configured) return configured
+    const apiOrigin = (this.config.get<string>('API_URL') ?? '').replace(/\/+$/, '')
+    return apiOrigin || undefined
+  }
+
+  /** In-store initiation error: mark the attempt FAILED, then surface a CLEAR client error (distinct
+   *  from "no route" — the route exists, the provider call failed). Never leaks provider internals. */
+  private async failInStore(
+    attemptId: string,
+    error: unknown,
+    code: string,
+    message: string,
+  ): Promise<never> {
+    await this.failAttempt(this.attempts, attemptId, error)
+    throw new AppBadRequestException(message, code)
   }
 
   /** Map an already-created attempt back to the initiation shape (idempotent re-submit). */
