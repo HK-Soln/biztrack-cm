@@ -11,6 +11,7 @@ import {
   type ConnectPaymentProviderRequest,
 } from '@biztrack/types'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { NodeEnv } from '@/config/configuration'
 import { BusinessPaymentProvider } from '@/entities/business-payment-provider.entity'
 import { PaymentProvider } from '@/entities/payment-provider.entity'
 import { AuditService } from '@/modules/audit/audit.service'
@@ -83,6 +84,19 @@ export class PaymentCredentialsService {
         `Missing credential fields: ${missing.join(', ')}.`,
         'PAYMENT_CREDENTIALS_INCOMPLETE',
       )
+
+    // A live deployment must never run a sandbox provider. MTN MoMo carries an explicit
+    // `environment` credential — reject a sandbox connection when the API itself is production.
+    if (
+      this.config.get('NODE_ENV', { infer: true }) === NodeEnv.PRODUCTION &&
+      input.providerCode === 'MTN' &&
+      (input.credentials.environment ?? '').toLowerCase() !== 'production'
+    ) {
+      throw new AppBadRequestException(
+        'MTN MoMo must use the production environment on a live deployment.',
+        'PAYMENT_ENVIRONMENT_INVALID',
+      )
+    }
 
     // Include soft-deleted (revoked) rows: the partial unique index only covers live rows, so a
     // reconnect must REVIVE the revoked connection in place (preserving its id, webhook token and
