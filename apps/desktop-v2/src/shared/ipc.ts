@@ -48,6 +48,7 @@ export const IPC = {
   paymentsAvailable: 'payments:available',
   paymentsInitiateInStore: 'payments:initiate-in-store',
   paymentsInStoreStatus: 'payments:in-store-status',
+  paymentsAttemptEvent: 'payments:attempt-event',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -361,6 +362,7 @@ import type {
   InitiateInStorePaymentRequest as InitiateInStorePaymentRequestT,
   InStorePaymentInitiated as InStorePaymentInitiatedT,
   InStorePaymentStatus as InStorePaymentStatusT,
+  PaymentAttemptRealtimeEvent as PaymentAttemptRealtimeEventT,
 } from '@biztrack/types'
 export type {
   PaymentProvider,
@@ -375,6 +377,7 @@ export type {
   InitiateInStorePaymentRequest,
   InStorePaymentInitiated,
   InStorePaymentStatus,
+  PaymentAttemptRealtimeEvent,
 } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
@@ -2011,6 +2014,8 @@ export interface BridgeApi {
     availableMethods: () => Promise<AvailablePaymentMethodT[]>
     initiateInStore: (input: InitiateInStorePaymentRequestT) => Promise<InStorePaymentInitiatedT>
     getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatusT>
+    /** Subscribe to in-store attempt settlements (WebSocket, forwarded from main). */
+    onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEventT) => void) => () => void
   }
   sync: {
     /** Run a push+pull cycle now. */

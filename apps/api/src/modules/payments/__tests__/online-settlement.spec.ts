@@ -20,13 +20,15 @@ function makeService(opts: {
     save: jest.fn(async (x: unknown) => x),
   }
   const orderChannel = { emitPaymentStatus: jest.fn() }
+  const realtime = { toBusiness: jest.fn(), toUser: jest.fn(), toDevice: jest.fn() }
   const service = new PaymentAttemptsService(
     attempts as never,
     onlineOrders as never,
     onlineOrderEvents as never,
     orderChannel as never,
+    realtime as never,
   )
-  return { service, attempts, onlineOrders, onlineOrderEvents, orderChannel }
+  return { service, attempts, onlineOrders, onlineOrderEvents, orderChannel, realtime }
 }
 
 const confirmedEvent: ProviderEvent = {
@@ -163,5 +165,30 @@ describe('PaymentAttemptsService — online settlement (build 9)', () => {
       status: 'FAILED',
       reason: undefined,
     })
+  })
+
+  it('emits payment.attempt to the business channel for a confirmed IN-STORE attempt', async () => {
+    const { service, realtime, onlineOrders } = makeService({
+      attempt: {
+        id: 'a1',
+        businessId: 'b1',
+        providerRef: 'ref-1',
+        status: 'PENDING',
+        onlineOrderId: null,
+        saleId: null,
+        initiationType: 'USSD_PUSH',
+      },
+      order: null,
+    })
+
+    await service.applyProviderEvent('b1', confirmedEvent, PaymentConfirmationType.POLL)
+
+    // In-store: no online order touched; the till is notified on its business channel.
+    expect(onlineOrders.findOne).not.toHaveBeenCalled()
+    expect(realtime.toBusiness).toHaveBeenCalledWith(
+      'b1',
+      'payment.attempt',
+      expect.objectContaining({ attemptId: 'a1', status: 'PAID', providerRef: 'ref-1' }),
+    )
   })
 })

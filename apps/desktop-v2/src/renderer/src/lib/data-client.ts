@@ -181,6 +181,7 @@ import type {
   InitiateInStorePaymentRequest,
   InStorePaymentInitiated,
   InStorePaymentStatus,
+  PaymentAttemptRealtimeEvent,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -438,6 +439,8 @@ export interface DataClient {
     /** Spec 07 §7 — start a provider payment at the till (MoMo push / card link). */
     initiateInStore: (input: InitiateInStorePaymentRequest) => Promise<InStorePaymentInitiated>
     getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatus>
+    /** Live in-store attempt settlements (WebSocket; poll is the fallback). */
+    onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEvent) => void) => () => void
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -658,7 +661,11 @@ import {
   cloudOnline,
   cloudUploads,
 } from './cloud-data'
-import { cloudRealtimeConnect, cloudRealtimeOnEvent } from './cloud-realtime'
+import {
+  cloudRealtimeConnect,
+  cloudRealtimeOnEvent,
+  cloudRealtimeOnPaymentAttempt,
+} from './cloud-realtime'
 import {
   cloudCategories,
   cloudBrands,
@@ -866,6 +873,7 @@ function electronAdapter(): DataClient {
       availableMethods: () => window.api.payments.availableMethods(),
       initiateInStore: (input) => window.api.payments.initiateInStore(input),
       getInStoreStatus: (attemptId) => window.api.payments.getInStoreStatus(attemptId),
+      onAttemptEvent: (cb) => window.api.payments.onAttemptEvent(cb),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -1069,7 +1077,7 @@ function cloudAdapter(): DataClient {
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
     pin: { set: notWired, verify: notWired, verifyCard: notWired, canManage: async () => false },
     credentials: cloudCredentials,
-    payments: cloudPayments,
+    payments: { ...cloudPayments, onAttemptEvent: cloudRealtimeOnPaymentAttempt },
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,

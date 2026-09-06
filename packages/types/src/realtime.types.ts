@@ -7,12 +7,24 @@ import type { SyncBatchStatusResponse, SyncChangesAvailableEvent } from './sync.
 // with the ACCESS TOKEN only; the sync token stays scoped to SyncModule's HTTP API.
 // ---------------------------------------------------------------------------
 
+/** An in-store provider payment attempt reaching a terminal state (Spec 07 §7 / Build 10). Emitted
+ *  to the merchant's business channel so the authed till settles live (poll is the fallback). */
+export interface PaymentAttemptRealtimeEvent {
+  attemptId: string
+  businessId: string
+  status: 'PAID' | 'FAILED'
+  reason?: string
+  providerRef?: string
+}
+
 /** Server → client business events: event name → payload. New modules add entries. */
 export interface RealtimeServerEvents {
   notification: NotificationEventPayload
   // Added when sync migrates onto the realtime module (published server-side):
   'sync.batch.status': SyncBatchStatusResponse
   'sync.changes.available': SyncChangesAvailableEvent
+  // In-store provider payment settlement (Build 10) → the till's business channel.
+  'payment.attempt': PaymentAttemptRealtimeEvent
 }
 
 export type RealtimeServerEventName = keyof RealtimeServerEvents

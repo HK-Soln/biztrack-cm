@@ -1,5 +1,9 @@
 import { io, type Socket } from 'socket.io-client'
-import { REALTIME_PATH, type NotificationEventPayload } from '@biztrack/types'
+import {
+  REALTIME_PATH,
+  type NotificationEventPayload,
+  type PaymentAttemptRealtimeEvent,
+} from '@biztrack/types'
 
 export { REALTIME_PATH }
 
@@ -11,6 +15,8 @@ export interface RealtimeClientOptions {
   getAccessToken: () => string | null
   /** Pushed when an in-app notification arrives for this user. */
   onNotification: (payload: NotificationEventPayload) => void
+  /** Pushed when an in-store provider payment attempt settles (Spec 07 §7 / Build 10). */
+  onPaymentAttempt?: (payload: PaymentAttemptRealtimeEvent) => void
   onConnectionChange?: (connected: boolean) => void
   /** Override the realtime path (defaults to REALTIME_PATH). */
   path?: string
@@ -49,6 +55,9 @@ export class RealtimeClient {
     this.socket.on('disconnect', () => this.opts.onConnectionChange?.(false))
     this.socket.on('notification', (payload: NotificationEventPayload) => {
       this.opts.onNotification(payload)
+    })
+    this.socket.on('payment.attempt', (payload: PaymentAttemptRealtimeEvent) => {
+      this.opts.onPaymentAttempt?.(payload)
     })
   }
 

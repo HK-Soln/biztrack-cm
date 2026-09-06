@@ -2151,10 +2151,19 @@ function PaymentModal({
       if (Date.now() - started < 180_000) timer = setTimeout(tick, 3000)
       else setCharge((c) => (c ? { ...c, phase: 'failed' } : c))
     }
+    // WebSocket is the PRIMARY signal — settle the moment the attempt event arrives; the poll above is
+    // the fallback. Both are idempotent (postedRef guards the one-shot Sale post).
+    const off = dataClient.payments.onAttemptEvent((ev) => {
+      if (!active || ev.attemptId !== attemptId) return
+      if (ev.status === 'PAID') settlePaid(ev.providerRef)
+      else if (ev.status === 'FAILED')
+        setCharge((c) => (c ? { ...c, phase: 'failed', reason: ev.reason } : c))
+    })
     timer = setTimeout(tick, 2500)
     return () => {
       active = false
       clearTimeout(timer)
+      off()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charge?.phase, charge?.attemptId])

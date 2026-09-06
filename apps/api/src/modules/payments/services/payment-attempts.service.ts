@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import {
+  PaymentAttemptInitiationType,
   PaymentAttemptStatus,
   PaymentConfirmationType,
   canTransitionPaymentAttempt,
@@ -10,6 +11,7 @@ import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { OrderChannelService } from '@/modules/realtime/services/order-channel.service'
+import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import { PUBLIC_PROVIDER_FAILURE_REASONS } from '../payments.constants'
 import type { ProviderEvent } from '../adapters/payment-provider.adapter'
 
@@ -31,6 +33,7 @@ export class PaymentAttemptsService {
     @InjectRepository(OnlineOrderEvent)
     private readonly onlineOrderEvents: Repository<OnlineOrderEvent>,
     private readonly orderChannel: OrderChannelService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   findByProviderRef(businessId: string, providerRef: string): Promise<PaymentAttempt | null> {
@@ -87,8 +90,41 @@ export class PaymentAttemptsService {
       if (attempt.status === PaymentAttemptStatus.CONFIRMED) await this.settleOnlineOrder(attempt)
       else if (attempt.status === PaymentAttemptStatus.FAILED)
         await this.notifyOnlineOrderFailed(attempt)
+      return
     }
-    // attempt.saleId (in-store) is handled by build 10.
+    // In-store provider attempt (Build 10): the client posts the Sale on confirm (§7.2), so here we
+    // only push the live settlement to the authed till on the merchant's business channel — the poll
+    // is the fallback. The saleId back-link is set when the Sale posts (sales.service createFromSync).
+    if (
+      attempt.initiationType === PaymentAttemptInitiationType.LINK ||
+      attempt.initiationType === PaymentAttemptInitiationType.USSD_PUSH
+    ) {
+      this.emitInStoreAttempt(attempt)
+    }
+  }
+
+  /** Push an in-store attempt's terminal state to the merchant's business channel (WebSocket). */
+  private emitInStoreAttempt(attempt: PaymentAttempt): void {
+    const status =
+      attempt.status === PaymentAttemptStatus.CONFIRMED
+        ? ('PAID' as const)
+        : attempt.status === PaymentAttemptStatus.FAILED
+          ? ('FAILED' as const)
+          : null
+    if (!status) return
+    const reason =
+      status === 'FAILED' &&
+      attempt.failedReason &&
+      PUBLIC_PROVIDER_FAILURE_REASONS.has(attempt.failedReason)
+        ? attempt.failedReason
+        : undefined
+    this.realtime.toBusiness(attempt.businessId, 'payment.attempt', {
+      attemptId: attempt.id,
+      businessId: attempt.businessId,
+      status,
+      reason,
+      providerRef: attempt.providerRef ?? undefined,
+    })
   }
 
   /**

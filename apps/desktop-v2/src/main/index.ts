@@ -287,6 +287,10 @@ app.whenReady().then(() => {
       for (const w of BrowserWindow.getAllWindows())
         w.webContents.send(IPC.notificationEvent, payload)
     },
+    onPaymentAttempt: (payload) => {
+      for (const w of BrowserWindow.getAllWindows())
+        w.webContents.send(IPC.paymentsAttemptEvent, payload)
+    },
   })
   realtime.start()
   app.on('before-quit', () => realtime.stop())
