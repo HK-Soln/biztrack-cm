@@ -11,6 +11,7 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { Business } from '@/entities/business.entity'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { RedisModule } from '@/common/redis/redis.module'
 import {
   EnvMasterKeyProvider,
@@ -24,6 +25,7 @@ import { PaymentVerificationService } from './services/payment-verification.serv
 import { PaymentRoutingService } from './services/payment-routing.service'
 import { PaymentAttemptsService } from './services/payment-attempts.service'
 import { PaymentInitiationService } from './services/payment-initiation.service'
+import { PaymentReconciliationService } from './services/payment-reconciliation.service'
 import { PaymentProvidersController } from './controllers/payment-providers.controller'
 import { PaymentWebhookController } from './controllers/payment-webhook.controller'
 import { MomoCallbackController } from './controllers/momo-callback.controller'
@@ -57,6 +59,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     ]),
     AuditModule,
     RedisModule,
+    NotificationsModule,
     BullModule.registerQueue({ name: PAYMENTS_QUEUE }),
   ],
   controllers: [
@@ -72,6 +75,7 @@ import type { PaymentProviderAdapter } from './adapters/payment-provider.adapter
     PaymentRoutingService,
     PaymentAttemptsService,
     PaymentInitiationService,
+    PaymentReconciliationService,
     PaymentsPollProcessor,
     PaymentWebhookGuard,
     PaymentAdapterRegistry,
