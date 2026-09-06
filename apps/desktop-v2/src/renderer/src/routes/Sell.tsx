@@ -1978,6 +1978,8 @@ function PaymentModal({
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   )
   const [collectMode, setCollectMode] = useState<'attest' | 'charge'>('attest')
+  // Which split tender (if any) the cashier chose to charge via the provider (§7 v1: at most one).
+  const [chargeSplitKey, setChargeSplitKey] = useState<'momo' | 'om' | 'card' | null>(null)
   const [charge, setCharge] = useState<{
     phase: 'starting' | 'pending' | 'paid' | 'failed'
     attemptId?: string
@@ -2076,6 +2078,7 @@ function PaymentModal({
   // Charge is per-method — reset it whenever the method changes.
   useEffect(() => {
     setCollectMode('attest')
+    setChargeSplitKey(null)
     setCharge(null)
     setQrDataUrl(null)
     postedRef.current = false
@@ -2083,17 +2086,80 @@ function PaymentModal({
 
   const chargeMode = chargeable && collectMode === 'charge'
 
+  // Build the split payment lines; the CHARGED tender (if any) carries the provider ref + attempt id,
+  // the rest are attested as usual.
+  const splitPayments = (charged?: {
+    key: TenderKey
+    ref: string | null
+    attemptId: string
+  }): SaleInput['payments'] =>
+    splitKeys
+      .filter((k) => (splits[k] || 0) > 0)
+      .map((k) => {
+        if (k === 'deposit')
+          return { method: PaymentMethod.SAVINGS, amount: splits[k]!, savingsAccountId: depAccountId }
+        const isCharged = charged?.key === k
+        return {
+          method: PM[k],
+          amount: splits[k]!,
+          mobileMoneyReference: isCharged
+            ? charged!.ref
+            : (k === 'momo' || k === 'om') && momoRef.trim()
+              ? momoRef.trim()
+              : null,
+          paymentAttemptId: isCharged ? charged!.attemptId : undefined,
+        }
+      })
+
+  // What a "Charge" collects — a single-tender provider payment, or one provider portion of a split
+  // (§7 v1 = at most one charged tender per sale). Null when no charge is armed → the button confirms.
+  const chargeSpec: {
+    method: PaymentMethod
+    amount: number
+    needsPhone: boolean
+    buildPayments: (ref: string | null, attemptId: string) => SaleInput['payments']
+  } | null = (() => {
+    if (chargeMode) {
+      const mk = method as 'momo' | 'om' | 'card'
+      const needsPhone = mk !== 'card'
+      return {
+        method: PM[mk],
+        amount: total,
+        needsPhone,
+        buildPayments: (ref, attemptId) => [
+          {
+            method: PM[mk],
+            amount: total,
+            mobileMoneyReference: ref ?? (needsPhone ? momoRef.trim() || null : null),
+            paymentAttemptId: attemptId,
+          },
+        ],
+      }
+    }
+    if (method === 'split' && chargeSplitKey && (splits[chargeSplitKey] || 0) > 0) {
+      const mk = chargeSplitKey
+      return {
+        method: PM[mk],
+        amount: splits[mk]!,
+        needsPhone: mk !== 'card',
+        buildPayments: (ref, attemptId) => splitPayments({ key: mk, ref, attemptId }),
+      }
+    }
+    return null
+  })()
+
   const startCharge = async () => {
-    if (isMomoCharge && !isValidPhone(momoRef)) return
+    if (!chargeSpec) return
+    if (chargeSpec.needsPhone && !isValidPhone(momoRef)) return
     clientRefRef.current = crypto.randomUUID()
     postedRef.current = false
     setQrDataUrl(null)
     setCharge({ phase: 'starting' })
     try {
       const res = await dataClient.payments.initiateInStore({
-        method: PM[method as 'momo' | 'om' | 'card'],
-        amount: total,
-        customerPhone: isMomoCharge ? momoRef.trim() : undefined,
+        method: chargeSpec.method,
+        amount: chargeSpec.amount,
+        customerPhone: chargeSpec.needsPhone ? momoRef.trim() : undefined,
         cashSessionId: cashSessionId ?? undefined,
         clientReference: clientRefRef.current,
       })
@@ -2127,17 +2193,8 @@ function PaymentModal({
       setCharge((c) => (c ? { ...c, phase: 'paid', providerRef: providerRef ?? c.providerRef } : c))
       if (postedRef.current) return
       postedRef.current = true
-      onConfirm(
-        [
-          {
-            method: PM[method as 'momo' | 'om' | 'card'],
-            amount: total,
-            mobileMoneyReference: providerRef ?? (isMomoCharge ? momoRef.trim() || null : null),
-            paymentAttemptId: attemptId,
-          },
-        ],
-        null,
-      )
+      // chargeSpec is frozen while charging (inputs are hidden), so this closure is stable.
+      onConfirm(chargeSpec?.buildPayments(providerRef ?? null, attemptId) ?? [], creditDue || null)
     }
     const tick = async () => {
       let s: Awaited<ReturnType<typeof dataClient.payments.getInStoreStatus>> | null = null
@@ -2200,28 +2257,22 @@ function PaymentModal({
         }
       }
     } else if (method === 'split') {
-      payments = splitKeys
-        .filter((k) => (splits[k] || 0) > 0)
-        .map((k) =>
-          k === 'deposit'
-            ? { method: PaymentMethod.SAVINGS, amount: splits[k]!, savingsAccountId: depAccountId }
-            : {
-                method: PM[k],
-                amount: splits[k]!,
-                mobileMoneyReference:
-                  (k === 'momo' || k === 'om') && momoRef.trim() ? momoRef.trim() : null,
-              },
-        )
+      payments = splitPayments()
     }
     onConfirm(payments, creditDue || null)
   }
 
   // The primary button doubles as "Charge" when the cashier opts into a provider collection.
-  const buttonLabel = chargeMode ? `${t('sell.chargeBtn')} · ${money.format(total)}` : confirmLabel
-  const buttonDisabled = chargeMode
-    ? busy || !online || (isMomoCharge && !isValidPhone(momoRef))
+  const buttonLabel = chargeSpec
+    ? `${t('sell.chargeBtn')} · ${money.format(chargeSpec.amount)}`
+    : confirmLabel
+  const buttonDisabled = chargeSpec
+    ? busy ||
+      !online ||
+      (chargeSpec.needsPhone && !isValidPhone(momoRef)) ||
+      (method === 'split' && !canConfirm)
     : !canConfirm || busy
-  const onButton = chargeMode ? startCharge : confirm
+  const onButton = chargeSpec ? startCharge : confirm
 
   return (
     <div
@@ -2582,10 +2633,35 @@ function PaymentModal({
                               }}
                             />
                           </div>
+                          {(k === 'momo' || k === 'om' || k === 'card') &&
+                          (splits[k] || 0) > 0 &&
+                          online ? (
+                            <button
+                              type="button"
+                              className={`split-charge${chargeSplitKey === k ? ' on' : ''}`}
+                              onClick={() =>
+                                setChargeSplitKey((c) =>
+                                  c === k ? null : (k as 'momo' | 'om' | 'card'),
+                                )
+                              }
+                            >
+                              {t('sell.chargeBtn')}
+                            </button>
+                          ) : null}
                         </div>
                       )
                     })}
                   </div>
+                  {chargeSplitKey === 'momo' || chargeSplitKey === 'om' ? (
+                    <div className="pm-field" style={{ marginTop: 10 }}>
+                      <div className="pm-lbl">{t('sell.customerMomoNumber')}</div>
+                      <PhoneInput
+                        value={momoRef || undefined}
+                        onChange={(v) => setMomoRef(v ?? '')}
+                        defaultCountry="CM"
+                      />
+                    </div>
+                  ) : null}
                   <div
                     className={`split-sum ${remaining > 0 ? 'credit' : remaining < 0 ? 'short' : 'ok'}`}
                   >
