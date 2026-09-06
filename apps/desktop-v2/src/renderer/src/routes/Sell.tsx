@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import QRCode from 'qrcode'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
@@ -926,6 +927,7 @@ export function Sell() {
           disc={calc.disc}
           chg={calc.chg}
           customer={customer}
+          cashSessionId={currentShiftQ.data?.id ?? null}
           defaultTender={forceDeposit ? 'deposit' : undefined}
           forceDeposit={forceDeposit}
           onClose={() => setPayOpen(false)}
@@ -1929,6 +1931,7 @@ function PaymentModal({
   disc,
   chg,
   customer,
+  cashSessionId,
   defaultTender,
   forceDeposit,
   onClose,
@@ -1941,6 +1944,7 @@ function PaymentModal({
   disc: number
   chg: number
   customer: Cust | null
+  cashSessionId?: string | null
   defaultTender?: TenderKey
   forceDeposit?: boolean
   onClose: () => void
@@ -1962,6 +1966,26 @@ function PaymentModal({
     card: 0,
     deposit: 0,
   })
+
+  // In-store provider payment (Spec 07 §7 / Build 10). Default is "attest" (collect + post now, as
+  // today); "charge" opts into a real provider collection (MoMo push / card link) that HOLDS the sale
+  // until the attempt confirms. Only offered for momo/om/card while online.
+  const chargeable = method === 'momo' || method === 'om' || method === 'card'
+  const isMomoCharge = method === 'momo' || method === 'om'
+  const [online, setOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  )
+  const [collectMode, setCollectMode] = useState<'attest' | 'charge'>('attest')
+  const [charge, setCharge] = useState<{
+    phase: 'starting' | 'pending' | 'paid' | 'failed'
+    attemptId?: string
+    url?: string
+    providerRef?: string
+    reason?: string
+  } | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const clientRefRef = useRef('')
+  const postedRef = useRef(false)
 
   const { data: deposit } = useQuery({
     queryKey: [...queryKeys.contacts, 'savings', customer?.id],
@@ -2035,6 +2059,106 @@ function PaymentModal({
         : t('sell.confirmSplit')
   }
 
+  // Track connectivity so "charge" is only offered when we can reach the provider.
+  useEffect(() => {
+    const on = () => setOnline(true)
+    const off = () => setOnline(false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => {
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
+    }
+  }, [])
+
+  // Charge is per-method — reset it whenever the method changes.
+  useEffect(() => {
+    setCollectMode('attest')
+    setCharge(null)
+    setQrDataUrl(null)
+    postedRef.current = false
+  }, [method])
+
+  const chargeMode = chargeable && collectMode === 'charge'
+
+  const startCharge = async () => {
+    if (isMomoCharge && !momoRef.trim()) return
+    clientRefRef.current = crypto.randomUUID()
+    postedRef.current = false
+    setQrDataUrl(null)
+    setCharge({ phase: 'starting' })
+    try {
+      const res = await dataClient.payments.initiateInStore({
+        method: PM[method as 'momo' | 'om' | 'card'],
+        amount: total,
+        customerPhone: isMomoCharge ? momoRef.trim() : undefined,
+        cashSessionId: cashSessionId ?? undefined,
+        clientReference: clientRefRef.current,
+      })
+      if (res.kind === 'redirect' && res.url) {
+        try {
+          setQrDataUrl(await QRCode.toDataURL(res.url, { width: 240, margin: 1 }))
+        } catch {
+          /* QR is a nicety; the copyable link still works */
+        }
+      }
+      setCharge({
+        phase: 'pending',
+        attemptId: res.attemptId,
+        url: res.url,
+        providerRef: res.providerRef,
+      })
+    } catch (e) {
+      setCharge({ phase: 'failed', reason: e instanceof Error ? e.message : undefined })
+    }
+  }
+
+  // Poll the attempt to a terminal state. WebSocket will be the PRIMARY signal (next slice); this is
+  // the fallback. On PAID, post the Sale ONCE with the attempt ref on the payment line (§7.2).
+  useEffect(() => {
+    if (charge?.phase !== 'pending' || !charge.attemptId) return
+    const attemptId = charge.attemptId
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    const started = Date.now()
+    const settlePaid = (providerRef?: string) => {
+      setCharge((c) => (c ? { ...c, phase: 'paid', providerRef: providerRef ?? c.providerRef } : c))
+      if (postedRef.current) return
+      postedRef.current = true
+      onConfirm(
+        [
+          {
+            method: PM[method as 'momo' | 'om' | 'card'],
+            amount: total,
+            mobileMoneyReference: providerRef ?? (isMomoCharge ? momoRef.trim() || null : null),
+            paymentAttemptId: attemptId,
+          },
+        ],
+        null,
+      )
+    }
+    const tick = async () => {
+      let s: Awaited<ReturnType<typeof dataClient.payments.getInStoreStatus>> | null = null
+      try {
+        s = await dataClient.payments.getInStoreStatus(attemptId)
+      } catch {
+        /* transient — keep waiting */
+      }
+      if (!active) return
+      if (s?.status === 'PAID') return settlePaid(s.providerRef)
+      if (s?.status === 'FAILED')
+        return setCharge((c) => (c ? { ...c, phase: 'failed', reason: s?.reason } : c))
+      if (Date.now() - started < 180_000) timer = setTimeout(tick, 3000)
+      else setCharge((c) => (c ? { ...c, phase: 'failed' } : c))
+    }
+    timer = setTimeout(tick, 2500)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charge?.phase, charge?.attemptId])
+
   const confirm = () => {
     let payments: SaleInput['payments'] = []
     if (method === 'cash') payments = [{ method: PM.cash, amount: t2 }]
@@ -2081,6 +2205,13 @@ function PaymentModal({
     onConfirm(payments, creditDue || null)
   }
 
+  // The primary button doubles as "Charge" when the cashier opts into a provider collection.
+  const buttonLabel = chargeMode ? `${t('sell.chargeBtn')} · ${money.format(total)}` : confirmLabel
+  const buttonDisabled = chargeMode
+    ? busy || !online || (isMomoCharge && !momoRef.trim())
+    : !canConfirm || busy
+  const onButton = chargeMode ? startCharge : confirm
+
   return (
     <div
       className="pay-overlay open"
@@ -2095,293 +2226,414 @@ function PaymentModal({
             {I.x}
           </button>
         </div>
-        <div className="pm-due">
-          <div className="l">{t('sell.amountDue')}</div>
-          <div className="v">{money.format(total)}</div>
-        </div>
-        <div className="pm-body" style={{ paddingBottom: 0 }}>
-          <button type="button" className="pm-cust" onClick={onPickCustomer}>
-            <div className="a">
-              {customer ? (
-                customer.selfieUrl ? (
-                  <img src={customer.selfieUrl} alt="" />
-                ) : (
-                  initials(customer.name)
-                )
-              ) : (
-                I.user
-              )}
-            </div>
-            <div className="t">
-              <div className="nm">{customer?.name ?? t('sell.walkIn')}</div>
-              <div className="s">{customer?.phone ?? t('sell.walkInHint')}</div>
-            </div>
-            <div className="ch">{t('sell.change2')}</div>
-          </button>
-        </div>
-        <div className="pm-body" style={{ paddingTop: 0 }}>
-          <div className="pm-lbl">{t('sell.paymentMethod')}</div>
-          <div className="pm-methods">
-            {METHODS.map((m) => {
-              const locked = forceDeposit && m.key !== 'deposit'
-              return (
+        {charge ? (
+          <div className="pm-body pm-charge">
+            {charge.phase === 'starting' ? (
+              <div className="pm-charge-wait">
+                <div className="pm-spin" />
+                <div className="muted">{t('sell.startingCharge')}</div>
+              </div>
+            ) : charge.phase === 'pending' ? (
+              <div className="pm-charge-wait">
+                {qrDataUrl ? (
+                  <img className="pm-qr" src={qrDataUrl} alt="" width={220} height={220} />
+                ) : null}
+                <h4>
+                  {qrDataUrl
+                    ? t('sell.scanToPay')
+                    : t('sell.approveOnPhone').replace('{phone}', momoRef.trim())}
+                </h4>
+                {charge.url ? (
+                  <button
+                    type="button"
+                    className="pm-copy"
+                    onClick={() => void navigator.clipboard?.writeText(charge.url ?? '')}
+                  >
+                    {t('sell.copyLink')}
+                  </button>
+                ) : null}
+                <div className="muted">{t('sell.waitingConfirm')}</div>
                 <button
-                  key={m.key}
                   type="button"
-                  disabled={locked}
-                  className={`pm-m${method === m.key ? ' active' : ''}${locked ? ' locked' : ''}`}
+                  className="pm-cancel"
                   onClick={() => {
-                    if (!locked) setMethod(m.key)
+                    setCharge(null)
+                    setQrDataUrl(null)
                   }}
                 >
-                  {m.icon}
-                  {m.label}
+                  {t('sell.cancelCharge')}
                 </button>
-              )
-            })}
+              </div>
+            ) : charge.phase === 'paid' ? (
+              <div className="pm-charge-wait ok">
+                <h4>{t('sell.paymentReceived')}</h4>
+                <div className="muted">{t('sell.postingSale')}</div>
+              </div>
+            ) : (
+              <div className="pm-charge-wait fail">
+                <h4>{t('sell.chargeFailed')}</h4>
+                <div className="muted">{t('sell.chargeFailedHint')}</div>
+                <div className="pm-charge-actions">
+                  <button type="button" className="pm-confirm" onClick={startCharge}>
+                    {t('sell.tryAgain')}
+                  </button>
+                  <button
+                    type="button"
+                    className="pm-cancel"
+                    onClick={() => {
+                      setCharge(null)
+                      setCollectMode('attest')
+                    }}
+                  >
+                    {t('sell.collectManually')}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-
-          {method === 'cash' || method === 'momo' || method === 'om' ? (
-            <>
-              {method === 'momo' || method === 'om' ? (
-                <div className="pm-field">
-                  <div className="pm-lbl">
-                    {method === 'momo' ? t('sell.momoNumber') : t('sell.omNumber')}
-                  </div>
-                  <input
-                    className="input"
-                    value={momoRef}
-                    onChange={(e) => setMomoRef(e.target.value)}
-                    placeholder="6 91 22 14 08"
-                  />
-                </div>
-              ) : null}
-              <div className="pm-field">
-                <div className="pm-lbl">{t('sell.amountReceived')}</div>
-                <input
-                  className="input"
-                  inputMode="decimal"
-                  value={String(t2)}
-                  onChange={(e) =>
-                    setTendered(Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0)
-                  }
-                />
-                <div className="pm-quick">
-                  {quickAmounts(total).map((v) => (
-                    <button key={v} type="button" onClick={() => setTendered(v)}>
-                      {money.format(v)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className={`pm-change${change < 0 ? ' short' : ''}`}>
-                <span>{change < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span>
-                <span className="big">{money.format(Math.abs(change))}</span>
-              </div>
-            </>
-          ) : null}
-
-          {method === 'card' ? (
-            <div className="pm-note">
-              {I.card}
-              <span>{t('sell.cardHint')}</span>
+        ) : (
+          <>
+            <div className="pm-due">
+              <div className="l">{t('sell.amountDue')}</div>
+              <div className="v">{money.format(total)}</div>
             </div>
-          ) : null}
-
-          {method === 'deposit' ? (
-            !hasDeposit ? (
-              <div className="pm-note">
-                {I.bell}
-                <span>{t('sell.noDeposit')}</span>
-              </div>
-            ) : (
-              <>
-                <div className="dep-applied">
-                  <div>
-                    <div className="l">
-                      {t('sell.fromDeposit').replace('{name}', customer!.name)}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 3 }}>
-                      {t('sell.balanceAfter')} {money.format(depBalance - depApplied)}
-                    </div>
-                  </div>
-                  <div className="v">− {money.format(depApplied)}</div>
-                </div>
-                {depRemaining > 0 ? (
-                  forceDeposit ? (
-                    <>
-                      <div className="pm-lbl">
-                        {t('sell.payRemaining').replace('{amt}', money.format(depRemaining))}
-                      </div>
-                      <div className="pm-split">
-                        {SPLIT_KEYS.map((k) => {
-                          const m = METHODS.find((x) => x.key === k)!
-                          return (
-                            <div key={k} className="split-row">
-                              <div className="si">{m.icon}</div>
-                              <div className="sl">{m.label}</div>
-                              <div className="sf">
-                                <input
-                                  inputMode="decimal"
-                                  value={splits[k] ? String(splits[k]) : ''}
-                                  placeholder="0"
-                                  onChange={(e) => {
-                                    const v =
-                                      Number(e.target.value.replace(/\s/g, '').replace(',', '.')) ||
-                                      0
-                                    setSplits((s) => ({ ...s, [k]: v }))
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <div
-                        className={`split-sum ${depLeftover > 0 ? 'credit' : depLeftover < 0 ? 'short' : 'ok'}`}
-                      >
-                        <span>
-                          {depLeftover > 0
-                            ? t('sell.remainingCredit')
-                            : depLeftover < 0
-                              ? t('sell.changeCash')
-                              : t('sell.fullyAllocated')}
-                        </span>
-                        <span className="big">{money.format(Math.abs(depLeftover))}</span>
-                      </div>
-                    </>
+            <div className="pm-body" style={{ paddingBottom: 0 }}>
+              <button type="button" className="pm-cust" onClick={onPickCustomer}>
+                <div className="a">
+                  {customer ? (
+                    customer.selfieUrl ? (
+                      <img src={customer.selfieUrl} alt="" />
+                    ) : (
+                      initials(customer.name)
+                    )
                   ) : (
-                    <>
-                      <div className="pm-field">
-                        <div className="pm-lbl">
-                          {t('sell.payRemainingCash').replace('{amt}', money.format(depRemaining))}
-                        </div>
-                        <input
-                          className="input"
-                          inputMode="decimal"
-                          value={String(depTendered)}
-                          onChange={(e) =>
-                            setDepRem(
-                              Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
-                            )
-                          }
-                        />
-                      </div>
-                      <div className={`pm-change${depChange < 0 ? ' short' : ''}`}>
-                        <span>{depChange < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span>
-                        <span className="big">{money.format(Math.abs(depChange))}</span>
-                      </div>
-                    </>
-                  )
-                ) : null}
-              </>
-            )
-          ) : null}
-
-          {method === 'credit' ? (
-            isWalkIn ? (
-              <CustNeeded t={t} onPick={onPickCustomer} />
-            ) : (
-              <div className="pm-note">
-                {I.clock}
-                <span>{t('sell.creditHint').replace('{name}', customer!.name)}</span>
-              </div>
-            )
-          ) : null}
-
-          {method === 'split' ? (
-            <>
-              <div className="pm-lbl">{t('sell.splitAcross')}</div>
-              <div className="pm-split">
-                {splitKeys.map((k) => {
-                  const m = METHODS.find((x) => x.key === k)!
-                  const depDisabled = k === 'deposit' && !hasDeposit
+                    I.user
+                  )}
+                </div>
+                <div className="t">
+                  <div className="nm">{customer?.name ?? t('sell.walkIn')}</div>
+                  <div className="s">{customer?.phone ?? t('sell.walkInHint')}</div>
+                </div>
+                <div className="ch">{t('sell.change2')}</div>
+              </button>
+            </div>
+            <div className="pm-body" style={{ paddingTop: 0 }}>
+              <div className="pm-lbl">{t('sell.paymentMethod')}</div>
+              <div className="pm-methods">
+                {METHODS.map((m) => {
+                  const locked = forceDeposit && m.key !== 'deposit'
                   return (
-                    <div key={k} className="split-row">
-                      <div className="si">{m.icon}</div>
-                      <div className="sl">
-                        {m.label}
-                        {k === 'deposit' ? (
-                          <small>
-                            {hasDeposit
-                              ? `${t('sell.max')} ${money.format(depBalance)}`
-                              : t('sell.noDepositShort')}
-                          </small>
-                        ) : null}
-                      </div>
-                      <div className="sf">
-                        <input
-                          inputMode="decimal"
-                          disabled={depDisabled}
-                          value={splits[k] ? String(splits[k]) : ''}
-                          placeholder="0"
-                          onChange={(e) => {
-                            let v = Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
-                            if (k === 'deposit' && v > depBalance) v = depBalance
-                            setSplits((s) => ({ ...s, [k]: v }))
-                          }}
-                        />
-                      </div>
-                    </div>
+                    <button
+                      key={m.key}
+                      type="button"
+                      disabled={locked}
+                      className={`pm-m${method === m.key ? ' active' : ''}${locked ? ' locked' : ''}`}
+                      onClick={() => {
+                        if (!locked) setMethod(m.key)
+                      }}
+                    >
+                      {m.icon}
+                      {m.label}
+                    </button>
                   )
                 })}
               </div>
-              <div
-                className={`split-sum ${remaining > 0 ? 'credit' : remaining < 0 ? 'short' : 'ok'}`}
+
+              {chargeable ? (
+                <div className="pm-collect">
+                  <button
+                    type="button"
+                    className={collectMode === 'attest' ? 'on' : ''}
+                    onClick={() => setCollectMode('attest')}
+                  >
+                    {t('sell.collectNow')}
+                  </button>
+                  <button
+                    type="button"
+                    className={collectMode === 'charge' ? 'on' : ''}
+                    disabled={!online}
+                    onClick={() => setCollectMode('charge')}
+                  >
+                    {t('sell.chargeCustomer')}
+                  </button>
+                </div>
+              ) : null}
+
+              {chargeMode ? (
+                isMomoCharge ? (
+                  <div className="pm-field">
+                    <div className="pm-lbl">{t('sell.customerMomoNumber')}</div>
+                    <input
+                      className="input"
+                      value={momoRef}
+                      onChange={(e) => setMomoRef(e.target.value)}
+                      placeholder="6 91 22 14 08"
+                    />
+                    <div className="pm-note" style={{ marginTop: 10 }}>
+                      {I.phone}
+                      <span>{t('sell.chargeMomoHint')}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pm-note">
+                    {I.card}
+                    <span>{t('sell.chargeCardHint')}</span>
+                  </div>
+                )
+              ) : null}
+
+              {(method === 'cash' || method === 'momo' || method === 'om') && !chargeMode ? (
+                <>
+                  {method === 'momo' || method === 'om' ? (
+                    <div className="pm-field">
+                      <div className="pm-lbl">
+                        {method === 'momo' ? t('sell.momoNumber') : t('sell.omNumber')}
+                      </div>
+                      <input
+                        className="input"
+                        value={momoRef}
+                        onChange={(e) => setMomoRef(e.target.value)}
+                        placeholder="6 91 22 14 08"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="pm-field">
+                    <div className="pm-lbl">{t('sell.amountReceived')}</div>
+                    <input
+                      className="input"
+                      inputMode="decimal"
+                      value={String(t2)}
+                      onChange={(e) =>
+                        setTendered(
+                          Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
+                        )
+                      }
+                    />
+                    <div className="pm-quick">
+                      {quickAmounts(total).map((v) => (
+                        <button key={v} type="button" onClick={() => setTendered(v)}>
+                          {money.format(v)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={`pm-change${change < 0 ? ' short' : ''}`}>
+                    <span>{change < 0 ? t('sell.stillDue') : t('sell.changeToGive')}</span>
+                    <span className="big">{money.format(Math.abs(change))}</span>
+                  </div>
+                </>
+              ) : null}
+
+              {method === 'card' && !chargeMode ? (
+                <div className="pm-note">
+                  {I.card}
+                  <span>{t('sell.cardHint')}</span>
+                </div>
+              ) : null}
+
+              {method === 'deposit' ? (
+                !hasDeposit ? (
+                  <div className="pm-note">
+                    {I.bell}
+                    <span>{t('sell.noDeposit')}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="dep-applied">
+                      <div>
+                        <div className="l">
+                          {t('sell.fromDeposit').replace('{name}', customer!.name)}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 3 }}>
+                          {t('sell.balanceAfter')} {money.format(depBalance - depApplied)}
+                        </div>
+                      </div>
+                      <div className="v">− {money.format(depApplied)}</div>
+                    </div>
+                    {depRemaining > 0 ? (
+                      forceDeposit ? (
+                        <>
+                          <div className="pm-lbl">
+                            {t('sell.payRemaining').replace('{amt}', money.format(depRemaining))}
+                          </div>
+                          <div className="pm-split">
+                            {SPLIT_KEYS.map((k) => {
+                              const m = METHODS.find((x) => x.key === k)!
+                              return (
+                                <div key={k} className="split-row">
+                                  <div className="si">{m.icon}</div>
+                                  <div className="sl">{m.label}</div>
+                                  <div className="sf">
+                                    <input
+                                      inputMode="decimal"
+                                      value={splits[k] ? String(splits[k]) : ''}
+                                      placeholder="0"
+                                      onChange={(e) => {
+                                        const v =
+                                          Number(
+                                            e.target.value.replace(/\s/g, '').replace(',', '.'),
+                                          ) || 0
+                                        setSplits((s) => ({ ...s, [k]: v }))
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div
+                            className={`split-sum ${depLeftover > 0 ? 'credit' : depLeftover < 0 ? 'short' : 'ok'}`}
+                          >
+                            <span>
+                              {depLeftover > 0
+                                ? t('sell.remainingCredit')
+                                : depLeftover < 0
+                                  ? t('sell.changeCash')
+                                  : t('sell.fullyAllocated')}
+                            </span>
+                            <span className="big">{money.format(Math.abs(depLeftover))}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="pm-field">
+                            <div className="pm-lbl">
+                              {t('sell.payRemainingCash').replace(
+                                '{amt}',
+                                money.format(depRemaining),
+                              )}
+                            </div>
+                            <input
+                              className="input"
+                              inputMode="decimal"
+                              value={String(depTendered)}
+                              onChange={(e) =>
+                                setDepRem(
+                                  Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className={`pm-change${depChange < 0 ? ' short' : ''}`}>
+                            <span>
+                              {depChange < 0 ? t('sell.stillDue') : t('sell.changeToGive')}
+                            </span>
+                            <span className="big">{money.format(Math.abs(depChange))}</span>
+                          </div>
+                        </>
+                      )
+                    ) : null}
+                  </>
+                )
+              ) : null}
+
+              {method === 'credit' ? (
+                isWalkIn ? (
+                  <CustNeeded t={t} onPick={onPickCustomer} />
+                ) : (
+                  <div className="pm-note">
+                    {I.clock}
+                    <span>{t('sell.creditHint').replace('{name}', customer!.name)}</span>
+                  </div>
+                )
+              ) : null}
+
+              {method === 'split' ? (
+                <>
+                  <div className="pm-lbl">{t('sell.splitAcross')}</div>
+                  <div className="pm-split">
+                    {splitKeys.map((k) => {
+                      const m = METHODS.find((x) => x.key === k)!
+                      const depDisabled = k === 'deposit' && !hasDeposit
+                      return (
+                        <div key={k} className="split-row">
+                          <div className="si">{m.icon}</div>
+                          <div className="sl">
+                            {m.label}
+                            {k === 'deposit' ? (
+                              <small>
+                                {hasDeposit
+                                  ? `${t('sell.max')} ${money.format(depBalance)}`
+                                  : t('sell.noDepositShort')}
+                              </small>
+                            ) : null}
+                          </div>
+                          <div className="sf">
+                            <input
+                              inputMode="decimal"
+                              disabled={depDisabled}
+                              value={splits[k] ? String(splits[k]) : ''}
+                              placeholder="0"
+                              onChange={(e) => {
+                                let v =
+                                  Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
+                                if (k === 'deposit' && v > depBalance) v = depBalance
+                                setSplits((s) => ({ ...s, [k]: v }))
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div
+                    className={`split-sum ${remaining > 0 ? 'credit' : remaining < 0 ? 'short' : 'ok'}`}
+                  >
+                    <span>
+                      {remaining > 0
+                        ? t('sell.remainingCredit')
+                        : remaining < 0
+                          ? t('sell.changeCash')
+                          : t('sell.fullyAllocated')}
+                    </span>
+                    <span className="big">{money.format(Math.abs(remaining))}</span>
+                  </div>
+                  {remaining > 0 && isWalkIn ? <CustNeeded t={t} onPick={onPickCustomer} /> : null}
+                </>
+              ) : null}
+
+              {willHaveCredit ? (
+                <div className="pm-duedate">
+                  <label className="pm-lbl">{t('sell.creditDueDate')}</label>
+                  <input
+                    type="date"
+                    min={todayIso}
+                    value={creditDue}
+                    onChange={(e) => setCreditDue(e.target.value)}
+                  />
+                  <small>{t('sell.creditDueHint')}</small>
+                </div>
+              ) : null}
+
+              <div className="pm-recap-mini">
+                <div className="r">
+                  <span>{t('sell.subtotal')}</span>
+                  <span>{money.format(subtotal)}</span>
+                </div>
+                {disc > 0 ? (
+                  <div className="r">
+                    <span>{t('sell.discounts')}</span>
+                    <span>− {money.format(disc)}</span>
+                  </div>
+                ) : null}
+                {chg > 0 ? (
+                  <div className="r">
+                    <span>{t('sell.charges')}</span>
+                    <span>+ {money.format(chg)}</span>
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="pm-confirm"
+                disabled={buttonDisabled}
+                onClick={onButton}
               >
-                <span>
-                  {remaining > 0
-                    ? t('sell.remainingCredit')
-                    : remaining < 0
-                      ? t('sell.changeCash')
-                      : t('sell.fullyAllocated')}
-                </span>
-                <span className="big">{money.format(Math.abs(remaining))}</span>
-              </div>
-              {remaining > 0 && isWalkIn ? <CustNeeded t={t} onPick={onPickCustomer} /> : null}
-            </>
-          ) : null}
-
-          {willHaveCredit ? (
-            <div className="pm-duedate">
-              <label className="pm-lbl">{t('sell.creditDueDate')}</label>
-              <input
-                type="date"
-                min={todayIso}
-                value={creditDue}
-                onChange={(e) => setCreditDue(e.target.value)}
-              />
-              <small>{t('sell.creditDueHint')}</small>
+                {buttonLabel}
+              </button>
             </div>
-          ) : null}
-
-          <div className="pm-recap-mini">
-            <div className="r">
-              <span>{t('sell.subtotal')}</span>
-              <span>{money.format(subtotal)}</span>
-            </div>
-            {disc > 0 ? (
-              <div className="r">
-                <span>{t('sell.discounts')}</span>
-                <span>− {money.format(disc)}</span>
-              </div>
-            ) : null}
-            {chg > 0 ? (
-              <div className="r">
-                <span>{t('sell.charges')}</span>
-                <span>+ {money.format(chg)}</span>
-              </div>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className="pm-confirm"
-            disabled={!canConfirm || busy}
-            onClick={confirm}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+          </>
+        )}
       </div>
     </div>
   )
