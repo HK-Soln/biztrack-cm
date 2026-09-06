@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import QRCode from 'qrcode'
+import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PaymentMethod } from '@biztrack/types'
@@ -1956,7 +1957,8 @@ function PaymentModal({
   const money = useCurrency()
   const [method, setMethod] = useState<TenderKey>(defaultTender ?? 'cash')
   const [tendered, setTendered] = useState<number | null>(null)
-  const [momoRef, setMomoRef] = useState('')
+  // Prefill the MoMo number with the selected customer's phone (if any); the cashier can override.
+  const [momoRef, setMomoRef] = useState(customer?.phone ?? '')
   const [creditDue, setCreditDue] = useState('')
   const [depRem, setDepRem] = useState<number | null>(null)
   const [splits, setSplits] = useState<Record<string, number>>({
@@ -2082,7 +2084,7 @@ function PaymentModal({
   const chargeMode = chargeable && collectMode === 'charge'
 
   const startCharge = async () => {
-    if (isMomoCharge && !momoRef.trim()) return
+    if (isMomoCharge && !isValidPhone(momoRef)) return
     clientRefRef.current = crypto.randomUUID()
     postedRef.current = false
     setQrDataUrl(null)
@@ -2217,7 +2219,7 @@ function PaymentModal({
   // The primary button doubles as "Charge" when the cashier opts into a provider collection.
   const buttonLabel = chargeMode ? `${t('sell.chargeBtn')} · ${money.format(total)}` : confirmLabel
   const buttonDisabled = chargeMode
-    ? busy || !online || (isMomoCharge && !momoRef.trim())
+    ? busy || !online || (isMomoCharge && !isValidPhone(momoRef))
     : !canConfirm || busy
   const onButton = chargeMode ? startCharge : confirm
 
@@ -2398,11 +2400,10 @@ function PaymentModal({
                       <div className="pm-lbl">
                         {method === 'momo' ? t('sell.momoNumber') : t('sell.omNumber')}
                       </div>
-                      <input
-                        className="input"
-                        value={momoRef}
-                        onChange={(e) => setMomoRef(e.target.value)}
-                        placeholder="6 91 22 14 08"
+                      <PhoneInput
+                        value={momoRef || undefined}
+                        onChange={(v) => setMomoRef(v ?? '')}
+                        defaultCountry="CM"
                       />
                     </div>
                   ) : null}
