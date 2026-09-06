@@ -121,6 +121,9 @@ export interface CreateSalePaymentRequest {
   // When method is SAVINGS, the customer deposit/savings account the amount is drawn
   // from. The backend deducts the balance and records an outbound usage transaction.
   savingsAccountId?: string | null
+  // The CONFIRMED in-store provider attempt this payment settles (Spec 07 §7). Traces a ledger
+  // row back to its payment_attempt even when mobileMoneyReference is null (e.g. a card link).
+  paymentAttemptId?: string | null
 }
 
 export interface CreateSaleItemRequest {

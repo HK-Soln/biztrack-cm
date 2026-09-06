@@ -54,6 +54,7 @@ import { SaleDiscount } from '@/entities/sale-discount.entity'
 import { Role } from '@/entities/role.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
+import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { SaleReturn } from '@/entities/sale-return.entity'
 import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -384,6 +385,7 @@ export class SalesService {
               amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
+              paymentAttemptId: payment.paymentAttemptId ?? null,
               businessDate,
               postingDate: posting.postingDate,
               isLateArrival: posting.isLateArrival,
@@ -710,6 +712,7 @@ export class SalesService {
               amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
+              paymentAttemptId: payment.paymentAttemptId ?? null,
               businessDate,
               postingDate: posting.postingDate,
               isLateArrival: posting.isLateArrival,
@@ -717,6 +720,19 @@ export class SalesService {
             }),
           ),
         )
+
+        // Back-link any in-store provider attempts to the Sale they settled (Spec 07 §7.2). The
+        // attempt CONFIRMED before the Sale existed, so its sale_id is filled in here, at post time.
+        // The forward link (sale_payments.payment_attempt_id) is already written above; this is the
+        // reverse convenience for reconciliation/fees. Scoped to businessId; safe if already set.
+        const attemptIds = salePayments
+          .map((p) => p.paymentAttemptId)
+          .filter((id): id is string => Boolean(id))
+        if (attemptIds.length > 0) {
+          await manager
+            .getRepository(PaymentAttempt)
+            .update({ id: In(attemptIds), businessId }, { saleId: sale.id })
+        }
 
         if (payload.charges && payload.charges.length > 0) {
           const chargeRepo = manager.getRepository(SaleCharge)

@@ -668,6 +668,9 @@ export class SalesService {
           amount: toWholeXaf(p.amount),
           mobileMoneyReference: p.mobileMoneyReference ?? null,
           savingsAccountId: p.savingsAccountId ?? null,
+          // In-store provider payments (Spec 07 §7): the CONFIRMED attempt this line settles. The
+          // attempt is server-only, so it rides the outbox payload only (no local column needed).
+          paymentAttemptId: p.paymentAttemptId ?? null,
         })),
         items: emits.map((e) => ({
           id: e.id,

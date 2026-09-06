@@ -1272,6 +1272,8 @@ export interface SalePaymentLineInput {
   amount: number
   mobileMoneyReference?: string | null
   savingsAccountId?: string | null
+  /** CONFIRMED in-store provider attempt this line settles (Spec 07 §7); rides the sync payload. */
+  paymentAttemptId?: string | null
 }
 /** A checkout. `clientId` is the renderer-generated idempotency key. Goods subtotal
  * − discounts + charges = total, settled by payments; any shortfall on a registered
