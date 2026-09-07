@@ -2482,11 +2482,10 @@ function PaymentModal({
                 isMomoCharge ? (
                   <div className="pm-field">
                     <div className="pm-lbl">{t('sell.customerMomoNumber')}</div>
-                    <input
-                      className="input"
-                      value={momoRef}
-                      onChange={(e) => setMomoRef(e.target.value)}
-                      placeholder="6 91 22 14 08"
+                    <PhoneInput
+                      value={momoRef || undefined}
+                      onChange={(v) => setMomoRef(v ?? '')}
+                      defaultCountry="CM"
                     />
                     <div className="pm-note" style={{ marginTop: 10 }}>
                       {I.phone}
