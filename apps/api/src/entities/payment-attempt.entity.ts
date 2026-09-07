@@ -33,6 +33,11 @@ export class PaymentAttempt extends BaseEntity {
   @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })
   cashSessionId!: string | null
 
+  // Spec 08 — set when this attempt is for a payment LINK (pays an arbitrary payable). Its settle sink
+  // applies the payment to the payable (debt/sale/order/deposit).
+  @Column({ name: 'payment_link_id', type: 'uuid', nullable: true })
+  paymentLinkId!: string | null
+
   @Column({ name: 'payment_method', type: 'varchar', length: 20 })
   paymentMethod!: PaymentMethod
 
