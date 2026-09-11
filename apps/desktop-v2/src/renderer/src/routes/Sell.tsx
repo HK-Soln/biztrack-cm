@@ -7,6 +7,7 @@ import { PayableType, PaymentMethod } from '@biztrack/types'
 import { evaluateDiscountAuthorization } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
 import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
+import { CopyLinkRow } from '@/components/payments/CopyLinkRow'
 import { requestManagerStepUp } from '@/stores/step-up.store'
 import { useSessionStore } from '@/stores/session.store'
 import { queryKeys } from '@/lib/query'
@@ -2345,13 +2346,9 @@ function PaymentModal({
                     : t('sell.approveOnPhone').replace('{phone}', momoRef.trim())}
                 </h4>
                 {charge.url ? (
-                  <button
-                    type="button"
-                    className="pm-copy"
-                    onClick={() => void navigator.clipboard?.writeText(charge.url ?? '')}
-                  >
-                    {t('sell.copyLink')}
-                  </button>
+                  <div style={{ width: '100%', marginTop: 6 }}>
+                    <CopyLinkRow url={charge.url} />
+                  </div>
                 ) : null}
                 <div className="muted">{t('sell.waitingConfirm')}</div>
                 <button

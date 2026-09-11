@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@biztrack/ui/biztrack'
@@ -192,13 +192,21 @@ export function OnlineOrders() {
   const [fulfil, setFulfil] = useState<'' | 'DELIVERY' | 'PICKUP'>('')
   const [search, setSearch] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+
+  // Reset to the first page whenever the status filter changes.
+  useEffect(() => {
+    setPage(1)
+  }, [status])
 
   const list = useQuery({
-    queryKey: ['online', 'orders', status],
-    queryFn: () => dataClient.online.listOrders({ status: status || undefined, limit: 100 }),
+    queryKey: ['online', 'orders', status, page],
+    queryFn: () =>
+      dataClient.online.listOrders({ status: status || undefined, page, limit: 20 }),
     enabled: true,
     retry: false,
   })
+  const totalPages = list.data?.totalPages ?? 1
 
   const all = list.data?.data ?? []
   // KPIs from the loaded page (no summary endpoint yet). Computed before any early return
@@ -239,6 +247,40 @@ export function OnlineOrders() {
   })
 
   const STATUS_CHIPS: Array<OnlineOrderStatus | ''> = ['', ...FILTER_STATUSES, 'CANCELLED']
+
+  // Server-side pagination (20/page). Shown only when there's more than one page.
+  const pager =
+    totalPages > 1 ? (
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '14px 0',
+        }}
+      >
+        <button
+          type="button"
+          className="btn"
+          disabled={page <= 1 || list.isFetching}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+        >
+          {t('common.prev')}
+        </button>
+        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          {t('online.pageOf').replace('{page}', String(page)).replace('{total}', String(totalPages))}
+        </span>
+        <button
+          type="button"
+          className="btn"
+          disabled={page >= totalPages || list.isFetching}
+          onClick={() => setPage((p) => p + 1)}
+        >
+          {t('common.next')}
+        </button>
+      </div>
+    ) : null
 
   // --- mobile: header + KPIs + search + status chips + order list (reuses OrderDrawer) ---
   if (bp === 'mobile') {
@@ -355,6 +397,7 @@ export function OnlineOrders() {
                 )
               })}
             </div>
+            {pager}
           </>
         )}
 
@@ -511,6 +554,7 @@ export function OnlineOrders() {
             <div className="panel-foot">
               <span>{t('online.ordersFoot').replace('{n}', String(rows.length))}</span>
             </div>
+            {pager}
           </>
         )}
       </div>
