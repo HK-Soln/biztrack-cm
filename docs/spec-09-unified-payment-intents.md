@@ -37,6 +37,32 @@ payment_link. New capabilities layered on:
 - **One intent per payable** (the existing partial unique index), created lazily the first time a
   payment is wanted for that order/sale/debt/deposit.
 
+### 2.1 Stripe & "partial payments" — how our accumulation works
+
+Stripe has **no** primitive for paying one PaymentIntent down over time in our sense (multicapture =
+multiple captures of an *already-authorized full amount*; Invoicing partial payments = a different
+product). We don't need one: **our intent accumulates across N separate attempts, and each attempt is
+its own complete Stripe PaymentIntent for the partial amount entered that time.** Each Stripe charge is
+a normal full payment for its own amount; the running total lives on `payment_links.amount_paid_minor`
+(our side). With Elements, each partial mints a fresh PaymentIntent + `clientSecret` and re-mounts
+`PaymentElement`. MoMo is likewise a fresh request-to-pay per partial. Verified against Stripe docs.
+
+### 2.2 Debt collection = a CONTACT-BALANCE intent (not per-debt)
+
+Merchants collect a customer's **total** owed, not one debt at a time. New payable type
+**`CONTACT_RECEIVABLE`** — `payableId = contactId`:
+- `resolve()` = SUM of the contact's outstanding RECEIVABLE debts (label "Balance for {contact}",
+  `customerId = contactId`, `allowPartial = true`).
+- `applyPayment(contactId, amountMinor)` = **allocate the paid amount across the contact's outstanding
+  debts OLDEST-FIRST (FIFO)** via `debtsService.recordPayment` per debt, partial on the last, until
+  exhausted. Multiple payments accumulate the same way.
+- One intent for the **whole balance** (default) or the amount the client chooses; share one link/QR.
+- **Debt selection** (pay only a chosen subset) is a refinement: it needs the selected debt ids
+  persisted on the intent (a small `scope jsonb` column on `payment_links`) so settlement allocates
+  within the selection. **v1 = whole-balance FIFO**; selection is a later slice.
+- Desktop: a contact-level "Collect balance" action becomes the default; the per-debt link (Spec 08)
+  still works.
+
 ## 3. Card via embedded Stripe Elements
 
 Replace the hosted Checkout Session redirect with an **inline PaymentElement** on the pay page (amount is
@@ -87,13 +113,15 @@ already renders on any host (middleware excludes it from the store-root redirect
 
 | # | Slice | Notes |
 | --- | --- | --- |
-| 1 | Stripe `createPaymentIntent` (client_secret) + public initiate returns it for CARD | adapter + public API + attempt keyed on pi_ ref |
-| 2 | Pay page: inline `<PaymentElement>` (Stripe.js) for CARD; MoMo unchanged | retires the redirect for links |
-| 3 | Online order: accept MULTIPLE payments (accumulate, per-payment event) | change `settleOnlineOrder` one-shot → accumulate |
-| 4 | Finalize-to-credit (sale/order): apply collected + remainder→receivable | merchant action + intent PAID |
-| 5 | Online checkout → create intent + redirect to `/pay/{token}` (pre-selected method) | keep old order pay page |
-| 6 | Sell → intent + QR to `/pay/{token}` (+ direct card/MoMo from till on same token) | keep PaymentModal until parity |
-| 7 | Retire the bespoke flows once parity proven | cleanup |
+| 1 | `CONTACT_RECEIVABLE` payable — whole-balance intent + FIFO allocation across debts (§2.2) | new handler; desktop "Collect balance" at contact level |
+| 2 | Stripe `createPaymentIntent` (client_secret) + public initiate returns it for CARD | adapter + public API + attempt keyed on pi_ ref |
+| 3 | Pay page: inline `<PaymentElement>` (Stripe.js) for CARD; MoMo unchanged | retires the redirect for links |
+| 4 | Online order: accept MULTIPLE payments (accumulate, per-payment event) | change `settleOnlineOrder` one-shot → accumulate |
+| 5 | Finalize-to-credit (sale/order): apply collected + remainder→receivable | merchant action + intent PAID |
+| 6 | Online checkout → create intent + redirect to `/pay/{token}` (pre-selected method) | keep old order pay page |
+| 7 | Sell → intent + QR to `/pay/{token}` (+ direct card/MoMo from till on same token) | keep PaymentModal until parity |
+| 8 | Retire the bespoke flows once parity proven | cleanup |
+| — | (later) Debt-subset selection — `scope` column + selection UI | refinement of §2.2 |
 
 ## 8. Reuse / do not reinvent
 
