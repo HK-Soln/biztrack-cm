@@ -64,9 +64,19 @@ export function CheckoutView({
   const [instructions, setInstructions] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Payment options come from the published store flags (which the admin can only enable when the
-  // provider route is fully set up). COD needs no provider; the others redirect to a hosted page.
+  // Payment options come from the published store flags. Unified flow (Spec 09): the customer chooses
+  // COD or "Pay online" — any online choice redirects to the single /pay/{token} page where they pick
+  // the actual method (card / MoMo). No need to pick a specific provider here.
   const pm = store?.paymentMethods
+  // The provider method sent to the API for an online order (any routable one triggers link creation);
+  // the pay page then offers all enabled methods, so this is only the initial pre-selection.
+  const onlinePreferred = pm?.card
+    ? 'CARD'
+    : pm?.mtnMomo
+      ? 'MTN_MOMO'
+      : pm?.orangeMoney
+        ? 'ORANGE_MONEY'
+        : null
   const payOptions = useMemo(() => {
     const opts: { key: string; title: string; desc: string; badge: string; color: string }[] = []
     if (pm?.cashOnDelivery ?? true)
@@ -77,29 +87,13 @@ export function CheckoutView({
         badge: 'CASH',
         color: 'var(--success)',
       })
-    if (pm?.card)
+    if (pm?.card || pm?.mtnMomo || pm?.orangeMoney)
       opts.push({
-        key: 'CARD',
-        title: t('cardTitle'),
-        desc: t('cardDesc'),
-        badge: 'CARD',
-        color: '#635bff',
-      })
-    if (pm?.mtnMomo)
-      opts.push({
-        key: 'MTN_MOMO',
-        title: t('mtnTitle'),
-        desc: t('momoDesc'),
-        badge: 'MTN',
-        color: '#f5b301',
-      })
-    if (pm?.orangeMoney)
-      opts.push({
-        key: 'ORANGE_MONEY',
-        title: t('orangeTitle'),
-        desc: t('momoDesc'),
-        badge: 'OM',
-        color: '#ff6a00',
+        key: 'ONLINE',
+        title: t('payOnlineTitle'),
+        desc: t('payOnlineDesc'),
+        badge: '⚡',
+        color: 'var(--brand)',
       })
     return opts
   }, [pm, t])
@@ -188,7 +182,8 @@ export function CheckoutView({
       deliveryAddress: isDelivery ? address.trim() : undefined,
       deliveryCity: isDelivery ? city.trim() || undefined : undefined,
       deliveryNotes: isDelivery && instructions.trim() ? instructions.trim() : undefined,
-      paymentMethod,
+      // "ONLINE" → a routable provider method so the server mints a link; the pay page offers all methods.
+      paymentMethod: paymentMethod === 'ONLINE' ? (onlinePreferred ?? 'CASH') : paymentMethod,
       // Our origin — the server builds the hosted-payment return URLs from this + the order token.
       returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
     })

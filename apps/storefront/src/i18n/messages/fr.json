@@ -185,7 +185,9 @@
     "errName": "Le nom est requis",
     "errPhone": "Numéro de téléphone invalide",
     "errAddress": "L'adresse de livraison est requise",
-    "pickupAt": "Retrait en boutique : {address}"
+    "pickupAt": "Retrait en boutique : {address}",
+    "payOnlineTitle": "Payer en ligne",
+    "payOnlineDesc": "Payez par carte ou Mobile Money en toute sécurité. Vous choisirez comment à la page suivante."
   },
   "order": {
     "thanksTitle": "Merci, votre commande est confirmée !",

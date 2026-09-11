@@ -185,7 +185,9 @@
     "errName": "Name is required",
     "errPhone": "Invalid phone number",
     "errAddress": "Delivery address is required",
-    "pickupAt": "Store pickup: {address}"
+    "pickupAt": "Store pickup: {address}",
+    "payOnlineTitle": "Pay online",
+    "payOnlineDesc": "Pay securely by card or Mobile Money. You’ll choose how on the next page."
   },
   "order": {
     "thanksTitle": "Thank you, your order is confirmed!",
