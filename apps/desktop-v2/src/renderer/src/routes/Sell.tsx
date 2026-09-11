@@ -292,8 +292,6 @@ export function Sell() {
   // (pick, walk-in, or cancel) instead of dropping the cashier back to the cart.
   const [custFromPay, setCustFromPay] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
-  // "Pay online" was chosen → auto-open the payment link/QR on the success screen.
-  const [autoLink, setAutoLink] = useState(false)
   const [saleError, setSaleError] = useState<string | null>(null)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
@@ -757,9 +755,7 @@ export function Sell() {
       setPayOpen(false)
     },
     onError: (e) => {
-      // Was silent before — a failed local create (e.g. a full-credit "Pay online" sale for a walk-in)
-      // left the cashier with no feedback. Surface it and clear the auto-link intent.
-      setAutoLink(false)
+      // Surface the failure — a failed local create was silent before, leaving the cashier no feedback.
       setSaleError(errorMessage(e))
     },
   })
@@ -817,7 +813,6 @@ export function Sell() {
     setCharges([])
     setCustomer(null)
     setDone(null)
-    setAutoLink(false)
     void catalog.refetch()
   }
 
@@ -958,13 +953,6 @@ export function Sell() {
             setSaleError(null)
             void submitSale(payments, due)
           }}
-          onPayOnline={() => {
-            // Post the whole cart as a credit sale, then auto-open the pay.[domain] link/QR on the
-            // success screen; WS tracks how much the customer pays, the rest stays credit.
-            setSaleError(null)
-            setAutoLink(true)
-            void submitSale([], null)
-          }}
         />
       ) : null}
 
@@ -973,7 +961,6 @@ export function Sell() {
           sale={done}
           customerName={customer?.name ?? t('sell.walkIn')}
           customerPhone={customer?.phone ?? null}
-          autoOpenLink={autoLink}
           onNew={startNew}
         />
       ) : null}
@@ -1966,7 +1953,6 @@ function PaymentModal({
   onClose,
   onPickCustomer,
   onConfirm,
-  onPayOnline,
   error,
   busy,
 }: {
@@ -1981,9 +1967,6 @@ function PaymentModal({
   onClose: () => void
   onPickCustomer: () => void
   onConfirm: (p: SaleInput['payments'], creditDueDate?: string | null) => void
-  /** Post the sale as a credit sale and hand the customer a pay.[domain] link/QR (they pick the
-   *  method + pay themselves; WS tracks how much lands, the rest stays credit). */
-  onPayOnline: () => void
   error?: string | null
   busy: boolean
 }) {
@@ -2818,18 +2801,6 @@ function PaymentModal({
               >
                 {buttonLabel}
               </button>
-              {/* Pay online posts a CREDIT sale, so it needs a customer to owe the balance. */}
-              {!chargeSpec && online && !isWalkIn ? (
-                <button
-                  type="button"
-                  className="pm-cancel"
-                  style={{ marginTop: 8 }}
-                  disabled={busy || total <= 0}
-                  onClick={onPayOnline}
-                >
-                  {t('sell.payOnline')}
-                </button>
-              ) : null}
             </div>
           </>
         )}
@@ -2866,13 +2837,11 @@ function SuccessModal({
   sale,
   customerName,
   customerPhone,
-  autoOpenLink,
   onNew,
 }: {
   sale: LocalSaleDetail
   customerName: string
   customerPhone: string | null
-  autoOpenLink?: boolean
   onNew: () => void
 }) {
   const t = useT()
@@ -2881,8 +2850,7 @@ function SuccessModal({
   const [printing, setPrinting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [sendOpen, setSendOpen] = useState(false)
-  // "Pay online" → open the payment link/QR immediately (only meaningful when a balance remains).
-  const [linkOpen, setLinkOpen] = useState(Boolean(autoOpenLink) && sale.creditAmount > 0)
+  const [linkOpen, setLinkOpen] = useState(false)
 
   // The compiled receipt — exactly what gets printed/shared — shown as a live preview.
   const { data: receiptHtml } = useQuery({
