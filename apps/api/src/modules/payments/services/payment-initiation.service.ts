@@ -5,7 +5,7 @@ import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { randomUUID } from 'node:crypto'
 import { Queue } from 'bullmq'
-import { IsNull, Repository } from 'typeorm'
+import { Repository } from 'typeorm'
 import {
   PAYMENT_ATTEMPT_TERMINAL,
   PaymentAttemptInitiationType,
@@ -26,20 +26,6 @@ import {
   POLL_PAYMENT_ATTEMPT_JOB,
   PUBLIC_PROVIDER_FAILURE_REASONS,
 } from '../payments.constants'
-
-export interface InitiateOnlineCheckoutInput {
-  businessId: string
-  onlineOrderId: string
-  method: PaymentMethod
-  /** Order total in the currency's MINOR units (integer). */
-  amountMinor: number
-  currency: string
-  /** Human reference shown on the provider side (the order number). */
-  reference: string
-  customerPhone?: string | null
-  successUrl?: string
-  cancelUrl?: string
-}
 
 /** Either a hosted redirect (Stripe Checkout) or a push the customer approves on their phone (MoMo). */
 export type InitiatedPayment =
@@ -70,16 +56,10 @@ const LINK_TTL_SECONDS = 30 * 60
 const IN_STORE_LINK_TTL_SECONDS = 10 * 60
 
 /**
- * Spec 07 §6 — start and reconcile a provider payment for an online order.
- *
- * initiateOnlineCheckout resolves the routed provider and creates a payment_attempt, then either asks
- * the adapter for a hosted link (Stripe → redirect) or fires a request-to-pay push (MoMo → the
- * customer approves on their phone). Returns null when the method can't be executed online, so
- * checkout falls back to the unpaid/COD path.
- *
- * pollOnlineOrderPayment reconciles the latest attempt against the provider (getTransaction) and
- * applies the terminal result — this is what the storefront wait screen polls, and what the
- * background reconcile job will reuse.
+ * Spec 07 §6/§7 — start and reconcile provider payments. Since Spec 09 all payer-facing flows (online
+ * checkout, in-store QR, payment links) route through the unified /pay/{token} page, so this exposes
+ * initiateInStorePayment (till) + initiateLinkPayment (links) + reconcileAttempt (poll/webhook safety
+ * net); the legacy order-specific checkout/poll/retry methods were retired (Spec 09 slice 8).
  */
 @Injectable()
 export class PaymentInitiationService {
@@ -97,151 +77,6 @@ export class PaymentInitiationService {
     private readonly config: ConfigService,
     @InjectQueue(PAYMENTS_QUEUE) private readonly queue: Queue,
   ) {}
-
-  /**
-   * How a routed provider executes online — decides, at checkout, whether the storefront gets a
-   * hosted redirect URL ('redirect', Stripe) or is sent to our own payment page ('self', MoMo
-   * request-to-pay). 'none' when the method isn't routed/executable online (→ COD path).
-   */
-  async resolveOnlinePaymentMode(
-    businessId: string,
-    method: PaymentMethod,
-  ): Promise<'redirect' | 'self' | 'none'> {
-    const routed = await this.routing.resolveProviderForMethod(businessId, method)
-    if (!routed) return 'none'
-    const adapter = this.adapters.get(routed.connection.providerCode)
-    if (!adapter) return 'none'
-    if (adapter.createPaymentLink) return 'redirect'
-    if (adapter.initiateUssdPush) return 'self'
-    return 'none'
-  }
-
-  async initiateOnlineCheckout(
-    input: InitiateOnlineCheckoutInput,
-  ): Promise<InitiatedPayment | null> {
-    const attempts = this.attempts
-    const routed = await this.routing.resolveProviderForMethod(input.businessId, input.method)
-    if (!routed) return null // no verified route — caller uses the unpaid/COD path
-
-    const { connection } = routed
-    const adapter = this.adapters.get(connection.providerCode)
-    if (!adapter) return null
-    const creds = await this.credentials.getDecryptedCredentials(
-      input.businessId,
-      connection.providerCode,
-    )
-    if (!creds) return null
-
-    // Attempts are plural per order (retries → new rows). Number this one after any existing.
-    const attemptNumber =
-      (await attempts.count({ where: { onlineOrderId: input.onlineOrderId } })) + 1
-    const idempotencyKey = `online_${input.onlineOrderId}_${attemptNumber}`
-
-    const attempt = await attempts.save(
-      attempts.create({
-        businessId: input.businessId,
-        onlineOrderId: input.onlineOrderId,
-        providerId: connection.id,
-        paymentMethod: input.method,
-        amountMinor: input.amountMinor,
-        currency: input.currency,
-        status: PaymentAttemptStatus.INITIATED,
-        attemptNumber,
-        idempotencyKey,
-        initiationType: PaymentAttemptInitiationType.ONLINE_CHECKOUT,
-        customerPhone: input.customerPhone ?? null,
-      }),
-    )
-
-    // Hosted-link provider (Stripe): redirect the customer to a hosted page.
-    if (adapter.createPaymentLink) {
-      try {
-        const link = await adapter.createPaymentLink(creds, {
-          amountMinor: input.amountMinor,
-          currency: input.currency,
-          method: input.method,
-          reference: input.reference,
-          idempotencyKey,
-          customerPhone: input.customerPhone ?? undefined,
-          expiresInSeconds: LINK_TTL_SECONDS,
-          successUrl: input.successUrl,
-          cancelUrl: input.cancelUrl,
-        })
-        await attempts.update(attempt.id, {
-          status: PaymentAttemptStatus.PENDING,
-          providerRef: link.providerRef,
-          linkUrl: link.url,
-          expiresAt: new Date(link.expiresAt),
-        })
-        // Poll safety net over the link's life (a webhook can be lost) — and it captures the Stripe
-        // fee at settle even when the webhook (which carries none) settled it first (Build 12 §9).
-        await this.queue.add(
-          POLL_PAYMENT_ATTEMPT_JOB,
-          {
-            businessId: input.businessId,
-            attemptId: attempt.id,
-            deadline: Date.now() + LINK_TTL_SECONDS * 1000,
-          },
-          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
-        )
-        return {
-          kind: 'redirect',
-          attemptId: attempt.id,
-          providerRef: link.providerRef,
-          url: link.url,
-          expiresAt: link.expiresAt,
-        }
-      } catch (error) {
-        return this.failAttempt(attempts, attempt.id, error)
-      }
-    }
-
-    // Push provider (MoMo request-to-pay): the customer approves on their phone.
-    if (adapter.initiateUssdPush) {
-      const phone = input.customerPhone?.trim()
-      if (!phone)
-        return this.failAttempt(attempts, attempt.id, new Error('A phone number is required.'))
-      // Generate the reference up front so it's the provider ref AND the callback path segment.
-      const referenceId = randomUUID()
-      const callbackUrl = this.momoCallbackUrl(connection.webhookToken, referenceId)
-      try {
-        const push = await adapter.initiateUssdPush(creds, {
-          amountMinor: input.amountMinor,
-          currency: input.currency,
-          method: input.method,
-          customerPhone: phone,
-          reference: input.reference,
-          idempotencyKey,
-          referenceId,
-          callbackUrl,
-        })
-        await attempts.update(attempt.id, {
-          status: PaymentAttemptStatus.PENDING,
-          providerRef: push.providerRef,
-        })
-        // Background reconcile safety net (the callback is single-shot / may never arrive).
-        await this.queue.add(
-          POLL_PAYMENT_ATTEMPT_JOB,
-          {
-            businessId: input.businessId,
-            attemptId: attempt.id,
-            deadline: Date.now() + POLL_ATTEMPT_WINDOW_MS,
-          },
-          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
-        )
-        return { kind: 'pending', attemptId: attempt.id, providerRef: push.providerRef }
-      } catch (error) {
-        return this.failAttempt(attempts, attempt.id, error)
-      }
-    }
-
-    // Provider has no online execution path.
-    return this.failAttempt(
-      attempts,
-      attempt.id,
-      new Error('Provider has no online payment method.'),
-    )
-  }
 
   /**
    * Spec 07 §7 (Build 10) — start a provider payment AT THE TILL for the cart being tendered. Unlike
@@ -795,28 +630,6 @@ export class PaymentInitiationService {
       )
       return attempt
     }
-  }
-
-  /** The storefront payment page polls this: reconcile the order's latest attempt, return a tri-state
-   *  plus (on FAILED) the provider's whitelisted reason code so the page can explain what went wrong. */
-  async pollOnlineOrderPayment(
-    businessId: string,
-    onlineOrderId: string,
-  ): Promise<{ status: PublicPaymentState; reason?: string } | null> {
-    const attempt = await this.attempts.findOne({
-      where: { businessId, onlineOrderId, deletedAt: IsNull() },
-      order: { createdAt: 'DESC' },
-    })
-    if (!attempt) return null
-    const settled = await this.reconcileAttempt(attempt)
-    const status = this.toPublicState(settled.status)
-    const reason =
-      status === 'FAILED' &&
-      settled.failedReason &&
-      PUBLIC_PROVIDER_FAILURE_REASONS.has(settled.failedReason)
-        ? settled.failedReason
-        : undefined
-    return { status, reason }
   }
 
   private toPublicState(status: PaymentAttemptStatus): PublicPaymentState {

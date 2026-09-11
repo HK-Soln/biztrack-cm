@@ -25,7 +25,6 @@ import {
   type OnlineStorePublishedConfig,
   type OrderSerialSelection,
   type PublicOrderTracking,
-  type PublicPaymentStatus,
   type SaleSyncChargeLinePayload,
   type SaleSyncPayload,
   type UpdateOrderPaymentRequest,
@@ -59,7 +58,6 @@ import { OrderEmailService } from './order-email.service'
 import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
 import { PaymentLinkService } from '@/modules/payment-links/payment-link.service'
 import { PayableType, ROUTABLE_PAYMENT_METHODS } from '@biztrack/types'
-import { majorToMinor } from '@biztrack/utils'
 
 const cartItemKey = (item: {
   productId: string
@@ -448,96 +446,6 @@ export class OnlineOrdersService {
         customerMessage: event.customerMessage ?? null,
         createdAt: event.createdAt.toISOString(),
       })),
-    }
-  }
-
-  /**
-   * Storefront wait-screen poll (public): reconcile the order's latest payment attempt against the
-   * provider and return a tri-state — PENDING (keep polling), PAID (go to the order page), FAILED
-   * (let the customer retry). Short-circuits to PAID when the order is already settled.
-   */
-  async getPaymentStatus(slug: string, trackingToken: string): Promise<PublicPaymentStatus> {
-    const { store } = await this.requireStore(slug)
-    const order = await this.ordersRepo.findOne({
-      where: { onlineStoreId: store.id, trackingToken },
-    })
-    if (!order) {
-      throw new AppNotFoundException(
-        await this.i18n.translate('errors.online_order_not_found'),
-        'ONLINE_ORDER_NOT_FOUND',
-      )
-    }
-    if (order.paymentStatus === 'PAID') return { status: 'PAID' }
-    const state = await this.paymentInitiation.pollOnlineOrderPayment(store.businessId, order.id)
-    if (!state) return { status: 'PENDING' }
-    return state.reason ? { status: state.status, reason: state.reason } : { status: state.status }
-  }
-
-  /**
-   * Retry the provider payment for an already-placed order (storefront "try again" after a failure).
-   * Starts a fresh attempt with the order's stored method + phone. Guarded against a double charge:
-   * a PAID order is not re-initiated. COD has nothing to retry.
-   */
-  async retryPayment(
-    slug: string,
-    trackingToken: string,
-    payerPhone?: string,
-  ): Promise<CheckoutPayment> {
-    const { store, config } = await this.requireStore(slug)
-    const order = await this.ordersRepo.findOne({
-      where: { onlineStoreId: store.id, trackingToken },
-    })
-    if (!order) {
-      throw new AppNotFoundException(
-        await this.i18n.translate('errors.online_order_not_found'),
-        'ONLINE_ORDER_NOT_FOUND',
-      )
-    }
-    if (order.paymentStatus === 'PAID') return {} // already paid — storefront redirects
-    const method = this.mapPaymentMethod(order.paymentMethod)
-    if (!ROUTABLE_PAYMENT_METHODS.includes(method)) return { failed: true }
-    return this.startOrderPayment(store.businessId, order, method, config.currency, { payerPhone })
-  }
-
-  /**
-   * Start (or restart) a provider payment for an order. Maps the initiation outcome to the
-   * storefront payment shape; a null/error initiation becomes `{ failed: true }` so the storefront can
-   * keep the customer on the confirmation page and offer a retry (never a silent "order confirmed").
-   */
-  private async startOrderPayment(
-    businessId: string,
-    order: OnlineOrder,
-    method: PaymentMethod,
-    currency: string,
-    opts: { successUrl?: string; cancelUrl?: string; payerPhone?: string | null },
-  ): Promise<CheckoutPayment> {
-    try {
-      const initiated = await this.paymentInitiation.initiateOnlineCheckout({
-        businessId,
-        onlineOrderId: order.id,
-        method,
-        amountMinor: majorToMinor(order.totalAmount, currency),
-        currency,
-        reference: order.orderNumber,
-        // A payment may be started from a specific MoMo number; otherwise use the order's contact phone.
-        customerPhone: opts.payerPhone?.trim() || order.customerPhone,
-        successUrl: opts.successUrl,
-        cancelUrl: opts.cancelUrl,
-      })
-      if (initiated?.kind === 'redirect')
-        return {
-          attemptId: initiated.attemptId,
-          url: initiated.url,
-          expiresAt: initiated.expiresAt,
-        }
-      if (initiated?.kind === 'pending') return { attemptId: initiated.attemptId, pending: true }
-      return { failed: true }
-    } catch (error) {
-      this.logger.warn('Online payment initiation failed', 'OnlineOrdersService', {
-        orderId: order.id,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      return { failed: true }
     }
   }
 

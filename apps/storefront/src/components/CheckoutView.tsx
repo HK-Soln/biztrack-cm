@@ -117,16 +117,6 @@ export function CheckoutView({
         router.push(`${base}/pay/${pay.token}${q}`)
         return
       }
-      // Legacy hosted provider (Stripe): straight to the hosted checkout page.
-      if (pay?.mode === 'redirect' && pay.url) {
-        window.location.href = pay.url
-        return
-      }
-      // Legacy self-handled provider (MoMo): our own order payment page owns the request-to-pay.
-      if (pay?.mode === 'self') {
-        router.push(`${base}/orders/${order.trackingToken}/pay`)
-        return
-      }
       // COD / no online payment.
       router.push(`${base}/orders/${order.trackingToken}`)
     },
