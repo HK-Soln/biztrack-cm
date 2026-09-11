@@ -81,6 +81,8 @@ export interface PaymentLinkView {
 export interface PublicPaymentLink {
   token: string
   businessName: string
+  /** Merchant logo for the hosted pay-page header (Stripe-style). Null → render an initial avatar. */
+  businessLogoUrl?: string | null
   label: string
   amountDueMinor: number
   /** Total already collected across prior (partial) payments — drives the "X paid, Y remaining" UI. */

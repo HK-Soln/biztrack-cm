@@ -30,9 +30,18 @@ export default async function PayLinkPage({
     <div
       className="store"
       data-theme="light"
-      style={{ minHeight: '100vh', background: 'var(--bg, #f5f6f8)' }}
+      style={{
+        minHeight: '100vh',
+        background: 'var(--bg, #f5f6f8)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+      }}
     >
-      <div className="wrap" style={{ maxWidth: 520, margin: '0 auto', padding: '32px 16px' }}>
+      <div
+        className="wrap"
+        style={{ width: '100%', maxWidth: 460, margin: '0 auto', padding: '32px 16px' }}
+      >
         <PayLinkView token={token} link={link} preferredMethod={method} />
       </div>
     </div>

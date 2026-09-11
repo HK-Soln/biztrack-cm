@@ -43,6 +43,7 @@ export class PublicPaymentLinkService {
     return {
       token: link.token,
       businessName: business?.name ?? 'Payment',
+      businessLogoUrl: business?.logoUrl ?? null,
       label: link.label ?? 'Payment',
       amountDueMinor,
       amountPaidMinor: Number(link.amountPaidMinor),

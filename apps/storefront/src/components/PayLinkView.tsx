@@ -212,6 +212,52 @@ export function PayLinkView({
         ? t('reasonGeneric')
         : null
 
+  // Stripe-style merchant header: logo (or an initial avatar) + business name, shown on every state so
+  // the payer always sees who they are paying.
+  const header = (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 20,
+      }}
+    >
+      {link.businessLogoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={link.businessLogoUrl}
+          alt=""
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 15,
+            objectFit: 'cover',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 15,
+            display: 'grid',
+            placeItems: 'center',
+            background: 'var(--brand)',
+            color: '#fff',
+            fontWeight: 800,
+            fontSize: 23,
+          }}
+        >
+          {(link.businessName || 'P').slice(0, 1).toUpperCase()}
+        </div>
+      )}
+      <div style={{ fontSize: 16, fontWeight: 700 }}>{link.businessName}</div>
+    </div>
+  )
+
   const card = (children: React.ReactNode) => (
     <div
       style={{
@@ -220,8 +266,10 @@ export function PayLinkView({
         borderRadius: 16,
         padding: 24,
         textAlign: 'center',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -12px rgba(0,0,0,0.12)',
       }}
     >
+      {header}
       {children}
     </div>
   )
@@ -245,10 +293,7 @@ export function PayLinkView({
     return card(
       <div style={{ textAlign: 'left' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            {t('payTo', { business: link.businessName })}
-          </div>
-          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>
+          <div style={{ fontSize: 26, fontWeight: 800 }}>
             {formatMoney(isOpen || link.allowPartial ? amount : dueMajor, currency)}
           </div>
         </div>
@@ -301,8 +346,7 @@ export function PayLinkView({
   return card(
     <div style={{ textAlign: 'left' }}>
       <div style={{ textAlign: 'center', marginBottom: 18 }}>
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{t('payTo', { business: link.businessName })}</div>
-        <div style={{ fontSize: 15, fontWeight: 600, marginTop: 2 }}>{link.label}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--muted)' }}>{link.label}</div>
         {!isOpen ? (
           <div style={{ fontSize: 30, fontWeight: 800, marginTop: 8 }}>
             {formatMoney(dueMajor, currency)}
