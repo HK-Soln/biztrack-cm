@@ -158,6 +158,10 @@ const SALE_MAP: Record<string, string> = {
   tax_amount: 'taxAmount',
   amount_paid: 'amountPaid',
   credit_amount: 'creditAmount',
+  // Server-ORIGINATED sales (e.g. a SALE_DRAFT scan-to-pay materialized on the server) rely on the
+  // pull to populate this — desktop-created sales set it locally. Without it such a sale synced with a
+  // NULL method and read as a credit sale. The server derives it from the sale's payment lines.
+  payment_method: 'paymentMethod',
   change_given: 'changeGiven',
   customer_id: 'customerId',
   customer_name: 'customerName',
