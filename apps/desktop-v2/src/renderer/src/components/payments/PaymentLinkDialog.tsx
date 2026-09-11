@@ -50,8 +50,12 @@ export function PaymentLinkDialog({
     const off = dataClient.payments.onLinkEvent((e) => {
       if (e.paymentLinkId !== link.id) return
       setSettle({ amountPaidMinor: e.amountPaidMinor, amountMinor: e.amountMinor, done: e.status === 'PAID' })
-      // Broad invalidate — only ACTIVE queries (the current screen) refetch; others just go stale.
-      void qc.invalidateQueries()
+      // The payment was recorded on the SERVER; the offline-first screens read LOCAL data, so pull it
+      // down first, THEN invalidate (a bare invalidate would refetch stale local data). On cloud,
+      // sync.trigger is a no-op and queries hit the API directly, so the invalidate alone suffices.
+      void Promise.resolve(dataClient.sync.trigger())
+        .catch(() => undefined)
+        .then(() => qc.invalidateQueries())
     })
     return off
   }, [link, qc])

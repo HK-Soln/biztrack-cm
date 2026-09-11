@@ -23,9 +23,15 @@ function make(opts: {
     applyPayment: jest.fn(),
   }
   const registry = { get: jest.fn(() => handler) }
+  const routing = { resolveAvailableMethods: jest.fn(async () => [{ method: 'MTN_MOMO' }]) }
   const config = { get: jest.fn(() => 'https://pay.test') }
-  const service = new PaymentLinkService(links as never, registry as never, config as never)
-  return { service, links, handler }
+  const service = new PaymentLinkService(
+    links as never,
+    registry as never,
+    routing as never,
+    config as never,
+  )
+  return { service, links, handler, routing }
 }
 
 describe('PaymentLinkService.create', () => {
@@ -93,6 +99,16 @@ describe('PaymentLinkService.create', () => {
       service.create('b1', 'u1', { payableType: PayableType.SALE, payableId: 'nope' }),
     ).rejects.toThrow()
   })
+
+  it('refuses to create a link when no provider method is routable (no dead links)', async () => {
+    const { service, routing } = make({
+      resolved: { amountDueMinor: 5000, currency: 'XAF', label: 'Sale', customerId: 'c1' },
+    })
+    routing.resolveAvailableMethods.mockResolvedValueOnce([])
+    await expect(
+      service.create('b1', 'u1', { payableType: PayableType.SALE, payableId: 'sale-1' }),
+    ).rejects.toThrow()
+  })
 })
 
 describe('PaymentLinkService.finalize', () => {
@@ -116,9 +132,15 @@ describe('PaymentLinkService.finalize', () => {
   function svc(row: Record<string, unknown> | null) {
     const links = { findOne: jest.fn(async () => row), update: jest.fn() }
     const registry = { get: jest.fn() }
+    const routing = { resolveAvailableMethods: jest.fn(async () => [{ method: 'MTN_MOMO' }]) }
     const config = { get: jest.fn(() => 'https://pay.test') }
     return {
-      service: new PaymentLinkService(links as never, registry as never, config as never),
+      service: new PaymentLinkService(
+        links as never,
+        registry as never,
+        routing as never,
+        config as never,
+      ),
       links,
     }
   }

@@ -469,6 +469,10 @@ const TERMINAL_BATCH_STATUSES = new Set<SyncBatchStatus>([
   'skipped',
 ])
 
+/** Pull cursor rewind (§sync) — re-examine the last minute of changes each pull so a row committed just
+ *  after its updated_at stamp is never skipped forever. Apply is idempotent, so the overlap is safe. */
+const SYNC_CURSOR_SAFETY_MS = 60_000
+
 @Injectable()
 export class SyncService {
   constructor(
@@ -1365,9 +1369,18 @@ export class SyncService {
         })),
       }
 
+      // Safety lag on the cursor: a row's updated_at is stamped INSIDE its write transaction but only
+      // becomes visible at COMMIT. A pull whose pulledAt falls between that stamp and the commit misses
+      // the row, and a cursor advanced to pulledAt would skip it forever (recoverable only by a full
+      // resync — the "works only after restart" bug). Rewind the returned cursor by a safety window so
+      // the next pull re-examines recently-committed rows; every apply is idempotent (upserts), so the
+      // small overlap is harmless.
+      const nextCursor = new Date(
+        Math.max(0, pulledAt.getTime() - SYNC_CURSOR_SAFETY_MS),
+      ).toISOString()
       return {
         changes,
-        cursor: pulledAt.toISOString(),
+        cursor: nextCursor,
       }
     } catch (error) {
       return this.handleServiceError('pullChanges', error, { businessId, cursor })

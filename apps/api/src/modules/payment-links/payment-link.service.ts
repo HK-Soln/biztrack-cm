@@ -12,6 +12,7 @@ import {
 } from '@biztrack/types'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { PaymentLink } from '@/entities/payment-link.entity'
+import { PaymentRoutingService } from '@/modules/payments/services/payment-routing.service'
 import { PayableHandlerRegistry } from './payable-handlers'
 
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -28,6 +29,7 @@ export class PaymentLinkService {
     @InjectRepository(PaymentLink)
     private readonly links: Repository<PaymentLink>,
     private readonly registry: PayableHandlerRegistry,
+    private readonly routing: PaymentRoutingService,
     private readonly config: ConfigService,
   ) {}
 
@@ -38,6 +40,16 @@ export class PaymentLinkService {
   ): Promise<PaymentLinkView> {
     const handler = this.registry.get(dto.payableType)
     if (!handler) throw new AppBadRequestException('Unknown payable type.', 'PAYABLE_TYPE_UNKNOWN')
+
+    // Don't mint a dead link: the business must have at least one live (routed + ACTIVE + verified)
+    // provider method, else the payer would only hit "no provider" at pay time.
+    const methods = await this.routing.resolveAvailableMethods(businessId)
+    if (methods.length === 0) {
+      throw new AppBadRequestException(
+        'Set up a payment provider before sharing a payment link.',
+        'PAYMENT_METHOD_NOT_ROUTABLE',
+      )
+    }
 
     const resolved = await handler.resolve(businessId, dto.payableId)
     if (!resolved) throw new AppNotFoundException('Payable not found.', 'PAYABLE_NOT_FOUND')
