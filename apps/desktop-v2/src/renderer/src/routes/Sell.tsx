@@ -3,9 +3,10 @@ import QRCode from 'qrcode'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
-import { PaymentMethod } from '@biztrack/types'
+import { PayableType, PaymentMethod } from '@biztrack/types'
 import { evaluateDiscountAuthorization } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
+import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
 import { requestManagerStepUp } from '@/stores/step-up.store'
 import { useSessionStore } from '@/stores/session.store'
 import { queryKeys } from '@/lib/query'
@@ -947,6 +948,7 @@ export function Sell() {
         <SuccessModal
           sale={done}
           customerName={customer?.name ?? t('sell.walkIn')}
+          customerPhone={customer?.phone ?? null}
           onNew={startNew}
         />
       ) : null}
@@ -2810,10 +2812,12 @@ function CustNeeded({ t, onPick }: { t: ReturnType<typeof useT>; onPick: () => v
 function SuccessModal({
   sale,
   customerName,
+  customerPhone,
   onNew,
 }: {
   sale: LocalSaleDetail
   customerName: string
+  customerPhone: string | null
   onNew: () => void
 }) {
   const t = useT()
@@ -2822,6 +2826,7 @@ function SuccessModal({
   const [printing, setPrinting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [sendOpen, setSendOpen] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
 
   // The compiled receipt — exactly what gets printed/shared — shown as a live preview.
   const { data: receiptHtml } = useQuery({
@@ -2878,6 +2883,11 @@ function SuccessModal({
             <button type="button" onClick={() => setSendOpen(true)}>
               {t('sell.send')}
             </button>
+            {onCredit ? (
+              <button type="button" onClick={() => setLinkOpen(true)}>
+                {t('paymentLink.sendLink')}
+              </button>
+            ) : null}
             <button type="button" className="primary" onClick={onNew}>
               {t('sell.newSale')}
             </button>
@@ -2890,6 +2900,14 @@ function SuccessModal({
           customerName={customerName}
           locale={lang}
           onClose={() => setSendOpen(false)}
+        />
+      ) : null}
+      {linkOpen ? (
+        <PaymentLinkDialog
+          open
+          onClose={() => setLinkOpen(false)}
+          payable={{ payableType: PayableType.SALE, payableId: sale.id }}
+          customerPhone={customerPhone}
         />
       ) : null}
     </div>
