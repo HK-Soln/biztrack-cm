@@ -62,6 +62,8 @@ export interface PublicPaymentLink {
   businessName: string
   label: string
   amountDueMinor: number
+  /** Total already collected across prior (partial) payments — drives the "X paid, Y remaining" UI. */
+  amountPaidMinor: number
   currency: string
   allowPartial: boolean
   status: PaymentLinkStatus

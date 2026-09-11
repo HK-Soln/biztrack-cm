@@ -45,6 +45,7 @@ export class PublicPaymentLinkService {
       businessName: business?.name ?? 'Payment',
       label: link.label ?? 'Payment',
       amountDueMinor,
+      amountPaidMinor: Number(link.amountPaidMinor),
       currency: link.currency,
       allowPartial: link.allowPartial,
       status: link.status,

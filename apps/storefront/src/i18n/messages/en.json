@@ -322,6 +322,8 @@
       "PAYER_NOT_FOUND": "That number isn't a registered Mobile Money account.",
       "PAYEE_NOT_ALLOWED_TO_RECEIVE": "The business can't receive this payment right now.",
       "INTERNAL_PROCESSING_ERROR": "The Mobile Money service had a temporary error."
-    }
+    },
+    "partialReceived": "Partial payment received. You can pay the remaining balance below.",
+    "remainingOf": "{paid} already paid · remaining below"
   }
 }

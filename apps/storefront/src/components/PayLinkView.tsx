@@ -4,7 +4,7 @@ import { cloneElement, useEffect, useRef, useState, type CSSProperties, type Rea
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import type { PublicPaymentLink } from '@biztrack/types'
-import { formatMoney, getLinkPaymentStatus, initiateLinkPayment } from '@/lib/api'
+import { formatMoney, getLinkPaymentStatus, getPaymentLink, initiateLinkPayment } from '@/lib/api'
 
 const IcLock = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -68,8 +68,14 @@ type Phase = 'idle' | 'pending' | 'paid' | 'failed'
  * arbitrary payable: pick a method, (for a partial-capable link) an amount capped at the balance, then
  * card → hosted redirect, MoMo → number → push → poll. The amount is re-validated server-side.
  */
-export function PayLinkView({ token, link }: { token: string; link: PublicPaymentLink }) {
+export function PayLinkView({ token, link: initialLink }: { token: string; link: PublicPaymentLink }) {
   const t = useTranslations('pay')
+
+  // The link is re-fetched after each payment settles, so a PARTIAL payment updates the live balance
+  // and the payer can pay again toward the limit (split payments). `link` is therefore state.
+  const [link, setLink] = useState<PublicPaymentLink>(initialLink)
+  // A partial payment just landed → show "X received, Y remaining" above the form.
+  const [partialPaidMinor, setPartialPaidMinor] = useState(0)
 
   const currency = link.currency
   const dueMajor = link.amountDueMinor // XAF exponent 0 — minor == major
@@ -88,6 +94,26 @@ export function PayLinkView({ token, link }: { token: string; link: PublicPaymen
   const terminalLink =
     link.status === 'PAID' || link.status === 'EXPIRED' || link.status === 'CANCELLED'
   const amountReady = isOpen || link.allowPartial ? amount > 0 : dueMajor > 0
+
+  /** A payment attempt settled: re-fetch the link. If fully paid (or a one-shot deposit) → done; else a
+   *  PARTIAL payment landed and a balance remains → back to the form for another payment (split pay). */
+  const onAttemptSettled = async () => {
+    const fresh = await getPaymentLink(token)
+    if (!fresh || fresh.status === 'PAID' || (!fresh.allowPartial && phase === 'pending')) {
+      if (fresh) setLink(fresh)
+      return setPhase('paid')
+    }
+    if (fresh.amountDueMinor <= 0) {
+      setLink(fresh)
+      return setPhase('paid')
+    }
+    // Balance remains → offer to pay the rest.
+    setPartialPaidMinor(Number(fresh.amountPaidMinor) || 0)
+    setLink(fresh)
+    setAmount(fresh.amountDueMinor)
+    setPhone(undefined)
+    setPhase('idle')
+  }
 
   const start = async () => {
     if (starting) return
@@ -131,7 +157,7 @@ export function PayLinkView({ token, link }: { token: string; link: PublicPaymen
     const tick = async () => {
       const res = await getLinkPaymentStatus(token)
       if (!active) return
-      if (res?.status === 'PAID') return setPhase('paid')
+      if (res?.status === 'PAID') return void onAttemptSettled()
       if (res?.status === 'FAILED') {
         setReason(res.reason ?? null)
         return setPhase('failed')
@@ -144,6 +170,7 @@ export function PayLinkView({ token, link }: { token: string; link: PublicPaymen
       active = false
       clearTimeout(timer)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, token])
 
   const reasonText =
@@ -218,7 +245,27 @@ export function PayLinkView({ token, link }: { token: string; link: PublicPaymen
             {formatMoney(dueMajor, currency)}
           </div>
         ) : null}
+        {!isOpen && partialPaidMinor > 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
+            {t('remainingOf', { paid: formatMoney(partialPaidMinor, currency) })}
+          </div>
+        ) : null}
       </div>
+
+      {partialPaidMinor > 0 && !failed ? (
+        <div
+          style={{
+            background: 'var(--success-soft, rgba(26,127,69,0.1))',
+            color: 'var(--success)',
+            padding: '10px 14px',
+            borderRadius: 12,
+            fontSize: 13,
+            marginBottom: 14,
+          }}
+        >
+          {t('partialReceived')}
+        </div>
+      ) : null}
 
       {failed ? (
         <div
