@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Select } from '@biztrack/ui/biztrack'
+import { PayableType } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { DocumentShareDialog } from '@/components/share/DocumentShareDialog'
+import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
 import { MobileSheet } from '@/components/MobileSheet'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
@@ -352,6 +354,7 @@ function DepositDetail({
   const [receiptTxn, setReceiptTxn] = useState<DepositTransaction | null>(null)
   const [reportOpen, setReportOpen] = useState(false)
   const [collectOpen, setCollectOpen] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
 
   const { data } = useQuery({
     queryKey: ['deposits', 'detail', id],
@@ -424,6 +427,13 @@ function DepositDetail({
             </button>
             <button type="button" className="primary" onClick={() => setCollectOpen(true)}>
               {t('dep.collect')}
+            </button>
+            <button
+              type="button"
+              style={{ gridColumn: '1 / -1' }}
+              onClick={() => setLinkOpen(true)}
+            >
+              {t('paymentLink.sendLink')}
             </button>
             <button
               type="button"
@@ -530,6 +540,14 @@ function DepositDetail({
           locale={lang}
           t={t}
           onClose={() => setReceiptTxn(null)}
+        />
+      ) : null}
+      {linkOpen ? (
+        <PaymentLinkDialog
+          open
+          onClose={() => setLinkOpen(false)}
+          payable={{ payableType: PayableType.DEPOSIT, payableId: id }}
+          customerPhone={d.customerPhone}
         />
       ) : null}
       {reportOpen ? (

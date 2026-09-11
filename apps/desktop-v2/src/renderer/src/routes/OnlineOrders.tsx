@@ -8,6 +8,8 @@ import { useLangStore, useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
+import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
+import { PayableType } from '@biztrack/types'
 import {
   ONLINE_ORDER_TRANSITIONS,
   ONLINE_ORDER_COMPLETION_STATUSES,
@@ -598,6 +600,7 @@ function OrderDrawer({
   }
 
   const [payMethod, setPayMethod] = useState<OnlinePaymentMethod | ''>('')
+  const [linkOpen, setLinkOpen] = useState(false)
   const pay = useMutation({
     mutationFn: () =>
       dataClient.online.updateOrderPayment(id, {
@@ -800,6 +803,13 @@ function OrderDrawer({
                     </Button>
                   </div>
                 ) : null}
+                {!paid && !refunded && !cancelled ? (
+                  <div style={{ marginTop: 8 }}>
+                    <Button type="button" variant="soft" onClick={() => setLinkOpen(true)}>
+                      {t('paymentLink.sendLink')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
 
               {/* Sale ledger: paid / balance due / refunds behind the fulfilment (Phase 4). */}
@@ -927,6 +937,14 @@ function OrderDrawer({
           onConfirm={(serialUnitSelections) =>
             advance.mutate({ status: serialTarget, serialUnitSelections })
           }
+        />
+      ) : null}
+      {linkOpen && o ? (
+        <PaymentLinkDialog
+          open
+          onClose={() => setLinkOpen(false)}
+          payable={{ payableType: PayableType.ONLINE_ORDER, payableId: o.id }}
+          customerPhone={o.customerPhone}
         />
       ) : null}
     </>
