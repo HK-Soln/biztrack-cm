@@ -14,6 +14,7 @@ import { dataClient } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
+import { PaymentLinksPanel } from '@/components/payments/PaymentLinksPanel'
 
 const Plus = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -422,6 +423,9 @@ export function Payments() {
           })}
         </div>
       </div>
+
+      {/* Payment links — active/partial collection links with finalize/cancel (Spec 08/09). */}
+      <PaymentLinksPanel />
 
       {/* Connect dialog — fields driven by the provider's credential schema. */}
       <Modal
