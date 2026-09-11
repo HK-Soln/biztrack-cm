@@ -13,16 +13,19 @@ export const metadata: Metadata = { robots: { index: false, follow: false } }
  */
 export default async function PayLinkPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>
+  searchParams: Promise<{ method?: string }>
 }) {
   const { token } = await params
+  const { method } = await searchParams
   const link = await getPaymentLink(token)
   if (!link) notFound()
 
   return (
     <div className="wrap" style={{ maxWidth: 520, margin: '0 auto', padding: '32px 16px' }}>
-      <PayLinkView token={token} link={link} />
+      <PayLinkView token={token} link={link} preferredMethod={method} />
     </div>
   )
 }

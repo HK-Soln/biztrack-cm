@@ -116,13 +116,19 @@ export function CheckoutView({
     onSuccess: (order) => {
       clearSession()
       const pay = order.payment
-      // Hosted provider (Stripe): straight to the hosted checkout page.
+      // Unified pay page (Spec 09): one token page handles card (inline) + MoMo, with the chosen
+      // method pre-selected and switchable.
+      if (pay?.mode === 'link' && pay.token) {
+        const q = pay.method ? `?method=${encodeURIComponent(pay.method)}` : ''
+        router.push(`${base}/pay/${pay.token}${q}`)
+        return
+      }
+      // Legacy hosted provider (Stripe): straight to the hosted checkout page.
       if (pay?.mode === 'redirect' && pay.url) {
         window.location.href = pay.url
         return
       }
-      // Self-handled provider (MoMo): our own payment page owns the request-to-pay + retries, so
-      // order creation never had to risk it.
+      // Legacy self-handled provider (MoMo): our own order payment page owns the request-to-pay.
       if (pay?.mode === 'self') {
         router.push(`${base}/orders/${order.trackingToken}/pay`)
         return

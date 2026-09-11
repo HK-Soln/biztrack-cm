@@ -109,6 +109,7 @@ const makeService = (opts: {
       initiateOnlineCheckout: jest.fn(async () => null),
       resolveOnlinePaymentMode: jest.fn(async () => 'none'),
     } as any,
+    { create: jest.fn(async () => ({ token: 'tok', url: 'https://pay/tok' })) } as any,
   )
   return { service, cartsRepo, ordersRepo, eventsRepo, contactsRepo, salesService, storeService }
 }

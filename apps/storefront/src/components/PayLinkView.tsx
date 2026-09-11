@@ -70,7 +70,15 @@ type Phase = 'idle' | 'card' | 'pending' | 'paid' | 'failed'
  * arbitrary payable: pick a method, (for a partial-capable link) an amount capped at the balance, then
  * card → hosted redirect, MoMo → number → push → poll. The amount is re-validated server-side.
  */
-export function PayLinkView({ token, link: initialLink }: { token: string; link: PublicPaymentLink }) {
+export function PayLinkView({
+  token,
+  link: initialLink,
+  preferredMethod,
+}: {
+  token: string
+  link: PublicPaymentLink
+  preferredMethod?: string
+}) {
   const t = useTranslations('pay')
 
   // The link is re-fetched after each payment settles, so a PARTIAL payment updates the live balance
@@ -84,7 +92,11 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
   const isOpen = link.amountDueMinor <= 0 && link.allowPartial // deposit top-up: payer enters amount
 
   const [phase, setPhase] = useState<Phase>('idle')
-  const [method, setMethod] = useState<string>(link.methods[0] ?? '')
+  const [method, setMethod] = useState<string>(
+    preferredMethod && link.methods.includes(preferredMethod)
+      ? preferredMethod
+      : (link.methods[0] ?? ''),
+  )
   const [phone, setPhone] = useState<string | undefined>(undefined)
   const [amount, setAmount] = useState<number>(isOpen ? 0 : dueMajor)
   const [reason, setReason] = useState<string | null>(null)

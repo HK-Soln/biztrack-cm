@@ -57,7 +57,8 @@ import { BusinessCalendarService } from '@/modules/business-calendar/business-ca
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
 import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
-import { ROUTABLE_PAYMENT_METHODS } from '@biztrack/types'
+import { PaymentLinkService } from '@/modules/payment-links/payment-link.service'
+import { PayableType, ROUTABLE_PAYMENT_METHODS } from '@biztrack/types'
 import { majorToMinor } from '@biztrack/utils'
 
 const cartItemKey = (item: {
@@ -130,6 +131,7 @@ export class OnlineOrdersService {
     private readonly dispatcher: NotificationDispatcher,
     private readonly calendar: BusinessCalendarService,
     private readonly paymentInitiation: PaymentInitiationService,
+    private readonly paymentLinks: PaymentLinkService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
@@ -267,7 +269,6 @@ export class OnlineOrdersService {
       const businessDate = await this.calendar.computeForBusiness(store.businessId, new Date())
       const method = this.mapPaymentMethod(dto.paymentMethod)
       const isProviderPayment = ROUTABLE_PAYMENT_METHODS.includes(method)
-      const base = dto.returnUrl?.trim().replace(/\/+$/, '')
 
       // Order creation is DECOUPLED from payment: the order is always placed first and a payment can
       // never break (or roll back) it. Self-handled payments (MoMo request-to-pay) are NOT triggered
@@ -314,22 +315,23 @@ export class OnlineOrdersService {
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
       void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
 
-      // Decide how the storefront proceeds to payment (see CheckoutPayment.mode).
+      // Decide how the storefront proceeds to payment (see CheckoutPayment.mode). Unified flow
+      // (Spec 09): when a provider method is routable, create a payment link for the order and send the
+      // customer to the single /pay/{token} page (method pre-selected, switchable). Best-effort — if the
+      // link can't be created the order still stands and we fall back to the legacy self page.
       let payment: CheckoutPayment = { mode: 'none' }
       if (isProviderPayment) {
         const mode = await this.paymentInitiation.resolveOnlinePaymentMode(store.businessId, method)
-        if (mode === 'redirect') {
-          // Hosted provider (Stripe): generate the link now and hand back the redirect URL. Best-effort
-          // — if it can't be generated the order still stands and we fall back to our payment page.
-          const track = base ? `${base}/orders/${order.trackingToken}` : undefined
-          const pay = await this.startOrderPayment(store.businessId, order, method, config.currency, {
-            successUrl: track ? `${track}?paid=1` : undefined,
-            cancelUrl: track ? `${track}?canceled=1` : undefined,
-          })
-          payment = pay.url ? { ...pay, mode: 'redirect' } : { mode: 'self' }
-        } else if (mode === 'self') {
-          // Self-handled (MoMo): do NOT initiate here — the payment page owns it.
-          payment = { mode: 'self' }
+        if (mode === 'redirect' || mode === 'self') {
+          try {
+            const link = await this.paymentLinks.create(store.businessId, '', {
+              payableType: PayableType.ONLINE_ORDER,
+              payableId: order.id,
+            })
+            payment = { mode: 'link', token: link.token, method }
+          } catch {
+            payment = { mode: 'self' }
+          }
         }
       }
 

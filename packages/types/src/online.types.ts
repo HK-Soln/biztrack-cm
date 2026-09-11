@@ -601,9 +601,15 @@ export interface CheckoutRequest {
  *  - `failed`  → the payment could not be started (provider error); show a retry.
  */
 export interface CheckoutPayment {
-  mode?: 'redirect' | 'self' | 'none'
+  // 'link' (Spec 09) → the storefront redirects to the unified /pay/{token} page. 'redirect'/'self'
+  // are the legacy order-pay-page modes, kept until the token flow reaches parity.
+  mode?: 'link' | 'redirect' | 'self' | 'none'
   attemptId?: string
   url?: string
+  /** mode==='link' — the payment-link token to pay the order at /pay/{token}. */
+  token?: string
+  /** mode==='link' — the method the customer preferred at checkout, pre-selected on the pay page. */
+  method?: string
   pending?: boolean
   failed?: boolean
   expiresAt?: string | null
