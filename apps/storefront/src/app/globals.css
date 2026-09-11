@@ -2736,6 +2736,14 @@ main {
 .phone-field.err {
   border-color: var(--danger);
 }
+/* react-phone-number-input's root is a flex child of .phone-field; without
+   flex-grow it sizes to content and leaves a gap on the right. Make it fill. */
+.phone-field .PhoneInput {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
 .phone-field .PhoneInputInput {
   flex: 1;
   min-width: 0;
