@@ -199,6 +199,7 @@ export class OnlineOrdersService {
       unitPrice,
       productName: product.name,
       variantName,
+      imageUrl: product.imageUrl ?? null,
     }
     const existing = items.find((item) => cartItemKey(item) === cartItemKey(newItem))
     if (existing) {

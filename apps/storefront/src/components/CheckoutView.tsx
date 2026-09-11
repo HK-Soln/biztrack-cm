@@ -345,6 +345,10 @@ export function CheckoutView({
           {items.map((item, i) => (
             <div className="co-mini-line" key={`${item.productId}-${i}`}>
               <div className="th">
+                {item.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.imageUrl} alt="" />
+                ) : null}
                 <span className="qb">{item.quantity}</span>
               </div>
               <div className="nm">

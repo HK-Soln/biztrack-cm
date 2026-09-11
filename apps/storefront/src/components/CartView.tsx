@@ -113,7 +113,12 @@ export function CartView({
             return (
               <div className="cart-line" key={key}>
                 <div className="th">
-                  <span>{item.productName.slice(0, 2).toUpperCase()}</span>
+                  {item.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.imageUrl} alt="" />
+                  ) : (
+                    <span>{item.productName.slice(0, 2).toUpperCase()}</span>
+                  )}
                 </div>
                 <div className="ci">
                   <div className="nm">{item.productName}</div>

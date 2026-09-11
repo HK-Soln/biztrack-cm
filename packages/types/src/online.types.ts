@@ -404,6 +404,8 @@ export interface OnlineCartItem {
   unitPrice: number
   productName: string
   variantName?: string | null
+  /** The product's primary image, for the cart / checkout thumbnails. */
+  imageUrl?: string | null
 }
 
 export interface OnlineCart {
