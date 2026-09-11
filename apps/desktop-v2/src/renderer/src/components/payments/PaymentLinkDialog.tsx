@@ -33,6 +33,10 @@ export function PaymentLinkDialog({
   const createdRef = useRef(false)
 
   // Create once per open (or reuse the existing live link — the API is idempotent per payable).
+  // Depend ONLY on `open`: `payable` is a fresh object each parent render, so keying the effect on it
+  // would re-run on every re-render and its cleanup would discard the in-flight create (leaving the
+  // dialog stuck on "creating"). The ref guards a single create; the dialog unmounts on close, so a
+  // late setState is a harmless no-op.
   useEffect(() => {
     if (!open) {
       createdRef.current = false
@@ -44,11 +48,9 @@ export function PaymentLinkDialog({
     }
     if (createdRef.current) return
     createdRef.current = true
-    let active = true
     void (async () => {
       try {
         const created = await dataClient.payments.createLink(payable)
-        if (!active) return
         setLink(created)
         try {
           setQr(await QRCode.toDataURL(created.url, { width: 240, margin: 1 }))
@@ -56,13 +58,11 @@ export function PaymentLinkDialog({
           /* QR is a nicety; the copyable link still works */
         }
       } catch (e) {
-        if (active) setError(errorMessage(e))
+        setError(errorMessage(e))
       }
     })()
-    return () => {
-      active = false
-    }
-  }, [open, payable])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const copy = async () => {
     if (!link) return
