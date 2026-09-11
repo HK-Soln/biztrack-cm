@@ -42,6 +42,19 @@ export interface CreatePaymentLinkRequest extends Money {
   cancelUrl?: string
 }
 
+export interface CreatePaymentIntentRequest extends Money {
+  idempotencyKey: string
+  /** Short description shown on the provider dashboard / customer statement. */
+  reference?: string
+}
+
+/** Result of creating a provider PaymentIntent for an EMBEDDED (client-confirmed) card flow — the
+ *  clientSecret is handed to the browser to confirm inline (Stripe Elements), no redirect. */
+export interface CreatePaymentIntentResult {
+  providerRef: string
+  clientSecret: string
+}
+
 export interface InitiateUssdPushRequest extends Money {
   method: PaymentMethod
   customerPhone: string
@@ -108,6 +121,13 @@ export interface PaymentProviderAdapter {
     credentials: Record<string, string>,
     req: CreatePaymentLinkRequest,
   ): Promise<{ providerRef: string; url: string; expiresAt: string }>
+
+  /** Present for providers that support an EMBEDDED card flow (Stripe Elements): create a
+   * PaymentIntent and return its clientSecret for the browser to confirm inline (no redirect). */
+  createPaymentIntent?(
+    credentials: Record<string, string>,
+    req: CreatePaymentIntentRequest,
+  ): Promise<CreatePaymentIntentResult>
 
   /** Present where the capability advertises it (supports_ussd_push). */
   initiateUssdPush?(

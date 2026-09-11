@@ -227,5 +227,37 @@ describe('StripeAdapter', () => {
         ),
       ).rejects.toThrow()
     })
+
+    it('creates a PaymentIntent and returns its clientSecret (embedded card / Elements)', async () => {
+      const spy = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'pi_42', client_secret: 'pi_42_secret_abc', status: 'requires_payment_method' }),
+      }))
+      global.fetch = spy as unknown as typeof fetch
+      const res = await adapter.createPaymentIntent(
+        { secret_key: 'rk_good' },
+        { amountMinor: 5000, currency: 'XAF', idempotencyKey: 'link_cr1', reference: 'Debt' },
+      )
+      expect(res).toEqual({ providerRef: 'pi_42', clientSecret: 'pi_42_secret_abc' })
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/payment_intents'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    it('throws when the PaymentIntent response lacks a client_secret', async () => {
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'pi_42' }),
+      })) as unknown as typeof fetch
+      await expect(
+        adapter.createPaymentIntent(
+          { secret_key: 'rk_good' },
+          { amountMinor: 5000, currency: 'XAF', idempotencyKey: 'k' },
+        ),
+      ).rejects.toThrow()
+    })
   })
 })

@@ -2,6 +2,8 @@ import { Logger } from '@nestjs/common'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { PaymentMethod } from '@biztrack/types'
 import type {
+  CreatePaymentIntentRequest,
+  CreatePaymentIntentResult,
   CreatePaymentLinkRequest,
   PaymentAttemptStatus,
   PaymentProviderAdapter,
@@ -35,6 +37,7 @@ interface StripeObject {
   status?: string
   payment_intent?: string
   url?: string
+  client_secret?: string
   /** Populated (as an object) only when the PaymentIntent is fetched with expand[]=latest_charge...; a
    *  bare id string otherwise. */
   latest_charge?: StripeCharge | string | null
@@ -273,5 +276,41 @@ export class StripeAdapter implements PaymentProviderAdapter {
       url: session.url,
       expiresAt: new Date(expiresAtUnix * 1000).toISOString(),
     }
+  }
+
+  /** Spec 09 §3 — create a PaymentIntent for an EMBEDDED card flow (Stripe Elements). Returns the
+   *  clientSecret the browser confirms inline; settlement still arrives via webhook + poll (unchanged).
+   *  automatic_payment_methods lets Stripe offer whatever card-family methods the account supports. */
+  async createPaymentIntent(
+    credentials: Record<string, string>,
+    req: CreatePaymentIntentRequest,
+  ): Promise<CreatePaymentIntentResult> {
+    const key = credentials.secret_key?.trim() ?? ''
+    const form = new URLSearchParams({
+      amount: String(req.amountMinor),
+      currency: req.currency.toLowerCase(),
+      'automatic_payment_methods[enabled]': 'true',
+    })
+    if (req.reference) form.set('description', req.reference)
+
+    const res = await fetch(`${this.base}/v1/payment_intents`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        // Provider-side idempotency: a retried initiation returns the same intent, never a 2nd charge.
+        'Idempotency-Key': req.idempotencyKey,
+      },
+      body: form.toString(),
+    })
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 300)
+      this.logger.warn(`Stripe createPaymentIntent HTTP ${res.status}: ${body}`)
+      throw new Error(`Stripe returned HTTP ${res.status}.`)
+    }
+    const intent = (await res.json()) as StripeObject
+    if (!intent.id || !intent.client_secret)
+      throw new Error('Stripe PaymentIntent had no id/client_secret.')
+    return { providerRef: intent.id, clientSecret: intent.client_secret }
   }
 }
