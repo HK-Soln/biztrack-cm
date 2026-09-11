@@ -593,6 +593,7 @@ export const en = {
   'paymentLink.shareWhatsApp': 'Share on WhatsApp',
   'paymentLink.shareText': 'Here is your payment link: {url}',
   'paymentLink.sendLink': 'Send payment link',
+  'paymentLink.collectBalance': 'Collect balance',
   'common.clear': 'Clear',
 
   'scan.title': 'Scan with camera',
@@ -4272,6 +4273,7 @@ export const fr: Record<MessageKey, string> = {
   'paymentLink.shareWhatsApp': 'Partager sur WhatsApp',
   'paymentLink.shareText': 'Voici votre lien de paiement : {url}',
   'paymentLink.sendLink': 'Envoyer un lien de paiement',
+  'paymentLink.collectBalance': 'Encaisser le solde',
   'common.clear': 'Effacer',
 
   'scan.title': 'Scanner avec la caméra',

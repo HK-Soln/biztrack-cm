@@ -6,6 +6,7 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { Debt } from '@/entities/debt.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
+import { Contact } from '@/entities/contact.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { Business } from '@/entities/business.entity'
@@ -20,6 +21,7 @@ import { PaymentLinkService } from './payment-link.service'
 import { PublicPaymentLinkService } from './public-payment-link.service'
 import { PaymentLinkSettlementService } from './payment-link-settlement.service'
 import {
+  ContactReceivablePayableHandler,
   DebtPayableHandler,
   DepositPayableHandler,
   OnlineOrderPayableHandler,
@@ -42,6 +44,7 @@ import {
       Debt,
       DebtPayment,
       CustomerDeposit,
+      Contact,
       PaymentAttempt,
       Business,
     ]),
@@ -64,6 +67,7 @@ import {
     DebtPayableHandler,
     OnlineOrderPayableHandler,
     DepositPayableHandler,
+    ContactReceivablePayableHandler,
   ],
   exports: [PaymentLinkService, PayableHandlerRegistry, PaymentLinkSettlementService],
 })

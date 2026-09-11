@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Repository } from 'typeorm'
+import { Not, Repository } from 'typeorm'
 import {
   BusinessMemberRole,
   DebtDirection,
+  DebtStatus,
   PayableType,
   type JwtPayload,
   type PaymentMethod,
@@ -14,6 +15,7 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { Debt } from '@/entities/debt.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
+import { Contact } from '@/entities/contact.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { DebtsService } from '@/modules/debts/services/debts.service'
@@ -222,6 +224,93 @@ export class DepositPayableHandler implements PayableHandler {
   }
 }
 
+@Injectable()
+export class ContactReceivablePayableHandler implements PayableHandler {
+  readonly type = PayableType.CONTACT_RECEIVABLE
+  constructor(
+    @InjectRepository(Debt) private readonly debts: Repository<Debt>,
+    @InjectRepository(DebtPayment) private readonly payments: Repository<DebtPayment>,
+    @InjectRepository(Contact) private readonly contacts: Repository<Contact>,
+    private readonly debtsService: DebtsService,
+  ) {}
+
+  async resolve(businessId: string, payableId: string): Promise<PayableResolution | null> {
+    const contact = await this.contacts.findOne({ where: { id: payableId, businessId } })
+    if (!contact) return null
+    const outstanding = await this.outstandingDebts(businessId, payableId)
+    const totalMajor = outstanding.reduce((sum, d) => sum + d.outstanding, 0)
+    return {
+      amountDueMinor: majorToMinor(totalMajor, CURRENCY),
+      currency: CURRENCY,
+      label: `Balance — ${contact.name}`,
+      customerId: contact.id,
+    }
+  }
+
+  /** Allocate the paid amount across the contact's outstanding receivables OLDEST-FIRST (FIFO),
+   *  recording a partial payment against each until the amount is exhausted (§2.2). */
+  async applyPayment(
+    businessId: string,
+    payableId: string,
+    ctx: ApplyPaymentContext,
+  ): Promise<void> {
+    let remaining = minorToMajor(ctx.amountMinor, CURRENCY)
+    const outstanding = await this.outstandingDebts(businessId, payableId)
+    const today = new Date().toISOString().slice(0, 10)
+    for (const { debt, outstanding: due } of outstanding) {
+      if (remaining <= 0) break
+      const apply = Math.min(remaining, due)
+      if (apply <= 0) continue
+      await this.debtsService.recordPayment(
+        businessId,
+        linkActor(businessId, ctx.actorUserId),
+        DebtDirection.RECEIVABLE,
+        debt.id,
+        {
+          amount: apply,
+          method: ctx.method,
+          paymentDate: today,
+          mobileMoneyReference: ctx.providerRef ?? undefined,
+          notes: 'Payment link',
+        },
+      )
+      remaining -= apply
+    }
+  }
+
+  /** The contact's not-fully-settled RECEIVABLE debts, oldest-first, each with its outstanding amount. */
+  private async outstandingDebts(
+    businessId: string,
+    contactId: string,
+  ): Promise<Array<{ debt: Debt; outstanding: number }>> {
+    const debts = await this.debts.find({
+      where: {
+        businessId,
+        contactId,
+        direction: DebtDirection.RECEIVABLE,
+        status: Not(DebtStatus.SETTLED),
+      },
+      order: { createdAt: 'ASC' },
+    })
+    if (debts.length === 0) return []
+    const paidByDebt = new Map<string, number>()
+    const rows = await this.payments
+      .createQueryBuilder('p')
+      .select('p.debtId', 'debtId')
+      .addSelect('COALESCE(SUM(p.amount), 0)', 'paid')
+      .where('p.debtId IN (:...ids)', { ids: debts.map((d) => d.id) })
+      .groupBy('p.debtId')
+      .getRawMany<{ debtId: string; paid: string }>()
+    for (const r of rows) paidByDebt.set(r.debtId, Number(r.paid))
+    return debts
+      .map((debt) => ({
+        debt,
+        outstanding: Math.max(0, Number(debt.originalAmount) - (paidByDebt.get(debt.id) ?? 0)),
+      }))
+      .filter((d) => d.outstanding > 0)
+  }
+}
+
 /** Resolve a PayableHandler by type. New payable types register their handler here + in the module. */
 @Injectable()
 export class PayableHandlerRegistry {
@@ -231,8 +320,11 @@ export class PayableHandlerRegistry {
     debt: DebtPayableHandler,
     order: OnlineOrderPayableHandler,
     deposit: DepositPayableHandler,
+    contactReceivable: ContactReceivablePayableHandler,
   ) {
-    this.byType = new Map([sale, debt, order, deposit].map((h) => [h.type, h]))
+    this.byType = new Map(
+      [sale, debt, order, deposit, contactReceivable].map((h) => [h.type, h]),
+    )
   }
   get(type: PayableType): PayableHandler | undefined {
     return this.byType.get(type)

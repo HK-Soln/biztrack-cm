@@ -7,13 +7,17 @@ export enum PayableType {
   SALE = 'SALE',
   ONLINE_ORDER = 'ONLINE_ORDER',
   DEPOSIT = 'DEPOSIT',
+  /** A customer's WHOLE outstanding receivable balance (payableId = contactId). Payments allocate
+   *  oldest-first across the contact's debts (Spec 09 §2.2). The default debt-collection payable. */
+  CONTACT_RECEIVABLE = 'CONTACT_RECEIVABLE',
 }
 
-/** Balance payables (DEBT/SALE/DEPOSIT) allow partial payment; ONLINE_ORDER is exact. */
+/** Balance payables allow partial payment; ONLINE_ORDER is exact. */
 export const PARTIAL_PAYABLE_TYPES: readonly PayableType[] = [
   PayableType.DEBT,
   PayableType.SALE,
   PayableType.DEPOSIT,
+  PayableType.CONTACT_RECEIVABLE,
 ]
 
 export enum PaymentLinkStatus {

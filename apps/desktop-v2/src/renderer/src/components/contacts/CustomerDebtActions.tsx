@@ -48,6 +48,12 @@ const ICO_LIST = (
     <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
   </svg>
 )
+const ICO_LINK = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+    <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+    <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+  </svg>
+)
 
 interface CustomerRef {
   id: string
@@ -66,6 +72,7 @@ export function CustomerDebtActions({
   const t = useT()
   const [remind, setRemind] = useState(false)
   const [debtsOpen, setDebtsOpen] = useState(false)
+  const [collectOpen, setCollectOpen] = useState(false)
 
   // Outstanding receivable debts making up the balance (incl. opening balance so the list
   // reconciles with the total). Only fetched when a panel that needs them opens.
@@ -87,10 +94,20 @@ export function CustomerDebtActions({
       <ActionMenu
         label={t('debtors.menuLabel')}
         items={[
+          { label: t('paymentLink.collectBalance'), icon: ICO_LINK, onClick: () => setCollectOpen(true) },
           { label: t('debtors.remind'), icon: ICO_WA, onClick: () => setRemind(true) },
           { label: t('debtors.viewDebts'), icon: ICO_LIST, onClick: () => setDebtsOpen(true) },
         ]}
       />
+      {collectOpen ? (
+        <PaymentLinkDialog
+          open
+          onClose={() => setCollectOpen(false)}
+          payable={{ payableType: PayableType.CONTACT_RECEIVABLE, payableId: contact.id }}
+          customerPhone={contact.phone}
+          title={t('paymentLink.collectBalance')}
+        />
+      ) : null}
       {remind ? (
         <ReminderModal
           contact={contact}
