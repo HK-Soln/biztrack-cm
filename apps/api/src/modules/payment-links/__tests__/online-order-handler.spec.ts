@@ -75,6 +75,17 @@ describe('OnlineOrderPayableHandler — multiple payments (Spec 09 §4)', () => 
     expect(orders.update).toHaveBeenCalledWith('o1', expect.objectContaining({ paymentStatus: 'PAID' }))
   })
 
+  it('records the true tender on the order (not the checkout placeholder)', async () => {
+    // Order pre-selected CARD at checkout; payer actually paid with MTN MoMo on the pay page.
+    const momo = { ...ctx(10000), method: PaymentMethod.MTN_MOMO }
+    const { handler, orders } = make(order({ saleId: null, paymentMethod: 'CARD' }))
+    await handler.applyPayment('b1', 'o1', momo)
+    expect(orders.update).toHaveBeenCalledWith(
+      'o1',
+      expect.objectContaining({ paymentMethod: PaymentMethod.MTN_MOMO }),
+    )
+  })
+
   it('does nothing for an already-paid order', async () => {
     const { handler, orders } = make(order({ paymentStatus: 'PAID' }))
     await handler.applyPayment('b1', 'o1', ctx(10000))

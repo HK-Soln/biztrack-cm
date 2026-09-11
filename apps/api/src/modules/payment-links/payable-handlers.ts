@@ -199,6 +199,9 @@ export class OnlineOrderPayableHandler implements PayableHandler {
         paid >= total ? 'PAID' : 'PARTIALLY_PAID'
       await this.orders.update(order.id, {
         paymentStatus: status,
+        // Record the TRUE tender the payer used on the pay page, not the placeholder method the
+        // storefront pre-selected at checkout (which defaults to CARD when card is enabled).
+        paymentMethod: ctx.method,
         paymentReference: ctx.providerRef ?? order.paymentReference,
       })
       await this.emitPayment(order, status === 'PAID')
@@ -207,6 +210,7 @@ export class OnlineOrderPayableHandler implements PayableHandler {
 
     await this.orders.update(order.id, {
       paymentStatus: 'PAID',
+      paymentMethod: ctx.method,
       paymentReference: ctx.providerRef ?? order.paymentReference,
     })
     await this.emitPayment(order, true)
