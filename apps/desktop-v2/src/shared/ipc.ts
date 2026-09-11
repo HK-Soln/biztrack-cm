@@ -53,6 +53,7 @@ export const IPC = {
   paymentsAttemptEvent: 'payments:attempt-event',
   paymentsLinkEvent: 'payments:link-event',
   paymentLinksCreate: 'payment-links:create',
+  paymentLinksSaleDraft: 'payment-links:sale-draft',
   paymentLinksList: 'payment-links:list',
   paymentLinksCancel: 'payment-links:cancel',
   paymentLinksFinalize: 'payment-links:finalize',
@@ -372,6 +373,7 @@ import type {
   PaymentAttemptRealtimeEvent as PaymentAttemptRealtimeEventT,
   PaymentLinkRealtimeEvent as PaymentLinkRealtimeEventT,
   CreatePaymentLinkRequest as CreatePaymentLinkRequestT,
+  CreateSaleDraftLinkRequest as CreateSaleDraftLinkRequestT,
   PaymentLinkView as PaymentLinkViewT,
 } from '@biztrack/types'
 export type {
@@ -389,6 +391,7 @@ export type {
   InStorePaymentStatus,
   PaymentAttemptRealtimeEvent,
   CreatePaymentLinkRequest,
+  CreateSaleDraftLinkRequest,
   PaymentLinkView,
   PaymentLinkRealtimeEvent,
 } from '@biztrack/types'
@@ -2034,6 +2037,8 @@ export interface BridgeApi {
     onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEventT) => void) => () => void
     /** Spec 08 — payment links for a payable (debt / sale / online order / deposit). */
     createLink: (input: CreatePaymentLinkRequestT) => Promise<PaymentLinkViewT>
+    /** Spec 09 — a SALE_DRAFT intent from the till (sale materializes on payment). */
+    createSaleDraftLink: (input: CreateSaleDraftLinkRequestT) => Promise<PaymentLinkViewT>
     listLinks: () => Promise<PaymentLinkViewT[]>
     cancelLink: (id: string) => Promise<void>
     /** Finish collecting; leave the balance as the customer's credit (§4). */

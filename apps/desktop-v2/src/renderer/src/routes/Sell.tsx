@@ -4,8 +4,9 @@ import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { PayableType, PaymentMethod } from '@biztrack/types'
-import { evaluateDiscountAuthorization } from '@biztrack/utils'
+import { evaluateDiscountAuthorization, majorToMinor } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
+import { toSaleApiBody } from '@/lib/cloud-sales'
 import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
 import { CopyLinkRow } from '@/components/payments/CopyLinkRow'
 import { errorMessage } from '@/lib/error'
@@ -293,6 +294,9 @@ export function Sell() {
   const [custFromPay, setCustFromPay] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
   const [saleError, setSaleError] = useState<string | null>(null)
+  // "Pay online" → a SALE_DRAFT intent: the sale is created on the server only when the customer pays,
+  // with the real tender (no premature credit sale). Holds the sale body + expected amount for the QR.
+  const [saleDraft, setSaleDraft] = useState<{ sale: unknown; amountMinor: number } | null>(null)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
   const [serialPick, setSerialPick] = useState<SerialTarget | null>(null)
@@ -953,6 +957,31 @@ export function Sell() {
             setSaleError(null)
             void submitSale(payments, due)
           }}
+          onPayOnline={() => {
+            // Hand the customer a pay.[domain] QR for the FULL cart amount. No sale is created yet —
+            // the server materializes the real card/MoMo sale once they've paid, then it syncs down.
+            setSaleError(null)
+            setPayOpen(false)
+            setSaleDraft({
+              sale: toSaleApiBody(buildInput([], null)),
+              amountMinor: majorToMinor(calc.total, 'XAF'),
+            })
+          }}
+        />
+      ) : null}
+
+      {saleDraft ? (
+        <PaymentLinkDialog
+          open
+          onClose={() => setSaleDraft(null)}
+          title={t('sell.payOnline')}
+          customerPhone={customer?.phone ?? null}
+          create={() =>
+            dataClient.payments.createSaleDraftLink({
+              sale: saleDraft.sale,
+              amountMinor: saleDraft.amountMinor,
+            })
+          }
         />
       ) : null}
 
@@ -1953,6 +1982,7 @@ function PaymentModal({
   onClose,
   onPickCustomer,
   onConfirm,
+  onPayOnline,
   error,
   busy,
 }: {
@@ -1967,6 +1997,8 @@ function PaymentModal({
   onClose: () => void
   onPickCustomer: () => void
   onConfirm: (p: SaleInput['payments'], creditDueDate?: string | null) => void
+  /** Hand the customer a pay.[domain] QR for the full amount (SALE_DRAFT — sale created on payment). */
+  onPayOnline: () => void
   error?: string | null
   busy: boolean
 }) {
@@ -2801,6 +2833,18 @@ function PaymentModal({
               >
                 {buttonLabel}
               </button>
+              {/* SALE_DRAFT: no sale/credit until the customer pays — so no customer is required. */}
+              {!chargeSpec && online ? (
+                <button
+                  type="button"
+                  className="pm-cancel"
+                  style={{ marginTop: 8 }}
+                  disabled={busy || total <= 0}
+                  onClick={onPayOnline}
+                >
+                  {t('sell.payOnline')}
+                </button>
+              ) : null}
             </div>
           </>
         )}

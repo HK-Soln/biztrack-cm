@@ -12,6 +12,7 @@ import {
   type InStorePaymentInitiated,
   type InStorePaymentStatus,
   type CreatePaymentLinkRequest,
+  type CreateSaleDraftLinkRequest,
   type PaymentLinkView,
   type PaymentProvider,
   type PaymentProviderCapability,
@@ -139,6 +140,11 @@ export function registerPaymentsIpc(http: HttpClient): void {
     IPC.paymentLinksCreate,
     async (_e, input: CreatePaymentLinkRequest) =>
       (await http.post<ApiEnvelope<PaymentLinkView>>('/payment-links', input)).data.data,
+  )
+  ipcMain.handle(
+    IPC.paymentLinksSaleDraft,
+    async (_e, input: CreateSaleDraftLinkRequest) =>
+      (await http.post<ApiEnvelope<PaymentLinkView>>('/payment-links/sale-draft', input)).data.data,
   )
   ipcMain.handle(
     IPC.paymentLinksList,

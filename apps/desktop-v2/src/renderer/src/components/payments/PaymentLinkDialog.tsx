@@ -18,12 +18,16 @@ export function PaymentLinkDialog({
   open,
   onClose,
   payable,
+  create,
   title,
   customerPhone,
 }: {
   open: boolean
   onClose: () => void
-  payable: CreatePaymentLinkRequest
+  /** The payable to create a link for (debt / sale / order / deposit). */
+  payable?: CreatePaymentLinkRequest
+  /** Alternative to `payable`: a custom creator (e.g. a SALE_DRAFT intent). Takes precedence. */
+  create?: () => Promise<PaymentLinkView>
   title?: string
   /** Prefill the WhatsApp share to this number (the customer's), if known. */
   customerPhone?: string | null
@@ -79,7 +83,15 @@ export function PaymentLinkDialog({
     createdRef.current = true
     void (async () => {
       try {
-        const created = await dataClient.payments.createLink(payable)
+        const created = create
+          ? await create()
+          : payable
+            ? await dataClient.payments.createLink(payable)
+            : null
+        if (!created) {
+          setError('No payable specified.')
+          return
+        }
         setLink(created)
         try {
           setQr(await QRCode.toDataURL(created.url, { width: 240, margin: 1 }))

@@ -9,6 +9,7 @@ import type {
   InStorePaymentInitiated,
   InStorePaymentStatus,
   CreatePaymentLinkRequest,
+  CreateSaleDraftLinkRequest,
   PaymentLinkView,
   PaymentProvider,
   PaymentProviderCapability,
@@ -47,6 +48,8 @@ export const cloudPayments = {
     cpost(`/payments/in-store/${encodeURIComponent(attemptId)}/fail`, {}),
   createLink: (input: CreatePaymentLinkRequest): Promise<PaymentLinkView> =>
     cpost('/payment-links', input),
+  createSaleDraftLink: (input: CreateSaleDraftLinkRequest): Promise<PaymentLinkView> =>
+    cpost('/payment-links/sale-draft', input),
   listLinks: (): Promise<PaymentLinkView[]> => cget('/payment-links'),
   cancelLink: (id: string): Promise<void> =>
     cpost(`/payment-links/${encodeURIComponent(id)}/cancel`, {}),
