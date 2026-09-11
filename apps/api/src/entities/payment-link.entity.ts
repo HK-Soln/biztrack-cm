@@ -55,4 +55,12 @@ export class PaymentLink extends BaseEntity {
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy!: string | null
+
+  // SALE_DRAFT only (Spec 09): the sale DTO to materialize on payment, and the id of the sale once
+  // created. Null for every other payable type.
+  @Column({ name: 'draft_payload', type: 'jsonb', nullable: true })
+  draftPayload!: Record<string, unknown> | null
+
+  @Column({ name: 'sale_id', type: 'uuid', nullable: true })
+  saleId!: string | null
 }

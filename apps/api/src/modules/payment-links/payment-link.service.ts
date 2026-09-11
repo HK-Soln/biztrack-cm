@@ -8,6 +8,7 @@ import {
   PayableType,
   PaymentLinkStatus,
   type CreatePaymentLinkRequest,
+  type CreateSaleDraftLinkRequest,
   type PaymentLinkView,
 } from '@biztrack/types'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
@@ -90,6 +91,50 @@ export class PaymentLinkService {
         // NULL for a guest/system creator (e.g. online checkout) — created_by is a uuid column, and an
         // empty string is an invalid uuid (this is what made checkout link-creation throw → mode:'self').
         createdBy: userId || null,
+      }),
+    )
+    return this.toView(link)
+  }
+
+  /**
+   * Spec 09 — create a SALE_DRAFT intent from the till: the link carries the full sale DTO but no sale
+   * exists yet. When the expected amount is collected, settlement materializes the real sale with its
+   * true tender. Server-side + online-only (the till POSTs the DTO), so there's no un-synced local sale
+   * to 404 on, and it works for anonymous customers.
+   */
+  async createSaleDraft(
+    businessId: string,
+    userId: string | null,
+    req: CreateSaleDraftLinkRequest,
+  ): Promise<PaymentLinkView> {
+    const methods = await this.routing.resolveAvailableMethods(businessId)
+    if (methods.length === 0) {
+      throw new AppBadRequestException(
+        'Set up a payment provider before collecting online.',
+        'PAYMENT_METHOD_NOT_ROUTABLE',
+      )
+    }
+    const amountMinor = Math.floor(req.amountMinor)
+    if (amountMinor <= 0) {
+      throw new AppBadRequestException('The amount must be greater than zero.', 'PAYMENT_AMOUNT_INVALID')
+    }
+    const expiresAt = req.expiresAt ? new Date(req.expiresAt) : new Date(Date.now() + DEFAULT_TTL_MS)
+    const link = await this.links.save(
+      this.links.create({
+        businessId,
+        token: randomBytes(24).toString('hex'),
+        payableType: PayableType.SALE_DRAFT,
+        payableId: randomBytes(16).toString('hex'), // synthetic — the "payable" is the draft on the link
+        amountMinor,
+        amountPaidMinor: 0,
+        currency: 'XAF',
+        allowPartial: true, // accumulate toward the total; the sale materializes once fully collected
+        status: PaymentLinkStatus.ACTIVE,
+        expiresAt,
+        label: req.label?.trim() || 'Sale',
+        customerId: null,
+        createdBy: userId || null,
+        draftPayload: (req.sale ?? null) as Record<string, unknown> | null,
       }),
     )
     return this.toView(link)

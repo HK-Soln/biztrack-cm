@@ -5,6 +5,7 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { PaymentLinkService } from './payment-link.service'
 import { CreatePaymentLinkDto } from './dto/create-payment-link.dto'
+import { CreateSaleDraftLinkDto } from './dto/create-sale-draft-link.dto'
 
 /**
  * Spec 08 — merchant-facing payment-link management (authed). Create a shareable link for a payable
@@ -25,6 +26,15 @@ export class PaymentLinksController {
     @Body() dto: CreatePaymentLinkDto,
   ): Promise<PaymentLinkView> {
     return this.service.create(user.businessId as string, user.sub, dto)
+  }
+
+  @Post('sale-draft')
+  @ApiOperation({ summary: 'Create a SALE_DRAFT intent (sale materializes on payment) — Spec 09' })
+  createSaleDraft(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateSaleDraftLinkDto,
+  ): Promise<PaymentLinkView> {
+    return this.service.createSaleDraft(user.businessId as string, user.sub, dto)
   }
 
   @Get()

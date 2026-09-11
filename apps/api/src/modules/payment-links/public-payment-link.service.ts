@@ -138,9 +138,14 @@ export class PublicPaymentLinkService {
       link.status = PaymentLinkStatus.EXPIRED
     }
 
+    // SALE_DRAFT carries its own amount (no external payable) — the due is the remaining toward the
+    // expected total. Deposits are open top-ups → keep the stored amount. Everything else re-resolves.
+    if (link.payableType === PayableType.SALE_DRAFT) {
+      const remaining = Math.max(0, Number(link.amountMinor) - Number(link.amountPaidMinor))
+      return { link, amountDueMinor: remaining }
+    }
     const handler = this.registry.get(link.payableType)
     const resolved = handler ? await handler.resolve(link.businessId, link.payableId) : null
-    // Deposits are open top-ups (no running balance) → keep the link's stored amount as the display.
     const amountDueMinor =
       link.payableType === PayableType.DEPOSIT
         ? Number(link.amountMinor)

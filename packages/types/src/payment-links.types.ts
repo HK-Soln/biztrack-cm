@@ -10,15 +10,32 @@ export enum PayableType {
   /** A customer's WHOLE outstanding receivable balance (payableId = contactId). Payments allocate
    *  oldest-first across the contact's debts (Spec 09 §2.2). The default debt-collection payable. */
   CONTACT_RECEIVABLE = 'CONTACT_RECEIVABLE',
+  /** A POS "sale intent": the link carries the full sale DTO but NO sale exists yet. When the expected
+   *  amount is collected, the backend creates the real sale with the ACTUAL tender (card/MoMo) — so a
+   *  scan-to-pay is a true card/MoMo sale, not a credit sale + debt. Works for anonymous customers. */
+  SALE_DRAFT = 'SALE_DRAFT',
 }
 
-/** Balance payables allow partial payment; ONLINE_ORDER is exact. */
+/** Balance payables allow partial payment; ONLINE_ORDER is exact. SALE_DRAFT accumulates toward its
+ *  expected total (the sale materializes once fully collected). */
 export const PARTIAL_PAYABLE_TYPES: readonly PayableType[] = [
   PayableType.DEBT,
   PayableType.SALE,
   PayableType.DEPOSIT,
   PayableType.CONTACT_RECEIVABLE,
+  PayableType.SALE_DRAFT,
 ]
+
+/** Create a SALE_DRAFT link (till, authed): the full sale DTO to materialize on payment + the expected
+ *  amount to collect (minor units). No sale is created until the amount is fulfilled. */
+export interface CreateSaleDraftLinkRequest {
+  /** The sale to create once paid — the CreateSale DTO WITHOUT payments (the real tender comes from the
+   *  actual attempts at fulfillment). Passed through and validated at sale-creation time. */
+  sale: unknown
+  amountMinor: number
+  label?: string
+  expiresAt?: string
+}
 
 export enum PaymentLinkStatus {
   ACTIVE = 'ACTIVE',

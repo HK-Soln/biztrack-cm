@@ -18,16 +18,20 @@ function make(opts: {
   const registry = { get: jest.fn(() => handler) }
   const dispatcher = { dispatch: jest.fn(async () => undefined) }
   const realtime = { toBusiness: jest.fn() }
+  const attempts = { find: jest.fn(async () => []) }
+  const sales = { create: jest.fn(async () => ({ id: 'sale-x' })) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
   const service = new PaymentLinkSettlementService(
     links as never,
     businesses as never,
+    attempts as never,
     registry as never,
     dispatcher as never,
     realtime as never,
+    sales as never,
     logger as never,
   )
-  return { service, links, handler, dispatcher, realtime }
+  return { service, links, handler, dispatcher, realtime, attempts, sales }
 }
 
 const attempt = (over: Record<string, unknown> = {}) =>
@@ -105,5 +109,70 @@ describe('PaymentLinkSettlementService.settle', () => {
     handler.applyPayment.mockRejectedValueOnce(new Error('boom'))
     await service.settle(attempt())
     expect(links.update).not.toHaveBeenCalled()
+  })
+
+  it('SALE_DRAFT: materializes the real sale with its true tender once fully collected', async () => {
+    const saleDraftLink = {
+      id: 'link-1',
+      businessId: 'b1',
+      payableType: PayableType.SALE_DRAFT,
+      payableId: 'synthetic',
+      amountMinor: 4000,
+      amountPaidMinor: 0,
+      currency: 'XAF',
+      status: PaymentLinkStatus.ACTIVE,
+      label: 'Sale',
+      createdBy: 'cashier-1',
+      saleId: null,
+      draftPayload: { items: [{ productId: 'p1', quantity: 1, unitPrice: 4000 }] },
+    }
+    const { service, links, sales, attempts, handler } = make({
+      link: saleDraftLink,
+      stillDueMinor: 0,
+    })
+    attempts.find.mockResolvedValueOnce([
+      { paymentMethod: PaymentMethod.MTN_MOMO, amountMinor: 4000, providerRef: 'ref-1' },
+    ] as never)
+    await service.settle(attempt({ amountMinor: 4000 }))
+    // No generic handler for SALE_DRAFT.
+    expect(handler.applyPayment).not.toHaveBeenCalled()
+    // The sale is created with the collected tender + the draft items.
+    expect(sales.create).toHaveBeenCalledWith(
+      'b1',
+      expect.objectContaining({ sub: 'cashier-1', businessId: 'b1' }),
+      expect.objectContaining({
+        items: saleDraftLink.draftPayload.items,
+        payments: [expect.objectContaining({ method: PaymentMethod.MTN_MOMO, amount: 4000 })],
+      }),
+    )
+    expect(links.update).toHaveBeenCalledWith('link-1', { saleId: 'sale-x' })
+    expect(links.update).toHaveBeenCalledWith('link-1', {
+      amountPaidMinor: 4000,
+      status: PaymentLinkStatus.PAID,
+    })
+  })
+
+  it('SALE_DRAFT: a partial payment accumulates without creating a sale', async () => {
+    const saleDraftLink = {
+      id: 'link-1',
+      businessId: 'b1',
+      payableType: PayableType.SALE_DRAFT,
+      payableId: 'synthetic',
+      amountMinor: 10000,
+      amountPaidMinor: 0,
+      currency: 'XAF',
+      status: PaymentLinkStatus.ACTIVE,
+      label: 'Sale',
+      createdBy: 'cashier-1',
+      saleId: null,
+      draftPayload: {},
+    }
+    const { service, links, sales } = make({ link: saleDraftLink, stillDueMinor: 0 })
+    await service.settle(attempt({ amountMinor: 4000 }))
+    expect(sales.create).not.toHaveBeenCalled()
+    expect(links.update).toHaveBeenCalledWith('link-1', {
+      amountPaidMinor: 4000,
+      status: PaymentLinkStatus.PARTIALLY_PAID,
+    })
   })
 })

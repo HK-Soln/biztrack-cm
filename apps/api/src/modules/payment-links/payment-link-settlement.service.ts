@@ -1,7 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
-import { NotificationType, PaymentLinkStatus } from '@biztrack/types'
+import {
+  BusinessMemberRole,
+  NotificationType,
+  PayableType,
+  PaymentAttemptStatus,
+  PaymentLinkStatus,
+  type JwtPayload,
+} from '@biztrack/types'
 import { minorToMajor } from '@biztrack/utils'
 import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
@@ -11,6 +18,8 @@ import { Business } from '@/entities/business.entity'
 import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { RealtimeService } from '@/modules/realtime/services/realtime.service'
+import { SalesService } from '@/modules/sales/services/sales.service'
+import type { CreateSaleDto } from '@/modules/sales/dto/create-sale.dto'
 import { PayableHandlerRegistry } from './payable-handlers'
 
 /**
@@ -27,9 +36,12 @@ export class PaymentLinkSettlementService {
     private readonly links: Repository<PaymentLink>,
     @InjectRepository(Business)
     private readonly businesses: Repository<Business>,
+    @InjectRepository(PaymentAttempt)
+    private readonly attempts: Repository<PaymentAttempt>,
     private readonly registry: PayableHandlerRegistry,
     private readonly dispatcher: NotificationDispatcher,
     private readonly realtime: RealtimeService,
+    private readonly sales: SalesService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('PaymentLinkSettlementService')
@@ -43,6 +55,33 @@ export class PaymentLinkSettlementService {
     if (!attempt.paymentLinkId || attempt.status !== 'CONFIRMED') return
     const link = await this.links.findOne({ where: { id: attempt.paymentLinkId } })
     if (!link || link.status === PaymentLinkStatus.PAID) return
+
+    const newPaid = Number(link.amountPaidMinor) + Number(attempt.amountMinor)
+
+    // SALE_DRAFT (Spec 09): no external payable — accumulate toward the expected total, and once fully
+    // collected materialize the REAL sale with its true tender (the confirmed attempts' methods). The
+    // sale is created server-side and syncs to the till; a walk-in stays anonymous, no credit sale.
+    if (link.payableType === PayableType.SALE_DRAFT) {
+      const fullyPaid = newPaid >= Number(link.amountMinor)
+      if (fullyPaid && !link.saleId) {
+        try {
+          await this.materializeSaleDraft(link, newPaid)
+        } catch (error) {
+          this.logger.error('SALE_DRAFT materialization failed', 'PaymentLinkSettlementService', {
+            linkId: link.id,
+            attemptId: attempt.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          // Leave the link un-advanced (money captured on the attempt) for a human to reconcile.
+          return
+        }
+      }
+      const status = fullyPaid ? PaymentLinkStatus.PAID : PaymentLinkStatus.PARTIALLY_PAID
+      await this.links.update(link.id, { amountPaidMinor: newPaid, status })
+      this.emit(link, status, newPaid, Number(attempt.amountMinor))
+      void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+      return
+    }
 
     const handler = this.registry.get(link.payableType)
     if (!handler) {
@@ -68,28 +107,58 @@ export class PaymentLinkSettlementService {
 
     // Advance the link. amount_paid accumulates; status becomes PAID when the payable is cleared (the
     // handler's next resolve returns 0 due), else PARTIALLY_PAID.
-    const newPaid = Number(link.amountPaidMinor) + Number(attempt.amountMinor)
     const stillDue = (await handler.resolve(link.businessId, link.payableId))?.amountDueMinor ?? 0
     const status =
       link.payableType === 'DEPOSIT' || stillDue <= 0
         ? PaymentLinkStatus.PAID
         : PaymentLinkStatus.PARTIALLY_PAID
     await this.links.update(link.id, { amountPaidMinor: newPaid, status })
+    this.emit(link, status, newPaid, Number(attempt.amountMinor))
+    void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+  }
 
-    // Live-push to the merchant's business channel so offline-first desktop screens (debt collection,
-    // deposit, the credit-sale QR at the till) refresh without a hard reload (Spec 08/09).
+  /** Live-push settlement to the merchant's business channel so offline-first desktop screens refresh
+   *  without a hard reload (Spec 08/09). */
+  private emit(
+    link: PaymentLink,
+    status: PaymentLinkStatus,
+    amountPaidMinor: number,
+    paidNowMinor: number,
+  ): void {
     this.realtime.toBusiness(link.businessId, 'payment.link', {
       paymentLinkId: link.id,
       businessId: link.businessId,
       payableType: link.payableType,
       payableId: link.payableId,
       status: status === PaymentLinkStatus.PAID ? 'PAID' : 'PARTIALLY_PAID',
-      amountPaidMinor: newPaid,
+      amountPaidMinor,
       amountMinor: Number(link.amountMinor),
-      paidNowMinor: Number(attempt.amountMinor),
+      paidNowMinor,
     })
+  }
 
-    void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+  /** Create the real POS sale a SALE_DRAFT link stood for, with its ACTUAL tender (the confirmed
+   *  attempts' methods), and record the sale id on the link. Runs once (guarded by link.saleId). */
+  private async materializeSaleDraft(link: PaymentLink, collectedMinor: number): Promise<void> {
+    const draft = (link.draftPayload ?? {}) as Record<string, unknown>
+    // Build the sale's payment lines from the confirmed attempts on this link — the true tenders.
+    const attempts = await this.attempts.find({
+      where: { paymentLinkId: link.id, status: PaymentAttemptStatus.CONFIRMED },
+    })
+    const payments = attempts.map((a) => ({
+      method: a.paymentMethod,
+      amount: minorToMajor(Number(a.amountMinor), link.currency),
+      mobileMoneyReference: a.providerRef ?? null,
+    }))
+    const dto = { ...draft, payments } as unknown as CreateSaleDto
+    const actor = {
+      sub: link.createdBy ?? '',
+      businessId: link.businessId,
+      role: BusinessMemberRole.OWNER,
+    } as JwtPayload
+    const sale = await this.sales.create(link.businessId, actor, dto)
+    await this.links.update(link.id, { saleId: sale.id })
+    void collectedMinor
   }
 
   private async notifyMerchant(
