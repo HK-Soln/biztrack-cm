@@ -11,6 +11,8 @@ import {
   type InitiateInStorePaymentRequest,
   type InStorePaymentInitiated,
   type InStorePaymentStatus,
+  type CreatePaymentLinkRequest,
+  type PaymentLinkView,
   type PaymentProvider,
   type PaymentProviderCapability,
   type SetPaymentRouteRequest,
@@ -128,6 +130,26 @@ export function registerPaymentsIpc(http: HttpClient): void {
       (
         await http.post<ApiEnvelope<InStorePaymentStatus>>(
           `/payments/in-store/${encodeURIComponent(attemptId)}/fail`,
+          {},
+        )
+      ).data.data,
+  )
+  // Spec 08 — payment links (authed, merchant-facing).
+  ipcMain.handle(
+    IPC.paymentLinksCreate,
+    async (_e, input: CreatePaymentLinkRequest) =>
+      (await http.post<ApiEnvelope<PaymentLinkView>>('/payment-links', input)).data.data,
+  )
+  ipcMain.handle(
+    IPC.paymentLinksList,
+    async () => (await http.get<ApiEnvelope<PaymentLinkView[]>>('/payment-links')).data.data,
+  )
+  ipcMain.handle(
+    IPC.paymentLinksCancel,
+    async (_e, id: string) =>
+      (
+        await http.post<ApiEnvelope<void>>(
+          `/payment-links/${encodeURIComponent(id)}/cancel`,
           {},
         )
       ).data.data,

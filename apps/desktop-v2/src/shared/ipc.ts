@@ -51,6 +51,9 @@ export const IPC = {
   paymentsConfirmInStore: 'payments:confirm-in-store',
   paymentsFailInStore: 'payments:fail-in-store',
   paymentsAttemptEvent: 'payments:attempt-event',
+  paymentLinksCreate: 'payment-links:create',
+  paymentLinksList: 'payment-links:list',
+  paymentLinksCancel: 'payment-links:cancel',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -365,6 +368,8 @@ import type {
   InStorePaymentInitiated as InStorePaymentInitiatedT,
   InStorePaymentStatus as InStorePaymentStatusT,
   PaymentAttemptRealtimeEvent as PaymentAttemptRealtimeEventT,
+  CreatePaymentLinkRequest as CreatePaymentLinkRequestT,
+  PaymentLinkView as PaymentLinkViewT,
 } from '@biztrack/types'
 export type {
   PaymentProvider,
@@ -380,6 +385,8 @@ export type {
   InStorePaymentInitiated,
   InStorePaymentStatus,
   PaymentAttemptRealtimeEvent,
+  CreatePaymentLinkRequest,
+  PaymentLinkView,
 } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
@@ -2021,6 +2028,10 @@ export interface BridgeApi {
     failInStore: (attemptId: string) => Promise<InStorePaymentStatusT>
     /** Subscribe to in-store attempt settlements (WebSocket, forwarded from main). */
     onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEventT) => void) => () => void
+    /** Spec 08 — payment links for a payable (debt / sale / online order / deposit). */
+    createLink: (input: CreatePaymentLinkRequestT) => Promise<PaymentLinkViewT>
+    listLinks: () => Promise<PaymentLinkViewT[]>
+    cancelLink: (id: string) => Promise<void>
   }
   sync: {
     /** Run a push+pull cycle now. */

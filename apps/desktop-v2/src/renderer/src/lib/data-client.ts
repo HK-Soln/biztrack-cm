@@ -182,6 +182,8 @@ import type {
   InStorePaymentInitiated,
   InStorePaymentStatus,
   PaymentAttemptRealtimeEvent,
+  CreatePaymentLinkRequest,
+  PaymentLinkView,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -444,6 +446,10 @@ export interface DataClient {
     failInStore: (attemptId: string) => Promise<InStorePaymentStatus>
     /** Live in-store attempt settlements (WebSocket; poll is the fallback). */
     onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEvent) => void) => () => void
+    /** Spec 08 — payment links for a payable (debt / sale / online order / deposit). */
+    createLink: (input: CreatePaymentLinkRequest) => Promise<PaymentLinkView>
+    listLinks: () => Promise<PaymentLinkView[]>
+    cancelLink: (id: string) => Promise<void>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -879,6 +885,9 @@ function electronAdapter(): DataClient {
       confirmInStore: (attemptId) => window.api.payments.confirmInStore(attemptId),
       failInStore: (attemptId) => window.api.payments.failInStore(attemptId),
       onAttemptEvent: (cb) => window.api.payments.onAttemptEvent(cb),
+      createLink: (input) => window.api.payments.createLink(input),
+      listLinks: () => window.api.payments.listLinks(),
+      cancelLink: (id) => window.api.payments.cancelLink(id),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),

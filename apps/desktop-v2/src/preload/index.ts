@@ -247,6 +247,9 @@ const api: BridgeApi = {
       ipcRenderer.on(IPC.paymentsAttemptEvent, listener)
       return () => ipcRenderer.removeListener(IPC.paymentsAttemptEvent, listener)
     },
+    createLink: (input) => ipcRenderer.invoke(IPC.paymentLinksCreate, input),
+    listLinks: () => ipcRenderer.invoke(IPC.paymentLinksList),
+    cancelLink: (id) => ipcRenderer.invoke(IPC.paymentLinksCancel, id),
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),

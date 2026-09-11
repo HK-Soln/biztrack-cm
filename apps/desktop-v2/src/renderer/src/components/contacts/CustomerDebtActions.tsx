@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, PhoneInput } from '@biztrack/ui/biztrack'
-import { DebtDirection, DebtSource } from '@biztrack/types'
+import { DebtDirection, DebtSource, PayableType } from '@biztrack/types'
 import type { LocalDebt } from '@shared/ipc'
 import { dataClient } from '@/lib/data-client'
 import { ActionMenu } from '@/components/ActionMenu'
+import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
 import { useCurrency } from '@/lib/currency'
 import { openExternal, whatsappUrl } from '@/lib/share'
 import { useT } from '@/i18n'
@@ -100,6 +101,7 @@ export function CustomerDebtActions({
       {debtsOpen ? (
         <AllDebtsModal
           contactId={contact.id}
+          contactPhone={contact.phone}
           debts={debtsQ.data ?? []}
           loading={debtsQ.isLoading}
           onClose={() => setDebtsOpen(false)}
@@ -246,11 +248,13 @@ function ReminderModal({
 
 function AllDebtsModal({
   contactId,
+  contactPhone,
   debts,
   loading,
   onClose,
 }: {
   contactId: string
+  contactPhone: string | null
   debts: LocalDebt[]
   loading: boolean
   onClose: () => void
@@ -265,7 +269,7 @@ function AllDebtsModal({
       ) : (
         <div className="debt-list">
           {debts.map((d) => (
-            <DebtItem key={d.id} debt={d} contactId={contactId} />
+            <DebtItem key={d.id} debt={d} contactId={contactId} contactPhone={contactPhone} />
           ))}
         </div>
       )}
@@ -273,11 +277,20 @@ function AllDebtsModal({
   )
 }
 
-function DebtItem({ debt, contactId }: { debt: LocalDebt; contactId: string }) {
+function DebtItem({
+  debt,
+  contactId,
+  contactPhone,
+}: {
+  debt: LocalDebt
+  contactId: string
+  contactPhone: string | null
+}) {
   const t = useT()
   const money = useCurrency()
   const qc = useQueryClient()
   const [value, setValue] = useState(debt.dueDate ?? '')
+  const [linkOpen, setLinkOpen] = useState(false)
   const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
 
   const save = useMutation({
@@ -327,6 +340,19 @@ function DebtItem({ debt, contactId }: { debt: LocalDebt; contactId: string }) {
           </>
         )}
       </div>
+      <div style={{ marginTop: 8 }}>
+        <Button type="button" variant="soft" onClick={() => setLinkOpen(true)}>
+          {t('paymentLink.sendLink')}
+        </Button>
+      </div>
+      {linkOpen ? (
+        <PaymentLinkDialog
+          open
+          onClose={() => setLinkOpen(false)}
+          payable={{ payableType: PayableType.DEBT, payableId: debt.id }}
+          customerPhone={contactPhone}
+        />
+      ) : null}
     </div>
   )
 }
