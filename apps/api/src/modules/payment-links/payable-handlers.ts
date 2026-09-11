@@ -151,20 +151,27 @@ export class OnlineOrderPayableHandler implements PayableHandler {
   constructor(
     @InjectRepository(OnlineOrder) private readonly orders: Repository<OnlineOrder>,
     @InjectRepository(OnlineOrderEvent) private readonly events: Repository<OnlineOrderEvent>,
+    @InjectRepository(Sale) private readonly sales: Repository<Sale>,
+    private readonly salesService: SalesService,
   ) {}
 
   async resolve(businessId: string, payableId: string): Promise<PayableResolution | null> {
     const order = await this.orders.findOne({ where: { id: payableId, businessId } })
     if (!order) return null
-    const due = order.paymentStatus === 'PAID' ? 0 : Math.max(0, Number(order.totalAmount) || 0)
     return {
-      amountDueMinor: majorToMinor(due, CURRENCY),
+      amountDueMinor: majorToMinor(await this.dueMajor(businessId, order), CURRENCY),
       currency: CURRENCY,
       label: `Order ${order.orderNumber}`,
       customerId: null, // online orders are guest (customerName/phone), no contact id
     }
   }
 
+  /**
+   * Spec 09 §4 — apply a (possibly PARTIAL) payment to an order. If the order is already backed by a
+   * Sale (posted at confirm), record against the SALE ledger — which accumulates, so an order can take
+   * MULTIPLE payments — then derive the order's payment status from the sale. If there's no sale yet
+   * (paid before confirmation), the link pays the full total once (no partial ledger to accumulate on).
+   */
   async applyPayment(
     businessId: string,
     payableId: string,
@@ -172,18 +179,59 @@ export class OnlineOrderPayableHandler implements PayableHandler {
   ): Promise<void> {
     const order = await this.orders.findOne({ where: { id: payableId, businessId } })
     if (!order || order.paymentStatus === 'PAID') return
+
+    if (order.saleId) {
+      await this.salesService.recordPayment(
+        order.saleId,
+        businessId,
+        linkActor(businessId, ctx.actorUserId),
+        {
+          method: ctx.method,
+          amount: minorToMajor(ctx.amountMinor, CURRENCY),
+          mobileMoneyReference: ctx.providerRef,
+          note: 'Payment link',
+        },
+      )
+      const sale = await this.sales.findOne({ where: { id: order.saleId, businessId } })
+      const paid = sale ? Number(sale.amountPaid) : 0
+      const total = sale ? Number(sale.totalAmount) : Number(order.totalAmount)
+      const status: 'PAID' | 'PARTIALLY_PAID' =
+        paid >= total ? 'PAID' : 'PARTIALLY_PAID'
+      await this.orders.update(order.id, {
+        paymentStatus: status,
+        paymentReference: ctx.providerRef ?? order.paymentReference,
+      })
+      await this.emitPayment(order, status === 'PAID')
+      return
+    }
+
     await this.orders.update(order.id, {
       paymentStatus: 'PAID',
       paymentReference: ctx.providerRef ?? order.paymentReference,
     })
+    await this.emitPayment(order, true)
+  }
+
+  /** Live amount owed: the linked sale's balance (accumulating) when a sale exists, else the order
+   *  total. 0 once fully paid. */
+  private async dueMajor(businessId: string, order: OnlineOrder): Promise<number> {
+    if (order.paymentStatus === 'PAID') return 0
+    if (order.saleId) {
+      const sale = await this.sales.findOne({ where: { id: order.saleId, businessId } })
+      if (sale) return Math.max(0, Number(sale.creditAmount) || 0)
+    }
+    return Math.max(0, Number(order.totalAmount) || 0)
+  }
+
+  private async emitPayment(order: OnlineOrder, full: boolean): Promise<void> {
     await this.events.save(
       this.events.create({
         onlineOrderId: order.id,
-        businessId,
+        businessId: order.businessId,
         eventType: 'PAYMENT_RECEIVED',
         triggeredBy: 'PAYMENT_GATEWAY',
         isCustomerVisible: true,
-        customerMessage: 'Payment received.',
+        customerMessage: full ? 'Payment received.' : 'Partial payment received.',
         trackingToken: order.trackingToken,
       }),
     )
