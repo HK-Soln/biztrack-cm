@@ -291,6 +291,8 @@ export function Sell() {
   // (pick, walk-in, or cancel) instead of dropping the cashier back to the cart.
   const [custFromPay, setCustFromPay] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
+  // "Pay online" was chosen → auto-open the payment link/QR on the success screen.
+  const [autoLink, setAutoLink] = useState(false)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
   const [serialPick, setSerialPick] = useState<SerialTarget | null>(null)
@@ -806,6 +808,7 @@ export function Sell() {
     setCharges([])
     setCustomer(null)
     setDone(null)
+    setAutoLink(false)
     void catalog.refetch()
   }
 
@@ -942,6 +945,12 @@ export function Sell() {
           }}
           busy={checkout.isPending}
           onConfirm={(payments, due) => void submitSale(payments, due)}
+          onPayOnline={() => {
+            // Post the whole cart as a credit sale, then auto-open the pay.[domain] link/QR on the
+            // success screen; WS tracks how much the customer pays, the rest stays credit.
+            setAutoLink(true)
+            void submitSale([], null)
+          }}
         />
       ) : null}
 
@@ -950,6 +959,7 @@ export function Sell() {
           sale={done}
           customerName={customer?.name ?? t('sell.walkIn')}
           customerPhone={customer?.phone ?? null}
+          autoOpenLink={autoLink}
           onNew={startNew}
         />
       ) : null}
@@ -1942,6 +1952,7 @@ function PaymentModal({
   onClose,
   onPickCustomer,
   onConfirm,
+  onPayOnline,
   busy,
 }: {
   total: number
@@ -1955,6 +1966,9 @@ function PaymentModal({
   onClose: () => void
   onPickCustomer: () => void
   onConfirm: (p: SaleInput['payments'], creditDueDate?: string | null) => void
+  /** Post the sale as a credit sale and hand the customer a pay.[domain] link/QR (they pick the
+   *  method + pay themselves; WS tracks how much lands, the rest stays credit). */
+  onPayOnline: () => void
   busy: boolean
 }) {
   const t = useT()
@@ -2774,6 +2788,17 @@ function PaymentModal({
               >
                 {buttonLabel}
               </button>
+              {!chargeSpec && online ? (
+                <button
+                  type="button"
+                  className="pm-cancel"
+                  style={{ marginTop: 8 }}
+                  disabled={busy || total <= 0}
+                  onClick={onPayOnline}
+                >
+                  {t('sell.payOnline')}
+                </button>
+              ) : null}
             </div>
           </>
         )}
@@ -2810,11 +2835,13 @@ function SuccessModal({
   sale,
   customerName,
   customerPhone,
+  autoOpenLink,
   onNew,
 }: {
   sale: LocalSaleDetail
   customerName: string
   customerPhone: string | null
+  autoOpenLink?: boolean
   onNew: () => void
 }) {
   const t = useT()
@@ -2823,7 +2850,8 @@ function SuccessModal({
   const [printing, setPrinting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [sendOpen, setSendOpen] = useState(false)
-  const [linkOpen, setLinkOpen] = useState(false)
+  // "Pay online" → open the payment link/QR immediately (only meaningful when a balance remains).
+  const [linkOpen, setLinkOpen] = useState(Boolean(autoOpenLink) && sale.creditAmount > 0)
 
   // The compiled receipt — exactly what gets printed/shared — shown as a live preview.
   const { data: receiptHtml } = useQuery({
