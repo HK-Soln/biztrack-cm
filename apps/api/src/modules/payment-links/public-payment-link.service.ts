@@ -105,6 +105,9 @@ export class PublicPaymentLinkService {
       attemptId: initiated.attemptId,
       kind: initiated.kind,
       ...(initiated.kind === 'redirect' ? { url: initiated.url } : {}),
+      ...(initiated.kind === 'elements'
+        ? { clientSecret: initiated.clientSecret, publishableKey: initiated.publishableKey }
+        : {}),
     }
   }
 

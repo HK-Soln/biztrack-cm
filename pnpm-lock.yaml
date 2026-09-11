@@ -723,6 +723,12 @@ importers:
       '@biztrack/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@stripe/react-stripe-js':
+        specifier: ^3.1.1
+        version: 3.10.0(@stripe/stripe-js@5.10.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@stripe/stripe-js':
+        specifier: ^5.5.0
+        version: 5.10.0
       '@tanstack/react-query':
         specifier: ^5.62.7
         version: 5.101.0(react@19.2.4)
@@ -4023,6 +4029,17 @@ packages:
 
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
+
+  '@stripe/react-stripe-js@3.10.0':
+    resolution: {integrity: sha512-UPqHZwMwDzGSax0ZI7XlxR3tZSpgIiZdk3CiwjbTK978phwR/fFXeAXQcN/h8wTAjR4ZIAzdlI9DbOqJhuJdeg==}
+    peerDependencies:
+      '@stripe/stripe-js': '>=1.44.1 <8.0.0'
+      react: 19.2.4
+      react-dom: 19.2.4
+
+  '@stripe/stripe-js@5.10.0':
+    resolution: {integrity: sha512-PTigkxMdMUP6B5ISS7jMqJAKhgrhZwjprDqR1eATtFfh0OpKVNp110xiH+goeVdrJ29/4LeZJR4FaHHWstsu0A==}
+    engines: {node: '>=12.16'}
 
   '@swc/core-darwin-arm64@1.15.24':
     resolution: {integrity: sha512-uM5ZGfFXjtvtJ+fe448PVBEbn/CSxS3UAyLj3O9xOqKIWy3S6hPTXSPbszxkSsGDYKi+YFhzAsR4r/eXLxEQ0g==}
@@ -14193,6 +14210,15 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@standard-schema/utils@0.3.0': {}
+
+  '@stripe/react-stripe-js@3.10.0(@stripe/stripe-js@5.10.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@stripe/stripe-js': 5.10.0
+      prop-types: 15.8.1
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+
+  '@stripe/stripe-js@5.10.0': {}
 
   '@swc/core-darwin-arm64@1.15.24':
     optional: true

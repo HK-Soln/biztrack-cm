@@ -51,6 +51,15 @@ export type InitiatedPayment =
       expiresAt: string | null
     }
   | { kind: 'pending'; attemptId: string; providerRef: string }
+  // Embedded card (Stripe Elements): the browser confirms the PaymentIntent inline with the
+  // clientSecret + publishableKey; settlement still arrives via webhook + poll (Spec 09 §3).
+  | {
+      kind: 'elements'
+      attemptId: string
+      providerRef: string
+      clientSecret: string
+      publishableKey: string
+    }
 
 /** The storefront-facing tri-state for a payment. */
 export type PublicPaymentState = 'PENDING' | 'PAID' | 'FAILED'
@@ -437,6 +446,47 @@ export class PaymentInitiationService {
         customerPhone: input.customerPhone ?? null,
       }),
     )
+
+    // Embedded card (Stripe Elements) — the payer confirms inline on the pay page, no redirect
+    // (Spec 09 §3). Preferred over the hosted link when the provider supports it.
+    if (adapter.createPaymentIntent) {
+      try {
+        const intent = await adapter.createPaymentIntent(creds, {
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          idempotencyKey,
+          reference: input.reference,
+        })
+        await this.attempts.update(attempt.id, {
+          status: PaymentAttemptStatus.PENDING,
+          providerRef: intent.providerRef,
+        })
+        // Poll safety net + Stripe fee capture at settle (§9).
+        await this.queue.add(
+          POLL_PAYMENT_ATTEMPT_JOB,
+          {
+            businessId: input.businessId,
+            attemptId: attempt.id,
+            deadline: Date.now() + LINK_TTL_SECONDS * 1000,
+          },
+          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
+        )
+        return {
+          kind: 'elements',
+          attemptId: attempt.id,
+          providerRef: intent.providerRef,
+          clientSecret: intent.clientSecret,
+          publishableKey: creds.publishable_key?.trim() ?? '',
+        }
+      } catch (error) {
+        return this.failInStore(
+          attempt.id,
+          error,
+          'PAYMENT_INITIATION_FAILED',
+          'We could not start the card payment. Please try again.',
+        )
+      }
+    }
 
     if (adapter.createPaymentLink) {
       const returnUrl = input.returnUrl || this.inStoreReturnUrl()

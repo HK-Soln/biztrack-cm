@@ -324,6 +324,7 @@
       "INTERNAL_PROCESSING_ERROR": "The Mobile Money service had a temporary error."
     },
     "partialReceived": "Partial payment received. You can pay the remaining balance below.",
-    "remainingOf": "{paid} already paid · remaining below"
+    "remainingOf": "{paid} already paid · remaining below",
+    "cancel": "Cancel"
   }
 }

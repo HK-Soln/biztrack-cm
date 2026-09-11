@@ -2,6 +2,8 @@
 
 import { cloneElement, useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import { useTranslations } from 'next-intl'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import type { PublicPaymentLink } from '@biztrack/types'
 import { formatMoney, getLinkPaymentStatus, getPaymentLink, initiateLinkPayment } from '@/lib/api'
@@ -61,7 +63,7 @@ const METHOD_META: Record<string, { badge: string; color: string }> = {
 
 const POLL_WINDOW_MS = 180_000
 
-type Phase = 'idle' | 'pending' | 'paid' | 'failed'
+type Phase = 'idle' | 'card' | 'pending' | 'paid' | 'failed'
 
 /**
  * Spec 08 — the public payment-link pay page. Generalizes the storefront order PaymentView for an
@@ -88,6 +90,11 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
   const [reason, setReason] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Embedded card (Stripe Elements): set when initiate returns kind==='elements'.
+  const [elementsData, setElementsData] = useState<{
+    clientSecret: string
+    publishableKey: string
+  } | null>(null)
   const startedRef = useRef(0)
 
   const isMomo = method === 'MTN_MOMO' || method === 'ORANGE_MONEY'
@@ -121,7 +128,7 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
     setError(null)
     setReason(null)
     setStarting(true)
-    setPhase('pending')
+    if (isMomo) setPhase('pending') // MoMo → show the "approve on your phone" screen while the push starts
     try {
       const res = await initiateLinkPayment(token, {
         method,
@@ -130,8 +137,13 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
         customerPhone: isMomo ? phone : undefined,
         returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
       })
+      if (res?.kind === 'elements' && res.clientSecret && res.publishableKey) {
+        setElementsData({ clientSecret: res.clientSecret, publishableKey: res.publishableKey })
+        setPhase('card') // mount Stripe Elements inline
+        return
+      }
       if (res?.url) {
-        window.location.href = res.url // hosted redirect (card)
+        window.location.href = res.url // hosted redirect (card fallback)
         return
       }
       if (res?.kind === 'pending') {
@@ -146,6 +158,14 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
     } finally {
       setStarting(false)
     }
+  }
+
+  /** The Stripe Element confirmed the payment client-side → move to the poll, which settles the attempt
+   *  (via webhook/poll) and advances the link. */
+  const onCardConfirmed = () => {
+    setElementsData(null)
+    startedRef.current = 0
+    setPhase('pending')
   }
 
   // Poll while pending.
@@ -205,6 +225,37 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
           {paid ? t('linkPaidDesc') : t('linkInactiveDesc')}
         </p>
       </>,
+    )
+  }
+
+  // ---- Embedded card (Stripe Elements) ------------------------------------
+  if (phase === 'card' && elementsData) {
+    return card(
+      <div style={{ textAlign: 'left' }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            {t('payTo', { business: link.businessName })}
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>
+            {formatMoney(isOpen || link.allowPartial ? amount : dueMajor, currency)}
+          </div>
+        </div>
+        <StripeCardForm
+          clientSecret={elementsData.clientSecret}
+          publishableKey={elementsData.publishableKey}
+          payLabel={t('payNow', {
+            amount: formatMoney(isOpen || link.allowPartial ? amount : dueMajor, currency),
+          })}
+          processingLabel={t('starting')}
+          cancelLabel={t('cancel')}
+          genericError={t('genericError')}
+          onConfirmed={onCardConfirmed}
+          onCancel={() => {
+            setElementsData(null)
+            setPhase('idle')
+          }}
+        />
+      </div>,
     )
   }
 
@@ -373,5 +424,104 @@ export function PayLinkView({ token, link: initialLink }: { token: string; link:
         </>
       )}
     </div>,
+  )
+}
+
+/**
+ * Inline Stripe card form (Elements). Mounts a PaymentElement against the PaymentIntent's clientSecret
+ * and confirms it client-side (redirect: 'if_required' — the merchant's Stripe key decides whether a
+ * 3-D Secure step is needed). On success the parent moves to the poll, which settles the attempt.
+ */
+function StripeCardForm({
+  clientSecret,
+  publishableKey,
+  payLabel,
+  processingLabel,
+  cancelLabel,
+  genericError,
+  onConfirmed,
+  onCancel,
+}: {
+  clientSecret: string
+  publishableKey: string
+  payLabel: string
+  processingLabel: string
+  cancelLabel: string
+  genericError: string
+  onConfirmed: () => void
+  onCancel: () => void
+}) {
+  // loadStripe returns a stable promise; create it once per key.
+  const [stripePromise] = useState(() => loadStripe(publishableKey))
+  return (
+    <Elements stripe={stripePromise} options={{ clientSecret }}>
+      <CardInner
+        payLabel={payLabel}
+        processingLabel={processingLabel}
+        cancelLabel={cancelLabel}
+        genericError={genericError}
+        onConfirmed={onConfirmed}
+        onCancel={onCancel}
+      />
+    </Elements>
+  )
+}
+
+function CardInner({
+  payLabel,
+  processingLabel,
+  cancelLabel,
+  genericError,
+  onConfirmed,
+  onCancel,
+}: {
+  payLabel: string
+  processingLabel: string
+  cancelLabel: string
+  genericError: string
+  onConfirmed: () => void
+  onCancel: () => void
+}) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [submitting, setSubmitting] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = async () => {
+    if (!stripe || !elements || submitting) return
+    setErr(null)
+    setSubmitting(true)
+    const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required' })
+    if (error) {
+      setErr(error.message ?? genericError)
+      setSubmitting(false)
+      return
+    }
+    onConfirmed()
+  }
+
+  return (
+    <>
+      <PaymentElement />
+      {err ? <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>{err}</p> : null}
+      <button
+        type="button"
+        className="btn btn-primary btn-lg btn-block"
+        style={{ marginTop: 14 }}
+        disabled={!stripe || submitting}
+        onClick={submit}
+      >
+        {submitting ? processingLabel : payLabel}
+      </button>
+      <button
+        type="button"
+        className="btn btn-block"
+        style={{ marginTop: 8 }}
+        disabled={submitting}
+        onClick={onCancel}
+      >
+        {cancelLabel}
+      </button>
+    </>
   )
 }

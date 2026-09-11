@@ -73,6 +73,10 @@ export class InStorePaymentsController {
         'PAYMENT_METHOD_NOT_ROUTABLE',
       )
     }
+    if (initiated.kind === 'elements') {
+      // In-store uses the hosted link (QR/redirect), never embedded Elements — defensive.
+      throw new AppBadRequestException('Unexpected payment mode.', 'PAYMENT_INITIATION_FAILED')
+    }
     const base = {
       attemptId: initiated.attemptId,
       kind: initiated.kind,

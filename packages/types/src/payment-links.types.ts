@@ -85,11 +85,16 @@ export interface InitiatePaymentLinkRequest {
   returnUrl?: string
 }
 
-/** Outcome of starting a link payment: a hosted redirect (card) or a pending push (MoMo). */
+/** Outcome of starting a link payment: an embedded card form (Stripe Elements), a hosted redirect
+ *  (card fallback), or a pending push (MoMo). */
 export interface InitiatePaymentLinkResult {
   attemptId: string
-  kind: 'redirect' | 'pending'
+  kind: 'redirect' | 'pending' | 'elements'
+  /** kind==='redirect' — the hosted URL to send the payer to. */
   url?: string
+  /** kind==='elements' — confirm the PaymentIntent inline with these (Stripe Elements). */
+  clientSecret?: string
+  publishableKey?: string
 }
 
 /** Poll state for a link payment (payer). */
