@@ -351,15 +351,15 @@ export function PayLinkView({
       ) : (
         <>
           {isOpen || link.allowPartial ? (
-            <div style={{ marginBottom: 14 }}>
+            <div className="field" style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
                 {isOpen ? t('amountLabel') : t('amountPartialLabel')}
               </label>
               <input
-                className="input"
                 inputMode="decimal"
                 value={amount ? String(amount) : ''}
                 placeholder="0"
+                style={{ width: '100%' }}
                 onChange={(e) => {
                   let v = Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0
                   if (!isOpen && v > dueMajor) v = dueMajor // cap at the balance (server also caps)
