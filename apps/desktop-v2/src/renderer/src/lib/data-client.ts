@@ -450,6 +450,8 @@ export interface DataClient {
     createLink: (input: CreatePaymentLinkRequest) => Promise<PaymentLinkView>
     listLinks: () => Promise<PaymentLinkView[]>
     cancelLink: (id: string) => Promise<void>
+    /** Finish collecting; leave the balance as the customer's credit (§4). */
+    finalizeLink: (id: string) => Promise<PaymentLinkView>
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -888,6 +890,7 @@ function electronAdapter(): DataClient {
       createLink: (input) => window.api.payments.createLink(input),
       listLinks: () => window.api.payments.listLinks(),
       cancelLink: (id) => window.api.payments.cancelLink(id),
+      finalizeLink: (id) => window.api.payments.finalizeLink(id),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),

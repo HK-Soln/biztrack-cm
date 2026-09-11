@@ -154,4 +154,14 @@ export function registerPaymentsIpc(http: HttpClient): void {
         )
       ).data.data,
   )
+  ipcMain.handle(
+    IPC.paymentLinksFinalize,
+    async (_e, id: string) =>
+      (
+        await http.post<ApiEnvelope<PaymentLinkView>>(
+          `/payment-links/${encodeURIComponent(id)}/finalize`,
+          {},
+        )
+      ).data.data,
+  )
 }

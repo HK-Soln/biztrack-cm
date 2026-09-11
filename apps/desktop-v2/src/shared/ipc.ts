@@ -54,6 +54,7 @@ export const IPC = {
   paymentLinksCreate: 'payment-links:create',
   paymentLinksList: 'payment-links:list',
   paymentLinksCancel: 'payment-links:cancel',
+  paymentLinksFinalize: 'payment-links:finalize',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -2032,6 +2033,8 @@ export interface BridgeApi {
     createLink: (input: CreatePaymentLinkRequestT) => Promise<PaymentLinkViewT>
     listLinks: () => Promise<PaymentLinkViewT[]>
     cancelLink: (id: string) => Promise<void>
+    /** Finish collecting; leave the balance as the customer's credit (§4). */
+    finalizeLink: (id: string) => Promise<PaymentLinkViewT>
   }
   sync: {
     /** Run a push+pull cycle now. */

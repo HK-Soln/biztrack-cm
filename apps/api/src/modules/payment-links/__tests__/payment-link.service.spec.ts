@@ -94,3 +94,55 @@ describe('PaymentLinkService.create', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('PaymentLinkService.finalize', () => {
+  const link = (over: Record<string, unknown> = {}) => ({
+    id: 'link-1',
+    token: 'tok',
+    payableType: PayableType.SALE,
+    payableId: 'sale-1',
+    amountMinor: 10000,
+    amountPaidMinor: 4000,
+    currency: 'XAF',
+    allowPartial: true,
+    status: PaymentLinkStatus.PARTIALLY_PAID,
+    label: 'Sale',
+    customerId: 'c1',
+    expiresAt: new Date('2026-02-01T00:00:00Z'),
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    ...over,
+  })
+
+  function svc(row: Record<string, unknown> | null) {
+    const links = { findOne: jest.fn(async () => row), update: jest.fn() }
+    const registry = { get: jest.fn() }
+    const config = { get: jest.fn(() => 'https://pay.test') }
+    return {
+      service: new PaymentLinkService(links as never, registry as never, config as never),
+      links,
+    }
+  }
+
+  it('marks a partially-paid SALE link PAID (balance already a receivable)', async () => {
+    const { service, links } = svc(link())
+    const view = await service.finalize('b1', 'link-1')
+    expect(links.update).toHaveBeenCalledWith('link-1', { status: PaymentLinkStatus.PAID })
+    expect(view.status).toBe(PaymentLinkStatus.PAID)
+  })
+
+  it('is idempotent on an already-paid link', async () => {
+    const { service, links } = svc(link({ status: PaymentLinkStatus.PAID }))
+    await service.finalize('b1', 'link-1')
+    expect(links.update).not.toHaveBeenCalled()
+  })
+
+  it('refuses to finalize a DEBT link (no total→credit conversion)', async () => {
+    const { service } = svc(link({ payableType: PayableType.DEBT }))
+    await expect(service.finalize('b1', 'link-1')).rejects.toThrow()
+  })
+
+  it('refuses a cancelled link', async () => {
+    const { service } = svc(link({ status: PaymentLinkStatus.CANCELLED }))
+    await expect(service.finalize('b1', 'link-1')).rejects.toThrow()
+  })
+})

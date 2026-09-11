@@ -250,6 +250,7 @@ const api: BridgeApi = {
     createLink: (input) => ipcRenderer.invoke(IPC.paymentLinksCreate, input),
     listLinks: () => ipcRenderer.invoke(IPC.paymentLinksList),
     cancelLink: (id) => ipcRenderer.invoke(IPC.paymentLinksCancel, id),
+    finalizeLink: (id) => ipcRenderer.invoke(IPC.paymentLinksFinalize, id),
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),

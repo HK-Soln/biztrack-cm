@@ -38,4 +38,10 @@ export class PaymentLinksController {
   cancel(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<void> {
     return this.service.cancel(user.businessId as string, id)
   }
+
+  @Post(':id/finalize')
+  @ApiOperation({ summary: 'Finish collecting; leave the balance as the customer’s credit (§4)' })
+  finalize(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<PaymentLinkView> {
+    return this.service.finalize(user.businessId as string, id)
+  }
 }

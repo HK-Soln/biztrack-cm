@@ -50,4 +50,6 @@ export const cloudPayments = {
   listLinks: (): Promise<PaymentLinkView[]> => cget('/payment-links'),
   cancelLink: (id: string): Promise<void> =>
     cpost(`/payment-links/${encodeURIComponent(id)}/cancel`, {}),
+  finalizeLink: (id: string): Promise<PaymentLinkView> =>
+    cpost(`/payment-links/${encodeURIComponent(id)}/finalize`, {}),
 }

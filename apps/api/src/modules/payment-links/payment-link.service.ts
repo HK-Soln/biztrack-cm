@@ -99,6 +99,34 @@ export class PaymentLinkService {
     await this.links.update(id, { status: PaymentLinkStatus.CANCELLED })
   }
 
+  /**
+   * Spec 09 §4 — "Finish & record balance as credit." The merchant stops collecting online on a
+   * partially-paid SALE / ONLINE_ORDER link: whatever was collected stands, the remainder is left as
+   * the customer's receivable (the credit sale ALREADY booked a RECEIVABLE debt, which each payment
+   * reduced — so there is nothing new to post), and the link goes terminal (PAID = fully accounted:
+   * cash + credit). Only sale/order have a "total with a balance to convert"; debts/deposits don't.
+   */
+  async finalize(businessId: string, id: string): Promise<PaymentLinkView> {
+    const link = await this.links.findOne({ where: { id, businessId } })
+    if (!link) throw new AppNotFoundException('Payment link not found.', 'PAYMENT_LINK_NOT_FOUND')
+    if (link.status === PaymentLinkStatus.PAID) return this.toView(link) // idempotent
+    if (
+      link.status === PaymentLinkStatus.CANCELLED ||
+      link.status === PaymentLinkStatus.EXPIRED
+    ) {
+      throw new AppBadRequestException('This link is no longer active.', 'PAYMENT_LINK_INACTIVE')
+    }
+    if (link.payableType !== PayableType.SALE && link.payableType !== PayableType.ONLINE_ORDER) {
+      throw new AppBadRequestException(
+        'Only a sale or order link can be finalized to credit.',
+        'PAYABLE_NOT_FINALIZABLE',
+      )
+    }
+    await this.links.update(id, { status: PaymentLinkStatus.PAID })
+    link.status = PaymentLinkStatus.PAID
+    return this.toView(link)
+  }
+
   private toView(link: PaymentLink): PaymentLinkView {
     return {
       id: link.id,
