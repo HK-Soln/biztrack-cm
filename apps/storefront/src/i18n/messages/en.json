@@ -283,5 +283,45 @@
     "persists": "Still not working?",
     "contact": "Contact the shop",
     "reference": "Error reference:"
+  },
+  "pay": {
+    "payTo": "Payment to {business}",
+    "linkPaidTitle": "Already paid",
+    "linkPaidDesc": "This payment has already been completed. Thank you!",
+    "linkInactiveTitle": "Link unavailable",
+    "linkInactiveDesc": "This payment link is no longer active.",
+    "paidTitle": "Payment received",
+    "paidDesc": "Thank you! Your payment to {business} is confirmed.",
+    "waitTitle": "Approve the payment on your phone",
+    "waitDesc": "We sent a payment request to {phone}. Open the prompt and enter your Mobile Money PIN.",
+    "waitChecking": "Waiting for confirmation…",
+    "failedTitle": "Payment not completed",
+    "amountLabel": "Amount to pay",
+    "amountPartialLabel": "Amount to pay (you can pay part)",
+    "momoNumberLabel": "Mobile Money number",
+    "momoHint": "You'll get a prompt on that phone to approve with your PIN.",
+    "starting": "Starting…",
+    "payNow": "Pay {amount}",
+    "payByCard": "Pay by card",
+    "noMethods": "This business has no online payment method set up yet.",
+    "errPhone": "Enter a valid phone number.",
+    "genericError": "Something went wrong. Please try again.",
+    "reasonGeneric": "The payment was declined.",
+    "method": {
+      "CARD": "Card",
+      "MTN_MOMO": "MTN Mobile Money",
+      "ORANGE_MONEY": "Orange Money"
+    },
+    "reason": {
+      "NOT_ENOUGH_FUNDS": "Not enough balance on the Mobile Money account.",
+      "PAYER_LIMIT_REACHED": "The Mobile Money transaction limit was reached.",
+      "APPROVAL_REJECTED": "The payment request was declined on the phone.",
+      "PAYMENT_NOT_APPROVED": "The payment wasn't approved in time.",
+      "EXPIRED": "The payment request expired before it was approved.",
+      "TRANSACTION_CANCELED": "The payment was cancelled.",
+      "PAYER_NOT_FOUND": "That number isn't a registered Mobile Money account.",
+      "PAYEE_NOT_ALLOWED_TO_RECEIVE": "The business can't receive this payment right now.",
+      "INTERNAL_PROCESSING_ERROR": "The Mobile Money service had a temporary error."
+    }
   }
 }

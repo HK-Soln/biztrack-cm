@@ -6,10 +6,14 @@ import type {
   CheckoutRequest,
   CheckoutResult,
   ContactMessageRequest,
+  InitiatePaymentLinkRequest,
+  InitiatePaymentLinkResult,
   OnlineCart,
   PaginatedResult,
+  PaymentLinkPaymentStatus,
   PublicFacets,
   PublicOrderTracking,
+  PublicPaymentLink,
   PublicPaymentStatus,
   PublicProductDetail,
   PublicProductListItem,
@@ -193,6 +197,25 @@ export function retryPayment(slug: string, trackingToken: string, phone?: string
     `${storePath(slug)}/orders/${encodeURIComponent(trackingToken)}/pay`,
     { phone },
   )
+}
+
+// ---- Payment links (Spec 08) ----------------------------------------------
+
+const payPath = (token: string) => `/public/pay/${encodeURIComponent(token)}`
+
+/** Resolve a payment link by token (live amount, methods, status). Null on any error/404. */
+export function getPaymentLink(token: string) {
+  return readJson<PublicPaymentLink>(payPath(token))
+}
+
+/** Start a payment for a link (card link / MoMo push). */
+export function initiateLinkPayment(token: string, body: InitiatePaymentLinkRequest) {
+  return send<InitiatePaymentLinkResult>('POST', `${payPath(token)}/initiate`, body)
+}
+
+/** Poll a link payment. Null (transient error) is treated as still pending. */
+export function getLinkPaymentStatus(token: string) {
+  return readJson<PaymentLinkPaymentStatus>(`${payPath(token)}/status`)
 }
 
 // ---- Helpers --------------------------------------------------------------

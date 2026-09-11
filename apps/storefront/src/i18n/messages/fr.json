@@ -283,5 +283,45 @@
     "persists": "Le problème persiste ?",
     "contact": "Contactez la boutique",
     "reference": "Référence de l'erreur :"
+  },
+  "pay": {
+    "payTo": "Paiement à {business}",
+    "linkPaidTitle": "Déjà payé",
+    "linkPaidDesc": "Ce paiement a déjà été effectué. Merci !",
+    "linkInactiveTitle": "Lien indisponible",
+    "linkInactiveDesc": "Ce lien de paiement n'est plus actif.",
+    "paidTitle": "Paiement reçu",
+    "paidDesc": "Merci ! Votre paiement à {business} est confirmé.",
+    "waitTitle": "Approuvez le paiement sur votre téléphone",
+    "waitDesc": "Nous avons envoyé une demande de paiement au {phone}. Ouvrez l'invite et saisissez votre code PIN Mobile Money.",
+    "waitChecking": "En attente de confirmation…",
+    "failedTitle": "Paiement non abouti",
+    "amountLabel": "Montant à payer",
+    "amountPartialLabel": "Montant à payer (paiement partiel possible)",
+    "momoNumberLabel": "Numéro Mobile Money",
+    "momoHint": "Vous recevrez une invite sur ce téléphone pour approuver avec votre code PIN.",
+    "starting": "Démarrage…",
+    "payNow": "Payer {amount}",
+    "payByCard": "Payer par carte",
+    "noMethods": "Cette entreprise n'a pas encore configuré de moyen de paiement en ligne.",
+    "errPhone": "Saisissez un numéro de téléphone valide.",
+    "genericError": "Une erreur s'est produite. Veuillez réessayer.",
+    "reasonGeneric": "Le paiement a été refusé.",
+    "method": {
+      "CARD": "Carte",
+      "MTN_MOMO": "MTN Mobile Money",
+      "ORANGE_MONEY": "Orange Money"
+    },
+    "reason": {
+      "NOT_ENOUGH_FUNDS": "Solde insuffisant sur le compte Mobile Money.",
+      "PAYER_LIMIT_REACHED": "La limite de transaction Mobile Money a été atteinte.",
+      "APPROVAL_REJECTED": "La demande de paiement a été refusée sur le téléphone.",
+      "PAYMENT_NOT_APPROVED": "Le paiement n'a pas été approuvé à temps.",
+      "EXPIRED": "La demande de paiement a expiré avant approbation.",
+      "TRANSACTION_CANCELED": "Le paiement a été annulé.",
+      "PAYER_NOT_FOUND": "Ce numéro n'est pas un compte Mobile Money enregistré.",
+      "PAYEE_NOT_ALLOWED_TO_RECEIVE": "L'entreprise ne peut pas recevoir ce paiement pour le moment.",
+      "INTERNAL_PROCESSING_ERROR": "Le service Mobile Money a rencontré une erreur temporaire."
+    }
   }
 }
