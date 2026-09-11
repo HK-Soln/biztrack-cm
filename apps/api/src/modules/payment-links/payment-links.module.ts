@@ -6,8 +6,12 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { Debt } from '@/entities/debt.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
+import { Business } from '@/entities/business.entity'
+import { PaymentsModule } from '@/modules/payments/payments.module'
 import { PaymentLinksController } from './payment-links.controller'
+import { PublicPaymentLinkController } from './public-payment-link.controller'
 import { PaymentLinkService } from './payment-link.service'
+import { PublicPaymentLinkService } from './public-payment-link.service'
 import {
   DebtPayableHandler,
   DepositPayableHandler,
@@ -23,11 +27,21 @@ import {
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PaymentLink, Sale, OnlineOrder, Debt, DebtPayment, CustomerDeposit]),
+    TypeOrmModule.forFeature([
+      PaymentLink,
+      Sale,
+      OnlineOrder,
+      Debt,
+      DebtPayment,
+      CustomerDeposit,
+      Business,
+    ]),
+    PaymentsModule,
   ],
-  controllers: [PaymentLinksController],
+  controllers: [PaymentLinksController, PublicPaymentLinkController],
   providers: [
     PaymentLinkService,
+    PublicPaymentLinkService,
     PayableHandlerRegistry,
     SalePayableHandler,
     DebtPayableHandler,

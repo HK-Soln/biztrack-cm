@@ -67,3 +67,27 @@ export interface PublicPaymentLink {
   status: PaymentLinkStatus
   methods: string[]
 }
+
+/** Start a payment for a link (public, payer). `amountMinor` is honoured only for partial-capable
+ *  links and is capped server-side at the live balance; otherwise the full live amount is charged. */
+export interface InitiatePaymentLinkRequest {
+  method: string
+  clientReference: string
+  amountMinor?: number
+  customerPhone?: string
+  /** The pay page's own origin — the server builds the hosted-card return URL from this. */
+  returnUrl?: string
+}
+
+/** Outcome of starting a link payment: a hosted redirect (card) or a pending push (MoMo). */
+export interface InitiatePaymentLinkResult {
+  attemptId: string
+  kind: 'redirect' | 'pending'
+  url?: string
+}
+
+/** Poll state for a link payment (payer). */
+export interface PaymentLinkPaymentStatus {
+  status: 'PENDING' | 'PAID' | 'FAILED'
+  reason?: string
+}

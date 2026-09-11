@@ -383,6 +383,184 @@ export class PaymentInitiationService {
     )
   }
 
+  /**
+   * Spec 08 §6.2 — start a provider payment for a PAYMENT LINK (pays an arbitrary payable). Sibling of
+   * initiateInStorePayment: the attempt carries paymentLinkId (its settle sink applies the payment to
+   * the payable). Card → hosted link (redirect to Stripe); MoMo → request-to-pay push + poll. Idempotent
+   * on clientReference. `returnUrl` is where the payer's phone lands after a hosted card payment (the
+   * public pay page); settlement still runs via WS/poll.
+   */
+  async initiateLinkPayment(input: {
+    businessId: string
+    paymentLinkId: string
+    method: PaymentMethod
+    amountMinor: number
+    currency: string
+    reference: string
+    customerPhone?: string | null
+    clientReference: string
+    returnUrl?: string
+  }): Promise<InitiatedPayment | null> {
+    const idempotencyKey = `link_${input.clientReference}`
+    const existing = await this.attempts.findOne({
+      where: { businessId: input.businessId, idempotencyKey },
+    })
+    if (existing) return this.describeAttempt(existing)
+
+    const routed = await this.routing.resolveProviderForMethod(input.businessId, input.method)
+    if (!routed) return null
+    const { connection } = routed
+    const adapter = this.adapters.get(connection.providerCode)
+    if (!adapter) return null
+    const creds = await this.credentials.getDecryptedCredentials(
+      input.businessId,
+      connection.providerCode,
+    )
+    if (!creds) return null
+
+    const attemptNumber =
+      (await this.attempts.count({ where: { paymentLinkId: input.paymentLinkId } })) + 1
+    const attempt = await this.attempts.save(
+      this.attempts.create({
+        businessId: input.businessId,
+        paymentLinkId: input.paymentLinkId,
+        providerId: connection.id,
+        paymentMethod: input.method,
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        status: PaymentAttemptStatus.INITIATED,
+        attemptNumber,
+        idempotencyKey,
+        initiationType: adapter.createPaymentLink
+          ? PaymentAttemptInitiationType.LINK
+          : PaymentAttemptInitiationType.USSD_PUSH,
+        customerPhone: input.customerPhone ?? null,
+      }),
+    )
+
+    if (adapter.createPaymentLink) {
+      const returnUrl = input.returnUrl || this.inStoreReturnUrl()
+      try {
+        const link = await adapter.createPaymentLink(creds, {
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          method: input.method,
+          reference: input.reference,
+          idempotencyKey,
+          customerPhone: input.customerPhone ?? undefined,
+          expiresInSeconds: LINK_TTL_SECONDS,
+          successUrl: returnUrl,
+          cancelUrl: returnUrl,
+        })
+        await this.attempts.update(attempt.id, {
+          status: PaymentAttemptStatus.PENDING,
+          providerRef: link.providerRef,
+          linkUrl: link.url,
+          expiresAt: new Date(link.expiresAt),
+        })
+        // Poll safety net + Stripe fee capture at settle (§9).
+        await this.queue.add(
+          POLL_PAYMENT_ATTEMPT_JOB,
+          {
+            businessId: input.businessId,
+            attemptId: attempt.id,
+            deadline: Date.now() + LINK_TTL_SECONDS * 1000,
+          },
+          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
+        )
+        return {
+          kind: 'redirect',
+          attemptId: attempt.id,
+          providerRef: link.providerRef,
+          url: link.url,
+          expiresAt: link.expiresAt,
+        }
+      } catch (error) {
+        return this.failInStore(
+          attempt.id,
+          error,
+          'PAYMENT_INITIATION_FAILED',
+          'We could not start the card payment. Please try again.',
+        )
+      }
+    }
+
+    if (adapter.initiateUssdPush) {
+      const phone = input.customerPhone?.trim()
+      if (!phone)
+        return this.failInStore(
+          attempt.id,
+          new Error('A phone number is required.'),
+          'PHONE_REQUIRED',
+          'A Mobile Money number is required.',
+        )
+      const referenceId = randomUUID()
+      const callbackUrl = this.momoCallbackUrl(connection.webhookToken, referenceId)
+      try {
+        const push = await adapter.initiateUssdPush(creds, {
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          method: input.method,
+          customerPhone: phone,
+          reference: input.reference,
+          idempotencyKey,
+          referenceId,
+          callbackUrl,
+        })
+        await this.attempts.update(attempt.id, {
+          status: PaymentAttemptStatus.PENDING,
+          providerRef: push.providerRef,
+        })
+        await this.queue.add(
+          POLL_PAYMENT_ATTEMPT_JOB,
+          {
+            businessId: input.businessId,
+            attemptId: attempt.id,
+            deadline: Date.now() + POLL_ATTEMPT_WINDOW_MS,
+          },
+          { delay: POLL_ATTEMPT_INTERVAL_MS, jobId: `poll-${attempt.id}` },
+        )
+        return { kind: 'pending', attemptId: attempt.id, providerRef: push.providerRef }
+      } catch (error) {
+        return this.failInStore(
+          attempt.id,
+          error,
+          'PAYMENT_INITIATION_FAILED',
+          'We could not start the Mobile Money payment. Please try again.',
+        )
+      }
+    }
+
+    return this.failInStore(
+      attempt.id,
+      new Error('Provider has no payment method.'),
+      'PAYMENT_METHOD_NOT_ROUTABLE',
+      'This provider cannot be charged.',
+    )
+  }
+
+  /** Poll the latest attempt for a payment link → tri-state + reason + providerRef + amount (which the
+   *  settlement sink applies to the payable). */
+  async getLinkPaymentStatus(
+    businessId: string,
+    paymentLinkId: string,
+  ): Promise<{ status: PublicPaymentState; reason?: string; providerRef?: string } | null> {
+    const attempt = await this.attempts.findOne({
+      where: { businessId, paymentLinkId },
+      order: { createdAt: 'DESC' },
+    })
+    if (!attempt) return null
+    const settled = await this.reconcileAttempt(attempt)
+    const status = this.toPublicState(settled.status)
+    const reason =
+      status === 'FAILED' &&
+      settled.failedReason &&
+      PUBLIC_PROVIDER_FAILURE_REASONS.has(settled.failedReason)
+        ? settled.failedReason
+        : undefined
+    return { status, reason, providerRef: settled.providerRef ?? undefined }
+  }
+
   /** A generic return URL for in-store hosted links — Stripe requires success/cancel URLs, but the
    *  till settles via WebSocket/poll, so this is only where the customer's phone lands after paying.
    *  Configurable via IN_STORE_PAYMENT_RETURN_URL; falls back to the API origin. */
