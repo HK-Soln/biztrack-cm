@@ -126,13 +126,12 @@ describe('PaymentLinkSettlementService.settle', () => {
       saleId: null,
       draftPayload: { items: [{ productId: 'p1', quantity: 1, unitPrice: 4000 }] },
     }
-    const { service, links, sales, attempts, handler } = make({
+    const { service, links, sales, handler } = make({
       link: saleDraftLink,
       stillDueMinor: 0,
     })
-    attempts.find.mockResolvedValueOnce([
-      { paymentMethod: PaymentMethod.MTN_MOMO, amountMinor: 4000, providerRef: 'ref-1' },
-    ] as never)
+    // attempts.find returns [] (default); the just-confirmed attempt is merged in explicitly — its
+    // tender (MTN_MOMO) is what the sale records, NOT credit.
     await service.settle(attempt({ amountMinor: 4000 }))
     // No generic handler for SALE_DRAFT.
     expect(handler.applyPayment).not.toHaveBeenCalled()

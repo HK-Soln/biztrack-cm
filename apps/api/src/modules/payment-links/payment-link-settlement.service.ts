@@ -65,7 +65,7 @@ export class PaymentLinkSettlementService {
       const fullyPaid = newPaid >= Number(link.amountMinor)
       if (fullyPaid && !link.saleId) {
         try {
-          await this.materializeSaleDraft(link, newPaid)
+          await this.materializeSaleDraft(link, attempt)
         } catch (error) {
           this.logger.error('SALE_DRAFT materialization failed', 'PaymentLinkSettlementService', {
             linkId: link.id,
@@ -139,17 +139,24 @@ export class PaymentLinkSettlementService {
 
   /** Create the real POS sale a SALE_DRAFT link stood for, with its ACTUAL tender (the confirmed
    *  attempts' methods), and record the sale id on the link. Runs once (guarded by link.saleId). */
-  private async materializeSaleDraft(link: PaymentLink, collectedMinor: number): Promise<void> {
+  private async materializeSaleDraft(link: PaymentLink, current: PaymentAttempt): Promise<void> {
     const draft = (link.draftPayload ?? {}) as Record<string, unknown>
-    // Build the sale's payment lines from the confirmed attempts on this link — the true tenders.
-    const attempts = await this.attempts.find({
+    // Build the sale's payment lines from the confirmed attempts on this link — the true tenders. Merge
+    // in the just-confirmed `current` attempt explicitly: a separate query can miss it (it may not be
+    // visible yet), and if the lines came back empty the sale would post as an anonymous CREDIT sale.
+    const found = await this.attempts.find({
       where: { paymentLinkId: link.id, status: PaymentAttemptStatus.CONFIRMED },
     })
-    const payments = attempts.map((a) => ({
+    const byId = new Map(found.map((a) => [a.id, a]))
+    byId.set(current.id, current)
+    const payments = [...byId.values()].map((a) => ({
       method: a.paymentMethod,
       amount: minorToMajor(Number(a.amountMinor), link.currency),
       mobileMoneyReference: a.providerRef ?? null,
     }))
+    if (payments.length === 0) {
+      throw new Error('No confirmed attempts to build the sale payments from.')
+    }
     const dto = { ...draft, payments } as unknown as CreateSaleDto
     const actor = {
       sub: link.createdBy ?? '',
@@ -158,7 +165,6 @@ export class PaymentLinkSettlementService {
     } as JwtPayload
     const sale = await this.sales.create(link.businessId, actor, dto)
     await this.links.update(link.id, { saleId: sale.id })
-    void collectedMinor
   }
 
   private async notifyMerchant(
