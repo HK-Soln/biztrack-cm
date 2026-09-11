@@ -3,6 +3,7 @@ import {
   REALTIME_PATH,
   type NotificationEventPayload,
   type PaymentAttemptRealtimeEvent,
+  type PaymentLinkRealtimeEvent,
 } from '@biztrack/types'
 import { CLOUD_API_BASE_URL, getAccessToken } from './cloud-http'
 
@@ -16,6 +17,7 @@ import { CLOUD_API_BASE_URL, getAccessToken } from './cloud-http'
 let socket: Socket | null = null
 const listeners = new Set<(payload: NotificationEventPayload) => void>()
 const attemptListeners = new Set<(payload: PaymentAttemptRealtimeEvent) => void>()
+const linkListeners = new Set<(payload: PaymentLinkRealtimeEvent) => void>()
 
 function origin(): string {
   try {
@@ -48,6 +50,9 @@ export async function cloudRealtimeConnect(): Promise<void> {
   socket.on('payment.attempt', (payload: PaymentAttemptRealtimeEvent) => {
     attemptListeners.forEach((l) => l(payload))
   })
+  socket.on('payment.link', (payload: PaymentLinkRealtimeEvent) => {
+    linkListeners.forEach((l) => l(payload))
+  })
 }
 
 export function cloudRealtimeOnEvent(cb: (payload: NotificationEventPayload) => void): () => void {
@@ -63,5 +68,14 @@ export function cloudRealtimeOnPaymentAttempt(
   attemptListeners.add(cb)
   return () => {
     attemptListeners.delete(cb)
+  }
+}
+
+export function cloudRealtimeOnPaymentLink(
+  cb: (payload: PaymentLinkRealtimeEvent) => void,
+): () => void {
+  linkListeners.add(cb)
+  return () => {
+    linkListeners.delete(cb)
   }
 }

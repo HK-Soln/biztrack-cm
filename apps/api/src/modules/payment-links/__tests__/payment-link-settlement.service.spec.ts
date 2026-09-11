@@ -17,15 +17,17 @@ function make(opts: {
   }
   const registry = { get: jest.fn(() => handler) }
   const dispatcher = { dispatch: jest.fn(async () => undefined) }
+  const realtime = { toBusiness: jest.fn() }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
   const service = new PaymentLinkSettlementService(
     links as never,
     businesses as never,
     registry as never,
     dispatcher as never,
+    realtime as never,
     logger as never,
   )
-  return { service, links, handler, dispatcher }
+  return { service, links, handler, dispatcher, realtime }
 }
 
 const attempt = (over: Record<string, unknown> = {}) =>
@@ -53,7 +55,7 @@ const debtLink = {
 
 describe('PaymentLinkSettlementService.settle', () => {
   it('applies the payment to the payable and marks the link PAID when nothing remains', async () => {
-    const { service, links, handler, dispatcher } = make({ link: debtLink, stillDueMinor: 0 })
+    const { service, links, handler, dispatcher, realtime } = make({ link: debtLink, stillDueMinor: 0 })
     await service.settle(attempt())
     expect(handler.applyPayment).toHaveBeenCalledWith(
       'b1',
@@ -65,6 +67,12 @@ describe('PaymentLinkSettlementService.settle', () => {
       status: PaymentLinkStatus.PAID,
     })
     expect(dispatcher.dispatch).toHaveBeenCalled()
+    // Live-pushes the settlement to the merchant's business channel.
+    expect(realtime.toBusiness).toHaveBeenCalledWith(
+      'b1',
+      'payment.link',
+      expect.objectContaining({ status: 'PAID', amountPaidMinor: 4000, paidNowMinor: 4000 }),
+    )
   })
 
   it('marks the link PARTIALLY_PAID when a balance remains', async () => {

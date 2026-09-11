@@ -182,6 +182,7 @@ import type {
   InStorePaymentInitiated,
   InStorePaymentStatus,
   PaymentAttemptRealtimeEvent,
+  PaymentLinkRealtimeEvent,
   CreatePaymentLinkRequest,
   PaymentLinkView,
   ScanHit,
@@ -452,6 +453,8 @@ export interface DataClient {
     cancelLink: (id: string) => Promise<void>
     /** Finish collecting; leave the balance as the customer's credit (§4). */
     finalizeLink: (id: string) => Promise<PaymentLinkView>
+    /** Live payment-link settlements (Spec 08/09) — refresh offline-first screens + running paid total. */
+    onLinkEvent: (cb: (payload: PaymentLinkRealtimeEvent) => void) => () => void
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -676,6 +679,7 @@ import {
   cloudRealtimeConnect,
   cloudRealtimeOnEvent,
   cloudRealtimeOnPaymentAttempt,
+  cloudRealtimeOnPaymentLink,
 } from './cloud-realtime'
 import {
   cloudCategories,
@@ -891,6 +895,7 @@ function electronAdapter(): DataClient {
       listLinks: () => window.api.payments.listLinks(),
       cancelLink: (id) => window.api.payments.cancelLink(id),
       finalizeLink: (id) => window.api.payments.finalizeLink(id),
+      onLinkEvent: (cb) => window.api.payments.onLinkEvent(cb),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -1094,7 +1099,11 @@ function cloudAdapter(): DataClient {
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
     pin: { set: notWired, verify: notWired, verifyCard: notWired, canManage: async () => false },
     credentials: cloudCredentials,
-    payments: { ...cloudPayments, onAttemptEvent: cloudRealtimeOnPaymentAttempt },
+    payments: {
+      ...cloudPayments,
+      onAttemptEvent: cloudRealtimeOnPaymentAttempt,
+      onLinkEvent: cloudRealtimeOnPaymentLink,
+    },
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,

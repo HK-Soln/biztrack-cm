@@ -10,6 +10,7 @@ import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { Business } from '@/entities/business.entity'
 import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
+import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import { PayableHandlerRegistry } from './payable-handlers'
 
 /**
@@ -28,6 +29,7 @@ export class PaymentLinkSettlementService {
     private readonly businesses: Repository<Business>,
     private readonly registry: PayableHandlerRegistry,
     private readonly dispatcher: NotificationDispatcher,
+    private readonly realtime: RealtimeService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('PaymentLinkSettlementService')
@@ -73,6 +75,19 @@ export class PaymentLinkSettlementService {
         ? PaymentLinkStatus.PAID
         : PaymentLinkStatus.PARTIALLY_PAID
     await this.links.update(link.id, { amountPaidMinor: newPaid, status })
+
+    // Live-push to the merchant's business channel so offline-first desktop screens (debt collection,
+    // deposit, the credit-sale QR at the till) refresh without a hard reload (Spec 08/09).
+    this.realtime.toBusiness(link.businessId, 'payment.link', {
+      paymentLinkId: link.id,
+      businessId: link.businessId,
+      payableType: link.payableType,
+      payableId: link.payableId,
+      status: status === PaymentLinkStatus.PAID ? 'PAID' : 'PARTIALLY_PAID',
+      amountPaidMinor: newPaid,
+      amountMinor: Number(link.amountMinor),
+      paidNowMinor: Number(attempt.amountMinor),
+    })
 
     void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
   }

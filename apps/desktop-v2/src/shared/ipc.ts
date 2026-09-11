@@ -51,6 +51,7 @@ export const IPC = {
   paymentsConfirmInStore: 'payments:confirm-in-store',
   paymentsFailInStore: 'payments:fail-in-store',
   paymentsAttemptEvent: 'payments:attempt-event',
+  paymentsLinkEvent: 'payments:link-event',
   paymentLinksCreate: 'payment-links:create',
   paymentLinksList: 'payment-links:list',
   paymentLinksCancel: 'payment-links:cancel',
@@ -369,6 +370,7 @@ import type {
   InStorePaymentInitiated as InStorePaymentInitiatedT,
   InStorePaymentStatus as InStorePaymentStatusT,
   PaymentAttemptRealtimeEvent as PaymentAttemptRealtimeEventT,
+  PaymentLinkRealtimeEvent as PaymentLinkRealtimeEventT,
   CreatePaymentLinkRequest as CreatePaymentLinkRequestT,
   PaymentLinkView as PaymentLinkViewT,
 } from '@biztrack/types'
@@ -388,6 +390,7 @@ export type {
   PaymentAttemptRealtimeEvent,
   CreatePaymentLinkRequest,
   PaymentLinkView,
+  PaymentLinkRealtimeEvent,
 } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
@@ -2035,6 +2038,8 @@ export interface BridgeApi {
     cancelLink: (id: string) => Promise<void>
     /** Finish collecting; leave the balance as the customer's credit (§4). */
     finalizeLink: (id: string) => Promise<PaymentLinkViewT>
+    /** Live payment-link settlements (Spec 08/09) — refresh offline-first screens + running paid total. */
+    onLinkEvent: (cb: (payload: PaymentLinkRealtimeEventT) => void) => () => void
   }
   sync: {
     /** Run a push+pull cycle now. */

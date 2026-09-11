@@ -17,6 +17,24 @@ export interface PaymentAttemptRealtimeEvent {
   providerRef?: string
 }
 
+/** A payment LINK settling (Spec 08/09) — a payment landed on a payable via /pay/{token}. Emitted to
+ *  the merchant's business channel so offline-first desktop screens (a debt collection, a deposit
+ *  top-up, a credit-sale QR at the till) refresh live instead of needing a hard reload, and the till
+ *  learns the running paid amount to set the credit portion. */
+export interface PaymentLinkRealtimeEvent {
+  paymentLinkId: string
+  businessId: string
+  payableType: string
+  payableId: string
+  /** Link lifecycle after this payment. */
+  status: 'PARTIALLY_PAID' | 'PAID'
+  /** Total collected on the link so far, and its target (minor units). */
+  amountPaidMinor: number
+  amountMinor: number
+  /** This payment's amount (minor units). */
+  paidNowMinor: number
+}
+
 /** Server → client business events: event name → payload. New modules add entries. */
 export interface RealtimeServerEvents {
   notification: NotificationEventPayload
@@ -25,6 +43,8 @@ export interface RealtimeServerEvents {
   'sync.changes.available': SyncChangesAvailableEvent
   // In-store provider payment settlement (Build 10) → the till's business channel.
   'payment.attempt': PaymentAttemptRealtimeEvent
+  // A payment link settling (Spec 08/09) → refresh offline-first desktop data live.
+  'payment.link': PaymentLinkRealtimeEvent
 }
 
 export type RealtimeServerEventName = keyof RealtimeServerEvents

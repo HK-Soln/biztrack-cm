@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import QRCode from 'qrcode'
 import { Button, Modal } from '@biztrack/ui/biztrack'
+import { minorToMajor } from '@biztrack/utils'
 import type { CreatePaymentLinkRequest, PaymentLinkView } from '@shared/ipc'
 import { dataClient } from '@/lib/data-client'
+import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 
@@ -26,11 +29,32 @@ export function PaymentLinkDialog({
   customerPhone?: string | null
 }) {
   const t = useT()
+  const money = useCurrency()
+  const qc = useQueryClient()
   const [link, setLink] = useState<PaymentLinkView | null>(null)
   const [qr, setQr] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // Live settlement (Spec 08/09): updated over the realtime channel while the QR is shown.
+  const [settle, setSettle] = useState<{
+    amountPaidMinor: number
+    amountMinor: number
+    done: boolean
+  } | null>(null)
   const createdRef = useRef(false)
+
+  // Subscribe to this link's settlements: show live "paid X of Y / ✓ paid" and refresh the offline-first
+  // data behind the dialog (debts / deposit / sale) so it reflects the payment without a hard reload.
+  useEffect(() => {
+    if (!link) return
+    const off = dataClient.payments.onLinkEvent((e) => {
+      if (e.paymentLinkId !== link.id) return
+      setSettle({ amountPaidMinor: e.amountPaidMinor, amountMinor: e.amountMinor, done: e.status === 'PAID' })
+      // Broad invalidate — only ACTIVE queries (the current screen) refetch; others just go stale.
+      void qc.invalidateQueries()
+    })
+    return off
+  }, [link, qc])
 
   // Create once per open (or reuse the existing live link — the API is idempotent per payable).
   // Depend ONLY on `open`: `payable` is a fresh object each parent render, so keying the effect on it
@@ -44,6 +68,7 @@ export function PaymentLinkDialog({
       setQr(null)
       setError(null)
       setCopied(false)
+      setSettle(null)
       return
     }
     if (createdRef.current) return
@@ -98,7 +123,26 @@ export function PaymentLinkDialog({
         </p>
       ) : (
         <div style={{ textAlign: 'center' }}>
-          {qr ? (
+          {settle ? (
+            <div
+              style={{
+                margin: '0 0 12px',
+                padding: '10px 12px',
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 600,
+                color: settle.done ? 'var(--success, #1a7f45)' : '#b26b00',
+                background: settle.done ? 'rgba(26,127,69,0.12)' : 'rgba(245,179,1,0.16)',
+              }}
+            >
+              {settle.done
+                ? t('paymentLink.livePaid')
+                : t('paymentLink.livePartial')
+                    .replace('{paid}', money.format(minorToMajor(settle.amountPaidMinor, link.currency)))
+                    .replace('{total}', money.format(minorToMajor(settle.amountMinor, link.currency)))}
+            </div>
+          ) : null}
+          {qr && !settle?.done ? (
             <img
               src={qr}
               alt=""
