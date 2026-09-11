@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import {
@@ -34,6 +35,7 @@ export class PaymentAttemptsService {
     private readonly onlineOrderEvents: Repository<OnlineOrderEvent>,
     private readonly orderChannel: OrderChannelService,
     private readonly realtime: RealtimeService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   findByProviderRef(businessId: string, providerRef: string): Promise<PaymentAttempt | null> {
@@ -90,6 +92,13 @@ export class PaymentAttemptsService {
    *    payment_attempt_id) — TODO(build 10); attempt.sale_id is the seam.
    */
   private async applyDownstreamEffects(attempt: PaymentAttempt): Promise<void> {
+    // Payment link (Spec 08): a link attempt (paymentLinkId set) settles its payable via the lazily
+    // resolved PaymentLinkSettlementService — ModuleRef avoids the module cycle (PaymentLinks imports
+    // Payments). The link's own token channel/poll carries status to the public pay page.
+    if (attempt.paymentLinkId) {
+      if (attempt.status === PaymentAttemptStatus.CONFIRMED) await this.settlePaymentLink(attempt)
+      return
+    }
     if (attempt.onlineOrderId) {
       if (attempt.status === PaymentAttemptStatus.CONFIRMED) await this.settleOnlineOrder(attempt)
       else if (attempt.status === PaymentAttemptStatus.FAILED)
@@ -129,6 +138,23 @@ export class PaymentAttemptsService {
       reason,
       providerRef: attempt.providerRef ?? undefined,
     })
+  }
+
+  /** Settle a payment-link attempt via the lazily-resolved PaymentLinkSettlementService (Spec 08).
+   *  Lazy `moduleRef.get(..., {strict:false})` avoids the module cycle; a missing provider (module not
+   *  registered) is a warned no-op rather than a crash in the settle path. */
+  private async settlePaymentLink(attempt: PaymentAttempt): Promise<void> {
+    try {
+      const sink = this.moduleRef.get<{ settle(a: PaymentAttempt): Promise<void> }>(
+        'PaymentLinkSettlementService',
+        { strict: false },
+      )
+      await sink.settle(attempt)
+    } catch (error) {
+      this.logger.warn(
+        `Payment-link settlement unavailable for attempt ${attempt.id}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
 
   /**

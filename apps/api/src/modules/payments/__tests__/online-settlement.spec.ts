@@ -21,12 +21,15 @@ function makeService(opts: {
   }
   const orderChannel = { emitPaymentStatus: jest.fn() }
   const realtime = { toBusiness: jest.fn(), toUser: jest.fn(), toDevice: jest.fn() }
+  // ModuleRef.get returns a no-op settlement sink (no payment_link_id attempts in these tests).
+  const moduleRef = { get: jest.fn(() => ({ settle: jest.fn() })) }
   const service = new PaymentAttemptsService(
     attempts as never,
     onlineOrders as never,
     onlineOrderEvents as never,
     orderChannel as never,
     realtime as never,
+    moduleRef as never,
   )
   return { service, attempts, onlineOrders, onlineOrderEvents, orderChannel, realtime }
 }

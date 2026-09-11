@@ -6,12 +6,19 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { Debt } from '@/entities/debt.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
+import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
+import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { Business } from '@/entities/business.entity'
 import { PaymentsModule } from '@/modules/payments/payments.module'
+import { SalesModule } from '@/modules/sales/sales.module'
+import { DebtsModule } from '@/modules/debts/debts.module'
+import { DepositsModule } from '@/modules/savings/savings.module'
+import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { PaymentLinksController } from './payment-links.controller'
 import { PublicPaymentLinkController } from './public-payment-link.controller'
 import { PaymentLinkService } from './payment-link.service'
 import { PublicPaymentLinkService } from './public-payment-link.service'
+import { PaymentLinkSettlementService } from './payment-link-settlement.service'
 import {
   DebtPayableHandler,
   DepositPayableHandler,
@@ -31,23 +38,33 @@ import {
       PaymentLink,
       Sale,
       OnlineOrder,
+      OnlineOrderEvent,
       Debt,
       DebtPayment,
       CustomerDeposit,
+      PaymentAttempt,
       Business,
     ]),
     PaymentsModule,
+    SalesModule,
+    DebtsModule,
+    DepositsModule,
+    NotificationsModule,
   ],
   controllers: [PaymentLinksController, PublicPaymentLinkController],
   providers: [
     PaymentLinkService,
     PublicPaymentLinkService,
+    PaymentLinkSettlementService,
+    // String-token alias so PaymentAttemptsService (PaymentsModule) can resolve the sink lazily via
+    // ModuleRef without importing this module (the reverse import would be a cycle).
+    { provide: 'PaymentLinkSettlementService', useExisting: PaymentLinkSettlementService },
     PayableHandlerRegistry,
     SalePayableHandler,
     DebtPayableHandler,
     OnlineOrderPayableHandler,
     DepositPayableHandler,
   ],
-  exports: [PaymentLinkService, PayableHandlerRegistry],
+  exports: [PaymentLinkService, PayableHandlerRegistry, PaymentLinkSettlementService],
 })
 export class PaymentLinksModule {}
