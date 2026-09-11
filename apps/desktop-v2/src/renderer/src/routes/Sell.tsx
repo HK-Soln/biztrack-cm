@@ -8,6 +8,7 @@ import { evaluateDiscountAuthorization, majorToMinor } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
 import { toSaleApiBody } from '@/lib/cloud-sales'
 import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
+import { PayOnlineAmountDialog } from '@/components/payments/PayOnlineAmountDialog'
 import { CopyLinkRow } from '@/components/payments/CopyLinkRow'
 import { errorMessage } from '@/lib/error'
 import { requestManagerStepUp } from '@/stores/step-up.store'
@@ -297,6 +298,10 @@ export function Sell() {
   // "Pay online" → a SALE_DRAFT intent: the sale is created on the server only when the customer pays,
   // with the real tender (no premature credit sale). Holds the sale body + expected amount for the QR.
   const [saleDraft, setSaleDraft] = useState<{ sale: unknown; amountMinor: number } | null>(null)
+  // v2: ask how much of the total the customer will pay online (the rest → credit sale).
+  const [payOnlineOpen, setPayOnlineOpen] = useState(false)
+  const [payOnlineAmount, setPayOnlineAmount] = useState(0)
+  const [custFromPayOnline, setCustFromPayOnline] = useState(false)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
   const [serialPick, setSerialPick] = useState<SerialTarget | null>(null)
@@ -915,6 +920,10 @@ export function Sell() {
               setCustFromPay(false)
               setPayOpen(true)
             }
+            if (custFromPayOnline) {
+              setCustFromPayOnline(false)
+              setPayOnlineOpen(true)
+            }
           }}
           onPick={(c) => {
             setCustomer(c)
@@ -923,6 +932,10 @@ export function Sell() {
               setCustFromPay(false)
               setPayOpen(true)
             }
+            if (custFromPayOnline) {
+              setCustFromPayOnline(false)
+              setPayOnlineOpen(true)
+            }
           }}
           onWalkIn={() => {
             setCustomer(null)
@@ -930,6 +943,10 @@ export function Sell() {
             if (custFromPay) {
               setCustFromPay(false)
               setPayOpen(true)
+            }
+            if (custFromPayOnline) {
+              setCustFromPayOnline(false)
+              setPayOnlineOpen(true)
             }
           }}
         />
@@ -958,13 +975,34 @@ export function Sell() {
             void submitSale(payments, due)
           }}
           onPayOnline={() => {
-            // Hand the customer a pay.[domain] QR for the FULL cart amount. No sale is created yet —
-            // the server materializes the real card/MoMo sale once they've paid, then it syncs down.
+            // Ask how much the customer will pay online (full → plain card/MoMo sale; less → the rest is
+            // a credit sale, which needs a customer). The sale materializes on payment (SALE_DRAFT).
             setSaleError(null)
             setPayOpen(false)
+            setPayOnlineAmount(calc.total)
+            setPayOnlineOpen(true)
+          }}
+        />
+      ) : null}
+
+      {payOnlineOpen ? (
+        <PayOnlineAmountDialog
+          open
+          total={calc.total}
+          amount={payOnlineAmount}
+          onAmountChange={setPayOnlineAmount}
+          customerName={customer?.name ?? null}
+          onPickCustomer={() => {
+            setPayOnlineOpen(false)
+            setCustFromPayOnline(true)
+            setCustOpen(true)
+          }}
+          onClose={() => setPayOnlineOpen(false)}
+          onConfirm={(amount) => {
+            setPayOnlineOpen(false)
             setSaleDraft({
               sale: toSaleApiBody(buildInput([], null)),
-              amountMinor: majorToMinor(calc.total, 'XAF'),
+              amountMinor: majorToMinor(amount, 'XAF'),
             })
           }}
         />
