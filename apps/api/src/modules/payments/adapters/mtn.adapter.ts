@@ -175,6 +175,12 @@ export class MtnAdapter implements PaymentProviderAdapter {
     const currency = credentials.environment === 'production' ? req.currency : 'EUR'
     const amount = String(minorToMajor(req.amountMinor, req.currency))
 
+    // MoMo rejects a non-ASCII externalId (e.g. a customer name with accents, or our "—" separator) with
+    // a 400. Sanitize: externalId to a strict token; messages to printable ASCII.
+    const externalId =
+      (req.reference || 'PAYMENT').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 60) || 'PAYMENT'
+    const message = req.reference.replace(/[^\x20-\x7E]/g, '').trim().slice(0, 160) || 'Payment'
+
     const res = await fetch(`${base}/collection/v1_0/requesttopay`, {
       method: 'POST',
       headers: {
@@ -186,10 +192,10 @@ export class MtnAdapter implements PaymentProviderAdapter {
       body: JSON.stringify({
         amount,
         currency,
-        externalId: req.reference,
+        externalId,
         payer: { partyIdType: 'MSISDN', partyId: msisdn },
-        payerMessage: `Payment ${req.reference}`.slice(0, 160),
-        payeeNote: req.reference.slice(0, 160),
+        payerMessage: `Payment ${message}`.slice(0, 160),
+        payeeNote: message,
       }),
     })
     if (res.status !== 202) {

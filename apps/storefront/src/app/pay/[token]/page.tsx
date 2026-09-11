@@ -23,9 +23,18 @@ export default async function PayLinkPage({
   const link = await getPaymentLink(token)
   if (!link) notFound()
 
+  // The storefront design tokens + component classes are scoped under `.store` (a per-store wrapper the
+  // (store) layout adds). The pay page lives in the ROOT layout, so give it its own `.store` scope to
+  // pick up the theme; it carries no shop, so use the default brand + light theme.
   return (
-    <div className="wrap" style={{ maxWidth: 520, margin: '0 auto', padding: '32px 16px' }}>
-      <PayLinkView token={token} link={link} preferredMethod={method} />
+    <div
+      className="store"
+      data-theme="light"
+      style={{ minHeight: '100vh', background: 'var(--bg, #f5f6f8)' }}
+    >
+      <div className="wrap" style={{ maxWidth: 520, margin: '0 auto', padding: '32px 16px' }}>
+        <PayLinkView token={token} link={link} preferredMethod={method} />
+      </div>
     </div>
   )
 }
