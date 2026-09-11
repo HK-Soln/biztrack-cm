@@ -44,6 +44,10 @@ export class PaymentReconciliationService {
       where: {
         status: PaymentAttemptStatus.CONFIRMED,
         saleId: IsNull(),
+        // A payment-LINK attempt (debt / deposit / order collection) legitimately has no sale — it
+        // settles through its link, not the hold-the-cart till flow. Only true in-store attempts (no
+        // paymentLinkId) can be "money in, no sale."
+        paymentLinkId: IsNull(),
         initiationType: In([
           PaymentAttemptInitiationType.LINK,
           PaymentAttemptInitiationType.USSD_PUSH,

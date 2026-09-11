@@ -8,6 +8,7 @@ import { evaluateDiscountAuthorization } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
 import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
 import { CopyLinkRow } from '@/components/payments/CopyLinkRow'
+import { errorMessage } from '@/lib/error'
 import { requestManagerStepUp } from '@/stores/step-up.store'
 import { useSessionStore } from '@/stores/session.store'
 import { queryKeys } from '@/lib/query'
@@ -293,6 +294,7 @@ export function Sell() {
   const [payOpen, setPayOpen] = useState(false)
   // "Pay online" was chosen → auto-open the payment link/QR on the success screen.
   const [autoLink, setAutoLink] = useState(false)
+  const [saleError, setSaleError] = useState<string | null>(null)
   const [done, setDone] = useState<LocalSaleDetail | null>(null)
   const [variantPick, setVariantPick] = useState<LocalProduct | null>(null)
   const [serialPick, setSerialPick] = useState<SerialTarget | null>(null)
@@ -750,8 +752,15 @@ export function Sell() {
   const checkout = useMutation({
     mutationFn: (input: SaleInput) => dataClient.sales.create(input),
     onSuccess: (sale) => {
+      setSaleError(null)
       setDone(sale)
       setPayOpen(false)
+    },
+    onError: (e) => {
+      // Was silent before — a failed local create (e.g. a full-credit "Pay online" sale for a walk-in)
+      // left the cashier with no feedback. Surface it and clear the auto-link intent.
+      setAutoLink(false)
+      setSaleError(errorMessage(e))
     },
   })
 
@@ -944,10 +953,15 @@ export function Sell() {
             setCustOpen(true)
           }}
           busy={checkout.isPending}
-          onConfirm={(payments, due) => void submitSale(payments, due)}
+          error={saleError}
+          onConfirm={(payments, due) => {
+            setSaleError(null)
+            void submitSale(payments, due)
+          }}
           onPayOnline={() => {
             // Post the whole cart as a credit sale, then auto-open the pay.[domain] link/QR on the
             // success screen; WS tracks how much the customer pays, the rest stays credit.
+            setSaleError(null)
             setAutoLink(true)
             void submitSale([], null)
           }}
@@ -1953,6 +1967,7 @@ function PaymentModal({
   onPickCustomer,
   onConfirm,
   onPayOnline,
+  error,
   busy,
 }: {
   total: number
@@ -1969,6 +1984,7 @@ function PaymentModal({
   /** Post the sale as a credit sale and hand the customer a pay.[domain] link/QR (they pick the
    *  method + pay themselves; WS tracks how much lands, the rest stays credit). */
   onPayOnline: () => void
+  error?: string | null
   busy: boolean
 }) {
   const t = useT()
@@ -2780,6 +2796,20 @@ function PaymentModal({
                   </div>
                 ) : null}
               </div>
+              {error ? (
+                <div
+                  style={{
+                    color: 'var(--danger)',
+                    background: 'var(--danger-soft, rgba(220,38,38,0.08))',
+                    borderRadius: 10,
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    marginBottom: 10,
+                  }}
+                >
+                  {error}
+                </div>
+              ) : null}
               <button
                 type="button"
                 className="pm-confirm"
@@ -2788,7 +2818,8 @@ function PaymentModal({
               >
                 {buttonLabel}
               </button>
-              {!chargeSpec && online ? (
+              {/* Pay online posts a CREDIT sale, so it needs a customer to owe the balance. */}
+              {!chargeSpec && online && !isWalkIn ? (
                 <button
                   type="button"
                   className="pm-cancel"
