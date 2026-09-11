@@ -1566,7 +1566,9 @@ export class SalesService {
             mobileMoneyReference: input.mobileMoneyReference?.trim() || null,
             kind: SalePaymentKind.PAYMENT,
             recordedAt: now,
-            recordedById: user.sub,
+            // Empty for a system/guest actor (a payment-link settlement with no user) → NULL, since
+            // recorded_by_id is a uuid column that rejects an empty string.
+            recordedById: user.sub || null,
             note: input.note?.trim() || null,
           }),
         )
@@ -1587,7 +1589,7 @@ export class SalesService {
           method: input.method,
           mobileMoneyReference: input.mobileMoneyReference ?? null,
           paymentDate: input.paymentDate,
-          recordedById: user.sub,
+          recordedById: user.sub || null,
         })
       })
       return this.findById(id, businessId)

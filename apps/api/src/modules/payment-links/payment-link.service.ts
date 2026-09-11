@@ -31,11 +31,11 @@ export class PaymentLinkService {
     private readonly registry: PayableHandlerRegistry,
     private readonly routing: PaymentRoutingService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   async create(
     businessId: string,
-    userId: string,
+    userId: string | null,
     dto: CreatePaymentLinkRequest,
   ): Promise<PaymentLinkView> {
     const handler = this.registry.get(dto.payableType)
@@ -87,7 +87,9 @@ export class PaymentLinkService {
         expiresAt,
         label: dto.label?.trim() || resolved.label,
         customerId: resolved.customerId,
-        createdBy: userId,
+        // NULL for a guest/system creator (e.g. online checkout) — created_by is a uuid column, and an
+        // empty string is an invalid uuid (this is what made checkout link-creation throw → mode:'self').
+        createdBy: userId || null,
       }),
     )
     return this.toView(link)

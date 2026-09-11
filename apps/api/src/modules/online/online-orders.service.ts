@@ -316,22 +316,24 @@ export class OnlineOrdersService {
       void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
 
       // Decide how the storefront proceeds to payment (see CheckoutPayment.mode). Unified flow
-      // (Spec 09): when a provider method is routable, create a payment link for the order and send the
-      // customer to the single /pay/{token} page (method pre-selected, switchable). Best-effort — if the
-      // link can't be created the order still stands and we fall back to the legacy self page.
+      // (Spec 09): a non-COD (online) choice ALWAYS goes to the single /pay/{token} page, where the
+      // customer picks/switches the actual method — so we just mint a link for the order. Best-effort:
+      // if the link can't be created (e.g. no provider routed), the order still stands and the customer
+      // sees the order-confirmed page; the real error is logged so it isn't silently swallowed.
       let payment: CheckoutPayment = { mode: 'none' }
       if (isProviderPayment) {
-        const mode = await this.paymentInitiation.resolveOnlinePaymentMode(store.businessId, method)
-        if (mode === 'redirect' || mode === 'self') {
-          try {
-            const link = await this.paymentLinks.create(store.businessId, '', {
-              payableType: PayableType.ONLINE_ORDER,
-              payableId: order.id,
-            })
-            payment = { mode: 'link', token: link.token, method }
-          } catch {
-            payment = { mode: 'self' }
-          }
+        try {
+          const link = await this.paymentLinks.create(store.businessId, '', {
+            payableType: PayableType.ONLINE_ORDER,
+            payableId: order.id,
+          })
+          payment = { mode: 'link', token: link.token, method }
+        } catch (error) {
+          this.logger.warn('Checkout: could not create a payment link for the order', 'OnlineOrdersService', {
+            orderId: order.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          payment = { mode: 'none' }
         }
       }
 

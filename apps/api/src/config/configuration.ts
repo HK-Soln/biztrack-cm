@@ -127,6 +127,10 @@ const envSchema = z.object({
   MTN_MOMO_CALLBACK_ENABLED: z
     .preprocess(normalizeEnvString, z.enum(['true', 'false']))
     .default('false'),
+
+  // The public /pay host (e.g. https://pay.example.com) the shareable payment-link URL is built from.
+  // Optional so the app boots without it; payUrl falls back to a relative /pay/{token} when unset.
+  PAYMENT_LINK_BASE_URL: z.preprocess(normalizeEnvString, z.string().optional()),
 })
 
 export type AppConfig = z.infer<typeof envSchema>
