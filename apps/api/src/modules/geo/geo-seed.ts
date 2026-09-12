@@ -76,7 +76,10 @@ export const GEO_SEED: GeoSeedCountry[] = [
     regions: [
       { name: 'Abu Dhabi', cities: ['Abu Dhabi', 'Al Ain', 'Madinat Zayed'] },
       { name: 'Dubai', cities: ['Dubai'] },
-      { name: 'Sharjah', cities: ['Sharjah', 'Khor Fakkan', 'Kalba'] },
+      {
+        name: 'Sharjah',
+        cities: ['Sharjah', 'Al Khan', 'Al Nahda', 'Muweillah', 'Khor Fakkan', 'Kalba'],
+      },
       { name: 'Ajman', cities: ['Ajman'] },
       { name: 'Umm Al Quwain', cities: ['Umm Al Quwain'] },
       { name: 'Ras Al Khaimah', cities: ['Ras Al Khaimah'] },
