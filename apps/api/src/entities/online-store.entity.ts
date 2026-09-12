@@ -87,6 +87,31 @@ export class OnlineStore extends BaseEntity {
   @Column({ name: 'payment_card', default: false })
   paymentCard!: boolean
 
+  // ---- Prepayments / partial payment (Spec 10 ②) ----
+  /** Allow a customer to pay a deposit online and the rest on delivery. */
+  @Column({ name: 'allow_partial_payment', default: false })
+  allowPartialPayment!: boolean
+
+  /** Minimum deposit as a % of the order total (the customer may pay more, up to the full amount). */
+  @Column({ name: 'partial_min_percent', type: 'int', default: 50 })
+  partialMinPercent!: number
+
+  /** The deposit option only appears for orders whose total is at least this amount. */
+  @Column({ name: 'partial_min_order_amount', type: 'int', default: 0 })
+  partialMinOrderAmount!: number
+
+  /** When a deposit applies to an order, HIDE full cash-on-delivery so the deposit can't be bypassed. */
+  @Column({ name: 'deposit_required', default: false })
+  depositRequired!: boolean
+
+  /** Cash-on-delivery is unavailable for orders below this amount (0 = no floor). */
+  @Column({ name: 'cod_min_order_amount', type: 'int', default: 0 })
+  codMinOrderAmount!: number
+
+  /** Cash-on-delivery is unavailable for orders above this amount (null = no cap). */
+  @Column({ name: 'cod_max_order_amount', type: 'int', nullable: true })
+  codMaxOrderAmount?: number | null
+
   // ---- Fulfilment (delivery / pickup) ----
   @Column({ name: 'offer_delivery', default: true })
   offerDelivery!: boolean

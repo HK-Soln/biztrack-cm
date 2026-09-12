@@ -10,6 +10,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   Min,
   MaxLength,
 } from 'class-validator'
@@ -188,6 +189,45 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @IsOptional()
   @IsBoolean()
   paymentCard?: boolean
+
+  @ApiPropertyOptional({ description: 'Allow a deposit online + the rest on delivery.' })
+  @IsOptional()
+  @IsBoolean()
+  allowPartialPayment?: boolean
+
+  @ApiPropertyOptional({ description: 'Minimum deposit as a % of the order total (1–100).' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  partialMinPercent?: number
+
+  @ApiPropertyOptional({ description: 'Deposit option only shows for orders ≥ this amount.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  partialMinOrderAmount?: number
+
+  @ApiPropertyOptional({ description: 'When a deposit applies, hide full cash-on-delivery.' })
+  @IsOptional()
+  @IsBoolean()
+  depositRequired?: boolean
+
+  @ApiPropertyOptional({ description: 'No cash-on-delivery below this order amount.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  codMinOrderAmount?: number
+
+  @ApiPropertyOptional({ description: 'No cash-on-delivery above this order amount (null = no cap).' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  codMaxOrderAmount?: number | null
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -128,6 +128,14 @@ export class OnlineStoreService {
         paymentMtnMomo: dto.paymentMtnMomo ?? store.paymentMtnMomo,
         paymentOrangeMoney: dto.paymentOrangeMoney ?? store.paymentOrangeMoney,
         paymentCard: dto.paymentCard ?? store.paymentCard,
+        // Prepayments / partial payment + COD eligibility (Spec 10 ②)
+        allowPartialPayment: dto.allowPartialPayment ?? store.allowPartialPayment,
+        partialMinPercent: dto.partialMinPercent ?? store.partialMinPercent,
+        partialMinOrderAmount: dto.partialMinOrderAmount ?? store.partialMinOrderAmount,
+        depositRequired: dto.depositRequired ?? store.depositRequired,
+        codMinOrderAmount: dto.codMinOrderAmount ?? store.codMinOrderAmount,
+        codMaxOrderAmount:
+          dto.codMaxOrderAmount === undefined ? store.codMaxOrderAmount : dto.codMaxOrderAmount,
         // Fulfilment (delivery / pickup)
         offerDelivery: dto.offerDelivery ?? store.offerDelivery,
         offerPickup: dto.offerPickup ?? store.offerPickup,
@@ -317,6 +325,12 @@ export class OnlineStoreService {
         mtnMomo: store.paymentMtnMomo,
         orangeMoney: store.paymentOrangeMoney,
         card: store.paymentCard,
+        allowPartialPayment: store.allowPartialPayment,
+        partialMinPercent: store.partialMinPercent,
+        partialMinOrderAmount: store.partialMinOrderAmount,
+        depositRequired: store.depositRequired,
+        codMinOrderAmount: store.codMinOrderAmount,
+        codMaxOrderAmount: store.codMaxOrderAmount ?? null,
       },
       fulfilment: {
         offerDelivery: store.offerDelivery,

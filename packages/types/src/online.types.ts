@@ -33,6 +33,13 @@ export interface OnlineStore {
   paymentMtnMomo: boolean
   paymentOrangeMoney: boolean
   paymentCard: boolean
+  // Prepayments / partial payment + COD eligibility (Spec 10 ②).
+  allowPartialPayment: boolean
+  partialMinPercent: number
+  partialMinOrderAmount: number
+  depositRequired: boolean
+  codMinOrderAmount: number
+  codMaxOrderAmount?: number | null
   // Fulfilment: which options the store offers + delivery economics/reach.
   offerDelivery: boolean
   offerPickup: boolean
@@ -96,6 +103,12 @@ export interface UpdateOnlineStoreRequest {
   paymentMtnMomo?: boolean
   paymentOrangeMoney?: boolean
   paymentCard?: boolean
+  allowPartialPayment?: boolean
+  partialMinPercent?: number
+  partialMinOrderAmount?: number
+  depositRequired?: boolean
+  codMinOrderAmount?: number
+  codMaxOrderAmount?: number | null
   offerDelivery?: boolean
   offerPickup?: boolean
   deliveryFee?: number
@@ -142,7 +155,19 @@ export interface OnlineStorePublishedConfig {
   showOutOfStock: boolean
   allowOrderNotes: boolean
   minOrderAmount: number | null
-  payment: { cashOnDelivery: boolean; mtnMomo: boolean; orangeMoney: boolean; card: boolean }
+  payment: {
+    cashOnDelivery: boolean
+    mtnMomo: boolean
+    orangeMoney: boolean
+    card: boolean
+    /** Prepayments / partial payment + COD eligibility (Spec 10 ②). */
+    allowPartialPayment: boolean
+    partialMinPercent: number
+    partialMinOrderAmount: number
+    depositRequired: boolean
+    codMinOrderAmount: number
+    codMaxOrderAmount: number | null
+  }
   fulfilment: {
     offerDelivery: boolean
     offerPickup: boolean
@@ -289,6 +314,16 @@ export interface PublicStore {
     orangeMoney: boolean
     card: boolean
   }
+  /** Prepayments / partial payment + COD eligibility (Spec 10 ②). Drives the checkout payment-mode
+   *  resolver (full online / deposit + rest on delivery / full COD). */
+  prepayment: {
+    allowPartialPayment: boolean
+    partialMinPercent: number
+    partialMinOrderAmount: number
+    depositRequired: boolean
+    codMinOrderAmount: number
+    codMaxOrderAmount: number | null
+  }
   fulfilment: {
     offerDelivery: boolean
     offerPickup: boolean
@@ -307,6 +342,44 @@ export interface PublicStore {
     title?: string | null
     description?: string | null
     ogImageUrl?: string | null
+  }
+}
+
+/** The payment modes a checkout may offer for a given order (Spec 10 ②). */
+export interface CheckoutPaymentEligibility {
+  /** Pay the full amount online now. */
+  fullOnline: boolean
+  /** Pay a deposit online now, the rest on delivery. */
+  deposit: boolean
+  /** Pay everything on delivery (cash). */
+  fullCod: boolean
+  /** Deposit amount bounds in major units (min = the configured %; max = the full total). */
+  depositMin: number
+  depositMax: number
+}
+
+/**
+ * Resolve which payment modes a checkout may offer, from the store's prepayment/COD config + the
+ * enabled methods + the order total (Spec 10 ②). A *required* deposit removes full COD so it can't be
+ * bypassed; a deposit is always paid online, so it needs an online method.
+ */
+export function resolveCheckoutPayment(
+  cfg: PublicStore['prepayment'],
+  methods: PublicStore['paymentMethods'],
+  orderTotal: number,
+): CheckoutPaymentEligibility {
+  const anyOnline = methods.mtnMomo || methods.orangeMoney || methods.card
+  const depositApplies = cfg.allowPartialPayment && orderTotal >= cfg.partialMinOrderAmount
+  const codWithinRange =
+    orderTotal >= cfg.codMinOrderAmount &&
+    (cfg.codMaxOrderAmount == null || orderTotal <= cfg.codMaxOrderAmount)
+  const depositMin = Math.min(Math.ceil((orderTotal * cfg.partialMinPercent) / 100), orderTotal)
+  return {
+    fullOnline: anyOnline,
+    deposit: depositApplies && anyOnline,
+    fullCod: methods.cashOnDelivery && codWithinRange && !(depositApplies && cfg.depositRequired),
+    depositMin,
+    depositMax: orderTotal,
   }
 }
 

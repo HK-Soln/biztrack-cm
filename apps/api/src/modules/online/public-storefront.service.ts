@@ -438,6 +438,14 @@ export class PublicStorefrontService {
         orangeMoney: config.payment.orangeMoney,
         card: config.payment.card,
       },
+      prepayment: {
+        allowPartialPayment: config.payment.allowPartialPayment ?? false,
+        partialMinPercent: config.payment.partialMinPercent ?? 50,
+        partialMinOrderAmount: config.payment.partialMinOrderAmount ?? 0,
+        depositRequired: config.payment.depositRequired ?? false,
+        codMinOrderAmount: config.payment.codMinOrderAmount ?? 0,
+        codMaxOrderAmount: config.payment.codMaxOrderAmount ?? null,
+      },
       fulfilment: {
         offerDelivery: config.fulfilment.offerDelivery,
         offerPickup: config.fulfilment.offerPickup,
