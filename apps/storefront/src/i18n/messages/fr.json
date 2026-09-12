@@ -350,7 +350,7 @@
   },
   "preview": {
     "banner": "Aperçu — configuration brouillon",
-    "bannerHint": "Ceci affiche vos modifications non publiées. Les commandes sont désactivées ici. Publiez pour mettre en ligne.",
-    "orderingDisabled": "Commandes désactivées en aperçu"
+    "bannerHint": "Ceci affiche vos modifications non publiées — parcourez et testez le parcours librement. La validation d’une vraie commande est désactivée. Publiez pour mettre en ligne.",
+    "orderingDisabled": "Validation de commande désactivée en aperçu"
   }
 }

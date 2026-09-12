@@ -81,14 +81,22 @@ export class PublicStorefrontController {
 
   @Get(':slug/cart/:sessionToken')
   @ApiOperation({ summary: 'Get the session cart' })
-  getCart(@Param('slug') slug: string, @Param('sessionToken') sessionToken: string) {
-    return this.orders.getCart(slug, sessionToken)
+  getCart(
+    @Param('slug') slug: string,
+    @Param('sessionToken') sessionToken: string,
+    @Query('preview') preview?: string,
+  ) {
+    return this.orders.getCart(slug, sessionToken, preview === '1')
   }
 
   @Post(':slug/cart/items')
   @ApiOperation({ summary: 'Add an item to the cart (creates the cart if needed)' })
-  addCartItem(@Param('slug') slug: string, @Body() dto: AddCartItemDto) {
-    return this.orders.addItem(slug, dto.sessionToken, dto)
+  addCartItem(
+    @Param('slug') slug: string,
+    @Body() dto: AddCartItemDto,
+    @Query('preview') preview?: string,
+  ) {
+    return this.orders.addItem(slug, dto.sessionToken, dto, preview === '1')
   }
 
   @Patch(':slug/cart/:sessionToken/items/:itemKey')
@@ -98,8 +106,9 @@ export class PublicStorefrontController {
     @Param('sessionToken') sessionToken: string,
     @Param('itemKey') itemKey: string,
     @Body() dto: UpdateCartItemDto,
+    @Query('preview') preview?: string,
   ) {
-    return this.orders.updateItem(slug, sessionToken, itemKey, dto.quantity)
+    return this.orders.updateItem(slug, sessionToken, itemKey, dto.quantity, preview === '1')
   }
 
   @Delete(':slug/cart/:sessionToken/items/:itemKey')
@@ -108,8 +117,9 @@ export class PublicStorefrontController {
     @Param('slug') slug: string,
     @Param('sessionToken') sessionToken: string,
     @Param('itemKey') itemKey: string,
+    @Query('preview') preview?: string,
   ) {
-    return this.orders.removeItem(slug, sessionToken, itemKey)
+    return this.orders.removeItem(slug, sessionToken, itemKey, preview === '1')
   }
 
   @Post(':slug/cart/:sessionToken/checkout')

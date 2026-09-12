@@ -70,7 +70,6 @@ export function ProductDetailView({
   const ts = useTranslations('shop')
   const add = useAddToCart(slug)
   const preview = usePreview()
-  const tpv = useTranslations('preview')
   const [variantId, setVariantId] = useState<string | undefined>(undefined)
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({})
   const [imgIndex, setImgIndex] = useState(0)
@@ -360,18 +359,13 @@ export function ProductDetailView({
               type="button"
               className="btn btn-primary btn-lg"
               style={{ flex: 1 }}
-              disabled={!canAdd || add.isPending || preview}
+              disabled={!canAdd || add.isPending}
               onClick={handleAdd}
             >
               {added ? IcCheck : IcCart}
-              {preview ? tpv('orderingDisabled') : addLabel}
+              {addLabel}
             </button>
           </div>
-          {preview ? (
-            <p style={{ color: 'var(--muted, #8a93a1)', marginTop: 10, fontSize: 13 }}>
-              {tpv('bannerHint')}
-            </p>
-          ) : null}
           {add.isError ? (
             <p style={{ color: 'var(--danger)', marginTop: 10, fontSize: 13 }}>
               {(add.error as Error).message}

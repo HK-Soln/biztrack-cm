@@ -89,7 +89,7 @@ export function CheckoutView({
         : null
   const { data: cart } = useQuery({
     queryKey: queryKeys.cart(slug, sessionToken ?? 'none'),
-    queryFn: () => getCart(slug, sessionToken as string),
+    queryFn: () => getCart(slug, sessionToken as string, preview),
     enabled: Boolean(sessionToken),
   })
 

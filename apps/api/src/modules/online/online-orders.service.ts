@@ -141,16 +141,25 @@ export class OnlineOrdersService {
 
   // ---- Cart ---------------------------------------------------------------
 
-  async getCart(slug: string, sessionToken: string): Promise<OnlineCartShape> {
-    const { store } = await this.requireStore(slug)
+  async getCart(
+    slug: string,
+    sessionToken: string,
+    preview = false,
+  ): Promise<OnlineCartShape> {
+    const { store } = await this.requireStore(slug, preview)
     const cart = await this.cartsRepo.findOne({
       where: { onlineStoreId: store.id, sessionToken },
     })
     return this.toCartShape(cart, sessionToken)
   }
 
-  async addItem(slug: string, sessionToken: string | undefined, dto: AddCartItemRequest) {
-    const { store } = await this.requireStore(slug)
+  async addItem(
+    slug: string,
+    sessionToken: string | undefined,
+    dto: AddCartItemRequest,
+    preview = false,
+  ) {
+    const { store } = await this.requireStore(slug, preview)
     const token = sessionToken?.trim() || crypto.randomUUID()
 
     const product = await this.productsRepo.findOne({
@@ -217,8 +226,14 @@ export class OnlineOrdersService {
     return this.toCartShape(saved, token)
   }
 
-  async updateItem(slug: string, sessionToken: string, itemKey: string, quantity: number) {
-    const cart = await this.requireCart(slug, sessionToken)
+  async updateItem(
+    slug: string,
+    sessionToken: string,
+    itemKey: string,
+    quantity: number,
+    preview = false,
+  ) {
+    const cart = await this.requireCart(slug, sessionToken, preview)
     const items = (cart.items ?? []).flatMap((item) => {
       if (cartItemKey(item) !== itemKey) return [item]
       if (quantity <= 0) return []
@@ -229,8 +244,8 @@ export class OnlineOrdersService {
     return this.toCartShape(saved, sessionToken)
   }
 
-  async removeItem(slug: string, sessionToken: string, itemKey: string) {
-    const cart = await this.requireCart(slug, sessionToken)
+  async removeItem(slug: string, sessionToken: string, itemKey: string, preview = false) {
+    const cart = await this.requireCart(slug, sessionToken, preview)
     cart.items = (cart.items ?? []).filter((item) => cartItemKey(item) !== itemKey)
     const saved = await this.cartsRepo.save(cart)
     return this.toCartShape(saved, sessionToken)
@@ -1170,19 +1185,29 @@ export class OnlineOrdersService {
    *  suspended / never-published store 404s, so carts and checkout can't run against a draft. */
   private async requireStore(
     slug: string,
+    preview = false,
   ): Promise<{ store: OnlineStore; config: OnlineStorePublishedConfig }> {
-    const published = await this.storeService.getPublishedStore(slug)
-    if (!published) {
+    // Preview walks the draft: cart operations work against the draft store (incl. one never
+    // published) so the merchant can preview the full checkout flow. Order creation stays blocked
+    // upstream (the checkout endpoint rejects preview=1).
+    const resolved = preview
+      ? await this.storeService.getDraftStore(slug)
+      : await this.storeService.getPublishedStore(slug)
+    if (!resolved) {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.online_store_not_found'),
         'ONLINE_STORE_NOT_FOUND',
       )
     }
-    return published
+    return resolved
   }
 
-  private async requireCart(slug: string, sessionToken: string): Promise<OnlineCart> {
-    const { store } = await this.requireStore(slug)
+  private async requireCart(
+    slug: string,
+    sessionToken: string,
+    preview = false,
+  ): Promise<OnlineCart> {
+    const { store } = await this.requireStore(slug, preview)
     const cart = await this.cartsRepo.findOne({ where: { onlineStoreId: store.id, sessionToken } })
     if (!cart) {
       throw new AppNotFoundException(

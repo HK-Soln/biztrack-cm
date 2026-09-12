@@ -160,8 +160,11 @@ export function getProduct(slug: string, productSlug: string, preview?: boolean)
   )
 }
 
-export function getCart(slug: string, sessionToken: string) {
-  return readJson<OnlineCart>(`${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}`)
+export function getCart(slug: string, sessionToken: string, preview?: boolean) {
+  return readJson<OnlineCart>(
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}`,
+    previewParam(preview),
+  )
 }
 
 export function getOrderTracking(slug: string, trackingToken: string) {
@@ -172,8 +175,10 @@ export function getOrderTracking(slug: string, trackingToken: string) {
 
 // ---- Mutations ------------------------------------------------------------
 
-export function addCartItem(slug: string, payload: AddCartItemRequest) {
-  return send<OnlineCart>('POST', `${storePath(slug)}/cart/items`, payload)
+const previewQs = (preview?: boolean) => (preview ? '?preview=1' : '')
+
+export function addCartItem(slug: string, payload: AddCartItemRequest, preview?: boolean) {
+  return send<OnlineCart>('POST', `${storePath(slug)}/cart/items${previewQs(preview)}`, payload)
 }
 
 export function updateCartItem(
@@ -181,18 +186,24 @@ export function updateCartItem(
   sessionToken: string,
   itemKey: string,
   quantity: number,
+  preview?: boolean,
 ) {
   return send<OnlineCart>(
     'PATCH',
-    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}${previewQs(preview)}`,
     { quantity },
   )
 }
 
-export function removeCartItem(slug: string, sessionToken: string, itemKey: string) {
+export function removeCartItem(
+  slug: string,
+  sessionToken: string,
+  itemKey: string,
+  preview?: boolean,
+) {
   return send<OnlineCart>(
     'DELETE',
-    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}${previewQs(preview)}`,
   )
 }
 

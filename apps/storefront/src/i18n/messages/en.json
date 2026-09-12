@@ -350,7 +350,7 @@
   },
   "preview": {
     "banner": "Preview — draft configuration",
-    "bannerHint": "This shows your unpublished changes. Ordering is disabled here. Publish to make it live.",
-    "orderingDisabled": "Ordering disabled in preview"
+    "bannerHint": "This shows your unpublished changes — browse and test the flow freely. Placing a real order is disabled. Publish to go live.",
+    "orderingDisabled": "Placing orders is disabled in preview"
   }
 }

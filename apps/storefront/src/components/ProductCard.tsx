@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import type { PublicProductListItem } from '@biztrack/types'
 import { useAddToCart } from '@/lib/use-cart'
-import { usePreview } from '@/lib/preview'
 
 const IcPlus = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -32,7 +31,6 @@ export function ProductCard({
 }) {
   const t = useTranslations('product')
   const add = useAddToCart(slug)
-  const preview = usePreview()
   const [added, setAdded] = useState(false)
 
   const detailHref = `${base}/products/${product.slug}`
@@ -91,7 +89,7 @@ export function ProductCard({
               type="button"
               className="add"
               onClick={handleAdd}
-              disabled={soldOut || add.isPending || preview}
+              disabled={soldOut || add.isPending}
               aria-label={t('addToCart')}
             >
               {added ? IcCheck : IcPlus}
