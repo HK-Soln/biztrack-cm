@@ -10,7 +10,7 @@ import {
   type OtherIncomeSummary,
   type OtherIncomeView,
 } from '@biztrack/types'
-import { AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { OtherIncome } from '@/entities/other-income.entity'
 import { IncomeCategory } from '@/entities/income-category.entity'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
@@ -136,6 +136,35 @@ export class IncomeService {
     }
   }
 
+  /** Create a business income category ("add a new category" on the Other Income page). */
+  async createCategory(
+    businessId: string,
+    dto: { name: string; color?: string; icon?: string },
+  ): Promise<IncomeCategoryView> {
+    const name = dto.name.trim()
+    if (!name) throw new AppBadRequestException('A category name is required.', 'INCOME_CATEGORY_NAME_REQUIRED')
+    const count = await this.categories.count({ where: { businessId } })
+    const category = await this.categories.save(
+      this.categories.create({
+        businessId,
+        name,
+        slug: this.slugify(name),
+        color: (dto.color?.trim() || '#64748B').toUpperCase(),
+        icon: dto.icon?.trim() ?? null,
+        sortOrder: 100 + count,
+      }),
+    )
+    return {
+      id: category.id,
+      businessId: category.businessId,
+      name: category.name,
+      slug: category.slug,
+      color: category.color,
+      icon: category.icon ?? null,
+      sortOrder: category.sortOrder,
+    }
+  }
+
   /** System (shared) + this business's income categories, ordered for display. */
   async listCategories(businessId: string): Promise<IncomeCategoryView[]> {
     const cats = await this.categories.find({
@@ -170,6 +199,122 @@ export class IncomeService {
     return { total: Number(row?.total ?? 0), currency: 'XAF' }
   }
 
+  /**
+   * Apply a synced other-income row from a desktop device (offline manual entry). Mirrors
+   * ExpensesService.upsertFromSync: last-write-wins is enforced by the caller; posting date is stamped
+   * once on first arrival and preserved on re-sync.
+   */
+  async upsertFromSync(
+    businessId: string,
+    id: string,
+    payload: {
+      categoryId: string
+      description: string
+      amount: number
+      incomeDate: string
+      recordedById?: string | null
+      fallbackRecordedById?: string | null
+      currency?: string | null
+      paymentMethod?: string | null
+      reference?: string | null
+      source?: string | null
+      sourceId?: string | null
+      note?: string | null
+      businessDate?: string | null
+      createdAt?: string
+    },
+    action: 'UPSERT' | 'DELETE',
+    recordUpdatedAt: Date,
+  ): Promise<void> {
+    const existing = await this.incomes.findOne({ where: { id, businessId }, withDeleted: true })
+
+    if (action === 'DELETE') {
+      if (existing)
+        await this.incomes.update(id, { deletedAt: recordUpdatedAt, updatedAt: recordUpdatedAt })
+      return
+    }
+
+    await this.resolveCategory(payload.categoryId, businessId)
+    const when = this.parseDate(payload.incomeDate)
+    const businessDate = await this.calendar.resolveForSync(businessId, when, payload.businessDate)
+    const posting = existing?.postingDate
+      ? {
+          postingDate: existing.postingDate,
+          isLateArrival: existing.isLateArrival,
+          originalPeriodId: existing.originalPeriodId ?? null,
+        }
+      : await this.postingDate.resolve(businessId, businessDate)
+
+    await this.incomes.save(
+      this.incomes.create({
+        id,
+        businessId,
+        categoryId: payload.categoryId,
+        recordedById: payload.recordedById ?? payload.fallbackRecordedById ?? null,
+        description: payload.description.trim(),
+        amount: this.round(payload.amount),
+        currency: payload.currency?.trim() || 'XAF',
+        paymentMethod: payload.paymentMethod ?? null,
+        reference: payload.reference ?? null,
+        source: payload.source ?? 'MANUAL',
+        sourceId: payload.sourceId ?? null,
+        note: payload.note ?? null,
+        date: when,
+        businessDate,
+        postingDate: posting.postingDate,
+        isLateArrival: posting.isLateArrival,
+        originalPeriodId: posting.originalPeriodId,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? existing?.createdAt ?? new Date(),
+        updatedAt: recordUpdatedAt,
+        deletedAt: null,
+      }),
+    )
+  }
+
+  /** Apply a synced income-category row (a business's own category created offline). System categories
+   *  (null businessId) are pull-only and rejected upstream. */
+  async upsertCategoryFromSync(
+    id: string,
+    businessId: string,
+    payload: {
+      name: string
+      color: string
+      icon?: string | null
+      sortOrder?: number | null
+      createdAt?: string
+      deletedAt?: string | null
+      isDeleted?: boolean
+    },
+    action: 'UPSERT' | 'DELETE',
+    recordUpdatedAt: Date,
+  ): Promise<void> {
+    const existing = await this.categories.findOne({ where: { id, businessId }, withDeleted: true })
+
+    if (action === 'DELETE' || payload.isDeleted) {
+      if (existing)
+        await this.categories.update(id, {
+          deletedAt: this.parseOptionalDate(payload.deletedAt) ?? new Date(),
+          updatedAt: recordUpdatedAt,
+        })
+      return
+    }
+
+    await this.categories.save(
+      this.categories.create({
+        id,
+        businessId,
+        name: payload.name.trim(),
+        slug: existing?.slug ?? this.slugify(payload.name),
+        color: payload.color.trim().toUpperCase(),
+        icon: payload.icon?.trim() ?? null,
+        sortOrder: payload.sortOrder ?? 0,
+        createdAt: this.parseOptionalDate(payload.createdAt) ?? existing?.createdAt ?? new Date(),
+        updatedAt: recordUpdatedAt,
+        deletedAt: null,
+      }),
+    )
+  }
+
   /** Resolve a category the business may use: one of its own or a system (shared) category. */
   async resolveCategory(categoryId: string, businessId: string): Promise<IncomeCategory> {
     const category = await this.categories.findOne({
@@ -202,5 +347,27 @@ export class IncomeService {
 
   private round(value: number): number {
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100
+  }
+
+  private parseDate(value: string): Date {
+    const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00.000Z` : value)
+    return isNaN(d.getTime()) ? new Date() : d
+  }
+
+  private parseOptionalDate(value?: string | null): Date | undefined {
+    if (!value) return undefined
+    const d = new Date(value)
+    return isNaN(d.getTime()) ? undefined : d
+  }
+
+  private slugify(name: string): string {
+    return (
+      name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 100) || 'income'
+    )
   }
 }

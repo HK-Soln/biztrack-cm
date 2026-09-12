@@ -13,6 +13,8 @@ import type {
   ExpenseCategorySyncRecord,
   ExpenseSyncPayload,
   ExpenseSyncRecord,
+  IncomeCategorySyncRecord,
+  OtherIncomeSyncRecord,
   IdDocumentType,
   InventoryAdjustmentSyncPayload,
   InventoryLevelSyncRecord,
@@ -95,6 +97,8 @@ import { Debt } from '@/entities/debt.entity'
 import { DebtPayment } from '@/entities/debt-payment.entity'
 import { ExpenseCategory } from '@/entities/expense-category.entity'
 import { Expense } from '@/entities/expense.entity'
+import { IncomeCategory } from '@/entities/income-category.entity'
+import { OtherIncome } from '@/entities/other-income.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
@@ -145,6 +149,7 @@ import { StorageService } from '@/modules/storage/storage.service'
 import { BarcodeService } from '@/modules/products/services/barcode.service'
 import { ExpenseCategoriesService } from '@/modules/expenses/services/expense-categories.service'
 import { ExpensesService } from '@/modules/expenses/services/expenses.service'
+import { IncomeService } from '@/modules/income/income.service'
 import { SlugService } from '@/modules/products/services/slug.service'
 import { SkuService } from '@/modules/products/services/sku.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
@@ -504,6 +509,10 @@ export class SyncService {
     private readonly expenseCategoriesRepo: Repository<ExpenseCategory>,
     @InjectRepository(Expense)
     private readonly expensesRepo: Repository<Expense>,
+    @InjectRepository(IncomeCategory)
+    private readonly incomeCategoriesRepo: Repository<IncomeCategory>,
+    @InjectRepository(OtherIncome)
+    private readonly otherIncomesRepo: Repository<OtherIncome>,
     @InjectRepository(InventoryLevel)
     private readonly inventoryLevelsRepo: Repository<InventoryLevel>,
     @InjectRepository(InventoryMovement)
@@ -558,6 +567,7 @@ export class SyncService {
     private readonly purchaseOrderItemsRepo: Repository<PurchaseOrderItem>,
     private readonly expenseCategoriesService: ExpenseCategoriesService,
     private readonly expensesService: ExpensesService,
+    private readonly incomeService: IncomeService,
     private readonly inventoryService: InventoryService,
     private readonly salesService: SalesService,
     private readonly savingsService: DepositsService,
@@ -744,6 +754,8 @@ export class SyncService {
         saleCharges,
         saleReturns,
         saleReturnItems,
+        incomeCategories,
+        otherIncomes,
       ] = await Promise.all([
         this.contactsRepo
           .createQueryBuilder('contact')
@@ -1047,6 +1059,24 @@ export class SyncService {
           .andWhere('reti.created_at <= :pulledAt', { pulledAt })
           .orderBy('reti.created_at', 'ASC')
           .getMany(),
+        // Income categories the business created (system categories are seeded on both sides).
+        this.incomeCategoriesRepo
+          .createQueryBuilder('ic')
+          .withDeleted()
+          .where('ic.business_id = :businessId', { businessId })
+          .andWhere('ic.updated_at > :since', { since })
+          .andWhere('ic.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('ic.updated_at', 'ASC')
+          .getMany(),
+        // Other income (manual entries + general-link/deposit-charge settlements booked server-side).
+        this.otherIncomesRepo
+          .createQueryBuilder('oi')
+          .withDeleted()
+          .where('oi.business_id = :businessId', { businessId })
+          .andWhere('oi.updated_at > :since', { since })
+          .andWhere('oi.updated_at <= :pulledAt', { pulledAt })
+          .orderBy('oi.updated_at', 'ASC')
+          .getMany(),
       ])
 
       const savingsData = await this.savingsService.findByBusiness(businessId, since, pulledAt)
@@ -1133,6 +1163,10 @@ export class SyncService {
         saleReturnItems: saleReturnItems.map((record) => this.toSaleReturnItemSyncRecord(record)),
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
+        incomeCategories: incomeCategories.map((record) =>
+          this.toIncomeCategorySyncRecord(record),
+        ),
+        otherIncomes: otherIncomes.map((record) => this.toOtherIncomeSyncRecord(record)),
         teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
         memberAuthCredentials: memberAuthCredentials.map((record) =>
           this.toMemberAuthCredentialSyncRecord(record),
@@ -1605,6 +1639,8 @@ export class SyncService {
       rfq: (b, o) => this.applyRfqOperation(b, o),
       purchase_order: (b, o) => this.applyPurchaseOrderOperation(b, o),
       expense: (b, o) => this.applyExpenseOperation(b, o),
+      income_category: (b, o) => this.applyIncomeCategoryOperation(b, o),
+      other_income: (b, o) => this.applyOtherIncomeOperation(b, o),
       savings: (b, o) => this.applySavingsAccountOperation(b, o),
       savings_transaction: (b, o) => this.applySavingsTransactionOperation(b, o),
       fiscal_year: () => this.applyFiscalYearOperation(),
@@ -3801,6 +3837,63 @@ export class SyncService {
     return { status: 'applied' }
   }
 
+  private async applyIncomeCategoryOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.incomeCategoriesRepo.findOne({
+      where: { id: operation.recordId },
+      withDeleted: true,
+    })
+
+    if (existing?.businessId === null) {
+      return { status: 'failed', errorMessage: 'System income categories are pull-only.' }
+    }
+    if (existing?.businessId && existing.businessId !== businessId) {
+      return { status: 'failed', errorMessage: 'Income category belongs to another business.' }
+    }
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    await this.incomeService.upsertCategoryFromSync(
+      operation.recordId,
+      businessId,
+      (operation.payload ?? {}) as never,
+      operation.action as 'UPSERT' | 'DELETE',
+      operation.recordUpdatedAt,
+    )
+
+    return { status: 'applied' }
+  }
+
+  private async applyOtherIncomeOperation(
+    businessId: string,
+    operation: SyncOperation,
+  ): Promise<BatchProcessingResult> {
+    const existing = await this.otherIncomesRepo.findOne({
+      where: { id: operation.recordId },
+      withDeleted: true,
+    })
+
+    if (existing?.businessId && existing.businessId !== businessId) {
+      return { status: 'failed', errorMessage: 'Other income belongs to another business.' }
+    }
+    if (existing && operation.recordUpdatedAt <= existing.updatedAt) {
+      return { status: 'conflict', resolution: 'server_wins' }
+    }
+
+    await this.incomeService.upsertFromSync(
+      businessId,
+      operation.recordId,
+      (operation.payload ?? {}) as never,
+      operation.action as 'UPSERT' | 'DELETE',
+      operation.recordUpdatedAt,
+    )
+
+    return { status: 'applied' }
+  }
+
   private async applySavingsAccountOperation(
     businessId: string,
     operation: SyncOperation,
@@ -4886,6 +4979,47 @@ export class SyncService {
     }
   }
 
+  private toIncomeCategorySyncRecord(record: IncomeCategory): IncomeCategorySyncRecord {
+    return {
+      id: record.id,
+      businessId: record.businessId ?? null,
+      name: record.name,
+      slug: record.slug,
+      color: record.color,
+      icon: record.icon ?? null,
+      sortOrder: record.sortOrder,
+      isSystem: !record.businessId,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: Boolean(record.deletedAt),
+    }
+  }
+
+  private toOtherIncomeSyncRecord(record: OtherIncome): OtherIncomeSyncRecord {
+    const date = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : String(record.date)
+    return {
+      id: record.id,
+      businessId: record.businessId,
+      categoryId: record.categoryId,
+      recordedById: record.recordedById ?? null,
+      description: record.description,
+      amount: record.amount,
+      currency: record.currency ?? null,
+      paymentMethod: record.paymentMethod ?? null,
+      reference: record.reference ?? null,
+      source: record.source,
+      sourceId: record.sourceId ?? null,
+      note: record.note ?? null,
+      incomeDate: date,
+      businessDate: record.businessDate ?? null,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt?.toISOString() ?? null,
+      isDeleted: Boolean(record.deletedAt),
+    }
+  }
+
   private toTeamMemberSyncRecord(record: BusinessMember): TeamMemberSyncRecord {
     return {
       id: record.id,
@@ -5445,7 +5579,7 @@ export class SyncService {
       }
     }
 
-    if (entity === 'expense') {
+    if (entity === 'expense' || entity === 'other_income') {
       return {
         ...payload,
         fallbackRecordedById:
