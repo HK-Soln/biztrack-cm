@@ -627,6 +627,7 @@ export interface ExpenseCategorySyncRecord extends SyncRecord {
   color: string
   icon?: string | null
   sortOrder: number
+  isRecurring: boolean
   isSystem: boolean
   createdAt: string
 }
@@ -1111,6 +1112,7 @@ export interface ExpenseCategorySyncPayload {
   color: string
   icon?: string | null
   sortOrder?: number | null
+  isRecurring?: boolean
   createdAt: string
   updatedAt?: string
   deletedAt?: string | null

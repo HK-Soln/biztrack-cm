@@ -54,6 +54,7 @@ import {
 import { RolesService } from '@/modules/roles/roles.service'
 import { AttributeGroupsService } from '@/modules/products/services/attribute-groups.service'
 import { IncomeService } from '@/modules/income/income.service'
+import { ExpenseCategoriesService } from '@/modules/expenses/services/expense-categories.service'
 import { FiscalYearsService } from '@/modules/fiscal/fiscal-years.service'
 
 @Injectable()
@@ -64,6 +65,7 @@ export class BusinessService {
     private rolesService: RolesService,
     private attributeGroupsService: AttributeGroupsService,
     private incomeService: IncomeService,
+    private expenseCategoriesService: ExpenseCategoriesService,
     private fiscalYears: FiscalYearsService,
     private i18n: I18nService<I18nTranslations>,
     private redis: RedisService,
@@ -116,6 +118,7 @@ export class BusinessService {
       // Seed the default per-business income categories (Delivery fees, Deposit charges, Miscellaneous).
       // Error-swallowing so it never blocks business creation.
       await this.incomeService.seedDefaults(business.id).catch(() => undefined)
+      await this.expenseCategoriesService.seedDefaults(business.id).catch(() => undefined)
       // Generate the current + next fiscal year eagerly (BIZ-5.2). Error-swallowing so a
       // generation hiccup never blocks business creation.
       await this.fiscalYears.ensureUpcoming(business.id).catch(() => undefined)

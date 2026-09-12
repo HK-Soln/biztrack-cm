@@ -717,6 +717,7 @@ export class SyncService {
       // business created before per-business seeding (or one whose seed migration hasn't run) still gets
       // them on its next sync. Idempotent + cheap (no-op once any category exists); best-effort.
       await this.incomeService.seedDefaults(businessId).catch(() => undefined)
+      await this.expenseCategoriesService.seedDefaults(businessId).catch(() => undefined)
       // Date fields may arrive as a Date (timestamp transformer) or a string (date column).
       const iso = (v: unknown): string | null =>
         v == null ? null : v instanceof Date ? v.toISOString() : String(v)
@@ -792,13 +793,13 @@ export class SyncService {
           .andWhere('category.updated_at <= :pulledAt', { pulledAt })
           .orderBy('category.updated_at', 'ASC')
           .getMany(),
+        // Expense categories are now a small per-business reference set (like income categories):
+        // return the FULL set every pull (not cursor-filtered) so a device that missed them once
+        // always recovers them. Idempotent upsert on the client.
         this.expenseCategoriesRepo
           .createQueryBuilder('category')
           .withDeleted()
-          .where('(category.business_id IS NULL OR category.business_id = :businessId)', {
-            businessId,
-          })
-          .andWhere('category.updated_at > :since', { since })
+          .where('category.business_id = :businessId', { businessId })
           .andWhere('category.updated_at <= :pulledAt', { pulledAt })
           .orderBy('category.updated_at', 'ASC')
           .getMany(),
@@ -4684,6 +4685,7 @@ export class SyncService {
       color: record.color,
       icon: record.icon ?? null,
       sortOrder: record.sortOrder,
+      isRecurring: Boolean(record.isRecurring),
       isSystem: !record.businessId,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),

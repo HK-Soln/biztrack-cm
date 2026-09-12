@@ -21,6 +21,26 @@ type ExpenseCategoryRow = ExpenseCategory & {
   expenseCount?: number
 }
 
+/**
+ * Per-business default expense categories, seeded on business creation (mirrors income). Slugs match
+ * the previously system-wide rows so the per-business migration can re-point existing expenses by slug.
+ * Rent + salaries default to recurring since they almost always recur.
+ */
+const DEFAULT_EXPENSE_CATEGORIES: ReadonlyArray<{
+  name: string
+  slug: string
+  color: string
+  sortOrder: number
+  isRecurring: boolean
+}> = [
+  { name: 'Loyer', slug: 'loyer', color: '#378ADD', sortOrder: 1, isRecurring: true },
+  { name: 'Salaires', slug: 'salaires', color: '#1D9E75', sortOrder: 2, isRecurring: true },
+  { name: 'Électricité & Eau', slug: 'electricite-eau', color: '#EF9F27', sortOrder: 3, isRecurring: false },
+  { name: 'Transport', slug: 'transport', color: '#D85A30', sortOrder: 4, isRecurring: false },
+  { name: 'Entretien', slug: 'entretien', color: '#7F77DD', sortOrder: 5, isRecurring: false },
+  { name: 'Divers', slug: 'divers', color: '#888780', sortOrder: 6, isRecurring: false },
+]
+
 @Injectable()
 export class ExpenseCategoriesService {
   constructor(
@@ -46,7 +66,7 @@ export class ExpenseCategoriesService {
           { businessId },
         )
         .addSelect('COUNT(expense.id)', 'expenseCount')
-        .where('(category.business_id IS NULL OR category.business_id = :businessId)', { businessId })
+        .where('category.business_id = :businessId', { businessId })
         .andWhere('category.deleted_at IS NULL')
         .groupBy('category.id')
         .orderBy('category.sort_order', 'ASC')
@@ -78,6 +98,7 @@ export class ExpenseCategoriesService {
           color: dto.color.trim().toUpperCase(),
           icon: dto.icon?.trim() || null,
           sortOrder: dto.sortOrder ?? 0,
+          isRecurring: dto.isRecurring ?? false,
         }),
       )
 
@@ -108,6 +129,7 @@ export class ExpenseCategoriesService {
         color: dto.color === undefined ? category.color : dto.color.trim().toUpperCase(),
         icon: dto.icon === undefined ? category.icon ?? null : (dto.icon?.trim() || null),
         sortOrder: dto.sortOrder ?? category.sortOrder,
+        isRecurring: dto.isRecurring ?? category.isRecurring,
         updatedAt: new Date(),
       })
 
@@ -202,6 +224,7 @@ export class ExpenseCategoriesService {
       color: string
       icon?: string | null
       sortOrder?: number | null
+      isRecurring?: boolean
       createdAt?: string
       updatedAt?: string
       deletedAt?: string | null
@@ -237,12 +260,39 @@ export class ExpenseCategoriesService {
       color: payload.color.trim().toUpperCase(),
       icon: payload.icon?.trim() ?? null,
       sortOrder: payload.sortOrder ?? 0,
+      isRecurring: payload.isRecurring ?? existing?.isRecurring ?? false,
       createdAt,
       updatedAt: recordUpdatedAt,
       deletedAt: null,
     })
 
     await this.categoriesRepo.save(entity)
+  }
+
+  /**
+   * Seed the per-business default expense categories (mirrors IncomeService.seedDefaults). Idempotent:
+   * a no-op once the business has any category. Called on business creation + self-healed on sync pull.
+   */
+  async seedDefaults(businessId: string): Promise<void> {
+    const count = await this.categoriesRepo.count({ where: { businessId } })
+    if (count > 0) return
+    for (const def of DEFAULT_EXPENSE_CATEGORIES) {
+      await this.categoriesRepo.save(
+        this.categoriesRepo.create({
+          businessId,
+          name: def.name,
+          slug: def.slug,
+          color: def.color,
+          sortOrder: def.sortOrder,
+          isRecurring: def.isRecurring,
+        }),
+      )
+    }
+  }
+
+  /** Learn: mark a category recurring once an expense books against it as recurring (best-effort). */
+  async markCategoryRecurring(id: string, businessId: string): Promise<void> {
+    await this.categoriesRepo.update({ id, businessId }, { isRecurring: true, updatedAt: new Date() })
   }
 
   private async findEditableById(id: string, businessId: string) {

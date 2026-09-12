@@ -1212,11 +1212,12 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO expense_categories
-        (id, business_id, name, slug, color, icon, sort_order, is_active, is_deleted, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, name, slug, color, icon, sort_order, is_recurring, is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name, slug = excluded.slug, color = excluded.color, icon = excluded.icon,
-          sort_order = excluded.sort_order, is_active = excluded.is_active, is_deleted = excluded.is_deleted,
+          sort_order = excluded.sort_order, is_recurring = excluded.is_recurring,
+          is_active = excluded.is_active, is_deleted = excluded.is_deleted,
           updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
@@ -1226,6 +1227,7 @@ export class SyncService {
         asStr(e.color),
         asStr(e.icon),
         asNum(e.sortOrder) ?? 0,
+        e.isRecurring ? 1 : 0,
         r.isDeleted ? 0 : 1,
         r.isDeleted ? 1 : 0,
         asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,

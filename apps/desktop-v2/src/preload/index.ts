@@ -186,6 +186,8 @@ const api: BridgeApi = {
   expenseCategories: {
     listAll: () => ipcRenderer.invoke(IPC.expenseCategoriesListAll),
     create: (input) => ipcRenderer.invoke(IPC.expenseCategoriesCreate, input),
+    setRecurring: (id, isRecurring) =>
+      ipcRenderer.invoke(IPC.expenseCategoriesSetRecurring, id, isRecurring),
   },
   income: {
     list: (query) => ipcRenderer.invoke(IPC.incomeList, query),

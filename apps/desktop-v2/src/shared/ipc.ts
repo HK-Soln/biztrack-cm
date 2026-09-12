@@ -156,6 +156,7 @@ export const IPC = {
   expensesRemove: 'expenses:remove',
   expenseCategoriesListAll: 'expense-categories:list-all',
   expenseCategoriesCreate: 'expense-categories:create',
+  expenseCategoriesSetRecurring: 'expense-categories:set-recurring',
   incomeList: 'income:list',
   incomeGet: 'income:get',
   incomeSummary: 'income:summary',
@@ -1389,8 +1390,9 @@ export interface LocalExpenseCategory {
   isSystem: boolean
   sortOrder: number
   expenseCount?: number
-  /** Sticky default: true once any expense in this category was marked recurring, so new
-   * expenses in it default to recurring without re-marking (#5). */
+  /** Per-business stored flag: selecting this category defaults a new expense to recurring. */
+  isRecurring?: boolean
+  /** Alias of isRecurring kept for the existing form default logic (the stored flag, no longer derived). */
   defaultRecurring?: boolean
 }
 export interface LocalExpense {
@@ -1427,6 +1429,7 @@ export interface ExpenseCategoryInput {
   name: string
   color: string
   icon?: string | null
+  isRecurring?: boolean
 }
 export interface ExpensesListQuery extends ListQueryT {
   categoryId?: string
@@ -2349,9 +2352,11 @@ export interface BridgeApi {
     remove: (id: string) => Promise<void>
   }
   expenseCategories: {
-    /** System + business expense categories (for the filter + form picker). */
+    /** Per-business expense categories (for the filter + form picker). */
     listAll: () => Promise<LocalExpenseCategory[]>
     create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
+    /** Flag a category recurring (learn: a recurring expense picked this category). */
+    setRecurring: (id: string, isRecurring: boolean) => Promise<void>
   }
   income: {
     /** Paginated other-income ledger (newest first). */

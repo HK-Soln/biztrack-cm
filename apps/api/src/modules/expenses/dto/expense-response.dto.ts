@@ -43,6 +43,7 @@ export class ExpenseCategoryDto implements ExpenseCategory {
   color!: string
   icon?: string | null
   sortOrder!: number
+  isRecurring!: boolean
   isSystem!: boolean
   expenseCount?: number
   createdAt!: string
@@ -59,6 +60,7 @@ export class ExpenseCategoryDto implements ExpenseCategory {
     dto.color = entity.color
     dto.icon = entity.icon ?? null
     dto.sortOrder = entity.sortOrder
+    dto.isRecurring = entity.isRecurring ?? false
     dto.isSystem = !entity.businessId
     dto.expenseCount = entity.expenseCount
     dto.createdAt = toIsoString(entity.createdAt) ?? ''

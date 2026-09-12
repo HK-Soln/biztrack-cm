@@ -112,6 +112,12 @@ export class ExpensesService {
         }),
       )
 
+      // Learn: a recurring expense flags its category, so next time that category is picked the
+      // recurring toggle defaults on (best-effort — never fails the create).
+      if (dto.isRecurring && category.businessId) {
+        await this.categoriesService.markCategoryRecurring(category.id, businessId).catch(() => undefined)
+      }
+
       await this.rebuildExpenseMonth(businessId, expenseDate)
       return this.findById(expense.id, businessId)
     } catch (error) {

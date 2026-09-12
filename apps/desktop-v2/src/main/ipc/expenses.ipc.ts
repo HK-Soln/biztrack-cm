@@ -13,4 +13,7 @@ export function registerExpensesIpc(expenses: ExpensesService, categories: Expen
   ipcMain.handle(IPC.expensesRemove, (_e, id: string) => expenses.remove(id))
   ipcMain.handle(IPC.expenseCategoriesListAll, () => categories.listAll())
   ipcMain.handle(IPC.expenseCategoriesCreate, (_e, input: ExpenseCategoryInput) => categories.create(input))
+  ipcMain.handle(IPC.expenseCategoriesSetRecurring, (_e, id: string, isRecurring: boolean) =>
+    categories.setRecurring(id, isRecurring),
+  )
 }

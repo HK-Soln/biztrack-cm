@@ -392,6 +392,7 @@ export interface DataClient {
   expenseCategories: {
     listAll: () => Promise<LocalExpenseCategory[]>
     create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
+    setRecurring: (id: string, isRecurring: boolean) => Promise<void>
   }
   income: {
     list: (
@@ -883,6 +884,8 @@ function electronAdapter(): DataClient {
     expenseCategories: {
       listAll: () => window.api.expenseCategories.listAll(),
       create: (input) => window.api.expenseCategories.create(input),
+      setRecurring: (id, isRecurring) =>
+        window.api.expenseCategories.setRecurring(id, isRecurring),
     },
     rfqs: {
       list: (query) => window.api.rfqs.list(query),
