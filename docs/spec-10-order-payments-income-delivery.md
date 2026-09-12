@@ -111,4 +111,8 @@ Structured address columns are added to `OnlineOrder` + `CheckoutRequest` + `Che
 
 - [x] Slice ① — Other Income + general payment link (backend + offline sync + Payments generate‑link + Other Income page)
 - [x] Slice ② — Prepayments & COD eligibility (store config + `resolveCheckoutPayment` + deposit/COD checkout + partial ONLINE_ORDER link + desktop config editor). Deploy: migration `1789400000000`.
-- [ ] Slice ③ — Delivery zones (multi‑country)
+- [~] Slice ③ — Delivery zones (multi‑country). **Done:** geography reference data (CM/NG/AE) + public
+  endpoints (migration `1789500000000`); delivery‑zone data model + `resolveDeliveryFee` (migration
+  `1789600000000`); structured address on orders + checkout fee resolution (migration `1789700000000`);
+  storefront checkout (country/region/city selects + live zone fee + block/arrange). **Pending:** the
+  desktop store‑config page rebuilt to the new design (incl. the delivery‑zone editor).
