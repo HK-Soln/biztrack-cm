@@ -164,6 +164,16 @@ export class ExpensesController {
     return this.expensesService.getTrend(user.businessId as string)
   }
 
+  @Get('payees')
+  @RequireResource(Resource.EXPENSES_VIEW)
+  @ApiOperation({ summary: 'Distinct "Paid to" payees (business-level cache, optionally by category)' })
+  async listPayees(
+    @CurrentUser() user: JwtPayload,
+    @Query('categoryId') categoryId?: string,
+  ): Promise<string[]> {
+    return this.expensesService.listPayees(user.businessId as string, categoryId?.trim() || undefined)
+  }
+
   @Get(':id')
   @RequireResource(Resource.EXPENSES_VIEW)
   @ApiOperation({ summary: 'Get expense detail' })

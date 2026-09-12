@@ -182,6 +182,7 @@ const api: BridgeApi = {
     setStatus: (id, status, paymentMethod) =>
       ipcRenderer.invoke(IPC.expensesSetStatus, id, status, paymentMethod),
     remove: (id) => ipcRenderer.invoke(IPC.expensesRemove, id),
+    listPayees: (categoryId) => ipcRenderer.invoke(IPC.expensesListPayees, categoryId),
   },
   expenseCategories: {
     listAll: () => ipcRenderer.invoke(IPC.expenseCategoriesListAll),

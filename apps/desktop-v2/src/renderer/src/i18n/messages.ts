@@ -1213,6 +1213,7 @@ export const en = {
   'expenses.errDescription': 'Add a description.',
   'expenses.errAmount': 'Enter an amount greater than 0.',
   'expenses.errDate': 'Pick a date.',
+  'expenses.errPaidTo': 'Enter who this was paid to.',
   // --- Deposits (sessions) ---
   'dep.title': 'Deposits',
   'dep.subtitle': 'Advance payments customers leave. One open session per customer.',
@@ -5101,6 +5102,7 @@ export const fr: Record<MessageKey, string> = {
   'expenses.errDescription': 'Ajoutez une description.',
   'expenses.errAmount': 'Saisissez un montant supérieur à 0.',
   'expenses.errDate': 'Choisissez une date.',
+  'expenses.errPaidTo': 'Indiquez à qui le paiement a été fait.',
   // --- Dépôts (sessions) ---
   'dep.title': 'Dépôts',
   'dep.subtitle': 'Avances laissées par les clients. Une session ouverte par client.',

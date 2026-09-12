@@ -110,4 +110,6 @@ export const cloudExpenses = {
   setStatus: async (id: string, status: string, paymentMethod?: string | null): Promise<LocalExpense> =>
     toLocalExpense(await cpatch<ApiExpense>(`/expenses/${id}`, clean({ status, paymentMethod }))),
   remove: (id: string): Promise<void> => cdelete<void>(`/expenses/${id}`),
+  listPayees: (categoryId?: string): Promise<string[]> =>
+    cget<string[]>(`/expenses/payees${categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : ''}`),
 }

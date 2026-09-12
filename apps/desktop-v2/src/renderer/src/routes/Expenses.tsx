@@ -830,6 +830,15 @@ function ExpenseFormModal({
 
   const selectedCatName = categories.find((c) => c.id === categoryId)?.name ?? ''
 
+  // Business-level "Paid to" cache: previously-used payees for the picked category (derived from the
+  // synced expenses), offered as autocomplete so payees aren't retyped/typo'd.
+  const { data: payees = [] } = useQuery({
+    queryKey: ['expensePayees', categoryId],
+    queryFn: () => dataClient.expenses.listPayees(categoryId || undefined),
+    enabled: !!categoryId,
+    staleTime: 60_000,
+  })
+
   // Default the recurring toggle from the picked category (new expenses only, until touched).
   useEffect(() => {
     if (editing || recurringTouched) return
@@ -902,6 +911,7 @@ function ExpenseFormModal({
       description,
       amount: Number.isFinite(amt) ? amt : NaN,
       expenseDate,
+      vendor,
     })
     if (!parsed.success) {
       const f = parsed.error.flatten().fieldErrors
@@ -910,6 +920,7 @@ function ExpenseFormModal({
         description: f.description?.[0],
         amount: f.amount?.[0],
         expenseDate: f.expenseDate?.[0],
+        vendor: f.vendor?.[0],
       })
       return
     }
@@ -1070,10 +1081,22 @@ function ExpenseFormModal({
           <div className="ff" style={{ marginBottom: 12 }}>
             <label className="lbl2">{t('expenses.fPaidTo')}</label>
             <Input
+              list="expense-payees"
               value={vendor}
               placeholder={t('expenses.paidToPh')}
-              onChange={(e) => setVendor(e.target.value)}
+              error={!!fieldErrors.vendor}
+              autoComplete="off"
+              onChange={(e) => {
+                setVendor(e.target.value)
+                if (fieldErrors.vendor) setFieldErrors((x) => ({ ...x, vendor: undefined }))
+              }}
             />
+            <datalist id="expense-payees">
+              {payees.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+            {fe('vendor')}
           </div>
           <div className="form-2col">
             <div className="ff" style={{ marginBottom: 12 }}>

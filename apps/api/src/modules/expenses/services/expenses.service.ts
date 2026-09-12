@@ -557,6 +557,31 @@ export class ExpensesService {
     }
   }
 
+  /**
+   * Distinct "Paid to" values a business has used, most-used first — a business-level payee cache
+   * derived from the expenses themselves (so it's available on every synced device with no separate
+   * table). Optionally scoped to a category, so picking a category surfaces its past payees.
+   */
+  async listPayees(businessId: string, categoryId?: string): Promise<string[]> {
+    const params: unknown[] = [businessId]
+    let filter = ''
+    if (categoryId) {
+      params.push(categoryId)
+      filter = ' AND e.category_id = $2'
+    }
+    const rows = (await this.expensesRepo.manager.query(
+      `SELECT e.vendor AS vendor, COUNT(*) AS c
+         FROM expenses e
+        WHERE e.business_id = $1 AND e.deleted_at IS NULL
+          AND e.vendor IS NOT NULL AND btrim(e.vendor) <> ''${filter}
+        GROUP BY e.vendor
+        ORDER BY c DESC, e.vendor ASC
+        LIMIT 50`,
+      params,
+    )) as Array<{ vendor: string; c: string }>
+    return rows.map((r) => r.vendor)
+  }
+
   async upsertFromSync(
     businessId: string,
     expenseId: string,

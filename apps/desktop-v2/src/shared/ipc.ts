@@ -154,6 +154,7 @@ export const IPC = {
   expensesUpdate: 'expenses:update',
   expensesSetStatus: 'expenses:set-status',
   expensesRemove: 'expenses:remove',
+  expensesListPayees: 'expenses:list-payees',
   expenseCategoriesListAll: 'expense-categories:list-all',
   expenseCategoriesCreate: 'expense-categories:create',
   expenseCategoriesSetRecurring: 'expense-categories:set-recurring',
@@ -2350,6 +2351,8 @@ export interface BridgeApi {
     /** Flip status; marking PAID requires a payment method, PENDING clears it. */
     setStatus: (id: string, status: string, paymentMethod?: string | null) => Promise<LocalExpense>
     remove: (id: string) => Promise<void>
+    /** Distinct "Paid to" payees (business-level, optionally by category) for autocomplete. */
+    listPayees: (categoryId?: string) => Promise<string[]>
   }
   expenseCategories: {
     /** Per-business expense categories (for the filter + form picker). */

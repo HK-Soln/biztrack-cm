@@ -403,6 +403,32 @@ export class ExpensesService {
     })
   }
 
+  /**
+   * Distinct "Paid to" payees this business has used, most-used first — a business-level cache
+   * derived from the (synced) expenses, so it's available on every device. Optionally by category.
+   */
+  listPayees(categoryId?: string): string[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const params: unknown[] = [businessId]
+    let filter = ''
+    if (categoryId) {
+      params.push(categoryId)
+      filter = ' AND category_id = ?'
+    }
+    const rows = this.db.query<{ vendor: string }>(
+      `SELECT vendor, COUNT(*) AS c
+         FROM expenses
+        WHERE business_id = ? AND is_deleted = 0
+          AND vendor IS NOT NULL AND TRIM(vendor) <> ''${filter}
+        GROUP BY vendor
+        ORDER BY c DESC, vendor ASC
+        LIMIT 50`,
+      params,
+    )
+    return rows.map((r) => r.vendor)
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private buildWhere(

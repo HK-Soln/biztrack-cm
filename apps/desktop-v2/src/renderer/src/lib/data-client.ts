@@ -388,6 +388,8 @@ export interface DataClient {
     update: (id: string, input: ExpenseInput) => Promise<LocalExpense>
     setStatus: (id: string, status: string, paymentMethod?: string | null) => Promise<LocalExpense>
     remove: (id: string) => Promise<void>
+    /** Distinct "Paid to" payees (business-level, optionally by category) for autocomplete. */
+    listPayees: (categoryId?: string) => Promise<string[]>
   }
   expenseCategories: {
     listAll: () => Promise<LocalExpenseCategory[]>
@@ -867,6 +869,7 @@ function electronAdapter(): DataClient {
       setStatus: (id, status, paymentMethod) =>
         window.api.expenses.setStatus(id, status, paymentMethod),
       remove: (id) => window.api.expenses.remove(id),
+      listPayees: (categoryId) => window.api.expenses.listPayees(categoryId),
     },
     income: {
       list: (query) => window.api.income.list(query),
