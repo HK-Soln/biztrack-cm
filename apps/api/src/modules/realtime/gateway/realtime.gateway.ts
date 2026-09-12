@@ -14,6 +14,7 @@ import {
   realtimeUserChannel,
   realtimeBusinessChannel,
   realtimeDeviceChannel,
+  REALTIME_PUBLIC_ORDERS_NAMESPACE,
 } from '@biztrack/types'
 import type { Logger } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
@@ -33,6 +34,7 @@ import {
 } from '../constants/realtime.constants'
 import { RealtimeAuthService } from '../services/realtime-auth.service'
 import { RealtimeService } from '../services/realtime.service'
+import { OrderChannelService } from '../services/order-channel.service'
 import { ChannelRegistry } from '../channels/channel-registry'
 import type { Principal } from '../realtime.types'
 
@@ -66,6 +68,7 @@ export class RealtimeGateway implements OnApplicationBootstrap, OnApplicationShu
     private readonly authService: RealtimeAuthService,
     private readonly registry: ChannelRegistry,
     private readonly realtime: RealtimeService,
+    private readonly orderChannel: OrderChannelService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {}
 
@@ -100,6 +103,10 @@ export class RealtimeGateway implements OnApplicationBootstrap, OnApplicationShu
     this.server.on('connection', (socket: RtSocket) => this.handleConnection(socket))
     this.realtime.setServer(this.server)
 
+    // Anonymous storefront order channel — a separate namespace on the same server (shares the Redis
+    // adapter). No auth: the order's secret tracking token is the authorization.
+    this.orderChannel.attach(this.server.of(REALTIME_PUBLIC_ORDERS_NAMESPACE))
+
     this.tokenInterval = setInterval(() => this.checkTokens(), REALTIME_TOKEN_CHECK_MS)
 
     this.logger.log('Realtime gateway ready', 'RealtimeGateway', { path: REALTIME_PATH })
@@ -108,6 +115,7 @@ export class RealtimeGateway implements OnApplicationBootstrap, OnApplicationShu
   onApplicationShutdown(): void {
     if (this.tokenInterval) clearInterval(this.tokenInterval)
     this.realtime.setServer(null)
+    this.orderChannel.detach()
     this.server?.close()
     this.pub?.disconnect()
     this.sub?.disconnect()

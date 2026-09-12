@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, session, shell } from 'electron'
 import { join, resolve } from 'path'
 import {
   DatabaseService,
@@ -47,6 +47,8 @@ import { OpeningBalancesService } from './services/opening-balances.service'
 import { registerOpeningBalancesIpc } from './ipc/opening-balances.ipc'
 import { ExpensesService, ExpenseCategoriesService } from './services/expenses.service'
 import { registerExpensesIpc } from './ipc/expenses.ipc'
+import { IncomeService, IncomeCategoriesService } from './services/income.service'
+import { registerIncomeIpc } from './ipc/income.ipc'
 import { DocumentService } from './services/document.service'
 import { RfqService } from './services/rfq.service'
 import { registerRfqIpc } from './ipc/rfq.ipc'
@@ -58,6 +60,7 @@ import { registerUploadsIpc } from './ipc/uploads.ipc'
 import { OnlineService } from './services/online.service'
 import { registerOnlineIpc } from './ipc/online.ipc'
 import { registerCredentialsIpc } from './ipc/credentials.ipc'
+import { registerPaymentsIpc } from './ipc/payments.ipc'
 import { BusinessService } from './services/business.service'
 import { registerBusinessIpc } from './ipc/business.ipc'
 import { PlansService } from './services/plans.service'
@@ -286,6 +289,14 @@ app.whenReady().then(() => {
       for (const w of BrowserWindow.getAllWindows())
         w.webContents.send(IPC.notificationEvent, payload)
     },
+    onPaymentAttempt: (payload) => {
+      for (const w of BrowserWindow.getAllWindows())
+        w.webContents.send(IPC.paymentsAttemptEvent, payload)
+    },
+    onPaymentLink: (payload) => {
+      for (const w of BrowserWindow.getAllWindows())
+        w.webContents.send(IPC.paymentsLinkEvent, payload)
+    },
   })
   realtime.start()
   app.on('before-quit', () => realtime.stop())
@@ -466,6 +477,21 @@ app.whenReady().then(() => {
   )
   registerExpensesIpc(expenses, expenseCategories)
 
+  const income = new IncomeService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    audit,
+  )
+  const incomeCategories = new IncomeCategoriesService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    audit,
+  )
+  registerIncomeIpc(income, incomeCategories)
+
   // Procurement documents: renders RFQ/PO PDFs (offscreen Chromium) + opens the
   // WhatsApp/email composer. Shared by RFQ + PO.
   const documents = new DocumentService()
@@ -564,6 +590,9 @@ app.whenReady().then(() => {
   // Authorization cards (BIZ-3.3): owner-only, server-owned, proxied through main.
   registerCredentialsIpc(authHttp)
 
+  // Payment provider registry (Spec 07): owner-only, server-owned, proxied through main.
+  registerPaymentsIpc(authHttp)
+
   // Business profile (Settings → General): server-owned, proxied through main.
   registerBusinessIpc(
     new BusinessService(
@@ -589,6 +618,12 @@ app.whenReady().then(() => {
     if (!colors?.symbolColor) return
     overlayColors = colors
     applyOverlayToAllWindows()
+  })
+
+  // Reliable clipboard write from the renderer (navigator.clipboard can fail in Electron).
+  ipcMain.handle(IPC.clipboardWrite, (_event, text: string) => {
+    clipboard.writeText(String(text ?? ''))
+    return true
   })
 
   // Keep controls correct when the OS theme flips while in `system` mode.

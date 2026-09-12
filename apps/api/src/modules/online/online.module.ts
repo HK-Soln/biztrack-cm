@@ -17,6 +17,8 @@ import { SalesModule } from '@/modules/sales/sales.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
+import { PaymentsModule } from '@/modules/payments/payments.module'
+import { PaymentLinksModule } from '@/modules/payment-links/payment-links.module'
 import { OnlineStoreController } from './online-store.controller'
 import { OnlineStoreService } from './online-store.service'
 import { PublicStorefrontController } from './public-storefront.controller'
@@ -46,6 +48,8 @@ import { OrderEmailService } from './order-email.service'
     PermissionsModule,
     NotificationsModule,
     BusinessCalendarModule,
+    PaymentsModule,
+    PaymentLinksModule,
   ],
   controllers: [OnlineStoreController, PublicStorefrontController, OnlineOrdersController],
   providers: [OnlineStoreService, PublicStorefrontService, OnlineOrdersService, OrderEmailService],

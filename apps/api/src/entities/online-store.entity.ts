@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
-import type { OnlineStoreDomainType } from '@biztrack/types'
+import type { DeliveryZone, OnlineStoreDomainType, UnlistedAreaBehavior } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -87,6 +87,31 @@ export class OnlineStore extends BaseEntity {
   @Column({ name: 'payment_card', default: false })
   paymentCard!: boolean
 
+  // ---- Prepayments / partial payment (Spec 10 ②) ----
+  /** Allow a customer to pay a deposit online and the rest on delivery. */
+  @Column({ name: 'allow_partial_payment', default: false })
+  allowPartialPayment!: boolean
+
+  /** Minimum deposit as a % of the order total (the customer may pay more, up to the full amount). */
+  @Column({ name: 'partial_min_percent', type: 'int', default: 50 })
+  partialMinPercent!: number
+
+  /** The deposit option only appears for orders whose total is at least this amount. */
+  @Column({ name: 'partial_min_order_amount', type: 'int', default: 0 })
+  partialMinOrderAmount!: number
+
+  /** When a deposit applies to an order, HIDE full cash-on-delivery so the deposit can't be bypassed. */
+  @Column({ name: 'deposit_required', default: false })
+  depositRequired!: boolean
+
+  /** Cash-on-delivery is unavailable for orders below this amount (0 = no floor). */
+  @Column({ name: 'cod_min_order_amount', type: 'int', default: 0 })
+  codMinOrderAmount!: number
+
+  /** Cash-on-delivery is unavailable for orders above this amount (null = no cap). */
+  @Column({ name: 'cod_max_order_amount', type: 'int', nullable: true })
+  codMaxOrderAmount?: number | null
+
   // ---- Fulfilment (delivery / pickup) ----
   @Column({ name: 'offer_delivery', default: true })
   offerDelivery!: boolean
@@ -101,9 +126,26 @@ export class OnlineStore extends BaseEntity {
   @Column({ name: 'pickup_address', type: 'text', nullable: true })
   pickupAddress?: string | null
 
-  /** Cities/zones the store delivers to (empty = no restriction). */
+  /** Cities/zones the store delivers to (empty = no restriction). Legacy — superseded by deliveryZones. */
   @Column({ name: 'delivery_cities', type: 'jsonb', default: () => "'[]'" })
   deliveryCities!: string[]
+
+  // ---- Address-driven delivery zones (Spec 10 ③) ----
+  /** Zones = { id, name, fee, countryIso2?, region?, city? }[]; most-specific match wins. */
+  @Column({ name: 'delivery_zones', type: 'jsonb', default: () => "'[]'" })
+  deliveryZones!: DeliveryZone[]
+
+  /** Free delivery when the order subtotal is at least this (null = never free). */
+  @Column({ name: 'free_delivery_over_amount', type: 'int', nullable: true })
+  freeDeliveryOverAmount?: number | null
+
+  /** What to do for an address matching no zone: BLOCK | DEFAULT_FEE | ARRANGE. */
+  @Column({ name: 'unlisted_area_behavior', length: 20, default: 'DEFAULT_FEE' })
+  unlistedAreaBehavior!: UnlistedAreaBehavior
+
+  /** Fee applied to unlisted addresses when behaviour is DEFAULT_FEE. */
+  @Column({ name: 'unlisted_default_fee', type: 'int', default: 0 })
+  unlistedDefaultFee!: number
 
   // ---- Storefront appearance (design-store-config) ----
   /** Layout template: classic | boutique | catalog | landing. */

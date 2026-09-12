@@ -2,9 +2,11 @@ import { Global, Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { JwtModule } from '@nestjs/jwt'
 import { BusinessMember } from '@/entities/business-member.entity'
+import { OnlineOrder } from '@/entities/online-order.entity'
 import { RedisModule } from '@/common/redis/redis.module'
 import { RealtimeAuthService } from './services/realtime-auth.service'
 import { RealtimeService } from './services/realtime.service'
+import { OrderChannelService } from './services/order-channel.service'
 import { ChannelRegistry } from './channels/channel-registry'
 import { RealtimeGateway } from './gateway/realtime.gateway'
 
@@ -15,8 +17,18 @@ import { RealtimeGateway } from './gateway/realtime.gateway'
  */
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([BusinessMember]), JwtModule.register({}), RedisModule],
-  providers: [RealtimeAuthService, RealtimeService, ChannelRegistry, RealtimeGateway],
-  exports: [RealtimeService, ChannelRegistry],
+  imports: [
+    TypeOrmModule.forFeature([BusinessMember, OnlineOrder]),
+    JwtModule.register({}),
+    RedisModule,
+  ],
+  providers: [
+    RealtimeAuthService,
+    RealtimeService,
+    OrderChannelService,
+    ChannelRegistry,
+    RealtimeGateway,
+  ],
+  exports: [RealtimeService, ChannelRegistry, OrderChannelService],
 })
 export class RealtimeModule {}

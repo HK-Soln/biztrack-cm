@@ -11,6 +11,9 @@ const api: BridgeApi = {
   theme: {
     set: (theme) => ipcRenderer.send(IPC.themeSet, theme),
   },
+  clipboard: {
+    write: (text) => ipcRenderer.invoke(IPC.clipboardWrite, text),
+  },
   window: {
     setTitleBarOverlay: (colors) => ipcRenderer.send(IPC.titlebarSetOverlay, colors),
   },
@@ -184,6 +187,19 @@ const api: BridgeApi = {
     listAll: () => ipcRenderer.invoke(IPC.expenseCategoriesListAll),
     create: (input) => ipcRenderer.invoke(IPC.expenseCategoriesCreate, input),
   },
+  income: {
+    list: (query) => ipcRenderer.invoke(IPC.incomeList, query),
+    get: (id) => ipcRenderer.invoke(IPC.incomeGet, id),
+    summary: (query) => ipcRenderer.invoke(IPC.incomeSummary, query),
+    trend: () => ipcRenderer.invoke(IPC.incomeTrend),
+    create: (input) => ipcRenderer.invoke(IPC.incomeCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.incomeUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC.incomeRemove, id),
+  },
+  incomeCategories: {
+    listAll: () => ipcRenderer.invoke(IPC.incomeCategoriesListAll),
+    create: (input) => ipcRenderer.invoke(IPC.incomeCategoriesCreate, input),
+  },
   openingBalances: {
     upsert: (input) => ipcRenderer.invoke(IPC.openingBalancesUpsert, input),
     listForContact: (contactId) => ipcRenderer.invoke(IPC.openingBalancesListForContact, contactId),
@@ -225,6 +241,39 @@ const api: BridgeApi = {
     issueCard: (input) => ipcRenderer.invoke(IPC.credentialsIssueCard, input),
     revoke: (id) => ipcRenderer.invoke(IPC.credentialsRevoke, id),
     replace: (id, input) => ipcRenderer.invoke(IPC.credentialsReplace, id, input),
+  },
+  payments: {
+    listProviders: () => ipcRenderer.invoke(IPC.paymentsProviders),
+    listCapabilities: (country) => ipcRenderer.invoke(IPC.paymentsCapabilities, country),
+    listConnections: () => ipcRenderer.invoke(IPC.paymentsConnections),
+    connect: (input) => ipcRenderer.invoke(IPC.paymentsConnect, input),
+    configureWebhook: (id, input) => ipcRenderer.invoke(IPC.paymentsConfigureWebhook, id, input),
+    verify: (id) => ipcRenderer.invoke(IPC.paymentsVerify, id),
+    revoke: (id) => ipcRenderer.invoke(IPC.paymentsRevoke, id),
+    listRoutes: () => ipcRenderer.invoke(IPC.paymentsRoutes),
+    setRoute: (input) => ipcRenderer.invoke(IPC.paymentsSetRoute, input),
+    removeRoute: (id) => ipcRenderer.invoke(IPC.paymentsRemoveRoute, id),
+    availableMethods: () => ipcRenderer.invoke(IPC.paymentsAvailable),
+    initiateInStore: (input) => ipcRenderer.invoke(IPC.paymentsInitiateInStore, input),
+    getInStoreStatus: (attemptId) => ipcRenderer.invoke(IPC.paymentsInStoreStatus, attemptId),
+    confirmInStore: (attemptId) => ipcRenderer.invoke(IPC.paymentsConfirmInStore, attemptId),
+    failInStore: (attemptId) => ipcRenderer.invoke(IPC.paymentsFailInStore, attemptId),
+    onAttemptEvent: (cb) => {
+      const listener = (_e: unknown, payload: Parameters<typeof cb>[0]) => cb(payload)
+      ipcRenderer.on(IPC.paymentsAttemptEvent, listener)
+      return () => ipcRenderer.removeListener(IPC.paymentsAttemptEvent, listener)
+    },
+    createLink: (input) => ipcRenderer.invoke(IPC.paymentLinksCreate, input),
+    createSaleDraftLink: (input) => ipcRenderer.invoke(IPC.paymentLinksSaleDraft, input),
+    createGeneralLink: (input) => ipcRenderer.invoke(IPC.paymentLinksGeneral, input),
+    listLinks: () => ipcRenderer.invoke(IPC.paymentLinksList),
+    cancelLink: (id) => ipcRenderer.invoke(IPC.paymentLinksCancel, id),
+    finalizeLink: (id) => ipcRenderer.invoke(IPC.paymentLinksFinalize, id),
+    onLinkEvent: (cb) => {
+      const listener = (_e: unknown, payload: Parameters<typeof cb>[0]) => cb(payload)
+      ipcRenderer.on(IPC.paymentsLinkEvent, listener)
+      return () => ipcRenderer.removeListener(IPC.paymentsLinkEvent, listener)
+    },
   },
   audit: {
     list: (query) => ipcRenderer.invoke(IPC.auditList, query),

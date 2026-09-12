@@ -3,11 +3,19 @@ import type {
   AddCartItemRequest,
   CategoryTreeResponse,
   CheckoutRequest,
+  CityView,
+  CountryView,
+  RegionView,
+  CheckoutResult,
   ContactMessageRequest,
+  InitiatePaymentLinkRequest,
+  InitiatePaymentLinkResult,
   OnlineCart,
   PaginatedResult,
+  PaymentLinkPaymentStatus,
   PublicFacets,
   PublicOrderTracking,
+  PublicPaymentLink,
   PublicProductDetail,
   PublicProductListItem,
   PublicProductsQuery,
@@ -66,6 +74,21 @@ async function send<T>(
 }
 
 const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
+
+// ---- Geography (structured address selects, Spec 10 ③) --------------------
+export async function getCountries(): Promise<CountryView[]> {
+  return (await readJson<CountryView[]>('/public/geo/countries')) ?? []
+}
+export async function getRegions(countryIso2: string): Promise<RegionView[]> {
+  if (!countryIso2) return []
+  return (await readJson<RegionView[]>('/public/geo/regions', { country: countryIso2 })) ?? []
+}
+export async function getCities(countryIso2: string, region: string): Promise<CityView[]> {
+  if (!countryIso2 || !region) return []
+  return (
+    (await readJson<CityView[]>('/public/geo/cities', { country: countryIso2, region })) ?? []
+  )
+}
 
 // ---- Reads ----------------------------------------------------------------
 
@@ -169,11 +192,30 @@ export function sendContactMessage(slug: string, payload: ContactMessageRequest)
 }
 
 export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {
-  return send<{ orderNumber: string; trackingToken: string; status: string }>(
+  return send<CheckoutResult>(
     'POST',
     `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout`,
     payload,
   )
+}
+
+// ---- Payment links (Spec 08) ----------------------------------------------
+
+const payPath = (token: string) => `/public/pay/${encodeURIComponent(token)}`
+
+/** Resolve a payment link by token (live amount, methods, status). Null on any error/404. */
+export function getPaymentLink(token: string) {
+  return readJson<PublicPaymentLink>(payPath(token))
+}
+
+/** Start a payment for a link (card link / MoMo push). */
+export function initiateLinkPayment(token: string, body: InitiatePaymentLinkRequest) {
+  return send<InitiatePaymentLinkResult>('POST', `${payPath(token)}/initiate`, body)
+}
+
+/** Poll a link payment. Null (transient error) is treated as still pending. */
+export function getLinkPaymentStatus(token: string) {
+  return readJson<PaymentLinkPaymentStatus>(`${payPath(token)}/status`)
 }
 
 // ---- Helpers --------------------------------------------------------------

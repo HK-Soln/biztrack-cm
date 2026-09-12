@@ -7,6 +7,9 @@ import { isStoreRootHost, MARKETING_URL } from '@/lib/host'
  * matches no store is handled in the (store) layout, which needs an API call to know.
  */
 export function middleware(req: NextRequest) {
+  // Payment links (/pay/[token]) are store-agnostic — they must render on ANY host, including the
+  // root, so never bounce them to marketing.
+  if (req.nextUrl.pathname.startsWith('/pay/')) return NextResponse.next()
   // Temporary (307): the root is only parked here. Never 308 — browsers cache permanent
   // redirects indefinitely, which would strand the domain if it ever needs to serve its own page.
   if (isStoreRootHost(req.headers.get('host'))) {

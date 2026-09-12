@@ -1,4 +1,5 @@
 export * from './currency'
+export * from './money'
 export * from './expected-cash'
 export * from './reorder'
 export * from './credit'

@@ -33,6 +33,8 @@ export type SyncEntity =
   | 'product_variant_option'
   | 'product_serial_unit'
   | 'expense_category'
+  | 'income_category'
+  | 'other_income'
   | 'unit_of_measure'
   | 'inventory_threshold'
   | 'inventory_adjustment'
@@ -95,6 +97,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   attribute_group: 0,
   brand: 0,
   expense_category: 0,
+  income_category: 0,
   attribute_option: 1,
   category_attribute_group: 1,
   model: 1,
@@ -109,6 +112,7 @@ export const SYNC_ENTITY_DEPENDENCY_TIER: Record<SyncEntity, number> = {
   inventory_adjustment: 2,
   sale: 2,
   expense: 2,
+  other_income: 2,
   debt: 3,
   savings: 3,
   savings_transaction: 3,
@@ -154,6 +158,8 @@ export const SYNC_ENTITY_STABLE_ORDER: Record<SyncEntity, number> = {
   cash_movement: 28,
   fiscal_year: 29,
   accounting_period: 30,
+  income_category: 31,
+  other_income: 32,
 }
 
 export function getSyncEntityDependencyTier(entity: SyncEntity): number {
@@ -191,6 +197,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   attribute_group: [],
   brand: [],
   expense_category: [],
+  income_category: [],
   opening_balance: ['contact'],
   attribute_option: ['attribute_group'],
   category_attribute_group: ['product_category', 'attribute_group'],
@@ -206,6 +213,7 @@ export const SYNC_ENTITY_DEPENDENCIES: Record<SyncEntity, SyncEntity[]> = {
   inventory_adjustment: ['product'],
   sale: ['contact', 'product'],
   expense: ['expense_category'],
+  other_income: ['income_category'],
   debt: ['contact', 'sale'],
   savings: ['contact'],
   savings_transaction: ['savings'],
@@ -463,6 +471,9 @@ export interface SalePaymentSyncRecord extends SyncRecord {
   recordedById?: string | null
   note?: string | null
   businessDate?: string | null
+  // Spec 07 [A11] — the provider-execution attempt this ledger row was posted from (null for
+  // cash/attested). Server-set on the online path; carried so it reaches every device.
+  paymentAttemptId?: string | null
   createdAt: string
 }
 
@@ -634,6 +645,35 @@ export interface ExpenseSyncRecord extends SyncRecord {
   status?: string | null
   paymentMethod?: PaymentMethod | string | null
   receiptUrl?: string | null
+  /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
+  businessDate?: string | null
+  createdAt: string
+}
+
+export interface IncomeCategorySyncRecord extends SyncRecord {
+  businessId?: string | null
+  name: string
+  slug: string
+  color: string
+  icon?: string | null
+  sortOrder: number
+  isSystem: boolean
+  createdAt: string
+}
+
+export interface OtherIncomeSyncRecord extends SyncRecord {
+  businessId: string
+  categoryId: string
+  recordedById?: string | null
+  description: string
+  amount: number
+  currency?: string | null
+  paymentMethod?: PaymentMethod | string | null
+  reference?: string | null
+  source: string
+  sourceId?: string | null
+  note?: string | null
+  incomeDate: string
   /** Local trading day (BIZ-5.1); the server recomputes it authoritatively on apply. */
   businessDate?: string | null
   createdAt: string
@@ -838,6 +878,7 @@ export interface ChangeSet {
   productBundleComponents?: SyncRecord[]
   productSerialUnits?: SyncRecord[]
   expenseCategories?: ExpenseCategorySyncRecord[]
+  incomeCategories?: IncomeCategorySyncRecord[]
   unitOfMeasures?: SyncRecord[]
   inventoryLevels?: InventoryLevelSyncRecord[]
   inventoryMovements?: InventoryMovementSyncRecord[]
@@ -856,6 +897,7 @@ export interface ChangeSet {
   purchaseOrders?: PurchaseOrderSyncRecord[]
   purchaseOrderItems?: SyncRecord[]
   expenses?: ExpenseSyncRecord[]
+  otherIncomes?: OtherIncomeSyncRecord[]
   teamMembers?: TeamMemberSyncRecord[]
   memberAuthCredentials?: MemberAuthCredentialSyncRecord[]
   roles?: RoleSyncRecord[]

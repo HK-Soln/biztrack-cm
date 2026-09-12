@@ -177,6 +177,60 @@ function toLocalSalePayment(p: ApiSalePayment): LocalSalePayment {
   }
 }
 
+/** Map a SaleInput to the API's create-sale body (CreateSaleDto shape). Reused by the SALE_DRAFT
+ *  payment-link flow (which sends this as the draft, minus payments — the real tender is decided by the
+ *  actual payment attempts). */
+export function toSaleApiBody(input: SaleInput): Record<string, unknown> {
+  const charges = (input.charges ?? []).map((c) =>
+    clean({
+      chargeTypeId: c.chargeTypeId,
+      name: c.name,
+      rateType: c.rateType,
+      rateValue: c.rateValue,
+      amount: c.amount,
+    }),
+  )
+  const discounts = (input.discounts ?? []).map((d) =>
+    clean({
+      description: d.description,
+      discountType: d.discountType,
+      rate: d.rate,
+      amount: d.amount,
+    }),
+  )
+  return clean({
+    clientId: input.clientId,
+    soldAt: input.soldAt ?? new Date().toISOString(),
+    cashSessionId: input.cashSessionId,
+    customerId: input.customerId,
+    customerName: input.customerName,
+    customerPhone: input.customerPhone,
+    notes: input.notes,
+    charges: charges.length ? charges : undefined,
+    discounts: discounts.length ? discounts : undefined,
+    payments: input.payments.map((p) =>
+      clean({
+        method: p.method,
+        amount: p.amount,
+        mobileMoneyReference: p.mobileMoneyReference,
+        savingsAccountId: p.savingsAccountId,
+      }),
+    ),
+    items: input.items.map((i) =>
+      clean({
+        productId: i.productId,
+        variantId: i.variantId,
+        variantName: i.variantName,
+        serialUnitIds: i.serialUnitIds?.length ? i.serialUnitIds : undefined,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        discountAmount: i.discountAmount,
+        costPrice: i.costPrice,
+      }),
+    ),
+  })
+}
+
 export const cloudSales = {
   // Cloud evaluates discount limits + below-cost server-side on create; the browser
   // build does not pre-prompt, so report no local limits and no below-cost need.
@@ -228,55 +282,7 @@ export const cloudSales = {
   // SAVINGS/deposit payments (savingsAccountId), and per-line charges/discounts. The
   // backend derives the sale totals from the lines and persists the breakdown.
   create: async (input: SaleInput): Promise<LocalSaleDetail> => {
-    const charges = (input.charges ?? []).map((c) =>
-      clean({
-        chargeTypeId: c.chargeTypeId,
-        name: c.name,
-        rateType: c.rateType,
-        rateValue: c.rateValue,
-        amount: c.amount,
-      }),
-    )
-    const discounts = (input.discounts ?? []).map((d) =>
-      clean({
-        description: d.description,
-        discountType: d.discountType,
-        rate: d.rate,
-        amount: d.amount,
-      }),
-    )
-    const body = clean({
-      clientId: input.clientId,
-      soldAt: input.soldAt ?? new Date().toISOString(),
-      cashSessionId: input.cashSessionId,
-      customerId: input.customerId,
-      customerName: input.customerName,
-      customerPhone: input.customerPhone,
-      notes: input.notes,
-      charges: charges.length ? charges : undefined,
-      discounts: discounts.length ? discounts : undefined,
-      payments: input.payments.map((p) =>
-        clean({
-          method: p.method,
-          amount: p.amount,
-          mobileMoneyReference: p.mobileMoneyReference,
-          savingsAccountId: p.savingsAccountId,
-        }),
-      ),
-      items: input.items.map((i) =>
-        clean({
-          productId: i.productId,
-          variantId: i.variantId,
-          variantName: i.variantName,
-          serialUnitIds: i.serialUnitIds?.length ? i.serialUnitIds : undefined,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          discountAmount: i.discountAmount,
-          costPrice: i.costPrice,
-        }),
-      ),
-    })
-    const sale = await cpost<ApiSaleDetail>('/sales', body)
+    const sale = await cpost<ApiSaleDetail>('/sales', toSaleApiBody(input))
     return {
       ...toLocalSale(sale),
       items: (sale.items ?? []).map(toLocalSaleItem),

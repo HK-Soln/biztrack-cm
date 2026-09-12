@@ -1,13 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
-import type { CheckoutRequest, OnlineFulfillmentType, PublicStore } from '@biztrack/types'
-import { checkout, formatMoney, getCart } from '@/lib/api'
+import {
+  resolveCheckoutPayment,
+  resolveDeliveryFee,
+  type CheckoutRequest,
+  type OnlineFulfillmentType,
+  type PublicStore,
+} from '@biztrack/types'
+import { checkout, formatMoney, getCart, getCities, getCountries, getRegions } from '@/lib/api'
+import { SearchSelect } from './SearchSelect'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
 
@@ -48,8 +55,6 @@ export function CheckoutView({
 
   const offerDelivery = store?.fulfilment.offerDelivery ?? true
   const offerPickup = store?.fulfilment.offerPickup ?? false
-  const deliveryFee = store?.fulfilment.deliveryFee ?? 0
-  const deliveryCities = store?.fulfilment.deliveryCities ?? []
   const currency = store?.currency ?? 'XAF'
   const minOrder = store?.minOrderAmount ?? null
 
@@ -60,30 +65,138 @@ export function CheckoutView({
   const [phone, setPhone] = useState<string | undefined>(undefined)
   const [email, setEmail] = useState('')
   const [address, setAddress] = useState('')
-  const [city, setCity] = useState(deliveryCities[0] ?? store?.city ?? '')
+  const [country, setCountry] = useState('')
+  const [region, setRegion] = useState('')
+  const [city, setCity] = useState('')
   const [instructions, setInstructions] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
+  // Payment options come from the published store flags. Unified flow (Spec 09): the customer chooses
+  // COD or "Pay online" — any online choice redirects to the single /pay/{token} page where they pick
+  // the actual method (card / MoMo). No need to pick a specific provider here.
+  const pm = store?.paymentMethods
+  // The provider method sent to the API for an online order (any routable one triggers link creation);
+  // the pay page then offers all enabled methods, so this is only the initial pre-selection.
+  const onlinePreferred = pm?.card
+    ? 'CARD'
+    : pm?.mtnMomo
+      ? 'MTN_MOMO'
+      : pm?.orangeMoney
+        ? 'ORANGE_MONEY'
+        : null
   const { data: cart } = useQuery({
     queryKey: queryKeys.cart(slug, sessionToken ?? 'none'),
     queryFn: () => getCart(slug, sessionToken as string),
     enabled: Boolean(sessionToken),
   })
 
+  // Structured-address selects (Spec 10 ③): country → region → city, backing the delivery-zone fee.
+  const countriesQ = useQuery({ queryKey: ['geo', 'countries'], queryFn: getCountries })
+  const regionsQ = useQuery({
+    queryKey: ['geo', 'regions', country],
+    queryFn: () => getRegions(country),
+    enabled: Boolean(country),
+  })
+  const citiesQ = useQuery({
+    queryKey: ['geo', 'cities', country, region],
+    queryFn: () => getCities(country, region),
+    enabled: Boolean(country && region),
+  })
+  // Default the country to the first supported one once loaded.
+  useEffect(() => {
+    if (!country && countriesQ.data?.length) setCountry(countriesQ.data[0]!.iso2)
+  }, [country, countriesQ.data])
+
+  const subtotal = cart?.subtotal ?? 0
+  const isDelivery = fulfillmentType === 'DELIVERY'
+  const feeResult = useMemo(
+    () =>
+      resolveDeliveryFee(
+        {
+          deliveryZones: store?.fulfilment.deliveryZones ?? [],
+          deliveryFee: store?.fulfilment.deliveryFee ?? 0,
+          freeDeliveryOverAmount: store?.fulfilment.freeDeliveryOverAmount ?? null,
+          unlistedAreaBehavior: store?.fulfilment.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+          unlistedDefaultFee: store?.fulfilment.unlistedDefaultFee ?? 0,
+        },
+        { countryIso2: country, region, city },
+        subtotal,
+      ),
+    [store, country, region, city, subtotal],
+  )
+  const fee = isDelivery && offerDelivery ? feeResult.fee : 0
+  const notDeliverable = isDelivery && offerDelivery && !feeResult.deliverable
+  const arrangeDelivery = isDelivery && offerDelivery && feeResult.arrangeSeparately
+  const total = subtotal + fee
+  const belowMin = minOrder != null && subtotal < minOrder
+  const items = cart?.items ?? []
+
+  // Payment eligibility (Spec 10 ②) — which modes to offer + the deposit bounds, from the store config
+  // + the order total. deposit_required removes full COD so it can't be bypassed.
+  const prepay = store?.prepayment
+  const eligibility = useMemo(
+    () =>
+      resolveCheckoutPayment(
+        {
+          allowPartialPayment: prepay?.allowPartialPayment ?? false,
+          partialMinPercent: prepay?.partialMinPercent ?? 50,
+          partialMinOrderAmount: prepay?.partialMinOrderAmount ?? 0,
+          depositRequired: prepay?.depositRequired ?? false,
+          codMinOrderAmount: prepay?.codMinOrderAmount ?? 0,
+          codMaxOrderAmount: prepay?.codMaxOrderAmount ?? null,
+        },
+        {
+          cashOnDelivery: pm?.cashOnDelivery ?? true,
+          mtnMomo: pm?.mtnMomo ?? false,
+          orangeMoney: pm?.orangeMoney ?? false,
+          card: pm?.card ?? false,
+        },
+        total,
+      ),
+    [prepay, pm, total],
+  )
+  type PayMode = 'FULL_ONLINE' | 'DEPOSIT' | 'FULL_COD'
+  const modes = useMemo(() => {
+    const arr: { key: PayMode; title: string; desc: string; badge: string; color: string }[] = []
+    if (eligibility.fullOnline)
+      arr.push({ key: 'FULL_ONLINE', title: t('payOnlineTitle'), desc: t('payOnlineDesc'), badge: '⚡', color: 'var(--brand)' })
+    if (eligibility.deposit)
+      arr.push({ key: 'DEPOSIT', title: t('depositTitle'), desc: t('depositDesc'), badge: '½', color: 'var(--brand)' })
+    if (eligibility.fullCod)
+      arr.push({ key: 'FULL_COD', title: t('codTitle'), desc: t('codDesc'), badge: 'CASH', color: 'var(--success)' })
+    return arr
+  }, [eligibility, t])
+  const [paymentMode, setPaymentMode] = useState<PayMode>('FULL_COD')
+  const [depositAmount, setDepositAmount] = useState(0)
+  // Keep the selected mode valid + the deposit within bounds as the cart / eligibility changes.
+  useEffect(() => {
+    if (modes.length && !modes.some((m) => m.key === paymentMode)) setPaymentMode(modes[0]!.key)
+  }, [modes, paymentMode])
+  useEffect(() => {
+    setDepositAmount((a) =>
+      Math.min(Math.max(a || eligibility.depositMin, eligibility.depositMin), eligibility.depositMax),
+    )
+  }, [eligibility])
+
   const mutation = useMutation({
     mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
     onSuccess: (order) => {
       clearSession()
+      const pay = order.payment
+      // Unified pay page (Spec 09/10): one token page handles card (inline) + MoMo; a deposit link
+      // carries the amount to pre-fill.
+      if (pay?.mode === 'link' && pay.token) {
+        const params = new URLSearchParams()
+        if (pay.method) params.set('method', pay.method)
+        if (pay.amount != null) params.set('amount', String(pay.amount))
+        const q = params.toString()
+        router.push(`${base}/pay/${pay.token}${q ? `?${q}` : ''}`)
+        return
+      }
+      // COD / no online payment.
       router.push(`${base}/orders/${order.trackingToken}`)
     },
   })
-
-  const subtotal = cart?.subtotal ?? 0
-  const isDelivery = fulfillmentType === 'DELIVERY'
-  const fee = isDelivery && offerDelivery ? deliveryFee : 0
-  const total = subtotal + fee
-  const belowMin = minOrder != null && subtotal < minOrder
-  const items = cart?.items ?? []
 
   if (!sessionToken || (cart && items.length === 0)) {
     return (
@@ -113,6 +226,14 @@ export function CheckoutView({
     if (fullName.trim().length < 2) next.fullName = t('errName')
     if (!isValidPhone(phone)) next.phone = t('errPhone')
     if (isDelivery && !address.trim()) next.address = t('errAddress')
+    if (notDeliverable) next.area = t('errAreaUndeliverable')
+    // Deposit must be at least the store's minimum — block, don't silently bump it up.
+    if (paymentMode === 'DEPOSIT') {
+      if (!(depositAmount >= eligibility.depositMin))
+        next.deposit = t('depositTooLow', { min: formatMoney(eligibility.depositMin, currency) })
+      else if (depositAmount > eligibility.depositMax)
+        next.deposit = t('depositTooHigh', { total: formatMoney(eligibility.depositMax, currency) })
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -120,14 +241,24 @@ export function CheckoutView({
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
     if (belowMin || !validate()) return
+    // An online mode (full or deposit) needs a routable provider method so the server mints a link; the
+    // pay page then offers all enabled methods. Full COD sends CASH.
+    const online = paymentMode === 'FULL_ONLINE' || paymentMode === 'DEPOSIT'
     mutation.mutate({
       customerName: fullName.trim(),
       customerPhone: phone as string,
       customerEmail: email.trim() || undefined,
       fulfillmentType,
+      deliveryCountry: isDelivery ? country || undefined : undefined,
+      deliveryRegion: isDelivery ? region.trim() || undefined : undefined,
       deliveryAddress: isDelivery ? address.trim() : undefined,
       deliveryCity: isDelivery ? city.trim() || undefined : undefined,
       deliveryNotes: isDelivery && instructions.trim() ? instructions.trim() : undefined,
+      paymentMode,
+      depositAmount: paymentMode === 'DEPOSIT' ? depositAmount : undefined,
+      paymentMethod: online ? (onlinePreferred ?? 'CASH') : 'CASH',
+      // Our origin — the server builds the hosted-payment return URLs from this + the order token.
+      returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
     })
   }
 
@@ -196,7 +327,11 @@ export function CheckoutView({
                 <div className="ot">{t('delivery')}</div>
                 <div className="od">{t('deliveryDesc')}</div>
                 <div className="op">
-                  {deliveryFee > 0 ? formatMoney(deliveryFee, currency) : t('free')}
+                  {arrangeDelivery
+                    ? t('arrangeDeliveryShort')
+                    : fee > 0
+                      ? formatMoney(fee, currency)
+                      : t('free')}
                 </div>
               </button>
             ) : null}
@@ -218,36 +353,77 @@ export function CheckoutView({
           {isDelivery ? (
             <div style={{ marginTop: 18 }}>
               <div className="field-grid">
+                <div className="field">
+                  <label>{t('country')}</label>
+                  <SearchSelect
+                    value={country}
+                    placeholder={t('country')}
+                    searchPlaceholder={t('searchPlaceholder')}
+                    emptyText={t('noResults')}
+                    options={(countriesQ.data ?? []).map((c) => ({ value: c.iso2, label: c.name }))}
+                    onChange={(v) => {
+                      setCountry(v)
+                      setRegion('')
+                      setCity('')
+                    }}
+                  />
+                </div>
+                <div className="field">
+                  <label>{t('region')}</label>
+                  <SearchSelect
+                    value={region}
+                    disabled={!country}
+                    placeholder={t('regionSelect')}
+                    searchPlaceholder={t('searchPlaceholder')}
+                    emptyText={t('noResults')}
+                    options={(regionsQ.data ?? []).map((r) => ({ value: r.name, label: r.name }))}
+                    onChange={(v) => {
+                      setRegion(v)
+                      setCity('')
+                    }}
+                  />
+                </div>
+                <div className="field full">
+                  <label>{t('city')}</label>
+                  {(citiesQ.data ?? []).length > 0 ? (
+                    <SearchSelect
+                      value={city}
+                      placeholder={t('citySelect')}
+                      searchPlaceholder={t('searchPlaceholder')}
+                      emptyText={t('noResults')}
+                      options={(citiesQ.data ?? []).map((c) => ({ value: c.name, label: c.name }))}
+                      onChange={(v) => setCity(v)}
+                    />
+                  ) : (
+                    <input
+                      value={city}
+                      placeholder={t('cityPlaceholder')}
+                      onChange={(e) => setCity(e.target.value)}
+                    />
+                  )}
+                </div>
                 <div className="field full">
                   <label>{t('address')}</label>
                   <input value={address} onChange={(e) => setAddress(e.target.value)} />
                   {errors.address ? (
-                    <span
-                      style={{
-                        color: 'var(--danger)',
-                        fontSize: 12,
-                        marginTop: 4,
-                        display: 'block',
-                      }}
-                    >
+                    <span style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4, display: 'block' }}>
                       {errors.address}
                     </span>
                   ) : null}
                 </div>
-                <div className="field full">
-                  <label>{t('city')}</label>
-                  {deliveryCities.length > 0 ? (
-                    <select value={city} onChange={(e) => setCity(e.target.value)}>
-                      {deliveryCities.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input value={city} onChange={(e) => setCity(e.target.value)} />
-                  )}
-                </div>
+                {notDeliverable ? (
+                  <div className="field full">
+                    <span style={{ color: 'var(--danger)', fontSize: 12.5 }}>
+                      {t('errAreaUndeliverable')}
+                    </span>
+                  </div>
+                ) : arrangeDelivery ? (
+                  <div className="field full">
+                    <span style={{ color: 'var(--brand)', fontSize: 12.5 }}>
+                      {t('arrangeDeliveryHint')}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="field full">
                   <label>{t('instructions')}</label>
                   <textarea
@@ -261,7 +437,7 @@ export function CheckoutView({
           ) : null}
         </div>
 
-        {/* payment — COD only for now */}
+        {/* payment */}
         <div className="cocard">
           <h3>
             <span className="sn">3</span>
@@ -269,16 +445,64 @@ export function CheckoutView({
           </h3>
           <p className="csub">{t('paymentSub')}</p>
           <div className="pay-list">
-            <div className="payopt on">
-              <span className="plogo" style={{ background: 'var(--success)' }}>
-                CASH
-              </span>
-              <span className="pi">
-                <span className="t">{t('codTitle')}</span>
-                <span className="d">{t('codDesc')}</span>
-              </span>
-              <span className="rdo" />
-            </div>
+            {modes.map((o) => (
+              <div key={o.key}>
+                <button
+                  type="button"
+                  className={`payopt${paymentMode === o.key ? ' on' : ''}`}
+                  onClick={() => setPaymentMode(o.key)}
+                >
+                  <span className="plogo" style={{ background: o.color }}>
+                    {o.badge}
+                  </span>
+                  <span className="pi">
+                    <span className="t">{o.title}</span>
+                    <span className="d">{o.desc}</span>
+                  </span>
+                  <span className="rdo" />
+                </button>
+                {/* Deposit amount — shown when this mode is the selected deposit option. */}
+                {o.key === 'DEPOSIT' && paymentMode === 'DEPOSIT' ? (
+                  <div className="field" style={{ marginTop: 8 }}>
+                    <label>
+                      {t('depositAmountLabel', {
+                        min: formatMoney(eligibility.depositMin, currency),
+                        total: formatMoney(total, currency),
+                      })}
+                    </label>
+                    <input
+                      inputMode="decimal"
+                      value={depositAmount ? String(depositAmount) : ''}
+                      onChange={(e) => {
+                        const v = Math.round(
+                          Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
+                        )
+                        setDepositAmount(v)
+                        if (errors.deposit) setErrors((p) => ({ ...p, deposit: '' }))
+                      }}
+                    />
+                    {errors.deposit ? (
+                      <span
+                        style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4, display: 'block' }}
+                      >
+                        {errors.deposit}
+                      </span>
+                    ) : (
+                      <span
+                        style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}
+                      >
+                        {t('depositRemainderHint', {
+                          rest: formatMoney(Math.max(0, total - depositAmount), currency),
+                        })}
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {modes.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>{t('noPaymentOption')}</p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -290,6 +514,10 @@ export function CheckoutView({
           {items.map((item, i) => (
             <div className="co-mini-line" key={`${item.productId}-${i}`}>
               <div className="th">
+                {item.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.imageUrl} alt="" />
+                ) : null}
                 <span className="qb">{item.quantity}</span>
               </div>
               <div className="nm">
@@ -309,7 +537,13 @@ export function CheckoutView({
             <div className="sumrow">
               <span>{t('deliveryLine')}</span>
               <span className="v">
-                {fee > 0 ? formatMoney(fee, currency) : <span className="free">{t('free')}</span>}
+                {arrangeDelivery ? (
+                  <span className="free">{t('arrangeDeliveryShort')}</span>
+                ) : fee > 0 ? (
+                  formatMoney(fee, currency)
+                ) : (
+                  <span className="free">{t('free')}</span>
+                )}
               </span>
             </div>
           ) : null}
@@ -323,7 +557,7 @@ export function CheckoutView({
           type="submit"
           className="btn btn-primary btn-lg btn-block"
           style={{ marginTop: 16 }}
-          disabled={mutation.isPending || belowMin}
+          disabled={mutation.isPending || belowMin || notDeliverable}
         >
           {IcLock}
           {mutation.isPending ? t('placing') : t('placeOrder')}

@@ -61,6 +61,11 @@ export class CreateSalePaymentDto implements CreateSalePaymentRequest {
   @IsOptional()
   @IsUUID()
   savingsAccountId?: string | null
+
+  @ApiPropertyOptional({ description: 'CONFIRMED in-store provider attempt this payment settles.' })
+  @IsOptional()
+  @IsUUID()
+  paymentAttemptId?: string | null
 }
 
 export class CreateSaleItemDto implements CreateSaleItemRequest {

@@ -42,7 +42,11 @@ export class WhatsAppProvider {
       const result = await this.waha.checkContactExists(digits)
       return result.numberExists
     } catch (err) {
-      this.logger.error(`Failed to check WhatsApp contact existence for ${digits}`, WhatsAppProvider.name, { err })
+      this.logger.error(
+        `Failed to check WhatsApp contact existence for ${digits}`,
+        WhatsAppProvider.name,
+        { err },
+      )
       throw new AppInternalServerException('Failed to check WhatsApp contact')
     }
   }
@@ -57,7 +61,9 @@ export class WhatsAppProvider {
       await this.waha.sendText({ chatId, text })
       this.logger.log(`WhatsApp message sent to ${chatId}`)
     } catch (err) {
-      this.logger.error(`Failed to send WhatsApp message to ${chatId}`, WhatsAppProvider.name, { err })
+      this.logger.error(`Failed to send WhatsApp message to ${chatId}`, WhatsAppProvider.name, {
+        err,
+      })
       throw new AppInternalServerException('Failed to send WhatsApp message')
     }
   }
@@ -88,7 +94,11 @@ export class WhatsAppProvider {
         try {
           result = await this.waha.sendFile({
             chatId,
-            file: { url: doc.url, filename: doc.filename, mimetype: doc.mimetype ?? 'application/pdf' },
+            file: {
+              url: doc.url,
+              filename: doc.filename,
+              mimetype: doc.mimetype ?? 'application/pdf',
+            },
             caption: notification.body,
           })
           withDocument = true
@@ -96,9 +106,15 @@ export class WhatsAppProvider {
           this.logger.warn(
             'WhatsApp document send failed — falling back to text + link',
             'WhatsAppProvider',
-            { notificationId: notification.id, err: fileErr instanceof Error ? fileErr.message : String(fileErr) },
+            {
+              notificationId: notification.id,
+              err: fileErr instanceof Error ? fileErr.message : String(fileErr),
+            },
           )
-          result = await this.waha.sendText({ chatId, text: this.withLink(notification.body, doc.url) })
+          result = await this.waha.sendText({
+            chatId,
+            text: this.withLink(notification.body, doc.url),
+          })
         }
       } else {
         result = await this.waha.sendText({ chatId, text: notification.body })
@@ -112,7 +128,6 @@ export class WhatsAppProvider {
 
       return { providerMessageId: result.id, provider: WAHA_PROVIDER }
     } catch (err) {
-      console.log(err)
       this.logger.error(`Failed to send WhatsApp notification`, 'WhatsAppProvider', {
         notificationId: notification.id,
         err,

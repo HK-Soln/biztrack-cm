@@ -67,6 +67,12 @@ export const Icon = {
       <path d="M3 9h18M7 14h4" />
     </>,
   ),
+  income: s(
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M12 9v4m0 0-2-2m2 2 2-2M3 10h2M19 14h2" />
+    </>,
+  ),
   deposits: s(
     <>
       <circle cx="12" cy="12" r="9" />
@@ -218,6 +224,7 @@ export const NAV: NavEntry[] = [
   },
   { to: '/contacts', label: 'nav.contacts', icon: 'contacts' },
   { to: '/expenses', label: 'nav.expenses', icon: 'expenses' },
+  { to: '/income', label: 'nav.income', icon: 'income' },
   { to: '/deposits', label: 'nav.deposits', icon: 'deposits' },
   { to: '/reports', label: 'nav.reports', icon: 'reports' },
   {
@@ -227,10 +234,35 @@ export const NAV: NavEntry[] = [
       { to: '/activity', label: 'nav.activity', icon: 'shield', manager: true },
       { to: '/team', label: 'nav.team', icon: 'contacts' },
       { to: '/roles', label: 'nav.roles', icon: 'shield', owner: true },
+      { to: '/organization/payments', label: 'nav.payments', icon: 'deposits', owner: true },
     ],
   },
   { to: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
+
+// Every sidebar destination (top-level leaves + group children), flattened. Used to resolve
+// "most specific match wins" for active highlighting.
+const ALL_NAV_PATHS: string[] = NAV.flatMap((e) =>
+  isGroup(e) ? e.children.map((c) => c.to) : [e.to],
+)
+
+/** Does `to` match `pathname` as an exact hit or a path-segment prefix? `/` matches only exactly. */
+function pathMatches(to: string, pathname: string): boolean {
+  if (to === '/') return pathname === '/'
+  return pathname === to || pathname.startsWith(to + '/')
+}
+
+/**
+ * True when `to` is the *most specific* sidebar destination matching the current path. When both a
+ * parent ("/products") and one of its subroutes ("/products/categories") match, only the longer
+ * (subroute) is active — so opening a subroute no longer lights up its parent too. A path with no
+ * dedicated nav entry (e.g. a "/products/123" detail page) still lights its nearest parent.
+ */
+export function isNavLeafActive(to: string, pathname: string): boolean {
+  if (!pathMatches(to, pathname)) return false
+  // A deeper nav path that also matches is the more specific one, so it wins over this leaf.
+  return !ALL_NAV_PATHS.some((p) => p.length > to.length && pathMatches(p, pathname))
+}
 
 /** NAV with owner-only + manager-only items removed for those who lack the role, and plan-gated
  * items removed when the plan lacks the resource (BIZ-5.5), and empty groups dropped. `hasResource`

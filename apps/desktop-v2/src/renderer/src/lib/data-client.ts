@@ -67,6 +67,13 @@ import type {
   ExpenseCategoryInput,
   ExpensesListQuery,
   ExpenseTrendItem,
+  LocalOtherIncome,
+  LocalIncomeCategory,
+  LocalOtherIncomeSummary,
+  OtherIncomeInput,
+  IncomeCategoryInput,
+  OtherIncomeListQuery,
+  IncomeTrendItem,
   LocalSale,
   LocalSaleDetail,
   LocalSalesSummary,
@@ -169,6 +176,24 @@ import type {
   IssueCardRequest,
   IssueCardResponse,
   ReplaceCardRequest,
+  PaymentProvider,
+  PaymentProviderCapability,
+  BusinessPaymentProviderView,
+  ConnectPaymentProviderRequest,
+  ConnectPaymentProviderResponse,
+  ConfigureWebhookRequest,
+  BusinessPaymentRouteView,
+  SetPaymentRouteRequest,
+  AvailablePaymentMethod,
+  InitiateInStorePaymentRequest,
+  InStorePaymentInitiated,
+  InStorePaymentStatus,
+  PaymentAttemptRealtimeEvent,
+  PaymentLinkRealtimeEvent,
+  CreatePaymentLinkRequest,
+  CreateSaleDraftLinkRequest,
+  CreateGeneralLinkRequest,
+  PaymentLinkView,
   ScanHit,
   SellEntry,
   ThresholdInput,
@@ -365,6 +390,21 @@ export interface DataClient {
     listAll: () => Promise<LocalExpenseCategory[]>
     create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
   }
+  income: {
+    list: (
+      query?: OtherIncomeListQuery,
+    ) => Promise<PaginatedResult<LocalOtherIncome> & { totalAmount: number }>
+    get: (id: string) => Promise<LocalOtherIncome | null>
+    summary: (query?: OtherIncomeListQuery) => Promise<LocalOtherIncomeSummary>
+    trend: () => Promise<IncomeTrendItem[]>
+    create: (input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    update: (id: string, input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    remove: (id: string) => Promise<void>
+  }
+  incomeCategories: {
+    listAll: () => Promise<LocalIncomeCategory[]>
+    create: (input: IncomeCategoryInput) => Promise<LocalIncomeCategory>
+  }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
     get: (id: string) => Promise<LocalRfqDetail | null>
@@ -406,6 +446,43 @@ export interface DataClient {
     issueCard: (input: IssueCardRequest) => Promise<IssueCardResponse>
     revoke: (id: string) => Promise<MemberAuthCredential>
     replace: (id: string, input: ReplaceCardRequest) => Promise<IssueCardResponse>
+  }
+  /** Payment provider registry (Spec 07) — owner-only, online. */
+  payments: {
+    listProviders: () => Promise<PaymentProvider[]>
+    listCapabilities: (country?: string) => Promise<PaymentProviderCapability[]>
+    listConnections: () => Promise<BusinessPaymentProviderView[]>
+    connect: (input: ConnectPaymentProviderRequest) => Promise<ConnectPaymentProviderResponse>
+    configureWebhook: (
+      id: string,
+      input: ConfigureWebhookRequest,
+    ) => Promise<BusinessPaymentProviderView>
+    verify: (id: string) => Promise<BusinessPaymentProviderView>
+    revoke: (id: string) => Promise<BusinessPaymentProviderView>
+    listRoutes: () => Promise<BusinessPaymentRouteView[]>
+    setRoute: (input: SetPaymentRouteRequest) => Promise<BusinessPaymentRouteView>
+    removeRoute: (id: string) => Promise<{ success: true }>
+    availableMethods: () => Promise<AvailablePaymentMethod[]>
+    /** Spec 07 §7 — start a provider payment at the till (MoMo push / card link). */
+    initiateInStore: (input: InitiateInStorePaymentRequest) => Promise<InStorePaymentInitiated>
+    getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatus>
+    /** Manager override (§7.6): hard-confirm / mark-failed a pending in-store attempt. */
+    confirmInStore: (attemptId: string) => Promise<InStorePaymentStatus>
+    failInStore: (attemptId: string) => Promise<InStorePaymentStatus>
+    /** Live in-store attempt settlements (WebSocket; poll is the fallback). */
+    onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEvent) => void) => () => void
+    /** Spec 08 — payment links for a payable (debt / sale / online order / deposit). */
+    createLink: (input: CreatePaymentLinkRequest) => Promise<PaymentLinkView>
+    /** Spec 09 — a SALE_DRAFT intent from the till (sale materializes on payment). */
+    createSaleDraftLink: (input: CreateSaleDraftLinkRequest) => Promise<PaymentLinkView>
+    /** Spec 10 — a general link booked as other income on payment. */
+    createGeneralLink: (input: CreateGeneralLinkRequest) => Promise<PaymentLinkView>
+    listLinks: () => Promise<PaymentLinkView[]>
+    cancelLink: (id: string) => Promise<void>
+    /** Finish collecting; leave the balance as the customer's credit (§4). */
+    finalizeLink: (id: string) => Promise<PaymentLinkView>
+    /** Live payment-link settlements (Spec 08/09) — refresh offline-first screens + running paid total. */
+    onLinkEvent: (cb: (payload: PaymentLinkRealtimeEvent) => void) => () => void
   }
   uploads: {
     file: (input: UploadFileInput) => Promise<UploadedFile>
@@ -626,7 +703,12 @@ import {
   cloudOnline,
   cloudUploads,
 } from './cloud-data'
-import { cloudRealtimeConnect, cloudRealtimeOnEvent } from './cloud-realtime'
+import {
+  cloudRealtimeConnect,
+  cloudRealtimeOnEvent,
+  cloudRealtimeOnPaymentAttempt,
+  cloudRealtimeOnPaymentLink,
+} from './cloud-realtime'
 import {
   cloudCategories,
   cloudBrands,
@@ -639,10 +721,12 @@ import { cloudProducts } from './cloud-products'
 import { cloudSales } from './cloud-sales'
 import { cloudInventory } from './cloud-inventory'
 import { cloudExpenses } from './cloud-expenses'
+import { cloudIncome, cloudIncomeCategories } from './cloud-income'
 import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
 import { cloudSavings, cloudDeposits } from './cloud-deposits'
 import { cloudCashSessions } from './cloud-cash'
 import { cloudCredentials } from './cloud-credentials'
+import { cloudPayments } from './cloud-payments'
 import { cloudRfqs, cloudPurchaseOrders } from './cloud-procurement'
 import { cloudAudit, cloudCharges, cloudDocuments } from './cloud-misc'
 
@@ -777,6 +861,19 @@ function electronAdapter(): DataClient {
         window.api.expenses.setStatus(id, status, paymentMethod),
       remove: (id) => window.api.expenses.remove(id),
     },
+    income: {
+      list: (query) => window.api.income.list(query),
+      get: (id) => window.api.income.get(id),
+      summary: (query) => window.api.income.summary(query),
+      trend: () => window.api.income.trend(),
+      create: (input) => window.api.income.create(input),
+      update: (id, input) => window.api.income.update(id, input),
+      remove: (id) => window.api.income.remove(id),
+    },
+    incomeCategories: {
+      listAll: () => window.api.incomeCategories.listAll(),
+      create: (input) => window.api.incomeCategories.create(input),
+    },
     expenseCategories: {
       listAll: () => window.api.expenseCategories.listAll(),
       create: (input) => window.api.expenseCategories.create(input),
@@ -818,6 +915,31 @@ function electronAdapter(): DataClient {
       issueCard: (input) => window.api.credentials.issueCard(input),
       revoke: (id) => window.api.credentials.revoke(id),
       replace: (id, input) => window.api.credentials.replace(id, input),
+    },
+    payments: {
+      listProviders: () => window.api.payments.listProviders(),
+      listCapabilities: (country) => window.api.payments.listCapabilities(country),
+      listConnections: () => window.api.payments.listConnections(),
+      connect: (input) => window.api.payments.connect(input),
+      configureWebhook: (id, input) => window.api.payments.configureWebhook(id, input),
+      verify: (id) => window.api.payments.verify(id),
+      revoke: (id) => window.api.payments.revoke(id),
+      listRoutes: () => window.api.payments.listRoutes(),
+      setRoute: (input) => window.api.payments.setRoute(input),
+      removeRoute: (id) => window.api.payments.removeRoute(id),
+      availableMethods: () => window.api.payments.availableMethods(),
+      initiateInStore: (input) => window.api.payments.initiateInStore(input),
+      getInStoreStatus: (attemptId) => window.api.payments.getInStoreStatus(attemptId),
+      confirmInStore: (attemptId) => window.api.payments.confirmInStore(attemptId),
+      failInStore: (attemptId) => window.api.payments.failInStore(attemptId),
+      onAttemptEvent: (cb) => window.api.payments.onAttemptEvent(cb),
+      createLink: (input) => window.api.payments.createLink(input),
+      createSaleDraftLink: (input) => window.api.payments.createSaleDraftLink(input),
+      createGeneralLink: (input) => window.api.payments.createGeneralLink(input),
+      listLinks: () => window.api.payments.listLinks(),
+      cancelLink: (id) => window.api.payments.cancelLink(id),
+      finalizeLink: (id) => window.api.payments.finalizeLink(id),
+      onLinkEvent: (cb) => window.api.payments.onLinkEvent(cb),
     },
     uploads: {
       file: (input) => window.api.uploads.file(input),
@@ -1014,6 +1136,8 @@ function cloudAdapter(): DataClient {
     openingBalances: cloudOpeningBalances,
     expenses: cloudExpenses,
     expenseCategories: cloudExpenseCategories,
+    income: cloudIncome,
+    incomeCategories: cloudIncomeCategories,
     rfqs: cloudRfqs,
     purchaseOrders: cloudPurchaseOrders,
     documents: cloudDocuments,
@@ -1021,6 +1145,11 @@ function cloudAdapter(): DataClient {
     // Manager PIN is a device-local offline credential; there is no cloud path yet.
     pin: { set: notWired, verify: notWired, verifyCard: notWired, canManage: async () => false },
     credentials: cloudCredentials,
+    payments: {
+      ...cloudPayments,
+      onAttemptEvent: cloudRealtimeOnPaymentAttempt,
+      onLinkEvent: cloudRealtimeOnPaymentLink,
+    },
     uploads: cloudUploads,
     charges: cloudCharges,
     sales: cloudSales,

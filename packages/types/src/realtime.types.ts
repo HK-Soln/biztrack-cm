@@ -7,12 +7,44 @@ import type { SyncBatchStatusResponse, SyncChangesAvailableEvent } from './sync.
 // with the ACCESS TOKEN only; the sync token stays scoped to SyncModule's HTTP API.
 // ---------------------------------------------------------------------------
 
+/** An in-store provider payment attempt reaching a terminal state (Spec 07 §7 / Build 10). Emitted
+ *  to the merchant's business channel so the authed till settles live (poll is the fallback). */
+export interface PaymentAttemptRealtimeEvent {
+  attemptId: string
+  businessId: string
+  status: 'PAID' | 'FAILED'
+  reason?: string
+  providerRef?: string
+}
+
+/** A payment LINK settling (Spec 08/09) — a payment landed on a payable via /pay/{token}. Emitted to
+ *  the merchant's business channel so offline-first desktop screens (a debt collection, a deposit
+ *  top-up, a credit-sale QR at the till) refresh live instead of needing a hard reload, and the till
+ *  learns the running paid amount to set the credit portion. */
+export interface PaymentLinkRealtimeEvent {
+  paymentLinkId: string
+  businessId: string
+  payableType: string
+  payableId: string
+  /** Link lifecycle after this payment. */
+  status: 'PARTIALLY_PAID' | 'PAID'
+  /** Total collected on the link so far, and its target (minor units). */
+  amountPaidMinor: number
+  amountMinor: number
+  /** This payment's amount (minor units). */
+  paidNowMinor: number
+}
+
 /** Server → client business events: event name → payload. New modules add entries. */
 export interface RealtimeServerEvents {
   notification: NotificationEventPayload
   // Added when sync migrates onto the realtime module (published server-side):
   'sync.batch.status': SyncBatchStatusResponse
   'sync.changes.available': SyncChangesAvailableEvent
+  // In-store provider payment settlement (Build 10) → the till's business channel.
+  'payment.attempt': PaymentAttemptRealtimeEvent
+  // A payment link settling (Spec 08/09) → refresh offline-first desktop data live.
+  'payment.link': PaymentLinkRealtimeEvent
 }
 
 export type RealtimeServerEventName = keyof RealtimeServerEvents
@@ -37,6 +69,31 @@ export const REALTIME_PATH = '/api/v1/realtime'
 
 /** The `auth` ack event name and the realtime `notification` event name as literals. */
 export const REALTIME_AUTH_EVENT = 'auth' as const
+
+// ---------------------------------------------------------------------------
+// Public storefront order channel — an ANONYMOUS Socket.IO namespace on the same
+// REALTIME_PATH, keyed by the order's secret tracking token (no auth, same trust
+// model as the public GET .../orders/{token}/payment poll). Lets the storefront
+// payment page receive live settlement without polling.
+// ---------------------------------------------------------------------------
+
+/** Anonymous namespace for public order channels (distinct from the default authed namespace). */
+export const REALTIME_PUBLIC_ORDERS_NAMESPACE = '/public-orders'
+
+/** Room a storefront customer joins to receive live payment status for one order. */
+export const realtimeOrderChannel = (trackingToken: string): string => `order:${trackingToken}`
+
+/** Client → server frame on the public-orders namespace: subscribe to an order by its token. */
+export const REALTIME_ORDER_SUBSCRIBE_EVENT = 'order.subscribe' as const
+
+/** Server → storefront frame: the order's live payment status (same shape as the poll response). */
+export const REALTIME_ORDER_PAYMENT_EVENT = 'order.payment' as const
+
+/** Payload of REALTIME_ORDER_PAYMENT_EVENT (mirrors PublicPaymentStatus). */
+export interface RealtimeOrderPaymentEvent {
+  status: 'PENDING' | 'PAID' | 'FAILED'
+  reason?: string
+}
 
 // Channel naming — clients and server must agree byte-for-byte.
 export const realtimeUserChannel = (userId: string): string => `user:${userId}`

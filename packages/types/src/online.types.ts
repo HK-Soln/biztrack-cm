@@ -33,14 +33,27 @@ export interface OnlineStore {
   paymentMtnMomo: boolean
   paymentOrangeMoney: boolean
   paymentCard: boolean
+  // Prepayments / partial payment + COD eligibility (Spec 10 ②).
+  allowPartialPayment: boolean
+  partialMinPercent: number
+  partialMinOrderAmount: number
+  depositRequired: boolean
+  codMinOrderAmount: number
+  codMaxOrderAmount?: number | null
   // Fulfilment: which options the store offers + delivery economics/reach.
   offerDelivery: boolean
   offerPickup: boolean
   /** Flat delivery fee in the store currency (minor unit not used — whole XAF). */
   deliveryFee: number
   pickupAddress?: string | null
-  /** Cities/zones the store delivers to (empty = anywhere the customer enters). */
+  /** Cities/zones the store delivers to (empty = anywhere the customer enters). Legacy — superseded by
+   *  deliveryZones. */
   deliveryCities: string[]
+  // Address-driven delivery zones (Spec 10 ③).
+  deliveryZones: DeliveryZone[]
+  freeDeliveryOverAmount?: number | null
+  unlistedAreaBehavior: UnlistedAreaBehavior
+  unlistedDefaultFee: number
   // Storefront appearance + catalog + SEO + lifecycle (design-store-config / issue #91)
   layoutTemplate: OnlineStoreLayout
   themeId: string
@@ -96,11 +109,21 @@ export interface UpdateOnlineStoreRequest {
   paymentMtnMomo?: boolean
   paymentOrangeMoney?: boolean
   paymentCard?: boolean
+  allowPartialPayment?: boolean
+  partialMinPercent?: number
+  partialMinOrderAmount?: number
+  depositRequired?: boolean
+  codMinOrderAmount?: number
+  codMaxOrderAmount?: number | null
   offerDelivery?: boolean
   offerPickup?: boolean
   deliveryFee?: number
   pickupAddress?: string | null
   deliveryCities?: string[]
+  deliveryZones?: DeliveryZone[]
+  freeDeliveryOverAmount?: number | null
+  unlistedAreaBehavior?: UnlistedAreaBehavior
+  unlistedDefaultFee?: number
   storeSlug?: string
   layoutTemplate?: OnlineStoreLayout
   themeId?: string
@@ -142,13 +165,30 @@ export interface OnlineStorePublishedConfig {
   showOutOfStock: boolean
   allowOrderNotes: boolean
   minOrderAmount: number | null
-  payment: { cashOnDelivery: boolean; mtnMomo: boolean; orangeMoney: boolean; card: boolean }
+  payment: {
+    cashOnDelivery: boolean
+    mtnMomo: boolean
+    orangeMoney: boolean
+    card: boolean
+    /** Prepayments / partial payment + COD eligibility (Spec 10 ②). */
+    allowPartialPayment: boolean
+    partialMinPercent: number
+    partialMinOrderAmount: number
+    depositRequired: boolean
+    codMinOrderAmount: number
+    codMaxOrderAmount: number | null
+  }
   fulfilment: {
     offerDelivery: boolean
     offerPickup: boolean
     deliveryFee: number
     pickupAddress: string | null
     deliveryCities: string[]
+    // Address-driven delivery zones (Spec 10 ③).
+    deliveryZones: DeliveryZone[]
+    freeDeliveryOverAmount: number | null
+    unlistedAreaBehavior: UnlistedAreaBehavior
+    unlistedDefaultFee: number
   }
   appearance: {
     layoutTemplate: OnlineStoreLayout
@@ -289,12 +329,27 @@ export interface PublicStore {
     orangeMoney: boolean
     card: boolean
   }
+  /** Prepayments / partial payment + COD eligibility (Spec 10 ②). Drives the checkout payment-mode
+   *  resolver (full online / deposit + rest on delivery / full COD). */
+  prepayment: {
+    allowPartialPayment: boolean
+    partialMinPercent: number
+    partialMinOrderAmount: number
+    depositRequired: boolean
+    codMinOrderAmount: number
+    codMaxOrderAmount: number | null
+  }
   fulfilment: {
     offerDelivery: boolean
     offerPickup: boolean
     deliveryFee: number
     pickupAddress?: string | null
     deliveryCities: string[]
+    // Address-driven delivery zones (Spec 10 ③).
+    deliveryZones: DeliveryZone[]
+    freeDeliveryOverAmount: number | null
+    unlistedAreaBehavior: UnlistedAreaBehavior
+    unlistedDefaultFee: number
   }
   socials: {
     instagram?: string | null
@@ -307,6 +362,163 @@ export interface PublicStore {
     title?: string | null
     description?: string | null
     ogImageUrl?: string | null
+  }
+}
+
+/** The payment modes a checkout may offer for a given order (Spec 10 ②). */
+export interface CheckoutPaymentEligibility {
+  /** Pay the full amount online now. */
+  fullOnline: boolean
+  /** Pay a deposit online now, the rest on delivery. */
+  deposit: boolean
+  /** Pay everything on delivery (cash). */
+  fullCod: boolean
+  /** Deposit amount bounds in major units (min = the configured %; max = the full total). */
+  depositMin: number
+  depositMax: number
+}
+
+/**
+ * Resolve which payment modes a checkout may offer, from the store's prepayment/COD config + the
+ * enabled methods + the order total (Spec 10 ②). A *required* deposit removes full COD so it can't be
+ * bypassed; a deposit is always paid online, so it needs an online method.
+ */
+export function resolveCheckoutPayment(
+  cfg: PublicStore['prepayment'],
+  methods: PublicStore['paymentMethods'],
+  orderTotal: number,
+): CheckoutPaymentEligibility {
+  const anyOnline = methods.mtnMomo || methods.orangeMoney || methods.card
+  const depositApplies = cfg.allowPartialPayment && orderTotal >= cfg.partialMinOrderAmount
+  const codWithinRange =
+    orderTotal >= cfg.codMinOrderAmount &&
+    (cfg.codMaxOrderAmount == null || orderTotal <= cfg.codMaxOrderAmount)
+  const depositMin = Math.min(Math.ceil((orderTotal * cfg.partialMinPercent) / 100), orderTotal)
+  return {
+    fullOnline: anyOnline,
+    deposit: depositApplies && anyOnline,
+    fullCod: methods.cashOnDelivery && codWithinRange && !(depositApplies && cfg.depositRequired),
+    depositMin,
+    depositMax: orderTotal,
+  }
+}
+
+/** A delivery zone (Spec 10 ③): a fee for addresses matching country/region/city (any subset). */
+export interface DeliveryZone {
+  id: string
+  name: string
+  fee: number
+  countryIso2?: string | null
+  region?: string | null
+  city?: string | null
+}
+
+/** What to do when a delivery address matches no configured zone. */
+export type UnlistedAreaBehavior = 'BLOCK' | 'DEFAULT_FEE' | 'ARRANGE'
+
+/** The customer's structured delivery address (Spec 10 ③), used to match a zone. */
+export interface DeliveryAddressInput {
+  countryIso2?: string | null
+  region?: string | null
+  city?: string | null
+}
+
+/** The store's fulfilment config needed to price delivery. */
+export interface DeliveryPricingConfig {
+  deliveryZones: DeliveryZone[]
+  /** Legacy flat fee — used when no zones are configured. */
+  deliveryFee: number
+  freeDeliveryOverAmount?: number | null
+  unlistedAreaBehavior: UnlistedAreaBehavior
+  unlistedDefaultFee: number
+}
+
+export interface DeliveryFeeResult {
+  /** False only when the address is unlisted and the store blocks delivery there. */
+  deliverable: boolean
+  fee: number
+  matchedZoneName: string | null
+  /** True when the address is unlisted and the store arranges the fee separately (fee = 0 for now; the
+   *  merchant sends a payment link for the delivery fee later). */
+  arrangeSeparately: boolean
+  freeApplied: boolean
+}
+
+/** Most-specific match wins: a zone matches if every field it specifies equals the address; among
+ *  matches, city beats region beats country. */
+export function matchDeliveryZone(
+  zones: DeliveryZone[],
+  address: DeliveryAddressInput,
+): DeliveryZone | null {
+  const norm = (s?: string | null) => (s ?? '').trim().toLowerCase()
+  const c = norm(address.countryIso2)
+  const r = norm(address.region)
+  const ci = norm(address.city)
+  let best: DeliveryZone | null = null
+  let bestScore = -1
+  for (const z of zones) {
+    const zc = norm(z.countryIso2)
+    const zr = norm(z.region)
+    const zci = norm(z.city)
+    if (zc && zc !== c) continue
+    if (zr && zr !== r) continue
+    if (zci && zci !== ci) continue
+    const score = (zci ? 4 : 0) + (zr ? 2 : 0) + (zc ? 1 : 0)
+    if (score > bestScore) {
+      bestScore = score
+      best = z
+    }
+  }
+  return best
+}
+
+/**
+ * Resolve the delivery fee for an order (Spec 10 ③): free-over-threshold first, then the most-specific
+ * matching zone; with no zones configured fall back to the legacy flat fee; otherwise apply the
+ * unlisted-area behaviour (block / default fee / arrange separately).
+ */
+export function resolveDeliveryFee(
+  cfg: DeliveryPricingConfig,
+  address: DeliveryAddressInput,
+  subtotal: number,
+): DeliveryFeeResult {
+  if (cfg.freeDeliveryOverAmount != null && cfg.freeDeliveryOverAmount > 0 && subtotal >= cfg.freeDeliveryOverAmount)
+    return { deliverable: true, fee: 0, matchedZoneName: null, arrangeSeparately: false, freeApplied: true }
+
+  const zone = matchDeliveryZone(cfg.deliveryZones ?? [], address)
+  if (zone)
+    return {
+      deliverable: true,
+      fee: Math.max(0, Math.round(zone.fee)),
+      matchedZoneName: zone.name,
+      arrangeSeparately: false,
+      freeApplied: false,
+    }
+
+  // No zones configured → legacy flat fee for every delivery.
+  if (!cfg.deliveryZones || cfg.deliveryZones.length === 0)
+    return {
+      deliverable: true,
+      fee: Math.max(0, Math.round(cfg.deliveryFee ?? 0)),
+      matchedZoneName: null,
+      arrangeSeparately: false,
+      freeApplied: false,
+    }
+
+  switch (cfg.unlistedAreaBehavior) {
+    case 'BLOCK':
+      return { deliverable: false, fee: 0, matchedZoneName: null, arrangeSeparately: false, freeApplied: false }
+    case 'ARRANGE':
+      return { deliverable: true, fee: 0, matchedZoneName: null, arrangeSeparately: true, freeApplied: false }
+    case 'DEFAULT_FEE':
+    default:
+      return {
+        deliverable: true,
+        fee: Math.max(0, Math.round(cfg.unlistedDefaultFee ?? 0)),
+        matchedZoneName: null,
+        arrangeSeparately: false,
+        freeApplied: false,
+      }
   }
 }
 
@@ -404,6 +616,8 @@ export interface OnlineCartItem {
   unitPrice: number
   productName: string
   variantName?: string | null
+  /** The product's primary image, for the cart / checkout thumbnails. */
+  imageUrl?: string | null
 }
 
 export interface OnlineCart {
@@ -572,11 +786,71 @@ export interface CheckoutRequest {
   customerPhone: string
   customerEmail?: string
   fulfillmentType?: OnlineFulfillmentType
+  /** Structured delivery address (Spec 10 ③): country (ISO2) + region + city drive zone matching;
+   *  deliveryAddress is the free-text street line. */
+  deliveryCountry?: string
+  deliveryRegion?: string
   deliveryAddress?: string
   deliveryCity?: string
   deliveryNotes?: string
   notes?: string
   paymentMethod?: string
+  /** How the customer chose to pay (Spec 10 ②). Defaults to full online when a provider method is set,
+   *  else COD. DEPOSIT collects `depositAmount` online now, the rest on delivery. */
+  paymentMode?: 'FULL_ONLINE' | 'DEPOSIT' | 'FULL_COD'
+  /** For paymentMode DEPOSIT: the amount (major units) to collect online now; the server re-validates it
+   *  against the store's minimum deposit + order total. */
+  depositAmount?: number
+  /** The storefront's own origin (e.g. https://acme.example). For a provider-backed method the server
+   * builds the hosted-payment return URLs from this + the new order's tracking token, so the customer
+   * lands back on their order page. Ignored for COD. */
+  returnUrl?: string
+}
+
+/**
+ * The payment outcome/intent for an order (Spec 07). Two uses share this shape:
+ *
+ * At CHECKOUT, `mode` tells the storefront how to proceed (payment is NOT triggered here for
+ * self-handled providers — order creation is decoupled from payment):
+ *  - `redirect` → a hosted provider (Stripe): `url` is set, the storefront navigates there.
+ *  - `self`     → a self-handled provider (MTN MoMo request-to-pay): the storefront sends the
+ *                 customer to our own payment page `/orders/{token}/pay`, where the payment is
+ *                 started and managed (enter number → push → poll → retry) without ever having
+ *                 risked the order creation.
+ *  - `none`     → no online payment (COD): go straight to the order page.
+ *
+ * On the PAYMENT PAGE, starting/retrying a payment returns the per-attempt outcome:
+ *  - `url`     → hosted redirect: navigate there.
+ *  - `pending` → push accepted; the customer approves on their phone; poll `GET .../orders/{token}/payment`.
+ *  - `failed`  → the payment could not be started (provider error); show a retry.
+ */
+export interface CheckoutPayment {
+  // 'link' (Spec 09) → the storefront redirects to the unified /pay/{token} page; 'none' → COD / no
+  // online payment. The legacy 'redirect'/'self' order-pay-page modes were retired (Spec 09 slice 8).
+  mode?: 'link' | 'none'
+  /** mode==='link' — the payment-link token to pay the order at /pay/{token}. */
+  token?: string
+  /** mode==='link' — the method the customer preferred at checkout, pre-selected on the pay page. */
+  method?: string
+  /** mode==='link' with a DEPOSIT — the amount (major units) to collect online now; the pay page
+   *  pre-fills it. Absent for a full-amount link. */
+  amount?: number
+}
+
+/** Checkout result. `payment` is present only when a provider-backed method was chosen. */
+export interface CheckoutResult {
+  orderNumber: string
+  trackingToken: string
+  status: OnlineOrderStatus
+  payment?: CheckoutPayment
+}
+
+/** Public payment status for the storefront payment page (polled while a push payment is pending).
+ * PENDING → keep waiting; PAID → done; FAILED → let the customer retry.
+ * `reason` is a provider failure-reason CODE (whitelisted, FAILED only) the storefront maps to copy. */
+export interface PublicPaymentStatus {
+  status: 'PENDING' | 'PAID' | 'FAILED'
+  reason?: string
 }
 
 export interface OnlineOrderEvent {
@@ -682,5 +956,12 @@ export interface PublicOrderTracking {
   totalAmount: number
   currency: string
   fulfillmentType: OnlineFulfillmentType
+  /** The chosen payment method (CASH/MTN_MOMO/ORANGE_MONEY/CARD) + its money-axis status — drive the
+   *  payment page (whether an online payment is still owed and how to collect it). */
+  paymentMethod: string | null
+  paymentStatus: OnlinePaymentStatus
+  /** The phone the customer gave at checkout — prefills the Mobile Money number on the payment page
+   *  (readable only with the order's secret tracking token). */
+  customerPhone: string | null
   events: OnlineOrderEvent[]
 }

@@ -128,6 +128,14 @@ export class OnlineStoreService {
         paymentMtnMomo: dto.paymentMtnMomo ?? store.paymentMtnMomo,
         paymentOrangeMoney: dto.paymentOrangeMoney ?? store.paymentOrangeMoney,
         paymentCard: dto.paymentCard ?? store.paymentCard,
+        // Prepayments / partial payment + COD eligibility (Spec 10 ②)
+        allowPartialPayment: dto.allowPartialPayment ?? store.allowPartialPayment,
+        partialMinPercent: dto.partialMinPercent ?? store.partialMinPercent,
+        partialMinOrderAmount: dto.partialMinOrderAmount ?? store.partialMinOrderAmount,
+        depositRequired: dto.depositRequired ?? store.depositRequired,
+        codMinOrderAmount: dto.codMinOrderAmount ?? store.codMinOrderAmount,
+        codMaxOrderAmount:
+          dto.codMaxOrderAmount === undefined ? store.codMaxOrderAmount : dto.codMaxOrderAmount,
         // Fulfilment (delivery / pickup)
         offerDelivery: dto.offerDelivery ?? store.offerDelivery,
         offerPickup: dto.offerPickup ?? store.offerPickup,
@@ -137,6 +145,14 @@ export class OnlineStoreService {
             ? store.pickupAddress
             : (dto.pickupAddress?.trim() ?? null),
         deliveryCities: dto.deliveryCities ?? store.deliveryCities,
+        // Address-driven delivery zones (Spec 10 ③)
+        deliveryZones: dto.deliveryZones ?? store.deliveryZones,
+        freeDeliveryOverAmount:
+          dto.freeDeliveryOverAmount === undefined
+            ? store.freeDeliveryOverAmount
+            : dto.freeDeliveryOverAmount,
+        unlistedAreaBehavior: dto.unlistedAreaBehavior ?? store.unlistedAreaBehavior,
+        unlistedDefaultFee: dto.unlistedDefaultFee ?? store.unlistedDefaultFee,
         // Appearance + catalog + SEO/social (design-store-config)
         layoutTemplate: dto.layoutTemplate ?? store.layoutTemplate,
         themeId: dto.themeId ?? store.themeId,
@@ -317,6 +333,12 @@ export class OnlineStoreService {
         mtnMomo: store.paymentMtnMomo,
         orangeMoney: store.paymentOrangeMoney,
         card: store.paymentCard,
+        allowPartialPayment: store.allowPartialPayment,
+        partialMinPercent: store.partialMinPercent,
+        partialMinOrderAmount: store.partialMinOrderAmount,
+        depositRequired: store.depositRequired,
+        codMinOrderAmount: store.codMinOrderAmount,
+        codMaxOrderAmount: store.codMaxOrderAmount ?? null,
       },
       fulfilment: {
         offerDelivery: store.offerDelivery,
@@ -324,6 +346,10 @@ export class OnlineStoreService {
         deliveryFee: store.deliveryFee,
         pickupAddress: store.pickupAddress ?? null,
         deliveryCities: store.deliveryCities ?? [],
+        deliveryZones: store.deliveryZones ?? [],
+        freeDeliveryOverAmount: store.freeDeliveryOverAmount ?? null,
+        unlistedAreaBehavior: store.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+        unlistedDefaultFee: store.unlistedDefaultFee ?? 0,
       },
       appearance: {
         layoutTemplate:

@@ -163,6 +163,18 @@ export class CheckoutDto implements CheckoutRequest {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2)
+  deliveryCountry?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  deliveryRegion?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   deliveryAddress?: string
 
   @ApiPropertyOptional()
@@ -186,6 +198,27 @@ export class CheckoutDto implements CheckoutRequest {
   @IsString()
   @MaxLength(40)
   paymentMethod?: string
+
+  @ApiPropertyOptional({ enum: ['FULL_ONLINE', 'DEPOSIT', 'FULL_COD'] })
+  @IsOptional()
+  @IsIn(['FULL_ONLINE', 'DEPOSIT', 'FULL_COD'])
+  paymentMode?: 'FULL_ONLINE' | 'DEPOSIT' | 'FULL_COD'
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  depositAmount?: number
+
+  // The storefront's origin (Spec 07 build 9). The server builds the hosted-payment return URLs from
+  // this + the new order's tracking token. @IsString (not @IsUrl) so localhost dev origins are
+  // accepted — it is never fetched by us, only used to build the provider's redirect targets.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  returnUrl?: string
 }
 
 export class ContactMessageDto implements ContactMessageRequest {

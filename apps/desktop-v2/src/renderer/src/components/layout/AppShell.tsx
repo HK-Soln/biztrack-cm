@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Icon, TABS, filterNav, isGroup, type NavEntry, type NavLeaf } from '@/lib/nav'
+import {
+  Icon,
+  TABS,
+  filterNav,
+  isGroup,
+  isNavLeafActive,
+  type NavEntry,
+  type NavLeaf,
+} from '@/lib/nav'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useCanManage } from '@/lib/useCanManage'
 import { useResourcePredicate } from '@/lib/entitlements'
@@ -39,12 +47,12 @@ function initials(name?: string | null): string {
 
 function NavLeafLink({ to, label, icon, badge }: NavLeaf) {
   const t = useT()
+  const { pathname } = useLocation()
+  // Resolve active ourselves (most-specific match) rather than NavLink's isActive, which lights up
+  // every ancestor prefix — so a parent leaf and its open subroute would both show active.
+  const active = isNavLeafActive(to, pathname)
   return (
-    <NavLink
-      to={to}
-      end={to === '/'}
-      className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-    >
+    <NavLink to={to} className={`nav-item${active ? ' active' : ''}`}>
       {icon ? Icon[icon] : <span style={{ width: 16 }} />}
       <span className="lab">{t(label)}</span>
       {badge ? <span className="badge-a">{t(badge)}</span> : null}
@@ -129,8 +137,7 @@ function NavGroup({
               <NavLink
                 key={c.to}
                 to={c.to}
-                end={c.to === '/'}
-                className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+                className={`nav-item${isNavLeafActive(c.to, pathname) ? ' active' : ''}`}
                 onClick={() => setPos(null)}
               >
                 {c.icon ? Icon[c.icon] : <span style={{ width: 16 }} />}
