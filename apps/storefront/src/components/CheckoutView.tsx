@@ -14,6 +14,7 @@ import {
   type PublicStore,
 } from '@biztrack/types'
 import { checkout, formatMoney, getCart, getCities, getCountries, getRegions } from '@/lib/api'
+import { SearchSelect } from './SearchSelect'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
 
@@ -354,50 +355,45 @@ export function CheckoutView({
               <div className="field-grid">
                 <div className="field">
                   <label>{t('country')}</label>
-                  <select
+                  <SearchSelect
                     value={country}
-                    onChange={(e) => {
-                      setCountry(e.target.value)
+                    placeholder={t('country')}
+                    searchPlaceholder={t('searchPlaceholder')}
+                    emptyText={t('noResults')}
+                    options={(countriesQ.data ?? []).map((c) => ({ value: c.iso2, label: c.name }))}
+                    onChange={(v) => {
+                      setCountry(v)
                       setRegion('')
                       setCity('')
                     }}
-                  >
-                    {(countriesQ.data ?? []).map((c) => (
-                      <option key={c.iso2} value={c.iso2}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div className="field">
                   <label>{t('region')}</label>
-                  <select
+                  <SearchSelect
                     value={region}
                     disabled={!country}
-                    onChange={(e) => {
-                      setRegion(e.target.value)
+                    placeholder={t('regionSelect')}
+                    searchPlaceholder={t('searchPlaceholder')}
+                    emptyText={t('noResults')}
+                    options={(regionsQ.data ?? []).map((r) => ({ value: r.name, label: r.name }))}
+                    onChange={(v) => {
+                      setRegion(v)
                       setCity('')
                     }}
-                  >
-                    <option value="">{t('regionSelect')}</option>
-                    {(regionsQ.data ?? []).map((r) => (
-                      <option key={r.id} value={r.name}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div className="field full">
                   <label>{t('city')}</label>
                   {(citiesQ.data ?? []).length > 0 ? (
-                    <select value={city} onChange={(e) => setCity(e.target.value)}>
-                      <option value="">{t('citySelect')}</option>
-                      {(citiesQ.data ?? []).map((c) => (
-                        <option key={c.id} value={c.name}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={city}
+                      placeholder={t('citySelect')}
+                      searchPlaceholder={t('searchPlaceholder')}
+                      emptyText={t('noResults')}
+                      options={(citiesQ.data ?? []).map((c) => ({ value: c.name, label: c.name }))}
+                      onChange={(v) => setCity(v)}
+                    />
                   ) : (
                     <input
                       value={city}

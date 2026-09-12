@@ -129,6 +129,8 @@
     "region": "Région",
     "regionSelect": "Choisir une région",
     "citySelect": "Choisir une ville",
+    "searchPlaceholder": "Rechercher…",
+    "noResults": "Aucun résultat",
     "cityPlaceholder": "Saisissez votre ville",
     "city": "Ville",
     "errAreaUndeliverable": "Désolé, cette boutique ne livre pas dans cette zone. Essayez le retrait.",

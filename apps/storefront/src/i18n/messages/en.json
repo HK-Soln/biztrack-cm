@@ -129,6 +129,8 @@
     "region": "Region / State",
     "regionSelect": "Select a region",
     "citySelect": "Select a city",
+    "searchPlaceholder": "Search…",
+    "noResults": "No results",
     "cityPlaceholder": "Enter your city",
     "city": "City",
     "errAreaUndeliverable": "Sorry, this store doesn’t deliver to that area. Try pickup instead.",
