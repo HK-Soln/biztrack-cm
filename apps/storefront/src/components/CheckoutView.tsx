@@ -8,11 +8,12 @@ import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
 import {
   resolveCheckoutPayment,
+  resolveDeliveryFee,
   type CheckoutRequest,
   type OnlineFulfillmentType,
   type PublicStore,
 } from '@biztrack/types'
-import { checkout, formatMoney, getCart } from '@/lib/api'
+import { checkout, formatMoney, getCart, getCities, getCountries, getRegions } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
 
@@ -53,8 +54,6 @@ export function CheckoutView({
 
   const offerDelivery = store?.fulfilment.offerDelivery ?? true
   const offerPickup = store?.fulfilment.offerPickup ?? false
-  const deliveryFee = store?.fulfilment.deliveryFee ?? 0
-  const deliveryCities = store?.fulfilment.deliveryCities ?? []
   const currency = store?.currency ?? 'XAF'
   const minOrder = store?.minOrderAmount ?? null
 
@@ -65,7 +64,9 @@ export function CheckoutView({
   const [phone, setPhone] = useState<string | undefined>(undefined)
   const [email, setEmail] = useState('')
   const [address, setAddress] = useState('')
-  const [city, setCity] = useState(deliveryCities[0] ?? store?.city ?? '')
+  const [country, setCountry] = useState('')
+  const [region, setRegion] = useState('')
+  const [city, setCity] = useState('')
   const [instructions, setInstructions] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -88,9 +89,43 @@ export function CheckoutView({
     enabled: Boolean(sessionToken),
   })
 
+  // Structured-address selects (Spec 10 ③): country → region → city, backing the delivery-zone fee.
+  const countriesQ = useQuery({ queryKey: ['geo', 'countries'], queryFn: getCountries })
+  const regionsQ = useQuery({
+    queryKey: ['geo', 'regions', country],
+    queryFn: () => getRegions(country),
+    enabled: Boolean(country),
+  })
+  const citiesQ = useQuery({
+    queryKey: ['geo', 'cities', country, region],
+    queryFn: () => getCities(country, region),
+    enabled: Boolean(country && region),
+  })
+  // Default the country to the first supported one once loaded.
+  useEffect(() => {
+    if (!country && countriesQ.data?.length) setCountry(countriesQ.data[0]!.iso2)
+  }, [country, countriesQ.data])
+
   const subtotal = cart?.subtotal ?? 0
   const isDelivery = fulfillmentType === 'DELIVERY'
-  const fee = isDelivery && offerDelivery ? deliveryFee : 0
+  const feeResult = useMemo(
+    () =>
+      resolveDeliveryFee(
+        {
+          deliveryZones: store?.fulfilment.deliveryZones ?? [],
+          deliveryFee: store?.fulfilment.deliveryFee ?? 0,
+          freeDeliveryOverAmount: store?.fulfilment.freeDeliveryOverAmount ?? null,
+          unlistedAreaBehavior: store?.fulfilment.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+          unlistedDefaultFee: store?.fulfilment.unlistedDefaultFee ?? 0,
+        },
+        { countryIso2: country, region, city },
+        subtotal,
+      ),
+    [store, country, region, city, subtotal],
+  )
+  const fee = isDelivery && offerDelivery ? feeResult.fee : 0
+  const notDeliverable = isDelivery && offerDelivery && !feeResult.deliverable
+  const arrangeDelivery = isDelivery && offerDelivery && feeResult.arrangeSeparately
   const total = subtotal + fee
   const belowMin = minOrder != null && subtotal < minOrder
   const items = cart?.items ?? []
@@ -190,6 +225,7 @@ export function CheckoutView({
     if (fullName.trim().length < 2) next.fullName = t('errName')
     if (!isValidPhone(phone)) next.phone = t('errPhone')
     if (isDelivery && !address.trim()) next.address = t('errAddress')
+    if (notDeliverable) next.area = t('errAreaUndeliverable')
     // Deposit must be at least the store's minimum — block, don't silently bump it up.
     if (paymentMode === 'DEPOSIT') {
       if (!(depositAmount >= eligibility.depositMin))
@@ -212,6 +248,8 @@ export function CheckoutView({
       customerPhone: phone as string,
       customerEmail: email.trim() || undefined,
       fulfillmentType,
+      deliveryCountry: isDelivery ? country || undefined : undefined,
+      deliveryRegion: isDelivery ? region.trim() || undefined : undefined,
       deliveryAddress: isDelivery ? address.trim() : undefined,
       deliveryCity: isDelivery ? city.trim() || undefined : undefined,
       deliveryNotes: isDelivery && instructions.trim() ? instructions.trim() : undefined,
@@ -288,7 +326,11 @@ export function CheckoutView({
                 <div className="ot">{t('delivery')}</div>
                 <div className="od">{t('deliveryDesc')}</div>
                 <div className="op">
-                  {deliveryFee > 0 ? formatMoney(deliveryFee, currency) : t('free')}
+                  {arrangeDelivery
+                    ? t('arrangeDeliveryShort')
+                    : fee > 0
+                      ? formatMoney(fee, currency)
+                      : t('free')}
                 </div>
               </button>
             ) : null}
@@ -310,36 +352,82 @@ export function CheckoutView({
           {isDelivery ? (
             <div style={{ marginTop: 18 }}>
               <div className="field-grid">
-                <div className="field full">
-                  <label>{t('address')}</label>
-                  <input value={address} onChange={(e) => setAddress(e.target.value)} />
-                  {errors.address ? (
-                    <span
-                      style={{
-                        color: 'var(--danger)',
-                        fontSize: 12,
-                        marginTop: 4,
-                        display: 'block',
-                      }}
-                    >
-                      {errors.address}
-                    </span>
-                  ) : null}
+                <div className="field">
+                  <label>{t('country')}</label>
+                  <select
+                    value={country}
+                    onChange={(e) => {
+                      setCountry(e.target.value)
+                      setRegion('')
+                      setCity('')
+                    }}
+                  >
+                    {(countriesQ.data ?? []).map((c) => (
+                      <option key={c.iso2} value={c.iso2}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>{t('region')}</label>
+                  <select
+                    value={region}
+                    disabled={!country}
+                    onChange={(e) => {
+                      setRegion(e.target.value)
+                      setCity('')
+                    }}
+                  >
+                    <option value="">{t('regionSelect')}</option>
+                    {(regionsQ.data ?? []).map((r) => (
+                      <option key={r.id} value={r.name}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="field full">
                   <label>{t('city')}</label>
-                  {deliveryCities.length > 0 ? (
+                  {(citiesQ.data ?? []).length > 0 ? (
                     <select value={city} onChange={(e) => setCity(e.target.value)}>
-                      {deliveryCities.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
+                      <option value="">{t('citySelect')}</option>
+                      {(citiesQ.data ?? []).map((c) => (
+                        <option key={c.id} value={c.name}>
+                          {c.name}
                         </option>
                       ))}
                     </select>
                   ) : (
-                    <input value={city} onChange={(e) => setCity(e.target.value)} />
+                    <input
+                      value={city}
+                      placeholder={t('cityPlaceholder')}
+                      onChange={(e) => setCity(e.target.value)}
+                    />
                   )}
                 </div>
+                <div className="field full">
+                  <label>{t('address')}</label>
+                  <input value={address} onChange={(e) => setAddress(e.target.value)} />
+                  {errors.address ? (
+                    <span style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4, display: 'block' }}>
+                      {errors.address}
+                    </span>
+                  ) : null}
+                </div>
+                {notDeliverable ? (
+                  <div className="field full">
+                    <span style={{ color: 'var(--danger)', fontSize: 12.5 }}>
+                      {t('errAreaUndeliverable')}
+                    </span>
+                  </div>
+                ) : arrangeDelivery ? (
+                  <div className="field full">
+                    <span style={{ color: 'var(--brand)', fontSize: 12.5 }}>
+                      {t('arrangeDeliveryHint')}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="field full">
                   <label>{t('instructions')}</label>
                   <textarea
@@ -453,7 +541,13 @@ export function CheckoutView({
             <div className="sumrow">
               <span>{t('deliveryLine')}</span>
               <span className="v">
-                {fee > 0 ? formatMoney(fee, currency) : <span className="free">{t('free')}</span>}
+                {arrangeDelivery ? (
+                  <span className="free">{t('arrangeDeliveryShort')}</span>
+                ) : fee > 0 ? (
+                  formatMoney(fee, currency)
+                ) : (
+                  <span className="free">{t('free')}</span>
+                )}
               </span>
             </div>
           ) : null}
@@ -467,7 +561,7 @@ export function CheckoutView({
           type="submit"
           className="btn btn-primary btn-lg btn-block"
           style={{ marginTop: 16 }}
-          disabled={mutation.isPending || belowMin}
+          disabled={mutation.isPending || belowMin || notDeliverable}
         >
           {IcLock}
           {mutation.isPending ? t('placing') : t('placeOrder')}

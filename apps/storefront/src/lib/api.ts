@@ -3,6 +3,9 @@ import type {
   AddCartItemRequest,
   CategoryTreeResponse,
   CheckoutRequest,
+  CityView,
+  CountryView,
+  RegionView,
   CheckoutResult,
   ContactMessageRequest,
   InitiatePaymentLinkRequest,
@@ -71,6 +74,21 @@ async function send<T>(
 }
 
 const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
+
+// ---- Geography (structured address selects, Spec 10 ③) --------------------
+export async function getCountries(): Promise<CountryView[]> {
+  return (await readJson<CountryView[]>('/public/geo/countries')) ?? []
+}
+export async function getRegions(countryIso2: string): Promise<RegionView[]> {
+  if (!countryIso2) return []
+  return (await readJson<RegionView[]>('/public/geo/regions', { country: countryIso2 })) ?? []
+}
+export async function getCities(countryIso2: string, region: string): Promise<CityView[]> {
+  if (!countryIso2 || !region) return []
+  return (
+    (await readJson<CityView[]>('/public/geo/cities', { country: countryIso2, region })) ?? []
+  )
+}
 
 // ---- Reads ----------------------------------------------------------------
 
