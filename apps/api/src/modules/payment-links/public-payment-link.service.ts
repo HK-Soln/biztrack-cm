@@ -37,7 +37,7 @@ export class PublicPaymentLinkService {
   ) {}
 
   async getPublic(token: string): Promise<PublicPaymentLink> {
-    const { link, amountDueMinor } = await this.resolveLive(token)
+    const { link, amountDueMinor, continueToken } = await this.resolveLive(token)
     const business = await this.businesses.findOne({ where: { id: link.businessId } })
     const methods = (await this.routing.resolveAvailableMethods(link.businessId)).map((m) => m.method)
     return {
@@ -51,6 +51,7 @@ export class PublicPaymentLinkService {
       allowPartial: link.allowPartial,
       status: link.status,
       methods,
+      orderTrackingToken: continueToken ?? null,
     }
   }
 
@@ -126,7 +127,7 @@ export class PublicPaymentLinkService {
   /** Load the link by token, expire it if past its window, and re-resolve the LIVE amount owed. */
   private async resolveLive(
     token: string,
-  ): Promise<{ link: PaymentLink; amountDueMinor: number }> {
+  ): Promise<{ link: PaymentLink; amountDueMinor: number; continueToken: string | null }> {
     const link = await this.links.findOne({ where: { token } })
     if (!link) throw new AppNotFoundException('Payment link not found.', 'PAYMENT_LINK_NOT_FOUND')
 
@@ -143,7 +144,7 @@ export class PublicPaymentLinkService {
     // expected total. Deposits are open top-ups → keep the stored amount. Everything else re-resolves.
     if (link.payableType === PayableType.SALE_DRAFT) {
       const remaining = Math.max(0, Number(link.amountMinor) - Number(link.amountPaidMinor))
-      return { link, amountDueMinor: remaining }
+      return { link, amountDueMinor: remaining, continueToken: null }
     }
     const handler = this.registry.get(link.payableType)
     const resolved = handler ? await handler.resolve(link.businessId, link.payableId) : null
@@ -151,7 +152,7 @@ export class PublicPaymentLinkService {
       link.payableType === PayableType.DEPOSIT
         ? Number(link.amountMinor)
         : (resolved?.amountDueMinor ?? 0)
-    return { link, amountDueMinor }
+    return { link, amountDueMinor, continueToken: resolved?.continueToken ?? null }
   }
 
   private mapMethod(method: string): PaymentMethod {

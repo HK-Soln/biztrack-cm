@@ -100,6 +100,8 @@ export function PayLinkView({
   const [phone, setPhone] = useState<string | undefined>(undefined)
   const [amount, setAmount] = useState<number>(isOpen ? 0 : dueMajor)
   const [reason, setReason] = useState<string | null>(null)
+  // Online-order checkout: once paid, count down and auto-forward to the order tracking page.
+  const [redirectIn, setRedirectIn] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Embedded card (Stripe Elements): set when initiate returns kind==='elements'.
@@ -204,6 +206,27 @@ export function PayLinkView({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, token])
+
+  // Online-order checkout only: after a successful payment, auto-redirect to the order tracking page
+  // (the pay page runs on the store's own origin, so a relative /orders/{token} is correct). Any
+  // interaction is preserved by also offering an explicit "continue" button below.
+  const continueUrl = link.orderTrackingToken ? `/orders/${link.orderTrackingToken}` : null
+  useEffect(() => {
+    if (phase !== 'paid' || !continueUrl) return
+    setRedirectIn(5)
+    const iv = setInterval(() => {
+      setRedirectIn((n) => {
+        if (n === null) return n
+        if (n <= 1) {
+          clearInterval(iv)
+          window.location.href = continueUrl
+          return 0
+        }
+        return n - 1
+      })
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [phase, continueUrl])
 
   const reasonText =
     reason && KNOWN_REASONS.has(reason)
@@ -325,6 +348,18 @@ export function PayLinkView({
         <p style={{ color: 'var(--muted)', marginTop: 8 }}>
           {t('paidDesc', { business: link.businessName })}
         </p>
+        {continueUrl ? (
+          <div style={{ marginTop: 20 }}>
+            <a href={continueUrl} className="btn btn-primary btn-lg btn-block">
+              {t('continueToOrder')}
+            </a>
+            {redirectIn != null && redirectIn > 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 10 }}>
+                {t('redirectingIn', { seconds: redirectIn })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </>,
     )
   }

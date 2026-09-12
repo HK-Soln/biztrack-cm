@@ -294,6 +294,8 @@
     "linkInactiveDesc": "This payment link is no longer active.",
     "paidTitle": "Payment received",
     "paidDesc": "Thank you! Your payment to {business} is confirmed.",
+    "continueToOrder": "Continue to your order",
+    "redirectingIn": "Redirecting in {seconds}s…",
     "waitTitle": "Approve the payment on your phone",
     "waitDesc": "We sent a payment request to {phone}. Open the prompt and enter your Mobile Money PIN.",
     "waitChecking": "Waiting for confirmation…",

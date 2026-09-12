@@ -91,6 +91,9 @@ export interface PublicPaymentLink {
   allowPartial: boolean
   status: PaymentLinkStatus
   methods: string[]
+  /** For an online-order checkout link: the order's tracking token, so the pay page can offer a
+   *  "continue to your order" button and auto-redirect once paid. Null for links with no such page. */
+  orderTrackingToken?: string | null
 }
 
 /** Start a payment for a link (public, payer). `amountMinor` is honoured only for partial-capable

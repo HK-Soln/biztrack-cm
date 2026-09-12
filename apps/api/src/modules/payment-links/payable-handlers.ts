@@ -31,6 +31,10 @@ export interface PayableResolution {
   currency: string
   label: string
   customerId: string | null
+  /** For payables that have a customer-facing page to return to after paying (online orders → the order
+   *  tracking page). Null for payables with no such destination. Used by the hosted pay page to offer a
+   *  "continue" / auto-redirect once paid. */
+  continueToken?: string | null
 }
 
 /** Context for applying a confirmed link payment to its payable. */
@@ -163,6 +167,7 @@ export class OnlineOrderPayableHandler implements PayableHandler {
       currency: CURRENCY,
       label: `Order ${order.orderNumber}`,
       customerId: null, // online orders are guest (customerName/phone), no contact id
+      continueToken: order.trackingToken, // → /orders/{trackingToken} to continue after paying
     }
   }
 
