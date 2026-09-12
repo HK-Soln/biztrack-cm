@@ -204,6 +204,9 @@ export const IPC = {
   onlineOrderUpdatePayment: 'online:order-update-payment',
   onlinePublicationsList: 'online:publications-list',
   onlinePublicationRestore: 'online:publication-restore',
+  onlineGeoCountries: 'online:geo-countries',
+  onlineGeoRegions: 'online:geo-regions',
+  onlineGeoCities: 'online:geo-cities',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   notificationSettingsGet: 'notification-settings:get',
@@ -1668,6 +1671,9 @@ export type {
   OnlinePaymentMethod,
   UpdateOrderPaymentRequest,
   OnlineStorePublicationSummary,
+  CountryView,
+  RegionView,
+  CityView,
   ProductPublishBlocker,
   ProductPublishability,
 } from '@biztrack/types'
@@ -1694,6 +1700,9 @@ import type {
   OnlineAdminProduct as OnlineAdminProductT,
   OnlineAdminProductsQuery as OnlineAdminProductsQueryT,
   OnlineStorePublicationSummary as OnlineStorePublicationSummaryT,
+  CountryView as CountryViewT,
+  RegionView as RegionViewT,
+  CityView as CityViewT,
 } from '@biztrack/types'
 
 // --- Business profile (Settings → General) — reuse the shared business shapes ---
@@ -2540,6 +2549,9 @@ export interface BridgeApi {
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
+    getCountries: () => Promise<CountryViewT[]>
+    getRegions: (country: string) => Promise<RegionViewT[]>
+    getCities: (country: string, region: string) => Promise<CityViewT[]>
   }
   /** Business profile (Settings → General) — server-owned, proxied through main. */
   business: {

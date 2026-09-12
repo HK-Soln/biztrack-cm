@@ -141,6 +141,9 @@ import type {
   RejectInvitationResponse,
   OnlineOrdersQuery,
   OnlineSlugCheck,
+  CountryView,
+  RegionView,
+  CityView,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
   OnlineStorePublicationSummary,
@@ -559,6 +562,9 @@ export interface DataClient {
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQuery) => Promise<PaginatedResult<OnlineAdminProduct>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
+    getCountries: () => Promise<CountryView[]>
+    getRegions: (country: string) => Promise<RegionView[]>
+    getCities: (country: string, region: string) => Promise<CityView[]>
   }
   business: {
     getProfile: () => Promise<BusinessProfile | null>
@@ -1004,6 +1010,9 @@ function electronAdapter(): DataClient {
       checkSlug: (slug) => window.api.online.checkSlug(slug),
       listProducts: (query) => window.api.online.listProducts(query),
       setProductPublished: (id, published) => window.api.online.setProductPublished(id, published),
+      getCountries: () => window.api.online.getCountries(),
+      getRegions: (country) => window.api.online.getRegions(country),
+      getCities: (country, region) => window.api.online.getCities(country, region),
     },
     business: {
       getProfile: () => window.api.business.getProfile(),

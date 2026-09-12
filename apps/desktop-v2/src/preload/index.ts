@@ -363,6 +363,9 @@ const api: BridgeApi = {
     listProducts: (query) => ipcRenderer.invoke(IPC.onlineProductsList, query),
     setProductPublished: (id, published) =>
       ipcRenderer.invoke(IPC.onlineProductSetPublished, id, published),
+    getCountries: () => ipcRenderer.invoke(IPC.onlineGeoCountries),
+    getRegions: (country) => ipcRenderer.invoke(IPC.onlineGeoRegions, country),
+    getCities: (country, region) => ipcRenderer.invoke(IPC.onlineGeoCities, country, region),
   },
   business: {
     getProfile: () => ipcRenderer.invoke(IPC.businessGetProfile),
