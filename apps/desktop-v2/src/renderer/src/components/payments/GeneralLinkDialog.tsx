@@ -13,7 +13,7 @@ import { useT } from '@/i18n'
 /**
  * Spec 10 ① — create + share a GENERAL payment link (booked as other income on payment). Online-only.
  * Collects an amount (0 = payer chooses), a label, an income category, and an optional note; then shows
- * the QR + copyable link + live settlement status. Used on Settings → Payments and the Other Income page.
+ * the QR + copyable link + live settlement status. Used on Organization → Payments and the Other Income page.
  */
 export function GeneralLinkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()

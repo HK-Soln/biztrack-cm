@@ -186,7 +186,7 @@ export const router = createHashRouter([
             ),
           },
           {
-            path: '/settings/payments',
+            path: '/organization/payments',
             element: (
               <RequireOwner>
                 <Payments />

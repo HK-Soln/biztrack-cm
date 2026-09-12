@@ -1498,9 +1498,9 @@ export const en = {
   'online.payOrangeMoneyDesc': 'Customers pay with Orange Money at checkout.',
   'online.payCard': 'Card',
   'online.payCardDesc': 'Customers pay by card at checkout.',
-  'online.payNeedsSetup': 'Set up a verified provider in Settings → Payments to enable this.',
+  'online.payNeedsSetup': 'Set up a verified provider in Organization → Payments to enable this.',
   'online.payGateHint':
-    'Only methods with a fully set-up payment provider can be enabled. Configure providers in Settings → Payments.',
+    'Only methods with a fully set-up payment provider can be enabled. Configure providers in Organization → Payments.',
   'online.prepayTitle': 'Prepayments',
   'online.allowPartial': 'Allow a deposit',
   'online.allowPartialDesc': 'Customers pay part online and the rest in cash on delivery.',
@@ -5293,9 +5293,9 @@ export const fr: Record<MessageKey, string> = {
   'online.payCard': 'Carte',
   'online.payCardDesc': 'Les clients paient par carte au paiement.',
   'online.payNeedsSetup':
-    'Configurez un prestataire vérifié dans Paramètres → Paiements pour l’activer.',
+    'Configurez un prestataire vérifié dans Organisation → Paiements pour l’activer.',
   'online.payGateHint':
-    'Seuls les moyens dotés d’un prestataire de paiement entièrement configuré peuvent être activés. Configurez les prestataires dans Paramètres → Paiements.',
+    'Seuls les moyens dotés d’un prestataire de paiement entièrement configuré peuvent être activés. Configurez les prestataires dans Organisation → Paiements.',
   'online.prepayTitle': 'Acomptes',
   'online.allowPartial': 'Autoriser un acompte',
   'online.allowPartialDesc': 'Les clients paient une partie en ligne et le reste en espèces à la livraison.',

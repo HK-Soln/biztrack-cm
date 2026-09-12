@@ -225,7 +225,7 @@ export function Payments() {
           <button
             type="button"
             className="back"
-            onClick={() => nav('/settings')}
+            onClick={() => nav(-1)}
             aria-label={t('pay.back')}
           >
             <Back />
