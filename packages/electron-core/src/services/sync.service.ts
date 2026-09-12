@@ -80,6 +80,8 @@ const OUTBOX_ENTITY_TO_SYNC_ENTITY: Record<string, string> = {
   productVariantOptions: 'product_variant_option',
   productSerialUnits: 'product_serial_unit',
   expenseCategories: 'expense_category',
+  incomeCategories: 'income_category',
+  otherIncomes: 'other_income',
   products: 'product',
   inventoryThresholds: 'inventory_threshold',
   inventoryRestocks: 'inventory_restock',
@@ -830,6 +832,15 @@ export class SyncService {
       if (pending.has(record.id)) continue
       ops.push(this.expenseUpsert(record))
     }
+    // Income categories (tier 0) before other-income entries (tier 2) that reference them.
+    for (const record of changes.incomeCategories ?? []) {
+      if (pending.has(record.id)) continue
+      ops.push(this.incomeCategoryUpsert(record))
+    }
+    for (const record of changes.otherIncomes ?? []) {
+      if (pending.has(record.id)) continue
+      ops.push(this.otherIncomeUpsert(record))
+    }
     // Deposit sessions (depend on contact) + their transactions.
     for (const record of changes.savingsAccounts ?? []) {
       if (pending.has(record.id)) continue
@@ -1256,6 +1267,68 @@ export class SyncService {
         asStr(e.expenseDate) ?? now.slice(0, 10),
         r.isDeleted ? 1 : 0,
         asStr(e.businessDate),
+        asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private incomeCategoryUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const e = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO income_categories
+        (id, business_id, name, slug, color, icon, sort_order, is_active, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name, slug = excluded.slug, color = excluded.color, icon = excluded.icon,
+          sort_order = excluded.sort_order, is_active = excluded.is_active, is_deleted = excluded.is_deleted,
+          updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(e.businessId),
+        asStr(e.name),
+        asStr(e.slug),
+        asStr(e.color),
+        asStr(e.icon),
+        asNum(e.sortOrder) ?? 0,
+        r.isDeleted ? 0 : 1,
+        r.isDeleted ? 1 : 0,
+        asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
+        asStr(r.updatedAt) ?? now,
+      ],
+    }
+  }
+
+  private otherIncomeUpsert(r: SyncRecord): { sql: string; params: unknown[] } {
+    const e = r as Record<string, unknown>
+    const now = new Date().toISOString()
+    return {
+      sql: `INSERT INTO other_incomes
+        (id, business_id, recorded_by_id, category_id, description, amount, currency, payment_method,
+         reference, source, source_id, note, date, business_date, is_deleted, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          category_id = excluded.category_id, description = excluded.description, amount = excluded.amount,
+          currency = excluded.currency, payment_method = excluded.payment_method, reference = excluded.reference,
+          source = excluded.source, source_id = excluded.source_id, note = excluded.note, date = excluded.date,
+          business_date = excluded.business_date, is_deleted = excluded.is_deleted, updated_at = excluded.updated_at`,
+      params: [
+        asStr(r.id),
+        asStr(e.businessId),
+        asStr(e.recordedById),
+        asStr(e.categoryId),
+        asStr(e.description),
+        asNum(e.amount) ?? 0,
+        asStr(e.currency) ?? 'XAF',
+        asStr(e.paymentMethod),
+        asStr(e.reference),
+        asStr(e.source) ?? 'MANUAL',
+        asStr(e.sourceId),
+        asStr(e.note),
+        asStr(e.incomeDate) ?? now.slice(0, 10),
+        asStr(e.businessDate),
+        r.isDeleted ? 1 : 0,
         asStr(e.createdAt) ?? asStr(r.updatedAt) ?? now,
         asStr(r.updatedAt) ?? now,
       ],
