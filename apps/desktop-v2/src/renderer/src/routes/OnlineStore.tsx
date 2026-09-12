@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Modal, PhoneInput, Select } from '@biztrack/ui/biztrack'
 import { PaymentMethod } from '@biztrack/types'
-import type { DeliveryZone, UnlistedAreaBehavior } from '@biztrack/types'
+import type { CountryView, DeliveryZone, UnlistedAreaBehavior } from '@biztrack/types'
 import { dataClient, isElectron } from '@/lib/data-client'
 import { useSessionStore } from '@/stores/session.store'
 import { STORE_ROOT_DOMAIN } from '@/lib/config'
@@ -458,14 +458,24 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: T; onSaved: () =>
     [availableQ.data],
   )
 
-  // Countries (loaded once) power every zone-row country picker.
-  const countriesQ = useQuery({
-    queryKey: ['geo', 'countries'],
-    queryFn: () => dataClient.online.getCountries(),
-    retry: false,
-    staleTime: 60 * 60 * 1000,
-  })
-  const countries = countriesQ.data ?? []
+  // Countries power every zone-row country picker. Fetched with a plain effect (not react-query) so
+  // it always reaches the backend on mount and never gets stuck on a cached error persisted across
+  // dev HMR — the on-demand region/city loaders already work this way.
+  const [countries, setCountries] = useState<CountryView[]>([])
+  useEffect(() => {
+    let alive = true
+    dataClient.online
+      .getCountries()
+      .then((rows) => {
+        if (alive) setCountries(rows)
+      })
+      .catch(() => {
+        if (alive) setCountries([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const brand = THEMES.find((x) => x.id === form.themeId)?.brand ?? '#16467A'
   const host = `${form.storeSlug || 'yourshop'}.${STORE_ROOT_DOMAIN}`
@@ -1351,8 +1361,11 @@ function ZoneRow({
         : t('online.scopeCountry')
 
   const loadCountries = async (search: string) => {
+    // Prefer the list the editor already loaded; fetch on-demand as a fallback (same resilient
+    // pattern as regions/cities) so the picker works even if that list hasn't arrived yet.
+    const rows = countries.length ? countries : await dataClient.online.getCountries()
     const s = search.trim().toLowerCase()
-    return countries
+    return rows
       .filter((c) => !s || c.name.toLowerCase().includes(s))
       .map((c) => ({ value: c.iso2, label: c.name }))
   }
