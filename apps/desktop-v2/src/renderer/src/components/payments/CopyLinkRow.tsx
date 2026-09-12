@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button } from '@biztrack/ui/biztrack'
+import { copyText } from '@/lib/clipboard'
 import { useT } from '@/i18n'
 
 /**
@@ -12,20 +13,8 @@ export function CopyLinkRow({ url }: { url: string }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch {
-      const ta = document.createElement('textarea')
-      ta.value = url
-      document.body.appendChild(ta)
-      ta.select()
-      try {
-        document.execCommand('copy')
-      } catch {
-        /* last resort: the field is selectable for a manual copy */
-      }
-      document.body.removeChild(ta)
-    }
+    // Only flip to "Copied" when the write actually landed; the field stays selectable as a last resort.
+    if (!(await copyText(url))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

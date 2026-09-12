@@ -11,6 +11,9 @@ const api: BridgeApi = {
   theme: {
     set: (theme) => ipcRenderer.send(IPC.themeSet, theme),
   },
+  clipboard: {
+    write: (text) => ipcRenderer.invoke(IPC.clipboardWrite, text),
+  },
   window: {
     setTitleBarOverlay: (colors) => ipcRenderer.send(IPC.titlebarSetOverlay, colors),
   },

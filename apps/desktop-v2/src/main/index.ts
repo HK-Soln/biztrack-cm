@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, session, shell } from 'electron'
 import { join, resolve } from 'path'
 import {
   DatabaseService,
@@ -618,6 +618,12 @@ app.whenReady().then(() => {
     if (!colors?.symbolColor) return
     overlayColors = colors
     applyOverlayToAllWindows()
+  })
+
+  // Reliable clipboard write from the renderer (navigator.clipboard can fail in Electron).
+  ipcMain.handle(IPC.clipboardWrite, (_event, text: string) => {
+    clipboard.writeText(String(text ?? ''))
+    return true
   })
 
   // Keep controls correct when the OS theme flips while in `system` mode.

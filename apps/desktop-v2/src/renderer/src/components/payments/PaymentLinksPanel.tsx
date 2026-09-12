@@ -6,6 +6,7 @@ import { minorToMajor } from '@biztrack/utils'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
+import { copyText } from '@/lib/clipboard'
 import { useT } from '@/i18n'
 
 const STATUS_STYLE: Record<PaymentLinkStatus, { color: string; bg: string }> = {
@@ -46,11 +47,7 @@ export function PaymentLinksPanel() {
 
   const fmt = (l: PaymentLinkView, minor: number) => money.format(minorToMajor(minor, l.currency))
   const copy = async (l: PaymentLinkView) => {
-    try {
-      await navigator.clipboard.writeText(l.url)
-    } catch {
-      /* clipboard blocked — no-op */
-    }
+    if (!(await copyText(l.url))) return // only confirm when the copy actually landed
     setCopiedId(l.id)
     setTimeout(() => setCopiedId((c) => (c === l.id ? null : c)), 2000)
   }

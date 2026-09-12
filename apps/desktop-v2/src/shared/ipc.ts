@@ -7,6 +7,7 @@ export const IPC = {
   skeletonHealth: 'skeleton:health',
   themeSet: 'theme:set',
   titlebarSetOverlay: 'titlebar:set-overlay',
+  clipboardWrite: 'clipboard:write',
   authGetSession: 'auth:get-session',
   authLogin: 'auth:login',
   authRequestLogin: 'auth:request-login',
@@ -2044,6 +2045,10 @@ export interface BridgeApi {
   }
   theme: {
     set: (theme: 'light' | 'dark' | 'system') => void
+  }
+  clipboard: {
+    /** Reliable clipboard write via the Electron main process (renderer navigator.clipboard can fail). */
+    write: (text: string) => Promise<boolean>
   }
   window: {
     /** Paint the native window controls to match the current top bar. */
