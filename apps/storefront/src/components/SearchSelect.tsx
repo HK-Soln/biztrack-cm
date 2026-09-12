@@ -1,10 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 export interface SearchSelectOption {
   value: string
   label: string
+}
+
+// Matches the storefront `.field input` styling (which is an element selector, not a class, so a
+// <button>/popover <input> can't inherit it).
+const FIELD: CSSProperties = {
+  height: 46,
+  width: '100%',
+  borderRadius: 11,
+  border: '1px solid var(--border)',
+  background: 'var(--inset)',
+  color: 'var(--text)',
+  font: 'inherit',
+  fontSize: 14,
+  padding: '0 14px',
+  outline: 'none',
 }
 
 /**
@@ -66,10 +81,10 @@ export function SearchSelect({
     <div ref={rootRef} style={{ position: 'relative' }}>
       <button
         type="button"
-        className="input"
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
         style={{
+          ...FIELD,
           textAlign: 'left',
           display: 'flex',
           alignItems: 'center',
@@ -112,8 +127,7 @@ export function SearchSelect({
           <div style={{ padding: 8, borderBottom: '1px solid var(--border, rgba(0,0,0,0.1))' }}>
             <input
               ref={inputRef}
-              className="input"
-              style={{ height: 38 }}
+              style={{ ...FIELD, height: 38 }}
               value={q}
               placeholder={searchPlaceholder}
               onChange={(e) => setQ(e.target.value)}
