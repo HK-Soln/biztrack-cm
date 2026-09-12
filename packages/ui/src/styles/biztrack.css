@@ -13478,7 +13478,9 @@ textarea.input {
 .sc2 .zwrap {
   border: 1px solid var(--border);
   border-radius: 13px;
-  overflow: hidden;
+  /* NOT overflow:hidden — each row's CommandSelect popover is absolutely positioned and would be
+     clipped (dropdown appears empty). Corners are rounded on the header + add-row instead. */
+  overflow: visible;
 }
 .sc2 .zhead,
 .sc2 .zrow {
@@ -13491,6 +13493,7 @@ textarea.input {
   padding: 9px 12px;
   background: var(--inset);
   border-bottom: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
 }
 .sc2 .zhead span {
   font-size: 10px;
@@ -13500,8 +13503,8 @@ textarea.input {
   color: var(--text-muted);
 }
 .sc2 .zlist {
-  max-height: 420px;
-  overflow-y: auto;
+  /* No scroll container — it would clip the row popovers. The card grows with the list instead. */
+  overflow: visible;
 }
 .sc2 .zrow {
   padding: 9px 12px;
@@ -13559,6 +13562,7 @@ textarea.input {
   padding: 11px;
   border: 0;
   border-top: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
   background: var(--inset);
   color: var(--brand);
   font: inherit;
