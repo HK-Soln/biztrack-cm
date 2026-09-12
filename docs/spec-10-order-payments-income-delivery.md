@@ -109,6 +109,6 @@ Structured address columns are added to `OnlineOrder` + `CheckoutRequest` + `Che
 
 ## Status
 
-- [ ] Slice ① — Other Income + general payment link
-- [ ] Slice ② — Prepayments & COD eligibility
+- [x] Slice ① — Other Income + general payment link (backend + offline sync + Payments generate‑link + Other Income page)
+- [x] Slice ② — Prepayments & COD eligibility (store config + `resolveCheckoutPayment` + deposit/COD checkout + partial ONLINE_ORDER link + desktop config editor). Deploy: migration `1789400000000`.
 - [ ] Slice ③ — Delivery zones (multi‑country)
