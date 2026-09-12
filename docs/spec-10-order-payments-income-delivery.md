@@ -18,8 +18,14 @@ place today: deposit‑cancellation charges (`savings_transactions type='charge'
 payment can be booked as income.
 
 **Model** (mirrors the expense/expense‑category pair):
-- `income_categories` — `business_id` nullable (null = system/global, shared), `name`, `slug`, `color`,
-  `icon`, `sort_order`. Seed system rows: **Delivery fees**, **Miscellaneous**.
+- `income_categories` — **per‑business, owned/editable rows** (not system‑wide — a business carries its
+  own per‑category attributes; same reason expenses will move this way, since recurring differs per
+  business). `business_id`, `name`, `slug`, `color`, `icon`, `sort_order`. Defaults **Delivery fees /
+  Deposit charges / Miscellaneous** are seeded per business on creation (`IncomeService.seedDefaults` via
+  `BusinessService.create`; migration `1789300000000` backfills existing businesses + re‑points booked
+  income + drops the old shared system rows). Automated bookings resolve the business's own category by
+  slug (`ensureCategoryBySlug`). Expenses get the same treatment + recurring‑as‑category as a follow‑up
+  ([[expenses-per-business-categories-recurring-followup]]).
 - `other_incomes` — `business_id`, `recorded_by_id`, `category_id`, `description`, `amount` decimal(12,2),
   `currency`, `payment_method` (nullable), `reference` (provider ref, nullable), `source`
   (`MANUAL` | `PAYMENT_LINK` | `DEPOSIT_CHARGE`), `source_id` (nullable link/txn id), `note`, plus the
