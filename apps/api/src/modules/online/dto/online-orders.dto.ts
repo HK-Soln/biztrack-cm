@@ -85,6 +85,13 @@ export class PublicProductsQueryDto implements PublicProductsQuery {
   @IsString()
   @MaxLength(200)
   search?: string
+
+  // Draft-preview flag (`?preview=1`). Read separately via @Query('preview'); declared here so the
+  // whitelisting ValidationPipe doesn't reject the whole query as it binds `@Query() query`.
+  @ApiPropertyOptional({ enum: ['1'] })
+  @IsOptional()
+  @IsIn(['1'])
+  preview?: string
 }
 
 const FULFILLMENT_TYPES: OnlineFulfillmentType[] = ['DELIVERY', 'PICKUP']
