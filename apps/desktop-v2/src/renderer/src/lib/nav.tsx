@@ -67,6 +67,12 @@ export const Icon = {
       <path d="M3 9h18M7 14h4" />
     </>,
   ),
+  income: s(
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M12 9v4m0 0-2-2m2 2 2-2M3 10h2M19 14h2" />
+    </>,
+  ),
   deposits: s(
     <>
       <circle cx="12" cy="12" r="9" />
@@ -218,6 +224,7 @@ export const NAV: NavEntry[] = [
   },
   { to: '/contacts', label: 'nav.contacts', icon: 'contacts' },
   { to: '/expenses', label: 'nav.expenses', icon: 'expenses' },
+  { to: '/income', label: 'nav.income', icon: 'income' },
   { to: '/deposits', label: 'nav.deposits', icon: 'deposits' },
   { to: '/reports', label: 'nav.reports', icon: 'reports' },
   {

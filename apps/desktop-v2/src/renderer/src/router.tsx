@@ -41,6 +41,7 @@ import { Sell } from '@/routes/Sell'
 import { Sales } from '@/routes/Sales'
 import { Activity } from '@/routes/Activity'
 import { Expenses } from '@/routes/Expenses'
+import { OtherIncome } from '@/routes/OtherIncome'
 import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
 import { OnlineProducts } from '@/routes/OnlineProducts'
@@ -146,6 +147,7 @@ export const router = createHashRouter([
           { path: '/purchasing/orders/:id', element: <PoDetail /> },
           { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
           { path: '/expenses', element: <Expenses /> },
+          { path: '/income', element: <OtherIncome /> },
           { path: '/deposits', element: <Deposits /> },
           { path: '/reports', element: <ReportViewer /> },
           { path: '/reports/:reportId', element: <ReportViewer /> },
