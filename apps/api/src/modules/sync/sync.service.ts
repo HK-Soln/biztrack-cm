@@ -712,6 +712,11 @@ export class SyncService {
     try {
       const since = cursor ? new Date(cursor) : new Date(0)
       const pulledAt = new Date()
+
+      // Self-heal: make sure this business has its default income categories before we read them, so a
+      // business created before per-business seeding (or one whose seed migration hasn't run) still gets
+      // them on its next sync. Idempotent + cheap (no-op once any category exists); best-effort.
+      await this.incomeService.seedDefaults(businessId).catch(() => undefined)
       // Date fields may arrive as a Date (timestamp transformer) or a string (date column).
       const iso = (v: unknown): string | null =>
         v == null ? null : v instanceof Date ? v.toISOString() : String(v)

@@ -395,6 +395,9 @@ export class IncomeService {
    *  backfilled for existing businesses by migration. */
   async seedDefaults(businessId: string, manager?: EntityManager): Promise<void> {
     const repo = manager ? manager.getRepository(IncomeCategory) : this.categories
+    // Cheap idempotency so this can be called on every sync pull: if the business already has any
+    // category, there is nothing to seed.
+    if ((await repo.count({ where: { businessId } })) > 0) return
     const now = new Date()
     for (const def of DEFAULT_INCOME_CATEGORIES) {
       const exists = await repo.findOne({ where: { businessId, slug: def.slug }, withDeleted: true })

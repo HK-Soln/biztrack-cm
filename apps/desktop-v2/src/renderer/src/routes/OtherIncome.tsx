@@ -384,18 +384,29 @@ export function OtherIncome() {
 
         <div className="panel-foot">
           <span>{t('income.showing').replace('{shown}', String(rows.length)).replace('{total}', String(total))}</span>
-          <div style={{ flex: 1 }} />
-          <button className="link" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+          <div className="spacer" style={{ flex: 1 }} />
+          <span
+            className="link"
+            aria-disabled={page <= 1}
+            onClick={() => {
+              if (page > 1) setPage((p) => p - 1)
+            }}
+          >
             {t('income.prev')}
-          </button>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 8px' }}>
+          </span>
+          <span>
             {page} / {totalPages}
           </span>
-          <button className="link" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+          <span
+            className="link"
+            aria-disabled={page >= totalPages}
+            onClick={() => {
+              if (page < totalPages) setPage((p) => p + 1)
+            }}
+          >
             {t('income.next')}
-          </button>
-          <div style={{ flex: 1 }} />
-          <span style={{ fontWeight: 600 }}>{money.format(listQ.data?.totalAmount ?? 0)}</span>
+          </span>
+          <span style={{ marginLeft: 12, fontWeight: 600 }}>{money.format(listQ.data?.totalAmount ?? 0)}</span>
         </div>
       </div>
 
