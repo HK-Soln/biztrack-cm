@@ -10,6 +10,7 @@ import { errorMessage } from '@/lib/error'
 import { GeneralLinkDialog } from '@/components/payments/GeneralLinkDialog'
 import type { MessageKey } from '@/i18n/messages'
 import type {
+  IncomeCategorySlice,
   LocalIncomeCategory,
   LocalOtherIncome,
   OtherIncomeInput,
@@ -76,6 +77,18 @@ function categoryChipStyle(color: string | null): CSSProperties | undefined {
   if (!color || color.startsWith('var(')) return undefined
   return { background: `color-mix(in srgb, ${color} 16%, transparent)`, color }
 }
+function donutGradient(slices: IncomeCategorySlice[]): string {
+  if (slices.length === 0) return 'var(--inset)'
+  let acc = 0
+  const stops: string[] = []
+  for (const c of slices) {
+    const start = acc
+    acc = Math.min(100, acc + c.percentage)
+    stops.push(`${c.color} ${start}% ${acc}%`)
+  }
+  if (acc < 100) stops.push(`var(--inset) ${acc}% 100%`)
+  return `conic-gradient(${stops.join(', ')})`
+}
 
 /**
  * Spec 10 ① — Other Income: non-trading income (delivery fees via payment links, deposit-cancellation
@@ -113,6 +126,7 @@ export function OtherIncome() {
     queryKey: ['income', 'list', filters, page],
     queryFn: () => dataClient.income.list({ ...filters, page, limit: PAGE }),
   })
+  const trendQ = useQuery({ queryKey: ['income', 'trend'], queryFn: () => dataClient.income.trend() })
   // Owner-only + online: surfaces whether a provider is routed (hides the generate button otherwise).
   const routesQ = useQuery({
     queryKey: ['payments', 'routes'],
@@ -126,6 +140,22 @@ export function OtherIncome() {
   const rows = listQ.data?.data ?? []
   const total = listQ.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE))
+
+  const trendItems = trendQ.data ?? []
+  const maxTrend = Math.max(1, ...trendItems.map((x) => x.total))
+  const thisMonth = trendItems[trendItems.length - 1]?.total ?? 0
+  const lastMonth = trendItems[trendItems.length - 2]?.total ?? 0
+  const avg6 = trendItems.length
+    ? Math.round(trendItems.reduce((a, x) => a + x.total, 0) / trendItems.length)
+    : 0
+  const change = thisMonth - lastMonth
+  // Compact number WITHOUT the currency symbol (money.compact appends it).
+  const compactNum = (n: number): string =>
+    n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(1)}M`
+      : n >= 10_000
+        ? `${Math.round(n / 1000)}K`
+        : money.plain(n)
 
   const removeMut = useMutation({
     mutationFn: (id: string) => dataClient.income.remove(id),
@@ -190,6 +220,56 @@ export function OtherIncome() {
           <div className="m">
             <div className="k">{t('income.kpiFromLinks')}</div>
             <div className="v">{money.compact(s?.fromLinks ?? 0)}</div>
+          </div>
+        </div>
+        <div className="mcard" style={{ marginTop: 12 }}>
+          <div className="card-h">
+            <div>
+              <h3>{t('income.byCategory')}</h3>
+            </div>
+          </div>
+          <div className="donut-wrap">
+            <div className="donut" style={{ background: donutGradient(s?.byCategory ?? []) }}>
+              <div className="ctr">
+                <div>
+                  <div className="b">{compactNum(s?.total ?? 0)}</div>
+                  <div className="s">{money.symbol}</div>
+                </div>
+              </div>
+            </div>
+            <div className="cat-legend">
+              {(s?.byCategory ?? []).slice(0, 5).map((c) => (
+                <div key={c.categoryId} className="cl">
+                  <span className="sw" style={{ background: c.color }} />
+                  <span className="nm">{c.name}</span>
+                  <span className="pct">{c.percentage}%</span>
+                  <span className="amt">{money.format(c.amount)}</span>
+                </div>
+              ))}
+              {(s?.byCategory ?? []).length === 0 ? (
+                <div className="hint">{t('income.noData')}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="mcard" style={{ marginTop: 12 }}>
+          <div className="card-h">
+            <div>
+              <h3>{t('income.trend')}</h3>
+            </div>
+          </div>
+          <div className="bars">
+            {trendItems.map((m) => (
+              <div key={`${m.year}-${m.month}`} className="bar-col">
+                <div className="bar-pair">
+                  <div
+                    className="bar cur"
+                    style={{ height: `${Math.max(3, Math.round((m.total / maxTrend) * 100))}%` }}
+                  />
+                </div>
+                <div className="bar-lab">{m.label}</div>
+              </div>
+            ))}
           </div>
         </div>
         <div className="mlist" style={{ marginTop: 12 }}>
@@ -279,6 +359,79 @@ export function OtherIncome() {
           <div className="k">{t('income.kpiFromLinks')}</div>
           <div className="v">{money.compact(s?.fromLinks ?? 0)}</div>
           <div className="h">{t('income.kpiFromLinksHint')}</div>
+        </div>
+      </div>
+
+      <div className="split mb20" style={{ alignItems: 'stretch' }}>
+        <div className="card">
+          <div className="card-h">
+            <div>
+              <h3>{t('income.byCategory')}</h3>
+              <p>{t('income.byCategorySub')}</p>
+            </div>
+          </div>
+          <div className="donut-wrap">
+            <div className="donut" style={{ background: donutGradient(s?.byCategory ?? []) }}>
+              <div className="ctr">
+                <div>
+                  <div className="b">{compactNum(s?.total ?? 0)}</div>
+                  <div className="s">{money.symbol}</div>
+                </div>
+              </div>
+            </div>
+            <div className="cat-legend">
+              {(s?.byCategory ?? []).slice(0, 6).map((c) => (
+                <div key={c.categoryId} className="cl">
+                  <span className="sw" style={{ background: c.color }} />
+                  <span className="nm">{c.name}</span>
+                  <span className="pct">{c.percentage}%</span>
+                  <span className="amt">{money.format(c.amount)}</span>
+                </div>
+              ))}
+              {(s?.byCategory ?? []).length === 0 ? (
+                <div className="hint">{t('income.noData')}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-h">
+            <div>
+              <h3>{t('income.trend')}</h3>
+              <p>{t('income.trendSub')}</p>
+            </div>
+          </div>
+          <div className="bars">
+            {trendItems.map((m) => (
+              <div key={`${m.year}-${m.month}`} className="bar-col">
+                <div className="bar-pair">
+                  <div
+                    className="bar cur"
+                    style={{ height: `${Math.max(3, Math.round((m.total / maxTrend) * 100))}%` }}
+                  />
+                </div>
+                <div className="bar-lab">{m.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="stat-row">
+            <div className="well">
+              <div className="k">{t('income.thisMonth')}</div>
+              <div className="v">{money.format(thisMonth)}</div>
+            </div>
+            <div className="well">
+              <div className="k">{t('income.avg6')}</div>
+              <div className="v">{money.format(avg6)}</div>
+            </div>
+            <div className="well">
+              <div className="k">{t('income.vsLast')}</div>
+              <div className="v" style={{ color: change >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {change >= 0 ? '+' : '−'}
+                {money.format(Math.abs(change))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
