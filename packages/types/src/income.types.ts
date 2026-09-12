@@ -20,6 +20,7 @@ export interface OtherIncomeView {
   id: string
   categoryId: string
   categoryName: string
+  categoryColor?: string | null
   description: string
   amount: number
   currency: string
@@ -55,6 +56,9 @@ export interface OtherIncomeListResult {
   total: number
   page: number
   limit: number
+  totalPages: number
+  /** Sum of `amount` over the whole filtered set (not just the page). */
+  totalAmount: number
 }
 
 /** Total other income over a date range — the income statement's "other income" line. */

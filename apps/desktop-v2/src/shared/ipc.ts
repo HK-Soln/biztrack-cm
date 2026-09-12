@@ -154,6 +154,15 @@ export const IPC = {
   expensesRemove: 'expenses:remove',
   expenseCategoriesListAll: 'expense-categories:list-all',
   expenseCategoriesCreate: 'expense-categories:create',
+  incomeList: 'income:list',
+  incomeGet: 'income:get',
+  incomeSummary: 'income:summary',
+  incomeTrend: 'income:trend',
+  incomeCreate: 'income:create',
+  incomeUpdate: 'income:update',
+  incomeRemove: 'income:remove',
+  incomeCategoriesListAll: 'income-categories:list-all',
+  incomeCategoriesCreate: 'income-categories:create',
   depositsList: 'deposits:list',
   depositsGet: 'deposits:get',
   depositsStatement: 'deposits:statement',
@@ -1445,6 +1454,78 @@ export interface ExpenseTrendItem {
   label: string
   total: number
 }
+
+// --- Other income (Spec 10 ①) ---
+export interface LocalIncomeCategory {
+  id: string
+  name: string
+  slug: string | null
+  color: string | null
+  icon: string | null
+  sortOrder: number
+  incomeCount?: number
+}
+export interface LocalOtherIncome {
+  id: string
+  categoryId: string | null
+  categoryName: string | null
+  categoryColor: string | null
+  description: string
+  amount: number
+  currency: string
+  paymentMethod: string | null
+  reference: string | null
+  source: string
+  note: string | null
+  date: string
+  createdAt: string
+  updatedAt: string
+}
+export interface OtherIncomeInput {
+  categoryId: string
+  description: string
+  amount: number
+  date?: string
+  paymentMethod?: string | null
+  note?: string | null
+}
+export interface IncomeCategoryInput {
+  name: string
+  color: string
+  icon?: string | null
+}
+export interface OtherIncomeListQuery extends ListQueryT {
+  categoryId?: string
+  source?: string
+  dateFrom?: string
+  dateTo?: string
+}
+/** A category slice of the period's income (donut + legend + top-category KPI). */
+export interface IncomeCategorySlice {
+  categoryId: string
+  name: string
+  color: string
+  amount: number
+  percentage: number
+}
+/** KPI strip + chart data for the Other Income dashboard over the period. */
+export interface LocalOtherIncomeSummary {
+  total: number
+  count: number
+  previousTotal: number
+  changePct: number
+  avgPerDay: number
+  fromLinks: number
+  largest: IncomeCategorySlice | null
+  byCategory: IncomeCategorySlice[]
+  currency: string
+}
+export interface IncomeTrendItem {
+  year: number
+  month: number
+  label: string
+  total: number
+}
 export interface LocalSaleItem {
   id: string
   productId: string
@@ -2252,6 +2333,25 @@ export interface BridgeApi {
     /** System + business expense categories (for the filter + form picker). */
     listAll: () => Promise<LocalExpenseCategory[]>
     create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
+  }
+  income: {
+    /** Paginated other-income ledger (newest first). */
+    list: (
+      query?: OtherIncomeListQuery,
+    ) => Promise<PaginatedT<LocalOtherIncome> & { totalAmount: number }>
+    get: (id: string) => Promise<LocalOtherIncome | null>
+    /** KPI strip + donut + top-category/from-links totals over the period. */
+    summary: (query?: OtherIncomeListQuery) => Promise<LocalOtherIncomeSummary>
+    /** Last-6-months income trend (for the bar chart). */
+    trend: () => Promise<IncomeTrendItem[]>
+    create: (input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    update: (id: string, input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    remove: (id: string) => Promise<void>
+  }
+  incomeCategories: {
+    /** This business's income categories (for the filter + form picker). */
+    listAll: () => Promise<LocalIncomeCategory[]>
+    create: (input: IncomeCategoryInput) => Promise<LocalIncomeCategory>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>

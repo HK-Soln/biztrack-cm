@@ -118,7 +118,57 @@ export class IncomeService {
       recordedById: user.sub,
       date: dto.date ? new Date(dto.date) : undefined,
     })
-    return this.toView(income, category.name)
+    return this.toView(income, category.name, category.color)
+  }
+
+  /** Edit a manual other-income entry (system-booked rows are read-only). */
+  async update(
+    businessId: string,
+    user: JwtPayload,
+    id: string,
+    dto: {
+      categoryId?: string
+      description?: string
+      amount?: number
+      paymentMethod?: string
+      note?: string
+      date?: string
+    },
+  ): Promise<OtherIncomeView> {
+    const existing = await this.incomes.findOne({ where: { id, businessId } })
+    if (!existing) throw new AppNotFoundException('Income entry not found.', 'OTHER_INCOME_NOT_FOUND')
+    if (existing.source !== 'MANUAL')
+      throw new AppBadRequestException(
+        'This income was recorded automatically and cannot be edited.',
+        'OTHER_INCOME_NOT_EDITABLE',
+      )
+    const category = dto.categoryId
+      ? await this.resolveCategory(dto.categoryId, businessId)
+      : await this.categories.findOne({ where: { id: existing.categoryId, businessId } })
+    await this.incomes.update(id, {
+      categoryId: category?.id ?? existing.categoryId,
+      description: dto.description?.trim() ?? existing.description,
+      amount: dto.amount != null ? this.round(dto.amount) : existing.amount,
+      paymentMethod: dto.paymentMethod ?? existing.paymentMethod,
+      note: dto.note ?? existing.note,
+      date: dto.date ? this.parseDate(dto.date) : existing.date,
+      updatedAt: new Date(),
+    })
+    void user
+    const fresh = (await this.incomes.findOne({ where: { id, businessId }, relations: ['category'] }))!
+    return this.toView(fresh, fresh.category?.name ?? '', fresh.category?.color ?? null)
+  }
+
+  /** Soft-delete a manual other-income entry (system-booked rows are read-only). */
+  async remove(businessId: string, id: string): Promise<void> {
+    const existing = await this.incomes.findOne({ where: { id, businessId } })
+    if (!existing) return
+    if (existing.source !== 'MANUAL')
+      throw new AppBadRequestException(
+        'This income was recorded automatically and cannot be deleted.',
+        'OTHER_INCOME_NOT_DELETABLE',
+      )
+    await this.incomes.softDelete(id)
   }
 
   async list(businessId: string, query: ListOtherIncomeQuery): Promise<OtherIncomeListResult> {
@@ -131,16 +181,25 @@ export class IncomeService {
     if (query.categoryId) qb.andWhere('oi.category_id = :cid', { cid: query.categoryId })
     if (query.from) qb.andWhere('oi.date >= :from', { from: query.from })
     if (query.to) qb.andWhere('oi.date <= :to', { to: query.to })
+    // Sum over the whole filtered set (before pagination) for the ledger footer / KPI.
+    const totalRow = await qb
+      .clone()
+      .select('COALESCE(SUM(oi.amount), 0)', 'total')
+      .getRawOne<{ total: string }>()
+    const totalAmount = Number(totalRow?.total ?? 0)
+
     qb.orderBy('oi.date', 'DESC')
       .addOrderBy('oi.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
     const [rows, total] = await qb.getManyAndCount()
     return {
-      items: rows.map((r) => this.toView(r, r.category?.name ?? '')),
+      items: rows.map((r) => this.toView(r, r.category?.name ?? '', r.category?.color ?? null)),
       total,
       page,
       limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      totalAmount,
     }
   }
 
@@ -370,11 +429,16 @@ export class IncomeService {
     return repo.save(repo.create({ businessId, name, slug, color, sortOrder: 20 }))
   }
 
-  private toView(income: OtherIncome, categoryName: string): OtherIncomeView {
+  private toView(
+    income: OtherIncome,
+    categoryName: string,
+    categoryColor: string | null = null,
+  ): OtherIncomeView {
     return {
       id: income.id,
       categoryId: income.categoryId,
       categoryName,
+      categoryColor,
       description: income.description,
       amount: Number(income.amount),
       currency: income.currency,

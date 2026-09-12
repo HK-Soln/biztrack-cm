@@ -67,6 +67,13 @@ import type {
   ExpenseCategoryInput,
   ExpensesListQuery,
   ExpenseTrendItem,
+  LocalOtherIncome,
+  LocalIncomeCategory,
+  LocalOtherIncomeSummary,
+  OtherIncomeInput,
+  IncomeCategoryInput,
+  OtherIncomeListQuery,
+  IncomeTrendItem,
   LocalSale,
   LocalSaleDetail,
   LocalSalesSummary,
@@ -382,6 +389,21 @@ export interface DataClient {
     listAll: () => Promise<LocalExpenseCategory[]>
     create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
   }
+  income: {
+    list: (
+      query?: OtherIncomeListQuery,
+    ) => Promise<PaginatedResult<LocalOtherIncome> & { totalAmount: number }>
+    get: (id: string) => Promise<LocalOtherIncome | null>
+    summary: (query?: OtherIncomeListQuery) => Promise<LocalOtherIncomeSummary>
+    trend: () => Promise<IncomeTrendItem[]>
+    create: (input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    update: (id: string, input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    remove: (id: string) => Promise<void>
+  }
+  incomeCategories: {
+    listAll: () => Promise<LocalIncomeCategory[]>
+    create: (input: IncomeCategoryInput) => Promise<LocalIncomeCategory>
+  }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedResult<LocalRfqListItem>>
     get: (id: string) => Promise<LocalRfqDetail | null>
@@ -696,6 +718,7 @@ import { cloudProducts } from './cloud-products'
 import { cloudSales } from './cloud-sales'
 import { cloudInventory } from './cloud-inventory'
 import { cloudExpenses } from './cloud-expenses'
+import { cloudIncome, cloudIncomeCategories } from './cloud-income'
 import { cloudDebts, cloudOpeningBalances } from './cloud-debts'
 import { cloudSavings, cloudDeposits } from './cloud-deposits'
 import { cloudCashSessions } from './cloud-cash'
@@ -834,6 +857,19 @@ function electronAdapter(): DataClient {
       setStatus: (id, status, paymentMethod) =>
         window.api.expenses.setStatus(id, status, paymentMethod),
       remove: (id) => window.api.expenses.remove(id),
+    },
+    income: {
+      list: (query) => window.api.income.list(query),
+      get: (id) => window.api.income.get(id),
+      summary: (query) => window.api.income.summary(query),
+      trend: () => window.api.income.trend(),
+      create: (input) => window.api.income.create(input),
+      update: (id, input) => window.api.income.update(id, input),
+      remove: (id) => window.api.income.remove(id),
+    },
+    incomeCategories: {
+      listAll: () => window.api.incomeCategories.listAll(),
+      create: (input) => window.api.incomeCategories.create(input),
     },
     expenseCategories: {
       listAll: () => window.api.expenseCategories.listAll(),
@@ -1096,6 +1132,8 @@ function cloudAdapter(): DataClient {
     openingBalances: cloudOpeningBalances,
     expenses: cloudExpenses,
     expenseCategories: cloudExpenseCategories,
+    income: cloudIncome,
+    incomeCategories: cloudIncomeCategories,
     rfqs: cloudRfqs,
     purchaseOrders: cloudPurchaseOrders,
     documents: cloudDocuments,

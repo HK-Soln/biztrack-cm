@@ -184,6 +184,19 @@ const api: BridgeApi = {
     listAll: () => ipcRenderer.invoke(IPC.expenseCategoriesListAll),
     create: (input) => ipcRenderer.invoke(IPC.expenseCategoriesCreate, input),
   },
+  income: {
+    list: (query) => ipcRenderer.invoke(IPC.incomeList, query),
+    get: (id) => ipcRenderer.invoke(IPC.incomeGet, id),
+    summary: (query) => ipcRenderer.invoke(IPC.incomeSummary, query),
+    trend: () => ipcRenderer.invoke(IPC.incomeTrend),
+    create: (input) => ipcRenderer.invoke(IPC.incomeCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.incomeUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC.incomeRemove, id),
+  },
+  incomeCategories: {
+    listAll: () => ipcRenderer.invoke(IPC.incomeCategoriesListAll),
+    create: (input) => ipcRenderer.invoke(IPC.incomeCategoriesCreate, input),
+  },
   openingBalances: {
     upsert: (input) => ipcRenderer.invoke(IPC.openingBalancesUpsert, input),
     listForContact: (contactId) => ipcRenderer.invoke(IPC.openingBalancesListForContact, contactId),

@@ -47,6 +47,8 @@ import { OpeningBalancesService } from './services/opening-balances.service'
 import { registerOpeningBalancesIpc } from './ipc/opening-balances.ipc'
 import { ExpensesService, ExpenseCategoriesService } from './services/expenses.service'
 import { registerExpensesIpc } from './ipc/expenses.ipc'
+import { IncomeService, IncomeCategoriesService } from './services/income.service'
+import { registerIncomeIpc } from './ipc/income.ipc'
 import { DocumentService } from './services/document.service'
 import { RfqService } from './services/rfq.service'
 import { registerRfqIpc } from './ipc/rfq.ipc'
@@ -474,6 +476,21 @@ app.whenReady().then(() => {
     audit,
   )
   registerExpensesIpc(expenses, expenseCategories)
+
+  const income = new IncomeService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    () => authService.getSession().user?.id ?? null,
+    audit,
+  )
+  const incomeCategories = new IncomeCategoriesService(
+    db,
+    () => authService.getSession().businessId,
+    () => void sync.sync(),
+    audit,
+  )
+  registerIncomeIpc(income, incomeCategories)
 
   // Procurement documents: renders RFQ/PO PDFs (offscreen Chromium) + opens the
   // WhatsApp/email composer. Shared by RFQ + PO.

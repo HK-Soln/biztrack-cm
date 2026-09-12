@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import {
   type IncomeCategoryView,
@@ -10,6 +10,7 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { IncomeService } from './income.service'
 import { CreateOtherIncomeDto } from './dto/create-other-income.dto'
+import { UpdateOtherIncomeDto } from './dto/update-other-income.dto'
 import { CreateIncomeCategoryDto } from './dto/create-income-category.dto'
 import { ListOtherIncomeDto } from './dto/list-other-income.dto'
 
@@ -37,6 +38,22 @@ export class IncomeController {
     @Query() query: ListOtherIncomeDto,
   ): Promise<OtherIncomeListResult> {
     return this.service.list(user.businessId as string, query)
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Edit a manual other-income entry' })
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateOtherIncomeDto,
+  ): Promise<OtherIncomeView> {
+    return this.service.update(user.businessId as string, user, id, dto)
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a manual other-income entry' })
+  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<void> {
+    return this.service.remove(user.businessId as string, id)
   }
 
   @Get('categories')
