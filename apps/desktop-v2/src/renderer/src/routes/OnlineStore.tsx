@@ -1118,8 +1118,8 @@ function StoreConfig({
               onToggle={() => set('allowPartialPayment', !form.allowPartialPayment)}
             />
             {form.allowPartialPayment ? (
-              <div style={{ paddingLeft: 2 }}>
-                <label className="lbl" style={{ marginTop: 8 }}>
+              <>
+                <label className="lbl" style={{ marginTop: 12 }}>
                   {t('online.partialMinPercent')}
                 </label>
                 <Input
@@ -1128,7 +1128,9 @@ function StoreConfig({
                   placeholder="50"
                   onChange={(e) => set('partialMinPercent', e.target.value.replace(/[^0-9]/g, ''))}
                 />
-                <label className="lbl" style={{ marginTop: 8 }}>
+                <div className="reserved-note">{t('online.partialMinPercentHint')}</div>
+
+                <label className="lbl" style={{ marginTop: 12 }}>
                   {t('online.partialMinOrder').replace('{currency}', money.currency)}
                 </label>
                 <Input
@@ -1139,7 +1141,9 @@ function StoreConfig({
                     set('partialMinOrderAmount', e.target.value.replace(/[^0-9]/g, ''))
                   }
                 />
-                <div style={{ marginTop: 8 }}>
+                <div className="reserved-note">{t('online.partialMinOrderHint')}</div>
+
+                <div style={{ marginTop: 12 }}>
                   <PaymentToggle
                     t={t}
                     label="online.depositRequired"
@@ -1149,12 +1153,15 @@ function StoreConfig({
                     onToggle={() => set('depositRequired', !form.depositRequired)}
                   />
                 </div>
-              </div>
+              </>
             ) : null}
 
             {/* Cash-on-delivery eligibility */}
             <div className="divider" />
             <label className="lbl">{t('online.codRules')}</label>
+            <div className="reserved-note" style={{ marginTop: -2, marginBottom: 6 }}>
+              {t('online.codRulesHint')}
+            </div>
             <label className="lbl" style={{ marginTop: 6 }}>
               {t('online.codMin').replace('{currency}', money.currency)}
             </label>
@@ -1164,7 +1171,9 @@ function StoreConfig({
               placeholder="0"
               onChange={(e) => set('codMinOrderAmount', e.target.value.replace(/[^0-9]/g, ''))}
             />
-            <label className="lbl" style={{ marginTop: 8 }}>
+            <div className="reserved-note">{t('online.codMinHint')}</div>
+
+            <label className="lbl" style={{ marginTop: 12 }}>
               {t('online.codMax').replace('{currency}', money.currency)}
             </label>
             <Input
@@ -1173,7 +1182,7 @@ function StoreConfig({
               placeholder={t('online.codMaxPlaceholder')}
               onChange={(e) => set('codMaxOrderAmount', e.target.value.replace(/[^0-9]/g, ''))}
             />
-            <div className="reserved-note">{t('online.codRulesHint')}</div>
+            <div className="reserved-note">{t('online.codMaxHint')}</div>
           </div>
 
           {/* Fulfilment */}
