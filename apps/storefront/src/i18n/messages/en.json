@@ -192,6 +192,8 @@
     "depositDesc": "Pay part now online and the balance in cash when your order arrives.",
     "depositAmountLabel": "Deposit amount (min {min}, up to {total})",
     "depositRemainderHint": "{rest} to pay on delivery.",
+    "depositTooLow": "The deposit must be at least {min}.",
+    "depositTooHigh": "The deposit can’t be more than the order total ({total}).",
     "noPaymentOption": "No payment option is available for this order. Please contact the store."
   },
   "order": {

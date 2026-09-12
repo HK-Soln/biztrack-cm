@@ -191,6 +191,8 @@
     "depositDesc": "Payez une partie en ligne maintenant et le solde en espèces à la réception.",
     "depositAmountLabel": "Montant de l'acompte (min {min}, jusqu'à {total})",
     "depositRemainderHint": "{rest} à payer à la livraison.",
+    "depositTooLow": "L'acompte doit être d'au moins {min}.",
+    "depositTooHigh": "L'acompte ne peut pas dépasser le total de la commande ({total}).",
     "noPaymentOption": "Aucun mode de paiement n'est disponible pour cette commande. Veuillez contacter la boutique.",
     "payOnlineDesc": "Payez par carte ou Mobile Money en toute sécurité. Vous choisirez comment à la page suivante."
   },

@@ -190,6 +190,13 @@ export function CheckoutView({
     if (fullName.trim().length < 2) next.fullName = t('errName')
     if (!isValidPhone(phone)) next.phone = t('errPhone')
     if (isDelivery && !address.trim()) next.address = t('errAddress')
+    // Deposit must be at least the store's minimum — block, don't silently bump it up.
+    if (paymentMode === 'DEPOSIT') {
+      if (!(depositAmount >= eligibility.depositMin))
+        next.deposit = t('depositTooLow', { min: formatMoney(eligibility.depositMin, currency) })
+      else if (depositAmount > eligibility.depositMax)
+        next.deposit = t('depositTooHigh', { total: formatMoney(eligibility.depositMax, currency) })
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -387,18 +394,24 @@ export function CheckoutView({
                           Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
                         )
                         setDepositAmount(v)
+                        if (errors.deposit) setErrors((p) => ({ ...p, deposit: '' }))
                       }}
-                      onBlur={() =>
-                        setDepositAmount((a) =>
-                          Math.min(Math.max(a, eligibility.depositMin), eligibility.depositMax),
-                        )
-                      }
                     />
-                    <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}>
-                      {t('depositRemainderHint', {
-                        rest: formatMoney(Math.max(0, total - depositAmount), currency),
-                      })}
-                    </span>
+                    {errors.deposit ? (
+                      <span
+                        style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4, display: 'block' }}
+                      >
+                        {errors.deposit}
+                      </span>
+                    ) : (
+                      <span
+                        style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}
+                      >
+                        {t('depositRemainderHint', {
+                          rest: formatMoney(Math.max(0, total - depositAmount), currency),
+                        })}
+                      </span>
+                    )}
                   </div>
                 ) : null}
               </div>

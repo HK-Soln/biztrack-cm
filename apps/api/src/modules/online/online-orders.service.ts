@@ -340,18 +340,23 @@ export class OnlineOrdersService {
 
       let payment: CheckoutPayment = { mode: 'none' }
       if (mode !== 'FULL_COD' && isProviderPayment) {
-        const deposit =
-          mode === 'DEPOSIT'
-            ? Math.min(
-                Math.max(Math.round(dto.depositAmount ?? eligibility.depositMin), eligibility.depositMin),
-                totalAmount,
-              )
-            : null
-        if (mode === 'DEPOSIT' && !eligibility.deposit) {
-          throw new AppBadRequestException(
-            'A deposit is not available for this order.',
-            'ONLINE_DEPOSIT_NOT_ALLOWED',
-          )
+        let deposit: number | null = null
+        if (mode === 'DEPOSIT') {
+          if (!eligibility.deposit) {
+            throw new AppBadRequestException(
+              'A deposit is not available for this order.',
+              'ONLINE_DEPOSIT_NOT_ALLOWED',
+            )
+          }
+          const requested = Math.round(dto.depositAmount ?? eligibility.depositMin)
+          // Enforce the minimum rather than silently bumping it up — the storefront blocks + errors too.
+          if (requested < eligibility.depositMin) {
+            throw new AppBadRequestException(
+              'The deposit is below the minimum required for this order.',
+              'ONLINE_DEPOSIT_TOO_LOW',
+            )
+          }
+          deposit = Math.min(requested, totalAmount)
         }
         try {
           const link = await this.paymentLinks.create(
