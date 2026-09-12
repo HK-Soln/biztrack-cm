@@ -871,12 +871,19 @@ function ExpenseFormModal({
     onError: (e) => setError(errorMessage(e, t('expenses.saveError'))),
   })
 
+  // Case-insensitive payee capture: a freshly-typed payee adopts an existing one's spelling
+  // (so "landlord" doesn't become a second "Landlord").
+  const canonicalVendor = (): string | null => {
+    const v = vendor.trim()
+    if (!v) return null
+    return payees.find((p) => p.toLowerCase() === v.toLowerCase()) ?? v
+  }
   const buildInput = (): ExpenseInput => ({
     categoryId,
     description: description.trim(),
     amount: Number(amount.replace(/\s/g, '').replace(',', '.')) || 0,
     expenseDate,
-    vendor: vendor.trim() || null,
+    vendor: canonicalVendor(),
     notes: notes.trim() || null,
     isRecurring,
     status,

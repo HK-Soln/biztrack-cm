@@ -416,13 +416,19 @@ export class ExpensesService {
       params.push(categoryId)
       filter = ' AND category_id = ?'
     }
+    // Case-insensitive: collapse "Landlord"/"landlord" to one — the most-used spelling wins. SQLite
+    // returns the bare `vendor` from the MAX(cnt) row when MAX() is present in the aggregate.
     const rows = this.db.query<{ vendor: string }>(
-      `SELECT vendor, COUNT(*) AS c
-         FROM expenses
-        WHERE business_id = ? AND is_deleted = 0
-          AND vendor IS NOT NULL AND TRIM(vendor) <> ''${filter}
-        GROUP BY vendor
-        ORDER BY c DESC, vendor ASC
+      `SELECT vendor, MAX(cnt) AS top
+         FROM (
+           SELECT vendor, COUNT(*) AS cnt
+             FROM expenses
+            WHERE business_id = ? AND is_deleted = 0
+              AND vendor IS NOT NULL AND TRIM(vendor) <> ''${filter}
+            GROUP BY vendor
+         )
+        GROUP BY LOWER(vendor)
+        ORDER BY top DESC, vendor ASC
         LIMIT 50`,
       params,
     )

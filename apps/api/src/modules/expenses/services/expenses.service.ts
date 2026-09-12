@@ -569,16 +569,25 @@ export class ExpensesService {
       params.push(categoryId)
       filter = ' AND e.category_id = $2'
     }
+    // Case-insensitive: "Landlord" and "landlord" collapse to one entry — the most-used spelling
+    // wins (DISTINCT ON the lowercased value, highest count first).
     const rows = (await this.expensesRepo.manager.query(
-      `SELECT e.vendor AS vendor, COUNT(*) AS c
-         FROM expenses e
-        WHERE e.business_id = $1 AND e.deleted_at IS NULL
-          AND e.vendor IS NOT NULL AND btrim(e.vendor) <> ''${filter}
-        GROUP BY e.vendor
-        ORDER BY c DESC, e.vendor ASC
+      `SELECT vendor
+         FROM (
+           SELECT DISTINCT ON (LOWER(vendor)) vendor, cnt
+           FROM (
+             SELECT e.vendor AS vendor, COUNT(*) AS cnt
+               FROM expenses e
+              WHERE e.business_id = $1 AND e.deleted_at IS NULL
+                AND e.vendor IS NOT NULL AND btrim(e.vendor) <> ''${filter}
+              GROUP BY e.vendor
+           ) g
+           ORDER BY LOWER(vendor), cnt DESC, vendor ASC
+         ) d
+        ORDER BY cnt DESC, vendor ASC
         LIMIT 50`,
       params,
-    )) as Array<{ vendor: string; c: string }>
+    )) as Array<{ vendor: string }>
     return rows.map((r) => r.vendor)
   }
 
