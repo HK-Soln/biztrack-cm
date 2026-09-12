@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm'
-import type { OnlineStoreDomainType } from '@biztrack/types'
+import type { DeliveryZone, OnlineStoreDomainType, UnlistedAreaBehavior } from '@biztrack/types'
 import { BaseEntity } from '@/common/entities/base.entity'
 import { dateTransformer } from '@/common/entities/transformers'
 import { Business } from './business.entity'
@@ -126,9 +126,26 @@ export class OnlineStore extends BaseEntity {
   @Column({ name: 'pickup_address', type: 'text', nullable: true })
   pickupAddress?: string | null
 
-  /** Cities/zones the store delivers to (empty = no restriction). */
+  /** Cities/zones the store delivers to (empty = no restriction). Legacy — superseded by deliveryZones. */
   @Column({ name: 'delivery_cities', type: 'jsonb', default: () => "'[]'" })
   deliveryCities!: string[]
+
+  // ---- Address-driven delivery zones (Spec 10 ③) ----
+  /** Zones = { id, name, fee, countryIso2?, region?, city? }[]; most-specific match wins. */
+  @Column({ name: 'delivery_zones', type: 'jsonb', default: () => "'[]'" })
+  deliveryZones!: DeliveryZone[]
+
+  /** Free delivery when the order subtotal is at least this (null = never free). */
+  @Column({ name: 'free_delivery_over_amount', type: 'int', nullable: true })
+  freeDeliveryOverAmount?: number | null
+
+  /** What to do for an address matching no zone: BLOCK | DEFAULT_FEE | ARRANGE. */
+  @Column({ name: 'unlisted_area_behavior', length: 20, default: 'DEFAULT_FEE' })
+  unlistedAreaBehavior!: UnlistedAreaBehavior
+
+  /** Fee applied to unlisted addresses when behaviour is DEFAULT_FEE. */
+  @Column({ name: 'unlisted_default_fee', type: 'int', default: 0 })
+  unlistedDefaultFee!: number
 
   // ---- Storefront appearance (design-store-config) ----
   /** Layout template: classic | boutique | catalog | landing. */

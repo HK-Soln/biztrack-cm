@@ -145,6 +145,14 @@ export class OnlineStoreService {
             ? store.pickupAddress
             : (dto.pickupAddress?.trim() ?? null),
         deliveryCities: dto.deliveryCities ?? store.deliveryCities,
+        // Address-driven delivery zones (Spec 10 ③)
+        deliveryZones: dto.deliveryZones ?? store.deliveryZones,
+        freeDeliveryOverAmount:
+          dto.freeDeliveryOverAmount === undefined
+            ? store.freeDeliveryOverAmount
+            : dto.freeDeliveryOverAmount,
+        unlistedAreaBehavior: dto.unlistedAreaBehavior ?? store.unlistedAreaBehavior,
+        unlistedDefaultFee: dto.unlistedDefaultFee ?? store.unlistedDefaultFee,
         // Appearance + catalog + SEO/social (design-store-config)
         layoutTemplate: dto.layoutTemplate ?? store.layoutTemplate,
         themeId: dto.themeId ?? store.themeId,
@@ -338,6 +346,10 @@ export class OnlineStoreService {
         deliveryFee: store.deliveryFee,
         pickupAddress: store.pickupAddress ?? null,
         deliveryCities: store.deliveryCities ?? [],
+        deliveryZones: store.deliveryZones ?? [],
+        freeDeliveryOverAmount: store.freeDeliveryOverAmount ?? null,
+        unlistedAreaBehavior: store.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+        unlistedDefaultFee: store.unlistedDefaultFee ?? 0,
       },
       appearance: {
         layoutTemplate:

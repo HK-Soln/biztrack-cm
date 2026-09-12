@@ -452,6 +452,10 @@ export class PublicStorefrontService {
         deliveryFee: config.fulfilment.deliveryFee,
         pickupAddress: config.fulfilment.pickupAddress,
         deliveryCities: config.fulfilment.deliveryCities,
+        deliveryZones: config.fulfilment.deliveryZones ?? [],
+        freeDeliveryOverAmount: config.fulfilment.freeDeliveryOverAmount ?? null,
+        unlistedAreaBehavior: config.fulfilment.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+        unlistedDefaultFee: config.fulfilment.unlistedDefaultFee ?? 0,
       },
       socials: {
         instagram: config.socials.instagram,

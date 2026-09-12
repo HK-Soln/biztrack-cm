@@ -46,8 +46,14 @@ export interface OnlineStore {
   /** Flat delivery fee in the store currency (minor unit not used — whole XAF). */
   deliveryFee: number
   pickupAddress?: string | null
-  /** Cities/zones the store delivers to (empty = anywhere the customer enters). */
+  /** Cities/zones the store delivers to (empty = anywhere the customer enters). Legacy — superseded by
+   *  deliveryZones. */
   deliveryCities: string[]
+  // Address-driven delivery zones (Spec 10 ③).
+  deliveryZones: DeliveryZone[]
+  freeDeliveryOverAmount?: number | null
+  unlistedAreaBehavior: UnlistedAreaBehavior
+  unlistedDefaultFee: number
   // Storefront appearance + catalog + SEO + lifecycle (design-store-config / issue #91)
   layoutTemplate: OnlineStoreLayout
   themeId: string
@@ -114,6 +120,10 @@ export interface UpdateOnlineStoreRequest {
   deliveryFee?: number
   pickupAddress?: string | null
   deliveryCities?: string[]
+  deliveryZones?: DeliveryZone[]
+  freeDeliveryOverAmount?: number | null
+  unlistedAreaBehavior?: UnlistedAreaBehavior
+  unlistedDefaultFee?: number
   storeSlug?: string
   layoutTemplate?: OnlineStoreLayout
   themeId?: string
@@ -174,6 +184,11 @@ export interface OnlineStorePublishedConfig {
     deliveryFee: number
     pickupAddress: string | null
     deliveryCities: string[]
+    // Address-driven delivery zones (Spec 10 ③).
+    deliveryZones: DeliveryZone[]
+    freeDeliveryOverAmount: number | null
+    unlistedAreaBehavior: UnlistedAreaBehavior
+    unlistedDefaultFee: number
   }
   appearance: {
     layoutTemplate: OnlineStoreLayout
@@ -330,6 +345,11 @@ export interface PublicStore {
     deliveryFee: number
     pickupAddress?: string | null
     deliveryCities: string[]
+    // Address-driven delivery zones (Spec 10 ③).
+    deliveryZones: DeliveryZone[]
+    freeDeliveryOverAmount: number | null
+    unlistedAreaBehavior: UnlistedAreaBehavior
+    unlistedDefaultFee: number
   }
   socials: {
     instagram?: string | null
@@ -380,6 +400,125 @@ export function resolveCheckoutPayment(
     fullCod: methods.cashOnDelivery && codWithinRange && !(depositApplies && cfg.depositRequired),
     depositMin,
     depositMax: orderTotal,
+  }
+}
+
+/** A delivery zone (Spec 10 ③): a fee for addresses matching country/region/city (any subset). */
+export interface DeliveryZone {
+  id: string
+  name: string
+  fee: number
+  countryIso2?: string | null
+  region?: string | null
+  city?: string | null
+}
+
+/** What to do when a delivery address matches no configured zone. */
+export type UnlistedAreaBehavior = 'BLOCK' | 'DEFAULT_FEE' | 'ARRANGE'
+
+/** The customer's structured delivery address (Spec 10 ③), used to match a zone. */
+export interface DeliveryAddressInput {
+  countryIso2?: string | null
+  region?: string | null
+  city?: string | null
+}
+
+/** The store's fulfilment config needed to price delivery. */
+export interface DeliveryPricingConfig {
+  deliveryZones: DeliveryZone[]
+  /** Legacy flat fee — used when no zones are configured. */
+  deliveryFee: number
+  freeDeliveryOverAmount?: number | null
+  unlistedAreaBehavior: UnlistedAreaBehavior
+  unlistedDefaultFee: number
+}
+
+export interface DeliveryFeeResult {
+  /** False only when the address is unlisted and the store blocks delivery there. */
+  deliverable: boolean
+  fee: number
+  matchedZoneName: string | null
+  /** True when the address is unlisted and the store arranges the fee separately (fee = 0 for now; the
+   *  merchant sends a payment link for the delivery fee later). */
+  arrangeSeparately: boolean
+  freeApplied: boolean
+}
+
+/** Most-specific match wins: a zone matches if every field it specifies equals the address; among
+ *  matches, city beats region beats country. */
+export function matchDeliveryZone(
+  zones: DeliveryZone[],
+  address: DeliveryAddressInput,
+): DeliveryZone | null {
+  const norm = (s?: string | null) => (s ?? '').trim().toLowerCase()
+  const c = norm(address.countryIso2)
+  const r = norm(address.region)
+  const ci = norm(address.city)
+  let best: DeliveryZone | null = null
+  let bestScore = -1
+  for (const z of zones) {
+    const zc = norm(z.countryIso2)
+    const zr = norm(z.region)
+    const zci = norm(z.city)
+    if (zc && zc !== c) continue
+    if (zr && zr !== r) continue
+    if (zci && zci !== ci) continue
+    const score = (zci ? 4 : 0) + (zr ? 2 : 0) + (zc ? 1 : 0)
+    if (score > bestScore) {
+      bestScore = score
+      best = z
+    }
+  }
+  return best
+}
+
+/**
+ * Resolve the delivery fee for an order (Spec 10 ③): free-over-threshold first, then the most-specific
+ * matching zone; with no zones configured fall back to the legacy flat fee; otherwise apply the
+ * unlisted-area behaviour (block / default fee / arrange separately).
+ */
+export function resolveDeliveryFee(
+  cfg: DeliveryPricingConfig,
+  address: DeliveryAddressInput,
+  subtotal: number,
+): DeliveryFeeResult {
+  if (cfg.freeDeliveryOverAmount != null && cfg.freeDeliveryOverAmount > 0 && subtotal >= cfg.freeDeliveryOverAmount)
+    return { deliverable: true, fee: 0, matchedZoneName: null, arrangeSeparately: false, freeApplied: true }
+
+  const zone = matchDeliveryZone(cfg.deliveryZones ?? [], address)
+  if (zone)
+    return {
+      deliverable: true,
+      fee: Math.max(0, Math.round(zone.fee)),
+      matchedZoneName: zone.name,
+      arrangeSeparately: false,
+      freeApplied: false,
+    }
+
+  // No zones configured → legacy flat fee for every delivery.
+  if (!cfg.deliveryZones || cfg.deliveryZones.length === 0)
+    return {
+      deliverable: true,
+      fee: Math.max(0, Math.round(cfg.deliveryFee ?? 0)),
+      matchedZoneName: null,
+      arrangeSeparately: false,
+      freeApplied: false,
+    }
+
+  switch (cfg.unlistedAreaBehavior) {
+    case 'BLOCK':
+      return { deliverable: false, fee: 0, matchedZoneName: null, arrangeSeparately: false, freeApplied: false }
+    case 'ARRANGE':
+      return { deliverable: true, fee: 0, matchedZoneName: null, arrangeSeparately: true, freeApplied: false }
+    case 'DEFAULT_FEE':
+    default:
+      return {
+        deliverable: true,
+        fee: Math.max(0, Math.round(cfg.unlistedDefaultFee ?? 0)),
+        matchedZoneName: null,
+        arrangeSeparately: false,
+        freeApplied: false,
+      }
   }
 }
 
