@@ -14,6 +14,10 @@ export enum PayableType {
    *  amount is collected, the backend creates the real sale with the ACTUAL tender (card/MoMo) — so a
    *  scan-to-pay is a true card/MoMo sale, not a credit sale + debt. Works for anonymous customers. */
   SALE_DRAFT = 'SALE_DRAFT',
+  /** A general, standalone payment link not tied to any existing payable (delivery fees, misc charges).
+   *  The link self-describes (label + income category); on settlement the amount is booked as OTHER
+   *  INCOME (Spec 10 ①), reflected on the income statement. */
+  GENERAL = 'GENERAL',
 }
 
 /** Balance payables allow partial payment; ONLINE_ORDER is exact. SALE_DRAFT accumulates toward its
@@ -24,7 +28,18 @@ export const PARTIAL_PAYABLE_TYPES: readonly PayableType[] = [
   PayableType.DEPOSIT,
   PayableType.CONTACT_RECEIVABLE,
   PayableType.SALE_DRAFT,
+  PayableType.GENERAL,
 ]
+
+/** Create a GENERAL payment link (merchant, authed): collect an arbitrary amount for any purpose and
+ *  book it as other income under the chosen category. `amountMinor` 0 = open (the payer chooses). */
+export interface CreateGeneralLinkRequest {
+  amountMinor: number
+  label: string
+  incomeCategoryId: string
+  note?: string
+  expiresAt?: string
+}
 
 /** Create a SALE_DRAFT link (till, authed): the full sale DTO to materialize on payment + the expected
  *  amount to collect (minor units). No sale is created until the amount is fulfilled. */

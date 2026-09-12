@@ -24,14 +24,16 @@ function make(opts: {
   }
   const registry = { get: jest.fn(() => handler) }
   const routing = { resolveAvailableMethods: jest.fn(async () => [{ method: 'MTN_MOMO' }]) }
+  const income = { resolveCategory: jest.fn(async (id: string) => ({ id, name: 'Misc' })) }
   const config = { get: jest.fn(() => 'https://pay.test') }
   const service = new PaymentLinkService(
     links as never,
     registry as never,
     routing as never,
+    income as never,
     config as never,
   )
-  return { service, links, handler, routing }
+  return { service, links, handler, routing, income }
 }
 
 describe('PaymentLinkService.create', () => {
@@ -133,12 +135,14 @@ describe('PaymentLinkService.finalize', () => {
     const links = { findOne: jest.fn(async () => row), update: jest.fn() }
     const registry = { get: jest.fn() }
     const routing = { resolveAvailableMethods: jest.fn(async () => [{ method: 'MTN_MOMO' }]) }
+    const income = { resolveCategory: jest.fn() }
     const config = { get: jest.fn(() => 'https://pay.test') }
     return {
       service: new PaymentLinkService(
         links as never,
         registry as never,
         routing as never,
+        income as never,
         config as never,
       ),
       links,

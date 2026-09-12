@@ -7,6 +7,7 @@ import {
   PARTIAL_PAYABLE_TYPES,
   PayableType,
   PaymentLinkStatus,
+  type CreateGeneralLinkRequest,
   type CreatePaymentLinkRequest,
   type CreateSaleDraftLinkRequest,
   type PaymentLinkView,
@@ -14,6 +15,7 @@ import {
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { PaymentLink } from '@/entities/payment-link.entity'
 import { PaymentRoutingService } from '@/modules/payments/services/payment-routing.service'
+import { IncomeService } from '@/modules/income/income.service'
 import { PayableHandlerRegistry } from './payable-handlers'
 
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -31,6 +33,7 @@ export class PaymentLinkService {
     private readonly links: Repository<PaymentLink>,
     private readonly registry: PayableHandlerRegistry,
     private readonly routing: PaymentRoutingService,
+    private readonly income: IncomeService,
     private readonly config: ConfigService,
   ) { }
 
@@ -135,6 +138,55 @@ export class PaymentLinkService {
         customerId: null,
         createdBy: userId || null,
         draftPayload: (req.sale ?? null) as Record<string, unknown> | null,
+      }),
+    )
+    return this.toView(link)
+  }
+
+  /**
+   * Spec 10 ① — create a GENERAL payment link: an arbitrary amount collected for any purpose, booked as
+   * OTHER INCOME under the chosen category on settlement. Like SALE_DRAFT, it is not tied to an existing
+   * payable — it self-describes via `draft_payload` ({ label, note, incomeCategoryId }). `amountMinor` 0
+   * = open (the payer chooses); > 0 = a fixed amount (partial-capable).
+   */
+  async createGeneral(
+    businessId: string,
+    userId: string | null,
+    req: CreateGeneralLinkRequest,
+  ): Promise<PaymentLinkView> {
+    const methods = await this.routing.resolveAvailableMethods(businessId)
+    if (methods.length === 0) {
+      throw new AppBadRequestException(
+        'Set up a payment provider before sharing a payment link.',
+        'PAYMENT_METHOD_NOT_ROUTABLE',
+      )
+    }
+    const label = req.label?.trim()
+    if (!label) throw new AppBadRequestException('A label is required.', 'PAYMENT_LABEL_REQUIRED')
+    // Validate the income category up-front (must be the business's own or a shared/system category).
+    const category = await this.income.resolveCategory(req.incomeCategoryId, businessId)
+    const amountMinor = Math.max(0, Math.floor(req.amountMinor))
+    const expiresAt = req.expiresAt ? new Date(req.expiresAt) : new Date(Date.now() + DEFAULT_TTL_MS)
+    const link = await this.links.save(
+      this.links.create({
+        businessId,
+        token: randomBytes(24).toString('hex'),
+        payableType: PayableType.GENERAL,
+        payableId: randomBytes(16).toString('hex'), // synthetic — the link IS the payable
+        amountMinor,
+        amountPaidMinor: 0,
+        currency: 'XAF',
+        allowPartial: true, // fixed amounts accept partials; an open link (0) lets the payer choose
+        status: PaymentLinkStatus.ACTIVE,
+        expiresAt,
+        label,
+        customerId: null,
+        createdBy: userId || null,
+        draftPayload: {
+          label,
+          note: req.note ?? null,
+          incomeCategoryId: category.id,
+        },
       }),
     )
     return this.toView(link)

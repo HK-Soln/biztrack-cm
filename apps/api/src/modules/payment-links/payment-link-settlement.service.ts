@@ -19,6 +19,7 @@ import { Locale } from '@/common/enums/locale.enum'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 import { RealtimeService } from '@/modules/realtime/services/realtime.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
+import { IncomeService } from '@/modules/income/income.service'
 import type { CreateSaleDto } from '@/modules/sales/dto/create-sale.dto'
 import { PayableHandlerRegistry } from './payable-handlers'
 
@@ -42,6 +43,7 @@ export class PaymentLinkSettlementService {
     private readonly dispatcher: NotificationDispatcher,
     private readonly realtime: RealtimeService,
     private readonly sales: SalesService,
+    private readonly income: IncomeService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('PaymentLinkSettlementService')
@@ -76,6 +78,48 @@ export class PaymentLinkSettlementService {
           return
         }
       }
+      const status = fullyPaid ? PaymentLinkStatus.PAID : PaymentLinkStatus.PARTIALLY_PAID
+      await this.links.update(link.id, { amountPaidMinor: newPaid, status })
+      this.emit(link, status, newPaid, Number(attempt.amountMinor))
+      void this.notifyMerchant(link.businessId, link.label, Number(attempt.amountMinor), link.currency)
+      return
+    }
+
+    // GENERAL (Spec 10 ①): no external payable — book the payment as OTHER INCOME under the link's
+    // chosen category. A fixed-amount link closes once fully collected; an open link (amount 0) is
+    // single-shot (the payer chose the amount), so it goes PAID on the first payment.
+    if (link.payableType === PayableType.GENERAL) {
+      const draft = (link.draftPayload ?? {}) as Record<string, unknown>
+      const categoryId = typeof draft.incomeCategoryId === 'string' ? draft.incomeCategoryId : null
+      if (!categoryId) {
+        this.logger.error('GENERAL link missing incomeCategoryId', 'PaymentLinkSettlementService', {
+          linkId: link.id,
+        })
+        return
+      }
+      try {
+        await this.income.record(link.businessId, {
+          categoryId,
+          description: link.label ?? 'Payment',
+          amount: minorToMajor(Number(attempt.amountMinor), link.currency),
+          currency: link.currency,
+          paymentMethod: attempt.paymentMethod,
+          reference: attempt.providerRef ?? null,
+          source: 'PAYMENT_LINK',
+          sourceId: link.id,
+          note: typeof draft.note === 'string' ? draft.note : null,
+          recordedById: link.createdBy,
+        })
+      } catch (error) {
+        this.logger.error('GENERAL link income booking failed', 'PaymentLinkSettlementService', {
+          linkId: link.id,
+          attemptId: attempt.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return // leave the link un-advanced; money is captured on the attempt for a human to reconcile
+      }
+      const fixed = Number(link.amountMinor) > 0
+      const fullyPaid = fixed ? newPaid >= Number(link.amountMinor) : true
       const status = fullyPaid ? PaymentLinkStatus.PAID : PaymentLinkStatus.PARTIALLY_PAID
       await this.links.update(link.id, { amountPaidMinor: newPaid, status })
       this.emit(link, status, newPaid, Number(attempt.amountMinor))

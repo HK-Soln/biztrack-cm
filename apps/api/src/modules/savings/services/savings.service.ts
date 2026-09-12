@@ -20,7 +20,9 @@ import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { CustomerDeposit } from '@/entities/customer-deposit.entity'
 import { DepositTransaction } from '@/entities/deposit-transaction.entity'
+import { OtherIncome } from '@/entities/other-income.entity'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
+import { IncomeService } from '@/modules/income/income.service'
 import type {
   AddDepositPaymentDto,
   CloseDepositDto,
@@ -54,6 +56,7 @@ export class DepositsService {
     private readonly businessesRepo: Repository<Business>,
     private readonly dataSource: DataSource,
     private readonly calendar: BusinessCalendarService,
+    private readonly income: IncomeService,
   ) {}
 
   /** Structured receipt payload for a single deposit/refund transaction (mirrors desktop). */
@@ -353,24 +356,26 @@ export class DepositsService {
     return this.findById(id, businessId)
   }
 
-  /** Total deposit-cancellation charges over a range (SCRUM-46) — the "other income" line on the
-   * income statement. Bucketed by the local trading day, falling back to the charge timestamp. */
+  /** Total "other income" over a range — the income statement's other-income line. Spec 10 ① repointed
+   * this from deposit-cancellation charges only to the unified Other Income ledger (general payment-link
+   * settlements + deposit charges [migrated here] + manual entries). Bucketed on the posting-date grain.
+   * (Kept on this service so the desktop `deposits.otherIncome(range)` report call needs no change.) */
   async getOtherIncome(
     businessId: string,
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<{ total: number }> {
-    const qb = this.savingsTransactionsRepo
-      .createQueryBuilder('t')
-      .select('COALESCE(SUM(t.amount), 0)', 'total')
-      .where('t.business_id = :businessId', { businessId })
-      .andWhere("t.type = 'charge'")
-      .andWhere('t.is_deleted = false')
+    const qb = this.dataSource
+      .getRepository(OtherIncome)
+      .createQueryBuilder('oi')
+      .select('COALESCE(SUM(oi.amount), 0)', 'total')
+      .where('oi.business_id = :businessId', { businessId })
+      .andWhere('oi.deleted_at IS NULL')
     if (query.dateFrom)
-      qb.andWhere('COALESCE(t.business_date, t.occurred_at::date) >= :from', {
+      qb.andWhere('COALESCE(oi.posting_date, oi.business_date, oi.date) >= :from', {
         from: query.dateFrom,
       })
     if (query.dateTo)
-      qb.andWhere('COALESCE(t.business_date, t.occurred_at::date) <= :to', { to: query.dateTo })
+      qb.andWhere('COALESCE(oi.posting_date, oi.business_date, oi.date) <= :to', { to: query.dateTo })
     const row = await qb.getRawOne<{ total: string | number | null }>()
     return { total: round(Number(row?.total ?? 0)) }
   }
@@ -459,7 +464,7 @@ export class DepositsService {
           )
         }
         if (charge > 0) {
-          await this.insertTxn(
+          const chargeTxnId = await this.insertTxn(
             m,
             id,
             businessId,
@@ -471,6 +476,23 @@ export class DepositsService {
               recordedById: user.sub,
             },
             now,
+          )
+          // Spec 10 ① — the savings 'charge' row is the deposit-ledger movement; recognize its income in
+          // the Other Income ledger (atomically, in this same transaction) so the income statement — which
+          // now reads other income only from other_incomes — books it exactly once.
+          await this.income.record(
+            businessId,
+            {
+              categoryId: IncomeService.SYS_CATEGORY_DEPOSIT_CHARGE,
+              description: dto.notes?.trim() || 'Deposit cancellation charge',
+              amount: charge,
+              currency: 'XAF',
+              source: 'DEPOSIT_CHARGE',
+              sourceId: chargeTxnId,
+              recordedById: user.sub,
+              date: now,
+            },
+            m,
           )
         }
         await repo.update(id, {
@@ -637,13 +659,14 @@ export class DepositsService {
       recordedById?: string | null
     },
     now: Date,
-  ): Promise<void> {
+  ): Promise<string> {
     const repo = m.getRepository(DepositTransaction)
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, now)
+    const id = newId()
     await repo.save(
       repo.create({
-        id: newId(),
+        id,
         savingsId,
         businessId,
         type: tx.type,
@@ -660,6 +683,7 @@ export class DepositsService {
         createdAt: now,
       }),
     )
+    return id
   }
 
   async applySavingsAccountOperation(

@@ -369,12 +369,14 @@ export class ExpensesService {
       }
       totalExpenses = this.roundMoney(totalExpenses)
 
-      // SCRUM-46 — non-trading income (deposit-cancellation charges) over the same window.
+      // Spec 10 ① — non-trading ("other") income over the same posting_date window, read from the
+      // Other Income ledger (general payment-link settlements, deposit-cancellation charges [migrated
+      // here, SCRUM-46], manual entries). One source, so nothing is double-counted.
       const [oi] = (await this.dailySaleSummariesRepo.manager.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM savings_transactions
-         WHERE business_id = $1 AND type = 'charge' AND is_deleted = false
-           AND COALESCE(business_date, occurred_at::date) >= $2
-           AND COALESCE(business_date, occurred_at::date) < $3`,
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM other_incomes
+         WHERE business_id = $1 AND deleted_at IS NULL
+           AND COALESCE(posting_date, business_date, date) >= $2
+           AND COALESCE(posting_date, business_date, date) < $3`,
         [businessId, startDate, endDate],
       )) as Array<{ total: string | number | null }>
       const otherIncome = this.roundMoney(Number(oi?.total ?? 0))

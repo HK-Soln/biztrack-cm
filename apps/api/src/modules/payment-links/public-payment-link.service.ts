@@ -70,10 +70,13 @@ export class PublicPaymentLinkService {
       throw new AppBadRequestException('Unsupported payment method.', 'PAYMENT_METHOD_UNSUPPORTED')
 
     // Amount is server-bound: partial links honour a requested amount capped at the live balance;
-    // fixed links (and open deposits fall back to the requested amount) charge the resolved amount.
-    const isDeposit = link.payableType === PayableType.DEPOSIT
+    // fixed links charge the resolved amount. "Open" links (deposit top-ups + open GENERAL links) carry
+    // no fixed amount, so the payer's requested amount stands.
+    const isOpenAmount =
+      link.payableType === PayableType.DEPOSIT ||
+      (link.payableType === PayableType.GENERAL && Number(link.amountMinor) <= 0)
     let amountMinor: number
-    if (isDeposit) {
+    if (isOpenAmount) {
       amountMinor = Math.floor(dto.amountMinor ?? 0)
       if (amountMinor <= 0)
         throw new AppBadRequestException('Enter an amount to pay.', 'PAYMENT_AMOUNT_INVALID')
@@ -144,6 +147,15 @@ export class PublicPaymentLinkService {
     // expected total. Deposits are open top-ups → keep the stored amount. Everything else re-resolves.
     if (link.payableType === PayableType.SALE_DRAFT) {
       const remaining = Math.max(0, Number(link.amountMinor) - Number(link.amountPaidMinor))
+      return { link, amountDueMinor: remaining, continueToken: null }
+    }
+    // GENERAL (Spec 10 ①): the link IS the payable. A fixed amount resolves to its remaining balance;
+    // an open link (amount 0) lets the payer choose (0 due, like a deposit top-up).
+    if (link.payableType === PayableType.GENERAL) {
+      const remaining =
+        Number(link.amountMinor) > 0
+          ? Math.max(0, Number(link.amountMinor) - Number(link.amountPaidMinor))
+          : 0
       return { link, amountDueMinor: remaining, continueToken: null }
     }
     const handler = this.registry.get(link.payableType)

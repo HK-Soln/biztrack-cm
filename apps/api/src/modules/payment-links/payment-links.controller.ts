@@ -6,6 +6,7 @@ import { Phase2Guard } from '@/modules/auth/guards/phase2.guard'
 import { PaymentLinkService } from './payment-link.service'
 import { CreatePaymentLinkDto } from './dto/create-payment-link.dto'
 import { CreateSaleDraftLinkDto } from './dto/create-sale-draft-link.dto'
+import { CreateGeneralLinkDto } from './dto/create-general-link.dto'
 
 /**
  * Spec 08 — merchant-facing payment-link management (authed). Create a shareable link for a payable
@@ -35,6 +36,15 @@ export class PaymentLinksController {
     @Body() dto: CreateSaleDraftLinkDto,
   ): Promise<PaymentLinkView> {
     return this.service.createSaleDraft(user.businessId as string, user.sub, dto)
+  }
+
+  @Post('general')
+  @ApiOperation({ summary: 'Create a GENERAL link (booked as other income on payment) — Spec 10' })
+  createGeneral(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateGeneralLinkDto,
+  ): Promise<PaymentLinkView> {
+    return this.service.createGeneral(user.businessId as string, user.sub, dto)
   }
 
   @Get()

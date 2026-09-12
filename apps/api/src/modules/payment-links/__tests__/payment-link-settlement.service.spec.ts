@@ -20,6 +20,7 @@ function make(opts: {
   const realtime = { toBusiness: jest.fn() }
   const attempts = { find: jest.fn(async () => []) }
   const sales = { create: jest.fn(async () => ({ id: 'sale-x' })) }
+  const income = { record: jest.fn(async () => ({ id: 'oi-1' })) }
   const logger = { setContext: jest.fn(), warn: jest.fn(), error: jest.fn() }
   const service = new PaymentLinkSettlementService(
     links as never,
@@ -29,9 +30,10 @@ function make(opts: {
     dispatcher as never,
     realtime as never,
     sales as never,
+    income as never,
     logger as never,
   )
-  return { service, links, handler, dispatcher, realtime, attempts, sales }
+  return { service, links, handler, dispatcher, realtime, attempts, sales, income }
 }
 
 const attempt = (over: Record<string, unknown> = {}) =>
@@ -172,6 +174,65 @@ describe('PaymentLinkSettlementService.settle', () => {
     expect(links.update).toHaveBeenCalledWith('link-1', {
       amountPaidMinor: 4000,
       status: PaymentLinkStatus.PARTIALLY_PAID,
+    })
+  })
+
+  it('GENERAL: books the payment as other income and closes a fully-paid fixed link', async () => {
+    const generalLink = {
+      id: 'link-1',
+      businessId: 'b1',
+      payableType: PayableType.GENERAL,
+      payableId: 'synthetic',
+      amountMinor: 4000,
+      amountPaidMinor: 0,
+      currency: 'XAF',
+      status: PaymentLinkStatus.ACTIVE,
+      label: 'Delivery fee',
+      createdBy: 'u1',
+      draftPayload: { label: 'Delivery fee', note: 'Zone C', incomeCategoryId: 'cat-1' },
+    }
+    const { service, links, income, handler } = make({ link: generalLink, stillDueMinor: 0 })
+    await service.settle(attempt({ amountMinor: 4000 }))
+    // No generic payable handler runs for GENERAL.
+    expect(handler.applyPayment).not.toHaveBeenCalled()
+    // The confirmed attempt's true tender is recognized as other income under the link's category.
+    expect(income.record).toHaveBeenCalledWith(
+      'b1',
+      expect.objectContaining({
+        categoryId: 'cat-1',
+        amount: 4000,
+        paymentMethod: PaymentMethod.MTN_MOMO,
+        reference: 'ref-1',
+        source: 'PAYMENT_LINK',
+        sourceId: 'link-1',
+      }),
+    )
+    expect(links.update).toHaveBeenCalledWith('link-1', {
+      amountPaidMinor: 4000,
+      status: PaymentLinkStatus.PAID,
+    })
+  })
+
+  it('GENERAL: an open link (amount 0) is single-shot PAID on the payer-chosen amount', async () => {
+    const openLink = {
+      id: 'link-1',
+      businessId: 'b1',
+      payableType: PayableType.GENERAL,
+      payableId: 'synthetic',
+      amountMinor: 0,
+      amountPaidMinor: 0,
+      currency: 'XAF',
+      status: PaymentLinkStatus.ACTIVE,
+      label: 'Donation',
+      createdBy: 'u1',
+      draftPayload: { label: 'Donation', incomeCategoryId: 'cat-1' },
+    }
+    const { service, links, income } = make({ link: openLink, stillDueMinor: 0 })
+    await service.settle(attempt({ amountMinor: 2500 }))
+    expect(income.record).toHaveBeenCalled()
+    expect(links.update).toHaveBeenCalledWith('link-1', {
+      amountPaidMinor: 2500,
+      status: PaymentLinkStatus.PAID,
     })
   })
 })

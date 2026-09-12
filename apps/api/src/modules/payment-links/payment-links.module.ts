@@ -14,6 +14,7 @@ import { PaymentsModule } from '@/modules/payments/payments.module'
 import { SalesModule } from '@/modules/sales/sales.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
+import { IncomeModule } from '@/modules/income/income.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { PaymentLinksController } from './payment-links.controller'
 import { PublicPaymentLinkController } from './public-payment-link.controller'
@@ -52,6 +53,7 @@ import {
     SalesModule,
     DebtsModule,
     DepositsModule,
+    IncomeModule,
     NotificationsModule,
   ],
   controllers: [PaymentLinksController, PublicPaymentLinkController],
