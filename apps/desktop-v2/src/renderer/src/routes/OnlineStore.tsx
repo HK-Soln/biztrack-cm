@@ -195,6 +195,12 @@ type Form = {
   paymentMtnMomo: boolean
   paymentOrangeMoney: boolean
   paymentCard: boolean
+  allowPartialPayment: boolean
+  partialMinPercent: string
+  partialMinOrderAmount: string
+  depositRequired: boolean
+  codMinOrderAmount: string
+  codMaxOrderAmount: string
   offerDelivery: boolean
   offerPickup: boolean
   deliveryFee: string
@@ -234,6 +240,12 @@ function toForm(s: Store): Form {
     paymentMtnMomo: s.paymentMtnMomo,
     paymentOrangeMoney: s.paymentOrangeMoney,
     paymentCard: s.paymentCard,
+    allowPartialPayment: s.allowPartialPayment ?? false,
+    partialMinPercent: s.partialMinPercent != null ? String(s.partialMinPercent) : '50',
+    partialMinOrderAmount: s.partialMinOrderAmount ? String(s.partialMinOrderAmount) : '',
+    depositRequired: s.depositRequired ?? false,
+    codMinOrderAmount: s.codMinOrderAmount ? String(s.codMinOrderAmount) : '',
+    codMaxOrderAmount: s.codMaxOrderAmount != null ? String(s.codMaxOrderAmount) : '',
     offerDelivery: s.offerDelivery,
     offerPickup: s.offerPickup,
     deliveryFee: s.deliveryFee != null ? String(s.deliveryFee) : '',
@@ -631,6 +643,18 @@ function StoreConfig({
         paymentOrangeMoney:
           form.paymentOrangeMoney && availableMethods.has(PaymentMethod.ORANGE_MONEY),
         paymentCard: form.paymentCard && availableMethods.has(PaymentMethod.CARD),
+        allowPartialPayment: form.allowPartialPayment,
+        partialMinPercent: Math.min(100, Math.max(1, Math.round(Number(form.partialMinPercent) || 50))),
+        partialMinOrderAmount: form.partialMinOrderAmount.trim()
+          ? Math.max(0, Math.round(Number(form.partialMinOrderAmount)))
+          : 0,
+        depositRequired: form.depositRequired,
+        codMinOrderAmount: form.codMinOrderAmount.trim()
+          ? Math.max(0, Math.round(Number(form.codMinOrderAmount)))
+          : 0,
+        codMaxOrderAmount: form.codMaxOrderAmount.trim()
+          ? Math.max(0, Math.round(Number(form.codMaxOrderAmount)))
+          : null,
         offerDelivery: form.offerDelivery,
         offerPickup: form.offerPickup,
         deliveryFee: form.deliveryFee.trim()
@@ -1081,6 +1105,75 @@ function StoreConfig({
               {ICO.lock}
               <span>{t('online.payGateHint')}</span>
             </div>
+
+            {/* Prepayments (deposit + rest on delivery) — Spec 10 ② */}
+            <div className="divider" />
+            <label className="lbl">{t('online.prepayTitle')}</label>
+            <PaymentToggle
+              t={t}
+              label="online.allowPartial"
+              desc="online.allowPartialDesc"
+              on={form.allowPartialPayment}
+              available
+              onToggle={() => set('allowPartialPayment', !form.allowPartialPayment)}
+            />
+            {form.allowPartialPayment ? (
+              <div style={{ paddingLeft: 2 }}>
+                <label className="lbl" style={{ marginTop: 8 }}>
+                  {t('online.partialMinPercent')}
+                </label>
+                <Input
+                  inputMode="numeric"
+                  value={form.partialMinPercent}
+                  placeholder="50"
+                  onChange={(e) => set('partialMinPercent', e.target.value.replace(/[^0-9]/g, ''))}
+                />
+                <label className="lbl" style={{ marginTop: 8 }}>
+                  {t('online.partialMinOrder').replace('{currency}', money.currency)}
+                </label>
+                <Input
+                  inputMode="numeric"
+                  value={form.partialMinOrderAmount}
+                  placeholder="0"
+                  onChange={(e) =>
+                    set('partialMinOrderAmount', e.target.value.replace(/[^0-9]/g, ''))
+                  }
+                />
+                <div style={{ marginTop: 8 }}>
+                  <PaymentToggle
+                    t={t}
+                    label="online.depositRequired"
+                    desc="online.depositRequiredDesc"
+                    on={form.depositRequired}
+                    available
+                    onToggle={() => set('depositRequired', !form.depositRequired)}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {/* Cash-on-delivery eligibility */}
+            <div className="divider" />
+            <label className="lbl">{t('online.codRules')}</label>
+            <label className="lbl" style={{ marginTop: 6 }}>
+              {t('online.codMin').replace('{currency}', money.currency)}
+            </label>
+            <Input
+              inputMode="numeric"
+              value={form.codMinOrderAmount}
+              placeholder="0"
+              onChange={(e) => set('codMinOrderAmount', e.target.value.replace(/[^0-9]/g, ''))}
+            />
+            <label className="lbl" style={{ marginTop: 8 }}>
+              {t('online.codMax').replace('{currency}', money.currency)}
+            </label>
+            <Input
+              inputMode="numeric"
+              value={form.codMaxOrderAmount}
+              placeholder={t('online.codMaxPlaceholder')}
+              onChange={(e) => set('codMaxOrderAmount', e.target.value.replace(/[^0-9]/g, ''))}
+            />
+            <div className="reserved-note">{t('online.codRulesHint')}</div>
           </div>
 
           {/* Fulfilment */}
