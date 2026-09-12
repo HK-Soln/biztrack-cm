@@ -13214,7 +13214,15 @@ textarea.input {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--warning);
+  background: currentColor;
+}
+.sc2 .sh-dirty.clean {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.sc2 .sh-dirty.err {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 /* ---- shell ---- */

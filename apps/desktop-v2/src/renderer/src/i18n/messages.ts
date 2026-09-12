@@ -3879,6 +3879,9 @@ export const en = {
   'online.socialsHint': 'Usernames only — we build the full link.',
   'online.versionHistory': 'Version history',
   'online.depositTooLow': 'Below-minimum deposit is not allowed.',
+  'online.saving': 'Saving…',
+  'online.unsavedChanges': 'Unsaved changes',
+  'online.saveFailedShort': 'Save failed',
 }
 
 export type MessageKey = keyof typeof en
@@ -7804,6 +7807,9 @@ export const fr: Record<MessageKey, string> = {
   'online.socialsHint': 'Noms d’utilisateur uniquement — nous construisons le lien complet.',
   'online.versionHistory': 'Historique des versions',
   'online.depositTooLow': 'Un acompte inférieur au minimum n’est pas autorisé.',
+  'online.saving': 'Enregistrement…',
+  'online.unsavedChanges': 'Modifications non enregistrées',
+  'online.saveFailedShort': 'Échec de l’enregistrement',
 }
 
 export const catalogs = { en, fr }

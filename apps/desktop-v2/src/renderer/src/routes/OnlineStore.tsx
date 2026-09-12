@@ -262,6 +262,46 @@ function SLine({
     </div>
   )
 }
+/** Header autosave indicator. One pill, priority-ordered: saving → unsaved → failed → just-saved →
+ *  unpublished (draft ahead of the published snapshot) → all saved. */
+function SaveStatus({
+  t,
+  saving,
+  dirty,
+  error,
+  justSaved,
+  unpublished,
+}: {
+  t: T
+  saving: boolean
+  dirty: boolean
+  error: boolean
+  justSaved: boolean
+  unpublished: boolean
+}) {
+  let cls = ''
+  let label: string
+  if (saving) label = t('online.saving')
+  else if (dirty) label = t('online.unsavedChanges')
+  else if (error) {
+    cls = ' err'
+    label = t('online.saveFailedShort')
+  } else if (justSaved) {
+    cls = ' clean'
+    label = t('online.saved')
+  } else if (unpublished) label = t('online.unpublished')
+  else {
+    cls = ' clean'
+    label = t('online.saved')
+  }
+  return (
+    <span className={`sh-dirty${cls}`}>
+      <span className="dot" />
+      {label}
+    </span>
+  )
+}
+
 function CardHead({ icon, title, sub }: { icon: ReactNode; title: string; sub: string }) {
   return (
     <div className="card-h">
@@ -382,10 +422,22 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: T; onSaved: () =>
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  // Autosave: `dirty` = in-memory edits not yet persisted to the draft; `justSaved` = a
+  // brief confirmation window after a successful autosave.
+  const [dirty, setDirty] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
   useEffect(() => {
+    // Reloaded draft from the server (initial load / after a save or restore) — resync the
+    // form without marking it dirty so it doesn't trigger another autosave.
     setForm(toForm(store))
+    setDirty(false)
   }, [store])
-  const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const set = <K extends keyof Form>(k: K, v: Form[K]) => {
+    setForm((f) => ({ ...f, [k]: v }))
+    setDirty(true)
+    setJustSaved(false)
+    setError(null)
+  }
   const cur = (key: Parameters<T>[0]) => t(key).replace('{currency}', money.currency)
 
   // Provider-backed methods the business can actually collect (owner-only; on error treat as none).
@@ -513,10 +565,17 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: T; onSaved: () =>
       return dataClient.online.updateStore(dto)
     },
     onSuccess: () => {
-      setToast(t('online.saved'))
+      // Autosave is silent (the header status pill is the feedback) — no toast on every save.
+      setError(null)
+      setDirty(false)
+      setJustSaved(true)
       onSaved()
     },
-    onError: (e) => setError(errorMessage(e, t('online.saveError'))),
+    // Stop auto-retrying a failing save (avoids hammering a down server); the next edit re-arms it.
+    onError: (e) => {
+      setDirty(false)
+      setError(errorMessage(e, t('online.saveError')))
+    },
   })
   const publish = useMutation({
     mutationFn: () => dataClient.online.publishStore(),
@@ -532,6 +591,23 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: T; onSaved: () =>
     const id = setTimeout(() => setToast(null), 2200)
     return () => clearTimeout(id)
   }, [toast])
+
+  // Debounced autosave: ~1s after the last edit, persist the draft. Held while the subdomain is
+  // invalid or the store name is empty (a save would 400) — the pill stays "Unsaved" until valid.
+  const canAutosave = slugState.ok && !!form.storeName.trim()
+  useEffect(() => {
+    if (!dirty || save.isPending || !canAutosave) return
+    const id = setTimeout(() => save.mutate(), 1000)
+    return () => clearTimeout(id)
+    // `form` in deps re-arms the debounce on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, canAutosave, save.isPending, form])
+
+  useEffect(() => {
+    if (!justSaved) return
+    const id = setTimeout(() => setJustSaved(false), 2000)
+    return () => clearTimeout(id)
+  }, [justSaved])
 
   const seoIncomplete = !form.seoTitle.trim() && !form.seoDescription.trim()
   const sections: Array<{ id: SectionId; icon: ReactNode; label: string; count?: string; warn?: boolean }> =
@@ -591,20 +667,20 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: T; onSaved: () =>
             {t('online.viewLive')}
           </Button>
           <span className="sh-sep" />
-          {store.hasUnpublishedChanges ? (
-            <span className="sh-dirty">
-              <span className="dot" />
-              {t('online.unpublished')}
-            </span>
-          ) : null}
-          <Button variant="soft" type="button" onClick={() => save.mutate()} loading={save.isPending}>
-            {t('online.saveDraft')}
-          </Button>
+          <SaveStatus
+            t={t}
+            saving={save.isPending}
+            dirty={dirty}
+            error={!!error}
+            justSaved={justSaved}
+            unpublished={store.hasUnpublishedChanges}
+          />
           <Button
             variant="primary"
             type="button"
             onClick={() => publish.mutate()}
             loading={publish.isPending}
+            disabled={dirty || save.isPending}
           >
             {ICO.rocket}
             {t('online.publish')}
