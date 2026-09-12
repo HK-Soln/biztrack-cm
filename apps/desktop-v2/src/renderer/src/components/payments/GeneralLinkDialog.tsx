@@ -76,6 +76,39 @@ export function GeneralLinkDialog({ open, onClose }: { open: boolean; onClose: (
     return off
   }, [link, qc])
 
+  // Polling fallback: realtime can miss (socket drop, timing), so also poll the link's status while the
+  // dialog is open and unpaid. Cheap (a handful of links) and guarantees the status updates.
+  useEffect(() => {
+    if (!link || settle?.done) return
+    let active = true
+    const tick = async () => {
+      try {
+        const fresh = (await dataClient.payments.listLinks()).find((l) => l.id === link.id)
+        if (!fresh || !active) return
+        const done = fresh.status === 'PAID'
+        if (done || Number(fresh.amountPaidMinor) > 0) {
+          setSettle({
+            paidMinor: Number(fresh.amountPaidMinor),
+            totalMinor: Number(fresh.amountMinor),
+            done,
+          })
+        }
+        if (done) {
+          void Promise.resolve(dataClient.sync.trigger())
+            .catch(() => undefined)
+            .then(() => qc.invalidateQueries())
+        }
+      } catch {
+        /* transient — retried next tick */
+      }
+    }
+    const iv = setInterval(tick, 4000)
+    return () => {
+      active = false
+      clearInterval(iv)
+    }
+  }, [link, settle?.done, qc])
+
   const loadCategories = async (search: string) => {
     const rows = categoriesQ.data ?? (await dataClient.incomeCategories.listAll())
     const s = search.trim().toLowerCase()
