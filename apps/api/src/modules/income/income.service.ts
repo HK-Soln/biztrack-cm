@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { EntityManager, IsNull, Repository } from 'typeorm'
+import { EntityManager, Repository } from 'typeorm'
 import {
   type IncomeCategoryView,
   type JwtPayload,
@@ -37,13 +37,21 @@ export interface RecordIncomeParams {
  * deposit-cancellation charges, manual entries) on the same financial grain as expenses
  * (business_date / posting_date), and exposes the income-statement "other income" total.
  */
+/** The default per-business income categories, seeded on business creation. Slugs are stable handles
+ *  the automated bookings resolve against (deposit charges → 'deposit-charges'). */
+export const DEFAULT_INCOME_CATEGORIES: ReadonlyArray<{
+  name: string
+  slug: string
+  color: string
+  sortOrder: number
+}> = [
+  { name: 'Delivery fees', slug: 'delivery-fees', color: '#0EA5E9', sortOrder: 10 },
+  { name: 'Deposit charges', slug: 'deposit-charges', color: '#8B5CF6', sortOrder: 20 },
+  { name: 'Miscellaneous', slug: 'miscellaneous', color: '#64748B', sortOrder: 30 },
+]
+
 @Injectable()
 export class IncomeService {
-  // Seeded system income categories (migration 1789200000000). Referenced by settlement/deposit code.
-  static readonly SYS_CATEGORY_DELIVERY = '00000000-0000-4000-a000-0000000000d1'
-  static readonly SYS_CATEGORY_DEPOSIT_CHARGE = '00000000-0000-4000-a000-0000000000d2'
-  static readonly SYS_CATEGORY_MISC = '00000000-0000-4000-a000-0000000000d3'
-
   constructor(
     @InjectRepository(OtherIncome)
     private readonly incomes: Repository<OtherIncome>,
@@ -165,10 +173,11 @@ export class IncomeService {
     }
   }
 
-  /** System (shared) + this business's income categories, ordered for display. */
+  /** This business's income categories, ordered for display (per-business — no system-wide sharing, so
+   *  a business can carry its own per-category attributes, mirroring the expenses direction). */
   async listCategories(businessId: string): Promise<IncomeCategoryView[]> {
     const cats = await this.categories.find({
-      where: [{ businessId: IsNull() }, { businessId }],
+      where: { businessId },
       order: { sortOrder: 'ASC', name: 'ASC' },
     })
     return cats.map((c) => ({
@@ -315,17 +324,50 @@ export class IncomeService {
     )
   }
 
-  /** Resolve a category the business may use: one of its own or a system (shared) category. */
+  /** Resolve one of the business's own income categories. */
   async resolveCategory(categoryId: string, businessId: string): Promise<IncomeCategory> {
-    const category = await this.categories.findOne({
-      where: [
-        { id: categoryId, businessId: IsNull() },
-        { id: categoryId, businessId },
-      ],
-    })
+    const category = await this.categories.findOne({ where: { id: categoryId, businessId } })
     if (!category)
       throw new AppNotFoundException('Income category not found.', 'INCOME_CATEGORY_NOT_FOUND')
     return category
+  }
+
+  /** Seed the default income categories for a business (idempotent) — called on business creation and
+   *  backfilled for existing businesses by migration. */
+  async seedDefaults(businessId: string, manager?: EntityManager): Promise<void> {
+    const repo = manager ? manager.getRepository(IncomeCategory) : this.categories
+    const now = new Date()
+    for (const def of DEFAULT_INCOME_CATEGORIES) {
+      const exists = await repo.findOne({ where: { businessId, slug: def.slug }, withDeleted: true })
+      if (exists) continue
+      await repo.save(
+        repo.create({
+          businessId,
+          name: def.name,
+          slug: def.slug,
+          color: def.color,
+          sortOrder: def.sortOrder,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      )
+    }
+  }
+
+  /** Find (or create) a business income category by its stable slug — used by automated bookings
+   *  (deposit-cancellation charges) which have no user-chosen category. Self-heals if seeding was
+   *  missed. */
+  async ensureCategoryBySlug(
+    businessId: string,
+    slug: string,
+    name: string,
+    color: string,
+    manager?: EntityManager,
+  ): Promise<IncomeCategory> {
+    const repo = manager ? manager.getRepository(IncomeCategory) : this.categories
+    const existing = await repo.findOne({ where: { businessId, slug } })
+    if (existing) return existing
+    return repo.save(repo.create({ businessId, name, slug, color, sortOrder: 20 }))
   }
 
   private toView(income: OtherIncome, categoryName: string): OtherIncomeView {

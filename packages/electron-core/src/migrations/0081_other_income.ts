@@ -3,7 +3,8 @@ import type { Migration } from './runner'
 /**
  * Spec 10 ① — local Other Income ledger, mirroring the API's other_incomes + income_categories so
  * manual other-income entries work offline (local write → outbox → sync) and the income statement can
- * read the line locally. Categories follow the expense_categories shape (null business_id = system).
+ * read the line locally. Categories are per-business (owned rows) — they arrive via sync (no local
+ * seed); the shape follows expense_categories.
  */
 export const migration_0081: Migration = {
   id: 81,
@@ -48,17 +49,5 @@ export const migration_0081: Migration = {
       CREATE INDEX IF NOT EXISTS idx_other_incomes_business ON other_incomes(business_id, date);
       CREATE INDEX IF NOT EXISTS idx_other_incomes_business_category ON other_incomes(business_id, category_id, is_deleted);
     `)
-
-    // Seed the shared system categories (business_id NULL) to mirror the API migration seeds, so the
-    // Add-other-income picker and the general-link default work offline before the first pull.
-    const now = new Date().toISOString()
-    const seed = db.prepare(
-      `INSERT OR IGNORE INTO income_categories
-        (id, business_id, name, slug, color, icon, sort_order, is_active, is_deleted, created_at, updated_at)
-       VALUES (?, NULL, ?, ?, ?, NULL, ?, 1, 0, ?, ?)`,
-    )
-    seed.run('00000000-0000-4000-a000-0000000000d1', 'Delivery fees', 'delivery-fees', '#0EA5E9', 10, now, now)
-    seed.run('00000000-0000-4000-a000-0000000000d2', 'Deposit charges', 'deposit-charges', '#8B5CF6', 20, now, now)
-    seed.run('00000000-0000-4000-a000-0000000000d3', 'Miscellaneous', 'miscellaneous', '#64748B', 30, now, now)
   },
 }

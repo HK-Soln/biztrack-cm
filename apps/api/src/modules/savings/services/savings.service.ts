@@ -479,11 +479,19 @@ export class DepositsService {
           )
           // Spec 10 ① — the savings 'charge' row is the deposit-ledger movement; recognize its income in
           // the Other Income ledger (atomically, in this same transaction) so the income statement — which
-          // now reads other income only from other_incomes — books it exactly once.
+          // now reads other income only from other_incomes — books it exactly once. Categories are
+          // per-business, so resolve this business's own "Deposit charges" category by slug (self-heals).
+          const depositCategory = await this.income.ensureCategoryBySlug(
+            businessId,
+            'deposit-charges',
+            'Deposit charges',
+            '#8B5CF6',
+            m,
+          )
           await this.income.record(
             businessId,
             {
-              categoryId: IncomeService.SYS_CATEGORY_DEPOSIT_CHARGE,
+              categoryId: depositCategory.id,
               description: dto.notes?.trim() || 'Deposit cancellation charge',
               amount: charge,
               currency: 'XAF',
