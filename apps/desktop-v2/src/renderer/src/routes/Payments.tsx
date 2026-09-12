@@ -15,6 +15,7 @@ import { useSessionStore } from '@/stores/session.store'
 import { errorMessage } from '@/lib/error'
 import { useT } from '@/i18n'
 import { PaymentLinksPanel } from '@/components/payments/PaymentLinksPanel'
+import { GeneralLinkDialog } from '@/components/payments/GeneralLinkDialog'
 
 const Plus = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -102,6 +103,7 @@ export function Payments() {
     providerId: string
   } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [genLinkOpen, setGenLinkOpen] = useState(false)
 
   const providers = providersQ.data ?? []
   const connections = connsQ.data ?? []
@@ -233,7 +235,16 @@ export function Payments() {
             <p>{t('pay.sub')}</p>
           </div>
         </div>
+        {/* Generate a general payment link (booked as other income) — only once a method is routed. */}
+        {routes.length > 0 ? (
+          <Button variant="soft" onClick={() => setGenLinkOpen(true)}>
+            <Plus />
+            {t('generalLink.action')}
+          </Button>
+        ) : null}
       </div>
+
+      <GeneralLinkDialog open={genLinkOpen} onClose={() => setGenLinkOpen(false)} />
 
       {error ? (
         <div className="banner warn" style={{ marginBottom: 12 }}>

@@ -10,6 +10,7 @@ import type {
   InStorePaymentStatus,
   CreatePaymentLinkRequest,
   CreateSaleDraftLinkRequest,
+  CreateGeneralLinkRequest,
   PaymentLinkView,
   PaymentProvider,
   PaymentProviderCapability,
@@ -50,6 +51,8 @@ export const cloudPayments = {
     cpost('/payment-links', input),
   createSaleDraftLink: (input: CreateSaleDraftLinkRequest): Promise<PaymentLinkView> =>
     cpost('/payment-links/sale-draft', input),
+  createGeneralLink: (input: CreateGeneralLinkRequest): Promise<PaymentLinkView> =>
+    cpost('/payment-links/general', input),
   listLinks: (): Promise<PaymentLinkView[]> => cget('/payment-links'),
   cancelLink: (id: string): Promise<void> =>
     cpost(`/payment-links/${encodeURIComponent(id)}/cancel`, {}),

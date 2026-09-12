@@ -55,6 +55,7 @@ export const IPC = {
   paymentsLinkEvent: 'payments:link-event',
   paymentLinksCreate: 'payment-links:create',
   paymentLinksSaleDraft: 'payment-links:sale-draft',
+  paymentLinksGeneral: 'payment-links:general',
   paymentLinksList: 'payment-links:list',
   paymentLinksCancel: 'payment-links:cancel',
   paymentLinksFinalize: 'payment-links:finalize',
@@ -384,6 +385,7 @@ import type {
   PaymentLinkRealtimeEvent as PaymentLinkRealtimeEventT,
   CreatePaymentLinkRequest as CreatePaymentLinkRequestT,
   CreateSaleDraftLinkRequest as CreateSaleDraftLinkRequestT,
+  CreateGeneralLinkRequest as CreateGeneralLinkRequestT,
   PaymentLinkView as PaymentLinkViewT,
 } from '@biztrack/types'
 export type {
@@ -402,6 +404,7 @@ export type {
   PaymentAttemptRealtimeEvent,
   CreatePaymentLinkRequest,
   CreateSaleDraftLinkRequest,
+  CreateGeneralLinkRequest,
   PaymentLinkView,
   PaymentLinkRealtimeEvent,
 } from '@biztrack/types'
@@ -2125,6 +2128,8 @@ export interface BridgeApi {
     createLink: (input: CreatePaymentLinkRequestT) => Promise<PaymentLinkViewT>
     /** Spec 09 — a SALE_DRAFT intent from the till (sale materializes on payment). */
     createSaleDraftLink: (input: CreateSaleDraftLinkRequestT) => Promise<PaymentLinkViewT>
+    /** Spec 10 — a general link booked as other income on payment. */
+    createGeneralLink: (input: CreateGeneralLinkRequestT) => Promise<PaymentLinkViewT>
     listLinks: () => Promise<PaymentLinkViewT[]>
     cancelLink: (id: string) => Promise<void>
     /** Finish collecting; leave the balance as the customer's credit (§4). */

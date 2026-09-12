@@ -192,6 +192,7 @@ import type {
   PaymentLinkRealtimeEvent,
   CreatePaymentLinkRequest,
   CreateSaleDraftLinkRequest,
+  CreateGeneralLinkRequest,
   PaymentLinkView,
   ScanHit,
   SellEntry,
@@ -474,6 +475,8 @@ export interface DataClient {
     createLink: (input: CreatePaymentLinkRequest) => Promise<PaymentLinkView>
     /** Spec 09 — a SALE_DRAFT intent from the till (sale materializes on payment). */
     createSaleDraftLink: (input: CreateSaleDraftLinkRequest) => Promise<PaymentLinkView>
+    /** Spec 10 — a general link booked as other income on payment. */
+    createGeneralLink: (input: CreateGeneralLinkRequest) => Promise<PaymentLinkView>
     listLinks: () => Promise<PaymentLinkView[]>
     cancelLink: (id: string) => Promise<void>
     /** Finish collecting; leave the balance as the customer's credit (§4). */
@@ -932,6 +935,7 @@ function electronAdapter(): DataClient {
       onAttemptEvent: (cb) => window.api.payments.onAttemptEvent(cb),
       createLink: (input) => window.api.payments.createLink(input),
       createSaleDraftLink: (input) => window.api.payments.createSaleDraftLink(input),
+      createGeneralLink: (input) => window.api.payments.createGeneralLink(input),
       listLinks: () => window.api.payments.listLinks(),
       cancelLink: (id) => window.api.payments.cancelLink(id),
       finalizeLink: (id) => window.api.payments.finalizeLink(id),
