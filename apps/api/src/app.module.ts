@@ -25,6 +25,7 @@ import { StorageModule } from '@/modules/storage/storage.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
 import { IncomeModule } from '@/modules/income/income.module'
+import { GeoModule } from '@/modules/geo/geo.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { RfqsModule } from '@/modules/rfqs/rfqs.module'
 import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.module'
@@ -114,6 +115,7 @@ function resolveI18nPath() {
     InventoryModule,
     ExpensesModule,
     IncomeModule,
+    GeoModule,
     DebtsModule,
     RfqsModule,
     PurchaseOrdersModule,
