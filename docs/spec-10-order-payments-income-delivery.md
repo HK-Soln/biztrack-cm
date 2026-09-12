@@ -118,3 +118,20 @@ Structured address columns are added to `OnlineOrder` + `CheckoutRequest` + `Che
   page rebuilt to `design-store-config-v2` (sectioned nav + panes + delivery‑zone editor with searchable
   country/region/city selects, free‑delivery‑over + unlisted‑area behaviour). Geography reference is
   reachable from desktop via `online.getCountries/getRegions/getCities` (public/geo proxy).
+
+- [x] Fiscal close snapshot now freezes the other‑income total (`computeSnapshot`) alongside sales +
+  expenses, so a closed period's income statement stays reproducible (Slice ① item).
+
+### Beyond spec — draft preview
+- [x] `preview.<slug>.<root>` renders the storefront from the **live draft** config (unpublished changes,
+  and stores never published) via `getDraftStore` + `?preview=1` on the public reads. Preview is
+  render‑only for order creation: the whole browse → cart → checkout flow works (transient carts), but
+  the checkout POST rejects `preview=1` (`ONLINE_PREVIEW_READONLY`) and the Place‑order button is
+  disabled. Desktop store‑config header has an "Open preview" button. Deploy: needs a `preview.*.<root>`
+  wildcard DNS record + TLS cert.
+
+### Deploy checklist (migrations, in order)
+`1789200000000` (other_income) · `1789300000000` (income categories per business) ·
+`1789400000000` (store prepayment/COD) · `1789500000000` (geo reference) · `1789600000000`
+(store delivery zones) · `1789700000000` (order structured address) · `1789800000000`
+(Sharjah cities). Plus: `preview.*.<root>` DNS + cert for draft preview.

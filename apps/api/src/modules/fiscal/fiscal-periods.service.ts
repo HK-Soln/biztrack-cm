@@ -217,11 +217,21 @@ export class FiscalPeriodsService implements OnModuleInit {
           AND COALESCE(posting_date, business_date, date) BETWEEN $2 AND $3`,
       [businessId, period.startDate, period.endDate],
     )) as Array<{ total: string }>
+    // Other income (Spec 10 ①) is the third P&L stream — freeze it alongside sales + expenses so a
+    // closed period's income statement stays reproducible.
+    const otherIncomeRows = (await this.dataSource.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total
+         FROM other_incomes
+        WHERE business_id = $1 AND deleted_at IS NULL
+          AND COALESCE(posting_date, business_date, date) BETWEEN $2 AND $3`,
+      [businessId, period.startDate, period.endDate],
+    )) as Array<{ total: string }>
 
     return {
       salesTotal: Number(salesRows[0]?.total ?? 0),
       salesCount: Number(salesRows[0]?.count ?? 0),
       expenseTotal: Number(expenseRows[0]?.total ?? 0),
+      otherIncomeTotal: Number(otherIncomeRows[0]?.total ?? 0),
       closedByUserId: userId,
       generatedAt: new Date().toISOString(),
     }
