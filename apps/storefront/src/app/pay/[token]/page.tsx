@@ -16,10 +16,11 @@ export default async function PayLinkPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>
-  searchParams: Promise<{ method?: string }>
+  searchParams: Promise<{ method?: string; amount?: string }>
 }) {
   const { token } = await params
-  const { method } = await searchParams
+  const { method, amount } = await searchParams
+  const preferredAmount = amount ? Number(amount) : undefined
   const link = await getPaymentLink(token)
   if (!link) notFound()
 
@@ -42,7 +43,12 @@ export default async function PayLinkPage({
         className="wrap"
         style={{ width: '100%', maxWidth: 460, margin: '0 auto', padding: '32px 16px' }}
       >
-        <PayLinkView token={token} link={link} preferredMethod={method} />
+        <PayLinkView
+          token={token}
+          link={link}
+          preferredMethod={method}
+          preferredAmount={preferredAmount}
+        />
       </div>
     </div>
   )

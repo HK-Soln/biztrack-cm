@@ -1,12 +1,17 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PhoneInput, isValidPhone } from '@biztrack/ui/biztrack'
-import type { CheckoutRequest, OnlineFulfillmentType, PublicStore } from '@biztrack/types'
+import {
+  resolveCheckoutPayment,
+  type CheckoutRequest,
+  type OnlineFulfillmentType,
+  type PublicStore,
+} from '@biztrack/types'
 import { checkout, formatMoney, getCart } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
 import { useCartSession } from '@/lib/cart-store'
@@ -77,49 +82,10 @@ export function CheckoutView({
       : pm?.orangeMoney
         ? 'ORANGE_MONEY'
         : null
-  const payOptions = useMemo(() => {
-    const opts: { key: string; title: string; desc: string; badge: string; color: string }[] = []
-    if (pm?.cashOnDelivery ?? true)
-      opts.push({
-        key: 'CASH',
-        title: t('codTitle'),
-        desc: t('codDesc'),
-        badge: 'CASH',
-        color: 'var(--success)',
-      })
-    if (pm?.card || pm?.mtnMomo || pm?.orangeMoney)
-      opts.push({
-        key: 'ONLINE',
-        title: t('payOnlineTitle'),
-        desc: t('payOnlineDesc'),
-        badge: '⚡',
-        color: 'var(--brand)',
-      })
-    return opts
-  }, [pm, t])
-  const [paymentMethod, setPaymentMethod] = useState<string>(payOptions[0]?.key ?? 'CASH')
-
   const { data: cart } = useQuery({
     queryKey: queryKeys.cart(slug, sessionToken ?? 'none'),
     queryFn: () => getCart(slug, sessionToken as string),
     enabled: Boolean(sessionToken),
-  })
-
-  const mutation = useMutation({
-    mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
-    onSuccess: (order) => {
-      clearSession()
-      const pay = order.payment
-      // Unified pay page (Spec 09): one token page handles card (inline) + MoMo, with the chosen
-      // method pre-selected and switchable.
-      if (pay?.mode === 'link' && pay.token) {
-        const q = pay.method ? `?method=${encodeURIComponent(pay.method)}` : ''
-        router.push(`${base}/pay/${pay.token}${q}`)
-        return
-      }
-      // COD / no online payment.
-      router.push(`${base}/orders/${order.trackingToken}`)
-    },
   })
 
   const subtotal = cart?.subtotal ?? 0
@@ -128,6 +94,73 @@ export function CheckoutView({
   const total = subtotal + fee
   const belowMin = minOrder != null && subtotal < minOrder
   const items = cart?.items ?? []
+
+  // Payment eligibility (Spec 10 ②) — which modes to offer + the deposit bounds, from the store config
+  // + the order total. deposit_required removes full COD so it can't be bypassed.
+  const prepay = store?.prepayment
+  const eligibility = useMemo(
+    () =>
+      resolveCheckoutPayment(
+        {
+          allowPartialPayment: prepay?.allowPartialPayment ?? false,
+          partialMinPercent: prepay?.partialMinPercent ?? 50,
+          partialMinOrderAmount: prepay?.partialMinOrderAmount ?? 0,
+          depositRequired: prepay?.depositRequired ?? false,
+          codMinOrderAmount: prepay?.codMinOrderAmount ?? 0,
+          codMaxOrderAmount: prepay?.codMaxOrderAmount ?? null,
+        },
+        {
+          cashOnDelivery: pm?.cashOnDelivery ?? true,
+          mtnMomo: pm?.mtnMomo ?? false,
+          orangeMoney: pm?.orangeMoney ?? false,
+          card: pm?.card ?? false,
+        },
+        total,
+      ),
+    [prepay, pm, total],
+  )
+  type PayMode = 'FULL_ONLINE' | 'DEPOSIT' | 'FULL_COD'
+  const modes = useMemo(() => {
+    const arr: { key: PayMode; title: string; desc: string; badge: string; color: string }[] = []
+    if (eligibility.fullOnline)
+      arr.push({ key: 'FULL_ONLINE', title: t('payOnlineTitle'), desc: t('payOnlineDesc'), badge: '⚡', color: 'var(--brand)' })
+    if (eligibility.deposit)
+      arr.push({ key: 'DEPOSIT', title: t('depositTitle'), desc: t('depositDesc'), badge: '½', color: 'var(--brand)' })
+    if (eligibility.fullCod)
+      arr.push({ key: 'FULL_COD', title: t('codTitle'), desc: t('codDesc'), badge: 'CASH', color: 'var(--success)' })
+    return arr
+  }, [eligibility, t])
+  const [paymentMode, setPaymentMode] = useState<PayMode>('FULL_COD')
+  const [depositAmount, setDepositAmount] = useState(0)
+  // Keep the selected mode valid + the deposit within bounds as the cart / eligibility changes.
+  useEffect(() => {
+    if (modes.length && !modes.some((m) => m.key === paymentMode)) setPaymentMode(modes[0]!.key)
+  }, [modes, paymentMode])
+  useEffect(() => {
+    setDepositAmount((a) =>
+      Math.min(Math.max(a || eligibility.depositMin, eligibility.depositMin), eligibility.depositMax),
+    )
+  }, [eligibility])
+
+  const mutation = useMutation({
+    mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
+    onSuccess: (order) => {
+      clearSession()
+      const pay = order.payment
+      // Unified pay page (Spec 09/10): one token page handles card (inline) + MoMo; a deposit link
+      // carries the amount to pre-fill.
+      if (pay?.mode === 'link' && pay.token) {
+        const params = new URLSearchParams()
+        if (pay.method) params.set('method', pay.method)
+        if (pay.amount != null) params.set('amount', String(pay.amount))
+        const q = params.toString()
+        router.push(`${base}/pay/${pay.token}${q ? `?${q}` : ''}`)
+        return
+      }
+      // COD / no online payment.
+      router.push(`${base}/orders/${order.trackingToken}`)
+    },
+  })
 
   if (!sessionToken || (cart && items.length === 0)) {
     return (
@@ -164,6 +197,9 @@ export function CheckoutView({
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
     if (belowMin || !validate()) return
+    // An online mode (full or deposit) needs a routable provider method so the server mints a link; the
+    // pay page then offers all enabled methods. Full COD sends CASH.
+    const online = paymentMode === 'FULL_ONLINE' || paymentMode === 'DEPOSIT'
     mutation.mutate({
       customerName: fullName.trim(),
       customerPhone: phone as string,
@@ -172,8 +208,9 @@ export function CheckoutView({
       deliveryAddress: isDelivery ? address.trim() : undefined,
       deliveryCity: isDelivery ? city.trim() || undefined : undefined,
       deliveryNotes: isDelivery && instructions.trim() ? instructions.trim() : undefined,
-      // "ONLINE" → a routable provider method so the server mints a link; the pay page offers all methods.
-      paymentMethod: paymentMethod === 'ONLINE' ? (onlinePreferred ?? 'CASH') : paymentMethod,
+      paymentMode,
+      depositAmount: paymentMode === 'DEPOSIT' ? depositAmount : undefined,
+      paymentMethod: online ? (onlinePreferred ?? 'CASH') : 'CASH',
       // Our origin — the server builds the hosted-payment return URLs from this + the order token.
       returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
     })
@@ -317,23 +354,58 @@ export function CheckoutView({
           </h3>
           <p className="csub">{t('paymentSub')}</p>
           <div className="pay-list">
-            {payOptions.map((o) => (
-              <button
-                key={o.key}
-                type="button"
-                className={`payopt${paymentMethod === o.key ? ' on' : ''}`}
-                onClick={() => setPaymentMethod(o.key)}
-              >
-                <span className="plogo" style={{ background: o.color }}>
-                  {o.badge}
-                </span>
-                <span className="pi">
-                  <span className="t">{o.title}</span>
-                  <span className="d">{o.desc}</span>
-                </span>
-                <span className="rdo" />
-              </button>
+            {modes.map((o) => (
+              <div key={o.key}>
+                <button
+                  type="button"
+                  className={`payopt${paymentMode === o.key ? ' on' : ''}`}
+                  onClick={() => setPaymentMode(o.key)}
+                >
+                  <span className="plogo" style={{ background: o.color }}>
+                    {o.badge}
+                  </span>
+                  <span className="pi">
+                    <span className="t">{o.title}</span>
+                    <span className="d">{o.desc}</span>
+                  </span>
+                  <span className="rdo" />
+                </button>
+                {/* Deposit amount — shown when this mode is the selected deposit option. */}
+                {o.key === 'DEPOSIT' && paymentMode === 'DEPOSIT' ? (
+                  <div className="field" style={{ marginTop: 8 }}>
+                    <label>
+                      {t('depositAmountLabel', {
+                        min: formatMoney(eligibility.depositMin, currency),
+                        total: formatMoney(total, currency),
+                      })}
+                    </label>
+                    <input
+                      inputMode="decimal"
+                      value={depositAmount ? String(depositAmount) : ''}
+                      onChange={(e) => {
+                        const v = Math.round(
+                          Number(e.target.value.replace(/\s/g, '').replace(',', '.')) || 0,
+                        )
+                        setDepositAmount(v)
+                      }}
+                      onBlur={() =>
+                        setDepositAmount((a) =>
+                          Math.min(Math.max(a, eligibility.depositMin), eligibility.depositMax),
+                        )
+                      }
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}>
+                      {t('depositRemainderHint', {
+                        rest: formatMoney(Math.max(0, total - depositAmount), currency),
+                      })}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             ))}
+            {modes.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>{t('noPaymentOption')}</p>
+            ) : null}
           </div>
         </div>
       </div>

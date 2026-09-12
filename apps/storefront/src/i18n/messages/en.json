@@ -187,7 +187,12 @@
     "errAddress": "Delivery address is required",
     "pickupAt": "Store pickup: {address}",
     "payOnlineTitle": "Pay online",
-    "payOnlineDesc": "Pay securely by card or Mobile Money. You’ll choose how on the next page."
+    "payOnlineDesc": "Pay securely by card or Mobile Money. You’ll choose how on the next page.",
+    "depositTitle": "Pay a deposit, rest on delivery",
+    "depositDesc": "Pay part now online and the balance in cash when your order arrives.",
+    "depositAmountLabel": "Deposit amount (min {min}, up to {total})",
+    "depositRemainderHint": "{rest} to pay on delivery.",
+    "noPaymentOption": "No payment option is available for this order. Please contact the store."
   },
   "order": {
     "thanksTitle": "Thank you, your order is confirmed!",

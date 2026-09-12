@@ -57,7 +57,7 @@ import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
 import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
 import { PaymentLinkService } from '@/modules/payment-links/payment-link.service'
-import { PayableType, ROUTABLE_PAYMENT_METHODS } from '@biztrack/types'
+import { PayableType, ROUTABLE_PAYMENT_METHODS, resolveCheckoutPayment } from '@biztrack/types'
 
 const cartItemKey = (item: {
   productId: string
@@ -314,19 +314,53 @@ export class OnlineOrdersService {
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
       void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
 
-      // Decide how the storefront proceeds to payment (see CheckoutPayment.mode). Unified flow
-      // (Spec 09): a non-COD (online) choice ALWAYS goes to the single /pay/{token} page, where the
-      // customer picks/switches the actual method — so we just mint a link for the order. Best-effort:
-      // if the link can't be created (e.g. no provider routed), the order still stands and the customer
-      // sees the order-confirmed page; the real error is logged so it isn't silently swallowed.
+      // Decide how the storefront proceeds to payment (Spec 09/10 ②). Re-resolve eligibility server-side
+      // from the store config + order total: FULL_ONLINE mints a full link, DEPOSIT mints a partial link
+      // (customer pays a deposit now, the rest on delivery), FULL_COD needs no link. Best-effort: a link
+      // that can't be created (no provider routed) leaves the order standing on the confirmed page.
+      const prepayment = {
+        allowPartialPayment: config.payment.allowPartialPayment ?? false,
+        partialMinPercent: config.payment.partialMinPercent ?? 50,
+        partialMinOrderAmount: config.payment.partialMinOrderAmount ?? 0,
+        depositRequired: config.payment.depositRequired ?? false,
+        codMinOrderAmount: config.payment.codMinOrderAmount ?? 0,
+        codMaxOrderAmount: config.payment.codMaxOrderAmount ?? null,
+      }
+      const eligibility = resolveCheckoutPayment(
+        prepayment,
+        {
+          cashOnDelivery: config.payment.cashOnDelivery,
+          mtnMomo: config.payment.mtnMomo,
+          orangeMoney: config.payment.orangeMoney,
+          card: config.payment.card,
+        },
+        totalAmount,
+      )
+      const mode = dto.paymentMode ?? (isProviderPayment ? 'FULL_ONLINE' : 'FULL_COD')
+
       let payment: CheckoutPayment = { mode: 'none' }
-      if (isProviderPayment) {
+      if (mode !== 'FULL_COD' && isProviderPayment) {
+        const deposit =
+          mode === 'DEPOSIT'
+            ? Math.min(
+                Math.max(Math.round(dto.depositAmount ?? eligibility.depositMin), eligibility.depositMin),
+                totalAmount,
+              )
+            : null
+        if (mode === 'DEPOSIT' && !eligibility.deposit) {
+          throw new AppBadRequestException(
+            'A deposit is not available for this order.',
+            'ONLINE_DEPOSIT_NOT_ALLOWED',
+          )
+        }
         try {
-          const link = await this.paymentLinks.create(store.businessId, '', {
-            payableType: PayableType.ONLINE_ORDER,
-            payableId: order.id,
-          })
-          payment = { mode: 'link', token: link.token, method }
+          const link = await this.paymentLinks.create(
+            store.businessId,
+            '',
+            { payableType: PayableType.ONLINE_ORDER, payableId: order.id },
+            deposit != null ? { allowPartial: true } : undefined,
+          )
+          payment = { mode: 'link', token: link.token, method, ...(deposit != null ? { amount: deposit } : {}) }
         } catch (error) {
           this.logger.warn('Checkout: could not create a payment link for the order', 'OnlineOrdersService', {
             orderId: order.id,

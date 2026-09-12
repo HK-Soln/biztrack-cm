@@ -74,10 +74,13 @@ export function PayLinkView({
   token,
   link: initialLink,
   preferredMethod,
+  preferredAmount,
 }: {
   token: string
   link: PublicPaymentLink
   preferredMethod?: string
+  /** Deposit amount to pre-fill for a partial link (Spec 10 ② — an online-order deposit at checkout). */
+  preferredAmount?: number
 }) {
   const t = useTranslations('pay')
 
@@ -98,7 +101,13 @@ export function PayLinkView({
       : (link.methods[0] ?? ''),
   )
   const [phone, setPhone] = useState<string | undefined>(undefined)
-  const [amount, setAmount] = useState<number>(isOpen ? 0 : dueMajor)
+  const [amount, setAmount] = useState<number>(() =>
+    preferredAmount && preferredAmount > 0
+      ? Math.min(preferredAmount, dueMajor || preferredAmount)
+      : isOpen
+        ? 0
+        : dueMajor,
+  )
   const [reason, setReason] = useState<string | null>(null)
   // Online-order checkout: once paid, count down and auto-forward to the order tracking page.
   const [redirectIn, setRedirectIn] = useState<number | null>(null)

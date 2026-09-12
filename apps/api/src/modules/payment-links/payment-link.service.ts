@@ -41,6 +41,7 @@ export class PaymentLinkService {
     businessId: string,
     userId: string | null,
     dto: CreatePaymentLinkRequest,
+    opts?: { allowPartial?: boolean },
   ): Promise<PaymentLinkView> {
     const handler = this.registry.get(dto.payableType)
     if (!handler) throw new AppBadRequestException('Unknown payable type.', 'PAYABLE_TYPE_UNKNOWN')
@@ -86,7 +87,9 @@ export class PaymentLinkService {
         amountMinor: resolved.amountDueMinor,
         amountPaidMinor: 0,
         currency: resolved.currency,
-        allowPartial: PARTIAL_PAYABLE_TYPES.includes(dto.payableType),
+        // Deposit online-order links opt into partial payment even though ONLINE_ORDER is otherwise exact
+        // (Spec 10 ②) — the customer pays a deposit now, the rest on delivery.
+        allowPartial: opts?.allowPartial ?? PARTIAL_PAYABLE_TYPES.includes(dto.payableType),
         status: PaymentLinkStatus.ACTIVE,
         expiresAt,
         label: dto.label?.trim() || resolved.label,

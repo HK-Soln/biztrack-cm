@@ -652,6 +652,12 @@ export interface CheckoutRequest {
   deliveryNotes?: string
   notes?: string
   paymentMethod?: string
+  /** How the customer chose to pay (Spec 10 ②). Defaults to full online when a provider method is set,
+   *  else COD. DEPOSIT collects `depositAmount` online now, the rest on delivery. */
+  paymentMode?: 'FULL_ONLINE' | 'DEPOSIT' | 'FULL_COD'
+  /** For paymentMode DEPOSIT: the amount (major units) to collect online now; the server re-validates it
+   *  against the store's minimum deposit + order total. */
+  depositAmount?: number
   /** The storefront's own origin (e.g. https://acme.example). For a provider-backed method the server
    * builds the hosted-payment return URLs from this + the new order's tracking token, so the customer
    * lands back on their order page. Ignored for COD. */
@@ -683,6 +689,9 @@ export interface CheckoutPayment {
   token?: string
   /** mode==='link' — the method the customer preferred at checkout, pre-selected on the pay page. */
   method?: string
+  /** mode==='link' with a DEPOSIT — the amount (major units) to collect online now; the pay page
+   *  pre-fills it. Absent for a full-amount link. */
+  amount?: number
 }
 
 /** Checkout result. `payment` is present only when a provider-backed method was chosen. */
