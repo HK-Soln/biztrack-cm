@@ -1064,12 +1064,14 @@ export class SyncService {
           .andWhere('reti.created_at <= :pulledAt', { pulledAt })
           .orderBy('reti.created_at', 'ASC')
           .getMany(),
-        // Income categories the business created (system categories are seeded on both sides).
+        // Income categories: a small per-business reference set. Return the FULL set every pull (not
+        // cursor-filtered), so a device that missed them once — e.g. it pulled them before its local
+        // income_categories table existed, which advances the cursor past them and an incremental pull
+        // would never re-fetch — always recovers them. Idempotent upsert on the client.
         this.incomeCategoriesRepo
           .createQueryBuilder('ic')
           .withDeleted()
           .where('ic.business_id = :businessId', { businessId })
-          .andWhere('ic.updated_at > :since', { since })
           .andWhere('ic.updated_at <= :pulledAt', { pulledAt })
           .orderBy('ic.updated_at', 'ASC')
           .getMany(),
