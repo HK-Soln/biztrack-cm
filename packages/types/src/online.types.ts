@@ -786,6 +786,10 @@ export interface CheckoutRequest {
   customerPhone: string
   customerEmail?: string
   fulfillmentType?: OnlineFulfillmentType
+  /** Structured delivery address (Spec 10 ③): country (ISO2) + region + city drive zone matching;
+   *  deliveryAddress is the free-text street line. */
+  deliveryCountry?: string
+  deliveryRegion?: string
   deliveryAddress?: string
   deliveryCity?: string
   deliveryNotes?: string

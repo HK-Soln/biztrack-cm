@@ -69,6 +69,12 @@ export class OnlineOrder {
   @Column({ name: 'fulfillment_type', length: 20, default: 'DELIVERY' })
   fulfillmentType!: OnlineFulfillmentType
 
+  @Column({ name: 'delivery_country', length: 2, nullable: true, type: 'varchar' })
+  deliveryCountry?: string | null
+
+  @Column({ name: 'delivery_region', length: 120, nullable: true, type: 'varchar' })
+  deliveryRegion?: string | null
+
   @Column({ name: 'delivery_address', type: 'text', nullable: true })
   deliveryAddress?: string | null
 

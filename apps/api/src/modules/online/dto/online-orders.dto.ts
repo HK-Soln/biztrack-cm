@@ -163,6 +163,18 @@ export class CheckoutDto implements CheckoutRequest {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2)
+  deliveryCountry?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  deliveryRegion?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   deliveryAddress?: string
 
   @ApiPropertyOptional()

@@ -57,7 +57,12 @@ import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
 import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
 import { PaymentLinkService } from '@/modules/payment-links/payment-link.service'
-import { PayableType, ROUTABLE_PAYMENT_METHODS, resolveCheckoutPayment } from '@biztrack/types'
+import {
+  PayableType,
+  ROUTABLE_PAYMENT_METHODS,
+  resolveCheckoutPayment,
+  resolveDeliveryFee,
+} from '@biztrack/types'
 
 const cartItemKey = (item: {
   productId: string
@@ -256,12 +261,37 @@ export class OnlineOrdersService {
         )
       }
 
-      // Delivery orders carry the store's flat delivery fee; pickup is free.
+      // Delivery pricing (Spec 10 ③): resolve the fee from the store's zones + the customer's structured
+      // address; pickup is free. Block if the store doesn't deliver to an unlisted area; ARRANGE charges
+      // 0 now (the merchant sends a delivery-fee link later).
       const fulfillmentType = dto.fulfillmentType ?? 'DELIVERY'
-      const deliveryFee =
-        fulfillmentType === 'DELIVERY' && config.fulfilment.offerDelivery
-          ? Math.max(0, Math.round(config.fulfilment.deliveryFee ?? 0))
-          : 0
+      let deliveryFee = 0
+      let arrangeDelivery = false
+      if (fulfillmentType === 'DELIVERY' && config.fulfilment.offerDelivery) {
+        const feeResult = resolveDeliveryFee(
+          {
+            deliveryZones: config.fulfilment.deliveryZones ?? [],
+            deliveryFee: config.fulfilment.deliveryFee ?? 0,
+            freeDeliveryOverAmount: config.fulfilment.freeDeliveryOverAmount ?? null,
+            unlistedAreaBehavior: config.fulfilment.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+            unlistedDefaultFee: config.fulfilment.unlistedDefaultFee ?? 0,
+          },
+          {
+            countryIso2: dto.deliveryCountry,
+            region: dto.deliveryRegion,
+            city: dto.deliveryCity,
+          },
+          subtotal,
+        )
+        if (!feeResult.deliverable) {
+          throw new AppBadRequestException(
+            'This store does not deliver to that area.',
+            'ONLINE_DELIVERY_UNAVAILABLE',
+          )
+        }
+        deliveryFee = feeResult.fee
+        arrangeDelivery = feeResult.arrangeSeparately
+      }
       const totalAmount = subtotal + deliveryFee
 
       // Local trading day (BIZ-5.1) from the business timezone + cutover.
@@ -287,9 +317,14 @@ export class OnlineOrdersService {
           customerEmail: dto.customerEmail?.trim() ?? null,
           customerPhone: dto.customerPhone.trim(),
           fulfillmentType,
+          deliveryCountry: dto.deliveryCountry?.trim().toUpperCase() || null,
+          deliveryRegion: dto.deliveryRegion?.trim() || null,
           deliveryAddress: dto.deliveryAddress?.trim() ?? null,
           deliveryCity: dto.deliveryCity?.trim() ?? null,
-          deliveryNotes: dto.deliveryNotes?.trim() ?? null,
+          deliveryNotes:
+            [dto.deliveryNotes?.trim(), arrangeDelivery ? 'Delivery fee to be arranged.' : null]
+              .filter(Boolean)
+              .join(' — ') || null,
           status: 'PENDING',
           paymentMethod: dto.paymentMethod ?? null,
           paymentStatus: 'PENDING',
