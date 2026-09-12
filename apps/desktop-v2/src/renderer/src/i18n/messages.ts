@@ -3882,6 +3882,7 @@ export const en = {
   'online.saving': 'Saving…',
   'online.unsavedChanges': 'Unsaved changes',
   'online.saveFailedShort': 'Save failed',
+  'online.openPreview': 'Open preview',
 }
 
 export type MessageKey = keyof typeof en
@@ -7810,6 +7811,7 @@ export const fr: Record<MessageKey, string> = {
   'online.saving': 'Enregistrement…',
   'online.unsavedChanges': 'Modifications non enregistrées',
   'online.saveFailedShort': 'Échec de l’enregistrement',
+  'online.openPreview': 'Ouvrir l’aperçu',
 }
 
 export const catalogs = { en, fr }

@@ -347,5 +347,10 @@
     "partialReceived": "Paiement partiel reçu. Vous pouvez payer le solde restant ci-dessous.",
     "remainingOf": "{paid} déjà payé · solde ci-dessous",
     "cancel": "Annuler"
+  },
+  "preview": {
+    "banner": "Aperçu — configuration brouillon",
+    "bannerHint": "Ceci affiche vos modifications non publiées. Les commandes sont désactivées ici. Publiez pour mettre en ligne.",
+    "orderingDisabled": "Commandes désactivées en aperçu"
   }
 }

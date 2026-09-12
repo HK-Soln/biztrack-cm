@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { getStore } from '@/lib/api'
-import { getStoreSlug } from '@/lib/store'
+import { getStoreContext } from '@/lib/store'
 import { ContactForm } from '@/components/ContactForm'
 
 const IcChevron = (
@@ -30,17 +30,20 @@ const IcMail = (
 )
 
 export async function generateMetadata(): Promise<Metadata> {
-  const slug = await getStoreSlug()
-  const [store, t] = await Promise.all([slug ? getStore(slug) : null, getTranslations('contact')])
+  const { slug, preview } = await getStoreContext()
+  const [store, t] = await Promise.all([
+    slug ? getStore(slug, preview) : null,
+    getTranslations('contact'),
+  ])
   const title = `${t('title')}${store ? ` — ${store.storeName}` : ''}`
   return { title, description: t('subtitle') }
 }
 
 export default async function ContactPage() {
-  const slug = await getStoreSlug()
+  const { slug, preview } = await getStoreContext()
   if (!slug) notFound()
   const [store, t, tn] = await Promise.all([
-    getStore(slug),
+    getStore(slug, preview),
     getTranslations('contact'),
     getTranslations('nav'),
   ])

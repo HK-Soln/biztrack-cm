@@ -32,6 +32,7 @@ const RESERVED = [
   'static',
   'assets',
   'blog',
+  'preview',
 ]
 // Colour themes double as the storefront brand palette (themeId → primaryColor). Kept to the four
 // the storefront can render.
@@ -99,6 +100,12 @@ const ICO = {
   external: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+    </svg>
+  ),
+  eye: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   ),
   history: (
@@ -657,6 +664,14 @@ function StoreConfig({ store, t, onSaved }: { store: Store; t: T; onSaved: () =>
           <Button variant="soft" type="button" onClick={() => setHistoryOpen(true)}>
             {ICO.history}
             {t('online.versionHistory')}
+          </Button>
+          <Button
+            variant="soft"
+            type="button"
+            onClick={() => window.open(`https://preview.${host}`, '_blank', 'noopener,noreferrer')}
+          >
+            {ICO.eye}
+            {t('online.openPreview')}
           </Button>
           <Button
             variant="soft"

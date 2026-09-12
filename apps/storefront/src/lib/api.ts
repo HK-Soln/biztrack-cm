@@ -75,6 +75,10 @@ async function send<T>(
 
 const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
 
+// On a `preview.<slug>` host the storefront reads the DRAFT config (unpublished changes) via
+// `?preview=1`; the same flag makes the API reject ordering. `undefined` keeps live-store URLs clean.
+const previewParam = (preview?: boolean) => (preview ? { preview: '1' as const } : {})
+
 // ---- Geography (structured address selects, Spec 10 ③) --------------------
 export async function getCountries(): Promise<CountryView[]> {
   return (await readJson<CountryView[]>('/public/geo/countries')) ?? []
@@ -98,9 +102,11 @@ export async function getCities(countryIso2: string, region: string): Promise<Ci
  * store sends the visitor to the marketing site, so a transient API outage would otherwise bounce
  * every customer off every perfectly good shop instead of showing them an error.
  */
-export async function getStore(slug: string): Promise<PublicStore | null> {
+export async function getStore(slug: string, preview?: boolean): Promise<PublicStore | null> {
   try {
-    const res = await http.get<ApiEnvelope<PublicStore>>(storePath(slug))
+    const res = await http.get<ApiEnvelope<PublicStore>>(storePath(slug), {
+      params: previewParam(preview),
+    })
     return unwrap(res.data)
   } catch (error) {
     if (error instanceof HttpError && error.status === 404) return null
@@ -110,7 +116,7 @@ export async function getStore(slug: string): Promise<PublicStore | null> {
 
 const joinIds = (ids?: string[]) => (ids && ids.length ? ids.join(',') : undefined)
 
-export function listProducts(slug: string, query: PublicProductsQuery = {}) {
+export function listProducts(slug: string, query: PublicProductsQuery = {}, preview?: boolean) {
   return readJson<PaginatedResult<PublicProductListItem>>(`${storePath(slug)}/products`, {
     page: query.page,
     limit: query.limit,
@@ -119,17 +125,19 @@ export function listProducts(slug: string, query: PublicProductsQuery = {}) {
     modelIds: joinIds(query.modelIds),
     attributeOptionIds: joinIds(query.attributeOptionIds),
     search: query.search,
+    ...previewParam(preview),
   })
 }
 
-export function getFacets(slug: string, categoryIds?: string[]) {
+export function getFacets(slug: string, categoryIds?: string[], preview?: boolean) {
   return readJson<PublicFacets>(`${storePath(slug)}/facets`, {
     categoryIds: joinIds(categoryIds),
+    ...previewParam(preview),
   })
 }
 
-export function getCategories(slug: string) {
-  return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`)
+export function getCategories(slug: string, preview?: boolean) {
+  return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`, previewParam(preview))
 }
 
 /** All published product slugs for a store (paginated, capped) — used by the sitemap. */
@@ -145,9 +153,10 @@ export async function listAllProductSlugs(slug: string, cap = 1000): Promise<str
   return slugs.slice(0, cap)
 }
 
-export function getProduct(slug: string, productSlug: string) {
+export function getProduct(slug: string, productSlug: string, preview?: boolean) {
   return readJson<PublicProductDetail>(
     `${storePath(slug)}/products/${encodeURIComponent(productSlug)}`,
+    previewParam(preview),
   )
 }
 
@@ -191,10 +200,17 @@ export function sendContactMessage(slug: string, payload: ContactMessageRequest)
   return send<{ ok: true }>('POST', `${storePath(slug)}/contact`, payload)
 }
 
-export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {
+export function checkout(
+  slug: string,
+  sessionToken: string,
+  payload: CheckoutRequest,
+  preview?: boolean,
+) {
+  // In preview the API rejects with ONLINE_PREVIEW_READONLY — a backstop behind the disabled button.
+  const qs = preview ? '?preview=1' : ''
   return send<CheckoutResult>(
     'POST',
-    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout`,
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout${qs}`,
     payload,
   )
 }

@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import type { PublicProductsQuery } from '@biztrack/types'
 import { listProducts } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
+import { usePreview } from '@/lib/preview'
 import { ProductCard } from './ProductCard'
 
 const IcBox = (
@@ -28,9 +29,10 @@ export function ProductRail({
   query: PublicProductsQuery
 }) {
   const t = useTranslations('home')
+  const preview = usePreview()
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.products(slug, query),
-    queryFn: () => listProducts(slug, query),
+    queryFn: () => listProducts(slug, query, preview),
   })
 
   const products = data?.data ?? []

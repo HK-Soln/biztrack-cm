@@ -16,6 +16,7 @@ import {
 import { checkout, formatMoney, getCart, getCities, getCountries, getRegions } from '@/lib/api'
 import { SearchSelect } from './SearchSelect'
 import { queryKeys } from '@/lib/query'
+import { usePreview } from '@/lib/preview'
 import { useCartSession } from '@/lib/cart-store'
 
 const IcTruck = (
@@ -49,6 +50,8 @@ export function CheckoutView({
 }) {
   const t = useTranslations('checkout')
   const tc = useTranslations('cart')
+  const tpv = useTranslations('preview')
+  const preview = usePreview()
   const router = useRouter()
   const sessionToken = useCartSession((s) => s.sessionToken)
   const clearSession = useCartSession((s) => s.clear)
@@ -179,7 +182,8 @@ export function CheckoutView({
   }, [eligibility])
 
   const mutation = useMutation({
-    mutationFn: (payload: CheckoutRequest) => checkout(slug, sessionToken as string, payload),
+    mutationFn: (payload: CheckoutRequest) =>
+      checkout(slug, sessionToken as string, payload, preview),
     onSuccess: (order) => {
       clearSession()
       const pay = order.payment
@@ -240,7 +244,7 @@ export function CheckoutView({
 
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    if (belowMin || !validate()) return
+    if (preview || belowMin || !validate()) return
     // An online mode (full or deposit) needs a routable provider method so the server mints a link; the
     // pay page then offers all enabled methods. Full COD sends CASH.
     const online = paymentMode === 'FULL_ONLINE' || paymentMode === 'DEPOSIT'
@@ -557,11 +561,16 @@ export function CheckoutView({
           type="submit"
           className="btn btn-primary btn-lg btn-block"
           style={{ marginTop: 16 }}
-          disabled={mutation.isPending || belowMin || notDeliverable}
+          disabled={preview || mutation.isPending || belowMin || notDeliverable}
         >
           {IcLock}
-          {mutation.isPending ? t('placing') : t('placeOrder')}
+          {preview ? tpv('orderingDisabled') : mutation.isPending ? t('placing') : t('placeOrder')}
         </button>
+        {preview ? (
+          <p style={{ color: 'var(--muted, #8a93a1)', marginTop: 10, fontSize: 13 }}>
+            {tpv('bannerHint')}
+          </p>
+        ) : null}
 
         {mutation.isError ? (
           <p style={{ color: 'var(--danger)', marginTop: 10, fontSize: 13 }}>

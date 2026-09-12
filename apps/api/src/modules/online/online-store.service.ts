@@ -278,6 +278,23 @@ export class OnlineStoreService {
     return { store, config: latest.config }
   }
 
+  /**
+   * Resolve the DRAFT storefront view for a slug: the store row plus its live (unpublished) config,
+   * serialized the same way `publish` would. Powers `preview.<slug>` — the merchant previews exactly
+   * what a publish would render, including a store that has never been published. Returns null only
+   * when no store carries that slug (deleted stores excluded). Never gated on status/isActive — a
+   * draft is the whole point of preview. NOT reachable by the public storefront (preview-only).
+   */
+  async getDraftStore(
+    slug: string,
+  ): Promise<{ store: OnlineStore; config: OnlineStorePublishedConfig } | null> {
+    const store = await this.storesRepo.findOne({
+      where: { storeSlug: slug, deletedAt: IsNull() },
+    })
+    if (!store) return null
+    return { store, config: this.buildPublishedConfig(store) }
+  }
+
   /** Write a versioned snapshot + flip the store live. Shared by publish + restore. */
   private async publishSnapshot(
     store: OnlineStore,
@@ -606,6 +623,8 @@ export class OnlineStoreService {
     'static',
     'assets',
     'blog',
+    // `preview.<slug>` is the draft-preview host — a store named "preview" would shadow it.
+    'preview',
   ])
 
   /** Non-throwing availability check for a subdomain slug (format + reserved + uniqueness,
