@@ -94,6 +94,11 @@ export function ReceiptsSection() {
     queryFn: () => dataClient.business.getProfile(),
     retry: false,
   })
+  const printersQ = useQuery({
+    queryKey: ['printers'],
+    queryFn: () => dataClient.sales.listPrinters(),
+    retry: false,
+  })
 
   // --- business-level form state (saved to the profile) ---
   const [name, setName] = useState('')
@@ -163,6 +168,20 @@ export function ReceiptsSection() {
       }),
     [s, name, phone, address, niu, prefix, lang],
   )
+
+  // Suggest a thermal printer for receipt paper by name (Electron can't report paper capability).
+  const printers = printersQ.data ?? []
+  const THERMAL = /thermal|pos|receipt|xp-?\d|tm-?[a-z]?\d|\b58\b|\b80\b|star |epson tm/i
+  useEffect(() => {
+    if (!printers.length || print.printerName) return
+    const suggested = printers.find((p) => THERMAL.test(`${p.name} ${p.description}`))
+    if (suggested) setPrint((p) => ({ ...p, printerName: suggested.name }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printers])
+  const printerOptions = [
+    { value: '', label: t('rcp.sysDialog') },
+    ...printers.map((p) => ({ value: p.name, label: p.displayName })),
+  ]
 
   const paperLabel = PAPERS.find((p) => p.mm === s.paperWidthMm)?.label ?? '80 mm'
 
@@ -302,7 +321,7 @@ export function ReceiptsSection() {
               <Select
                 value={print.printerName ?? ''}
                 onChange={(e) => setPrint((p) => ({ ...p, printerName: e.target.value || null }))}
-                options={[{ value: '', label: t('rcp.sysDialog') }]}
+                options={printerOptions}
               />
             </div>
           </div>

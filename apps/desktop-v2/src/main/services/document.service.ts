@@ -60,14 +60,39 @@ export class DocumentService {
    * renders blank to the printer. Falls back to saving + revealing the PDF when there is
    * no printer or the job fails, so the cashier always ends up with a receipt.
    */
-  async printReceipt(html: string, opts: { filename: string; paperWidthMm?: number }): Promise<{ printed: boolean; pdfPath?: string }> {
+  /** List installed printers so the renderer can offer a picker (device-local selection). */
+  async listPrinters(): Promise<
+    Array<{ name: string; displayName: string; isDefault: boolean; description: string }>
+  > {
+    const win = this.createPrintWindow()
+    try {
+      const printers = await win.webContents.getPrintersAsync()
+      return printers.map((p) => ({
+        name: p.name,
+        displayName: p.displayName || p.name,
+        isDefault: p.isDefault,
+        description: p.description || '',
+      }))
+    } catch {
+      return []
+    } finally {
+      if (!win.isDestroyed()) win.close()
+    }
+  }
+
+  async printReceipt(
+    html: string,
+    opts: { filename: string; paperWidthMm?: number; printerName?: string | null; copies?: number },
+  ): Promise<{ printed: boolean; pdfPath?: string }> {
     const widthMm = opts.paperWidthMm ?? 58
     const win = this.createPrintWindow()
 
     try {
       const printers = await win.webContents.getPrintersAsync()
       if (printers.length === 0) return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
-      const deviceName = (printers.find((p) => p.isDefault) ?? printers[0]!).name
+      // The device-selected printer wins when it's actually present; otherwise the OS default.
+      const chosen = opts.printerName ? printers.find((p) => p.name === opts.printerName) : undefined
+      const deviceName = (chosen ?? printers.find((p) => p.isDefault) ?? printers[0]!).name
 
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
       const pageSize = await this.getHtmlReceiptPageSize(win, widthMm)
@@ -76,6 +101,7 @@ export class DocumentService {
       const ok = await this.printWebContents(win, {
         silent: true,
         deviceName,
+        copies: Math.max(1, Math.min(9, opts.copies ?? 1)),
         printBackground: true,
         margins: { marginType: 'none' },
         pageSize,

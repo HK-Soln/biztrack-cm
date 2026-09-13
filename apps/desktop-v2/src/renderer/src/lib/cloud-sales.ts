@@ -337,12 +337,18 @@ export const cloudSales = {
     saleId: string,
     locale: string,
     _reprint?: boolean,
+    _print?: { printerName?: string | null; copies?: number },
   ): Promise<{ printed: boolean; pdfPath?: string }> => {
+    // The browser build prints via the OS dialog (no silent device selection).
     const html = await fetchReceiptHtml(saleId, locale)
     if (!html) return { printed: false }
     printHtml(html)
     return { printed: true }
   },
+  // No silent/device printers in the browser build — the OS print dialog handles selection.
+  listPrinters: async (): Promise<
+    Array<{ name: string; displayName: string; isDefault: boolean; description: string }>
+  > => [],
   // Render the receipt HTML, then compile it to a real PDF on the server and download it.
   downloadReceipt: async (
     saleId: string,

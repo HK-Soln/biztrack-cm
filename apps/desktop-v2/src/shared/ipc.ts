@@ -298,6 +298,7 @@ export const IPC = {
   salesRefund: 'sales:refund',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
+  salesListPrinters: 'sales:list-printers',
   salesReceiptHtml: 'sales:receipt-html',
   salesDownloadReceipt: 'sales:download-receipt',
   savingsGetForCustomer: 'savings:get-for-customer',
@@ -2486,7 +2487,12 @@ export interface BridgeApi {
       saleId: string,
       locale: string,
       reprint?: boolean,
+      print?: { printerName?: string | null; copies?: number },
     ) => Promise<{ printed: boolean; pdfPath?: string }>
+    /** Installed printers for the device-local picker in Settings → Receipts. */
+    listPrinters: () => Promise<
+      Array<{ name: string; displayName: string; isDefault: boolean; description: string }>
+    >
     /** Render the receipt to a PDF and save it via the native dialog. */
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
     /** The compiled receipt HTML (for the success-screen preview). */
