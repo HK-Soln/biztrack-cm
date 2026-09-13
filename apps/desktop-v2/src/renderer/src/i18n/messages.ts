@@ -3154,6 +3154,18 @@ export const en = {
   // Settings → Receipts (interactive preview — not persisted yet)
   'rcp.comingSoon':
     'Interactive preview — receipt settings aren’t saved yet. The receipt on the right updates live.',
+  'rcp.title': 'Receipts',
+  'rcp.subtitle': 'What prints on your sale receipts — applied to every device.',
+  'rcp.save': 'Save',
+  'rcp.saved': 'Receipt settings saved',
+  'rcp.saveError': "Couldn't save receipt settings.",
+  'rcp.logo': 'Logo',
+  'rcp.logoDesc': 'Show your business logo at the top.',
+  'rcp.footerPh': 'Thanks for your visit!',
+  'rcp.prefixHint':
+    'Applied to new receipts only. The date + sequence after it keep every receipt unique.',
+  'rcp.printTitle': 'Printing (this device)',
+  'rcp.printSub': 'Printer and auto-print are specific to this till, not shared.',
   'rcp.headerTitle': 'Header & footer',
   'rcp.headerSub': 'Top and bottom text on every printed receipt.',
   'rcp.bizName': 'Business name',
@@ -7072,6 +7084,18 @@ export const fr: Record<MessageKey, string> = {
   // Paramètres → Reçus (aperçu interactif — non persisté)
   'rcp.comingSoon':
     'Aperçu interactif — les paramètres de reçu ne sont pas encore enregistrés. Le reçu à droite se met à jour en direct.',
+  'rcp.title': 'Reçus',
+  'rcp.subtitle': 'Ce qui s’imprime sur vos reçus de vente — appliqué à tous les appareils.',
+  'rcp.save': 'Enregistrer',
+  'rcp.saved': 'Paramètres de reçu enregistrés',
+  'rcp.saveError': 'Impossible d’enregistrer les paramètres du reçu.',
+  'rcp.logo': 'Logo',
+  'rcp.logoDesc': 'Afficher le logo de votre entreprise en haut.',
+  'rcp.footerPh': 'Merci de votre visite !',
+  'rcp.prefixHint':
+    'Appliqué aux nouveaux reçus uniquement. La date + la séquence qui suit garantissent l’unicité.',
+  'rcp.printTitle': 'Impression (cet appareil)',
+  'rcp.printSub': 'L’imprimante et l’impression auto sont propres à cette caisse, non partagées.',
   'rcp.headerTitle': 'En-tête & pied de page',
   'rcp.headerSub': 'Texte en haut et en bas de chaque reçu imprimé.',
   'rcp.bizName': 'Nom du commerce',
