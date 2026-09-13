@@ -1992,6 +1992,31 @@ export class SalesService {
   }
 
   /**
+   * Public digital receipt (the QR on the printed receipt points here). Unauthenticated: the sale id
+   * (an unguessable UUID) is the capability. Renders the shared receipt template with the business's
+   * own receipt settings (identity, NIU, logo, paper width, content toggles) — the same one that
+   * prints — minus the QR (no recursion). Returns null when the sale doesn't exist.
+   */
+  async renderPublicReceipt(saleId: string, locale = 'fr'): Promise<string | null> {
+    const ref = await this.salesRepo.findOne({ where: { id: saleId }, select: ['id', 'businessId'] })
+    if (!ref) return null
+    const { sale, business } = await this.getReceipt(saleId, ref.businessId)
+    const receipt = SaleReceiptDto.fromSale(sale, business)
+    const s = business.receiptSettings
+    return renderSaleReceiptHtml(receipt, {
+      labels: saleReceiptLabels(locale),
+      locale,
+      widthMm: s?.paperWidthMm ?? 58,
+      showNiu: s?.showNiu,
+      showCashier: s?.showCashier,
+      showPayment: s?.showPayment,
+      showThanks: s?.showThanks,
+      showLogo: s?.showLogo,
+      showQr: false,
+    })
+  }
+
+  /**
    * Render the sale's receipt (shared @biztrack/templates template) to a PDF and dispatch
    * it to the customer over WhatsApp/email. Same pipeline as RFQ/PO sends (ProcurementSend).
    */

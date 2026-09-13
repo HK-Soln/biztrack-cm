@@ -226,6 +226,17 @@ export function checkout(
   )
 }
 
+// ---- Digital receipt (QR on the printed receipt → /r/<saleId>) -------------
+
+/** Rendered receipt HTML for a sale (public; the sale id is the capability). Null on 404/error. */
+export async function getReceiptHtml(saleId: string, locale?: string): Promise<string | null> {
+  const res = await readJson<{ html: string }>(
+    `/public/receipts/${encodeURIComponent(saleId)}`,
+    locale ? { locale } : undefined,
+  )
+  return res?.html ?? null
+}
+
 // ---- Payment links (Spec 08) ----------------------------------------------
 
 const payPath = (token: string) => `/public/pay/${encodeURIComponent(token)}`

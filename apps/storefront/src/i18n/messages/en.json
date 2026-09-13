@@ -348,6 +348,11 @@
     "remainingOf": "{paid} already paid · remaining below",
     "cancel": "Cancel"
   },
+  "receipt": {
+    "title": "Your receipt",
+    "subtitle": "A digital copy of your purchase.",
+    "print": "Print receipt"
+  },
   "preview": {
     "banner": "Preview — draft configuration",
     "bannerHint": "This shows your unpublished changes — browse and test the flow freely. Placing a real order is disabled. Publish to go live.",

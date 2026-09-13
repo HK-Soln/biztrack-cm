@@ -348,6 +348,11 @@
     "remainingOf": "{paid} déjà payé · solde ci-dessous",
     "cancel": "Annuler"
   },
+  "receipt": {
+    "title": "Votre reçu",
+    "subtitle": "Une copie numérique de votre achat.",
+    "print": "Imprimer le reçu"
+  },
   "preview": {
     "banner": "Aperçu — configuration brouillon",
     "bannerHint": "Ceci affiche vos modifications non publiées — parcourez et testez le parcours librement. La validation d’une vraie commande est désactivée. Publiez pour mettre en ligne.",
