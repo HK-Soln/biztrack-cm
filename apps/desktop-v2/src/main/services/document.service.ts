@@ -358,9 +358,21 @@ export class DocumentService {
     })
     try {
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+      // Wait for the document AND every image (the remote logo + the QR data-URI) to finish
+      // loading before capturing — otherwise a slow logo is missing from the printed receipt.
       await win.webContents
         .executeJavaScript(
-          `new Promise((res)=>{const s=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>res(true)));document.readyState==='complete'?s():window.addEventListener('load',s,{once:true})})`,
+          `new Promise((resolve)=>{
+            const paint=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)));
+            const ready=()=>{
+              const imgs=Array.from(document.images||[]).filter((i)=>!i.complete);
+              if(imgs.length===0)return paint();
+              let left=imgs.length;const tick=()=>{if(--left<=0)paint()};
+              imgs.forEach((i)=>{i.addEventListener('load',tick,{once:true});i.addEventListener('error',tick,{once:true})});
+              setTimeout(paint,2000);
+            };
+            document.readyState==='complete'?ready():window.addEventListener('load',ready,{once:true});
+          })`,
         )
         .catch(() => undefined)
       const px =
