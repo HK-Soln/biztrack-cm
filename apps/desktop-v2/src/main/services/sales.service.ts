@@ -101,6 +101,9 @@ export class SalesService {
     /** The device's live cash session id, for tagging the sale to a shift (BIZ-2.2).
      * Null when no shift is open ("vente hors caisse"). */
     private readonly getOpenCashSessionId: () => string | null = () => null,
+    /** Stable per-device id — a short tag from it disambiguates receipt numbers across offline
+     *  tills (each device mints its own daily sequence, so without a tag two could collide). */
+    private readonly getDeviceId: () => string | null = () => null,
   ) {}
 
   createSale(input: SaleInput): LocalSaleDetail {
@@ -2096,7 +2099,25 @@ export class SalesService {
         `SELECT last_sequence FROM sale_number_sequences WHERE business_id = ? AND sale_date = ?`,
         [businessId, date],
       )?.last_sequence ?? 1
-    return `VTE-${date.replace(/-/g, '')}-${String(seq).padStart(4, '0')}`
+    // Configurable prefix (default VTE-) — applies to new receipts only; the date + device tag +
+    // sequence after it keep every receipt unique, incl. across offline tills.
+    const prefix =
+      this.db.get<{ p: string | null }>(
+        `SELECT receipt_number_prefix AS p FROM local_businesses WHERE id = ?`,
+        [businessId],
+      )?.p || 'VTE-'
+    const tag = this.deviceTag()
+    return `${prefix}${date.replace(/-/g, '')}-${tag}${String(seq).padStart(4, '0')}`
+  }
+
+  /** Short, stable per-device code (2 base36 chars) derived from the device id — disambiguates
+   *  receipt numbers minted concurrently on different offline tills. Empty when unknown. */
+  private deviceTag(): string {
+    const id = this.getDeviceId()
+    if (!id) return ''
+    let h = 0
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+    return (h % 1296).toString(36).padStart(2, '0').toUpperCase() + '-'
   }
 
   private businessCurrency(businessId: string): string {

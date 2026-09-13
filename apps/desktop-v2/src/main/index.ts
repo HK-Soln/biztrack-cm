@@ -577,6 +577,7 @@ app.whenReady().then(() => {
     savings,
     audit,
     () => cashSessions.getCurrent()?.id ?? null,
+    () => tokenStore.ensureDeviceId(),
   )
   registerSalesIpc(sales, savings, documents, authHttp)
 
