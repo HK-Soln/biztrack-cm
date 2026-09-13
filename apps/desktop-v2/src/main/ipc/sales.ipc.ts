@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron'
 import type { HttpClient } from '@biztrack/http-client'
+import QRCode from 'qrcode'
 import { renderSaleReceiptHtml, saleReceiptLabels, formatMoney } from '@biztrack/templates'
 import type { ReceiptSettings } from '@biztrack/types'
+import { config } from '../config'
 import {
   IPC,
   type DocumentRecipient,
@@ -28,6 +30,23 @@ const receiptOpts = (locale: string, s?: ReceiptSettings) => ({
   showLogo: s?.showLogo,
   showQr: s?.showQr,
 })
+
+// Forward-compatible receipt URL — resolves to the digital-receipt page (fast follow) and doubles
+// as the returns lookup. QR is generated only when the business enabled it.
+const receiptUrl = (saleId: string): string => `https://${config.storeRootDomain}/r/${saleId}`
+
+type BuiltReceipt = NonNullable<ReturnType<SalesService['buildReceipt']>>
+async function renderReceipt(built: BuiltReceipt, locale: string, saleId: string): Promise<string> {
+  let qrImage: string | null = null
+  if (built.settings.showQr) {
+    try {
+      qrImage = await QRCode.toDataURL(receiptUrl(saleId), { margin: 1, width: 200 })
+    } catch {
+      qrImage = null
+    }
+  }
+  return renderSaleReceiptHtml(built.receipt, { ...receiptOpts(locale, built.settings), qrImage })
+}
 
 export function registerSalesIpc(
   sales: SalesService,
@@ -77,10 +96,10 @@ export function registerSalesIpc(
   )
 
   // The compiled receipt HTML (shown as a preview + the exact thing printed/sent).
-  ipcMain.handle(IPC.salesReceiptHtml, (_e, saleId: string, locale: string) => {
+  ipcMain.handle(IPC.salesReceiptHtml, async (_e, saleId: string, locale: string) => {
     const built = sales.buildReceipt(saleId)
     if (!built) return null
-    return renderSaleReceiptHtml(built.receipt, receiptOpts(locale, built.settings))
+    return renderReceipt(built, locale, saleId)
   })
 
   // Print the receipt straight to the connected printer (no dialog); saves + reveals a
@@ -97,7 +116,7 @@ export function registerSalesIpc(
     ) => {
       const built = sales.buildReceipt(saleId)
       if (!built) throw new Error('Sale not found.')
-      const html = renderSaleReceiptHtml(built.receipt, receiptOpts(locale, built.settings))
+      const html = await renderReceipt(built, locale, saleId)
       const result = await documents.printReceipt(html, {
         filename: `receipt-${built.receipt.saleNumber}`,
         paperWidthMm: built.settings.paperWidthMm ?? RECEIPT_WIDTH_MM,
@@ -114,7 +133,7 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesDownloadReceipt, async (_e, saleId: string, locale: string) => {
     const built = sales.buildReceipt(saleId)
     if (!built) throw new Error('Sale not found.')
-    const html = renderSaleReceiptHtml(built.receipt, receiptOpts(locale, built.settings))
+    const html = await renderReceipt(built, locale, saleId)
     return documents.downloadPdf(html, `receipt-${built.receipt.saleNumber}`)
   })
 
@@ -150,7 +169,7 @@ export function registerSalesIpc(
         }
       }
 
-      const html = renderSaleReceiptHtml(receipt, receiptOpts(locale, built.settings))
+      const html = await renderReceipt(built, locale, saleId)
       const currency = (receipt.currency as string) || 'XAF'
       const message = `${receipt.businessName} — ${receipt.saleNumber} · ${formatMoney(receipt.totalAmount, currency, locale)}`
       await documents.share({

@@ -8,6 +8,7 @@ import {
   type ReceiptSettings,
   type SaleReceipt,
 } from '@biztrack/types'
+import QRCode from 'qrcode'
 import { renderSaleReceiptHtml, saleReceiptLabels } from '@biztrack/templates'
 import { dataClient } from '@/lib/data-client'
 import { useLangStore, useT } from '@/i18n'
@@ -152,6 +153,22 @@ export function ReceiptsSection() {
     return () => clearTimeout(id)
   }, [toast])
 
+  // Sample QR for the preview (matches what prints: a receipt-URL QR when enabled).
+  const [qrImage, setQrImage] = useState<string | null>(null)
+  useEffect(() => {
+    if (!s.showQr) {
+      setQrImage(null)
+      return
+    }
+    let alive = true
+    QRCode.toDataURL('https://biztrack.cm/r/sample', { margin: 1, width: 200 })
+      .then((u) => alive && setQrImage(u))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [s.showQr])
+
   // Live preview via the REAL template → exactly what prints.
   const previewHtml = useMemo(
     () =>
@@ -165,8 +182,9 @@ export function ReceiptsSection() {
         showThanks: s.showThanks,
         showLogo: s.showLogo,
         showQr: s.showQr,
+        qrImage,
       }),
-    [s, name, phone, address, niu, prefix, lang],
+    [s, name, phone, address, niu, prefix, lang, qrImage],
   )
 
   // Suggest a thermal printer for receipt paper by name (Electron can't report paper capability).
