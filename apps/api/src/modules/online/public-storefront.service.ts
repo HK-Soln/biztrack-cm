@@ -55,16 +55,17 @@ export class PublicStorefrontService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  async getStore(slug: string): Promise<PublicStore> {
-    const { config } = await this.requireStore(slug)
+  async getStore(slug: string, preview = false): Promise<PublicStore> {
+    const { config } = await this.requireStore(slug, preview)
     return this.toPublicStore(config)
   }
 
   async listProducts(
     slug: string,
     query: PublicProductsQuery = {},
+    preview = false,
   ): Promise<PaginatedResult<PublicProductListItem>> {
-    const { store, config } = await this.requireStore(slug)
+    const { store, config } = await this.requireStore(slug, preview)
     const page = Math.max(query.page ?? 1, 1)
     const limit = Math.min(Math.max(query.limit ?? 24, 1), 100)
 
@@ -128,8 +129,12 @@ export class PublicStorefrontService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
-  async getProduct(slug: string, productSlug: string): Promise<PublicProductDetail> {
-    const { store, config } = await this.requireStore(slug)
+  async getProduct(
+    slug: string,
+    productSlug: string,
+    preview = false,
+  ): Promise<PublicProductDetail> {
+    const { store, config } = await this.requireStore(slug, preview)
     const product = await this.productsRepo.findOne({
       where: {
         businessId: store.businessId,
@@ -199,8 +204,8 @@ export class PublicStorefrontService {
     }
   }
 
-  async getCategories(slug: string): Promise<CategoryTreeResponse> {
-    const { store } = await this.requireStore(slug)
+  async getCategories(slug: string, preview = false): Promise<CategoryTreeResponse> {
+    const { store } = await this.requireStore(slug, preview)
     return this.categoriesService.getTree(store.businessId)
   }
 
@@ -209,8 +214,8 @@ export class PublicStorefrontService {
    * actually appear on the store's published products (so empty facets never show).
    * Scoped by category when provided. Counts are intentionally omitted (v1).
    */
-  async getFacets(slug: string, categoryIds?: string[]): Promise<PublicFacets> {
-    const { store } = await this.requireStore(slug)
+  async getFacets(slug: string, categoryIds?: string[], preview = false): Promise<PublicFacets> {
+    const { store } = await this.requireStore(slug, preview)
     const manager = this.productsRepo.manager
     const cats = (categoryIds ?? []).filter(Boolean)
     const hasCat = cats.length > 0
@@ -344,15 +349,22 @@ export class PublicStorefrontService {
 
   /** The storefront only ever sees the PUBLISHED snapshot — a draft / suspended / never-published
    *  store 404s here, so unpublished edits never leak to customers. */
-  private async requireStore(slug: string): Promise<PublishedStore> {
-    const published = await this.storeService.getPublishedStore(slug)
-    if (!published) {
+  /**
+   * Resolve the store for a slug. `preview` swaps the published snapshot for the live draft config
+   * (via `getDraftStore`) so `preview.<slug>` renders unpublished changes — and works for a store
+   * that has never been published. The public (non-preview) path is unchanged: a draft 404s.
+   */
+  private async requireStore(slug: string, preview = false): Promise<PublishedStore> {
+    const resolved = preview
+      ? await this.storeService.getDraftStore(slug)
+      : await this.storeService.getPublishedStore(slug)
+    if (!resolved) {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.online_store_not_found'),
         'ONLINE_STORE_NOT_FOUND',
       )
     }
-    return published
+    return resolved
   }
 
   /** Effective online stock per product (variant sum / serial count, less reserve). */
@@ -438,12 +450,24 @@ export class PublicStorefrontService {
         orangeMoney: config.payment.orangeMoney,
         card: config.payment.card,
       },
+      prepayment: {
+        allowPartialPayment: config.payment.allowPartialPayment ?? false,
+        partialMinPercent: config.payment.partialMinPercent ?? 50,
+        partialMinOrderAmount: config.payment.partialMinOrderAmount ?? 0,
+        depositRequired: config.payment.depositRequired ?? false,
+        codMinOrderAmount: config.payment.codMinOrderAmount ?? 0,
+        codMaxOrderAmount: config.payment.codMaxOrderAmount ?? null,
+      },
       fulfilment: {
         offerDelivery: config.fulfilment.offerDelivery,
         offerPickup: config.fulfilment.offerPickup,
         deliveryFee: config.fulfilment.deliveryFee,
         pickupAddress: config.fulfilment.pickupAddress,
         deliveryCities: config.fulfilment.deliveryCities,
+        deliveryZones: config.fulfilment.deliveryZones ?? [],
+        freeDeliveryOverAmount: config.fulfilment.freeDeliveryOverAmount ?? null,
+        unlistedAreaBehavior: config.fulfilment.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+        unlistedDefaultFee: config.fulfilment.unlistedDefaultFee ?? 0,
       },
       socials: {
         instagram: config.socials.instagram,

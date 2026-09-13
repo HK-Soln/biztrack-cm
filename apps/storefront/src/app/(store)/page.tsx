@@ -4,7 +4,7 @@ import { getTranslations } from 'next-intl/server'
 import type { CategoryTreeNode } from '@biztrack/types'
 import { notFound } from 'next/navigation'
 import { getStore, getCategories, listProducts } from '@/lib/api'
-import { getStoreSlug } from '@/lib/store'
+import { getStoreContext } from '@/lib/store'
 import { getQueryClient, queryKeys } from '@/lib/query'
 import { ProductRail } from '@/components/ProductRail'
 
@@ -68,12 +68,12 @@ const PAY_DOT: Record<string, string> = {
 }
 
 export default async function StoreHomePage() {
-  const slug = await getStoreSlug()
+  const { slug, preview } = await getStoreContext()
   if (!slug) notFound()
   const base = ''
   const [store, categoryTree, t, tp] = await Promise.all([
-    getStore(slug),
-    getCategories(slug),
+    getStore(slug, preview),
+    getCategories(slug, preview),
     getTranslations('home'),
     getTranslations('payment'),
   ])
@@ -83,7 +83,7 @@ export default async function StoreHomePage() {
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
     queryKey: queryKeys.products(slug, query),
-    queryFn: () => listProducts(slug, query),
+    queryFn: () => listProducts(slug, query, preview),
   })
 
   const href = (p: string) => `${base}${p}` || '/'

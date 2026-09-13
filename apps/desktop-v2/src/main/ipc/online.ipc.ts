@@ -37,4 +37,9 @@ export function registerOnlineIpc(online: OnlineService): void {
   ipcMain.handle(IPC.onlineProductSetPublished, (_e, id: string, published: boolean) =>
     online.setProductPublished(id, published),
   )
+  ipcMain.handle(IPC.onlineGeoCountries, () => online.getCountries())
+  ipcMain.handle(IPC.onlineGeoRegions, (_e, country: string) => online.getRegions(country))
+  ipcMain.handle(IPC.onlineGeoCities, (_e, country: string, region: string) =>
+    online.getCities(country, region),
+  )
 }

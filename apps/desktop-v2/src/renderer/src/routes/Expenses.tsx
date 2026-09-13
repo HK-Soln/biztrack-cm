@@ -820,11 +820,24 @@ function ExpenseFormModal({
   // new expenses in it default to recurring (#5) — unless the user overrides the toggle.
   const [recurringTouched, setRecurringTouched] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(expense?.receiptUrl ?? null)
-  const [newCat, setNewCat] = useState<{ name: string; color: string } | null>(null)
+  const [newCat, setNewCat] = useState<{
+    name: string
+    color: string
+    isRecurring: boolean
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<ExpenseFieldErrors>({})
 
   const selectedCatName = categories.find((c) => c.id === categoryId)?.name ?? ''
+
+  // Business-level "Paid to" cache: previously-used payees for the picked category (derived from the
+  // synced expenses), offered as autocomplete so payees aren't retyped/typo'd.
+  const { data: payees = [] } = useQuery({
+    queryKey: ['expensePayees', categoryId],
+    queryFn: () => dataClient.expenses.listPayees(categoryId || undefined),
+    enabled: !!categoryId,
+    staleTime: 60_000,
+  })
 
   // Default the recurring toggle from the picked category (new expenses only, until touched).
   useEffect(() => {
@@ -845,7 +858,11 @@ function ExpenseFormModal({
 
   const createCat = useMutation({
     mutationFn: () =>
-      dataClient.expenseCategories.create({ name: newCat!.name.trim(), color: newCat!.color }),
+      dataClient.expenseCategories.create({
+        name: newCat!.name.trim(),
+        color: newCat!.color,
+        isRecurring: newCat!.isRecurring,
+      }),
     onSuccess: (c) => {
       categories.push(c)
       setCategoryId(c.id)
@@ -854,12 +871,19 @@ function ExpenseFormModal({
     onError: (e) => setError(errorMessage(e, t('expenses.saveError'))),
   })
 
+  // Case-insensitive payee capture: a freshly-typed payee adopts an existing one's spelling
+  // (so "landlord" doesn't become a second "Landlord").
+  const canonicalVendor = (): string | null => {
+    const v = vendor.trim()
+    if (!v) return null
+    return payees.find((p) => p.toLowerCase() === v.toLowerCase()) ?? v
+  }
   const buildInput = (): ExpenseInput => ({
     categoryId,
     description: description.trim(),
     amount: Number(amount.replace(/\s/g, '').replace(',', '.')) || 0,
     expenseDate,
-    vendor: vendor.trim() || null,
+    vendor: canonicalVendor(),
     notes: notes.trim() || null,
     isRecurring,
     status,
@@ -867,10 +891,17 @@ function ExpenseFormModal({
     receiptUrl,
   })
   const save = useMutation({
-    mutationFn: () =>
-      editing
-        ? dataClient.expenses.update(expense!.id, buildInput())
-        : dataClient.expenses.create(buildInput()),
+    mutationFn: async () => {
+      const saved = editing
+        ? await dataClient.expenses.update(expense!.id, buildInput())
+        : await dataClient.expenses.create(buildInput())
+      // Learn: a recurring expense flags its category so it defaults on next time (best-effort).
+      const cat = categories.find((c) => c.id === categoryId)
+      if (isRecurring && cat && !cat.isRecurring) {
+        await dataClient.expenseCategories.setRecurring(categoryId, true).catch(() => undefined)
+      }
+      return saved
+    },
     onSuccess: onSaved,
     onError: (e) => setError(errorMessage(e, t('expenses.saveError'))),
   })
@@ -887,6 +918,7 @@ function ExpenseFormModal({
       description,
       amount: Number.isFinite(amt) ? amt : NaN,
       expenseDate,
+      vendor,
     })
     if (!parsed.success) {
       const f = parsed.error.flatten().fieldErrors
@@ -895,6 +927,7 @@ function ExpenseFormModal({
         description: f.description?.[0],
         amount: f.amount?.[0],
         expenseDate: f.expenseDate?.[0],
+        vendor: f.vendor?.[0],
       })
       return
     }
@@ -952,6 +985,24 @@ function ExpenseFormModal({
                     }}
                   />
                 </div>
+                <label
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 12.5,
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                  }}
+                  title={t('expenses.catRecurringHint')}
+                >
+                  <input
+                    type="checkbox"
+                    checked={newCat.isRecurring}
+                    onChange={(e) => setNewCat({ ...newCat, isRecurring: e.target.checked })}
+                  />
+                  {t('expenses.catRecurring')}
+                </label>
                 <Button
                   type="button"
                   variant="primary"
@@ -983,7 +1034,7 @@ function ExpenseFormModal({
                 <Button
                   type="button"
                   variant="soft"
-                  onClick={() => setNewCat({ name: '', color: CAT_COLORS[0]! })}
+                  onClick={() => setNewCat({ name: '', color: CAT_COLORS[0]!, isRecurring: false })}
                   title={t('expenses.newCategory')}
                 >
                   {I.plus}
@@ -1037,10 +1088,22 @@ function ExpenseFormModal({
           <div className="ff" style={{ marginBottom: 12 }}>
             <label className="lbl2">{t('expenses.fPaidTo')}</label>
             <Input
+              list="expense-payees"
               value={vendor}
               placeholder={t('expenses.paidToPh')}
-              onChange={(e) => setVendor(e.target.value)}
+              error={!!fieldErrors.vendor}
+              autoComplete="off"
+              onChange={(e) => {
+                setVendor(e.target.value)
+                if (fieldErrors.vendor) setFieldErrors((x) => ({ ...x, vendor: undefined }))
+              }}
             />
+            <datalist id="expense-payees">
+              {payees.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+            {fe('vendor')}
           </div>
           <div className="form-2col">
             <div className="ff" style={{ marginBottom: 12 }}>

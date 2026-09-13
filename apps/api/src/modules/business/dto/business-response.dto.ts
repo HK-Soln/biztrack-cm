@@ -94,6 +94,8 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
   vatRegistered!: BusinessMembershipBusinessSummary['vatRegistered']
   defaultVatRate!: BusinessMembershipBusinessSummary['defaultVatRate']
   fiscalRegime!: BusinessMembershipBusinessSummary['fiscalRegime']
+  receiptSettings!: BusinessMembershipBusinessSummary['receiptSettings']
+  receiptNumberPrefix!: BusinessMembershipBusinessSummary['receiptNumberPrefix']
   ownerId!: BusinessMembershipBusinessSummary['ownerId']
   owner!: BusinessMembershipBusinessSummary['owner']
   subscriptionStatus!: BusinessMembershipBusinessSummary['subscriptionStatus']
@@ -133,6 +135,8 @@ export class BusinessMembershipBusinessSummaryDto implements BusinessMembershipB
     dto.vatRegistered = entity.vatRegistered ?? false
     dto.defaultVatRate = entity.defaultVatRate ?? null
     dto.fiscalRegime = entity.fiscalRegime ?? null
+    dto.receiptSettings = entity.receiptSettings ?? null
+    dto.receiptNumberPrefix = entity.receiptNumberPrefix ?? null
     dto.ownerId = entity.ownerId
     dto.owner = entity.owner ? entity.owner.name : null
     dto.subscriptionStatus = entity.subscriptionStatus

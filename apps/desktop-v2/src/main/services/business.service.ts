@@ -33,6 +33,21 @@ export class BusinessService {
     const membership = list.find((m) => m.businessId === businessId) ?? null
     const b = membership?.business
     if (!b) return null
+    // Cache the full profile locally so receipts (built in main, offline) have the real identity +
+    // settings, not just the thin name/currency the multi-business list stores.
+    this.cache.saveBusinessProfile({
+      id: b.id,
+      name: b.name,
+      currency: b.currency ?? null,
+      phone: b.phone ?? null,
+      email: b.email ?? null,
+      address: b.address ?? null,
+      city: b.city ?? null,
+      logoUrl: b.logoUrl ?? null,
+      niu: b.niu ?? null,
+      receiptSettings: b.receiptSettings ?? null,
+      receiptNumberPrefix: b.receiptNumberPrefix ?? null,
+    })
     return {
       id: b.id,
       name: b.name,
@@ -57,6 +72,8 @@ export class BusinessService {
       vatRegistered: b.vatRegistered ?? false,
       defaultVatRate: b.defaultVatRate ?? null,
       fiscalRegime: b.fiscalRegime ?? null,
+      receiptSettings: b.receiptSettings ?? null,
+      receiptNumberPrefix: b.receiptNumberPrefix ?? null,
       role: membership?.role ?? null,
     }
   }
@@ -80,6 +97,23 @@ export class BusinessService {
         },
       ])
     }
+    if (b?.id) {
+      // Keep the full receipt-relevant profile cached so a receipt printed right after saving settings
+      // reflects them without waiting for a re-fetch.
+      this.cache.saveBusinessProfile({
+        id: b.id,
+        name: b.name,
+        currency: b.currency ?? null,
+        phone: b.phone ?? null,
+        email: b.email ?? null,
+        address: b.address ?? null,
+        city: b.city ?? null,
+        logoUrl: b.logoUrl ?? null,
+        niu: b.niu ?? null,
+        receiptSettings: b.receiptSettings ?? null,
+        receiptNumberPrefix: b.receiptNumberPrefix ?? null,
+      })
+    }
     return {
       id: b.id,
       name: b.name,
@@ -104,6 +138,8 @@ export class BusinessService {
       vatRegistered: b.vatRegistered ?? false,
       defaultVatRate: b.defaultVatRate ?? null,
       fiscalRegime: b.fiscalRegime ?? null,
+      receiptSettings: b.receiptSettings ?? null,
+      receiptNumberPrefix: b.receiptNumberPrefix ?? null,
       role: b.role ?? null,
     }
   }

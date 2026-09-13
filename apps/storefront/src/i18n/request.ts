@@ -1,9 +1,17 @@
 import { getRequestConfig } from 'next-intl/server'
 import { cookies, headers } from 'next/headers'
+import en from './messages/en.json'
+import fr from './messages/fr.json'
 
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'fr'
+
+// Static imports (NOT a dynamic `import(`./messages/${locale}.json`)`) — a dynamic template-literal
+// import becomes a webpack context module that caches in `.next` and doesn't reliably reflect newly
+// added message keys in dev. Importing both files directly makes each a tracked dependency, so
+// Fast Refresh always picks up edits.
+const MESSAGES: Record<Locale, typeof en> = { en, fr }
 
 function isLocale(value: string | undefined): value is Locale {
   return !!value && (LOCALES as readonly string[]).includes(value)
@@ -25,8 +33,5 @@ async function resolveLocale(): Promise<Locale> {
 
 export default getRequestConfig(async () => {
   const locale = await resolveLocale()
-  return {
-    locale,
-    messages: (await import(`./messages/${locale}.json`)).default,
-  }
+  return { locale, messages: MESSAGES[locale] }
 })

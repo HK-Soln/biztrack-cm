@@ -16,6 +16,7 @@ import { AuditModule } from '@/modules/audit/audit.module'
 import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 import { SalesController } from './controllers/sales.controller'
+import { PublicReceiptController } from './controllers/public-receipt.controller'
 import { DailySalesSummaryService } from './services/daily-sales-summary.service'
 import { SaleNumberService } from './services/sale-number.service'
 import { SalesService } from './services/sales.service'
@@ -40,7 +41,7 @@ import { SalesService } from './services/sales.service'
       SalePayment,
     ]),
   ],
-  controllers: [SalesController],
+  controllers: [SalesController, PublicReceiptController],
   providers: [DailySalesSummaryService, SaleNumberService, SalesService],
   exports: [SalesService],
 })

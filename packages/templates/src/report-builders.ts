@@ -1148,7 +1148,10 @@ export function buildIncomeStatementReport(
   const fr = isFr(opts.locale)
   const m = (x: number) => formatMoney(x, data.currency, opts.locale)
   const grossMargin = data.revenue - data.cogs
-  const otherIncome = data.otherIncome ?? 0
+  const otherIncomeLines = data.otherIncomeByCategory ?? []
+  const otherIncome = otherIncomeLines.length
+    ? otherIncomeLines.reduce((s, o) => s + o.amount, 0)
+    : (data.otherIncome ?? 0)
   const operating = grossMargin + otherIncome - data.totalExpenses
   const L = fr
     ? {
@@ -1157,7 +1160,8 @@ export function buildIncomeStatementReport(
         revenue: 'Ventes (produits)',
         cogs: 'Coût des marchandises vendues',
         margin: 'MARGE BRUTE',
-        otherIncome: 'Autres produits (frais d’annulation)',
+        otherIncome: 'Autres produits',
+        totalOtherIncome: 'Total des autres produits',
         opex: 'Charges d’exploitation',
         totalOpex: 'Total des charges d’exploitation',
         result: "RÉSULTAT D'EXPLOITATION",
@@ -1172,7 +1176,8 @@ export function buildIncomeStatementReport(
         revenue: 'Sales revenue',
         cogs: 'Cost of goods sold',
         margin: 'GROSS MARGIN',
-        otherIncome: 'Other income (cancellation charges)',
+        otherIncome: 'Other income',
+        totalOtherIncome: 'Total other income',
         opex: 'Operating expenses',
         totalOpex: 'Total operating expenses',
         result: 'OPERATING RESULT',
@@ -1188,6 +1193,22 @@ export function buildIncomeStatementReport(
         tone: 'down' as const,
       }))
     : [{ label: L.noExp, value: '—' }]
+  // Other income now reads like expenses: a line per category, then a total.
+  const otherIncomeRows = otherIncomeLines.length
+    ? [
+        ...otherIncomeLines.map((o) => ({
+          label: o.name,
+          value: `+ ${m(o.amount)}`,
+          tone: 'up' as const,
+        })),
+        {
+          label: L.totalOtherIncome,
+          value: `+ ${m(otherIncome)}`,
+          subtotal: true,
+          tone: 'up' as const,
+        },
+      ]
+    : [{ label: L.otherIncome, value: `+ ${m(otherIncome)}`, tone: 'up' as const }]
   const document = baseDoc(L.title, opts, [
     {
       kind: 'keyvalue',
@@ -1201,11 +1222,11 @@ export function buildIncomeStatementReport(
           subtotal: true,
           tone: grossMargin >= 0 ? 'up' : 'down',
         },
-        ...(otherIncome > 0
-          ? [{ label: L.otherIncome, value: `+ ${m(otherIncome)}`, tone: 'up' as const }]
-          : []),
       ],
     },
+    ...(otherIncome > 0
+      ? [{ kind: 'keyvalue' as const, title: L.otherIncome, rows: otherIncomeRows }]
+      : []),
     {
       kind: 'keyvalue',
       title: L.opex,
@@ -1229,6 +1250,8 @@ export function buildIncomeStatementReport(
       [L.revenue, String(data.revenue)],
       [L.cogs, String(-data.cogs)],
       [L.margin, String(grossMargin)],
+      ...otherIncomeLines.map((o) => [o.name, String(o.amount)]),
+      ...(otherIncome > 0 ? [[L.totalOtherIncome, String(otherIncome)]] : []),
       ...data.expensesByCategory.map((e) => [e.name, String(-e.amount)]),
       [L.totalOpex, String(-data.totalExpenses)],
       [L.result, String(operating)],

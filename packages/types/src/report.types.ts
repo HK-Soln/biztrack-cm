@@ -457,8 +457,11 @@ export interface IncomeStatementReportData {
   revenue: number
   /** Cost of goods sold (Σ cost_price × qty). */
   cogs: number
-  /** Non-trading income (e.g. deposit-cancellation charges, SCRUM-46) — booked below gross profit. */
+  /** Non-trading income total (Other Income ledger) — booked below gross profit. Kept for back-compat;
+   *  `otherIncomeByCategory` (when provided) is the per-line breakdown and its Σ is authoritative. */
   otherIncome: number
+  /** Other income broken out by category (rendered like expenses: a line each, then a total). */
+  otherIncomeByCategory?: IncomeStatementExpenseLine[]
   expensesByCategory: IncomeStatementExpenseLine[]
   totalExpenses: number
   currency: string

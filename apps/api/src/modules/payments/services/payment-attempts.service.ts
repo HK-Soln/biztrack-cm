@@ -1,0 +1,210 @@
+import { Injectable, Logger } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
+import { InjectRepository } from '@nestjs/typeorm'
+import { Repository } from 'typeorm'
+import {
+  PaymentAttemptInitiationType,
+  PaymentAttemptStatus,
+  PaymentConfirmationType,
+  canTransitionPaymentAttempt,
+} from '@biztrack/types'
+import { PaymentAttempt } from '@/entities/payment-attempt.entity'
+import { OnlineOrder } from '@/entities/online-order.entity'
+import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
+import { OrderChannelService } from '@/modules/realtime/services/order-channel.service'
+import { RealtimeService } from '@/modules/realtime/services/realtime.service'
+import { PUBLIC_PROVIDER_FAILURE_REASONS } from '../payments.constants'
+import type { ProviderEvent } from '../adapters/payment-provider.adapter'
+
+/**
+ * Spec 07 §2.4 — the payment-attempt lifecycle. Applies provider events (webhook/poll) to an attempt
+ * through the forward-only state machine: CONFIRMED/FAILED/EXPIRED are terminal, so a late or
+ * duplicate event never regresses a settled attempt (idempotent no-op). Downstream truth (online
+ * order status / the sale_payments ledger) is fed by build 9/10 via applyDownstreamEffects.
+ */
+@Injectable()
+export class PaymentAttemptsService {
+  private readonly logger = new Logger(PaymentAttemptsService.name)
+
+  constructor(
+    @InjectRepository(PaymentAttempt)
+    private readonly attempts: Repository<PaymentAttempt>,
+    @InjectRepository(OnlineOrder)
+    private readonly onlineOrders: Repository<OnlineOrder>,
+    @InjectRepository(OnlineOrderEvent)
+    private readonly onlineOrderEvents: Repository<OnlineOrderEvent>,
+    private readonly orderChannel: OrderChannelService,
+    private readonly realtime: RealtimeService,
+    private readonly moduleRef: ModuleRef,
+  ) {}
+
+  findByProviderRef(businessId: string, providerRef: string): Promise<PaymentAttempt | null> {
+    return this.attempts.findOne({ where: { businessId, providerRef } })
+  }
+
+  /**
+   * Apply a parsed provider event to its attempt. Returns the (possibly unchanged) attempt, or null
+   * if the providerRef matches no attempt. Never throws on a duplicate/late event — a transition
+   * that the state machine forbids is a no-op (the attempt is already terminal).
+   */
+  async applyProviderEvent(
+    businessId: string,
+    event: ProviderEvent,
+    confirmationType: PaymentConfirmationType,
+    confirmedBy?: string,
+  ): Promise<PaymentAttempt | null> {
+    const attempt = await this.findByProviderRef(businessId, event.providerRef)
+    if (!attempt) {
+      this.logger.warn(
+        `Provider event for unknown ref ${event.providerRef} (business ${businessId})`,
+      )
+      return null
+    }
+
+    const to = event.status as PaymentAttemptStatus
+    if (!canTransitionPaymentAttempt(attempt.status, to)) {
+      // Already terminal, or an out-of-order event — never regress. Idempotent.
+      return attempt
+    }
+
+    // save() (not update()) so the jsonb raw_callback is written whole, not deep-merged.
+    attempt.status = to
+    attempt.feeMinor = event.feeMinor ?? attempt.feeMinor
+    attempt.netMinor = event.netMinor ?? attempt.netMinor
+    if (to === PaymentAttemptStatus.CONFIRMED) {
+      attempt.confirmedAt = new Date()
+      if (confirmedBy) attempt.confirmedBy = confirmedBy // MANUAL hard-confirm (§7.6): who overrode.
+    }
+    if (to === PaymentAttemptStatus.FAILED)
+      attempt.failedReason = event.reason || 'Reported failed by provider.'
+    attempt.confirmationType = confirmationType
+    attempt.rawCallback = (event.raw ?? null) as Record<string, unknown> | null
+    const saved = await this.attempts.save(attempt)
+    await this.applyDownstreamEffects(saved)
+    return saved
+  }
+
+  /**
+   * Feed the sinks that own truth once an attempt settles (§2.4):
+   *  - ONLINE  → online_orders.payment_status = PAID + payment_reference + a PAYMENT_GATEWAY event
+   *    (build 9, below).
+   *  - IN-STORE → append a sale_payments row (mobile_money_reference = provider_ref,
+   *    payment_attempt_id) — TODO(build 10); attempt.sale_id is the seam.
+   */
+  private async applyDownstreamEffects(attempt: PaymentAttempt): Promise<void> {
+    // Payment link (Spec 08): a link attempt (paymentLinkId set) settles its payable via the lazily
+    // resolved PaymentLinkSettlementService — ModuleRef avoids the module cycle (PaymentLinks imports
+    // Payments). The link's own token channel/poll carries status to the public pay page.
+    if (attempt.paymentLinkId) {
+      if (attempt.status === PaymentAttemptStatus.CONFIRMED) await this.settlePaymentLink(attempt)
+      return
+    }
+    if (attempt.onlineOrderId) {
+      if (attempt.status === PaymentAttemptStatus.CONFIRMED) await this.settleOnlineOrder(attempt)
+      else if (attempt.status === PaymentAttemptStatus.FAILED)
+        await this.notifyOnlineOrderFailed(attempt)
+      return
+    }
+    // In-store provider attempt (Build 10): the client posts the Sale on confirm (§7.2), so here we
+    // only push the live settlement to the authed till on the merchant's business channel — the poll
+    // is the fallback. The saleId back-link is set when the Sale posts (sales.service createFromSync).
+    if (
+      attempt.initiationType === PaymentAttemptInitiationType.LINK ||
+      attempt.initiationType === PaymentAttemptInitiationType.USSD_PUSH
+    ) {
+      this.emitInStoreAttempt(attempt)
+    }
+  }
+
+  /** Push an in-store attempt's terminal state to the merchant's business channel (WebSocket). */
+  private emitInStoreAttempt(attempt: PaymentAttempt): void {
+    const status =
+      attempt.status === PaymentAttemptStatus.CONFIRMED
+        ? ('PAID' as const)
+        : attempt.status === PaymentAttemptStatus.FAILED
+          ? ('FAILED' as const)
+          : null
+    if (!status) return
+    const reason =
+      status === 'FAILED' &&
+      attempt.failedReason &&
+      PUBLIC_PROVIDER_FAILURE_REASONS.has(attempt.failedReason)
+        ? attempt.failedReason
+        : undefined
+    this.realtime.toBusiness(attempt.businessId, 'payment.attempt', {
+      attemptId: attempt.id,
+      businessId: attempt.businessId,
+      status,
+      reason,
+      providerRef: attempt.providerRef ?? undefined,
+    })
+  }
+
+  /** Settle a payment-link attempt via the lazily-resolved PaymentLinkSettlementService (Spec 08).
+   *  Lazy `moduleRef.get(..., {strict:false})` avoids the module cycle; a missing provider (module not
+   *  registered) is a warned no-op rather than a crash in the settle path. */
+  private async settlePaymentLink(attempt: PaymentAttempt): Promise<void> {
+    try {
+      const sink = this.moduleRef.get<{ settle(a: PaymentAttempt): Promise<void> }>(
+        'PaymentLinkSettlementService',
+        { strict: false },
+      )
+      await sink.settle(attempt)
+    } catch (error) {
+      this.logger.warn(
+        `Payment-link settlement unavailable for attempt ${attempt.id}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  /**
+   * FAILED gateway payment on an online order → push the live status to the storefront payment page
+   * (the order itself stays PENDING/unpaid so the customer can retry). The reason is whitelisted so
+   * only known, customer-meaningful provider codes leave the server.
+   */
+  private async notifyOnlineOrderFailed(attempt: PaymentAttempt): Promise<void> {
+    const order = await this.onlineOrders.findOne({
+      where: { id: attempt.onlineOrderId! },
+      select: { id: true, trackingToken: true },
+    })
+    if (!order) return
+    const reason =
+      attempt.failedReason && PUBLIC_PROVIDER_FAILURE_REASONS.has(attempt.failedReason)
+        ? attempt.failedReason
+        : undefined
+    this.orderChannel.emitPaymentStatus(order.trackingToken, { status: 'FAILED', reason })
+  }
+
+  /**
+   * Online sink (§6.1 step 2): a confirmed gateway payment marks the order PAID and records the
+   * provider ref + a customer-visible PAYMENT_GATEWAY event. The Sale itself posts later, at merchant
+   * confirm (§6.1 step 3), sourcing the ref from the CONFIRMED attempt. Idempotent — a duplicate
+   * webhook that already ran leaves an already-PAID order untouched.
+   */
+  private async settleOnlineOrder(attempt: PaymentAttempt): Promise<void> {
+    const order = await this.onlineOrders.findOne({ where: { id: attempt.onlineOrderId! } })
+    if (!order) {
+      this.logger.warn(`Confirmed attempt ${attempt.id} references unknown online order.`)
+      return
+    }
+    if (order.paymentStatus === 'PAID') return
+
+    await this.onlineOrders.update(order.id, {
+      paymentStatus: 'PAID',
+      paymentReference: attempt.providerRef ?? order.paymentReference,
+    })
+    await this.onlineOrderEvents.save(
+      this.onlineOrderEvents.create({
+        onlineOrderId: order.id,
+        businessId: order.businessId,
+        eventType: 'PAYMENT_RECEIVED',
+        triggeredBy: 'PAYMENT_GATEWAY',
+        isCustomerVisible: true,
+        customerMessage: 'Payment received.',
+        trackingToken: order.trackingToken,
+      }),
+    )
+    // Live-notify the storefront payment page (poll is the fallback).
+    this.orderChannel.emitPaymentStatus(order.trackingToken, { status: 'PAID' })
+  }
+}

@@ -85,6 +85,8 @@ export class LoggingInterceptor implements NestInterceptor {
       'otp',
       'pin',
       'pinHash',
+      // Payment provider credentials (Spec 07) — redact the whole object.
+      'credentials',
     ]
     for (const key of redactKeys) {
       if (key in (clone as Record<string, unknown>)) {

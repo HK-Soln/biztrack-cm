@@ -403,6 +403,38 @@ export class ExpensesService {
     })
   }
 
+  /**
+   * Distinct "Paid to" payees this business has used, most-used first — a business-level cache
+   * derived from the (synced) expenses, so it's available on every device. Optionally by category.
+   */
+  listPayees(categoryId?: string): string[] {
+    const businessId = this.getBusinessId()
+    if (!businessId) return []
+    const params: unknown[] = [businessId]
+    let filter = ''
+    if (categoryId) {
+      params.push(categoryId)
+      filter = ' AND category_id = ?'
+    }
+    // Case-insensitive: collapse "Landlord"/"landlord" to one — the most-used spelling wins. SQLite
+    // returns the bare `vendor` from the MAX(cnt) row when MAX() is present in the aggregate.
+    const rows = this.db.query<{ vendor: string }>(
+      `SELECT vendor, MAX(cnt) AS top
+         FROM (
+           SELECT vendor, COUNT(*) AS cnt
+             FROM expenses
+            WHERE business_id = ? AND is_deleted = 0
+              AND vendor IS NOT NULL AND TRIM(vendor) <> ''${filter}
+            GROUP BY vendor
+         )
+        GROUP BY LOWER(vendor)
+        ORDER BY top DESC, vendor ASC
+        LIMIT 50`,
+      params,
+    )
+    return rows.map((r) => r.vendor)
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private buildWhere(
@@ -508,14 +540,15 @@ export class ExpenseCategoriesService {
       color: string | null
       icon: string | null
       sort_order: number
+      is_recurring: number
       count: number
-      default_recurring: number | null
     }>(
-      `SELECT c.id, c.business_id, c.name, c.slug, c.color, c.icon, c.sort_order,
-              (SELECT COUNT(*) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS count,
-              (SELECT MAX(e.is_recurring) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS default_recurring
+      // Per-business only now (categories are owned rows; the old system rows are dropped server-side
+      // and hidden here). `default_recurring` is the category's own stored flag, not a derived MAX().
+      `SELECT c.id, c.business_id, c.name, c.slug, c.color, c.icon, c.sort_order, c.is_recurring,
+              (SELECT COUNT(*) FROM expenses e WHERE e.category_id = c.id AND e.is_deleted = 0) AS count
        FROM expense_categories c
-       WHERE c.is_deleted = 0 AND (c.business_id IS NULL OR c.business_id = ?)
+       WHERE c.is_deleted = 0 AND c.business_id = ?
        ORDER BY c.sort_order ASC, c.name ASC`,
       [businessId],
     )
@@ -527,9 +560,49 @@ export class ExpenseCategoriesService {
       icon: r.icon,
       isSystem: !r.business_id,
       sortOrder: r.sort_order,
+      isRecurring: r.is_recurring === 1,
+      defaultRecurring: r.is_recurring === 1,
       expenseCount: r.count,
-      defaultRecurring: r.default_recurring === 1,
     }))
+  }
+
+  /** Learn: flag a category recurring once a recurring expense books against it (local + outbox). */
+  setRecurring(id: string, isRecurring: boolean): void {
+    const businessId = this.getBusinessId()
+    if (!businessId) return
+    const now = new Date().toISOString()
+    const row = this.db.get<{
+      name: string
+      color: string | null
+      icon: string | null
+      sort_order: number
+      created_at: string | null
+    }>(
+      `SELECT name, color, icon, sort_order, created_at FROM expense_categories
+       WHERE id = ? AND business_id = ? AND is_deleted = 0`,
+      [id, businessId],
+    )
+    if (!row) return
+    this.db.run(`UPDATE expense_categories SET is_recurring = ?, updated_at = ? WHERE id = ?`, [
+      isRecurring ? 1 : 0,
+      now,
+      id,
+    ])
+    this.enqueue(
+      id,
+      businessId,
+      {
+        name: row.name,
+        color: row.color,
+        icon: row.icon,
+        sortOrder: row.sort_order,
+        isRecurring,
+        createdAt: row.created_at ?? now,
+        updatedAt: now,
+      },
+      now,
+    )
+    this.onMutated()
   }
 
   create(input: ExpenseCategoryInput): LocalExpenseCategory {
@@ -539,10 +612,11 @@ export class ExpenseCategoriesService {
     const id = randomUUID()
     const now = new Date().toISOString()
     const slug = slugify(input.name)
+    const isRecurring = input.isRecurring ?? false
     this.db.run(
-      `INSERT INTO expense_categories (id, business_id, name, slug, color, icon, sort_order, is_active, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?)`,
-      [id, businessId, input.name.trim(), slug, input.color, input.icon ?? null, now, now],
+      `INSERT INTO expense_categories (id, business_id, name, slug, color, icon, sort_order, is_recurring, is_active, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, 0, ?, ?)`,
+      [id, businessId, input.name.trim(), slug, input.color, input.icon ?? null, isRecurring ? 1 : 0, now, now],
     )
     this.enqueue(
       id,
@@ -552,6 +626,7 @@ export class ExpenseCategoriesService {
         color: input.color,
         icon: input.icon ?? null,
         sortOrder: 0,
+        isRecurring,
         createdAt: now,
         updatedAt: now,
       },
@@ -573,6 +648,8 @@ export class ExpenseCategoriesService {
       icon: input.icon ?? null,
       isSystem: false,
       sortOrder: 0,
+      isRecurring,
+      defaultRecurring: isRecurring,
       expenseCount: 0,
     }
   }

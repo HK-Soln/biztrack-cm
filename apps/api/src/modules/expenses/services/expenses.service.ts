@@ -112,6 +112,12 @@ export class ExpensesService {
         }),
       )
 
+      // Learn: a recurring expense flags its category, so next time that category is picked the
+      // recurring toggle defaults on (best-effort — never fails the create).
+      if (dto.isRecurring && category.businessId) {
+        await this.categoriesService.markCategoryRecurring(category.id, businessId).catch(() => undefined)
+      }
+
       await this.rebuildExpenseMonth(businessId, expenseDate)
       return this.findById(expense.id, businessId)
     } catch (error) {
@@ -369,12 +375,14 @@ export class ExpensesService {
       }
       totalExpenses = this.roundMoney(totalExpenses)
 
-      // SCRUM-46 — non-trading income (deposit-cancellation charges) over the same window.
+      // Spec 10 ① — non-trading ("other") income over the same posting_date window, read from the
+      // Other Income ledger (general payment-link settlements, deposit-cancellation charges [migrated
+      // here, SCRUM-46], manual entries). One source, so nothing is double-counted.
       const [oi] = (await this.dailySaleSummariesRepo.manager.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM savings_transactions
-         WHERE business_id = $1 AND type = 'charge' AND is_deleted = false
-           AND COALESCE(business_date, occurred_at::date) >= $2
-           AND COALESCE(business_date, occurred_at::date) < $3`,
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM other_incomes
+         WHERE business_id = $1 AND deleted_at IS NULL
+           AND COALESCE(posting_date, business_date, date) >= $2
+           AND COALESCE(posting_date, business_date, date) < $3`,
         [businessId, startDate, endDate],
       )) as Array<{ total: string | number | null }>
       const otherIncome = this.roundMoney(Number(oi?.total ?? 0))
@@ -547,6 +555,40 @@ export class ExpensesService {
     } catch (error) {
       return this.handleServiceError('getTrend', error, { businessId })
     }
+  }
+
+  /**
+   * Distinct "Paid to" values a business has used, most-used first — a business-level payee cache
+   * derived from the expenses themselves (so it's available on every synced device with no separate
+   * table). Optionally scoped to a category, so picking a category surfaces its past payees.
+   */
+  async listPayees(businessId: string, categoryId?: string): Promise<string[]> {
+    const params: unknown[] = [businessId]
+    let filter = ''
+    if (categoryId) {
+      params.push(categoryId)
+      filter = ' AND e.category_id = $2'
+    }
+    // Case-insensitive: "Landlord" and "landlord" collapse to one entry — the most-used spelling
+    // wins (DISTINCT ON the lowercased value, highest count first).
+    const rows = (await this.expensesRepo.manager.query(
+      `SELECT vendor
+         FROM (
+           SELECT DISTINCT ON (LOWER(vendor)) vendor, cnt
+           FROM (
+             SELECT e.vendor AS vendor, COUNT(*) AS cnt
+               FROM expenses e
+              WHERE e.business_id = $1 AND e.deleted_at IS NULL
+                AND e.vendor IS NOT NULL AND btrim(e.vendor) <> ''${filter}
+              GROUP BY e.vendor
+           ) g
+           ORDER BY LOWER(vendor), cnt DESC, vendor ASC
+         ) d
+        ORDER BY cnt DESC, vendor ASC
+        LIMIT 50`,
+      params,
+    )) as Array<{ vendor: string }>
+    return rows.map((r) => r.vendor)
   }
 
   async upsertFromSync(
