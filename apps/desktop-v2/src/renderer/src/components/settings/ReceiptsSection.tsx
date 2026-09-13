@@ -54,7 +54,7 @@ function Toggle({
 // A representative sample sale so the preview shows the real template exactly as it prints.
 function sampleReceipt(
   s: ReceiptSettings,
-  identity: { name: string; phone: string; address: string; niu: string },
+  identity: { name: string; phone: string; address: string; niu: string; logoUrl: string | null },
   prefix: string,
 ): SaleReceipt {
   return {
@@ -62,7 +62,7 @@ function sampleReceipt(
     businessPhone: identity.phone || '+237 6 78 21 44 02',
     businessAddress: identity.address || 'Akwa, Douala',
     businessNiu: identity.niu || 'P048512900233K',
-    businessLogoUrl: null,
+    businessLogoUrl: identity.logoUrl,
     saleNumber: `${prefix}${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-0147`,
     soldAt: new Date().toISOString(),
     cashierName: 'Junior T.',
@@ -106,6 +106,7 @@ export function ReceiptsSection() {
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
   const [niu, setNiu] = useState('')
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [prefix, setPrefix] = useState(DEFAULT_RECEIPT_NUMBER_PREFIX)
   const [s, setS] = useState<ReceiptSettings>(DEFAULT_RECEIPT_SETTINGS)
   // --- device-local print settings ---
@@ -121,6 +122,7 @@ export function ReceiptsSection() {
     setPhone(p.phone ?? '')
     setAddress([p.address, p.city].filter(Boolean).join(', '))
     setNiu(p.niu ?? '')
+    setLogoUrl(p.logoUrl ?? null)
     setPrefix(p.receiptNumberPrefix || DEFAULT_RECEIPT_NUMBER_PREFIX)
     setS({ ...DEFAULT_RECEIPT_SETTINGS, ...(p.receiptSettings ?? {}) })
   }, [profileQ.data])
@@ -172,7 +174,7 @@ export function ReceiptsSection() {
   // Live preview via the REAL template → exactly what prints.
   const previewHtml = useMemo(
     () =>
-      renderSaleReceiptHtml(sampleReceipt(s, { name, phone, address, niu }, prefix), {
+      renderSaleReceiptHtml(sampleReceipt(s, { name, phone, address, niu, logoUrl }, prefix), {
         labels: saleReceiptLabels(lang),
         locale: lang,
         widthMm: s.paperWidthMm,
@@ -184,7 +186,7 @@ export function ReceiptsSection() {
         showQr: s.showQr,
         qrImage,
       }),
-    [s, name, phone, address, niu, prefix, lang, qrImage],
+    [s, name, phone, address, niu, logoUrl, prefix, lang, qrImage],
   )
 
   // Suggest a thermal printer for receipt paper by name (Electron can't report paper capability).
@@ -211,9 +213,6 @@ export function ReceiptsSection() {
             <h1>{t('rcp.title')}</h1>
             <p>{t('rcp.subtitle')}</p>
           </div>
-          <Button variant="primary" type="button" loading={save.isPending} onClick={() => save.mutate()}>
-            {t('rcp.save')}
-          </Button>
         </div>
         {error ? (
           <p style={{ color: 'var(--danger)', fontSize: 12.5 }} role="alert">
@@ -363,6 +362,15 @@ export function ReceiptsSection() {
             }}
           />
         </div>
+        <Button
+          variant="primary"
+          type="button"
+          loading={save.isPending}
+          onClick={() => save.mutate()}
+          style={{ width: '100%', marginTop: 14 }}
+        >
+          {t('rcp.save')}
+        </Button>
       </div>
 
       {toast ? (
