@@ -1,8 +1,11 @@
 import type { HttpClient } from '@biztrack/http-client'
 import type {
+  CityView,
+  CountryView,
   CreateOnlineStoreRequest,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
+  RegionView,
   OnlineOrder,
   OnlineOrderDetail,
   OnlineOrderListResult,
@@ -194,6 +197,33 @@ export class OnlineService {
             isPublishedOnline: published,
           })
         ).data.data,
+    )
+  }
+
+  // ---- geography reference (public, unauthenticated — used by the delivery-zone editor) ----
+  async getCountries(): Promise<CountryView[]> {
+    return (await this.http.get<ApiEnvelope<CountryView[]>>('/public/geo/countries')).data.data ?? []
+  }
+
+  async getRegions(country: string): Promise<RegionView[]> {
+    if (!country) return []
+    return (
+      (
+        await this.http.get<ApiEnvelope<RegionView[]>>(
+          `/public/geo/regions?country=${encodeURIComponent(country)}`,
+        )
+      ).data.data ?? []
+    )
+  }
+
+  async getCities(country: string, region: string): Promise<CityView[]> {
+    if (!country || !region) return []
+    return (
+      (
+        await this.http.get<ApiEnvelope<CityView[]>>(
+          `/public/geo/cities?country=${encodeURIComponent(country)}&region=${encodeURIComponent(region)}`,
+        )
+      ).data.data ?? []
     )
   }
 }

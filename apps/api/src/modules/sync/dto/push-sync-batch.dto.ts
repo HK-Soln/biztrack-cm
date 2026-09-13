@@ -28,6 +28,8 @@ enum SyncEntityDto {
   PRODUCT_VARIANT_OPTION = 'product_variant_option',
   PRODUCT_SERIAL_UNIT = 'product_serial_unit',
   EXPENSE_CATEGORY = 'expense_category',
+  INCOME_CATEGORY = 'income_category',
+  OTHER_INCOME = 'other_income',
   UNIT_OF_MEASURE = 'unit_of_measure',
   INVENTORY_THRESHOLD = 'inventory_threshold',
   INVENTORY_ADJUSTMENT = 'inventory_adjustment',

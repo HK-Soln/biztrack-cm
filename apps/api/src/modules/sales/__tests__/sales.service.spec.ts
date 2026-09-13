@@ -59,6 +59,7 @@ function makeService() {
       }),
     } as any, // postingDate
     i18n as any,
+    { get: () => undefined } as any, // config
     logger as any,
   )
   return service as any

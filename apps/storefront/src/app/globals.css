@@ -36,6 +36,38 @@
   --maxw: 1220px;
   color-scheme: light;
 }
+/* Draft-preview banner (preview.<slug> host) — a high-contrast top strip so the draft is never
+   mistaken for the live store. Not sticky: the store header owns top:0. Ordering is disabled while
+   it shows (buttons carry their own inline note deeper in the page). */
+.preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 18px;
+  background: var(--warning);
+  color: var(--on-brand);
+  font-size: 13px;
+}
+.preview-bar .pb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.preview-bar .pb-t {
+  font-weight: 700;
+}
+.preview-bar .pb-d {
+  opacity: 0.92;
+}
+@media (max-width: 640px) {
+  .preview-bar .pb-d {
+    width: 100%;
+    font-size: 12px;
+  }
+}
 .store[data-theme='dark'] {
   --bg: #0d1119;
   --surface: #151b27;
@@ -2466,6 +2498,27 @@ main {
   .burger {
     display: grid;
   }
+  /* Search + nav are hidden, so nothing grows to fill the row — push the actions to the far right
+     and let the brand shrink/ellipsis instead of overflowing the viewport. */
+  .sf-actions {
+    margin-left: auto;
+  }
+  .brand {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .brand .mk {
+    flex-shrink: 0;
+  }
+  .brand > div {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .brand .bt {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .hero {
     grid-template-columns: 1fr;
   }
@@ -2714,6 +2767,14 @@ main {
 }
 .phone-field.err {
   border-color: var(--danger);
+}
+/* react-phone-number-input's root is a flex child of .phone-field; without
+   flex-grow it sizes to content and leaves a gap on the right. Make it fill. */
+.phone-field .PhoneInput {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 .phone-field .PhoneInputInput {
   flex: 1;

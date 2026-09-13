@@ -212,6 +212,47 @@ export function normalizeBusinessProfile(value: unknown): BusinessProfileTier {
     : DEFAULT_BUSINESS_PROFILE
 }
 
+/**
+ * Receipt appearance/content settings — business-level (synced to every device via the profile).
+ * Print mechanics (selected printer, copies, auto-print) are device-local and NOT here.
+ */
+export interface ReceiptSettings {
+  /** Thermal paper width in mm (58 or 80). */
+  paperWidthMm: number
+  /** Footer thank-you line (null/empty = a default). */
+  thanksMessage: string | null
+  /** Show the business NIU (tax id) when set on the profile. */
+  showNiu: boolean
+  /** Show a tax/VAT breakdown line. */
+  showTax: boolean
+  /** Show the cashier name. */
+  showCashier: boolean
+  /** Show the payment method + tendered/change. */
+  showPayment: boolean
+  /** Show the thank-you footer. */
+  showThanks: boolean
+  /** Show the business logo at the top. */
+  showLogo: boolean
+  /** Show a QR (links to the digital receipt / sale lookup). */
+  showQr: boolean
+}
+
+/** Sensible defaults for a new/unset business. */
+export const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
+  paperWidthMm: 58,
+  thanksMessage: null,
+  showNiu: true,
+  showTax: false,
+  showCashier: true,
+  showPayment: true,
+  showThanks: true,
+  showLogo: true,
+  showQr: true,
+}
+
+/** Default receipt-number prefix (kept when a business hasn't customised it). */
+export const DEFAULT_RECEIPT_NUMBER_PREFIX = 'VTE-'
+
 export interface CreateBusinessRequest extends BusinessFiscalFields {
   name: string
   description?: string
@@ -238,6 +279,10 @@ export interface CreateBusinessRequest extends BusinessFiscalFields {
   profile?: BusinessProfileTier | null
   /** Authorization methods accepted at step-up (BIZ-3.3). null/absent ⇒ both PIN + CARD. */
   allowedAuthMethods?: MemberAuthCredentialType[] | null
+  /** Receipt appearance/content (business-level). */
+  receiptSettings?: ReceiptSettings | null
+  /** Custom receipt-number prefix (default 'VTE-'); applies to subsequent receipts only. */
+  receiptNumberPrefix?: string | null
 }
 
 export type UpdateBusinessRequest = Partial<CreateBusinessRequest>
@@ -271,6 +316,8 @@ export interface BusinessProfile {
   vatRegistered: boolean
   defaultVatRate: number | null
   fiscalRegime: FiscalRegime | null
+  receiptSettings: ReceiptSettings | null
+  receiptNumberPrefix: string | null
   role: BusinessMemberRole | null
 }
 
@@ -301,6 +348,8 @@ export interface BusinessMembershipBusinessSummary {
   vatRegistered?: boolean
   defaultVatRate?: number | null
   fiscalRegime?: FiscalRegime | null
+  receiptSettings?: ReceiptSettings | null
+  receiptNumberPrefix?: string | null
   ownerId?: string | null
   owner?: string | null
   subscriptionStatus?: SubscriptionStatus | null

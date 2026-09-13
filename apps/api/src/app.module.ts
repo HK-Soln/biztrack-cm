@@ -10,6 +10,8 @@ import { BrandsModule } from '@/modules/brands/brands.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { ChargesModule } from '@/modules/charges/charges.module'
 import { OnlineModule } from '@/modules/online/online.module'
+import { PaymentsModule } from '@/modules/payments/payments.module'
+import { PaymentLinksModule } from '@/modules/payment-links/payment-links.module'
 import { SyncModule } from '@/modules/sync/sync.module'
 import { RolesModule } from '@/modules/roles/roles.module'
 import { PlansModule } from '@/modules/plans/plans.module'
@@ -22,6 +24,8 @@ import { MarketingModule } from '@/modules/marketing/marketing.module'
 import { StorageModule } from '@/modules/storage/storage.module'
 import { InventoryModule } from '@/modules/inventory/inventory.module'
 import { ExpensesModule } from '@/modules/expenses/expenses.module'
+import { IncomeModule } from '@/modules/income/income.module'
+import { GeoModule } from '@/modules/geo/geo.module'
 import { DebtsModule } from '@/modules/debts/debts.module'
 import { RfqsModule } from '@/modules/rfqs/rfqs.module'
 import { PurchaseOrdersModule } from '@/modules/purchase-orders/purchase-orders.module'
@@ -110,6 +114,8 @@ function resolveI18nPath() {
     BrandsModule,
     InventoryModule,
     ExpensesModule,
+    IncomeModule,
+    GeoModule,
     DebtsModule,
     RfqsModule,
     PurchaseOrdersModule,
@@ -125,6 +131,8 @@ function resolveI18nPath() {
     AuditModule,
     ChargesModule,
     OnlineModule,
+    PaymentsModule,
+    PaymentLinksModule,
     SubscriptionsModule,
     NotificationsModule,
     DailyDigestModule,

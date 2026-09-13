@@ -14,7 +14,8 @@ import {
   ValidateIf,
 } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import type { BusinessHours, CreateBusinessRequest } from '@biztrack/types'
+import { Transform } from 'class-transformer'
+import type { BusinessHours, CreateBusinessRequest, ReceiptSettings } from '@biztrack/types'
 import {
   BusinessType,
   FiscalRegime,
@@ -166,4 +167,17 @@ export class CreateBusinessDto implements CreateBusinessRequest {
   @IsOptional()
   @IsEnum(FiscalRegime)
   fiscalRegime?: FiscalRegime
+
+  // --- Receipt configuration (business-level) ---
+  @ApiPropertyOptional({ type: 'object', additionalProperties: true })
+  @IsOptional()
+  @IsObject()
+  receiptSettings?: ReceiptSettings | null
+
+  @ApiPropertyOptional({ example: 'VTE-' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  receiptNumberPrefix?: string | null
 }

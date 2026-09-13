@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import type { PublicProductsQuery } from '@biztrack/types'
 import { listProducts } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
+import { usePreview } from '@/lib/preview'
 import { ProductCard } from './ProductCard'
 
 const IcArrow = (
@@ -27,9 +28,10 @@ export function RelatedProducts({
   query: PublicProductsQuery
 }) {
   const t = useTranslations('product')
+  const preview = usePreview()
   const { data } = useQuery({
     queryKey: queryKeys.products(slug, query),
-    queryFn: () => listProducts(slug, query),
+    queryFn: () => listProducts(slug, query, preview),
   })
 
   const related = (data?.data ?? []).filter((p) => p.id !== currentId).slice(0, 4)

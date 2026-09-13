@@ -37,7 +37,8 @@
       "buildResources": "assets"
     },
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "**/node_modules/pdf-to-printer/**"
     ],
     "icon": "assets/icon.png",
     "win": {

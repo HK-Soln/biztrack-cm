@@ -49,14 +49,40 @@ export function isStoreRootHost(hostHeader: string | null | undefined): boolean 
   return rootDomains().some((root) => host === root || host === `www.${root}`)
 }
 
+/** Resolved host: the store slug (or null), plus whether this is a draft-preview host. */
+export interface HostInfo {
+  slug: string | null
+  /** True on `preview.<slug>.<root>` — the storefront reads the draft config and blocks ordering. */
+  preview: boolean
+}
+
+/**
+ * Parse a Host header into `{ slug, preview }`. One subdomain = one shop, forever
+ * (akwa.biztrack.hk-solutions.app → 'akwa'). A leading `preview.` label
+ * (preview.akwa.biztrack.hk-solutions.app → { slug: 'akwa', preview: true }) selects the draft
+ * preview of that shop. The root itself and `www` are not stores.
+ */
+export function parseHost(hostHeader: string | null | undefined): HostInfo {
+  const host = normalizeHost(hostHeader)
+  const root = rootDomains().find((domain) => host === domain || host.endsWith(`.${domain}`))
+  if (!root || host === root) return { slug: null, preview: false }
+  let sub = host.slice(0, host.length - root.length - 1)
+  let preview = false
+  // `preview.` prefix flips to draft mode; the remaining single label is the slug. Bare
+  // `preview.<root>` carries no shop.
+  if (sub === 'preview') return { slug: null, preview: true }
+  if (sub.startsWith('preview.')) {
+    preview = true
+    sub = sub.slice('preview.'.length)
+  }
+  const slug = sub && sub !== 'www' ? sub : null
+  return { slug, preview }
+}
+
 /**
  * Extract the store slug from a Host header. One subdomain = one shop, forever
  * (akwa.biztrack.hk-solutions.app → 'akwa'). The root itself and `www` are not stores.
  */
 export function slugFromHost(hostHeader: string | null | undefined): string | null {
-  const host = normalizeHost(hostHeader)
-  const root = rootDomains().find((domain) => host === domain || host.endsWith(`.${domain}`))
-  if (!root || host === root) return null
-  const sub = host.slice(0, host.length - root.length - 1)
-  return sub && sub !== 'www' ? sub : null
+  return parseHost(hostHeader).slug
 }

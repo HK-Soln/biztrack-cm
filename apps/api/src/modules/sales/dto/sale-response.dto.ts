@@ -388,6 +388,8 @@ export class SaleReceiptDto implements SaleReceipt {
   businessName!: string
   businessPhone?: string | null
   businessAddress?: string | null
+  businessNiu?: string | null
+  businessLogoUrl?: string | null
   saleNumber!: string
   soldAt!: string
   cashierName!: string
@@ -411,6 +413,8 @@ export class SaleReceiptDto implements SaleReceipt {
     dto.businessName = business.name
     dto.businessPhone = business.phone ?? null
     dto.businessAddress = [business.address, business.city].filter(Boolean).join(', ') || null
+    dto.businessNiu = business.niu ?? null
+    dto.businessLogoUrl = business.logoUrl ?? null
     dto.saleNumber = entity.saleNumber
     dto.soldAt = toIsoString(entity.soldAt) ?? ''
     dto.cashierName = entity.cashier?.name ?? ''
