@@ -199,13 +199,6 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
   </style></head><body>${body}</body></html>`
 }
 
-function formatDateTime(iso: string, locale: string): string {
-  try {
-    return new Date(iso).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
-  } catch {
-    return iso
-  }
-}
 function formatQty(n: number, locale: string): string {
   try {
     return new Intl.NumberFormat(locale).format(n)
