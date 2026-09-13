@@ -151,6 +151,9 @@ export class DocumentService {
     const pdf = await this.renderReceiptPdf(html, widthMm)
     const tmp = join(app.getPath('temp'), `biztrack-receipt-${Date.now()}.pdf`)
     await writeFile(tmp, pdf)
+    console.log(
+      `[printReceipt] SumatraPDF → "${deviceName}" x${copies} (${pdf.length} B PDF at ${tmp})`,
+    )
     try {
       await sumatraPrint(tmp, {
         printer: deviceName,
@@ -158,6 +161,7 @@ export class DocumentService {
         monochrome: true,
         copies,
       })
+      console.log('[printReceipt] SumatraPDF print() resolved — job handed to the spooler')
     } finally {
       await unlink(tmp).catch(() => undefined)
     }
