@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, shell, type WebContentsPrintOptions } from 'electron'
 import { join } from 'path'
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, writeFile, unlink } from 'fs/promises'
+import { print as sumatraPrint } from 'pdf-to-printer'
 
 export type ShareChannel = 'whatsapp' | 'email'
 
@@ -97,25 +98,32 @@ export class DocumentService {
       return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
     }
 
+    // Windows: render the receipt to a PDF (Chromium printToPDF — the render path that produces
+    // correct content, unlike a silently-captured hidden window which came out blank), then print
+    // that PDF straight to the installed printer queue with SumatraPDF (pdf-to-printer). Silent, no
+    // dialog, uses the existing Windows driver, and keeps the exact receipt design.
+    if (process.platform === 'win32') {
+      try {
+        await this.printPdfToPrinter(html, widthMm, deviceName, copies)
+        return { printed: true, deviceName }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        console.error(`[printReceipt] SumatraPDF print failed (device="${deviceName}"): ${reason}`)
+        return {
+          printed: false,
+          pdfPath: await this.saveFallback(html, opts.filename, widthMm),
+          reason,
+          deviceName,
+        }
+      }
+    }
+
+    // Other platforms: the silent hidden-window path (macOS/Linux print fine this way).
     try {
-      // Attempt 1: a custom page size matched to the roll (width x measured content, in microns).
       const a = await this.attemptSilentPrint(html, widthMm, deviceName, copies, true)
       if (a.ok) return { printed: true }
-
-      // Attempt 2 (fresh window — never a second print() on the same webContents, which throws
-      // and crashes it): drop the custom page size and let the driver use its own configured
-      // paper. Many thermal drivers (POS-58 / 80mm) reject an arbitrary micron page size and
-      // fail the whole silent job — this is the usual reason a connected receipt printer prints
-      // nothing. Still fully silent: no dialog, no preview.
-      console.warn(
-        `[printReceipt] silent print failed (device="${deviceName}"): ${a.reason} — retrying with the driver's own paper`,
-      )
       const b = await this.attemptSilentPrint(html, widthMm, deviceName, copies, false)
       if (b.ok) return { printed: true }
-
-      console.error(
-        `[printReceipt] both silent attempts failed (device="${deviceName}"): ${b.reason}`,
-      )
       return {
         printed: false,
         pdfPath: await this.saveFallback(html, opts.filename, widthMm),
@@ -125,6 +133,33 @@ export class DocumentService {
     } catch (err) {
       console.error('[printReceipt] error', err)
       return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+    }
+  }
+
+  /**
+   * Print the receipt straight to a Windows printer queue via SumatraPDF (bundled by
+   * pdf-to-printer): render the HTML to a roll-sized PDF, drop it in a temp file, and hand it to
+   * SumatraPDF at 1:1 scale, monochrome, for the thermal head. Throws on failure so the caller
+   * can fall back to saving the PDF. The temp file is cleaned up either way.
+   */
+  private async printPdfToPrinter(
+    html: string,
+    widthMm: number,
+    deviceName: string,
+    copies: number,
+  ): Promise<void> {
+    const pdf = await this.renderReceiptPdf(html, widthMm)
+    const tmp = join(app.getPath('temp'), `biztrack-receipt-${Date.now()}.pdf`)
+    await writeFile(tmp, pdf)
+    try {
+      await sumatraPrint(tmp, {
+        printer: deviceName,
+        scale: 'noscale', // the PDF page is already the roll width; don't let SumatraPDF resize it
+        monochrome: true,
+        copies,
+      })
+    } finally {
+      await unlink(tmp).catch(() => undefined)
     }
   }
 
