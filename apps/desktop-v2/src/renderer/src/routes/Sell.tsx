@@ -2975,11 +2975,16 @@ function SuccessModal({
   }
 
   // Auto-print once on the success screen when the till is configured for it (device-local).
+  // Guarded so it fires a single time per sale — a bare [] effect double-fires under React
+  // StrictMode (and on any remount), which would print the receipt twice.
+  const autoPrintedRef = useRef<string | null>(null)
   useEffect(() => {
+    if (autoPrintedRef.current === sale.id) return
     if (!loadReceiptPrintSettings().autoPrint) return
+    autoPrintedRef.current = sale.id
     void print()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [sale.id])
 
   const title = onCredit
     ? sale.amountPaid > 0
