@@ -305,6 +305,10 @@ export interface SaleReceipt {
   businessName: string
   businessPhone?: string | null
   businessAddress?: string | null
+  /** Business tax id (NIU) — shown when settings.showNiu. */
+  businessNiu?: string | null
+  /** Business logo URL — shown when settings.showLogo. */
+  businessLogoUrl?: string | null
   saleNumber: string
   soldAt: IsoDateString
   cashierName: string

@@ -165,6 +165,8 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     vatRegistered: b.vatRegistered ?? false,
     defaultVatRate: b.defaultVatRate ?? null,
     fiscalRegime: b.fiscalRegime ?? null,
+    receiptSettings: b.receiptSettings ?? null,
+    receiptNumberPrefix: b.receiptNumberPrefix ?? null,
     role,
   }
 }

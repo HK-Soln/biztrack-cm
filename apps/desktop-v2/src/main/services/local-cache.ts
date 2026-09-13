@@ -123,6 +123,46 @@ export class LocalCache {
     }
   }
 
+  /**
+   * Cache the FULL active-business profile (identity + receipt settings) so the main process can
+   * build receipts offline with real data. The business record is server-owned (not synced), so this
+   * is written whenever the profile is fetched or updated via the API.
+   */
+  saveBusinessProfile(p: {
+    id: string
+    name: string
+    currency?: string | null
+    phone?: string | null
+    email?: string | null
+    address?: string | null
+    city?: string | null
+    logoUrl?: string | null
+    niu?: string | null
+    receiptSettings?: unknown
+    receiptNumberPrefix?: string | null
+  }): void {
+    this.db.run(
+      `UPDATE local_businesses SET
+         name = ?, currency = COALESCE(?, currency), phone = ?, email = ?, address = ?, city = ?,
+         logo_url = ?, niu = ?, receipt_settings = ?, receipt_number_prefix = ?, saved_at = ?
+       WHERE id = ?`,
+      [
+        p.name,
+        p.currency ?? null,
+        p.phone ?? null,
+        p.email ?? null,
+        p.address ?? null,
+        p.city ?? null,
+        p.logoUrl ?? null,
+        p.niu ?? null,
+        p.receiptSettings != null ? JSON.stringify(p.receiptSettings) : null,
+        p.receiptNumberPrefix ?? null,
+        new Date().toISOString(),
+        p.id,
+      ],
+    )
+  }
+
   getBusiness(id: string): CachedBusiness | null {
     const row = this.db.get<{
       id: string

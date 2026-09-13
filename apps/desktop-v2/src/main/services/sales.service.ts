@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { PaymentMethod } from '@biztrack/types'
+import { PaymentMethod, DEFAULT_RECEIPT_SETTINGS } from '@biztrack/types'
 import {
   allocateProRata,
   evaluateDiscountAuthorization,
@@ -7,7 +7,7 @@ import {
   toWholeXaf,
   type RoleDiscountLimits,
 } from '@biztrack/utils'
-import type { SaleReceipt } from '@biztrack/types'
+import type { SaleReceipt, ReceiptSettings } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { localBusinessDate } from './business-calendar'
 import type {
@@ -1977,9 +1977,12 @@ export class SalesService {
     })
   }
 
-  buildReceipt(
-    saleId: string,
-  ): { receipt: SaleReceipt; phone: string | null; email: string | null } | null {
+  buildReceipt(saleId: string): {
+    receipt: SaleReceipt
+    phone: string | null
+    email: string | null
+    settings: ReceiptSettings
+  } | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
     const sale = this.get(saleId)
@@ -1990,7 +1993,22 @@ export class SalesService {
       email: string | null
       address: string | null
       city: string | null
-    }>(`SELECT name, phone, email, address, city FROM local_businesses WHERE id = ?`, [businessId])
+      niu: string | null
+      logo_url: string | null
+      receipt_settings: string | null
+    }>(
+      `SELECT name, phone, email, address, city, niu, logo_url, receipt_settings
+         FROM local_businesses WHERE id = ?`,
+      [businessId],
+    )
+    let settings: ReceiptSettings = DEFAULT_RECEIPT_SETTINGS
+    if (biz?.receipt_settings) {
+      try {
+        settings = { ...DEFAULT_RECEIPT_SETTINGS, ...JSON.parse(biz.receipt_settings) }
+      } catch {
+        /* keep defaults */
+      }
+    }
     let email: string | null = null
     let phone = sale.customerPhone
     if (sale.customerId) {
@@ -2005,6 +2023,8 @@ export class SalesService {
       businessName: biz?.name ?? 'BizTrack',
       businessPhone: biz?.phone ?? null,
       businessAddress: [biz?.address, biz?.city].filter(Boolean).join(', ') || null,
+      businessNiu: biz?.niu ?? null,
+      businessLogoUrl: biz?.logo_url ?? null,
       saleNumber: sale.saleNumber,
       soldAt: sale.soldAt,
       cashierName: '',
@@ -2028,7 +2048,7 @@ export class SalesService {
       currency: sale.currency,
       payments: sale.payments.map((p) => ({ method: p.method as PaymentMethod, amount: p.amount })),
     }
-    return { receipt, phone, email }
+    return { receipt, phone, email, settings }
   }
 
   // ---- internals -----------------------------------------------------------

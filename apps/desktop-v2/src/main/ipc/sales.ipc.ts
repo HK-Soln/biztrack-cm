@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import type { HttpClient } from '@biztrack/http-client'
 import { renderSaleReceiptHtml, saleReceiptLabels, formatMoney } from '@biztrack/templates'
+import type { ReceiptSettings } from '@biztrack/types'
 import {
   IPC,
   type DocumentRecipient,
@@ -14,6 +15,19 @@ import type { SavingsService } from '../services/savings.service'
 import type { DocumentService } from '../services/document.service'
 
 const RECEIPT_WIDTH_MM = 58
+
+/** Build the shared template options from the business receipt settings (identity + toggles). */
+const receiptOpts = (locale: string, s?: ReceiptSettings) => ({
+  labels: saleReceiptLabels(locale),
+  locale,
+  widthMm: s?.paperWidthMm ?? RECEIPT_WIDTH_MM,
+  showNiu: s?.showNiu,
+  showCashier: s?.showCashier,
+  showPayment: s?.showPayment,
+  showThanks: s?.showThanks,
+  showLogo: s?.showLogo,
+  showQr: s?.showQr,
+})
 
 export function registerSalesIpc(
   sales: SalesService,
@@ -66,7 +80,7 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesReceiptHtml, (_e, saleId: string, locale: string) => {
     const built = sales.buildReceipt(saleId)
     if (!built) return null
-    return renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
+    return renderSaleReceiptHtml(built.receipt, receiptOpts(locale, built.settings))
   })
 
   // Print the receipt straight to the connected printer (no dialog); saves + reveals a
@@ -76,13 +90,10 @@ export function registerSalesIpc(
     async (_e, saleId: string, locale: string, reprint?: boolean) => {
       const built = sales.buildReceipt(saleId)
       if (!built) throw new Error('Sale not found.')
-      const html = renderSaleReceiptHtml(built.receipt, {
-        labels: saleReceiptLabels(locale),
-        locale,
-      })
+      const html = renderSaleReceiptHtml(built.receipt, receiptOpts(locale, built.settings))
       const result = await documents.printReceipt(html, {
         filename: `receipt-${built.receipt.saleNumber}`,
-        paperWidthMm: RECEIPT_WIDTH_MM,
+        paperWidthMm: built.settings.paperWidthMm ?? RECEIPT_WIDTH_MM,
       })
       // A reprint (from sales history) is audited; the initial checkout print is not.
       if (reprint) sales.logReceiptReprint(saleId)
@@ -94,7 +105,7 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesDownloadReceipt, async (_e, saleId: string, locale: string) => {
     const built = sales.buildReceipt(saleId)
     if (!built) throw new Error('Sale not found.')
-    const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
+    const html = renderSaleReceiptHtml(built.receipt, receiptOpts(locale, built.settings))
     return documents.downloadPdf(html, `receipt-${built.receipt.saleNumber}`)
   })
 
@@ -130,7 +141,7 @@ export function registerSalesIpc(
         }
       }
 
-      const html = renderSaleReceiptHtml(receipt, { labels: saleReceiptLabels(locale), locale })
+      const html = renderSaleReceiptHtml(receipt, receiptOpts(locale, built.settings))
       const currency = (receipt.currency as string) || 'XAF'
       const message = `${receipt.businessName} — ${receipt.saleNumber} · ${formatMoney(receipt.totalAmount, currency, locale)}`
       await documents.share({
