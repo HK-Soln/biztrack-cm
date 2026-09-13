@@ -369,8 +369,11 @@ export class DocumentService {
             )
             .catch(() => 0),
         ) || 600
-      const width = Math.round(widthMm * 1000) // mm to microns
-      const height = Math.max(Math.round((px / 96) * 25_400) + 4_000, 30_000) // px to microns + 4mm pad
+      // webContents.printToPDF pageSize is in INCHES (unlike webContents.print, which is microns).
+      // Passing microns here produced a ~58000-inch page whose MediaBox SumatraPDF/the thermal
+      // driver silently refused — the receipt "printed" (job accepted) but no paper came out.
+      const width = widthMm / 25.4 // mm -> inches
+      const height = px / 96 + 0.16 // CSS px (96dpi) -> inches + ~4mm bottom pad
       return await win.webContents.printToPDF({
         printBackground: true,
         pageSize: { width, height },
