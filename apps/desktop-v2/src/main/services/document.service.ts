@@ -37,7 +37,11 @@ export class DocumentService {
     })
     try {
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-      const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4', margins: { top: 0, bottom: 0, left: 0, right: 0 } })
+      const pdf = await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      })
       return pdf
     } finally {
       win.destroy()
@@ -89,25 +93,43 @@ export class DocumentService {
 
     try {
       const printers = await win.webContents.getPrintersAsync()
-      if (printers.length === 0) return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+      if (printers.length === 0)
+        return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
       // The device-selected printer wins when it's actually present; otherwise the OS default.
-      const chosen = opts.printerName ? printers.find((p) => p.name === opts.printerName) : undefined
+      const chosen = opts.printerName
+        ? printers.find((p) => p.name === opts.printerName)
+        : undefined
       const deviceName = (chosen ?? printers.find((p) => p.isDefault) ?? printers[0]!).name
+      console.log(
+        `[printReceipt] ${printers.length} printer(s); target="${deviceName}"${opts.printerName && !chosen ? ` (requested "${opts.printerName}" not found)` : ''}`,
+      )
 
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
       const pageSize = await this.getHtmlReceiptPageSize(win, widthMm)
       await this.preparePrintWindow(win)
 
-      const ok = await this.printWebContents(win, {
-        silent: true,
+      const copies = Math.max(1, Math.min(9, opts.copies ?? 1))
+      const base = { printBackground: true, margins: { marginType: 'none' as const }, pageSize }
+
+      // 1) Silent print straight to the device — the happy path (no dialog, no window).
+      const silent = await this.printWebContents(win, { ...base, silent: true, deviceName, copies })
+      if (silent === 'ok') return { printed: true }
+
+      // 2) Silent print wasn't confirmed (driver rejected it, or the callback never fired).
+      //    Fall back to the OS print dialog (device preselected) so the driver still prints —
+      //    a connected printer must not silently drop the job. The dialog is a system modal,
+      //    so it's visible even though the print window itself is off-screen.
+      console.warn('[printReceipt] silent print not confirmed; opening the system print dialog')
+      const viaDialog = await this.printWebContents(win, {
+        ...base,
+        silent: false,
         deviceName,
-        copies: Math.max(1, Math.min(9, opts.copies ?? 1)),
-        printBackground: true,
-        margins: { marginType: 'none' },
-        pageSize,
+        copies,
       })
-      if (!ok) return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
-      return { printed: true }
+      if (viaDialog === 'ok') return { printed: true }
+
+      // 3) Dialog cancelled or failed too → save + reveal the PDF so the cashier still has one.
+      return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
     } catch (err) {
       console.error('[printReceipt] error', err)
       return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
@@ -119,7 +141,8 @@ export class DocumentService {
   /** Hidden, off-screen-capable window for silent printing (mirrors v1 createPrintWindow). */
   private createPrintWindow(): BrowserWindow {
     const parent =
-      BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      BrowserWindow.getFocusedWindow() ??
+      BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
     return new BrowserWindow({
       show: false,
       skipTaskbar: true,
@@ -129,7 +152,12 @@ export class DocumentService {
       height: 760,
       autoHideMenuBar: true,
       ...(parent ? { parent } : {}),
-      webPreferences: { backgroundThrottling: false, contextIsolation: true, nodeIntegration: false, sandbox: true },
+      webPreferences: {
+        backgroundThrottling: false,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
     })
   }
 
@@ -148,7 +176,10 @@ export class DocumentService {
   }
 
   /** Measure rendered content height → page size in microns (mirrors v1 getHtmlReceiptPageSize). */
-  private async getHtmlReceiptPageSize(win: BrowserWindow, widthMm: number): Promise<{ width: number; height: number }> {
+  private async getHtmlReceiptPageSize(
+    win: BrowserWindow,
+    widthMm: number,
+  ): Promise<{ width: number; height: number }> {
     await win.webContents
       .executeJavaScript(
         `new Promise((res)=>{const s=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>res(true)));document.readyState==='complete'?s():window.addEventListener('load',s,{once:true})})`,
@@ -167,23 +198,43 @@ export class DocumentService {
     return { width: Math.round(widthMm * 1_000), height: Math.max(heightMicrons, 50 * 1_000) }
   }
 
-  /** Run webContents.print with a 10s safety timeout that assumes hand-off (mirrors v1). */
-  private printWebContents(win: BrowserWindow, options: WebContentsPrintOptions): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
+  /**
+   * Run webContents.print and report only a CONFIRMED result. Returns 'ok' when the
+   * callback fires with success; 'failed' when it reports failure/cancellation or never
+   * fires within the safety window. We must not assume success on timeout — a silent job
+   * a thermal driver quietly dropped would then be reported as printed while nothing came
+   * out. An unconfirmed job falls through to the print-dialog / PDF fallback instead.
+   */
+  private printWebContents(
+    win: BrowserWindow,
+    options: WebContentsPrintOptions,
+  ): Promise<'ok' | 'failed'> {
+    return new Promise<'ok' | 'failed'>((resolve) => {
       let settled = false
       const safety = setTimeout(() => {
         if (settled) return
         settled = true
-        console.warn('[printReceipt] callback did not fire within 10s; assuming the job was handed off')
-        resolve(true)
-      }, 10_000)
-      win.webContents.print(options, (success, failureReason) => {
+        console.warn(
+          `[printReceipt] print callback did not fire within 20s (silent=${options.silent})`,
+        )
+        resolve('failed')
+      }, 20_000)
+      try {
+        win.webContents.print(options, (success, failureReason) => {
+          if (settled) return
+          settled = true
+          clearTimeout(safety)
+          if (!success)
+            console.error(`[printReceipt] print failed (silent=${options.silent}):`, failureReason)
+          resolve(success ? 'ok' : 'failed')
+        })
+      } catch (err) {
         if (settled) return
         settled = true
         clearTimeout(safety)
-        if (!success) console.error('[printReceipt] print failed:', failureReason)
-        resolve(success)
-      })
+        console.error(`[printReceipt] print threw (silent=${options.silent}):`, err)
+        resolve('failed')
+      }
     })
   }
 
@@ -194,7 +245,11 @@ export class DocumentService {
 
   /** Render a receipt HTML to a PDF sized to the thermal roll (width x measured content). */
   private async renderReceiptPdf(html: string, widthMm: number): Promise<Buffer> {
-    const win = new BrowserWindow({ show: false, paintWhenInitiallyHidden: true, webPreferences: { offscreen: true, sandbox: true } })
+    const win = new BrowserWindow({
+      show: false,
+      paintWhenInitiallyHidden: true,
+      webPreferences: { offscreen: true, sandbox: true },
+    })
     try {
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
       await win.webContents
@@ -205,12 +260,18 @@ export class DocumentService {
       const px =
         Number(
           await win.webContents
-            .executeJavaScript('Math.ceil(Math.max(document.documentElement.scrollHeight,document.body.scrollHeight))')
+            .executeJavaScript(
+              'Math.ceil(Math.max(document.documentElement.scrollHeight,document.body.scrollHeight))',
+            )
             .catch(() => 0),
         ) || 600
       const width = Math.round(widthMm * 1000) // mm to microns
       const height = Math.max(Math.round((px / 96) * 25_400) + 4_000, 30_000) // px to microns + 4mm pad
-      return await win.webContents.printToPDF({ printBackground: true, pageSize: { width, height }, margins: { top: 0, bottom: 0, left: 0, right: 0 } })
+      return await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: { width, height },
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      })
     } finally {
       win.destroy()
     }
