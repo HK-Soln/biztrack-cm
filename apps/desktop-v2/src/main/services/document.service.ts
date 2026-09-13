@@ -89,53 +89,121 @@ export class DocumentService {
     opts: { filename: string; paperWidthMm?: number; printerName?: string | null; copies?: number },
   ): Promise<{ printed: boolean; pdfPath?: string; reason?: string; deviceName?: string }> {
     const widthMm = opts.paperWidthMm ?? 58
-    const win = this.createPrintWindow()
+    const copies = Math.max(1, Math.min(9, opts.copies ?? 1))
+
+    // Resolve the target device once (probe window closed straight after).
+    const deviceName = await this.resolvePrinter(opts.printerName)
+    if (deviceName === null) {
+      return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+    }
 
     try {
-      const printers = await win.webContents.getPrintersAsync()
-      if (printers.length === 0)
-        return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
-      // The device-selected printer wins when it's actually present; otherwise the OS default.
-      const chosen = opts.printerName
-        ? printers.find((p) => p.name === opts.printerName)
-        : undefined
-      const deviceName = (chosen ?? printers.find((p) => p.isDefault) ?? printers[0]!).name
-      console.log(
-        `[printReceipt] ${printers.length} printer(s); target="${deviceName}"${opts.printerName && !chosen ? ` (requested "${opts.printerName}" not found)` : ''}`,
+      // Attempt 1: a custom page size matched to the roll (width x measured content, in microns).
+      const a = await this.attemptSilentPrint(html, widthMm, deviceName, copies, true)
+      if (a.ok) return { printed: true }
+
+      // Attempt 2 (fresh window — never a second print() on the same webContents, which throws
+      // and crashes it): drop the custom page size and let the driver use its own configured
+      // paper. Many thermal drivers (POS-58 / 80mm) reject an arbitrary micron page size and
+      // fail the whole silent job — this is the usual reason a connected receipt printer prints
+      // nothing. Still fully silent: no dialog, no preview.
+      console.warn(
+        `[printReceipt] silent print failed (device="${deviceName}"): ${a.reason} — retrying with the driver's own paper`,
       )
+      const b = await this.attemptSilentPrint(html, widthMm, deviceName, copies, false)
+      if (b.ok) return { printed: true }
 
-      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-      const pageSize = await this.getHtmlReceiptPageSize(win, widthMm)
-      await this.preparePrintWindow(win)
-
-      const copies = Math.max(1, Math.min(9, opts.copies ?? 1))
-
-      // ONE silent print straight to the device — no dialog, no preview, and never a second
-      // print() on this webContents (a second call while the first is pending throws and
-      // crashes the window). If it isn't confirmed, we save + reveal a PDF as the safety net.
-      const res = await this.printWebContents(win, {
-        silent: true,
-        deviceName,
-        copies,
-        printBackground: true,
-        margins: { marginType: 'none' },
-        pageSize,
-      })
-      if (res.ok) return { printed: true }
-
-      console.error(`[printReceipt] silent print failed (device="${deviceName}"): ${res.reason}`)
+      console.error(
+        `[printReceipt] both silent attempts failed (device="${deviceName}"): ${b.reason}`,
+      )
       return {
         printed: false,
         pdfPath: await this.saveFallback(html, opts.filename, widthMm),
-        reason: res.reason,
+        reason: a.reason,
         deviceName,
       }
     } catch (err) {
       console.error('[printReceipt] error', err)
       return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+    }
+  }
+
+  /** Resolve the device system-name to print to, or null when there are no printers at all. */
+  private async resolvePrinter(printerName?: string | null): Promise<string | null> {
+    const win = this.createPrintWindow()
+    try {
+      const printers = await win.webContents.getPrintersAsync()
+      if (printers.length === 0) return null
+      // The device-selected printer wins when it's actually present; otherwise the OS default.
+      const chosen = printerName ? printers.find((p) => p.name === printerName) : undefined
+      const deviceName = (chosen ?? printers.find((p) => p.isDefault) ?? printers[0]!).name
+      console.log(
+        `[printReceipt] ${printers.length} printer(s); target="${deviceName}"${printerName && !chosen ? ` (requested "${printerName}" not found)` : ''}`,
+      )
+      return deviceName
     } finally {
       if (!win.isDestroyed()) win.close()
     }
+  }
+
+  /**
+   * One silent print job on its OWN window: load the HTML, paint it off-screen, then print.
+   * `withPageSize` toggles the custom micron roll size (attempt 1) vs. letting the driver's
+   * own configured paper apply (attempt 2). The window is always closed afterwards.
+   */
+  private async attemptSilentPrint(
+    html: string,
+    widthMm: number,
+    deviceName: string,
+    copies: number,
+    withPageSize: boolean,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const win = this.createPrintWindow()
+    try {
+      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+      // Show the window OFF-SCREEN *first* so it actually composites, THEN wait for the content
+      // (including the logo/QR images) to finish painting. Printing before the paint completes is
+      // why the printer fed a blank page — the captured frame was still empty.
+      await this.preparePrintWindow(win)
+      await this.waitForContentReady(win)
+      const pageSize = withPageSize ? await this.getHtmlReceiptPageSize(win, widthMm) : undefined
+      return await this.printWebContents(win, {
+        silent: true,
+        deviceName,
+        copies,
+        printBackground: true,
+        margins: { marginType: 'none' },
+        ...(pageSize ? { pageSize } : {}),
+      })
+    } finally {
+      if (!win.isDestroyed()) win.close()
+    }
+  }
+
+  /**
+   * Wait until the shown window has actually painted the receipt: document `complete`, every
+   * image (logo/QR data-URIs) loaded, then two animation frames so the compositor has a real
+   * frame to capture. Without this the silent print grabs a blank frame and feeds empty paper.
+   */
+  private async waitForContentReady(win: BrowserWindow): Promise<void> {
+    if (win.isDestroyed()) return
+    await win.webContents
+      .executeJavaScript(
+        `new Promise((resolve)=>{
+          const paint=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)));
+          const ready=()=>{
+            const imgs=Array.from(document.images||[]).filter((i)=>!i.complete);
+            if(imgs.length===0)return paint();
+            let left=imgs.length;const tick=()=>{if(--left<=0)paint()};
+            imgs.forEach((i)=>{i.addEventListener('load',tick,{once:true});i.addEventListener('error',tick,{once:true})});
+            setTimeout(paint,1500);
+          };
+          document.readyState==='complete'?ready():window.addEventListener('load',ready,{once:true});
+        })`,
+      )
+      .catch(() => undefined)
+    // A final settle so the painted frame is on the compositor before we capture it.
+    await new Promise<void>((resolve) => setTimeout(resolve, 120))
   }
 
   /** Hidden, off-screen-capable window for silent printing (mirrors v1 createPrintWindow). */
