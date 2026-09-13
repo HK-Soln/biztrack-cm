@@ -772,25 +772,62 @@ export class DepositsService {
       new Date(payload.occurredAt),
       payload.businessDate,
     )
-    await this.savingsTransactionsRepo.save(
-      this.savingsTransactionsRepo.create({
-        id: payload.transactionId,
-        savingsId: payload.savingsId,
-        businessId,
-        type: payload.type,
-        direction: payload.direction,
-        amount: payload.amount,
-        method: payload.method ?? null,
-        mobileMoneyReference: payload.mobileMoneyReference ?? null,
-        saleId: payload.saleId ?? null,
-        notes: payload.notes ?? null,
-        recordedById: payload.recordedById ?? null,
-        occurredAt: new Date(payload.occurredAt),
-        isDeleted: false,
-        businessDate,
-        createdAt: new Date(payload.createdAt),
-      }),
-    )
+    // Save the savings row and — for a deposit-cancellation 'charge' — book its income into the Other
+    // Income ledger in the SAME transaction, so a device-originated charge lands in other_incomes just
+    // like the cloud `settle()` path does. The income statement reads other income only from
+    // other_incomes, so this is what makes an offline-created charge show up there (once synced).
+    // Idempotent: guarded by source_id, and the whole op no-ops once the transaction exists.
+    await this.savingsTransactionsRepo.manager.transaction(async (m) => {
+      await m.getRepository(DepositTransaction).save(
+        m.getRepository(DepositTransaction).create({
+          id: payload.transactionId,
+          savingsId: payload.savingsId,
+          businessId,
+          type: payload.type,
+          direction: payload.direction,
+          amount: payload.amount,
+          method: payload.method ?? null,
+          mobileMoneyReference: payload.mobileMoneyReference ?? null,
+          saleId: payload.saleId ?? null,
+          notes: payload.notes ?? null,
+          recordedById: payload.recordedById ?? null,
+          occurredAt: new Date(payload.occurredAt),
+          isDeleted: false,
+          businessDate,
+          createdAt: new Date(payload.createdAt),
+        }),
+      )
+
+      if ((payload.type as string) === 'charge' && payload.amount > 0) {
+        const alreadyBooked = await m.getRepository(OtherIncome).findOne({
+          where: { businessId, source: 'DEPOSIT_CHARGE', sourceId: payload.transactionId },
+          withDeleted: true,
+        })
+        if (!alreadyBooked) {
+          const depositCategory = await this.income.ensureCategoryBySlug(
+            businessId,
+            'deposit-charges',
+            'Deposit charges',
+            '#8B5CF6',
+            m,
+          )
+          await this.income.record(
+            businessId,
+            {
+              categoryId: depositCategory.id,
+              description: payload.notes?.trim() || 'Deposit cancellation charge',
+              amount: payload.amount,
+              currency: 'XAF',
+              source: 'DEPOSIT_CHARGE',
+              sourceId: payload.transactionId,
+              recordedById: payload.recordedById ?? null,
+              date: new Date(payload.occurredAt),
+            },
+            m,
+          )
+        }
+      }
+    })
     // Account balance is maintained by the savings account sync record which is pushed alongside every transaction
   }
 

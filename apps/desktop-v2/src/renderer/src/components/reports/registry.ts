@@ -571,16 +571,20 @@ export const LOADERS: Record<string, ReportLoader> = {
     )
   },
   cr: async ({ client, range, currency, opts }) => {
+    // Other income now comes from the single Other Income ledger (other_incomes) — all sources
+    // (manual, general payment links, migrated deposit-cancellation charges) — not the old
+    // deposit-charge-only path, so the income statement reflects every "other income" line.
     const [gp, exp, oi] = await Promise.all([
       client.sales.grossProfit(range),
       client.expenses.summary(range),
-      client.deposits.otherIncome(range),
+      client.income.summary(range),
     ])
     return buildIncomeStatementReport(
       {
         revenue: gp.revenue,
         cogs: gp.cogs,
         otherIncome: oi.total,
+        otherIncomeByCategory: oi.byCategory.map((c) => ({ name: c.name, amount: c.amount })),
         expensesByCategory: exp.byCategory.map((c) => ({ name: c.name, amount: c.amount })),
         totalExpenses: exp.total,
         currency,
