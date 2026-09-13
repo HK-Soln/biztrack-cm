@@ -229,19 +229,17 @@ export function ReceiptsSection() {
               <p>{t('rcp.headerSub')}</p>
             </div>
           </div>
-          <div className="field-row">
-            <div>
-              <label className="lbl">{t('rcp.bizName')}</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="lbl">{t('rcp.phone')}</label>
-              <PhoneInput
-                value={phone || undefined}
-                defaultCountry="CM"
-                onChange={(v) => setPhone(v ?? '')}
-              />
-            </div>
+          <div>
+            <label className="lbl">{t('rcp.bizName')}</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <label className="lbl">{t('rcp.phone')}</label>
+            <PhoneInput
+              value={phone || undefined}
+              defaultCountry="CM"
+              onChange={(v) => setPhone(v ?? '')}
+            />
           </div>
           <div style={{ marginTop: 14 }}>
             <label className="lbl">{t('rcp.address')}</label>
