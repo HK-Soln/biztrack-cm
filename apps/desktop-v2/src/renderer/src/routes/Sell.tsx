@@ -15,6 +15,7 @@ import { requestManagerStepUp } from '@/stores/step-up.store'
 import { useSessionStore } from '@/stores/session.store'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
+import { loadReceiptPrintSettings } from '@/lib/receipt-print-settings'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { useLangStore, useT } from '@/i18n'
@@ -2947,7 +2948,7 @@ function SuccessModal({
   const print = async () => {
     setPrinting(true)
     try {
-      const r = await dataClient.sales.printReceipt(sale.id, lang)
+      const r = await dataClient.sales.printReceipt(sale.id, lang, false, loadReceiptPrintSettings())
       flash(r.printed ? t('sell.printed') : t('sell.printSaved'))
     } catch {
       flash(t('sell.printFailed'))
@@ -2955,6 +2956,13 @@ function SuccessModal({
       setPrinting(false)
     }
   }
+
+  // Auto-print once on the success screen when the till is configured for it (device-local).
+  useEffect(() => {
+    if (!loadReceiptPrintSettings().autoPrint) return
+    void print()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const title = onCredit
     ? sale.amountPaid > 0
