@@ -188,8 +188,10 @@ export class IncomeService {
       .getRawOne<{ total: string }>()
     const totalAmount = Number(totalRow?.total ?? 0)
 
+    // orderBy resolves ENTITY PROPERTY names (not snake columns) — with leftJoinAndSelect + skip/take
+    // a snake name ('created_at') 500s ("Cannot read properties of undefined (reading 'databaseName')").
     qb.orderBy('oi.date', 'DESC')
-      .addOrderBy('oi.created_at', 'DESC')
+      .addOrderBy('oi.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
     const [rows, total] = await qb.getManyAndCount()
