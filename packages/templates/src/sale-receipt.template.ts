@@ -180,7 +180,7 @@ export function renderSaleReceiptHtml(receipt: SaleReceipt, opts: SaleReceiptOpt
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(receipt.saleNumber)}</title><style>
     *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     html,body{background:#fff}
-    body{font:12.5px/1.5 ui-sans-serif,system-ui,'Segoe UI',Roboto,Arial,sans-serif;color:#111;width:${width}mm;padding:9mm 4mm}
+    body{font:12.5px/1.5 ui-sans-serif,system-ui,'Segoe UI',Roboto,Arial,sans-serif;color:#111;width:${width}mm;padding:14mm 5mm}
     .ctr{text-align:center}
     .logo{margin-bottom:6px}
     .logo img{max-width:46px;max-height:46px;object-fit:contain}
