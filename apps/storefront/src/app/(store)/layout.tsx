@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+import { getTranslations } from 'next-intl/server'
 import { MARKETING_URL } from '@/lib/host'
-import { getCurrentStore } from '@/lib/store'
+import { getCurrentStore, getStoreContext } from '@/lib/store'
 import { storeFaviconUrl } from '@/lib/favicon'
+import { PreviewProvider } from '@/lib/preview'
 import { StoreHeader } from '@/components/StoreHeader'
 import { StoreFooter } from '@/components/StoreFooter'
 
@@ -33,16 +35,29 @@ export default async function StoreLayout({ children }: { children: ReactNode })
   // No shop on this host, or no shop by that name -> the marketing site. `getStore` throws rather
   // than returning null when the API is unreachable, so an outage surfaces as an error page
   // instead of silently redirecting customers away from a shop that exists.
-  const store = await getCurrentStore()
+  const [store, { preview }, t] = await Promise.all([
+    getCurrentStore(),
+    getStoreContext(),
+    getTranslations('preview'),
+  ])
   if (!store) redirect(MARKETING_URL)
 
   const brand = BRANDS.includes(store.themeId) ? store.themeId : 'a'
 
   return (
-    <div className="store" data-brand={brand} data-theme={store.appearance}>
-      <StoreHeader store={store} base="" />
-      <main>{children}</main>
-      <StoreFooter store={store} base="" />
-    </div>
+    <PreviewProvider value={preview}>
+      <div className="store" data-brand={brand} data-theme={store.appearance} data-preview={preview}>
+        {preview ? (
+          <div className="preview-bar" role="status">
+            <span className="pb-dot" />
+            <span className="pb-t">{t('banner')}</span>
+            <span className="pb-d">{t('bannerHint')}</span>
+          </div>
+        ) : null}
+        <StoreHeader store={store} base="" />
+        <main>{children}</main>
+        <StoreFooter store={store} base="" />
+      </div>
+    </PreviewProvider>
   )
 }

@@ -19,6 +19,8 @@ export interface ExpenseCategory {
   color: string
   icon?: string | null
   sortOrder: number
+  /** When true, selecting this category defaults a new expense to recurring (Spec 10 follow-up). */
+  isRecurring: boolean
   isSystem: boolean
   expenseCount?: number
   createdAt: IsoDateString
@@ -122,6 +124,7 @@ export interface CreateExpenseCategoryRequest {
   color: string
   icon?: string
   sortOrder?: number
+  isRecurring?: boolean
 }
 
 export type UpdateExpenseCategoryRequest = Partial<CreateExpenseCategoryRequest>

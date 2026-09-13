@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
+import QRCode from 'qrcode'
 import { Inject, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
@@ -54,6 +56,7 @@ import { SaleDiscount } from '@/entities/sale-discount.entity'
 import { Role } from '@/entities/role.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
 import { SalePayment } from '@/entities/sale-payment.entity'
+import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { SaleReturn } from '@/entities/sale-return.entity'
 import { SaleReturnItem } from '@/entities/sale-return-item.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -158,9 +161,50 @@ export class SalesService {
     private readonly calendar: BusinessCalendarService,
     private readonly postingDate: PostingDateService,
     private readonly i18n: I18nService<I18nTranslations>,
+    private readonly config: ConfigService,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {
     this.logger.setContext('SalesService')
+  }
+
+  /**
+   * Render a sale's receipt HTML with the business's own settings — the SINGLE receipt
+   * render path shared by the public receipt page, the emailed/WhatsApp send, and the PDF.
+   * Mirrors the desktop's IPC render so all channels produce the exact same shape, including
+   * the QR (encoding the /r/<saleId> digital-receipt URL) when the business enabled it.
+   */
+  private async renderReceiptHtmlFor(
+    sale: Sale,
+    business: Business,
+    locale: string,
+  ): Promise<string> {
+    const receipt = SaleReceiptDto.fromSale(sale, business)
+    const s = business.receiptSettings
+    const showQr = s?.showQr !== false
+    const qrImage = showQr ? await this.buildReceiptQr(sale.id) : null
+    return renderSaleReceiptHtml(receipt, {
+      labels: saleReceiptLabels(locale),
+      locale,
+      widthMm: s?.paperWidthMm ?? 58,
+      showNiu: s?.showNiu,
+      showCashier: s?.showCashier,
+      showPayment: s?.showPayment,
+      showThanks: s?.showThanks,
+      showLogo: s?.showLogo,
+      showQr: showQr && !!qrImage,
+      qrImage: qrImage ?? undefined,
+    })
+  }
+
+  /** QR encoding the public digital-receipt URL (same as desktop). Null if no base URL / on error. */
+  private async buildReceiptQr(saleId: string): Promise<string | null> {
+    const base = (this.config.get<string>('PAYMENT_LINK_BASE_URL') ?? '').replace(/\/+$/, '')
+    if (!base) return null
+    try {
+      return await QRCode.toDataURL(`${base}/r/${saleId}`, { margin: 1, width: 200 })
+    } catch {
+      return null
+    }
   }
 
   async create(businessId: string, user: JwtPayload, dto: CreateSaleDto, context?: AuditContext) {
@@ -384,6 +428,7 @@ export class SalesService {
               amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
+              paymentAttemptId: payment.paymentAttemptId ?? null,
               businessDate,
               postingDate: posting.postingDate,
               isLateArrival: posting.isLateArrival,
@@ -710,6 +755,7 @@ export class SalesService {
               amount: toWholeXaf(payment.amount),
               mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
               savingsAccountId: payment.savingsAccountId ?? null,
+              paymentAttemptId: payment.paymentAttemptId ?? null,
               businessDate,
               postingDate: posting.postingDate,
               isLateArrival: posting.isLateArrival,
@@ -717,6 +763,19 @@ export class SalesService {
             }),
           ),
         )
+
+        // Back-link any in-store provider attempts to the Sale they settled (Spec 07 §7.2). The
+        // attempt CONFIRMED before the Sale existed, so its sale_id is filled in here, at post time.
+        // The forward link (sale_payments.payment_attempt_id) is already written above; this is the
+        // reverse convenience for reconciliation/fees. Scoped to businessId; safe if already set.
+        const attemptIds = salePayments
+          .map((p) => p.paymentAttemptId)
+          .filter((id): id is string => Boolean(id))
+        if (attemptIds.length > 0) {
+          await manager
+            .getRepository(PaymentAttempt)
+            .update({ id: In(attemptIds), businessId }, { saleId: sale.id })
+        }
 
         if (payload.charges && payload.charges.length > 0) {
           const chargeRepo = manager.getRepository(SaleCharge)
@@ -1550,7 +1609,9 @@ export class SalesService {
             mobileMoneyReference: input.mobileMoneyReference?.trim() || null,
             kind: SalePaymentKind.PAYMENT,
             recordedAt: now,
-            recordedById: user.sub,
+            // Empty for a system/guest actor (a payment-link settlement with no user) → NULL, since
+            // recorded_by_id is a uuid column that rejects an empty string.
+            recordedById: user.sub || null,
             note: input.note?.trim() || null,
           }),
         )
@@ -1571,7 +1632,7 @@ export class SalesService {
           method: input.method,
           mobileMoneyReference: input.mobileMoneyReference ?? null,
           paymentDate: input.paymentDate,
-          recordedById: user.sub,
+          recordedById: user.sub || null,
         })
       })
       return this.findById(id, businessId)
@@ -1974,6 +2035,22 @@ export class SalesService {
   }
 
   /**
+   * Public digital receipt (the QR on the printed receipt points here). Unauthenticated: the sale id
+   * (an unguessable UUID) is the capability. Renders the shared receipt template with the business's
+   * own receipt settings (identity, NIU, logo, paper width, content toggles) — the same one that
+   * prints — minus the QR (no recursion). Returns null when the sale doesn't exist.
+   */
+  async renderPublicReceipt(saleId: string, locale = 'fr'): Promise<string | null> {
+    const ref = await this.salesRepo.findOne({
+      where: { id: saleId },
+      select: ['id', 'businessId'],
+    })
+    if (!ref) return null
+    const { sale, business } = await this.getReceipt(saleId, ref.businessId)
+    return this.renderReceiptHtmlFor(sale, business, locale)
+  }
+
+  /**
    * Render the sale's receipt (shared @biztrack/templates template) to a PDF and dispatch
    * it to the customer over WhatsApp/email. Same pipeline as RFQ/PO sends (ProcurementSend).
    */
@@ -1985,9 +2062,8 @@ export class SalesService {
   ): Promise<{ pdfUrl: string | null }> {
     try {
       const { sale, business } = await this.getReceipt(id, businessId)
-      const receipt = SaleReceiptDto.fromSale(sale, business)
       const locale = dto.locale?.trim() || 'fr'
-      const html = renderSaleReceiptHtml(receipt, { labels: saleReceiptLabels(locale), locale })
+      const html = await this.renderReceiptHtmlFor(sale, business, locale)
 
       let phone = dto.recipient?.phone ?? sale.customerPhone ?? null
       let email = dto.recipient?.email ?? null

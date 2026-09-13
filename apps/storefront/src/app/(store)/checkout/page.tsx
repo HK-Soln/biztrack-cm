@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { getStore } from '@/lib/api'
-import { getStoreSlug } from '@/lib/store'
+import { getStoreContext } from '@/lib/store'
 import { CheckoutView } from '@/components/CheckoutView'
 
 export const metadata: Metadata = { robots: { index: false, follow: true } }
@@ -20,10 +20,10 @@ const IcCheck = (
 )
 
 export default async function CheckoutPage() {
-  const slug = await getStoreSlug()
+  const { slug, preview } = await getStoreContext()
   if (!slug) notFound()
   const [store, t, tn] = await Promise.all([
-    getStore(slug),
+    getStore(slug, preview),
     getTranslations('checkout'),
     getTranslations('nav'),
   ])

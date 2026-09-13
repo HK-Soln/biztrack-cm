@@ -54,6 +54,9 @@ import type {
   OnlineOrderDetail,
   OnlineOrder,
   OnlineSlugCheck,
+  CountryView,
+  RegionView,
+  CityView,
   OnlineAdminProduct,
   OnlineAdminProductsQuery,
   OnlineStorePublicationSummary,
@@ -162,6 +165,8 @@ function toProfile(b: BusinessFields, role: BusinessProfile['role']): BusinessPr
     vatRegistered: b.vatRegistered ?? false,
     defaultVatRate: b.defaultVatRate ?? null,
     fiscalRegime: b.fiscalRegime ?? null,
+    receiptSettings: b.receiptSettings ?? null,
+    receiptNumberPrefix: b.receiptNumberPrefix ?? null,
     role,
   }
 }
@@ -258,6 +263,13 @@ export const cloudOnline = {
   setProductPublished: async (id: string, published: boolean) => {
     await cpatch(`/online-store/products/${id}`, { isPublishedOnline: published })
   },
+  getCountries: () => cget<CountryView[]>('/public/geo/countries'),
+  getRegions: (country: string) =>
+    cget<RegionView[]>(`/public/geo/regions?country=${encodeURIComponent(country)}`),
+  getCities: (country: string, region: string) =>
+    cget<CityView[]>(
+      `/public/geo/cities?country=${encodeURIComponent(country)}&region=${encodeURIComponent(region)}`,
+    ),
 }
 
 export const cloudUploads = {

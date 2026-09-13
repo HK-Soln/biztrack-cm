@@ -1,30 +1,28 @@
-import { useState } from 'react'
-import { BrandMark, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
-import { useT } from '@/i18n'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, PhoneInput, Select } from '@biztrack/ui/biztrack'
+import {
+  DEFAULT_RECEIPT_SETTINGS,
+  DEFAULT_RECEIPT_NUMBER_PREFIX,
+  PaymentMethod,
+  type ReceiptSettings,
+  type SaleReceipt,
+} from '@biztrack/types'
+import QRCode from 'qrcode'
+import { renderSaleReceiptHtml, saleReceiptLabels } from '@biztrack/templates'
+import { dataClient } from '@/lib/data-client'
+import { useLangStore, useT } from '@/i18n'
+import { errorMessage } from '@/lib/error'
+import {
+  loadReceiptPrintSettings,
+  saveReceiptPrintSettings,
+  type ReceiptPrintSettings,
+} from '@/lib/receipt-print-settings'
 
-// Receipts — INTERACTIVE PREVIEW (design-receipts.html). No backend yet for receipt
-// settings, so everything is local state behind a coming-soon banner. The thermal
-// receipt on the right updates live from the fields and toggles.
-
-type Paper = '280' | '210' | '320'
-const PAPERS: Array<{ w: Paper; label: string; sub: string }> = [
-  { w: '280', label: '80 mm', sub: 'rcp.thermal' },
-  { w: '210', label: '58 mm', sub: 'rcp.compact' },
-  { w: '320', label: 'A4', sub: 'rcp.invoice' },
+const PAPERS: Array<{ mm: number; label: string; sub: 'rcp.thermal' | 'rcp.compact' }> = [
+  { mm: 80, label: '80 mm', sub: 'rcp.thermal' },
+  { mm: 58, label: '58 mm', sub: 'rcp.compact' },
 ]
-
-const Info = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 11v5M12 8h.01" />
-  </svg>
-)
-const Warn = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-    <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
-    <path d="M12 9v4M12 17h.01" />
-  </svg>
-)
 
 function Toggle({
   nm,
@@ -53,37 +51,174 @@ function Toggle({
   )
 }
 
+// A representative sample sale so the preview shows the real template exactly as it prints.
+function sampleReceipt(
+  s: ReceiptSettings,
+  identity: { name: string; phone: string; address: string; niu: string; logoUrl: string | null },
+  prefix: string,
+): SaleReceipt {
+  return {
+    businessName: identity.name || 'Ma Boutique',
+    businessPhone: identity.phone || '+237 6 78 21 44 02',
+    businessAddress: identity.address || 'Akwa, Douala',
+    businessNiu: identity.niu || 'P048512900233K',
+    businessLogoUrl: identity.logoUrl,
+    saleNumber: `${prefix}${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-0147`,
+    soldAt: new Date().toISOString(),
+    cashierName: 'Junior T.',
+    customerName: 'Awa N.',
+    items: [
+      { name: 'Riz parfumé 5kg', qty: 2, unitPrice: 6500, total: 13000 },
+      { name: 'Huile végétale 5L', qty: 1, unitPrice: 5500, total: 5500 },
+      { name: 'Lait concentré', qty: 6, unitPrice: 650, total: 3900 },
+    ],
+    subtotal: 22400,
+    discountAmount: 0,
+    chargesAmount: 0,
+    totalAmount: 22400,
+    amountPaid: 22400,
+    creditAmount: 0,
+    changeGiven: 0,
+    currency: 'XAF',
+    payments: [{ method: PaymentMethod.MTN_MOMO, amount: 22400 }],
+    footer: s.thanksMessage || null,
+  }
+}
+
 export function ReceiptsSection() {
   const t = useT()
-  const [name, setName] = useState('Boutique Mballa')
-  const [phone, setPhone] = useState('+237678214402')
-  const [address, setAddress] = useState('Akwa, Rue Joss · Douala, Littoral')
-  const [thanks, setThanks] = useState('Merci de votre visite ! À bientôt.')
-  const [prefix, setPrefix] = useState('BM-')
-  const [nextNum, setNextNum] = useState('0001847')
-  const [paper, setPaper] = useState<Paper>('280')
-  // content toggles
-  const [showNiu, setShowNiu] = useState(true)
-  const [showTax, setShowTax] = useState(true)
-  const [showCashier, setShowCashier] = useState(true)
-  const [showPayment, setShowPayment] = useState(true)
-  const [showQr, setShowQr] = useState(true)
-  const [showThanks, setShowThanks] = useState(true)
-  // print toggles
-  const [autoPrint, setAutoPrint] = useState(true)
-  const [digital, setDigital] = useState(true)
-  const [copies, setCopies] = useState('1')
-  const [printer, setPrinter] = useState('xp80')
+  const qc = useQueryClient()
+  const lang = useLangStore((x) => x.lang)
 
-  const paperLabel = PAPERS.find((p) => p.w === paper)?.label ?? '80 mm'
+  const profileQ = useQuery({
+    queryKey: ['business', 'profile'],
+    queryFn: () => dataClient.business.getProfile(),
+    retry: false,
+  })
+  const printersQ = useQuery({
+    queryKey: ['printers'],
+    queryFn: () => dataClient.sales.listPrinters(),
+    retry: false,
+  })
+
+  // --- business-level form state (saved to the profile) ---
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [niu, setNiu] = useState('')
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [prefix, setPrefix] = useState(DEFAULT_RECEIPT_NUMBER_PREFIX)
+  const [s, setS] = useState<ReceiptSettings>(DEFAULT_RECEIPT_SETTINGS)
+  // --- device-local print settings ---
+  const [print, setPrint] = useState<ReceiptPrintSettings>(() => loadReceiptPrintSettings())
+  const [toast, setToast] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Load once the profile arrives.
+  useEffect(() => {
+    const p = profileQ.data
+    if (!p) return
+    setName(p.name ?? '')
+    setPhone(p.phone ?? '')
+    setAddress([p.address, p.city].filter(Boolean).join(', '))
+    setNiu(p.niu ?? '')
+    setLogoUrl(p.logoUrl ?? null)
+    setPrefix(p.receiptNumberPrefix || DEFAULT_RECEIPT_NUMBER_PREFIX)
+    setS({ ...DEFAULT_RECEIPT_SETTINGS, ...(p.receiptSettings ?? {}) })
+  }, [profileQ.data])
+
+  const set = <K extends keyof ReceiptSettings>(k: K, v: ReceiptSettings[K]) =>
+    setS((prev) => ({ ...prev, [k]: v }))
+
+  const save = useMutation({
+    mutationFn: async () => {
+      await dataClient.business.update({
+        name: name.trim() || undefined,
+        phone: phone.trim() || undefined,
+        address: address.trim() || undefined,
+        niu: niu.trim() || undefined,
+        receiptNumberPrefix: prefix.trim() || DEFAULT_RECEIPT_NUMBER_PREFIX,
+        receiptSettings: s,
+      })
+      saveReceiptPrintSettings(print)
+    },
+    onSuccess: () => {
+      setError(null)
+      setToast(t('rcp.saved'))
+      void qc.invalidateQueries({ queryKey: ['business', 'profile'] })
+    },
+    onError: (e) => setError(errorMessage(e, t('rcp.saveError'))),
+  })
+  useEffect(() => {
+    if (!toast) return
+    const id = setTimeout(() => setToast(null), 2200)
+    return () => clearTimeout(id)
+  }, [toast])
+
+  // Sample QR for the preview (matches what prints: a receipt-URL QR when enabled).
+  const [qrImage, setQrImage] = useState<string | null>(null)
+  useEffect(() => {
+    if (!s.showQr) {
+      setQrImage(null)
+      return
+    }
+    let alive = true
+    QRCode.toDataURL('https://biztrack.cm/r/sample', { margin: 1, width: 200 })
+      .then((u) => alive && setQrImage(u))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [s.showQr])
+
+  // Live preview via the REAL template → exactly what prints.
+  const previewHtml = useMemo(
+    () =>
+      renderSaleReceiptHtml(sampleReceipt(s, { name, phone, address, niu, logoUrl }, prefix), {
+        labels: saleReceiptLabels(lang),
+        locale: lang,
+        widthMm: s.paperWidthMm,
+        showNiu: s.showNiu,
+        showCashier: s.showCashier,
+        showPayment: s.showPayment,
+        showThanks: s.showThanks,
+        showLogo: s.showLogo,
+        showQr: s.showQr,
+        qrImage,
+      }),
+    [s, name, phone, address, niu, logoUrl, prefix, lang, qrImage],
+  )
+
+  // Suggest a thermal printer for receipt paper by name (Electron can't report paper capability).
+  const printers = printersQ.data ?? []
+  const THERMAL = /thermal|pos|receipt|xp-?\d|tm-?[a-z]?\d|\b58\b|\b80\b|star |epson tm/i
+  useEffect(() => {
+    if (!printers.length || print.printerName) return
+    const suggested = printers.find((p) => THERMAL.test(`${p.name} ${p.description}`))
+    if (suggested) setPrint((p) => ({ ...p, printerName: suggested.name }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printers])
+  const printerOptions = [
+    { value: '', label: t('rcp.sysDialog') },
+    ...printers.map((p) => ({ value: p.name, label: p.displayName })),
+  ]
+
+  const paperLabel = PAPERS.find((p) => p.mm === s.paperWidthMm)?.label ?? '80 mm'
 
   return (
     <div className="rc-grid">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div className="banner warn">
-          <Warn />
-          <span>{t('rcp.comingSoon')}</span>
+      <div className="rc-main">
+        <div className="page-head" style={{ marginBottom: 0 }}>
+          <div>
+            <h1>{t('rcp.title')}</h1>
+            <p>{t('rcp.subtitle')}</p>
+          </div>
         </div>
+        {error ? (
+          <p style={{ color: 'var(--danger)', fontSize: 12.5 }} role="alert">
+            {error}
+          </p>
+        ) : null}
 
         {/* Header & footer */}
         <div className="card">
@@ -93,27 +228,35 @@ export function ReceiptsSection() {
               <p>{t('rcp.headerSub')}</p>
             </div>
           </div>
-          <div className="field-row">
-            <div>
-              <label className="lbl">{t('rcp.bizName')}</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="lbl">{t('rcp.phone')}</label>
-              <PhoneInput
-                value={phone || undefined}
-                defaultCountry="CM"
-                onChange={(v) => setPhone(v ?? '')}
-              />
-            </div>
-          </div>
           <div>
+            <label className="lbl">{t('rcp.bizName')}</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <label className="lbl">{t('rcp.phone')}</label>
+            <PhoneInput
+              value={phone || undefined}
+              defaultCountry="CM"
+              onChange={(v) => setPhone(v ?? '')}
+            />
+          </div>
+          <div style={{ marginTop: 14 }}>
             <label className="lbl">{t('rcp.address')}</label>
             <Input value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
-          <div style={{ marginTop: 14 }}>
-            <label className="lbl">{t('rcp.footer')}</label>
-            <Input value={thanks} onChange={(e) => setThanks(e.target.value)} />
+          <div className="field-row" style={{ marginTop: 14 }}>
+            <div>
+              <label className="lbl">{t('rcp.niu')}</label>
+              <Input value={niu} placeholder="P0000000000A" onChange={(e) => setNiu(e.target.value)} />
+            </div>
+            <div>
+              <label className="lbl">{t('rcp.footer')}</label>
+              <Input
+                value={s.thanksMessage ?? ''}
+                placeholder={t('rcp.footerPh')}
+                onChange={(e) => set('thanksMessage', e.target.value || null)}
+              />
+            </div>
           </div>
         </div>
 
@@ -125,45 +268,15 @@ export function ReceiptsSection() {
               <p>{t('rcp.contentSub')}</p>
             </div>
           </div>
-          <Toggle
-            nm={t('rcp.niu')}
-            ds={t('rcp.niuDesc')}
-            on={showNiu}
-            onToggle={() => setShowNiu((v) => !v)}
-          />
-          <Toggle
-            nm={t('rcp.tax')}
-            ds={t('rcp.taxDesc')}
-            on={showTax}
-            onToggle={() => setShowTax((v) => !v)}
-          />
-          <Toggle
-            nm={t('rcp.cashier')}
-            ds={t('rcp.cashierDesc')}
-            on={showCashier}
-            onToggle={() => setShowCashier((v) => !v)}
-          />
-          <Toggle
-            nm={t('rcp.payment')}
-            ds={t('rcp.paymentDesc')}
-            on={showPayment}
-            onToggle={() => setShowPayment((v) => !v)}
-          />
-          <Toggle
-            nm={t('rcp.qr')}
-            ds={t('rcp.qrDesc')}
-            on={showQr}
-            onToggle={() => setShowQr((v) => !v)}
-          />
-          <Toggle
-            nm={t('rcp.thanks')}
-            ds={t('rcp.thanksDesc')}
-            on={showThanks}
-            onToggle={() => setShowThanks((v) => !v)}
-          />
+          <Toggle nm={t('rcp.logo')} ds={t('rcp.logoDesc')} on={s.showLogo} onToggle={() => set('showLogo', !s.showLogo)} />
+          <Toggle nm={t('rcp.niu')} ds={t('rcp.niuDesc')} on={s.showNiu} onToggle={() => set('showNiu', !s.showNiu)} />
+          <Toggle nm={t('rcp.cashier')} ds={t('rcp.cashierDesc')} on={s.showCashier} onToggle={() => set('showCashier', !s.showCashier)} />
+          <Toggle nm={t('rcp.payment')} ds={t('rcp.paymentDesc')} on={s.showPayment} onToggle={() => set('showPayment', !s.showPayment)} />
+          <Toggle nm={t('rcp.qr')} ds={t('rcp.qrDesc')} on={s.showQr} onToggle={() => set('showQr', !s.showQr)} />
+          <Toggle nm={t('rcp.thanks')} ds={t('rcp.thanksDesc')} on={s.showThanks} onToggle={() => set('showThanks', !s.showThanks)} />
         </div>
 
-        {/* Numbering & printing */}
+        {/* Numbering & paper (business-level) */}
         <div className="card">
           <div className="card-h">
             <div>
@@ -171,49 +284,47 @@ export function ReceiptsSection() {
               <p>{t('rcp.numSub')}</p>
             </div>
           </div>
-          <div className="field-row">
-            <div>
-              <label className="lbl">{t('rcp.prefix')}</label>
-              <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} />
-            </div>
-            <div>
-              <label className="lbl">{t('rcp.nextNum')}</label>
-              <Input value={nextNum} onChange={(e) => setNextNum(e.target.value)} />
-            </div>
-          </div>
-          <label className="lbl">{t('rcp.paper')}</label>
+          <label className="lbl">{t('rcp.prefix')}</label>
+          <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+          <div className="reserved-note">{t('rcp.prefixHint')}</div>
+          <label className="lbl" style={{ marginTop: 14 }}>
+            {t('rcp.paper')}
+          </label>
           <div className="psz-grid">
             {PAPERS.map((p) => (
               <button
-                key={p.w}
+                key={p.mm}
                 type="button"
-                className={`psz${paper === p.w ? ' sel' : ''}`}
-                onClick={() => setPaper(p.w)}
+                className={`psz${s.paperWidthMm === p.mm ? ' sel' : ''}`}
+                onClick={() => set('paperWidthMm', p.mm)}
               >
                 <div className="pw">{p.label}</div>
-                <div className="pd">{t(p.sub as Parameters<typeof t>[0])}</div>
+                <div className="pd">{t(p.sub)}</div>
               </button>
             ))}
           </div>
-          <div className="divider" />
+        </div>
+
+        {/* Printing (device-local) */}
+        <div className="card">
+          <div className="card-h">
+            <div>
+              <h3>{t('rcp.printTitle')}</h3>
+              <p>{t('rcp.printSub')}</p>
+            </div>
+          </div>
           <Toggle
             nm={t('rcp.autoPrint')}
             ds={t('rcp.autoPrintDesc')}
-            on={autoPrint}
-            onToggle={() => setAutoPrint((v) => !v)}
-          />
-          <Toggle
-            nm={t('rcp.digital')}
-            ds={t('rcp.digitalDesc')}
-            on={digital}
-            onToggle={() => setDigital((v) => !v)}
+            on={print.autoPrint}
+            onToggle={() => setPrint((p) => ({ ...p, autoPrint: !p.autoPrint }))}
           />
           <div className="field-row" style={{ marginTop: 14, marginBottom: 0 }}>
             <div>
               <label className="lbl">{t('rcp.copies')}</label>
               <Select
-                value={copies}
-                onChange={(e) => setCopies(e.target.value)}
+                value={String(print.copies)}
+                onChange={(e) => setPrint((p) => ({ ...p, copies: Number(e.target.value) }))}
                 options={[
                   { value: '1', label: t('rcp.copy1') },
                   { value: '2', label: t('rcp.copy2') },
@@ -223,102 +334,50 @@ export function ReceiptsSection() {
             <div>
               <label className="lbl">{t('rcp.printer')}</label>
               <Select
-                value={printer}
-                onChange={(e) => setPrinter(e.target.value)}
-                options={[
-                  { value: 'xp80', label: 'XPrinter XP-80 (USB)' },
-                  { value: 'epson', label: 'Epson TM-T20' },
-                  { value: 'dialog', label: t('rcp.sysDialog') },
-                ]}
+                value={print.printerName ?? ''}
+                onChange={(e) => setPrint((p) => ({ ...p, printerName: e.target.value || null }))}
+                options={printerOptions}
               />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Live preview */}
+      {/* Live preview — the real template */}
       <div className="rc-side">
         <div className="rc-pv-head">
           <span className="lbl">{t('rcp.livePreview')}</span>
           <span className="chip-tag">{paperLabel}</span>
         </div>
         <div className="paper-stage">
-          <div className="rcpt" style={{ width: Number(paper) }}>
-            <div className="ctr">
-              <div className="logo">
-                <BrandMark size={23} />
-              </div>
-              <div className="biz">{name || t('rcp.bizName')}</div>
-              <div className="muted">{address}</div>
-              <div className="muted">Tél : {phone}</div>
-              {showNiu ? <div className="muted">NIU : P048512900233K</div> : null}
-            </div>
-            <div className="hr" />
-            <div className="line">
-              <span>Reçu</span>
-              <span>
-                {prefix}
-                {nextNum}
-              </span>
-            </div>
-            <div className="line">
-              <span>25/06/2026</span>
-              <span>14:32</span>
-            </div>
-            {showCashier ? (
-              <div className="line">
-                <span>Caissier</span>
-                <span>Junior T.</span>
-              </div>
-            ) : null}
-            <div className="hr" />
-            <div className="it">
-              <div className="line">
-                <span className="nm">Riz parfumé 5kg ×2</span>
-                <span>13 000</span>
-              </div>
-              <div className="line">
-                <span className="nm">Huile végétale 5L</span>
-                <span>5 500</span>
-              </div>
-              <div className="line">
-                <span className="nm">Lait concentré ×6</span>
-                <span>3 900</span>
-              </div>
-            </div>
-            <div className="hr" />
-            {showTax ? (
-              <div>
-                <div className="line muted">
-                  <span>Total HT</span>
-                  <span>18 793</span>
-                </div>
-                <div className="line muted">
-                  <span>TVA 19,25%</span>
-                  <span>3 607</span>
-                </div>
-              </div>
-            ) : null}
-            <div className="line tot">
-              <span>TOTAL TTC</span>
-              <span>22 400 FCFA</span>
-            </div>
-            {showPayment ? (
-              <div className="line">
-                <span>MTN MoMo</span>
-                <span>22 400</span>
-              </div>
-            ) : null}
-            <div className="hr" />
-            {showQr ? <div className="qr" /> : null}
-            {showThanks ? <div className="ctr thanks">{thanks}</div> : null}
-          </div>
+          <iframe
+            title={t('rcp.livePreview')}
+            srcDoc={previewHtml}
+            style={{
+              width: s.paperWidthMm === 58 ? 240 : 300,
+              height: 520,
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              background: '#fff',
+            }}
+          />
         </div>
-        <div className="form-note">
-          <Info />
-          <span>{t('rcp.previewNote')}</span>
-        </div>
+        <Button
+          variant="primary"
+          type="button"
+          loading={save.isPending}
+          onClick={() => save.mutate()}
+          style={{ width: '100%', marginTop: 14 }}
+        >
+          {t('rcp.save')}
+        </Button>
       </div>
+
+      {toast ? (
+        <div className="sc-toast show">
+          <span>{toast}</span>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator'
+import { IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator'
 import type { CreateExpenseRequest } from '@biztrack/types'
 import { ExpenseStatus, PaymentMethod } from '@biztrack/types'
 
@@ -24,11 +24,13 @@ export class CreateExpenseDto implements CreateExpenseRequest {
   @Matches(DATE_ONLY_REGEX)
   expenseDate!: string
 
-  @ApiPropertyOptional({ example: 'ENEO Cameroun' })
-  @IsOptional()
+  // "Paid to" is required (a payee must be recorded). The sync path (createFromSync) doesn't use this
+  // DTO, so already-synced legacy expenses without a payee are unaffected.
+  @ApiProperty({ example: 'ENEO Cameroun' })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
-  vendor?: string
+  vendor!: string
 
   @ApiPropertyOptional()
   @IsOptional()

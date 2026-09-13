@@ -4,6 +4,7 @@ import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { useLangStore, useT } from '@/i18n'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
+import { loadReceiptPrintSettings } from '@/lib/receipt-print-settings'
 import { formatSaleTime, saleInitials, salePayLabel, saleStatusInfo } from './sale-format'
 
 const I = {
@@ -55,7 +56,7 @@ export function SaleReceiptView({ saleId }: { saleId: string }) {
   const print = async () => {
     setPrinting(true)
     try {
-      const r = await dataClient.sales.printReceipt(sale.id, lang, true)
+      const r = await dataClient.sales.printReceipt(sale.id, lang, true, loadReceiptPrintSettings())
       flash(r.printed ? t('sales.printed') : t('sales.printSaved'))
     } catch {
       flash(t('sales.printFailed'))

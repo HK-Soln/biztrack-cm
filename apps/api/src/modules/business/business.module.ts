@@ -13,6 +13,8 @@ import { RedisModule } from '@/common/redis/redis.module'
 import { AuditModule } from '@/modules/audit/audit.module'
 import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 import { CredentialsModule } from '@/modules/credentials/credentials.module'
+import { IncomeModule } from '@/modules/income/income.module'
+import { ExpensesModule } from '@/modules/expenses/expenses.module'
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { CredentialsModule } from '@/modules/credentials/credentials.module'
     AuditModule,
     FiscalModule,
     CredentialsModule,
+    IncomeModule,
+    ExpensesModule,
   ],
   controllers: [BusinessesController],
   providers: [BusinessesRepository, BusinessMembersRepository, BusinessService],

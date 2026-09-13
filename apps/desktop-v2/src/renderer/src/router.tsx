@@ -41,12 +41,14 @@ import { Sell } from '@/routes/Sell'
 import { Sales } from '@/routes/Sales'
 import { Activity } from '@/routes/Activity'
 import { Expenses } from '@/routes/Expenses'
+import { OtherIncome } from '@/routes/OtherIncome'
 import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
 import { OnlineProducts } from '@/routes/OnlineProducts'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
 import { AuthCards } from '@/routes/AuthCards'
+import { Payments } from '@/routes/Payments'
 import { UserSettings } from '@/routes/UserSettings'
 import { More } from '@/routes/More'
 import { Team } from '@/routes/Team'
@@ -145,6 +147,7 @@ export const router = createHashRouter([
           { path: '/purchasing/orders/:id', element: <PoDetail /> },
           { path: '/purchasing/orders/:id/receive', element: <ReceivePo /> },
           { path: '/expenses', element: <Expenses /> },
+          { path: '/income', element: <OtherIncome /> },
           { path: '/deposits', element: <Deposits /> },
           { path: '/reports', element: <ReportViewer /> },
           { path: '/reports/:reportId', element: <ReportViewer /> },
@@ -179,6 +182,14 @@ export const router = createHashRouter([
             element: (
               <RequireOwner>
                 <AuthCards />
+              </RequireOwner>
+            ),
+          },
+          {
+            path: '/organization/payments',
+            element: (
+              <RequireOwner>
+                <Payments />
               </RequireOwner>
             ),
           },

@@ -18,7 +18,7 @@ import {
   BusinessProfileTier,
   MemberAuthCredentialType,
 } from '@biztrack/types'
-import type { BusinessHours } from '@biztrack/types'
+import type { BusinessHours, ReceiptSettings } from '@biztrack/types'
 import { BusinessOverride } from './business-override.entity'
 import { SubscriptionEvent } from './subscription-event.entity'
 import { BusinessMember } from './business-member.entity'
@@ -204,6 +204,13 @@ export class Business extends BaseEntity {
 
   @Column({ name: 'fiscal_regime', type: 'enum', enum: FiscalRegime, nullable: true })
   fiscalRegime?: FiscalRegime | null
+
+  // --- Receipt configuration (business-level; device print mechanics are local, not here). ---
+  @Column({ name: 'receipt_settings', type: 'jsonb', nullable: true })
+  receiptSettings?: ReceiptSettings | null
+
+  @Column({ name: 'receipt_number_prefix', type: 'varchar', length: 16, nullable: true })
+  receiptNumberPrefix?: string | null
 
   @OneToMany(() => Product, (product) => product.business)
   products?: Product[]

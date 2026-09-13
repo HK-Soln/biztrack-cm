@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import type { PublicProductsQuery } from '@biztrack/types'
 import { getCategories, getFacets, listProducts } from '@/lib/api'
-import { getStoreSlug } from '@/lib/store'
+import { getStoreContext } from '@/lib/store'
 import { getQueryClient, queryKeys } from '@/lib/query'
 import { ShopBrowser } from '@/components/ShopBrowser'
 
@@ -28,7 +28,7 @@ export default async function ProductsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const slug = await getStoreSlug()
+  const { slug, preview } = await getStoreContext()
   if (!slug) notFound()
   const sp = await searchParams
 
@@ -43,8 +43,8 @@ export default async function ProductsPage({
   }
 
   const [categoryTree, facets, t, tn] = await Promise.all([
-    getCategories(slug),
-    getFacets(slug, query.categoryIds),
+    getCategories(slug, preview),
+    getFacets(slug, query.categoryIds, preview),
     getTranslations('shop'),
     getTranslations('nav'),
   ])
@@ -52,7 +52,7 @@ export default async function ProductsPage({
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
     queryKey: queryKeys.products(slug, query),
-    queryFn: () => listProducts(slug, query),
+    queryFn: () => listProducts(slug, query, preview),
   })
 
   const categories = (categoryTree?.tree ?? [])

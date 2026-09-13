@@ -31,6 +31,10 @@ export class ExpenseCategory extends BaseEntity {
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number
 
+  /** Selecting this category defaults a new expense to recurring (per-business, Spec 10 follow-up). */
+  @Column({ name: 'is_recurring', default: false })
+  isRecurring!: boolean
+
   @OneToMany(() => Expense, (expense) => expense.category)
   expenses?: Expense[]
 }

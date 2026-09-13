@@ -29,7 +29,12 @@ const SENSITIVE_FIELDS = [
   'sessionToken',
   'backupCodes',
   'deviceFingerprint',
-  'phone'
+  'phone',
+  // Payment provider credentials (Spec 07) — redact the whole object so a provider key/secret can
+  // never reach a log, regardless of the field names a provider's schema uses.
+  'credentials',
+  'consumer_key',
+  'consumer_secret',
 ]
 
 const redactSensitiveData = (obj: unknown): unknown => {
@@ -53,22 +58,24 @@ const redactSensitiveData = (obj: unknown): unknown => {
   return redacted
 }
 
-const structuredFormat = printf(({ timestamp: ts, level, message, context, requestId, ...metadata }) => {
-  const logObject: Record<string, unknown> = {
-    timestamp: ts,
-    level,
-    message,
-  }
+const structuredFormat = printf(
+  ({ timestamp: ts, level, message, context, requestId, ...metadata }) => {
+    const logObject: Record<string, unknown> = {
+      timestamp: ts,
+      level,
+      message,
+    }
 
-  if (context) logObject.context = context
-  if (requestId) logObject.requestId = requestId
+    if (context) logObject.context = context
+    if (requestId) logObject.requestId = requestId
 
-  if (Object.keys(metadata).length > 0) {
-    Object.assign(logObject, redactSensitiveData(metadata) as Record<string, unknown>)
-  }
+    if (Object.keys(metadata).length > 0) {
+      Object.assign(logObject, redactSensitiveData(metadata) as Record<string, unknown>)
+    }
 
-  return JSON.stringify(logObject)
-})
+    return JSON.stringify(logObject)
+  },
+)
 
 const consoleFormat = combine(
   timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),

@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { PublicStore } from '@biztrack/types'
 import { getProduct } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
+import { usePreview } from '@/lib/preview'
 import { useAddToCart } from '@/lib/use-cart'
 
 const formatAmount = (value: number) => Math.round(value).toLocaleString('fr-FR')
@@ -68,6 +69,7 @@ export function ProductDetailView({
   const t = useTranslations('product')
   const ts = useTranslations('shop')
   const add = useAddToCart(slug)
+  const preview = usePreview()
   const [variantId, setVariantId] = useState<string | undefined>(undefined)
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({})
   const [imgIndex, setImgIndex] = useState(0)
@@ -76,7 +78,7 @@ export function ProductDetailView({
 
   const { data: product } = useQuery({
     queryKey: queryKeys.product(slug, productSlug),
-    queryFn: () => getProduct(slug, productSlug),
+    queryFn: () => getProduct(slug, productSlug, preview),
   })
   if (!product) return null
 

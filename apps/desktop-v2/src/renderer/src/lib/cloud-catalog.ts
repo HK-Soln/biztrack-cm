@@ -295,6 +295,7 @@ interface ApiExpenseCategory {
   color?: string | null
   icon?: string | null
   sortOrder?: number
+  isRecurring?: boolean
   isSystem: boolean
   expenseCount?: number
 }
@@ -308,6 +309,8 @@ function toLocalExpenseCategory(c: ApiExpenseCategory): LocalExpenseCategory {
     icon: c.icon ?? null,
     isSystem: c.isSystem,
     sortOrder: c.sortOrder ?? 0,
+    isRecurring: c.isRecurring ?? false,
+    defaultRecurring: c.isRecurring ?? false,
     expenseCount: c.expenseCount,
   }
 }
@@ -319,9 +322,17 @@ export const cloudExpenseCategories = {
     toLocalExpenseCategory(
       await cpost<ApiExpenseCategory>(
         '/expense-categories',
-        clean({ name: input.name, color: input.color, icon: input.icon }),
+        clean({
+          name: input.name,
+          color: input.color,
+          icon: input.icon,
+          isRecurring: input.isRecurring,
+        }),
       ),
     ),
+  setRecurring: async (id: string, isRecurring: boolean): Promise<void> => {
+    await cpatch<ApiExpenseCategory>(`/expense-categories/${id}`, { isRecurring })
+  },
 }
 
 // ---- attributes (groups + options + category links) ----

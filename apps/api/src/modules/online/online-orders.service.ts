@@ -13,6 +13,7 @@ import {
   SerialUnitStatus,
   canTransitionOnlineOrder,
   type AddCartItemRequest,
+  type CheckoutPayment,
   type CheckoutRequest,
   type JwtPayload,
   type OnlineCart as OnlineCartShape,
@@ -54,6 +55,14 @@ import { SalesService } from '@/modules/sales/services/sales.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { OnlineStoreService } from './online-store.service'
 import { OrderEmailService } from './order-email.service'
+import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
+import { PaymentLinkService } from '@/modules/payment-links/payment-link.service'
+import {
+  PayableType,
+  ROUTABLE_PAYMENT_METHODS,
+  resolveCheckoutPayment,
+  resolveDeliveryFee,
+} from '@biztrack/types'
 
 const cartItemKey = (item: {
   productId: string
@@ -124,22 +133,33 @@ export class OnlineOrdersService {
     private readonly orderEmail: OrderEmailService,
     private readonly dispatcher: NotificationDispatcher,
     private readonly calendar: BusinessCalendarService,
+    private readonly paymentInitiation: PaymentInitiationService,
+    private readonly paymentLinks: PaymentLinkService,
   ) {
     this.logger.setContext('OnlineOrdersService')
   }
 
   // ---- Cart ---------------------------------------------------------------
 
-  async getCart(slug: string, sessionToken: string): Promise<OnlineCartShape> {
-    const { store } = await this.requireStore(slug)
+  async getCart(
+    slug: string,
+    sessionToken: string,
+    preview = false,
+  ): Promise<OnlineCartShape> {
+    const { store } = await this.requireStore(slug, preview)
     const cart = await this.cartsRepo.findOne({
       where: { onlineStoreId: store.id, sessionToken },
     })
     return this.toCartShape(cart, sessionToken)
   }
 
-  async addItem(slug: string, sessionToken: string | undefined, dto: AddCartItemRequest) {
-    const { store } = await this.requireStore(slug)
+  async addItem(
+    slug: string,
+    sessionToken: string | undefined,
+    dto: AddCartItemRequest,
+    preview = false,
+  ) {
+    const { store } = await this.requireStore(slug, preview)
     const token = sessionToken?.trim() || crypto.randomUUID()
 
     const product = await this.productsRepo.findOne({
@@ -193,6 +213,7 @@ export class OnlineOrdersService {
       unitPrice,
       productName: product.name,
       variantName,
+      imageUrl: product.imageUrl ?? null,
     }
     const existing = items.find((item) => cartItemKey(item) === cartItemKey(newItem))
     if (existing) {
@@ -205,8 +226,14 @@ export class OnlineOrdersService {
     return this.toCartShape(saved, token)
   }
 
-  async updateItem(slug: string, sessionToken: string, itemKey: string, quantity: number) {
-    const cart = await this.requireCart(slug, sessionToken)
+  async updateItem(
+    slug: string,
+    sessionToken: string,
+    itemKey: string,
+    quantity: number,
+    preview = false,
+  ) {
+    const cart = await this.requireCart(slug, sessionToken, preview)
     const items = (cart.items ?? []).flatMap((item) => {
       if (cartItemKey(item) !== itemKey) return [item]
       if (quantity <= 0) return []
@@ -217,8 +244,8 @@ export class OnlineOrdersService {
     return this.toCartShape(saved, sessionToken)
   }
 
-  async removeItem(slug: string, sessionToken: string, itemKey: string) {
-    const cart = await this.requireCart(slug, sessionToken)
+  async removeItem(slug: string, sessionToken: string, itemKey: string, preview = false) {
+    const cart = await this.requireCart(slug, sessionToken, preview)
     cart.items = (cart.items ?? []).filter((item) => cartItemKey(item) !== itemKey)
     const saved = await this.cartsRepo.save(cart)
     return this.toCartShape(saved, sessionToken)
@@ -249,16 +276,49 @@ export class OnlineOrdersService {
         )
       }
 
-      // Delivery orders carry the store's flat delivery fee; pickup is free.
+      // Delivery pricing (Spec 10 ③): resolve the fee from the store's zones + the customer's structured
+      // address; pickup is free. Block if the store doesn't deliver to an unlisted area; ARRANGE charges
+      // 0 now (the merchant sends a delivery-fee link later).
       const fulfillmentType = dto.fulfillmentType ?? 'DELIVERY'
-      const deliveryFee =
-        fulfillmentType === 'DELIVERY' && config.fulfilment.offerDelivery
-          ? Math.max(0, Math.round(config.fulfilment.deliveryFee ?? 0))
-          : 0
+      let deliveryFee = 0
+      let arrangeDelivery = false
+      if (fulfillmentType === 'DELIVERY' && config.fulfilment.offerDelivery) {
+        const feeResult = resolveDeliveryFee(
+          {
+            deliveryZones: config.fulfilment.deliveryZones ?? [],
+            deliveryFee: config.fulfilment.deliveryFee ?? 0,
+            freeDeliveryOverAmount: config.fulfilment.freeDeliveryOverAmount ?? null,
+            unlistedAreaBehavior: config.fulfilment.unlistedAreaBehavior ?? 'DEFAULT_FEE',
+            unlistedDefaultFee: config.fulfilment.unlistedDefaultFee ?? 0,
+          },
+          {
+            countryIso2: dto.deliveryCountry,
+            region: dto.deliveryRegion,
+            city: dto.deliveryCity,
+          },
+          subtotal,
+        )
+        if (!feeResult.deliverable) {
+          throw new AppBadRequestException(
+            'This store does not deliver to that area.',
+            'ONLINE_DELIVERY_UNAVAILABLE',
+          )
+        }
+        deliveryFee = feeResult.fee
+        arrangeDelivery = feeResult.arrangeSeparately
+      }
       const totalAmount = subtotal + deliveryFee
 
       // Local trading day (BIZ-5.1) from the business timezone + cutover.
       const businessDate = await this.calendar.computeForBusiness(store.businessId, new Date())
+      const method = this.mapPaymentMethod(dto.paymentMethod)
+      const isProviderPayment = ROUTABLE_PAYMENT_METHODS.includes(method)
+
+      // Order creation is DECOUPLED from payment: the order is always placed first and a payment can
+      // never break (or roll back) it. Self-handled payments (MoMo request-to-pay) are NOT triggered
+      // here — the storefront takes the customer to our own payment page (`payment.mode === 'self'`)
+      // where the payment is started, polled, and retried in isolation. Hosted providers (Stripe) still
+      // get their link here so the storefront can redirect straight to the hosted page.
       const order = await this.ordersRepo.save(
         this.ordersRepo.create({
           onlineStoreId: store.id,
@@ -272,16 +332,20 @@ export class OnlineOrdersService {
           customerEmail: dto.customerEmail?.trim() ?? null,
           customerPhone: dto.customerPhone.trim(),
           fulfillmentType,
+          deliveryCountry: dto.deliveryCountry?.trim().toUpperCase() || null,
+          deliveryRegion: dto.deliveryRegion?.trim() || null,
           deliveryAddress: dto.deliveryAddress?.trim() ?? null,
           deliveryCity: dto.deliveryCity?.trim() ?? null,
-          deliveryNotes: dto.deliveryNotes?.trim() ?? null,
+          deliveryNotes:
+            [dto.deliveryNotes?.trim(), arrangeDelivery ? 'Delivery fee to be arranged.' : null]
+              .filter(Boolean)
+              .join(' — ') || null,
           status: 'PENDING',
           paymentMethod: dto.paymentMethod ?? null,
           paymentStatus: 'PENDING',
           businessDate,
         }),
       )
-
       await this.eventsRepo.save(
         this.eventsRepo.create({
           onlineOrderId: order.id,
@@ -295,19 +359,77 @@ export class OnlineOrdersService {
         }),
       )
 
-      // Cart consumed.
+      // Order is placed — consume the cart, email and notify regardless of the payment path.
       await this.cartsRepo.delete({ id: cart.id })
-
-      // Send the "order received" email (best-effort).
       await this.orderEmail.sendStatusEmail(order, 'PENDING')
+      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, order.totalAmount)
 
-      // Notify the owner a new online order came in (BIZ-4 newOrder producer).
-      void this.notifyNewOrder(store.businessId, order.id, order.orderNumber, totalAmount)
+      // Decide how the storefront proceeds to payment (Spec 09/10 ②). Re-resolve eligibility server-side
+      // from the store config + order total: FULL_ONLINE mints a full link, DEPOSIT mints a partial link
+      // (customer pays a deposit now, the rest on delivery), FULL_COD needs no link. Best-effort: a link
+      // that can't be created (no provider routed) leaves the order standing on the confirmed page.
+      const prepayment = {
+        allowPartialPayment: config.payment.allowPartialPayment ?? false,
+        partialMinPercent: config.payment.partialMinPercent ?? 50,
+        partialMinOrderAmount: config.payment.partialMinOrderAmount ?? 0,
+        depositRequired: config.payment.depositRequired ?? false,
+        codMinOrderAmount: config.payment.codMinOrderAmount ?? 0,
+        codMaxOrderAmount: config.payment.codMaxOrderAmount ?? null,
+      }
+      const eligibility = resolveCheckoutPayment(
+        prepayment,
+        {
+          cashOnDelivery: config.payment.cashOnDelivery,
+          mtnMomo: config.payment.mtnMomo,
+          orangeMoney: config.payment.orangeMoney,
+          card: config.payment.card,
+        },
+        totalAmount,
+      )
+      const mode = dto.paymentMode ?? (isProviderPayment ? 'FULL_ONLINE' : 'FULL_COD')
+
+      let payment: CheckoutPayment = { mode: 'none' }
+      if (mode !== 'FULL_COD' && isProviderPayment) {
+        let deposit: number | null = null
+        if (mode === 'DEPOSIT') {
+          if (!eligibility.deposit) {
+            throw new AppBadRequestException(
+              'A deposit is not available for this order.',
+              'ONLINE_DEPOSIT_NOT_ALLOWED',
+            )
+          }
+          const requested = Math.round(dto.depositAmount ?? eligibility.depositMin)
+          // Enforce the minimum rather than silently bumping it up — the storefront blocks + errors too.
+          if (requested < eligibility.depositMin) {
+            throw new AppBadRequestException(
+              'The deposit is below the minimum required for this order.',
+              'ONLINE_DEPOSIT_TOO_LOW',
+            )
+          }
+          deposit = Math.min(requested, totalAmount)
+        }
+        try {
+          const link = await this.paymentLinks.create(
+            store.businessId,
+            '',
+            { payableType: PayableType.ONLINE_ORDER, payableId: order.id },
+            deposit != null ? { allowPartial: true } : undefined,
+          )
+          payment = { mode: 'link', token: link.token, method, ...(deposit != null ? { amount: deposit } : {}) }
+        } catch (error) {
+          this.logger.warn('Checkout: could not create a payment link for the order', 'OnlineOrdersService', {
+            orderId: order.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          payment = { mode: 'none' }
+        }
+      }
 
       return {
         orderNumber: order.orderNumber,
         trackingToken: order.trackingToken,
         status: order.status,
+        payment,
       }
     } catch (error) {
       return this.handleServiceError('checkout', error, { slug })
@@ -402,6 +524,9 @@ export class OnlineOrdersService {
       totalAmount: order.totalAmount,
       currency: config.currency,
       fulfillmentType: order.fulfillmentType,
+      paymentMethod: order.paymentMethod ?? null,
+      paymentStatus: order.paymentStatus,
+      customerPhone: order.customerPhone ?? null,
       events: events.map((event) => ({
         id: event.id,
         eventType: event.eventType,
@@ -1060,19 +1185,29 @@ export class OnlineOrdersService {
    *  suspended / never-published store 404s, so carts and checkout can't run against a draft. */
   private async requireStore(
     slug: string,
+    preview = false,
   ): Promise<{ store: OnlineStore; config: OnlineStorePublishedConfig }> {
-    const published = await this.storeService.getPublishedStore(slug)
-    if (!published) {
+    // Preview walks the draft: cart operations work against the draft store (incl. one never
+    // published) so the merchant can preview the full checkout flow. Order creation stays blocked
+    // upstream (the checkout endpoint rejects preview=1).
+    const resolved = preview
+      ? await this.storeService.getDraftStore(slug)
+      : await this.storeService.getPublishedStore(slug)
+    if (!resolved) {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.online_store_not_found'),
         'ONLINE_STORE_NOT_FOUND',
       )
     }
-    return published
+    return resolved
   }
 
-  private async requireCart(slug: string, sessionToken: string): Promise<OnlineCart> {
-    const { store } = await this.requireStore(slug)
+  private async requireCart(
+    slug: string,
+    sessionToken: string,
+    preview = false,
+  ): Promise<OnlineCart> {
+    const { store } = await this.requireStore(slug, preview)
     const cart = await this.cartsRepo.findOne({ where: { onlineStoreId: store.id, sessionToken } })
     if (!cart) {
       throw new AppNotFoundException(
