@@ -533,7 +533,7 @@ export interface DataClient {
       locale: string,
       reprint?: boolean,
       print?: { printerName?: string | null; copies?: number },
-    ) => Promise<{ printed: boolean; pdfPath?: string }>
+    ) => Promise<{ printed: boolean; pdfPath?: string; reason?: string; deviceName?: string }>
     listPrinters: () => Promise<
       Array<{ name: string; displayName: string; isDefault: boolean; description: string }>
     >
@@ -891,8 +891,7 @@ function electronAdapter(): DataClient {
     expenseCategories: {
       listAll: () => window.api.expenseCategories.listAll(),
       create: (input) => window.api.expenseCategories.create(input),
-      setRecurring: (id, isRecurring) =>
-        window.api.expenseCategories.setRecurring(id, isRecurring),
+      setRecurring: (id, isRecurring) => window.api.expenseCategories.setRecurring(id, isRecurring),
     },
     rfqs: {
       list: (query) => window.api.rfqs.list(query),

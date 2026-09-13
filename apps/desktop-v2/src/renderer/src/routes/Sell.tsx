@@ -2195,7 +2195,11 @@ function PaymentModal({
       .filter((k) => (splits[k] || 0) > 0)
       .map((k) => {
         if (k === 'deposit')
-          return { method: PaymentMethod.SAVINGS, amount: splits[k]!, savingsAccountId: depAccountId }
+          return {
+            method: PaymentMethod.SAVINGS,
+            amount: splits[k]!,
+            savingsAccountId: depAccountId,
+          }
         const charged = chargedRows[k]
         return {
           method: PM[k],
@@ -2229,7 +2233,13 @@ function PaymentModal({
       !chargedRows[chargeSplitKey]
     ) {
       const mk = chargeSplitKey
-      return { key: mk, method: PM[mk], amount: splits[mk]!, needsPhone: mk !== 'card', isSplit: true }
+      return {
+        key: mk,
+        method: PM[mk],
+        amount: splits[mk]!,
+        needsPhone: mk !== 'card',
+        isSplit: true,
+      }
     }
     return null
   })()
@@ -2948,8 +2958,15 @@ function SuccessModal({
   const print = async () => {
     setPrinting(true)
     try {
-      const r = await dataClient.sales.printReceipt(sale.id, lang, false, loadReceiptPrintSettings())
-      flash(r.printed ? t('sell.printed') : t('sell.printSaved'))
+      const r = await dataClient.sales.printReceipt(
+        sale.id,
+        lang,
+        false,
+        loadReceiptPrintSettings(),
+      )
+      if (r.printed) flash(t('sell.printed'))
+      else if (r.reason) flash(`${t('sell.printSaved')} — ${r.deviceName ?? '?'}: ${r.reason}`)
+      else flash(t('sell.printSaved'))
     } catch {
       flash(t('sell.printFailed'))
     } finally {

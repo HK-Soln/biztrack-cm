@@ -87,7 +87,7 @@ export class DocumentService {
   async printReceipt(
     html: string,
     opts: { filename: string; paperWidthMm?: number; printerName?: string | null; copies?: number },
-  ): Promise<{ printed: boolean; pdfPath?: string }> {
+  ): Promise<{ printed: boolean; pdfPath?: string; reason?: string; deviceName?: string }> {
     const widthMm = opts.paperWidthMm ?? 58
     const win = this.createPrintWindow()
 
@@ -109,27 +109,27 @@ export class DocumentService {
       await this.preparePrintWindow(win)
 
       const copies = Math.max(1, Math.min(9, opts.copies ?? 1))
-      const base = { printBackground: true, margins: { marginType: 'none' as const }, pageSize }
 
-      // 1) Silent print straight to the device — the happy path (no dialog, no window).
-      const silent = await this.printWebContents(win, { ...base, silent: true, deviceName, copies })
-      if (silent === 'ok') return { printed: true }
-
-      // 2) Silent print wasn't confirmed (driver rejected it, or the callback never fired).
-      //    Fall back to the OS print dialog (device preselected) so the driver still prints —
-      //    a connected printer must not silently drop the job. The dialog is a system modal,
-      //    so it's visible even though the print window itself is off-screen.
-      console.warn('[printReceipt] silent print not confirmed; opening the system print dialog')
-      const viaDialog = await this.printWebContents(win, {
-        ...base,
-        silent: false,
+      // ONE silent print straight to the device — no dialog, no preview, and never a second
+      // print() on this webContents (a second call while the first is pending throws and
+      // crashes the window). If it isn't confirmed, we save + reveal a PDF as the safety net.
+      const res = await this.printWebContents(win, {
+        silent: true,
         deviceName,
         copies,
+        printBackground: true,
+        margins: { marginType: 'none' },
+        pageSize,
       })
-      if (viaDialog === 'ok') return { printed: true }
+      if (res.ok) return { printed: true }
 
-      // 3) Dialog cancelled or failed too → save + reveal the PDF so the cashier still has one.
-      return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
+      console.error(`[printReceipt] silent print failed (device="${deviceName}"): ${res.reason}`)
+      return {
+        printed: false,
+        pdfPath: await this.saveFallback(html, opts.filename, widthMm),
+        reason: res.reason,
+        deviceName,
+      }
     } catch (err) {
       console.error('[printReceipt] error', err)
       return { printed: false, pdfPath: await this.saveFallback(html, opts.filename, widthMm) }
@@ -199,41 +199,38 @@ export class DocumentService {
   }
 
   /**
-   * Run webContents.print and report only a CONFIRMED result. Returns 'ok' when the
-   * callback fires with success; 'failed' when it reports failure/cancellation or never
-   * fires within the safety window. We must not assume success on timeout — a silent job
-   * a thermal driver quietly dropped would then be reported as printed while nothing came
-   * out. An unconfirmed job falls through to the print-dialog / PDF fallback instead.
+   * Run webContents.print and report only a CONFIRMED result. `ok` is true only when the
+   * driver's callback fires success — we must NOT assume success on timeout, or a silent job
+   * a thermal driver quietly dropped would be reported as printed while nothing came out.
+   * `reason` carries the driver's failure text (or 'timeout'/the thrown message) so the
+   * caller can surface why a connected printer didn't print.
    */
   private printWebContents(
     win: BrowserWindow,
     options: WebContentsPrintOptions,
-  ): Promise<'ok' | 'failed'> {
-    return new Promise<'ok' | 'failed'>((resolve) => {
+  ): Promise<{ ok: boolean; reason?: string }> {
+    return new Promise((resolve) => {
       let settled = false
       const safety = setTimeout(() => {
         if (settled) return
         settled = true
-        console.warn(
-          `[printReceipt] print callback did not fire within 20s (silent=${options.silent})`,
-        )
-        resolve('failed')
+        resolve({ ok: false, reason: 'timeout: the print callback did not fire within 20s' })
       }, 20_000)
       try {
         win.webContents.print(options, (success, failureReason) => {
           if (settled) return
           settled = true
           clearTimeout(safety)
-          if (!success)
-            console.error(`[printReceipt] print failed (silent=${options.silent}):`, failureReason)
-          resolve(success ? 'ok' : 'failed')
+          resolve({
+            ok: success,
+            reason: success ? undefined : failureReason || 'unknown driver error',
+          })
         })
       } catch (err) {
         if (settled) return
         settled = true
         clearTimeout(safety)
-        console.error(`[printReceipt] print threw (silent=${options.silent}):`, err)
-        resolve('failed')
+        resolve({ ok: false, reason: err instanceof Error ? err.message : 'print threw' })
       }
     })
   }
