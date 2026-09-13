@@ -2012,6 +2012,9 @@ export class SalesService {
         /* keep defaults */
       }
     }
+    const cashierName =
+      this.db.get<{ n: string | null }>(`SELECT cashier_name AS n FROM sales WHERE id = ?`, [saleId])
+        ?.n ?? ''
     let email: string | null = null
     let phone = sale.customerPhone
     if (sale.customerId) {
@@ -2030,7 +2033,7 @@ export class SalesService {
       businessLogoUrl: biz?.logo_url ?? null,
       saleNumber: sale.saleNumber,
       soldAt: sale.soldAt,
-      cashierName: '',
+      cashierName,
       customerName: sale.customerId ? sale.customerName : null,
       customerPhone: sale.customerPhone,
       items: sale.items.map((i) => ({

@@ -66,7 +66,7 @@ function sampleReceipt(
     saleNumber: `${prefix}${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-0147`,
     soldAt: new Date().toISOString(),
     cashierName: 'Junior T.',
-    customerName: null,
+    customerName: 'Awa N.',
     items: [
       { name: 'Riz parfumé 5kg', qty: 2, unitPrice: 6500, total: 13000 },
       { name: 'Huile végétale 5L', qty: 1, unitPrice: 5500, total: 5500 },
