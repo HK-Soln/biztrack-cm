@@ -18,6 +18,11 @@ import type { DocumentService } from '../services/document.service'
 
 const RECEIPT_WIDTH_MM = 58
 
+// A thermal printer's PRINTABLE width is narrower than the paper (e.g. a 58mm roll prints ~48mm —
+// the driver reports "58(48)"). The digital/preview receipt uses the full paper width, but the
+// silent thermal print must render to the printable width or the right edge (prices) is clipped.
+const printableWidthMm = (paperMm: number): number => Math.max(40, paperMm - 10)
+
 /** Build the shared template options from the business receipt settings (identity + toggles). */
 const receiptOpts = (locale: string, s?: ReceiptSettings) => ({
   labels: saleReceiptLabels(locale),
@@ -36,7 +41,14 @@ const receiptOpts = (locale: string, s?: ReceiptSettings) => ({
 const receiptUrl = (saleId: string): string => `https://${config.storeRootDomain}/r/${saleId}`
 
 type BuiltReceipt = NonNullable<ReturnType<SalesService['buildReceipt']>>
-async function renderReceipt(built: BuiltReceipt, locale: string, saleId: string): Promise<string> {
+// `widthMmOverride` renders the receipt at a specific width (the thermal printable width for silent
+// printing); omitted, it uses the business's paper width (digital receipt / preview / share).
+async function renderReceipt(
+  built: BuiltReceipt,
+  locale: string,
+  saleId: string,
+  widthMmOverride?: number,
+): Promise<string> {
   let qrImage: string | null = null
   if (built.settings.showQr) {
     try {
@@ -45,7 +57,12 @@ async function renderReceipt(built: BuiltReceipt, locale: string, saleId: string
       qrImage = null
     }
   }
-  return renderSaleReceiptHtml(built.receipt, { ...receiptOpts(locale, built.settings), qrImage })
+  const opts = receiptOpts(locale, built.settings)
+  return renderSaleReceiptHtml(built.receipt, {
+    ...opts,
+    ...(widthMmOverride ? { widthMm: widthMmOverride } : {}),
+    qrImage,
+  })
 }
 
 export function registerSalesIpc(
@@ -116,10 +133,12 @@ export function registerSalesIpc(
     ) => {
       const built = sales.buildReceipt(saleId)
       if (!built) throw new Error('Sale not found.')
-      const html = await renderReceipt(built, locale, saleId)
+      // Render + size the thermal print to the PRINTABLE width so the right edge isn't clipped.
+      const printMm = printableWidthMm(built.settings.paperWidthMm ?? RECEIPT_WIDTH_MM)
+      const html = await renderReceipt(built, locale, saleId, printMm)
       const result = await documents.printReceipt(html, {
         filename: `receipt-${built.receipt.saleNumber}`,
-        paperWidthMm: built.settings.paperWidthMm ?? RECEIPT_WIDTH_MM,
+        paperWidthMm: printMm,
         printerName: print?.printerName ?? null,
         copies: print?.copies ?? 1,
       })

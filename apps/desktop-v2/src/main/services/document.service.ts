@@ -157,8 +157,10 @@ export class DocumentService {
     try {
       await sumatraPrint(tmp, {
         printer: deviceName,
-        scale: 'noscale', // the PDF page is already the roll width; don't let SumatraPDF resize it
-        monochrome: true,
+        // The PDF page is already the printable width — never let SumatraPDF resize it (scaling
+        // softens/blurs the text). No `monochrome`: its 1-bit dithering blurs text; the thermal
+        // driver renders crisp black on its own.
+        scale: 'noscale',
         copies,
       })
       console.log('[printReceipt] SumatraPDF print() resolved — job handed to the spooler')
