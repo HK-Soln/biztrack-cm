@@ -78,6 +78,14 @@ const makeService = (opts: {
                 deliveryFee: 0,
                 deliveryCities: [],
               },
+              payment: {
+                allowPartialPayment: false,
+                partialMinPercent: 50,
+                partialMinOrderAmount: 0,
+                depositRequired: false,
+                codMinOrderAmount: 0,
+                codMaxOrderAmount: null,
+              },
             },
           }
         : null,
