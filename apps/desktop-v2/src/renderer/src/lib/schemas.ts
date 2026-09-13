@@ -108,6 +108,9 @@ export const expenseSchema = z.object({
   description: z.string().trim().min(1, 'expenses.errDescription'),
   amount: z.number().refine((n) => Number.isFinite(n) && n > 0, 'expenses.errAmount'),
   expenseDate: z.string().trim().min(1, 'expenses.errDate'),
+  vendor: z.string().trim().min(1, 'expenses.errPaidTo'),
 })
 
-export type ExpenseFieldErrors = Partial<Record<'categoryId' | 'description' | 'amount' | 'expenseDate', string>>
+export type ExpenseFieldErrors = Partial<
+  Record<'categoryId' | 'description' | 'amount' | 'expenseDate' | 'vendor', string>
+>

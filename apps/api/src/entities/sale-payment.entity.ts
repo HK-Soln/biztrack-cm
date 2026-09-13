@@ -70,4 +70,9 @@ export class SalePayment extends ImmutableBaseEntity {
 
   @Column({ name: 'original_period_id', type: 'uuid', nullable: true })
   originalPeriodId?: string | null
+
+  // Spec 07 [A11] — the provider-execution attempt this ledger row was posted from (payments). NULL
+  // for cash/attested rows. Traces a row back to its attempt even when mobile_money_reference is null.
+  @Column({ name: 'payment_attempt_id', type: 'uuid', nullable: true })
+  paymentAttemptId?: string | null
 }

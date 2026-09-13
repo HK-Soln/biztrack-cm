@@ -3,11 +3,19 @@ import type {
   AddCartItemRequest,
   CategoryTreeResponse,
   CheckoutRequest,
+  CityView,
+  CountryView,
+  RegionView,
+  CheckoutResult,
   ContactMessageRequest,
+  InitiatePaymentLinkRequest,
+  InitiatePaymentLinkResult,
   OnlineCart,
   PaginatedResult,
+  PaymentLinkPaymentStatus,
   PublicFacets,
   PublicOrderTracking,
+  PublicPaymentLink,
   PublicProductDetail,
   PublicProductListItem,
   PublicProductsQuery,
@@ -67,6 +75,25 @@ async function send<T>(
 
 const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
 
+// On a `preview.<slug>` host the storefront reads the DRAFT config (unpublished changes) via
+// `?preview=1`; the same flag makes the API reject ordering. `undefined` keeps live-store URLs clean.
+const previewParam = (preview?: boolean) => (preview ? { preview: '1' as const } : {})
+
+// ---- Geography (structured address selects, Spec 10 ③) --------------------
+export async function getCountries(): Promise<CountryView[]> {
+  return (await readJson<CountryView[]>('/public/geo/countries')) ?? []
+}
+export async function getRegions(countryIso2: string): Promise<RegionView[]> {
+  if (!countryIso2) return []
+  return (await readJson<RegionView[]>('/public/geo/regions', { country: countryIso2 })) ?? []
+}
+export async function getCities(countryIso2: string, region: string): Promise<CityView[]> {
+  if (!countryIso2 || !region) return []
+  return (
+    (await readJson<CityView[]>('/public/geo/cities', { country: countryIso2, region })) ?? []
+  )
+}
+
 // ---- Reads ----------------------------------------------------------------
 
 /**
@@ -75,9 +102,11 @@ const storePath = (slug: string) => `/public/stores/${encodeURIComponent(slug)}`
  * store sends the visitor to the marketing site, so a transient API outage would otherwise bounce
  * every customer off every perfectly good shop instead of showing them an error.
  */
-export async function getStore(slug: string): Promise<PublicStore | null> {
+export async function getStore(slug: string, preview?: boolean): Promise<PublicStore | null> {
   try {
-    const res = await http.get<ApiEnvelope<PublicStore>>(storePath(slug))
+    const res = await http.get<ApiEnvelope<PublicStore>>(storePath(slug), {
+      params: previewParam(preview),
+    })
     return unwrap(res.data)
   } catch (error) {
     if (error instanceof HttpError && error.status === 404) return null
@@ -87,7 +116,7 @@ export async function getStore(slug: string): Promise<PublicStore | null> {
 
 const joinIds = (ids?: string[]) => (ids && ids.length ? ids.join(',') : undefined)
 
-export function listProducts(slug: string, query: PublicProductsQuery = {}) {
+export function listProducts(slug: string, query: PublicProductsQuery = {}, preview?: boolean) {
   return readJson<PaginatedResult<PublicProductListItem>>(`${storePath(slug)}/products`, {
     page: query.page,
     limit: query.limit,
@@ -96,17 +125,19 @@ export function listProducts(slug: string, query: PublicProductsQuery = {}) {
     modelIds: joinIds(query.modelIds),
     attributeOptionIds: joinIds(query.attributeOptionIds),
     search: query.search,
+    ...previewParam(preview),
   })
 }
 
-export function getFacets(slug: string, categoryIds?: string[]) {
+export function getFacets(slug: string, categoryIds?: string[], preview?: boolean) {
   return readJson<PublicFacets>(`${storePath(slug)}/facets`, {
     categoryIds: joinIds(categoryIds),
+    ...previewParam(preview),
   })
 }
 
-export function getCategories(slug: string) {
-  return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`)
+export function getCategories(slug: string, preview?: boolean) {
+  return readJson<CategoryTreeResponse>(`${storePath(slug)}/categories`, previewParam(preview))
 }
 
 /** All published product slugs for a store (paginated, capped) — used by the sitemap. */
@@ -122,14 +153,18 @@ export async function listAllProductSlugs(slug: string, cap = 1000): Promise<str
   return slugs.slice(0, cap)
 }
 
-export function getProduct(slug: string, productSlug: string) {
+export function getProduct(slug: string, productSlug: string, preview?: boolean) {
   return readJson<PublicProductDetail>(
     `${storePath(slug)}/products/${encodeURIComponent(productSlug)}`,
+    previewParam(preview),
   )
 }
 
-export function getCart(slug: string, sessionToken: string) {
-  return readJson<OnlineCart>(`${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}`)
+export function getCart(slug: string, sessionToken: string, preview?: boolean) {
+  return readJson<OnlineCart>(
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}`,
+    previewParam(preview),
+  )
 }
 
 export function getOrderTracking(slug: string, trackingToken: string) {
@@ -140,8 +175,10 @@ export function getOrderTracking(slug: string, trackingToken: string) {
 
 // ---- Mutations ------------------------------------------------------------
 
-export function addCartItem(slug: string, payload: AddCartItemRequest) {
-  return send<OnlineCart>('POST', `${storePath(slug)}/cart/items`, payload)
+const previewQs = (preview?: boolean) => (preview ? '?preview=1' : '')
+
+export function addCartItem(slug: string, payload: AddCartItemRequest, preview?: boolean) {
+  return send<OnlineCart>('POST', `${storePath(slug)}/cart/items${previewQs(preview)}`, payload)
 }
 
 export function updateCartItem(
@@ -149,18 +186,24 @@ export function updateCartItem(
   sessionToken: string,
   itemKey: string,
   quantity: number,
+  preview?: boolean,
 ) {
   return send<OnlineCart>(
     'PATCH',
-    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}${previewQs(preview)}`,
     { quantity },
   )
 }
 
-export function removeCartItem(slug: string, sessionToken: string, itemKey: string) {
+export function removeCartItem(
+  slug: string,
+  sessionToken: string,
+  itemKey: string,
+  preview?: boolean,
+) {
   return send<OnlineCart>(
     'DELETE',
-    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}`,
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/items/${encodeURIComponent(itemKey)}${previewQs(preview)}`,
   )
 }
 
@@ -168,12 +211,49 @@ export function sendContactMessage(slug: string, payload: ContactMessageRequest)
   return send<{ ok: true }>('POST', `${storePath(slug)}/contact`, payload)
 }
 
-export function checkout(slug: string, sessionToken: string, payload: CheckoutRequest) {
-  return send<{ orderNumber: string; trackingToken: string; status: string }>(
+export function checkout(
+  slug: string,
+  sessionToken: string,
+  payload: CheckoutRequest,
+  preview?: boolean,
+) {
+  // In preview the API rejects with ONLINE_PREVIEW_READONLY — a backstop behind the disabled button.
+  const qs = preview ? '?preview=1' : ''
+  return send<CheckoutResult>(
     'POST',
-    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout`,
+    `${storePath(slug)}/cart/${encodeURIComponent(sessionToken)}/checkout${qs}`,
     payload,
   )
+}
+
+// ---- Digital receipt (QR on the printed receipt → /r/<saleId>) -------------
+
+/** Rendered receipt HTML for a sale (public; the sale id is the capability). Null on 404/error. */
+export async function getReceiptHtml(saleId: string, locale?: string): Promise<string | null> {
+  const res = await readJson<{ html: string }>(
+    `/public/receipts/${encodeURIComponent(saleId)}`,
+    locale ? { locale } : undefined,
+  )
+  return res?.html ?? null
+}
+
+// ---- Payment links (Spec 08) ----------------------------------------------
+
+const payPath = (token: string) => `/public/pay/${encodeURIComponent(token)}`
+
+/** Resolve a payment link by token (live amount, methods, status). Null on any error/404. */
+export function getPaymentLink(token: string) {
+  return readJson<PublicPaymentLink>(payPath(token))
+}
+
+/** Start a payment for a link (card link / MoMo push). */
+export function initiateLinkPayment(token: string, body: InitiatePaymentLinkRequest) {
+  return send<InitiatePaymentLinkResult>('POST', `${payPath(token)}/initiate`, body)
+}
+
+/** Poll a link payment. Null (transient error) is treated as still pending. */
+export function getLinkPaymentStatus(token: string) {
+  return readJson<PaymentLinkPaymentStatus>(`${payPath(token)}/status`)
 }
 
 // ---- Helpers --------------------------------------------------------------

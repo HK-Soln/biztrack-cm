@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query'
 import type { PublicProductsQuery } from '@biztrack/types'
 import { getProduct, getStore, listProducts } from '@/lib/api'
-import { getStoreSlug } from '@/lib/store'
+import { getStoreContext } from '@/lib/store'
 import { getQueryClient, queryKeys } from '@/lib/query'
 import { ProductDetailView } from '@/components/ProductDetailView'
 import { RelatedProducts } from '@/components/RelatedProducts'
@@ -12,8 +12,8 @@ type PageParams = { params: Promise<{ productSlug: string }> }
 
 export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
   const { productSlug } = await params
-  const slug = await getStoreSlug()
-  const product = slug ? await getProduct(slug, productSlug) : null
+  const { slug, preview } = await getStoreContext()
+  const product = slug ? await getProduct(slug, productSlug, preview) : null
   if (!product) return { title: 'Product not found' }
   const title = product.metaTitle ?? product.name
   return {
@@ -29,9 +29,12 @@ export async function generateMetadata({ params }: PageParams): Promise<Metadata
 
 export default async function ProductDetailPage({ params }: PageParams) {
   const { productSlug } = await params
-  const slug = await getStoreSlug()
+  const { slug, preview } = await getStoreContext()
   if (!slug) notFound()
-  const [product, store] = await Promise.all([getProduct(slug, productSlug), getStore(slug)])
+  const [product, store] = await Promise.all([
+    getProduct(slug, productSlug, preview),
+    getStore(slug, preview),
+  ])
   if (!product) notFound()
 
   const relatedQuery: PublicProductsQuery = { page: 1, limit: 8 }
@@ -40,7 +43,7 @@ export default async function ProductDetailPage({ params }: PageParams) {
   queryClient.setQueryData(queryKeys.product(slug, productSlug), product)
   await queryClient.prefetchQuery({
     queryKey: queryKeys.products(slug, relatedQuery),
-    queryFn: () => listProducts(slug, relatedQuery),
+    queryFn: () => listProducts(slug, relatedQuery, preview),
   })
 
   return (

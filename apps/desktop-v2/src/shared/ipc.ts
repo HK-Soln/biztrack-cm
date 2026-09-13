@@ -7,6 +7,7 @@ export const IPC = {
   skeletonHealth: 'skeleton:health',
   themeSet: 'theme:set',
   titlebarSetOverlay: 'titlebar:set-overlay',
+  clipboardWrite: 'clipboard:write',
   authGetSession: 'auth:get-session',
   authLogin: 'auth:login',
   authRequestLogin: 'auth:request-login',
@@ -35,6 +36,29 @@ export const IPC = {
   credentialsIssueCard: 'credentials:issue-card',
   credentialsRevoke: 'credentials:revoke',
   credentialsReplace: 'credentials:replace',
+  paymentsProviders: 'payments:providers',
+  paymentsCapabilities: 'payments:capabilities',
+  paymentsConnections: 'payments:connections',
+  paymentsConnect: 'payments:connect',
+  paymentsConfigureWebhook: 'payments:configure-webhook',
+  paymentsVerify: 'payments:verify',
+  paymentsRevoke: 'payments:revoke',
+  paymentsRoutes: 'payments:routes',
+  paymentsSetRoute: 'payments:set-route',
+  paymentsRemoveRoute: 'payments:remove-route',
+  paymentsAvailable: 'payments:available',
+  paymentsInitiateInStore: 'payments:initiate-in-store',
+  paymentsInStoreStatus: 'payments:in-store-status',
+  paymentsConfirmInStore: 'payments:confirm-in-store',
+  paymentsFailInStore: 'payments:fail-in-store',
+  paymentsAttemptEvent: 'payments:attempt-event',
+  paymentsLinkEvent: 'payments:link-event',
+  paymentLinksCreate: 'payment-links:create',
+  paymentLinksSaleDraft: 'payment-links:sale-draft',
+  paymentLinksGeneral: 'payment-links:general',
+  paymentLinksList: 'payment-links:list',
+  paymentLinksCancel: 'payment-links:cancel',
+  paymentLinksFinalize: 'payment-links:finalize',
   syncTrigger: 'sync:trigger',
   syncFull: 'sync:full',
   syncRetry: 'sync:retry',
@@ -130,8 +154,19 @@ export const IPC = {
   expensesUpdate: 'expenses:update',
   expensesSetStatus: 'expenses:set-status',
   expensesRemove: 'expenses:remove',
+  expensesListPayees: 'expenses:list-payees',
   expenseCategoriesListAll: 'expense-categories:list-all',
   expenseCategoriesCreate: 'expense-categories:create',
+  expenseCategoriesSetRecurring: 'expense-categories:set-recurring',
+  incomeList: 'income:list',
+  incomeGet: 'income:get',
+  incomeSummary: 'income:summary',
+  incomeTrend: 'income:trend',
+  incomeCreate: 'income:create',
+  incomeUpdate: 'income:update',
+  incomeRemove: 'income:remove',
+  incomeCategoriesListAll: 'income-categories:list-all',
+  incomeCategoriesCreate: 'income-categories:create',
   depositsList: 'deposits:list',
   depositsGet: 'deposits:get',
   depositsStatement: 'deposits:statement',
@@ -171,6 +206,9 @@ export const IPC = {
   onlineOrderUpdatePayment: 'online:order-update-payment',
   onlinePublicationsList: 'online:publications-list',
   onlinePublicationRestore: 'online:publication-restore',
+  onlineGeoCountries: 'online:geo-countries',
+  onlineGeoRegions: 'online:geo-regions',
+  onlineGeoCities: 'online:geo-cities',
   businessGetProfile: 'business:get-profile',
   businessUpdate: 'business:update',
   notificationSettingsGet: 'notification-settings:get',
@@ -260,6 +298,7 @@ export const IPC = {
   salesRefund: 'sales:refund',
   salesSendReceipt: 'sales:send-receipt',
   salesPrintReceipt: 'sales:print-receipt',
+  salesListPrinters: 'sales:list-printers',
   salesReceiptHtml: 'sales:receipt-html',
   salesDownloadReceipt: 'sales:download-receipt',
   savingsGetForCustomer: 'savings:get-for-customer',
@@ -334,6 +373,46 @@ export type {
   IssueCardRequest,
   IssueCardResponse,
   ReplaceCardRequest,
+} from '@biztrack/types'
+import type {
+  PaymentProvider as PaymentProviderT,
+  PaymentProviderCapability as PaymentProviderCapabilityT,
+  BusinessPaymentProviderView as BusinessPaymentProviderViewT,
+  ConnectPaymentProviderRequest as ConnectPaymentProviderRequestT,
+  ConnectPaymentProviderResponse as ConnectPaymentProviderResponseT,
+  ConfigureWebhookRequest as ConfigureWebhookRequestT,
+  BusinessPaymentRouteView as BusinessPaymentRouteViewT,
+  SetPaymentRouteRequest as SetPaymentRouteRequestT,
+  AvailablePaymentMethod as AvailablePaymentMethodT,
+  InitiateInStorePaymentRequest as InitiateInStorePaymentRequestT,
+  InStorePaymentInitiated as InStorePaymentInitiatedT,
+  InStorePaymentStatus as InStorePaymentStatusT,
+  PaymentAttemptRealtimeEvent as PaymentAttemptRealtimeEventT,
+  PaymentLinkRealtimeEvent as PaymentLinkRealtimeEventT,
+  CreatePaymentLinkRequest as CreatePaymentLinkRequestT,
+  CreateSaleDraftLinkRequest as CreateSaleDraftLinkRequestT,
+  CreateGeneralLinkRequest as CreateGeneralLinkRequestT,
+  PaymentLinkView as PaymentLinkViewT,
+} from '@biztrack/types'
+export type {
+  PaymentProvider,
+  PaymentProviderCapability,
+  BusinessPaymentProviderView,
+  ConnectPaymentProviderRequest,
+  ConnectPaymentProviderResponse,
+  ConfigureWebhookRequest,
+  BusinessPaymentRouteView,
+  SetPaymentRouteRequest,
+  AvailablePaymentMethod,
+  InitiateInStorePaymentRequest,
+  InStorePaymentInitiated,
+  InStorePaymentStatus,
+  PaymentAttemptRealtimeEvent,
+  CreatePaymentLinkRequest,
+  CreateSaleDraftLinkRequest,
+  CreateGeneralLinkRequest,
+  PaymentLinkView,
+  PaymentLinkRealtimeEvent,
 } from '@biztrack/types'
 
 /** Per-entity list query: the base ListQuery plus optional entity filters. */
@@ -1239,6 +1318,8 @@ export interface SalePaymentLineInput {
   amount: number
   mobileMoneyReference?: string | null
   savingsAccountId?: string | null
+  /** CONFIRMED in-store provider attempt this line settles (Spec 07 §7); rides the sync payload. */
+  paymentAttemptId?: string | null
 }
 /** A checkout. `clientId` is the renderer-generated idempotency key. Goods subtotal
  * − discounts + charges = total, settled by payments; any shortfall on a registered
@@ -1311,8 +1392,9 @@ export interface LocalExpenseCategory {
   isSystem: boolean
   sortOrder: number
   expenseCount?: number
-  /** Sticky default: true once any expense in this category was marked recurring, so new
-   * expenses in it default to recurring without re-marking (#5). */
+  /** Per-business stored flag: selecting this category defaults a new expense to recurring. */
+  isRecurring?: boolean
+  /** Alias of isRecurring kept for the existing form default logic (the stored flag, no longer derived). */
   defaultRecurring?: boolean
 }
 export interface LocalExpense {
@@ -1349,6 +1431,7 @@ export interface ExpenseCategoryInput {
   name: string
   color: string
   icon?: string | null
+  isRecurring?: boolean
 }
 export interface ExpensesListQuery extends ListQueryT {
   categoryId?: string
@@ -1378,6 +1461,78 @@ export interface LocalExpenseSummary {
   currency: string
 }
 export interface ExpenseTrendItem {
+  year: number
+  month: number
+  label: string
+  total: number
+}
+
+// --- Other income (Spec 10 ①) ---
+export interface LocalIncomeCategory {
+  id: string
+  name: string
+  slug: string | null
+  color: string | null
+  icon: string | null
+  sortOrder: number
+  incomeCount?: number
+}
+export interface LocalOtherIncome {
+  id: string
+  categoryId: string | null
+  categoryName: string | null
+  categoryColor: string | null
+  description: string
+  amount: number
+  currency: string
+  paymentMethod: string | null
+  reference: string | null
+  source: string
+  note: string | null
+  date: string
+  createdAt: string
+  updatedAt: string
+}
+export interface OtherIncomeInput {
+  categoryId: string
+  description: string
+  amount: number
+  date?: string
+  paymentMethod?: string | null
+  note?: string | null
+}
+export interface IncomeCategoryInput {
+  name: string
+  color: string
+  icon?: string | null
+}
+export interface OtherIncomeListQuery extends ListQueryT {
+  categoryId?: string
+  source?: string
+  dateFrom?: string
+  dateTo?: string
+}
+/** A category slice of the period's income (donut + legend + top-category KPI). */
+export interface IncomeCategorySlice {
+  categoryId: string
+  name: string
+  color: string
+  amount: number
+  percentage: number
+}
+/** KPI strip + chart data for the Other Income dashboard over the period. */
+export interface LocalOtherIncomeSummary {
+  total: number
+  count: number
+  previousTotal: number
+  changePct: number
+  avgPerDay: number
+  fromLinks: number
+  largest: IncomeCategorySlice | null
+  byCategory: IncomeCategorySlice[]
+  currency: string
+}
+export interface IncomeTrendItem {
   year: number
   month: number
   label: string
@@ -1521,6 +1676,9 @@ export type {
   OnlinePaymentMethod,
   UpdateOrderPaymentRequest,
   OnlineStorePublicationSummary,
+  CountryView,
+  RegionView,
+  CityView,
   ProductPublishBlocker,
   ProductPublishability,
 } from '@biztrack/types'
@@ -1547,6 +1705,9 @@ import type {
   OnlineAdminProduct as OnlineAdminProductT,
   OnlineAdminProductsQuery as OnlineAdminProductsQueryT,
   OnlineStorePublicationSummary as OnlineStorePublicationSummaryT,
+  CountryView as CountryViewT,
+  RegionView as RegionViewT,
+  CityView as CityViewT,
 } from '@biztrack/types'
 
 // --- Business profile (Settings → General) — reuse the shared business shapes ---
@@ -1902,6 +2063,10 @@ export interface BridgeApi {
   theme: {
     set: (theme: 'light' | 'dark' | 'system') => void
   }
+  clipboard: {
+    /** Reliable clipboard write via the Electron main process (renderer navigator.clipboard can fail). */
+    write: (text: string) => Promise<boolean>
+  }
   window: {
     /** Paint the native window controls to match the current top bar. */
     setTitleBarOverlay: (colors: TitleBarOverlayColors) => void
@@ -1949,6 +2114,42 @@ export interface BridgeApi {
     revoke: (id: string) => Promise<MemberAuthCredentialT>
     /** Replace (rotate) a card: revoke + reissue to the same member in one step. */
     replace: (id: string, input: ReplaceCardRequestT) => Promise<IssueCardResponseT>
+  }
+  /** Payment provider registry (Spec 07). Owner-only; online — server-owned, proxied. */
+  payments: {
+    listProviders: () => Promise<PaymentProviderT[]>
+    listCapabilities: (country?: string) => Promise<PaymentProviderCapabilityT[]>
+    listConnections: () => Promise<BusinessPaymentProviderViewT[]>
+    connect: (input: ConnectPaymentProviderRequestT) => Promise<ConnectPaymentProviderResponseT>
+    configureWebhook: (
+      id: string,
+      input: ConfigureWebhookRequestT,
+    ) => Promise<BusinessPaymentProviderViewT>
+    verify: (id: string) => Promise<BusinessPaymentProviderViewT>
+    revoke: (id: string) => Promise<BusinessPaymentProviderViewT>
+    listRoutes: () => Promise<BusinessPaymentRouteViewT[]>
+    setRoute: (input: SetPaymentRouteRequestT) => Promise<BusinessPaymentRouteViewT>
+    removeRoute: (id: string) => Promise<{ success: true }>
+    availableMethods: () => Promise<AvailablePaymentMethodT[]>
+    initiateInStore: (input: InitiateInStorePaymentRequestT) => Promise<InStorePaymentInitiatedT>
+    getInStoreStatus: (attemptId: string) => Promise<InStorePaymentStatusT>
+    /** Manager override (§7.6): hard-confirm / mark-failed a pending in-store attempt. */
+    confirmInStore: (attemptId: string) => Promise<InStorePaymentStatusT>
+    failInStore: (attemptId: string) => Promise<InStorePaymentStatusT>
+    /** Subscribe to in-store attempt settlements (WebSocket, forwarded from main). */
+    onAttemptEvent: (cb: (payload: PaymentAttemptRealtimeEventT) => void) => () => void
+    /** Spec 08 — payment links for a payable (debt / sale / online order / deposit). */
+    createLink: (input: CreatePaymentLinkRequestT) => Promise<PaymentLinkViewT>
+    /** Spec 09 — a SALE_DRAFT intent from the till (sale materializes on payment). */
+    createSaleDraftLink: (input: CreateSaleDraftLinkRequestT) => Promise<PaymentLinkViewT>
+    /** Spec 10 — a general link booked as other income on payment. */
+    createGeneralLink: (input: CreateGeneralLinkRequestT) => Promise<PaymentLinkViewT>
+    listLinks: () => Promise<PaymentLinkViewT[]>
+    cancelLink: (id: string) => Promise<void>
+    /** Finish collecting; leave the balance as the customer's credit (§4). */
+    finalizeLink: (id: string) => Promise<PaymentLinkViewT>
+    /** Live payment-link settlements (Spec 08/09) — refresh offline-first screens + running paid total. */
+    onLinkEvent: (cb: (payload: PaymentLinkRealtimeEventT) => void) => () => void
   }
   sync: {
     /** Run a push+pull cycle now. */
@@ -2151,11 +2352,34 @@ export interface BridgeApi {
     /** Flip status; marking PAID requires a payment method, PENDING clears it. */
     setStatus: (id: string, status: string, paymentMethod?: string | null) => Promise<LocalExpense>
     remove: (id: string) => Promise<void>
+    /** Distinct "Paid to" payees (business-level, optionally by category) for autocomplete. */
+    listPayees: (categoryId?: string) => Promise<string[]>
   }
   expenseCategories: {
-    /** System + business expense categories (for the filter + form picker). */
+    /** Per-business expense categories (for the filter + form picker). */
     listAll: () => Promise<LocalExpenseCategory[]>
     create: (input: ExpenseCategoryInput) => Promise<LocalExpenseCategory>
+    /** Flag a category recurring (learn: a recurring expense picked this category). */
+    setRecurring: (id: string, isRecurring: boolean) => Promise<void>
+  }
+  income: {
+    /** Paginated other-income ledger (newest first). */
+    list: (
+      query?: OtherIncomeListQuery,
+    ) => Promise<PaginatedT<LocalOtherIncome> & { totalAmount: number }>
+    get: (id: string) => Promise<LocalOtherIncome | null>
+    /** KPI strip + donut + top-category/from-links totals over the period. */
+    summary: (query?: OtherIncomeListQuery) => Promise<LocalOtherIncomeSummary>
+    /** Last-6-months income trend (for the bar chart). */
+    trend: () => Promise<IncomeTrendItem[]>
+    create: (input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    update: (id: string, input: OtherIncomeInput) => Promise<LocalOtherIncome>
+    remove: (id: string) => Promise<void>
+  }
+  incomeCategories: {
+    /** This business's income categories (for the filter + form picker). */
+    listAll: () => Promise<LocalIncomeCategory[]>
+    create: (input: IncomeCategoryInput) => Promise<LocalIncomeCategory>
   }
   rfqs: {
     list: (query?: RfqsQuery) => Promise<PaginatedT<LocalRfqListItem>>
@@ -2263,7 +2487,12 @@ export interface BridgeApi {
       saleId: string,
       locale: string,
       reprint?: boolean,
+      print?: { printerName?: string | null; copies?: number },
     ) => Promise<{ printed: boolean; pdfPath?: string }>
+    /** Installed printers for the device-local picker in Settings → Receipts. */
+    listPrinters: () => Promise<
+      Array<{ name: string; displayName: string; isDefault: boolean; description: string }>
+    >
     /** Render the receipt to a PDF and save it via the native dialog. */
     downloadReceipt: (saleId: string, locale: string) => Promise<{ saved: boolean; path?: string }>
     /** The compiled receipt HTML (for the success-screen preview). */
@@ -2334,6 +2563,9 @@ export interface BridgeApi {
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
+    getCountries: () => Promise<CountryViewT[]>
+    getRegions: (country: string) => Promise<RegionViewT[]>
+    getCities: (country: string, region: string) => Promise<CityViewT[]>
   }
   /** Business profile (Settings → General) — server-owned, proxied through main. */
   business: {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { PaymentMethod } from '@biztrack/types'
+import { PaymentMethod, DEFAULT_RECEIPT_SETTINGS } from '@biztrack/types'
 import {
   allocateProRata,
   evaluateDiscountAuthorization,
@@ -7,7 +7,7 @@ import {
   toWholeXaf,
   type RoleDiscountLimits,
 } from '@biztrack/utils'
-import type { SaleReceipt } from '@biztrack/types'
+import type { SaleReceipt, ReceiptSettings } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { localBusinessDate } from './business-calendar'
 import type {
@@ -101,6 +101,9 @@ export class SalesService {
     /** The device's live cash session id, for tagging the sale to a shift (BIZ-2.2).
      * Null when no shift is open ("vente hors caisse"). */
     private readonly getOpenCashSessionId: () => string | null = () => null,
+    /** Stable per-device id — a short tag from it disambiguates receipt numbers across offline
+     *  tills (each device mints its own daily sequence, so without a tag two could collide). */
+    private readonly getDeviceId: () => string | null = () => null,
   ) {}
 
   createSale(input: SaleInput): LocalSaleDetail {
@@ -668,6 +671,9 @@ export class SalesService {
           amount: toWholeXaf(p.amount),
           mobileMoneyReference: p.mobileMoneyReference ?? null,
           savingsAccountId: p.savingsAccountId ?? null,
+          // In-store provider payments (Spec 07 §7): the CONFIRMED attempt this line settles. The
+          // attempt is server-only, so it rides the outbox payload only (no local column needed).
+          paymentAttemptId: p.paymentAttemptId ?? null,
         })),
         items: emits.map((e) => ({
           id: e.id,
@@ -1974,9 +1980,12 @@ export class SalesService {
     })
   }
 
-  buildReceipt(
-    saleId: string,
-  ): { receipt: SaleReceipt; phone: string | null; email: string | null } | null {
+  buildReceipt(saleId: string): {
+    receipt: SaleReceipt
+    phone: string | null
+    email: string | null
+    settings: ReceiptSettings
+  } | null {
     const businessId = this.getBusinessId()
     if (!businessId) return null
     const sale = this.get(saleId)
@@ -1987,7 +1996,25 @@ export class SalesService {
       email: string | null
       address: string | null
       city: string | null
-    }>(`SELECT name, phone, email, address, city FROM local_businesses WHERE id = ?`, [businessId])
+      niu: string | null
+      logo_url: string | null
+      receipt_settings: string | null
+    }>(
+      `SELECT name, phone, email, address, city, niu, logo_url, receipt_settings
+         FROM local_businesses WHERE id = ?`,
+      [businessId],
+    )
+    let settings: ReceiptSettings = DEFAULT_RECEIPT_SETTINGS
+    if (biz?.receipt_settings) {
+      try {
+        settings = { ...DEFAULT_RECEIPT_SETTINGS, ...JSON.parse(biz.receipt_settings) }
+      } catch {
+        /* keep defaults */
+      }
+    }
+    const cashierName =
+      this.db.get<{ n: string | null }>(`SELECT cashier_name AS n FROM sales WHERE id = ?`, [saleId])
+        ?.n ?? ''
     let email: string | null = null
     let phone = sale.customerPhone
     if (sale.customerId) {
@@ -2002,9 +2029,11 @@ export class SalesService {
       businessName: biz?.name ?? 'BizTrack',
       businessPhone: biz?.phone ?? null,
       businessAddress: [biz?.address, biz?.city].filter(Boolean).join(', ') || null,
+      businessNiu: biz?.niu ?? null,
+      businessLogoUrl: biz?.logo_url ?? null,
       saleNumber: sale.saleNumber,
       soldAt: sale.soldAt,
-      cashierName: '',
+      cashierName,
       customerName: sale.customerId ? sale.customerName : null,
       customerPhone: sale.customerPhone,
       items: sale.items.map((i) => ({
@@ -2025,7 +2054,7 @@ export class SalesService {
       currency: sale.currency,
       payments: sale.payments.map((p) => ({ method: p.method as PaymentMethod, amount: p.amount })),
     }
-    return { receipt, phone, email }
+    return { receipt, phone, email, settings }
   }
 
   // ---- internals -----------------------------------------------------------
@@ -2073,7 +2102,25 @@ export class SalesService {
         `SELECT last_sequence FROM sale_number_sequences WHERE business_id = ? AND sale_date = ?`,
         [businessId, date],
       )?.last_sequence ?? 1
-    return `VTE-${date.replace(/-/g, '')}-${String(seq).padStart(4, '0')}`
+    // Configurable prefix (default VTE-) — applies to new receipts only; the date + device tag +
+    // sequence after it keep every receipt unique, incl. across offline tills.
+    const prefix =
+      this.db.get<{ p: string | null }>(
+        `SELECT receipt_number_prefix AS p FROM local_businesses WHERE id = ?`,
+        [businessId],
+      )?.p || 'VTE-'
+    const tag = this.deviceTag()
+    return `${prefix}${date.replace(/-/g, '')}-${tag}${String(seq).padStart(4, '0')}`
+  }
+
+  /** Short, stable per-device code (2 base36 chars) derived from the device id — disambiguates
+   *  receipt numbers minted concurrently on different offline tills. Empty when unknown. */
+  private deviceTag(): string {
+    const id = this.getDeviceId()
+    if (!id) return ''
+    let h = 0
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+    return (h % 1296).toString(36).padStart(2, '0').toUpperCase() + '-'
   }
 
   private businessCurrency(businessId: string): string {

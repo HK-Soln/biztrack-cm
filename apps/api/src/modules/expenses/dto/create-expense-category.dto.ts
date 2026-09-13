@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
+import { IsBoolean, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
 import type { CreateExpenseCategoryRequest } from '@biztrack/types'
 
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/
@@ -28,4 +28,9 @@ export class CreateExpenseCategoryDto implements CreateExpenseCategoryRequest {
   @IsInt()
   @Min(0)
   sortOrder?: number
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  isRecurring?: boolean
 }

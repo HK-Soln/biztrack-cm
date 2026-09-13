@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import type { PublicStore } from '@biztrack/types'
 import { cartItemKey, formatMoney, getCart, removeCartItem, updateCartItem } from '@/lib/api'
 import { queryKeys } from '@/lib/query'
+import { usePreview } from '@/lib/preview'
 import { useCartSession } from '@/lib/cart-store'
 
 const IcCart = (
@@ -44,10 +45,11 @@ export function CartView({
   const t = useTranslations('cart')
   const sessionToken = useCartSession((s) => s.sessionToken)
   const queryClient = useQueryClient()
+  const preview = usePreview()
 
   const { data: cart, isLoading } = useQuery({
     queryKey: queryKeys.cart(slug, sessionToken ?? 'none'),
-    queryFn: () => getCart(slug, sessionToken as string),
+    queryFn: () => getCart(slug, sessionToken as string, preview),
     enabled: Boolean(sessionToken),
   })
 
@@ -56,17 +58,17 @@ export function CartView({
 
   const updateMutation = useMutation({
     mutationFn: ({ key, quantity }: { key: string; quantity: number }) =>
-      updateCartItem(slug, sessionToken as string, key, quantity),
+      updateCartItem(slug, sessionToken as string, key, quantity, preview),
     onSuccess: invalidate,
   })
   const removeMutation = useMutation({
-    mutationFn: (key: string) => removeCartItem(slug, sessionToken as string, key),
+    mutationFn: (key: string) => removeCartItem(slug, sessionToken as string, key, preview),
     onSuccess: invalidate,
   })
   const clearMutation = useMutation({
     mutationFn: async () => {
       for (const item of cart?.items ?? []) {
-        await removeCartItem(slug, sessionToken as string, cartItemKey(item))
+        await removeCartItem(slug, sessionToken as string, cartItemKey(item), preview)
       }
     },
     onSuccess: invalidate,
@@ -113,7 +115,12 @@ export function CartView({
             return (
               <div className="cart-line" key={key}>
                 <div className="th">
-                  <span>{item.productName.slice(0, 2).toUpperCase()}</span>
+                  {item.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.imageUrl} alt="" />
+                  ) : (
+                    <span>{item.productName.slice(0, 2).toUpperCase()}</span>
+                  )}
                 </div>
                 <div className="ci">
                   <div className="nm">{item.productName}</div>

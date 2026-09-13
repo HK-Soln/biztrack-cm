@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AddCartItemRequest } from '@biztrack/types'
 import { addCartItem } from './api'
 import { useCartSession } from './cart-store'
+import { usePreview } from './preview'
 
 /**
  * Add-to-cart mutation, shared by product cards and the product detail page.
@@ -13,9 +14,10 @@ import { useCartSession } from './cart-store'
 export function useAddToCart(slug: string) {
   const queryClient = useQueryClient()
   const setSessionToken = useCartSession((s) => s.setSessionToken)
+  const preview = usePreview()
 
   return useMutation({
-    mutationFn: (payload: AddCartItemRequest) => addCartItem(slug, payload),
+    mutationFn: (payload: AddCartItemRequest) => addCartItem(slug, payload, preview),
     onSuccess: (cart) => {
       setSessionToken(cart.sessionToken)
       queryClient.setQueryData(['cart', slug, cart.sessionToken], cart)

@@ -1,6 +1,9 @@
 import { ipcMain } from 'electron'
 import type { HttpClient } from '@biztrack/http-client'
+import QRCode from 'qrcode'
 import { renderSaleReceiptHtml, saleReceiptLabels, formatMoney } from '@biztrack/templates'
+import type { ReceiptSettings } from '@biztrack/types'
+import { config } from '../config'
 import {
   IPC,
   type DocumentRecipient,
@@ -14,6 +17,53 @@ import type { SavingsService } from '../services/savings.service'
 import type { DocumentService } from '../services/document.service'
 
 const RECEIPT_WIDTH_MM = 58
+
+// A thermal printer's PRINTABLE width is narrower than the paper (e.g. a 58mm roll prints ~48mm —
+// the driver reports "58(48)"). The digital/preview receipt uses the full paper width, but the
+// silent thermal print must render to the printable width or the right edge (prices) is clipped.
+const printableWidthMm = (paperMm: number): number => Math.max(40, paperMm - 10)
+
+/** Build the shared template options from the business receipt settings (identity + toggles). */
+const receiptOpts = (locale: string, s?: ReceiptSettings) => ({
+  labels: saleReceiptLabels(locale),
+  locale,
+  widthMm: s?.paperWidthMm ?? RECEIPT_WIDTH_MM,
+  showNiu: s?.showNiu,
+  showCashier: s?.showCashier,
+  showPayment: s?.showPayment,
+  showThanks: s?.showThanks,
+  showLogo: s?.showLogo,
+  showQr: s?.showQr,
+})
+
+// Forward-compatible receipt URL — resolves to the digital-receipt page (fast follow) and doubles
+// as the returns lookup. QR is generated only when the business enabled it.
+const receiptUrl = (saleId: string): string => `https://${config.storeRootDomain}/r/${saleId}`
+
+type BuiltReceipt = NonNullable<ReturnType<SalesService['buildReceipt']>>
+// `widthMmOverride` renders the receipt at a specific width (the thermal printable width for silent
+// printing); omitted, it uses the business's paper width (digital receipt / preview / share).
+async function renderReceipt(
+  built: BuiltReceipt,
+  locale: string,
+  saleId: string,
+  widthMmOverride?: number,
+): Promise<string> {
+  let qrImage: string | null = null
+  if (built.settings.showQr) {
+    try {
+      qrImage = await QRCode.toDataURL(receiptUrl(saleId), { margin: 1, width: 200 })
+    } catch {
+      qrImage = null
+    }
+  }
+  const opts = receiptOpts(locale, built.settings)
+  return renderSaleReceiptHtml(built.receipt, {
+    ...opts,
+    ...(widthMmOverride ? { widthMm: widthMmOverride } : {}),
+    qrImage,
+  })
+}
 
 export function registerSalesIpc(
   sales: SalesService,
@@ -63,26 +113,34 @@ export function registerSalesIpc(
   )
 
   // The compiled receipt HTML (shown as a preview + the exact thing printed/sent).
-  ipcMain.handle(IPC.salesReceiptHtml, (_e, saleId: string, locale: string) => {
+  ipcMain.handle(IPC.salesReceiptHtml, async (_e, saleId: string, locale: string) => {
     const built = sales.buildReceipt(saleId)
     if (!built) return null
-    return renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
+    return renderReceipt(built, locale, saleId)
   })
 
   // Print the receipt straight to the connected printer (no dialog); saves + reveals a
   // PDF if there's no printer or the job fails.
+  ipcMain.handle(IPC.salesListPrinters, () => documents.listPrinters())
   ipcMain.handle(
     IPC.salesPrintReceipt,
-    async (_e, saleId: string, locale: string, reprint?: boolean) => {
+    async (
+      _e,
+      saleId: string,
+      locale: string,
+      reprint?: boolean,
+      print?: { printerName?: string | null; copies?: number },
+    ) => {
       const built = sales.buildReceipt(saleId)
       if (!built) throw new Error('Sale not found.')
-      const html = renderSaleReceiptHtml(built.receipt, {
-        labels: saleReceiptLabels(locale),
-        locale,
-      })
+      // Render + size the thermal print to the PRINTABLE width so the right edge isn't clipped.
+      const printMm = printableWidthMm(built.settings.paperWidthMm ?? RECEIPT_WIDTH_MM)
+      const html = await renderReceipt(built, locale, saleId, printMm)
       const result = await documents.printReceipt(html, {
         filename: `receipt-${built.receipt.saleNumber}`,
-        paperWidthMm: RECEIPT_WIDTH_MM,
+        paperWidthMm: printMm,
+        printerName: print?.printerName ?? null,
+        copies: print?.copies ?? 1,
       })
       // A reprint (from sales history) is audited; the initial checkout print is not.
       if (reprint) sales.logReceiptReprint(saleId)
@@ -94,7 +152,7 @@ export function registerSalesIpc(
   ipcMain.handle(IPC.salesDownloadReceipt, async (_e, saleId: string, locale: string) => {
     const built = sales.buildReceipt(saleId)
     if (!built) throw new Error('Sale not found.')
-    const html = renderSaleReceiptHtml(built.receipt, { labels: saleReceiptLabels(locale), locale })
+    const html = await renderReceipt(built, locale, saleId)
     return documents.downloadPdf(html, `receipt-${built.receipt.saleNumber}`)
   })
 
@@ -130,7 +188,7 @@ export function registerSalesIpc(
         }
       }
 
-      const html = renderSaleReceiptHtml(receipt, { labels: saleReceiptLabels(locale), locale })
+      const html = await renderReceipt(built, locale, saleId)
       const currency = (receipt.currency as string) || 'XAF'
       const message = `${receipt.businessName} — ${receipt.saleNumber} · ${formatMoney(receipt.totalAmount, currency, locale)}`
       await documents.share({
