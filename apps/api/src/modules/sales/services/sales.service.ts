@@ -5,11 +5,16 @@ import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
+  checkSaleCredit,
+  decideSaleRefund,
   evaluateDiscountAuthorization,
   hasPriceDrift,
   isBelowCost,
   priceSale,
   roundQuantity,
+  settleSale,
+  settleSaleFromLedger,
+  storedPaymentMethod,
   toWholeXaf,
 } from '@biztrack/domain'
 import {
@@ -264,9 +269,10 @@ export class SalesService {
           computeDto,
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, computeDto)
-        const amountPaid = toWholeXaf(
-          dto.payments.reduce((sum, payment) => sum + payment.amount, 0),
-        )
+        const { amountPaid, changeGiven } = settleSale({
+          totalAmount: computed.totalAmount,
+          payments: dto.payments,
+        })
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
           manager,
           businessId,
@@ -274,10 +280,9 @@ export class SalesService {
           computed.totalAmount,
           amountPaid,
         )
-        const paymentMethod = this.deriveStoredPaymentMethod(dto.payments)
+        const paymentMethod = storedPaymentMethod(dto.payments)
         const momoReference = this.firstMobileMoneyReference(dto.payments)
 
-        const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         const saleNumber = await this.saleNumberService.generate(businessId, saleDate, manager)
         const now = new Date()
         // Local trading day (BIZ-5.1). A cloud cashier's sale rung at a till inherits its shift's
@@ -635,9 +640,10 @@ export class SalesService {
           payload,
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, payload)
-        const amountPaid = toWholeXaf(
-          payload.payments.reduce((sum, payment) => sum + payment.amount, 0),
-        )
+        const { amountPaid, changeGiven } = settleSale({
+          totalAmount: computed.totalAmount,
+          payments: payload.payments,
+        })
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
           manager,
           businessId,
@@ -646,11 +652,10 @@ export class SalesService {
           amountPaid,
           payload.creditAmount,
         )
-        const paymentMethod = this.deriveStoredPaymentMethod(payload.payments)
+        const paymentMethod = storedPaymentMethod(payload.payments)
         const momoReference = this.firstMobileMoneyReference(payload.payments)
 
         const cashierId = this.resolveSyncCashierId(payload)
-        const changeGiven = toWholeXaf(amountPaid - computed.totalAmount)
         let saleNumber = payload.saleNumber?.trim() || null
 
         if (!saleNumber) {
@@ -1664,50 +1669,33 @@ export class SalesService {
         }
 
         const saleItems = sale.items ?? []
-        // Resolve returned lines: explicit selection, else the whole sale (full return).
-        const returnedLines =
-          input.items && input.items.length > 0
-            ? input.items.map((r) => {
-                const item = saleItems.find((si) => si.id === r.saleItemId)
-                if (!item) {
-                  throw new AppBadRequestException(
-                    'Returned line does not belong to this sale.',
-                    'RETURN_ITEM_NOT_FOUND',
-                  )
-                }
-                return {
-                  item,
-                  quantity: Math.min(roundQuantity(r.quantity), item.quantity),
-                  serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
-                }
-              })
-            : saleItems.map((item) => ({
-                item,
-                quantity: item.quantity,
-                serialUnitId: item.serialUnitId ?? null,
-              }))
-
-        const isFullReturn =
-          !input.items ||
-          input.items.length === 0 ||
-          saleItems.every((si) => {
-            const returnedQty = returnedLines
-              .filter((r) => r.item.id === si.id)
-              .reduce((sum, r) => sum + r.quantity, 0)
-            return returnedQty >= si.quantity
-          })
-
-        // Money to return: default to the goods value of returned lines, capped at amountPaid
-        // (fees are non-refundable by default). Unpaid COD returns refund 0 and write off the debt.
-        const goodsValue = toWholeXaf(
-          returnedLines.reduce((sum, r) => {
-            const perUnit =
-              r.item.quantity > 0 ? r.item.lineTotal / r.item.quantity : r.item.lineTotal
-            return sum + perUnit * r.quantity
-          }, 0),
-        )
-        const requested = input.amount != null ? toWholeXaf(input.amount) : goodsValue
-        const moneyRefund = toWholeXaf(Math.min(Math.max(0, requested), sale.amountPaid))
+        // What comes back, what it is worth and what money is returned is decided by
+        // @biztrack/domain (the same decision desktop makes offline).
+        const decision = decideSaleRefund({
+          items: saleItems,
+          returns: input.items,
+          requestedAmount: input.amount,
+          amountPaid: sale.amountPaid,
+        })
+        if (!decision.ok) {
+          throw decision.code === 'RETURN_ITEM_NOT_FOUND'
+            ? new AppBadRequestException(
+                'Returned line does not belong to this sale.',
+                'RETURN_ITEM_NOT_FOUND',
+              )
+            : new AppBadRequestException('Select at least one item to return.', 'NOTHING_TO_RETURN')
+        }
+        const returnedLines = decision.lines.map((line) => {
+          const item = saleItems.find((si) => si.id === line.saleItemId)!
+          const requested = line.requestIndex === null ? null : input.items?.[line.requestIndex]
+          return {
+            item,
+            quantity: line.quantity,
+            serialUnitId: requested?.serialUnitId ?? item.serialUnitId ?? null,
+          }
+        })
+        const isFullReturn = decision.isFullReturn
+        const moneyRefund = decision.refundAmount
         const restock = input.restock !== false
         const now = new Date()
 
@@ -1786,7 +1774,7 @@ export class SalesService {
         await manager.getRepository(Sale).update(sale.id, {
           amountPaid: settlement.amountPaid,
           creditAmount: settlement.creditAmount,
-          status: isFullReturn ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED,
+          status: decision.status,
         })
 
         // A full return cancels any outstanding receivable — the goods came back.
@@ -1813,14 +1801,8 @@ export class SalesService {
     saleId: string,
     totalAmount: number,
   ): Promise<{ amountPaid: number; creditAmount: number }> {
-    const rows = await manager.getRepository(SalePayment).find({ where: { saleId } })
-    const net = rows.reduce(
-      (sum, p) => sum + (p.kind === SalePaymentKind.REFUND ? -Number(p.amount) : Number(p.amount)),
-      0,
-    )
-    const amountPaid = toWholeXaf(Math.max(0, net))
-    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
-    return { amountPaid, creditAmount }
+    const entries = await manager.getRepository(SalePayment).find({ where: { saleId } })
+    return settleSaleFromLedger({ totalAmount, entries })
   }
 
   async getDailySummary(businessId: string, date?: string): Promise<DailySalesSummary> {
@@ -2751,13 +2733,14 @@ export class SalesService {
     expectedCreditAmount?: number | null,
   ) {
     const customerId = this.normalizeOptionalUuid(rawCustomerId)
-    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
+    const { creditAmount } = settleSale({ totalAmount, payments: [{ amount: amountPaid }] })
+    const rejection = checkSaleCredit({
+      creditAmount,
+      hasCustomer: !!customerId,
+      expectedCreditAmount,
+    })
 
-    if (
-      expectedCreditAmount !== undefined &&
-      expectedCreditAmount !== null &&
-      toWholeXaf(expectedCreditAmount) !== creditAmount
-    ) {
+    if (rejection === 'SALE_CREDIT_AMOUNT_MISMATCH') {
       throw new AppBadRequestException(
         'Sale credit amount does not match the unpaid balance.',
         'SALE_CREDIT_AMOUNT_MISMATCH',
@@ -2768,7 +2751,7 @@ export class SalesService {
       )
     }
 
-    if (creditAmount > 0 && !customerId) {
+    if (rejection === 'CUSTOMER_REQUIRED_FOR_CREDIT') {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.customer_contact_required_for_credit' as never),
         'CUSTOMER_CONTACT_REQUIRED_FOR_CREDIT',
@@ -2808,20 +2791,6 @@ export class SalesService {
     }
 
     throw new AppBadRequestException('Sale cashier is required.', 'SALE_CASHIER_REQUIRED')
-  }
-
-  private deriveStoredPaymentMethod(payments: Array<{ method: PaymentMethod }>): PaymentMethod {
-    const methods = [...new Set(payments.map((payment) => payment.method))]
-
-    if (methods.length === 0) {
-      return PaymentMethod.MIXED
-    }
-
-    if (methods.length === 1) {
-      return methods[0]!
-    }
-
-    return PaymentMethod.MIXED
   }
 
   private firstMobileMoneyReference(

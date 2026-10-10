@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
 import { ReceiptSendDialog } from '@/components/receipt/ReceiptSendDialog'
 import { isWindows } from '@/lib/titlebar'
-import { formatSaleDateTime, saleInitials, salePayLabel, saleStatusInfo } from './sale-format'
+import { formatSaleDateTime, saleInitials, salePaidByLabel, saleStatusInfo } from './sale-format'
 
 const VOID_MIN_REASON = 10
 
@@ -242,7 +242,7 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
             <span className="d" />
             {st.label}
           </span>
-          <span className="chip-tag">{salePayLabel(t, sale.paymentMethod)}</span>
+          <span className="chip-tag">{salePaidByLabel(t, sale)}</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>

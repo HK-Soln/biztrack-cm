@@ -1,10 +1,16 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod, DEFAULT_RECEIPT_SETTINGS } from '@biztrack/types'
 import {
+  checkSaleCredit,
+  decideSaleRefund,
+  effectivePaymentLines,
   evaluateDiscountAuthorization,
   isBelowCost,
   priceSale,
   type RoleDiscountLimits,
+  settleSale,
+  settleSaleFromLedger,
+  storedPaymentMethod,
   toWholeXaf,
 } from '@biztrack/domain'
 import type { SaleReceipt, ReceiptSettings } from '@biztrack/types'
@@ -357,12 +363,12 @@ export class SalesService {
       (overLimit || (belowCost && !this.roleAllowsBelowCost(businessId, cashierId))) &&
       !authorizedBy
 
-    const paymentLines = (input.payments ?? []).filter(
-      (p) => Number.isFinite(p.amount) && p.amount > 0,
-    )
-    const amountPaid = toWholeXaf(paymentLines.reduce((s, p) => s + p.amount, 0))
-    const creditAmount = toWholeXaf(Math.max(0, totalAmount - amountPaid))
-    const changeGiven = toWholeXaf(Math.max(0, amountPaid - totalAmount))
+    // Settlement is @biztrack/domain's — the same paid / credit / change the server computes.
+    const paymentLines = effectivePaymentLines(input.payments ?? [])
+    const { amountPaid, creditAmount, changeGiven } = settleSale({
+      totalAmount,
+      payments: paymentLines,
+    })
 
     // One stable id per payment, shared by the local sale_payments row AND the sync payload.
     // If the payload minted fresh ids, the pushed sale echoing back on pull would upsert on
@@ -371,7 +377,7 @@ export class SalesService {
     const paymentRows = paymentLines.map((p) => ({ ...p, id: randomUUID() }))
 
     const customerId = input.customerId?.trim() || null
-    if (creditAmount > 0 && !customerId)
+    if (checkSaleCredit({ creditAmount, hasCustomer: !!customerId }))
       throw new Error('Credit sales must be linked to a registered customer.')
     // Optional expected payment date for the credit portion; when omitted the debt falls
     // back to created_at + the business's default credit period (D9).
@@ -403,12 +409,7 @@ export class SalesService {
       : input.customerName?.trim() || null
     const customerPhone = input.customerPhone?.trim() || null
     const notes = input.notes?.trim() || null
-    const paymentMethod =
-      paymentLines.length === 0
-        ? null
-        : paymentLines.length === 1
-          ? paymentLines[0]!.method
-          : 'MIXED'
+    const paymentMethod = storedPaymentMethod(paymentLines)
     const momoReference =
       paymentLines.find((p) => p.mobileMoneyReference)?.mobileMoneyReference ?? null
     const saleNumber = this.nextSaleNumber(businessId, soldAt)
@@ -1055,45 +1056,36 @@ export class SalesService {
       [saleId],
     )
 
-    // Resolve returned lines — explicit selection, else every line (full return).
-    const requested =
-      input.items && input.items.length > 0
-        ? input.items
-        : saleItems.map((si) => ({ saleItemId: si.id, quantity: si.quantity, serialUnitId: null }))
-    const returnedLines = requested
-      .map((r) => {
-        const item = saleItems.find((si) => si.id === r.saleItemId)
-        if (!item) throw new Error('Returned line does not belong to this sale.')
-        return {
-          item,
-          quantity: Math.min(Math.max(0, Math.floor(r.quantity)), item.quantity),
-          serialUnitId: r.serialUnitId ?? item.serial_unit_id ?? null,
-        }
-      })
-      .filter((r) => r.quantity > 0)
-    if (returnedLines.length === 0) throw new Error('Select at least one item to return.')
-
-    const isFullReturn =
-      !input.items ||
-      input.items.length === 0 ||
-      saleItems.every((si) => {
-        const rq = returnedLines
-          .filter((r) => r.item.id === si.id)
-          .reduce((s, r) => s + r.quantity, 0)
-        return rq >= si.quantity
-      })
-
-    // Money to return: goods value of the returned lines (discounted line_total per unit), capped
-    // at what was actually paid — fees stay, and an unpaid credit return refunds 0.
-    const goodsValue = toWholeXaf(
-      returnedLines.reduce((sum, r) => {
-        const perUnit =
-          r.item.quantity > 0 ? r.item.line_total / r.item.quantity : r.item.line_total
-        return sum + perUnit * r.quantity
-      }, 0),
-    )
-    const requestedAmount = input.amount != null ? toWholeXaf(input.amount) : goodsValue
-    const moneyRefund = toWholeXaf(Math.min(Math.max(0, requestedAmount), sale.amount_paid))
+    // What comes back, what it is worth and what money is returned is decided by
+    // @biztrack/domain — the same decision the API makes, so the return the server records
+    // on sync matches this one.
+    const decision = decideSaleRefund({
+      items: saleItems.map((si) => ({
+        id: si.id,
+        quantity: si.quantity,
+        lineTotal: si.line_total,
+      })),
+      returns: input.items,
+      requestedAmount: input.amount,
+      amountPaid: sale.amount_paid,
+    })
+    if (!decision.ok)
+      throw new Error(
+        decision.code === 'RETURN_ITEM_NOT_FOUND'
+          ? 'Returned line does not belong to this sale.'
+          : 'Select at least one item to return.',
+      )
+    const returnedLines = decision.lines.map((line) => {
+      const item = saleItems.find((si) => si.id === line.saleItemId)!
+      const requested = line.requestIndex === null ? null : input.items?.[line.requestIndex]
+      return {
+        item,
+        quantity: line.quantity,
+        serialUnitId: requested?.serialUnitId ?? item.serial_unit_id ?? null,
+      }
+    })
+    const isFullReturn = decision.isFullReturn
+    const moneyRefund = decision.refundAmount
     const restock = input.restock !== false
     const now = new Date().toISOString()
     const reason = (input.reason ?? '').trim() || null
@@ -1191,14 +1183,15 @@ export class SalesService {
 
     // 4) Recompute settlement from the signed payment ledger + set status. The
     //    trg_sales_source_debt trigger recomputes the receivable off the new credit_amount.
-    const net = this.db.get<{ v: number }>(
-      `SELECT COALESCE(SUM(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END), 0) AS v
-       FROM sale_payments WHERE sale_id = ?`,
+    const entries = this.db.query<{ kind: 'PAYMENT' | 'REFUND'; amount: number }>(
+      `SELECT kind, amount FROM sale_payments WHERE sale_id = ?`,
       [saleId],
     )
-    const amountPaid = toWholeXaf(Math.max(0, net?.v ?? 0))
-    const creditAmount = toWholeXaf(Math.max(0, sale.total_amount - amountPaid))
-    const status = isFullReturn ? 'REFUNDED' : 'PARTIALLY_REFUNDED'
+    const { amountPaid, creditAmount } = settleSaleFromLedger({
+      totalAmount: sale.total_amount,
+      entries,
+    })
+    const status = decision.status
     this.db.run(
       `UPDATE sales SET amount_paid = ?, credit_amount = ?, status = ?, updated_at = ? WHERE id = ?`,
       [amountPaid, creditAmount, status, now, saleId],
