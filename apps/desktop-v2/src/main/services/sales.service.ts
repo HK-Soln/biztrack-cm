@@ -1084,11 +1084,26 @@ export class SalesService {
     // What comes back, what it is worth and what money is returned is decided by
     // @biztrack/domain — the same decision the API makes, so the return the server records
     // on sync matches this one.
+    // Earlier returns count (ruling R5): a line only returns what is left of it, and the sale
+    // is REFUNDED once every line's total returned quantity equals the quantity sold.
+    const returnedBefore = new Map(
+      this.db
+        .query<{ sale_item_id: string; quantity: number }>(
+          `SELECT ri.sale_item_id, SUM(ri.quantity) AS quantity
+             FROM sale_return_items ri
+             JOIN sale_returns r ON r.id = ri.sale_return_id
+            WHERE r.sale_id = ?
+            GROUP BY ri.sale_item_id`,
+          [saleId],
+        )
+        .map((row) => [row.sale_item_id, row.quantity]),
+    )
     const decision = decideSaleRefund({
       items: saleItems.map((si) => ({
         id: si.id,
         quantity: si.quantity,
         lineTotal: si.line_total,
+        returnedQuantity: returnedBefore.get(si.id) ?? 0,
       })),
       returns: input.items,
       requestedAmount: input.amount,

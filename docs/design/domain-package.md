@@ -57,17 +57,17 @@ packages/domain/src
 
 ## Roadmap and status
 
-| #   | Slice                                                                                                                                                                                                                                                             | Status |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done   |
-| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done   |
-| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done   |
-| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | Next   |
-| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |        |
-| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |        |
-| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |        |
-| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |        |
-| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |        |
+| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                              |
+| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                              |
+| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                              |
+| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress: desktop create, void and refund run in one transaction (`DatabaseService.transaction`). Use cases and server re-decision not started |
+| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                   |
+| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                   |
+| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                   |
+| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                   |
+| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |                                                                                                                                                   |
 
 ## Divergences found
 
@@ -89,3 +89,61 @@ Each was read in the code. "Fixed" means both runtimes now run one function.
 | Savings on refund                                         | Not reversed                                            | Not reversed                                                                                                  | Open, slice 4 (decide the rule)                                                               |
 | Cart preview in the renderer (`Sell.tsx`)                 | Rounds to 2 decimals                                    | n/a                                                                                                           | Open: the renderer should call `priceSale`                                                    |
 | Money rounding outside sales                              | `round2` in debts, expenses, income, inventory, savings | `roundMoney` / `round` in the same modules                                                                    | Open, slice 8                                                                                 |
+
+## Rulings
+
+Decisions the owner made on how the rules behave. Each records the reasoning so it stays with
+the code. Sales and refunds made at an offline till are facts that already happened: the
+server records them and raises a flag for the owner; it does not reject or rewrite them.
+
+### R1. Refund synced from a till (2026-10-11)
+
+Record the till's refund amount as it is, and flag the sale when the server would have
+computed a different amount. The cash has already left the drawer, so overriding the amount
+would make the books disagree with the drawer. Raise the flag to high severity when the
+refund is more than what was paid on the sale: that is either a typo or theft, and the owner
+should see it first.
+
+### R2. Discount authorization on a synced sale (2026-10-11)
+
+The server re-checks the discount; it never rejects the sale, it flags it as unauthorized.
+
+- Check against the cashier's limits as they were when the sale happened, not today's.
+  Limits can change between the sale and the sync, and a sale that was valid when it was made
+  must not be flagged later.
+- When the till recorded a manager PIN approval, check that the approving manager's own limit
+  covered the discount. The sale is flagged only if the manager's limit did not.
+
+### R3. Selling stock the server does not have (2026-10-11)
+
+Accept the synced sale and flag the negative stock. A till cannot know the true stock while
+offline, and rejecting the sale loses a real sale, which is worse than negative stock. The
+same rule applies to serial-numbered items: when the serial was already sold elsewhere,
+accept the sale and flag the conflict. The flag carries the place the stock belongs to, so
+it can be raised per branch once branches exist.
+
+### R4. Refunds in the daily summary and the Income Statement (2026-10-11)
+
+A refund reduces the revenue of the day the refund happens.
+
+- Subtract the goods value actually charged after discounts, not the list price.
+- Reverse the cost of goods for items put back into stock; otherwise the day's profit comes
+  out too low. Items not restocked keep their cost.
+- The Income Statement uses the same rule as the daily summary, so there is one definition
+  of profit (decision D7).
+- Stored summaries from before this rule ignore every past refund. A one-time rebuild
+  corrects them and reports how much each total changed.
+
+### R5. When a sale becomes "refunded" (2026-10-11)
+
+A sale is refunded when the total quantity returned across all its returns equals the
+quantity sold on every line; otherwise it is partially refunded. The decision compares
+quantities, never amounts, so charges and rounding cannot leave a sale stuck as partially
+refunded.
+
+### Earlier rulings (slice 3, 2026-10-10)
+
+- Change on a credit sale is 0, never negative.
+- The stored payment method of a sale with no payment is `MIXED`; when every payment line
+  uses one method, it is that method. The UI shows "credit" for a sale with nothing paid.
+- A returned quantity may have up to three decimals, so part of a weighed line can come back.

@@ -4,6 +4,7 @@ import {
   checkSaleCredit,
   decideSaleRefund,
   effectivePaymentLines,
+  saleReturnStatus,
   settleSale,
   settleSaleFromLedger,
   storedPaymentMethod,
@@ -250,5 +251,95 @@ describe('decideSaleRefund', () => {
     expect(
       decideSaleRefund({ items, returns: [{ saleItemId: 'si-1', quantity: 0 }], amountPaid: 5500 }),
     ).toEqual({ ok: false, code: 'NOTHING_TO_RETURN' })
+  })
+
+  it('completes a sale when a second partial return brings back the rest (R5)', () => {
+    const decision = decideSaleRefund({
+      items: [
+        { id: 'si-1', quantity: 2, lineTotal: 4000, returnedQuantity: 1 },
+        { id: 'si-2', quantity: 1, lineTotal: 1500, returnedQuantity: 1 },
+      ],
+      returns: [{ saleItemId: 'si-1', quantity: 1 }],
+      amountPaid: 2000,
+    })
+    expect(decision).toMatchObject({
+      ok: true,
+      isFullReturn: true,
+      status: SaleStatus.REFUNDED,
+      goodsValue: 2000,
+    })
+  })
+
+  it('only returns what is left of a line after earlier returns', () => {
+    const decision = decideSaleRefund({
+      items: [{ id: 'si-1', quantity: 2, lineTotal: 4000, returnedQuantity: 1.5 }],
+      returns: [{ saleItemId: 'si-1', quantity: 2 }],
+      amountPaid: 4000,
+    })
+    expect(decision).toMatchObject({
+      ok: true,
+      lines: [{ saleItemId: 'si-1', quantity: 0.5 }],
+      goodsValue: 1000,
+      status: SaleStatus.REFUNDED,
+    })
+  })
+
+  it('a full return after a partial one brings back only the remainder', () => {
+    const decision = decideSaleRefund({
+      items: [
+        { id: 'si-1', quantity: 2, lineTotal: 4000, returnedQuantity: 2 },
+        { id: 'si-2', quantity: 1, lineTotal: 1500 },
+      ],
+      amountPaid: 1500,
+    })
+    expect(decision).toMatchObject({
+      ok: true,
+      lines: [{ saleItemId: 'si-2', quantity: 1, requestIndex: null }],
+      goodsValue: 1500,
+      status: SaleStatus.REFUNDED,
+    })
+  })
+
+  it('rejects a return when everything already came back', () => {
+    expect(
+      decideSaleRefund({
+        items: [{ id: 'si-1', quantity: 2, lineTotal: 4000, returnedQuantity: 2 }],
+        amountPaid: 0,
+      }),
+    ).toEqual({ ok: false, code: 'NOTHING_TO_RETURN' })
+  })
+
+  it('caps repeated request lines for the same item at the quantity sold', () => {
+    const decision = decideSaleRefund({
+      items: [{ id: 'si-1', quantity: 2, lineTotal: 4000 }],
+      returns: [
+        { saleItemId: 'si-1', quantity: 2 },
+        { saleItemId: 'si-1', quantity: 1 },
+      ],
+      amountPaid: 4000,
+    })
+    expect(decision).toMatchObject({
+      ok: true,
+      lines: [{ saleItemId: 'si-1', quantity: 2, requestIndex: 0 }],
+      goodsValue: 4000,
+    })
+  })
+})
+
+describe('saleReturnStatus (R5)', () => {
+  it('is REFUNDED only when every line is returned in full, by quantity', () => {
+    expect(
+      saleReturnStatus([
+        { quantity: 2, returnedQuantity: 2 },
+        { quantity: 0.5, returnedQuantity: 0.5 },
+      ]),
+    ).toBe(SaleStatus.REFUNDED)
+    expect(
+      saleReturnStatus([
+        { quantity: 2, returnedQuantity: 2 },
+        { quantity: 1, returnedQuantity: 0 },
+      ]),
+    ).toBe(SaleStatus.PARTIALLY_REFUNDED)
+    expect(saleReturnStatus([{ quantity: 1 }])).toBe(SaleStatus.PARTIALLY_REFUNDED)
   })
 })

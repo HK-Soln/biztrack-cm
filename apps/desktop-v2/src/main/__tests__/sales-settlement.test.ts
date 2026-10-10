@@ -150,4 +150,34 @@ describe('SalesService — settlement', () => {
       db.get<{ v: number }>(`SELECT stock_quantity AS v FROM products WHERE id = 'p-1'`)?.v,
     ).toBe(98.5)
   })
+
+  it('a second partial return that brings back the rest completes the sale (R5)', () => {
+    const service = makeService(db)
+    const sale = service.createSale({
+      clientId: 'c-two-returns',
+      soldAt: NOW,
+      items: [{ productId: 'p-1', quantity: 2, unitPrice: 1000 }],
+      payments: [{ method: CASH, amount: 2000 }],
+    })
+    const item = db.get<{ id: string }>(`SELECT id FROM sale_items WHERE sale_id = ?`, [sale.id])!
+
+    const first = service.refundSale(sale.id, { items: [{ saleItemId: item.id, quantity: 1 }] })
+    expect(first.status).toBe('PARTIALLY_REFUNDED')
+
+    // Asking for 2 again only returns the 1 that is left.
+    const second = service.refundSale(sale.id, { items: [{ saleItemId: item.id, quantity: 2 }] })
+    expect(second.status).toBe('REFUNDED')
+    expect(
+      db.get<{ q: number }>(
+        `SELECT SUM(quantity) AS q FROM sale_return_items WHERE sale_item_id = ?`,
+        [item.id],
+      )?.q,
+    ).toBe(2)
+    expect(second.amountPaid).toBe(0)
+    expect(
+      db.get<{ v: number }>(`SELECT stock_quantity AS v FROM products WHERE id = 'p-1'`)?.v,
+    ).toBe(100)
+
+    expect(() => service.refundSale(sale.id, {})).toThrow('Select at least one item to return.')
+  })
 })

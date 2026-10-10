@@ -99,6 +99,27 @@ export interface RefundableSaleLine {
   quantity: number
   /** The line's discounted total (after its line and cart-discount share). */
   lineTotal: number
+  /** Quantity already returned by earlier returns of this sale. Defaults to 0. */
+  returnedQuantity?: number | null
+}
+
+/** What is left of a line to return: sold minus already returned, never below 0. */
+function remainingQuantity(item: RefundableSaleLine): number {
+  return Math.max(0, roundQuantity(item.quantity - Math.max(0, item.returnedQuantity ?? 0)))
+}
+
+/**
+ * A sale's status once returns exist (ruling R5): REFUNDED when the total quantity returned
+ * equals the quantity sold on every line, else PARTIALLY_REFUNDED. Decided on quantities,
+ * never amounts, so charges and rounding cannot leave a sale stuck as partially refunded.
+ */
+export function saleReturnStatus(
+  items: ReadonlyArray<{ quantity: number; returnedQuantity?: number | null }>,
+): SaleStatus.REFUNDED | SaleStatus.PARTIALLY_REFUNDED {
+  const allReturned = items.every(
+    (item) => roundQuantity(item.returnedQuantity ?? 0) >= roundQuantity(item.quantity),
+  )
+  return allReturned ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED
 }
 
 export interface SaleReturnRequestLine {
@@ -108,7 +129,7 @@ export interface SaleReturnRequestLine {
 
 export interface SaleReturnLine {
   saleItemId: string
-  /** Quantity returned: at most three decimals, capped at the quantity sold. */
+  /** Quantity returned: at most three decimals, capped at what is left of the line. */
   quantity: number
   /** Index into the requested lines this came from; null on a full return. */
   requestIndex: number | null
@@ -120,7 +141,7 @@ export type SaleRefundDecision =
   | {
       ok: true
       lines: SaleReturnLine[]
-      /** Every sold line came back in full. */
+      /** With this return, every sold line has come back in full. */
       isFullReturn: boolean
       /** Value of the returned goods at their discounted per-unit price. */
       goodsValue: number
@@ -131,7 +152,9 @@ export type SaleRefundDecision =
   | { ok: false; code: SaleRefundRejection }
 
 /**
- * Decide a return of a sale. With no requested lines every line is returned in full.
+ * Decide a return of a sale. With no requested lines, everything not yet returned comes
+ * back. Earlier returns count: a line can only return what is left of it, and the sale is
+ * REFUNDED once every line's total returned quantity equals the quantity sold (ruling R5).
  * Money returned defaults to the goods value of the returned lines and is capped at what
  * was actually paid, so charges stay and an unpaid credit sale refunds nothing.
  */
@@ -147,29 +170,43 @@ export function decideSaleRefund(input: {
   const itemsById = new Map(input.items.map((item) => [item.id, item]))
   const requested = input.returns && input.returns.length > 0 ? input.returns : null
 
+  // Running quantity returned per line: earlier returns plus the lines of this one.
+  const returnedByItem = new Map(
+    input.items.map((item) => [item.id, item.quantity - remainingQuantity(item)]),
+  )
+  const take = (item: RefundableSaleLine, wanted: number): number => {
+    const already = returnedByItem.get(item.id) ?? 0
+    const quantity = Math.min(
+      Math.max(0, roundQuantity(wanted)),
+      roundQuantity(item.quantity - already),
+    )
+    if (quantity > 0) returnedByItem.set(item.id, roundQuantity(already + quantity))
+    return quantity
+  }
+
   const lines: SaleReturnLine[] = []
   if (requested) {
     for (const [requestIndex, request] of requested.entries()) {
       const item = itemsById.get(request.saleItemId)
       if (!item) return { ok: false, code: 'RETURN_ITEM_NOT_FOUND' }
-      const quantity = Math.min(Math.max(0, roundQuantity(request.quantity)), item.quantity)
+      const quantity = take(item, request.quantity)
       if (quantity > 0) lines.push({ saleItemId: item.id, quantity, requestIndex })
     }
   } else {
     for (const item of input.items) {
-      if (item.quantity > 0) {
-        lines.push({ saleItemId: item.id, quantity: item.quantity, requestIndex: null })
-      }
+      const quantity = take(item, item.quantity)
+      if (quantity > 0) lines.push({ saleItemId: item.id, quantity, requestIndex: null })
     }
   }
   if (lines.length === 0) return { ok: false, code: 'NOTHING_TO_RETURN' }
 
-  const returnedByItem = new Map<string, number>()
-  for (const line of lines) {
-    returnedByItem.set(line.saleItemId, (returnedByItem.get(line.saleItemId) ?? 0) + line.quantity)
-  }
-  const isFullReturn =
-    !requested || input.items.every((item) => (returnedByItem.get(item.id) ?? 0) >= item.quantity)
+  const status = saleReturnStatus(
+    input.items.map((item) => ({
+      quantity: item.quantity,
+      returnedQuantity: returnedByItem.get(item.id) ?? 0,
+    })),
+  )
+  const isFullReturn = status === SaleStatus.REFUNDED
 
   const goodsValue = toWholeXaf(
     lines.reduce((sum, line) => {
@@ -188,6 +225,6 @@ export function decideSaleRefund(input: {
     isFullReturn,
     goodsValue,
     refundAmount,
-    status: isFullReturn ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED,
+    status,
   }
 }

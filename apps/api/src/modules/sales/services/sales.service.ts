@@ -12,6 +12,7 @@ import {
   isBelowCost,
   priceSale,
   roundQuantity,
+  saleReturnStatus,
   settleSale,
   settleSaleFromLedger,
   storedPaymentMethod,
@@ -1671,8 +1672,14 @@ export class SalesService {
         const saleItems = sale.items ?? []
         // What comes back, what it is worth and what money is returned is decided by
         // @biztrack/domain (the same decision desktop makes offline).
+        const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
         const decision = decideSaleRefund({
-          items: saleItems,
+          items: saleItems.map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            lineTotal: item.lineTotal,
+            returnedQuantity: returnedBefore.get(item.id) ?? 0,
+          })),
           returns: input.items,
           requestedAmount: input.amount,
           amountPaid: sale.amountPaid,
@@ -1793,6 +1800,23 @@ export class SalesService {
     } catch (error) {
       return this.handleServiceError('refund', error, { id, businessId, userId: user.sub })
     }
+  }
+
+  /** Quantity already returned per sale item, across every return recorded for the sale. */
+  private async returnedQuantityByItem(
+    manager: EntityManager,
+    saleId: string,
+  ): Promise<Map<string, number>> {
+    const rows = await manager
+      .getRepository(SaleReturnItem)
+      .createQueryBuilder('returnItem')
+      .innerJoin(SaleReturn, 'saleReturn', 'saleReturn.id = returnItem.saleReturnId')
+      .where('saleReturn.saleId = :saleId', { saleId })
+      .select('returnItem.saleItemId', 'saleItemId')
+      .addSelect('SUM(returnItem.quantity)', 'quantity')
+      .groupBy('returnItem.saleItemId')
+      .getRawMany<{ saleItemId: string; quantity: string | number }>()
+    return new Map(rows.map((row) => [row.saleItemId, Number(row.quantity)]))
   }
 
   /** Recompute a sale's paid/credit from its signed payment ledger: Σ(PAYMENT) − Σ(REFUND). */
@@ -2659,10 +2683,18 @@ export class SalesService {
       }
     }
 
-    // Recompute settlement from the signed payment ledger + set status authoritatively.
+    // Recompute settlement from the signed payment ledger. The status is decided here from
+    // the quantities returned across ALL of the sale's returns (ruling R5), not taken from
+    // the device: a second partial return that brings back the rest completes the sale.
     const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
-    const status =
-      payload.status === SaleStatus.REFUNDED ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED
+    const returnedByItem = await this.returnedQuantityByItem(manager, sale.id)
+    if (returnedByItem.size === 0) return
+    const status = saleReturnStatus(
+      saleItems.map((item) => ({
+        quantity: item.quantity,
+        returnedQuantity: returnedByItem.get(item.id) ?? 0,
+      })),
+    )
     await manager.getRepository(Sale).update(sale.id, {
       amountPaid: settlement.amountPaid,
       creditAmount: settlement.creditAmount,
