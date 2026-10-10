@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currencyExponent, majorToMinor, minorToMajor } from './money'
+import { currencyExponent, majorToMinor, minorToMajor } from './minor-units'
 
 describe('currency-aware money (minor units)', () => {
   it('XAF has zero minor units (minor == major)', () => {

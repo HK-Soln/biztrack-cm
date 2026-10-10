@@ -44,7 +44,7 @@ export interface InventoryAlert {
   reorderPoint: number | null
   shortfall: number
   /** Sales velocity in units/day over the trailing window, excluding stock-out days
-   * (BIZ-4.6). null when there's too little history/sales to trust — see @biztrack/utils
+   * (BIZ-4.6). null when there's too little history/sales to trust — see @biztrack/domain
    * computeReorderVelocity. */
   velocity?: number | null
   /** Days of stock left at the current velocity ("Reste N jours"). null when untrusted. */

@@ -73,6 +73,7 @@ export default defineConfig(({ mode }) => {
         '@': resolve(__dirname, 'src/renderer/src'),
         '@shared': resolve(__dirname, 'src/shared'),
         '@biztrack/types': resolve(__dirname, '../../packages/types/src'),
+        '@biztrack/domain': resolve(__dirname, '../../packages/domain/src'),
         '@biztrack/utils': resolve(__dirname, '../../packages/utils/src'),
         '@biztrack/templates': resolve(__dirname, '../../packages/templates/src'),
         '@biztrack/http-client/browser': resolve(

@@ -5,11 +5,13 @@ import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
-  allocateProRata,
   evaluateDiscountAuthorization,
+  hasPriceDrift,
   isBelowCost,
+  priceSale,
+  roundQuantity,
   toWholeXaf,
-} from '@biztrack/utils'
+} from '@biztrack/domain'
 import {
   BusinessMemberRole,
   DebtDirection,
@@ -1675,7 +1677,7 @@ export class SalesService {
                 }
                 return {
                   item,
-                  quantity: Math.min(this.roundQuantity(r.quantity), item.quantity),
+                  quantity: Math.min(roundQuantity(r.quantity), item.quantity),
                   serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
                 }
               })
@@ -2399,11 +2401,25 @@ export class SalesService {
     dto: SaleComputationInput,
   ) {
     const productsById = new Map(products.map((product) => [product.id, product]))
+    // Pricing is @biztrack/domain's priceSale — the same function every runtime runs — so the
+    // totals stored here are the ones the till computed. This method only attaches the
+    // catalogue context (product, variant, serial unit, cost) to each priced line.
+    const pricing = priceSale({
+      lines: dto.items.map((input) => ({
+        quantity: roundQuantity(input.quantity),
+        unitPrice: input.unitPrice,
+        unitPriceListed: input.unitPriceListed,
+        discountAmount: input.discountAmount,
+        reasonCode: input.reasonCode,
+        reasonNote: input.reasonNote,
+      })),
+      cartDiscount: dto.discountAmount,
+      charges: dto.chargesAmount,
+    })
     const items: ComputedSaleItem[] = []
-    let subtotal = 0
     let priceDriftWarning = false
 
-    for (const input of dto.items) {
+    dto.items.forEach((input, index) => {
       const product = productsById.get(input.productId)
 
       if (!product) {
@@ -2414,54 +2430,17 @@ export class SalesService {
         )
       }
 
-      const quantity = this.roundQuantity(input.quantity)
-      const cartDiscountAlloc = 0
-      // BIZ-1.2 OVERRIDE model: rung at the catalogue (listed) price, with any bargain
-      // captured as a line discount. When the charged price is below listed, store
-      // unit_price = listed and fold the gap into discount_amount + an OVERRIDE row, so
-      // discount_amount always reconciles with the line's discount rows. A charged price
-      // at/above listed keeps that price (a markup) with no negative discount.
-      const chargedRung = toWholeXaf(input.unitPrice)
-      const unitPriceListed = toWholeXaf(input.unitPriceListed ?? input.unitPrice)
-      const explicitDiscount = toWholeXaf(input.discountAmount ?? 0)
-      const overrideGap =
-        chargedRung < unitPriceListed ? toWholeXaf((unitPriceListed - chargedRung) * quantity) : 0
-      const unitPrice = overrideGap > 0 ? unitPriceListed : chargedRung
-      const discountAmount = toWholeXaf(overrideGap + explicitDiscount)
-      const lineDiscounts: DerivedLineDiscount[] = []
-      if (overrideGap > 0) {
-        lineDiscounts.push({
-          discountType: 'OVERRIDE',
-          amount: overrideGap,
-          description: 'Negotiated price',
-          reasonCode: input.reasonCode ?? 'NEGOTIATED',
-          reasonNote: input.reasonNote ?? null,
-        })
-      }
-      if (explicitDiscount > 0) {
-        lineDiscounts.push({
-          discountType: 'FIXED_AMOUNT',
-          amount: explicitDiscount,
-          description: 'Line discount',
-          reasonCode: null,
-          reasonNote: null,
-        })
-      }
-      const lineTotal = Math.max(
-        0,
-        toWholeXaf(unitPrice * quantity - discountAmount - cartDiscountAlloc),
-      )
+      const priced = pricing.lines[index]!
       const costPrice =
         input.costPrice !== undefined ? toWholeXaf(input.costPrice) : (product.costPrice ?? null)
 
       // Drift reflects what the cashier actually charged, not the rung listed price.
-      if (this.hasPriceDrift(chargedRung, product.sellingPrice)) {
+      if (hasPriceDrift(priced.chargedUnitPrice, product.sellingPrice)) {
         priceDriftWarning = true
       }
 
       const variant = input.variantId ? variantsById.get(input.variantId) : undefined
       const serialUnit = input.serialUnitId ? serialUnitsById.get(input.serialUnitId) : undefined
-      subtotal = toWholeXaf(subtotal + lineTotal)
       items.push({
         product,
         // Serialised lines have no explicit variantId — derive it from the serial unit so the
@@ -2470,51 +2449,28 @@ export class SalesService {
         variantName: variant?.name ?? input.variantName ?? null,
         serialUnitId: serialUnit?.id ?? input.serialUnitId ?? null,
         serialNumber: serialUnit?.serialNumber ?? input.serialNumber ?? null,
-        quantity,
-        unitPrice,
-        unitPriceListed,
-        cartDiscountAlloc,
-        discountAmount,
-        lineTotal,
+        quantity: priced.quantity,
+        unitPrice: priced.unitPrice,
+        unitPriceListed: priced.unitPriceListed,
+        cartDiscountAlloc: priced.cartDiscountAlloc,
+        discountAmount: priced.discountAmount,
+        lineTotal: priced.lineTotal,
         costPrice,
-        lineDiscounts,
+        lineDiscounts: priced.lineDiscounts.map((discount) => ({
+          ...discount,
+          description: discount.discountType === 'OVERRIDE' ? 'Negotiated price' : 'Line discount',
+        })),
       })
-    }
-
-    const saleDiscountAmount = Math.min(toWholeXaf(dto.discountAmount ?? 0), subtotal)
-    const saleChargesAmount = toWholeXaf(Math.max(0, dto.chargesAmount ?? 0))
-    const totalAmount = Math.max(0, toWholeXaf(subtotal - saleDiscountAmount + saleChargesAmount))
-
-    // BIZ-1.3: allocate the cart-level discount across lines (weight = line total),
-    // rounding remainder to the largest line, and fold each share into that line's
-    // total. Σ(cart_discount_alloc) === saleDiscountAmount, so totals never drift.
-    if (saleDiscountAmount > 0 && items.length > 0) {
-      const allocations = allocateProRata(
-        saleDiscountAmount,
-        items.map((it) => it.lineTotal),
-      )
-      items.forEach((it, i) => {
-        it.cartDiscountAlloc = allocations[i] ?? 0
-        it.lineTotal = Math.max(0, toWholeXaf(it.lineTotal - it.cartDiscountAlloc))
-      })
-    }
+    })
 
     return {
       items,
-      subtotal,
-      saleDiscountAmount,
-      saleChargesAmount,
-      totalAmount,
+      subtotal: pricing.subtotal,
+      saleDiscountAmount: pricing.discountAmount,
+      saleChargesAmount: pricing.chargesAmount,
+      totalAmount: pricing.totalAmount,
       priceDriftWarning,
     }
-  }
-
-  private hasPriceDrift(unitPrice: number, currentSellingPrice: number) {
-    if (currentSellingPrice <= 0) {
-      return unitPrice > 0
-    }
-
-    return Math.abs(unitPrice - currentSellingPrice) / currentSellingPrice > 0.1
   }
 
   private async findSaleDetailBy(
@@ -2639,7 +2595,7 @@ export class SalesService {
           if (!item) return null
           return {
             item,
-            quantity: Math.min(this.roundQuantity(r.quantity), item.quantity),
+            quantity: Math.min(roundQuantity(r.quantity), item.quantity),
             serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
           }
         })
@@ -2669,7 +2625,7 @@ export class SalesService {
               saleReturnId: ret.id,
               businessId,
               saleItemId: r.saleItemId,
-              quantity: this.roundQuantity(r.quantity),
+              quantity: roundQuantity(r.quantity),
               serialUnitId: r.serialUnitId ?? null,
             }),
           ),
@@ -2840,10 +2796,6 @@ export class SalesService {
     if (value === SaleStatus.REFUNDED) return SaleStatus.REFUNDED
     if (value === SaleStatus.PARTIALLY_REFUNDED) return SaleStatus.PARTIALLY_REFUNDED
     return SaleStatus.COMPLETED
-  }
-
-  private roundQuantity(value: number) {
-    return Math.round(value * 1000) / 1000
   }
 
   private resolveSyncCashierId(payload: SaleSyncPayload) {

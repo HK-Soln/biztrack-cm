@@ -35,7 +35,7 @@ import {
   computeStockoutMs,
   type StockPoint,
   type VelocityResult,
-} from '@biztrack/utils'
+} from '@biztrack/domain'
 import { validateSerialNumber } from '@biztrack/validators'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -1225,7 +1225,7 @@ export class InventoryService {
   /** Trailing-window sales velocity + days-of-cover per alerted product (BIZ-4.6),
    * keyed by productId. Excludes stock-out days (reconstructed from the movement
    * ledger's `quantity_after`) and returns null velocity/cover for products with too
-   * little history/sales to trust — the shared @biztrack/utils calculator decides.
+   * little history/sales to trust — the shared @biztrack/domain calculator decides.
    * Variant products are skipped: their stock lives per-variant, so a product-level
    * timeline would misread as empty. */
   private async computeAlertVelocities(

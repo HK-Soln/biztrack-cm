@@ -69,7 +69,9 @@ test_conn.js
 # Others
 .tmp_plan_permissions.zip
 .tmp_docx_permissions
-.claude
+# Claude Code: local settings stay private; project skills are shared with the repo.
+.claude/*
+!.claude/skills/
 
 # Local upload files
 uploads/

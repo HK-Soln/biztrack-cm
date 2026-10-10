@@ -25,11 +25,11 @@ import { memberStatusCacheKey } from '@/common/membership/membership-cache'
 import { BusinessesRepository } from './repositories/businesses.repository'
 import { BusinessMembersRepository } from './repositories/business-members.repository'
 import {
-  generateSlug,
   DEFAULT_BUSINESS_TIMEZONE,
   normalizeDayCutover,
   clampFiscalYearStartMonth,
-} from '@biztrack/utils'
+} from '@biztrack/domain'
+import { generateSlug } from '@biztrack/utils'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import { LOGGER } from '@/logger/logger.module'
 import { AppException } from '@/common/exceptions/app.exception'

@@ -19,7 +19,8 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
-import { APP_ROUTES, effectiveDueDate } from '@biztrack/utils'
+import { effectiveDueDate } from '@biztrack/domain'
+import { APP_ROUTES } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'

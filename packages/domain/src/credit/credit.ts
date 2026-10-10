@@ -19,6 +19,6 @@ export function effectiveDueDate(debt: DueDateInput, creditDays: number): Date {
 }
 
 /** Whole days `now` is past `due` — negative when the debt is not yet due. */
-export function daysPastDue(due: Date, now: Date = new Date()): number {
+export function daysPastDue(due: Date, now: Date): number {
   return Math.floor((now.getTime() - due.getTime()) / MS_PER_DAY)
 }

@@ -1,4 +1,4 @@
-import { toWholeXaf } from './currency'
+import { toWholeXaf } from '../money/whole-xaf'
 
 // ---------------------------------------------------------------------------
 // Expected-cash calculator (BIZ-2.2) — the ONE definition of what a cash drawer

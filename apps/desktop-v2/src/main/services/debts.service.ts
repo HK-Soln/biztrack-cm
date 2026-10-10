@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
-import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
+import { daysPastDue, effectiveDueDate } from '@biztrack/domain'
 import type {
   AgeingEntry,
   AgeingReport,

@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { PaymentMethod } from '@biztrack/types'
-import { majorToMinor, minorToMajor } from '@biztrack/utils'
+import { majorToMinor, minorToMajor } from '@biztrack/domain'
 import type {
   InitiateUssdPushRequest,
   PaymentAttemptStatus,
@@ -179,7 +179,11 @@ export class MtnAdapter implements PaymentProviderAdapter {
     // a 400. Sanitize: externalId to a strict token; messages to printable ASCII.
     const externalId =
       (req.reference || 'PAYMENT').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 60) || 'PAYMENT'
-    const message = req.reference.replace(/[^\x20-\x7E]/g, '').trim().slice(0, 160) || 'Payment'
+    const message =
+      req.reference
+        .replace(/[^\x20-\x7E]/g, '')
+        .trim()
+        .slice(0, 160) || 'Payment'
 
     const res = await fetch(`${base}/collection/v1_0/requesttopay`, {
       method: 'POST',

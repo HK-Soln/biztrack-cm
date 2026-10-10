@@ -310,7 +310,7 @@ export const IPC = {
 // PaginatedResult; `listAll*` variants (for form pickers) return the full set.
 export type { ListQuery, PaginatedResult } from '@biztrack/types'
 export type { ChargeType } from '@biztrack/types'
-import type { RoleDiscountLimits } from '@biztrack/utils'
+import type { RoleDiscountLimits } from '@biztrack/domain'
 export type { RoleDiscountLimits }
 export type { DailySalesRow, CashierPerformanceRow } from '@biztrack/types'
 export type {

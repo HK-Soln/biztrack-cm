@@ -24,6 +24,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1068.0",
     "@aws-sdk/s3-request-presigner": "^3.1068.0",
+    "@biztrack/domain": "workspace:*",
     "@biztrack/http-client": "workspace:*",
     "@biztrack/logger": "workspace:*",
     "@biztrack/templates": "workspace:*",

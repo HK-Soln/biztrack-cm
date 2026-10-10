@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Input, Modal } from '@biztrack/ui/biztrack'
-import { toWholeXaf } from '@biztrack/utils'
+import { toWholeXaf } from '@biztrack/domain'
 import { useT } from '@/i18n'
 import { useCurrency } from '@/lib/currency'
 import type { MessageKey } from '@/i18n/messages'

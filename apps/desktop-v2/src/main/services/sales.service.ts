@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto'
 import { PaymentMethod, DEFAULT_RECEIPT_SETTINGS } from '@biztrack/types'
 import {
-  allocateProRata,
   evaluateDiscountAuthorization,
   isBelowCost,
-  toWholeXaf,
+  priceSale,
   type RoleDiscountLimits,
-} from '@biztrack/utils'
+  toWholeXaf,
+} from '@biztrack/domain'
 import type { SaleReceipt, ReceiptSettings } from '@biztrack/types'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { localBusinessDate } from './business-calendar'
@@ -222,7 +222,7 @@ export class SalesService {
             unitPriceListed,
             cartDiscountAlloc: 0,
             discountAmount: 0,
-            lineTotal: unitPrice,
+            lineTotal: 0,
             costPrice: cost,
             reasonCode: line.reasonCode ?? null,
             reasonNote: line.reasonNote ?? null,
@@ -240,10 +240,6 @@ export class SalesService {
         if (!Number.isFinite(qty) || qty <= 0)
           throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
         const lineDiscount = toWholeXaf(Math.max(0, line.discountAmount ?? 0))
-        const cartDiscountAlloc = 0
-        const lineTotal = toWholeXaf(
-          Math.max(0, unitPrice * qty - lineDiscount - cartDiscountAlloc),
-        )
         emits.push({
           id: randomUUID(),
           productId: line.productId,
@@ -257,9 +253,9 @@ export class SalesService {
           quantity: qty,
           unitPrice,
           unitPriceListed,
-          cartDiscountAlloc,
+          cartDiscountAlloc: 0,
           discountAmount: lineDiscount,
-          lineTotal,
+          lineTotal: 0,
           costPrice: cost,
           reasonCode: line.reasonCode ?? null,
           reasonNote: line.reasonNote ?? null,
@@ -274,53 +270,11 @@ export class SalesService {
       }
     }
 
-    // BIZ-1.2 OVERRIDE model: rung at the listed price, with any bargain folded into
-    // discount_amount + a LINE-scoped sale_discounts row, so each line's discount_amount
-    // reconciles with its discount rows. lineTotal is unchanged (listed*qty − discount ===
-    // charged*qty − explicit). A charged price at/above listed stays a markup, no override.
-    const lineDiscountRows: Array<{
-      id: string
-      saleItemId: string
-      description: string
-      discountType: string
-      amount: number
-      reasonCode: string | null
-      reasonNote: string | null
-    }> = []
-    for (const e of emits) {
-      const explicit = e.discountAmount
-      const overrideGap =
-        e.unitPrice < e.unitPriceListed
-          ? toWholeXaf((e.unitPriceListed - e.unitPrice) * e.quantity)
-          : 0
-      if (overrideGap > 0) {
-        e.unitPrice = e.unitPriceListed
-        e.discountAmount = toWholeXaf(overrideGap + explicit)
-        lineDiscountRows.push({
-          id: randomUUID(),
-          saleItemId: e.id,
-          description: 'Prix négocié',
-          discountType: 'OVERRIDE',
-          amount: overrideGap,
-          reasonCode: e.reasonCode ?? 'NEGOTIATED',
-          reasonNote: e.reasonNote,
-        })
-      }
-      if (explicit > 0) {
-        lineDiscountRows.push({
-          id: randomUUID(),
-          saleItemId: e.id,
-          description: 'Remise',
-          discountType: 'FIXED_AMOUNT',
-          amount: explicit,
-          reasonCode: null,
-          reasonNote: null,
-        })
-      }
-    }
-
-    // --- settlement (tax 0; matches the API computeSale) ----------------------
-    const subtotal = toWholeXaf(emits.reduce((s, e) => s + e.lineTotal, 0))
+    // --- pricing (tax 0) -------------------------------------------------------
+    // @biztrack/domain's priceSale is the one computation of a sale's money — the API and the
+    // sync applier run the same function, so these totals are the ones the server records.
+    // It rungs a bargained line at the listed price with the gap as an OVERRIDE discount
+    // (BIZ-1.2), caps the cart discount at the subtotal and allocates it across lines (BIZ-1.3).
     const discountLines = (input.discounts ?? []).map((d) => ({
       ...d,
       id: d.id ?? randomUUID(),
@@ -331,28 +285,50 @@ export class SalesService {
       id: c.id ?? randomUUID(),
       amount: toWholeXaf(Math.max(0, c.amount)),
     }))
-    const discountAmount = toWholeXaf(
-      Math.min(
-        subtotal,
-        discountLines.reduce((s, d) => s + d.amount, 0),
-      ),
-    )
-    const chargesAmount = toWholeXaf(chargeLines.reduce((s, c) => s + c.amount, 0))
-    const totalAmount = toWholeXaf(Math.max(0, subtotal - discountAmount + chargesAmount))
-
-    // BIZ-1.3: allocate the cart-level discount across lines (weight = line total),
-    // remainder to the largest line, folding each share into that line's total. Uses
-    // the same shared helper as the API so both runtimes agree.
-    if (discountAmount > 0 && emits.length > 0) {
-      const allocations = allocateProRata(
-        discountAmount,
-        emits.map((e) => e.lineTotal),
-      )
-      emits.forEach((e, i) => {
-        e.cartDiscountAlloc = allocations[i] ?? 0
-        e.lineTotal = toWholeXaf(Math.max(0, e.lineTotal - e.cartDiscountAlloc))
-      })
-    }
+    const pricing = priceSale({
+      lines: emits.map((e) => ({
+        quantity: e.quantity,
+        unitPrice: e.unitPrice,
+        unitPriceListed: e.unitPriceListed,
+        discountAmount: e.discountAmount,
+        reasonCode: e.reasonCode,
+        reasonNote: e.reasonNote,
+      })),
+      cartDiscount: discountLines.reduce((s, d) => s + d.amount, 0),
+      charges: chargeLines.reduce((s, c) => s + c.amount, 0),
+    })
+    // LINE-scoped sale_discounts rows, so each line's discount_amount reconciles with them.
+    const lineDiscountRows: Array<{
+      id: string
+      saleItemId: string
+      description: string
+      discountType: string
+      amount: number
+      reasonCode: string | null
+      reasonNote: string | null
+    }> = []
+    emits.forEach((e, i) => {
+      const priced = pricing.lines[i]!
+      e.unitPrice = priced.unitPrice
+      e.discountAmount = priced.discountAmount
+      e.cartDiscountAlloc = priced.cartDiscountAlloc
+      e.lineTotal = priced.lineTotal
+      for (const d of priced.lineDiscounts) {
+        lineDiscountRows.push({
+          id: randomUUID(),
+          saleItemId: e.id,
+          description: d.discountType === 'OVERRIDE' ? 'Prix négocié' : 'Remise',
+          discountType: d.discountType,
+          amount: d.amount,
+          reasonCode: d.reasonCode,
+          reasonNote: d.reasonNote,
+        })
+      }
+    })
+    const subtotal = pricing.subtotal
+    const discountAmount = pricing.discountAmount
+    const chargesAmount = pricing.chargesAmount
+    const totalAmount = pricing.totalAmount
 
     // BIZ-1.4: evaluate the cashier's role discount limits (offline, from the synced
     // roles table). Over-limit discounts still complete (APPROVE) but are flagged
@@ -2013,8 +1989,9 @@ export class SalesService {
       }
     }
     const cashierName =
-      this.db.get<{ n: string | null }>(`SELECT cashier_name AS n FROM sales WHERE id = ?`, [saleId])
-        ?.n ?? ''
+      this.db.get<{ n: string | null }>(`SELECT cashier_name AS n FROM sales WHERE id = ?`, [
+        saleId,
+      ])?.n ?? ''
     let email: string | null = null
     let phone = sale.customerPhone
     if (sale.customerId) {

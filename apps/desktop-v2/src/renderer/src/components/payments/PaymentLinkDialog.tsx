@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import QRCode from 'qrcode'
 import { Button, Modal } from '@biztrack/ui/biztrack'
-import { minorToMajor } from '@biztrack/utils'
+import { minorToMajor } from '@biztrack/domain'
 import type { CreatePaymentLinkRequest, PaymentLinkView } from '@shared/ipc'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
@@ -53,7 +53,11 @@ export function PaymentLinkDialog({
     if (!link) return
     const off = dataClient.payments.onLinkEvent((e) => {
       if (e.paymentLinkId !== link.id) return
-      setSettle({ amountPaidMinor: e.amountPaidMinor, amountMinor: e.amountMinor, done: e.status === 'PAID' })
+      setSettle({
+        amountPaidMinor: e.amountPaidMinor,
+        amountMinor: e.amountMinor,
+        done: e.status === 'PAID',
+      })
       // The payment was recorded on the SERVER; the offline-first screens read LOCAL data, so pull it
       // down first, THEN invalidate (a bare invalidate would refetch stale local data). On cloud,
       // sync.trigger is a no-op and queries hit the API directly, so the invalidate alone suffices.
@@ -154,8 +158,14 @@ export function PaymentLinkDialog({
               {settle.done
                 ? t('paymentLink.livePaid')
                 : t('paymentLink.livePartial')
-                    .replace('{paid}', money.format(minorToMajor(settle.amountPaidMinor, link.currency)))
-                    .replace('{total}', money.format(minorToMajor(settle.amountMinor, link.currency)))}
+                    .replace(
+                      '{paid}',
+                      money.format(minorToMajor(settle.amountPaidMinor, link.currency)),
+                    )
+                    .replace(
+                      '{total}',
+                      money.format(minorToMajor(settle.amountMinor, link.currency)),
+                    )}
             </div>
           ) : null}
           {qr && !settle?.done ? (

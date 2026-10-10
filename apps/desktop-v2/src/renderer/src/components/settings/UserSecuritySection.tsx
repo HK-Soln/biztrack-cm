@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, OtpInput } from '@biztrack/ui/biztrack'
-import { isStrongPin } from '@biztrack/utils'
+import { isStrongPin } from '@biztrack/domain'
 import { useT } from '@/i18n'
 import { dataClient } from '@/lib/data-client'
 

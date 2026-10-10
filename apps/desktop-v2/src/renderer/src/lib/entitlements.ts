@@ -1,4 +1,4 @@
-import { isModuleEntitled, moduleByKey } from '@biztrack/utils'
+import { isModuleEntitled, moduleByKey } from '@biztrack/domain'
 import type { BusinessModuleKey, Resource } from '@biztrack/types'
 import { useSessionStore } from '@/stores/session.store'
 

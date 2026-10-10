@@ -27,7 +27,7 @@ import {
 } from '@biztrack/templates'
 import type { BuiltReportResult, ReportBuildOptions, Resource } from '@biztrack/types'
 import { DebtDirection } from '@biztrack/types'
-import { countTradingDays } from '@biztrack/utils'
+import { countTradingDays } from '@biztrack/domain'
 import type { DataClient } from '@/lib/data-client'
 
 export type ReportCategory = 'sales' | 'inventory' | 'financial' | 'tax'

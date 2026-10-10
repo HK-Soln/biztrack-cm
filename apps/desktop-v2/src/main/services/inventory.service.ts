@@ -6,7 +6,7 @@ import {
   computeStockoutMs,
   type StockPoint,
   type VelocityResult,
-} from '@biztrack/utils'
+} from '@biztrack/domain'
 import type {
   AdjustStockInput,
   DeadStockRow,
@@ -257,7 +257,7 @@ export class InventoryService {
   /** Trailing-window sales velocity + days-of-cover per product (BIZ-4.6), keyed by
    * productId. Excludes stock-out days (reconstructed from the movement ledger's
    * `quantity_after`) and returns null velocity/cover for products with too little
-   * history/sales to trust — the shared @biztrack/utils calculator decides. */
+   * history/sales to trust — the shared @biztrack/domain calculator decides. */
   private computeVelocities(
     businessId: string,
     items: { id: string; stock: number; createdAt: string }[],

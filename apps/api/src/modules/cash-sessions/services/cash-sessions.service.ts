@@ -32,7 +32,7 @@ import {
   type RecordCashMovementInput,
   type SetCashVarianceReasonInput,
 } from '@biztrack/types'
-import { computeExpectedCash } from '@biztrack/utils'
+import { computeExpectedCash } from '@biztrack/domain'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'

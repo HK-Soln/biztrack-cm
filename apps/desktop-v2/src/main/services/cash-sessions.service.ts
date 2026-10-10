@@ -23,7 +23,7 @@ import {
   type RecordCashMovementInput,
   type SetCashVarianceReasonInput,
 } from '@biztrack/types'
-import { computeExpectedCash } from '@biztrack/utils'
+import { computeExpectedCash } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { localBusinessDate } from './business-calendar'
 import type {

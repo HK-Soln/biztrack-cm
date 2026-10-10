@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@biztrack/ui/biztrack'
 import { PayableType, PaymentLinkStatus, type PaymentLinkView } from '@biztrack/types'
-import { minorToMajor } from '@biztrack/utils'
+import { minorToMajor } from '@biztrack/domain'
 import { dataClient } from '@/lib/data-client'
 import { useCurrency } from '@/lib/currency'
 import { errorMessage } from '@/lib/error'
@@ -10,7 +10,10 @@ import { copyText } from '@/lib/clipboard'
 import { useT } from '@/i18n'
 
 const STATUS_STYLE: Record<PaymentLinkStatus, { color: string; bg: string }> = {
-  [PaymentLinkStatus.ACTIVE]: { color: 'var(--brand)', bg: 'var(--brand-soft, rgba(59,130,246,0.12))' },
+  [PaymentLinkStatus.ACTIVE]: {
+    color: 'var(--brand)',
+    bg: 'var(--brand-soft, rgba(59,130,246,0.12))',
+  },
   [PaymentLinkStatus.PARTIALLY_PAID]: { color: '#b26b00', bg: 'rgba(245,179,1,0.16)' },
   [PaymentLinkStatus.PAID]: { color: 'var(--success, #1a7f45)', bg: 'rgba(26,127,69,0.12)' },
   [PaymentLinkStatus.EXPIRED]: { color: 'var(--text-2)', bg: 'rgba(0,0,0,0.06)' },
@@ -64,7 +67,9 @@ export function PaymentLinksPanel() {
           <p>{t('paymentLink.listSub')}</p>
         </div>
       </div>
-      {error ? <p style={{ color: 'var(--danger)', fontSize: 13, margin: '0 16px' }}>{error}</p> : null}
+      {error ? (
+        <p style={{ color: 'var(--danger)', fontSize: 13, margin: '0 16px' }}>{error}</p>
+      ) : null}
       {isLoading ? (
         <p className="hint" style={{ padding: 16 }}>
           …

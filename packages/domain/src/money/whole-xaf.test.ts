@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allocateProRata, roundToCashUnit, toWholeXaf } from './currency'
+import { allocateProRata, roundToCashUnit, toWholeXaf } from './whole-xaf'
 
 describe('toWholeXaf', () => {
   it('leaves whole numbers unchanged', () => {

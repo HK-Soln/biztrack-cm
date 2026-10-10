@@ -1,4 +1,4 @@
-import { computeBusinessDate, type BusinessDateOptions } from '@biztrack/utils'
+import { computeBusinessDate, type BusinessDateOptions } from '@biztrack/domain'
 
 /**
  * BIZ-5.1 — the local trading day for a desktop-written transaction. The business timezone +

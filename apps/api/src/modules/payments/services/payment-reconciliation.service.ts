@@ -8,7 +8,7 @@ import {
   PaymentConfirmationType,
   type InStoreOverrideSummaryRow,
 } from '@biztrack/types'
-import { minorToMajor } from '@biztrack/utils'
+import { minorToMajor } from '@biztrack/domain'
 import { PaymentAttempt } from '@/entities/payment-attempt.entity'
 import { Business } from '@/entities/business.entity'
 import { Locale } from '@/common/enums/locale.enum'

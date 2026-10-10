@@ -14,7 +14,7 @@ import {
   type JwtPayload,
   type UpsertOpeningBalanceRequest,
 } from '@biztrack/types'
-import { daysPastDue, effectiveDueDate } from '@biztrack/utils'
+import { daysPastDue, effectiveDueDate } from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
 import { In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'

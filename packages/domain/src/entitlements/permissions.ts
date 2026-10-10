@@ -25,7 +25,7 @@ const FREE_PERMISSIONS = DEFAULT_PLAN_RESOURCES[SubscriptionPlan.FREE]
 export const computePermissionAccess = (
   resource: Resource,
   auth: PermissionAccessInput,
-  now: number = Date.now(),
+  now: number,
 ): PermissionAccessResult => {
   const revocation = auth.specialPermissions.find(
     (p) => p.resource === resource && p.isRevocation && (!p.expiresAt || now < p.expiresAt),
@@ -50,8 +50,7 @@ export const computePermissionAccess = (
     }
   }
 
-  const planExpired =
-    auth.permissionsExpiresAt !== null && now > auth.permissionsExpiresAt
+  const planExpired = auth.permissionsExpiresAt !== null && now > auth.permissionsExpiresAt
   if (planExpired) {
     return {
       granted: FREE_PERMISSIONS.includes(resource),

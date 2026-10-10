@@ -9,7 +9,7 @@ import {
   type JwtPayload,
   type PaymentMethod,
 } from '@biztrack/types'
-import { majorToMinor, minorToMajor } from '@biztrack/utils'
+import { majorToMinor, minorToMajor } from '@biztrack/domain'
 import { Sale } from '@/entities/sale.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
@@ -86,12 +86,17 @@ export class SalePayableHandler implements PayableHandler {
     payableId: string,
     ctx: ApplyPaymentContext,
   ): Promise<void> {
-    await this.salesService.recordPayment(payableId, businessId, linkActor(businessId, ctx.actorUserId), {
-      method: ctx.method,
-      amount: minorToMajor(ctx.amountMinor, CURRENCY),
-      mobileMoneyReference: ctx.providerRef,
-      note: 'Payment link',
-    })
+    await this.salesService.recordPayment(
+      payableId,
+      businessId,
+      linkActor(businessId, ctx.actorUserId),
+      {
+        method: ctx.method,
+        amount: minorToMajor(ctx.amountMinor, CURRENCY),
+        mobileMoneyReference: ctx.providerRef,
+        note: 'Payment link',
+      },
+    )
   }
 }
 
@@ -200,8 +205,7 @@ export class OnlineOrderPayableHandler implements PayableHandler {
       const sale = await this.sales.findOne({ where: { id: order.saleId, businessId } })
       const paid = sale ? Number(sale.amountPaid) : 0
       const total = sale ? Number(sale.totalAmount) : Number(order.totalAmount)
-      const status: 'PAID' | 'PARTIALLY_PAID' =
-        paid >= total ? 'PAID' : 'PARTIALLY_PAID'
+      const status: 'PAID' | 'PARTIALLY_PAID' = paid >= total ? 'PAID' : 'PARTIALLY_PAID'
       await this.orders.update(order.id, {
         paymentStatus: status,
         // Record the TRUE tender the payer used on the pay page, not the placeholder method the
@@ -259,7 +263,12 @@ export class DepositPayableHandler implements PayableHandler {
     const account = await this.deposits.findOne({ where: { id: payableId, businessId } })
     if (!account) return null
     // Open top-up — the payer chooses the amount (amountDue 0 = "any amount"), so the link is partial.
-    return { amountDueMinor: 0, currency: CURRENCY, label: 'Deposit top-up', customerId: account.customerId }
+    return {
+      amountDueMinor: 0,
+      currency: CURRENCY,
+      label: 'Deposit top-up',
+      customerId: account.customerId,
+    }
   }
 
   async applyPayment(
@@ -379,9 +388,7 @@ export class PayableHandlerRegistry {
     deposit: DepositPayableHandler,
     contactReceivable: ContactReceivablePayableHandler,
   ) {
-    this.byType = new Map(
-      [sale, debt, order, deposit, contactReceivable].map((h) => [h.type, h]),
-    )
+    this.byType = new Map([sale, debt, order, deposit, contactReceivable].map((h) => [h.type, h]))
   }
   get(type: PayableType): PayableHandler | undefined {
     return this.byType.get(type)

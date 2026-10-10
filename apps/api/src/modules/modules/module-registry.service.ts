@@ -5,7 +5,7 @@ import {
   type BusinessModuleManifest,
   type Resource,
 } from '@biztrack/types'
-import { isModuleEntitled, moduleByKey } from '@biztrack/utils'
+import { isModuleEntitled, moduleByKey } from '@biztrack/domain'
 
 /**
  * BIZ-5.5 — a thin, server-side view over the shared MODULE_REGISTRY. It is the DI seam future server
