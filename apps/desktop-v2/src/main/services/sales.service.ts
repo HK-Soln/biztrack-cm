@@ -6,11 +6,15 @@ import {
   effectivePaymentLines,
   evaluateDiscountAuthorization,
   isBelowCost,
+  netSalesProfit,
   priceSale,
+  PROFIT_SALE_STATUSES,
+  refundProfitImpact,
   type RoleDiscountLimits,
   settleSale,
   settleSaleFromLedger,
   storedPaymentMethod,
+  sumRefundProfitImpacts,
   toWholeXaf,
 } from '@biztrack/domain'
 import type { SaleReceipt, ReceiptSettings } from '@biztrack/types'
@@ -1851,18 +1855,70 @@ export class SalesService {
   grossProfit(query: SalesListQuery = {}): { revenue: number; cogs: number } {
     const businessId = this.getBusinessId()
     if (!businessId) return { revenue: 0, cogs: 0 }
+    // Ruling R4 — the same rule as the server (@biztrack/domain): what was sold in the
+    // period, less the refunds made in the period. A refunded or partially refunded sale
+    // still counts on the day it was sold; its refund comes off the day of the refund.
     const { where, params } = this.reportWhere(businessId, query)
-    const row = this.db.get<{ revenue: number; cogs: number }>(
+    const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+    const sold = this.db.get<{ revenue: number; cogs: number }>(
       `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
               COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
        FROM sale_items si JOIN sales s ON s.id = si.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0`,
+       WHERE ${where} AND s.status IN (${statuses}) AND si.is_deleted = 0`,
       params,
     )
-    return {
-      revenue: toWholeXaf(Number(row?.revenue ?? 0)),
-      cogs: toWholeXaf(Number(row?.cogs ?? 0)),
+
+    const returnDay = 'COALESCE(r.business_date, substr(r.created_at, 1, 10))'
+    const returnConds = ['r.business_id = ?', 's.is_deleted = 0', "s.status <> 'VOIDED'"]
+    const returnParams: unknown[] = [businessId]
+    if (query.dateFrom) {
+      returnConds.push(`${returnDay} >= ?`)
+      returnParams.push(query.dateFrom)
     }
+    if (query.dateTo) {
+      returnConds.push(`${returnDay} <= ?`)
+      returnParams.push(query.dateTo)
+    }
+    const returnedRows = this.db.query<{
+      return_id: string
+      restock: number
+      returned_quantity: number
+      sold_quantity: number
+      line_total: number
+      cost_price: number | null
+    }>(
+      `SELECT r.id AS return_id, r.restock AS restock, ri.quantity AS returned_quantity,
+              si.quantity AS sold_quantity, si.line_total AS line_total, si.cost_price AS cost_price
+         FROM sale_return_items ri
+         JOIN sale_returns r ON r.id = ri.sale_return_id
+         JOIN sale_items si ON si.id = ri.sale_item_id
+         JOIN sales s ON s.id = r.sale_id
+        WHERE ${returnConds.join(' AND ')}`,
+      returnParams,
+    )
+    const byReturn = new Map<string, typeof returnedRows>()
+    for (const row of returnedRows) {
+      byReturn.set(row.return_id, [...(byReturn.get(row.return_id) ?? []), row])
+    }
+    const refunds = sumRefundProfitImpacts(
+      [...byReturn.values()].map((lines) =>
+        refundProfitImpact({
+          restock: Boolean(lines[0]?.restock),
+          lines: lines.map((line) => ({
+            returnedQuantity: line.returned_quantity,
+            soldQuantity: line.sold_quantity,
+            lineTotal: line.line_total,
+            costPrice: line.cost_price,
+          })),
+        }),
+      ),
+    )
+    const net = netSalesProfit({
+      soldRevenue: Number(sold?.revenue ?? 0),
+      soldCogs: Number(sold?.cogs ?? 0),
+      refunds,
+    })
+    return { revenue: net.revenue, cogs: net.cogs }
   }
 
   /** Shared WHERE for list/listAll/summary (excludes free-text search, which list() adds). */

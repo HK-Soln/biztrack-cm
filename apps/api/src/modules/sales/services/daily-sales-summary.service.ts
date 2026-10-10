@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { PaymentMethod } from '@biztrack/types'
 import { Repository, EntityManager } from 'typeorm'
+import type { RefundProfitImpact } from '@biztrack/domain'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
@@ -92,6 +93,41 @@ export class DailySalesSummaryService {
         sale.creditAmount > 0 ? 1 : 0,
         sale.totalAmount,
       ],
+    )
+  }
+
+  /**
+   * A refund reduces the revenue of the day it happens (ruling R4): subtract the value
+   * charged for the returned goods and the cost of the items put back into stock. The
+   * amounts come from @biztrack/domain's refundProfitImpact. Revenue is not clamped at zero:
+   * a day with only refunds is legitimately negative. The cash side is not touched here.
+   */
+  async applyRefund(
+    businessId: string,
+    summaryDate: string,
+    impact: RefundProfitImpact,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (impact.revenue === 0 && impact.cogs === 0) return
+    const repo = manager?.getRepository(DailySaleSummary) ?? this.summariesRepo
+    await repo.query(
+      `
+        INSERT INTO daily_sale_summaries (
+          business_id, summary_date, total_sales, total_revenue, total_transacted, total_cost,
+          gross_profit, total_discounts, cash_collected, mtn_momo_collected,
+          orange_money_collected, card_collected, credit_issued, credit_sales, voided_sales,
+          voided_amount, total_refunds, updated_at
+        )
+        VALUES ($1, $2, 0, -$3::numeric, 0, -$4::numeric, -$5::numeric, 0, 0, 0, 0, 0, 0, 0, 0, 0, $3::numeric, now())
+        ON CONFLICT (business_id, summary_date)
+        DO UPDATE SET
+          total_revenue = daily_sale_summaries.total_revenue - $3::numeric,
+          total_cost = daily_sale_summaries.total_cost - $4::numeric,
+          gross_profit = daily_sale_summaries.gross_profit - $5::numeric,
+          total_refunds = daily_sale_summaries.total_refunds + $3::numeric,
+          updated_at = now()
+      `,
+      [businessId, summaryDate, impact.revenue, impact.cogs, impact.grossProfit],
     )
   }
 

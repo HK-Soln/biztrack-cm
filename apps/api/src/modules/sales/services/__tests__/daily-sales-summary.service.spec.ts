@@ -52,4 +52,21 @@ describe('DailySalesSummaryService (D7 revenue basis)', () => {
     expect(params[2]).toBe(1500) // total_revenue decrement basis
     expect(params[12]).toBe(1600) // total_transacted / voided_amount basis
   })
+
+  it('refund: subtracts the refunded revenue and restocked cost on the refund day (R4)', async () => {
+    const { service, query } = makeService()
+    await service.applyRefund('biz-1', '2026-09-02', { revenue: 850, cogs: 600, grossProfit: 250 })
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]]
+    expect(params).toEqual(['biz-1', '2026-09-02', 850, 600, 250])
+    expect(sql).toContain('total_revenue = daily_sale_summaries.total_revenue - $3::numeric')
+    expect(sql).toContain('total_cost = daily_sale_summaries.total_cost - $4::numeric')
+    expect(sql).toContain('gross_profit = daily_sale_summaries.gross_profit - $5::numeric')
+    expect(sql).toContain('total_refunds = daily_sale_summaries.total_refunds + $3::numeric')
+  })
+
+  it('refund: writes nothing when the refund moves neither revenue nor cost', async () => {
+    const { service, query } = makeService()
+    await service.applyRefund('biz-1', '2026-09-02', { revenue: 0, cogs: 0, grossProfit: 0 })
+    expect(query).not.toHaveBeenCalled()
+  })
 })

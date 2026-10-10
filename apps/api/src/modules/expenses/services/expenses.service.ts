@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { loadNetSalesProfit } from '@/modules/sales/services/sales-profit.query'
 import { InjectRepository } from '@nestjs/typeorm'
 import type {
   ExpenseCategoryRangeItem,
@@ -115,7 +116,9 @@ export class ExpensesService {
       // Learn: a recurring expense flags its category, so next time that category is picked the
       // recurring toggle defaults on (best-effort — never fails the create).
       if (dto.isRecurring && category.businessId) {
-        await this.categoriesService.markCategoryRecurring(category.id, businessId).catch(() => undefined)
+        await this.categoriesService
+          .markCategoryRecurring(category.id, businessId)
+          .catch(() => undefined)
       }
 
       await this.rebuildExpenseMonth(businessId, expenseDate)
@@ -333,18 +336,15 @@ export class ExpensesService {
       // (redated forward for late arrivals into closed periods), computed from source exactly like
       // SalesService.getGrossProfit. The daily_sale_summaries rollup keys off sale_date — it is the
       // OPERATIONAL grain (daily summary + cash-close reconciliation) and must not be re-keyed.
-      const [sales] = (await this.dailySaleSummariesRepo.manager.query(
-        `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
-                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
-         FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE s.business_id = $1
-           AND COALESCE(s.posting_date, s.business_date, s.sale_date) >= $2
-           AND COALESCE(s.posting_date, s.business_date, s.sale_date) < $3
-           AND s.status = 'COMPLETED' AND s.deleted_at IS NULL AND si.deleted_at IS NULL`,
-        [businessId, startDate, endDate],
-      )) as Array<{ revenue: string | number | null; cogs: string | number | null }>
-      const revenue = this.roundMoney(Number(sales?.revenue ?? 0))
-      const costOfGoods = this.roundMoney(Number(sales?.cogs ?? 0))
+      // Same loader as SalesService.getGrossProfit (ruling R4: net of the period's refunds),
+      // so the P&L summary and the Income Statement cannot disagree.
+      const lastDay = new Date(endExclusive.getTime() - 86_400_000).toISOString().slice(0, 10)
+      const sales = await loadNetSalesProfit(this.dailySaleSummariesRepo.manager, businessId, {
+        dateFrom: startDate,
+        dateTo: lastDay,
+      })
+      const revenue = sales.revenue
+      const costOfGoods = sales.cogs
 
       // Expenses on the same financial (posting_date) grain, grouped by category slug.
       const expenseRows = await this.expensesRepo

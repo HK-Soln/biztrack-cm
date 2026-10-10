@@ -11,6 +11,7 @@ import {
   hasPriceDrift,
   isBelowCost,
   priceSale,
+  refundProfitImpact,
   reviewSerialAlreadySold,
   reviewStockAfterSyncedSale,
   reviewSyncedRefund,
@@ -48,6 +49,7 @@ import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
+import { loadNetSalesProfit } from './sales-profit.query'
 import {
   AppBadRequestException,
   AppForbiddenException,
@@ -1476,20 +1478,10 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<{ revenue: number; cogs: number }> {
     try {
-      // Financial (feeds the P&L) → range by posting_date (BIZ-5.4).
-      const { where, params } = this.rangeWhere(query, 'financial')
-      params[0] = businessId
-      const [row] = (await this.salesRepo.manager.query(
-        `SELECT COALESCE(SUM(si.line_total), 0) AS revenue,
-                COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
-         FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
-        params,
-      )) as Array<{ revenue: string; cogs: string }>
-      return {
-        revenue: toWholeXaf(Number(row?.revenue ?? 0)),
-        cogs: toWholeXaf(Number(row?.cogs ?? 0)),
-      }
+      // Financial (feeds the P&L) → ranged by posting_date (BIZ-5.4). Net of the refunds made
+      // in the period (ruling R4); the rule is @biztrack/domain's.
+      const { revenue, cogs } = await loadNetSalesProfit(this.salesRepo.manager, businessId, query)
+      return { revenue, cogs }
     } catch (error) {
       return this.handleServiceError('getGrossProfit', error, { businessId })
     }
@@ -1827,6 +1819,22 @@ export class SalesService {
               .map((r) => ({ serialUnitId: r.serialUnitId })),
           )
         }
+
+        // The refund comes off today's revenue and, for restocked goods, cost (ruling R4).
+        await this.dailySummaryService.applyRefund(
+          businessId,
+          now.toISOString().slice(0, 10),
+          refundProfitImpact({
+            restock,
+            lines: returnedLines.map((r) => ({
+              returnedQuantity: r.quantity,
+              soldQuantity: r.item.quantity,
+              lineTotal: r.item.lineTotal,
+              costPrice: r.item.costPrice ?? null,
+            })),
+          }),
+          manager,
+        )
 
         const settlement = await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)
         await manager.getRepository(Sale).update(sale.id, {
@@ -2761,6 +2769,22 @@ export class SalesService {
           )
         }
       }
+
+      // The refund comes off the revenue of the day the server records it (ruling R4).
+      await this.dailySummaryService.applyRefund(
+        businessId,
+        now.toISOString().slice(0, 10),
+        refundProfitImpact({
+          restock: ret.restock !== false,
+          lines: returnedLines.map((r) => ({
+            returnedQuantity: r.quantity,
+            soldQuantity: r.item.quantity,
+            lineTotal: r.item.lineTotal,
+            costPrice: r.item.costPrice ?? null,
+          })),
+        }),
+        manager,
+      )
 
       if (ret.restock !== false && returnedLines.length > 0) {
         await this.inventoryService.reverseForVoidedSale(
