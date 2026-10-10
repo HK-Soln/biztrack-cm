@@ -113,6 +113,15 @@ export class SalesService {
   ) {}
 
   createSale(input: SaleInput): LocalSaleDetail {
+    // One transaction: a crash or a thrown rule mid-way leaves no half-written sale
+    // (stock moved without the sale, a sale without its outbox row, …).
+    const detail = this.db.transaction(() => this.createSaleInTransaction(input))
+    // Kick sync only once the sale is committed.
+    this.onMutated()
+    return detail
+  }
+
+  private createSaleInTransaction(input: SaleInput): LocalSaleDetail {
     const businessId = this.requireBusinessId()
     if (!input.clientId?.trim()) throw new Error('Missing checkout id.')
     if (!input.items?.length) throw new Error('Add at least one item to the sale.')
@@ -754,7 +763,6 @@ export class SalesService {
         changes: { before: null, after: { unauthorized: discountUnauthorized, belowCost } },
       })
     }
-    this.onMutated()
     return this.get(saleId)!
   }
 
@@ -766,6 +774,15 @@ export class SalesService {
    * authoritative reversal. Role gating (OWNER/MANAGER) is enforced by the caller/UI.
    */
   voidSale(saleId: string, reason: string): LocalSaleDetail {
+    // One transaction: a crash or a thrown rule mid-way leaves no half-written sale
+    // (stock moved without the sale, a sale without its outbox row, …).
+    const detail = this.db.transaction(() => this.voidSaleInTransaction(saleId, reason))
+    // Kick sync only once the sale is committed.
+    this.onMutated()
+    return detail
+  }
+
+  private voidSaleInTransaction(saleId: string, reason: string): LocalSaleDetail {
     const businessId = this.requireBusinessId()
     const trimmed = (reason ?? '').trim()
     if (trimmed.length < 10)
@@ -877,7 +894,6 @@ export class SalesService {
         after: { status: 'VOIDED', voidReason: trimmed },
       },
     })
-    this.onMutated()
     return this.get(saleId)!
   }
 
@@ -1024,6 +1040,15 @@ export class SalesService {
    * the API applies its own authoritative return on sync. Role gating is enforced by the UI.
    */
   refundSale(saleId: string, input: RefundSaleInput): LocalSaleDetail {
+    // One transaction: a crash or a thrown rule mid-way leaves no half-written sale
+    // (stock moved without the sale, a sale without its outbox row, …).
+    const detail = this.db.transaction(() => this.refundSaleInTransaction(saleId, input))
+    // Kick sync only once the sale is committed.
+    this.onMutated()
+    return detail
+  }
+
+  private refundSaleInTransaction(saleId: string, input: RefundSaleInput): LocalSaleDetail {
     const businessId = this.requireBusinessId()
     const actorId = this.getActorId()
     if (!actorId) throw new Error('No active session.')
@@ -1236,7 +1261,6 @@ export class SalesService {
         after: { status, refundAmount: moneyRefund, fullReturn: isFullReturn },
       },
     })
-    this.onMutated()
     return this.get(saleId)!
   }
 
