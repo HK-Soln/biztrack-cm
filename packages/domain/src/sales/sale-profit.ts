@@ -92,3 +92,66 @@ export function netSalesProfit(input: {
   const cogs = toWholeXaf(input.soldCogs) - input.refunds.cogs
   return { revenue, cogs, grossProfit: revenue - cogs }
 }
+
+export interface ProductSalesRow {
+  productId: string
+  name: string
+  category: string | null
+  quantity: number
+  revenue: number
+  cogs: number
+}
+
+export interface ReturnedProductLine extends ReturnedLineForProfit {
+  returnId: string
+  /** Whether that return put its goods back into stock. */
+  restock: boolean
+  productId: string
+  name: string
+  category: string | null
+}
+
+/**
+ * Sales by product for a period, net of the period's refunds (ruling R4): each product's
+ * quantity, revenue and cost of goods are what was sold in the period less what was
+ * returned in it. A product with only refunds in the period shows as negative. Sorted by
+ * revenue, highest first.
+ */
+export function netSalesByProduct(
+  sold: ReadonlyArray<ProductSalesRow>,
+  returned: ReadonlyArray<ReturnedProductLine>,
+): ProductSalesRow[] {
+  const rows = new Map<string, ProductSalesRow>()
+  for (const row of sold) {
+    rows.set(row.productId, {
+      ...row,
+      revenue: toWholeXaf(row.revenue),
+      cogs: toWholeXaf(row.cogs),
+    })
+  }
+
+  // One impact per (product, return), so each return's restock choice applies to its lines.
+  const groups = new Map<string, ReturnedProductLine[]>()
+  for (const line of returned) {
+    const key = `${line.productId}\u0000${line.returnId}`
+    groups.set(key, [...(groups.get(key) ?? []), line])
+  }
+  for (const lines of groups.values()) {
+    const first = lines[0]!
+    const impact = refundProfitImpact({ restock: first.restock, lines })
+    const row = rows.get(first.productId) ?? {
+      productId: first.productId,
+      name: first.name,
+      category: first.category,
+      quantity: 0,
+      revenue: 0,
+      cogs: 0,
+    }
+    row.quantity -= lines.reduce((sum, line) => sum + line.returnedQuantity, 0)
+    row.revenue -= impact.revenue
+    row.cogs -= impact.cogs
+    rows.set(first.productId, row)
+  }
+
+  return [...rows.values()].sort((a, b) => b.revenue - a.revenue)
+}

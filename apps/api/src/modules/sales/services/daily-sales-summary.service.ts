@@ -136,9 +136,23 @@ export class DailySalesSummaryService {
     items: SaleItem[],
     payments: SalePayment[],
     manager?: EntityManager,
+    /**
+     * The revenue and cost the sale still carries (@biztrack/domain's decideSaleVoid). A
+     * partly refunded sale is voided only for this balance: its refunds already came off
+     * the summary, and must not be subtracted twice.
+     */
+    balance?: { revenue: number; cogs: number; grossProfit: number },
   ): Promise<void> {
     const repo = manager?.getRepository(DailySaleSummary) ?? this.summariesRepo
-    const totals = this.computeTotals(sale, items, payments)
+    const computed = this.computeTotals(sale, items, payments)
+    const totals = balance
+      ? {
+          ...computed,
+          revenue: balance.revenue,
+          totalCost: balance.cogs,
+          grossProfit: balance.grossProfit,
+        }
+      : computed
 
     await repo.query(
       `

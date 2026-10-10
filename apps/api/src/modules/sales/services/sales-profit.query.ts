@@ -101,3 +101,20 @@ export async function loadNetSalesProfit(
   })
   return { revenue: net.revenue, cogs: net.cogs, refundedRevenue: refunds.revenue }
 }
+
+/** What the refunds already recorded on one sale have taken off its revenue and cost. */
+export async function loadSaleRefundImpact(
+  manager: EntityManager,
+  saleId: string,
+): Promise<RefundProfitImpact> {
+  const rows = (await manager.query(
+    `SELECT r.id AS return_id, r.restock AS restock, ri.quantity AS returned_quantity,
+            si.quantity AS sold_quantity, si.line_total AS line_total, si.cost_price AS cost_price
+       FROM sale_return_items ri
+       JOIN sale_returns r ON r.id = ri.sale_return_id
+       JOIN sale_items si ON si.id = ri.sale_item_id
+      WHERE r.sale_id = $1`,
+    [saleId],
+  )) as ReturnedLineRow[]
+  return refundImpactFromRows(rows)
+}

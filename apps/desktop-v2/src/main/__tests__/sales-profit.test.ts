@@ -85,8 +85,12 @@ describe('SalesService.grossProfit — refunds (R4)', () => {
       revenue: 1700,
       cogs: 1000,
     })
-    const today = new Date().toISOString().slice(0, 10)
-    expect(service.grossProfit({ dateFrom: today, dateTo: today })).toEqual({
+    // The refund's own trading day (local, with the business's day cutover).
+    const refundDay = db.get<{ d: string }>(
+      `SELECT business_date AS d FROM sale_returns WHERE sale_id = ?`,
+      [saleId],
+    )!.d
+    expect(service.grossProfit({ dateFrom: refundDay, dateTo: refundDay })).toEqual({
       revenue: -850,
       cogs: -500,
     })
@@ -95,5 +99,105 @@ describe('SalesService.grossProfit — refunds (R4)', () => {
   it('leaves a voided sale out entirely', () => {
     service.voidSale(saleId, 'Rung by mistake, customer left')
     expect(service.grossProfit()).toEqual({ revenue: 0, cogs: 0 })
+  })
+
+  it('stamps the refund with the trading day it was made on', () => {
+    service.refundSale(saleId, { items: [{ saleItemId: itemId, quantity: 1 }] })
+    const row = db.get<{ business_date: string | null }>(
+      `SELECT business_date FROM sale_returns WHERE sale_id = ?`,
+      [saleId],
+    )
+    expect(row?.business_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    const payload = JSON.parse(
+      db.get<{ payload: string }>(
+        `SELECT payload FROM sync_outbox WHERE entity = 'sales' AND record_id = ?`,
+        [saleId],
+      )!.payload,
+    ) as { returns: Array<{ createdAt?: string; businessDate?: string }> }
+    expect(payload.returns[0]?.businessDate).toBe(row?.business_date)
+    expect(payload.returns[0]?.createdAt).toBeTruthy()
+  })
+})
+
+describe('SalesService — reports net of refunds (R4)', () => {
+  let db: DatabaseService
+  let service: SalesService
+  let saleId: string
+  let itemId: string
+
+  beforeEach(() => {
+    db = createTestDatabase()
+    db.run(
+      `INSERT INTO products (id, business_id, name, price, cost_price, stock_quantity, track_inventory, unit, created_at, updated_at)
+       VALUES ('p-1', ?, 'Rice', 1000, 500, 100, 1, 'qty', ?, ?)`,
+      [BIZ, SOLD_AT, SOLD_AT],
+    )
+    service = makeService(db)
+    const sale = service.createSale({
+      clientId: 'c-1',
+      soldAt: SOLD_AT,
+      items: [{ productId: 'p-1', quantity: 2, unitPrice: 1000, discountAmount: 300 }],
+      payments: [{ method: CASH, amount: 1700 }],
+    })
+    saleId = sale.id
+    itemId = db.get<{ id: string }>(`SELECT id FROM sale_items WHERE sale_id = ?`, [saleId])!.id
+  })
+
+  it('by product: a partly refunded sale keeps what the customer kept', () => {
+    service.refundSale(saleId, { items: [{ saleItemId: itemId, quantity: 1 }] })
+    expect(service.byProduct()).toEqual([
+      expect.objectContaining({ productId: 'p-1', quantity: 1, revenue: 850, cogs: 500 }),
+    ])
+  })
+
+  it('by payment method: refunds come off the money collected', () => {
+    expect(service.byPaymentMethod()).toEqual([{ method: 'CASH', transactions: 1, amount: 1700 }])
+    service.refundSale(saleId, { items: [{ saleItemId: itemId, quantity: 1 }] })
+    expect(service.byPaymentMethod()).toEqual([{ method: 'CASH', transactions: 1, amount: 850 }])
+  })
+})
+
+describe('SalesService.voidSale — after refunds', () => {
+  let db: DatabaseService
+  let service: SalesService
+  let saleId: string
+  let itemId: string
+  const stock = () =>
+    db.get<{ v: number }>(`SELECT stock_quantity AS v FROM products WHERE id = 'p-1'`)?.v
+
+  beforeEach(() => {
+    db = createTestDatabase()
+    db.run(
+      `INSERT INTO products (id, business_id, name, price, cost_price, stock_quantity, track_inventory, unit, created_at, updated_at)
+       VALUES ('p-1', ?, 'Rice', 1000, 500, 100, 1, 'qty', ?, ?)`,
+      [BIZ, SOLD_AT, SOLD_AT],
+    )
+    service = makeService(db)
+    const sale = service.createSale({
+      clientId: 'c-1',
+      soldAt: SOLD_AT,
+      items: [{ productId: 'p-1', quantity: 2, unitPrice: 1000 }],
+      payments: [{ method: CASH, amount: 2000 }],
+    })
+    saleId = sale.id
+    itemId = db.get<{ id: string }>(`SELECT id FROM sale_items WHERE sale_id = ?`, [saleId])!.id
+  })
+
+  it('voids only the balance of a partly refunded sale', () => {
+    service.refundSale(saleId, { items: [{ saleItemId: itemId, quantity: 1 }] })
+    expect(stock()).toBe(99)
+
+    const voided = service.voidSale(saleId, 'Customer cancelled the rest')
+    expect(voided.status).toBe('VOIDED')
+    // Only the one unit still sold comes back: 99 + 1, not 99 + 2.
+    expect(stock()).toBe(100)
+  })
+
+  it('refuses to void a fully refunded sale', () => {
+    service.refundSale(saleId, {})
+    expect(() => service.voidSale(saleId, 'Trying to void a refunded sale')).toThrow(
+      'is fully refunded and cannot be voided',
+    )
+    expect(stock()).toBe(100)
   })
 })

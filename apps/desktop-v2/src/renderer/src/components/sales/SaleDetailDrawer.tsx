@@ -341,7 +341,7 @@ function SaleDetailBody({ saleId, onClose }: { saleId: string; onClose: () => vo
               {t('sales.voidSale')}
             </button>
           </div>
-        ) : canVoid && !isVoided ? (
+        ) : canVoid && !isVoided && status !== 'REFUNDED' ? (
           <button type="button" className="void-btn" onClick={() => setVoidOpen(true)}>
             {t('sales.voidSale')}
           </button>

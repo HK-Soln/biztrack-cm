@@ -1053,6 +1053,10 @@ export interface SaleSyncDiscountLinePayload {
  * so it converges with the row that pulls back down. */
 export interface SaleReturnPayload {
   id: string
+  /** When the return was made at the till (ISO). The server books the refund on this day. */
+  createdAt?: string | null
+  /** The till's local trading day for the return ('YYYY-MM-DD'). */
+  businessDate?: string | null
   reason?: string | null
   restock: boolean
   refundAmount: number

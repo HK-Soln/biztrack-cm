@@ -228,3 +228,50 @@ export function decideSaleRefund(input: {
     status,
   }
 }
+
+export type SaleVoidRejection = 'ALREADY_VOIDED' | 'FULLY_REFUNDED'
+
+export type SaleVoidDecision =
+  | {
+      ok: true
+      /** What is still sold on each line and now comes back: sold minus already returned. */
+      lines: Array<{ saleItemId: string; quantity: number }>
+      /** The revenue and cost the sale still carries, which the void takes off. */
+      balance: { revenue: number; cogs: number; grossProfit: number }
+    }
+  | { ok: false; code: SaleVoidRejection }
+
+/**
+ * Decide the void of a sale. A void cancels what is still sold: a sale that was partly
+ * refunded is voided only for the balance left after its refunds, and a fully refunded sale
+ * cannot be voided at all, because nothing of it is left to cancel.
+ *  - Stock: only the quantity not yet returned comes back.
+ *  - Profit: only the revenue and cost not already taken off by refunds are removed, so the
+ *    sale nets to exactly zero and no refund is subtracted twice.
+ */
+export function decideSaleVoid(input: {
+  status: SaleStatus | `${SaleStatus}`
+  items: ReadonlyArray<RefundableSaleLine & { costPrice?: number | null }>
+  /** Revenue already taken off by the sale's refunds (Σ refundProfitImpact.revenue). */
+  refundedRevenue?: number | null
+}): SaleVoidDecision {
+  if (input.status === SaleStatus.VOIDED) return { ok: false, code: 'ALREADY_VOIDED' }
+
+  const lines = input.items
+    .map((item) => ({ item, quantity: remainingQuantity(item) }))
+    .filter((line) => line.quantity > 0)
+  if (input.status === SaleStatus.REFUNDED || (input.items.length > 0 && lines.length === 0)) {
+    return { ok: false, code: 'FULLY_REFUNDED' }
+  }
+
+  const soldRevenue = input.items.reduce((sum, item) => sum + item.lineTotal, 0)
+  const revenue = Math.max(0, toWholeXaf(soldRevenue - (input.refundedRevenue ?? 0)))
+  const cogs = toWholeXaf(
+    lines.reduce((sum, line) => sum + (line.item.costPrice ?? 0) * line.quantity, 0),
+  )
+  return {
+    ok: true,
+    lines: lines.map((line) => ({ saleItemId: line.item.id, quantity: line.quantity })),
+    balance: { revenue, cogs, grossProfit: revenue - cogs },
+  }
+}

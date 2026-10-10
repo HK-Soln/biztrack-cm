@@ -150,6 +150,26 @@ quantity sold on every line; otherwise it is partially refunded. The decision co
 quantities, never amounts, so charges and rounding cannot leave a sale stuck as partially
 refunded.
 
+### R6. Voiding a sale that has refunds (2026-10-11)
+
+A void cancels what is still sold.
+
+- A fully refunded sale cannot be voided: nothing of it is left to cancel.
+- A partly refunded sale is voided only for the balance left after its refunds. Only the
+  quantity not yet returned goes back into stock, and only the revenue and cost not already
+  taken off by the refunds are removed, so no refund is subtracted twice.
+
+`decideSaleVoid` in `packages/domain/src/sales/sale-settlement.ts` makes the decision for
+REST, sync and desktop. A void synced from a till for a fully refunded sale is left as it
+is.
+
+### R7. The day a refund is booked (2026-10-11)
+
+A refund is booked on the trading day it is made, not the day of the sale and not the day
+it reaches the server. The return carries its own `business_date`; a till sends it with the
+time of the return, and the server uses the till's time for the refund payment and the
+daily summary.
+
 ### How the rulings are implemented
 
 Which flag to raise and how serious it is, is decided in `packages/domain/src/review`
@@ -173,15 +193,23 @@ R4 is one rule, `packages/domain/src/sales/sale-profit.ts` (`refundProfitImpact`
   profit of every stored summary from source, writes one row per changed summary to
   `daily_sale_summary_rebuilds` (before and after), and prints the totals in the deploy log.
 
-Limits of R4 as built:
+The by-product and by-payment reports follow the same rule on both sides
+(`netSalesByProduct`; payments net of refund payments). A refunded or partly refunded sale
+stays in them; a voided one never does.
 
-- A return has no business or posting date of its own yet, so its day is the UTC day it was
-  recorded. A refund synced from a till lands on the day the server receives it.
+Limits, as built:
+
+- The daily summary is keyed by UTC day (as it is for sales), while the Income Statement
+  uses the return's trading day. Returns recorded before R7 have no trading day and fall
+  back to the UTC day they were recorded.
 - The cash side of the daily summary (`total_transacted` and the tender columns) is
   unchanged; refund payments are netted in cash-session reconciliation, as before.
-- The by-product and by-payment reports still count completed sales only.
-- Voiding a sale that already has refunds subtracts the whole sale from the summary on top
-  of the refunds. Not handled.
+- The other desktop sales reports (range summary, cashier roster, discount reports) still
+  count completed sales only.
+- By-product totals round per product and return, so they can differ from the Income
+  Statement by a franc or two.
+- Voiding a partly refunded sale that was paid from a customer deposit still gives the
+  whole deposit payment back. Not handled.
 
 Release blockers for this branch (owner, 2026-10-11):
 

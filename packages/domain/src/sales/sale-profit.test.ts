@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SaleStatus } from '@biztrack/types'
 import {
+  netSalesByProduct,
   netSalesProfit,
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
@@ -84,5 +85,55 @@ describe('netSalesProfit (R4)', () => {
       cogs: -600,
       grossProfit: -250,
     })
+  })
+})
+
+describe('netSalesByProduct (R4)', () => {
+  const sold = [
+    { productId: 'p-1', name: 'Rice', category: 'Food', quantity: 10, revenue: 10000, cogs: 6000 },
+    { productId: 'p-2', name: 'Oil', category: 'Food', quantity: 4, revenue: 8000, cogs: 5000 },
+  ]
+  const line = {
+    productId: 'p-1',
+    name: 'Rice',
+    category: 'Food',
+    soldQuantity: 2,
+    lineTotal: 1700,
+    costPrice: 600,
+  }
+
+  it('returns the sold rows unchanged when nothing was returned', () => {
+    expect(netSalesByProduct(sold, [])).toEqual(sold)
+  })
+
+  it('takes returned quantity, charged value and restocked cost off the product', () => {
+    const rows = netSalesByProduct(sold, [
+      { ...line, returnId: 'r-1', restock: true, returnedQuantity: 1 },
+    ])
+    expect(rows.find((r) => r.productId === 'p-1')).toEqual({
+      productId: 'p-1',
+      name: 'Rice',
+      category: 'Food',
+      quantity: 9,
+      revenue: 9150,
+      cogs: 5400,
+    })
+    expect(rows.find((r) => r.productId === 'p-2')).toEqual(sold[1])
+  })
+
+  it('keeps the cost of a return that was not restocked', () => {
+    const rows = netSalesByProduct(sold, [
+      { ...line, returnId: 'r-1', restock: false, returnedQuantity: 1 },
+    ])
+    expect(rows.find((r) => r.productId === 'p-1')).toMatchObject({ revenue: 9150, cogs: 6000 })
+  })
+
+  it('shows a product with only refunds in the period as negative, and sorts by revenue', () => {
+    const rows = netSalesByProduct(
+      [sold[1]!],
+      [{ ...line, returnId: 'r-1', restock: true, returnedQuantity: 2 }],
+    )
+    expect(rows.map((r) => r.productId)).toEqual(['p-2', 'p-1'])
+    expect(rows[1]).toMatchObject({ quantity: -2, revenue: -1700, cogs: -1200 })
   })
 })

@@ -3,6 +3,7 @@ import { PaymentMethod, SalePaymentKind, SaleStatus } from '@biztrack/types'
 import {
   checkSaleCredit,
   decideSaleRefund,
+  decideSaleVoid,
   effectivePaymentLines,
   saleReturnStatus,
   settleSale,
@@ -341,5 +342,74 @@ describe('saleReturnStatus (R5)', () => {
       ]),
     ).toBe(SaleStatus.PARTIALLY_REFUNDED)
     expect(saleReturnStatus([{ quantity: 1 }])).toBe(SaleStatus.PARTIALLY_REFUNDED)
+  })
+})
+
+describe('decideSaleVoid', () => {
+  const items = [
+    { id: 'si-1', quantity: 2, lineTotal: 1700, costPrice: 500 },
+    { id: 'si-2', quantity: 1, lineTotal: 1500, costPrice: 900 },
+  ]
+
+  it('voids a sale with no refund in full', () => {
+    expect(decideSaleVoid({ status: SaleStatus.COMPLETED, items })).toEqual({
+      ok: true,
+      lines: [
+        { saleItemId: 'si-1', quantity: 2 },
+        { saleItemId: 'si-2', quantity: 1 },
+      ],
+      balance: { revenue: 3200, cogs: 1900, grossProfit: 1300 },
+    })
+  })
+
+  it('voids only the balance left after a partial refund', () => {
+    // One unit of si-1 already came back and took 850 off revenue.
+    const decision = decideSaleVoid({
+      status: SaleStatus.PARTIALLY_REFUNDED,
+      items: [{ ...items[0]!, returnedQuantity: 1 }, items[1]!],
+      refundedRevenue: 850,
+    })
+    expect(decision).toEqual({
+      ok: true,
+      lines: [
+        { saleItemId: 'si-1', quantity: 1 },
+        { saleItemId: 'si-2', quantity: 1 },
+      ],
+      balance: { revenue: 2350, cogs: 1400, grossProfit: 950 },
+    })
+  })
+
+  it('leaves out a line that was returned in full', () => {
+    const decision = decideSaleVoid({
+      status: SaleStatus.PARTIALLY_REFUNDED,
+      items: [items[0]!, { ...items[1]!, returnedQuantity: 1 }],
+      refundedRevenue: 1500,
+    })
+    expect(decision).toMatchObject({
+      ok: true,
+      lines: [{ saleItemId: 'si-1', quantity: 2 }],
+      balance: { revenue: 1700, cogs: 1000 },
+    })
+  })
+
+  it('refuses to void a fully refunded sale', () => {
+    expect(decideSaleVoid({ status: SaleStatus.REFUNDED, items })).toEqual({
+      ok: false,
+      code: 'FULLY_REFUNDED',
+    })
+    expect(
+      decideSaleVoid({
+        status: SaleStatus.PARTIALLY_REFUNDED,
+        items: items.map((item) => ({ ...item, returnedQuantity: item.quantity })),
+        refundedRevenue: 3200,
+      }),
+    ).toEqual({ ok: false, code: 'FULLY_REFUNDED' })
+  })
+
+  it('refuses to void a sale twice', () => {
+    expect(decideSaleVoid({ status: SaleStatus.VOIDED, items })).toEqual({
+      ok: false,
+      code: 'ALREADY_VOIDED',
+    })
   })
 })

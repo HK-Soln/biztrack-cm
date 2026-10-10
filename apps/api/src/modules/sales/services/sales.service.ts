@@ -7,10 +7,13 @@ import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
   checkSaleCredit,
   decideSaleRefund,
+  decideSaleVoid,
   evaluateDiscountAuthorization,
   hasPriceDrift,
   isBelowCost,
+  netSalesByProduct,
   priceSale,
+  PROFIT_SALE_STATUSES,
   refundProfitImpact,
   reviewSerialAlreadySold,
   reviewStockAfterSyncedSale,
@@ -49,7 +52,7 @@ import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
-import { loadNetSalesProfit } from './sales-profit.query'
+import { loadNetSalesProfit, loadSaleRefundImpact } from './sales-profit.query'
 import {
   AppBadRequestException,
   AppForbiddenException,
@@ -1356,10 +1359,12 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<SalesByProductRow[]> {
     try {
-      // Financial (gross-profit-by-product) → range by posting_date (BIZ-5.4).
+      // Financial (gross-profit-by-product) → range by posting_date (BIZ-5.4). Net of the
+      // period's refunds (ruling R4): the netting is @biztrack/domain's netSalesByProduct.
       const { where, params } = this.rangeWhere(query, 'financial')
       params[0] = businessId
-      const rows = (await this.salesRepo.manager.query(
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+      const sold = (await this.salesRepo.manager.query(
         `SELECT si.product_id AS "productId", si.product_name AS name, c.name AS category,
                 COALESCE(SUM(si.quantity), 0) AS quantity,
                 COALESCE(SUM(si.line_total), 0) AS revenue,
@@ -1368,9 +1373,8 @@ export class SalesService {
            JOIN sales s ON s.id = si.sale_id
            LEFT JOIN products p ON p.id = si.product_id
            LEFT JOIN product_categories c ON c.id = p.category_id
-         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL
-         GROUP BY si.product_id, si.product_name, c.name
-         ORDER BY revenue DESC`,
+         WHERE ${where} AND s.status IN (${statuses}) AND si.deleted_at IS NULL
+         GROUP BY si.product_id, si.product_name, c.name`,
         params,
       )) as Array<{
         productId: string
@@ -1380,14 +1384,66 @@ export class SalesService {
         revenue: string
         cogs: string
       }>
-      return rows.map((r) => ({
-        productId: r.productId,
-        name: r.name,
-        category: r.category ?? null,
-        quantity: Number(r.quantity ?? 0),
-        revenue: toWholeXaf(Number(r.revenue ?? 0)),
-        cogs: toWholeXaf(Number(r.cogs ?? 0)),
-      }))
+
+      const returnDay = `COALESCE(r.business_date, (r.created_at AT TIME ZONE 'UTC')::date)`
+      const returnParams: unknown[] = [businessId]
+      const returnConds: string[] = []
+      if (query.dateFrom) {
+        returnParams.push(query.dateFrom)
+        returnConds.push(`${returnDay} >= $${returnParams.length}`)
+      }
+      if (query.dateTo) {
+        returnParams.push(query.dateTo)
+        returnConds.push(`${returnDay} <= $${returnParams.length}`)
+      }
+      const returned = (await this.salesRepo.manager.query(
+        `SELECT r.id AS "returnId", r.restock AS restock, ri.quantity AS "returnedQuantity",
+                si.quantity AS "soldQuantity", si.line_total AS "lineTotal",
+                si.cost_price AS "costPrice", si.product_id AS "productId",
+                si.product_name AS name, c.name AS category
+         FROM sale_return_items ri
+           JOIN sale_returns r ON r.id = ri.sale_return_id
+           JOIN sale_items si ON si.id = ri.sale_item_id
+           JOIN sales s ON s.id = r.sale_id
+           LEFT JOIN products p ON p.id = si.product_id
+           LEFT JOIN product_categories c ON c.id = p.category_id
+         WHERE r.business_id = $1 AND s.deleted_at IS NULL AND s.status <> 'VOIDED'${
+           returnConds.length ? ` AND ${returnConds.join(' AND ')}` : ''
+         }`,
+        returnParams,
+      )) as Array<{
+        returnId: string
+        restock: boolean
+        returnedQuantity: string
+        soldQuantity: string
+        lineTotal: string
+        costPrice: string | null
+        productId: string
+        name: string
+        category: string | null
+      }>
+
+      return netSalesByProduct(
+        sold.map((r) => ({
+          productId: r.productId,
+          name: r.name,
+          category: r.category ?? null,
+          quantity: Number(r.quantity ?? 0),
+          revenue: Number(r.revenue ?? 0),
+          cogs: Number(r.cogs ?? 0),
+        })),
+        returned.map((r) => ({
+          returnId: r.returnId,
+          restock: Boolean(r.restock),
+          returnedQuantity: Number(r.returnedQuantity),
+          soldQuantity: Number(r.soldQuantity),
+          lineTotal: Number(r.lineTotal),
+          costPrice: r.costPrice === null ? null : Number(r.costPrice),
+          productId: r.productId,
+          name: r.name,
+          category: r.category ?? null,
+        })),
+      )
     } catch (error) {
       return this.handleServiceError('getSalesByProduct', error, { businessId })
     }
@@ -1399,15 +1455,32 @@ export class SalesService {
     query: { dateFrom?: string; dateTo?: string },
   ): Promise<SalesByPaymentRow[]> {
     try {
+      // Money in by method, net of money handed back (ruling R4). Payments count on the
+      // day of their sale; a refund comes off the day it was paid out. A refunded or partly
+      // refunded sale still counts; a voided one never does.
       const { where, params } = this.rangeWhere(query)
       params[0] = businessId
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+      const refundDay = `(COALESCE(sp.recorded_at, sp.created_at) AT TIME ZONE 'UTC')::date`
+      const refundConds: string[] = []
+      let index = 1
+      if (query.dateFrom) refundConds.push(`${refundDay} >= $${++index}`)
+      if (query.dateTo) refundConds.push(`${refundDay} <= $${++index}`)
       const rows = (await this.salesRepo.manager.query(
-        `SELECT sp.method AS method,
-                COUNT(DISTINCT sp.sale_id)::int AS transactions,
-                COALESCE(SUM(sp.amount), 0) AS amount
-         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED'
-         GROUP BY sp.method
+        `SELECT x.method AS method,
+                COUNT(DISTINCT x.paid_sale_id)::int AS transactions,
+                COALESCE(SUM(x.amount), 0) AS amount
+         FROM (
+           SELECT sp.method AS method, sp.sale_id AS paid_sale_id, sp.amount AS amount
+           FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+           WHERE ${where} AND s.status IN (${statuses}) AND sp.kind <> 'REFUND'
+           UNION ALL
+           SELECT sp.method AS method, NULL::uuid AS paid_sale_id, -sp.amount AS amount
+           FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+           WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status <> 'VOIDED'
+             AND sp.kind = 'REFUND'${refundConds.length ? ` AND ${refundConds.join(' AND ')}` : ''}
+         ) x
+         GROUP BY x.method
          ORDER BY amount DESC`,
         params,
       )) as Array<{ method: string; transactions: number; amount: string }>
@@ -1516,14 +1589,24 @@ export class SalesService {
           )
         }
 
-        if (sale.status === SaleStatus.VOIDED) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.already_voided', {
-              args: { saleNumber: sale.saleNumber },
-            }),
-            'ALREADY_VOIDED',
-          )
+        // A void cancels what is still sold (@biztrack/domain): a partly refunded sale is
+        // voided only for the balance left after its refunds, and a fully refunded sale
+        // cannot be voided at all.
+        const voidDecision = await this.decideVoid(manager, sale)
+        if (!voidDecision.ok) {
+          throw voidDecision.code === 'FULLY_REFUNDED'
+            ? new AppBadRequestException(
+                'A fully refunded sale cannot be voided.',
+                'SALE_FULLY_REFUNDED',
+              )
+            : new AppBadRequestException(
+                await this.i18n.translate('errors.already_voided', {
+                  args: { saleNumber: sale.saleNumber },
+                }),
+                'ALREADY_VOIDED',
+              )
         }
+        const voidLines = this.voidedItems(sale.items ?? [], voidDecision.lines)
 
         const saleRepo = manager.getRepository(Sale)
         await saleRepo.update(sale.id, {
@@ -1541,23 +1624,28 @@ export class SalesService {
           await this.expandSaleItemsForInventory(
             manager,
             businessId,
-            (sale.items ?? []).map((item) => ({
+            voidLines.map(({ item, quantity }) => ({
               productId: item.productId,
               variantId: item.variantId ?? null,
               productName: item.productName,
-              quantity: item.quantity,
+              quantity,
             })),
           ),
           manager,
         )
 
-        await this.releaseSerialUnitsForVoid(manager, businessId, sale.items ?? [])
+        await this.releaseSerialUnitsForVoid(
+          manager,
+          businessId,
+          voidLines.map(({ item }) => item),
+        )
 
         await this.dailySummaryService.decrementForVoid(
           sale,
           sale.items ?? [],
           sale.payments ?? [],
           manager,
+          voidDecision.balance,
         )
 
         await this.debtsService.writeOffSourceDebt(manager, {
@@ -1751,11 +1839,14 @@ export class SalesService {
 
         const returnId = randomUUID()
         const returnRepo = manager.getRepository(SaleReturn)
+        // The refund is booked on the trading day it is made, not the day of the sale.
+        const returnBusinessDate = await this.calendar.businessDateFor(businessId, now, null)
         await returnRepo.save(
           returnRepo.create({
             id: returnId,
             saleId: sale.id,
             businessId,
+            businessDate: returnBusinessDate,
             onlineOrderId: sale.onlineOrderId ?? null,
             reason: input.reason?.trim() || null,
             restock,
@@ -1859,6 +1950,31 @@ export class SalesService {
     } catch (error) {
       return this.handleServiceError('refund', error, { id, businessId, userId: user.sub })
     }
+  }
+
+  /** Load what a void needs and let @biztrack/domain decide it. */
+  private async decideVoid(manager: EntityManager, sale: Sale) {
+    const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
+    const refunded = await loadSaleRefundImpact(manager, sale.id)
+    return decideSaleVoid({
+      status: sale.status,
+      items: (sale.items ?? []).map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        lineTotal: item.lineTotal,
+        costPrice: item.costPrice ?? null,
+        returnedQuantity: returnedBefore.get(item.id) ?? 0,
+      })),
+      refundedRevenue: refunded.revenue,
+    })
+  }
+
+  /** Pair each voided line with its sale item. */
+  private voidedItems(items: SaleItem[], lines: Array<{ saleItemId: string; quantity: number }>) {
+    return lines.map((line) => ({
+      item: items.find((item) => item.id === line.saleItemId)!,
+      quantity: line.quantity,
+    }))
   }
 
   /** Quantity already returned per sale item, across every return recorded for the sale. */
@@ -2584,6 +2700,11 @@ export class SalesService {
     if (!sale || sale.status === SaleStatus.VOIDED) {
       return
     }
+    // Same rule as an online void: only the balance left after refunds is voided, and a
+    // fully refunded sale has nothing left to void, so it stays as it is.
+    const voidDecision = await this.decideVoid(manager, sale)
+    if (!voidDecision.ok) return
+    const voidLines = this.voidedItems(sale.items ?? [], voidDecision.lines)
 
     const voidedAt = this.parseOptionalDate(payload.voidedAt) ?? new Date()
     const voidedById = this.isUuid(payload.voidedById) ? payload.voidedById : null
@@ -2606,23 +2727,28 @@ export class SalesService {
       await this.expandSaleItemsForInventory(
         manager,
         businessId,
-        (sale.items ?? []).map((item) => ({
+        voidLines.map(({ item, quantity }) => ({
           productId: item.productId,
           variantId: item.variantId ?? null,
           productName: item.productName,
-          quantity: item.quantity,
+          quantity,
         })),
       ),
       manager,
     )
 
-    await this.releaseSerialUnitsForVoid(manager, businessId, sale.items ?? [])
+    await this.releaseSerialUnitsForVoid(
+      manager,
+      businessId,
+      voidLines.map(({ item }) => item),
+    )
 
     await this.dailySummaryService.decrementForVoid(
       sale,
       sale.items ?? [],
       sale.payments ?? [],
       manager,
+      voidDecision.balance,
     )
 
     await this.debtsService.writeOffSourceDebt(manager, {
@@ -2725,6 +2851,14 @@ export class SalesService {
         }),
       )
 
+      // The refund is booked on the day it happened at the till, not the day it synced.
+      const returnedAt = this.parseOptionalDate(ret.createdAt) ?? now
+      const returnBusinessDate = await this.calendar.resolveForSync(
+        businessId,
+        returnedAt,
+        ret.businessDate ?? null,
+        null,
+      )
       await returnRepo.save(
         returnRepo.create({
           id: ret.id,
@@ -2735,6 +2869,8 @@ export class SalesService {
           restock: ret.restock !== false,
           refundAmount: tillRefundAmount,
           createdById: sale.cashierId,
+          businessDate: returnBusinessDate,
+          createdAt: returnedAt,
         }),
       )
       if (returnedLines.length > 0) {
@@ -2762,7 +2898,7 @@ export class SalesService {
               method: (ret.refundPayment.method as PaymentMethod) ?? PaymentMethod.CASH,
               amount: toWholeXaf(ret.refundPayment.amount),
               kind: SalePaymentKind.REFUND,
-              recordedAt: now,
+              recordedAt: returnedAt,
               recordedById: sale.cashierId,
               note: this.normalizeOptionalString(ret.reason) ?? 'Refund',
             }),
@@ -2770,10 +2906,10 @@ export class SalesService {
         }
       }
 
-      // The refund comes off the revenue of the day the server records it (ruling R4).
+      // The refund comes off the revenue of the day it happened at the till (ruling R4).
       await this.dailySummaryService.applyRefund(
         businessId,
-        now.toISOString().slice(0, 10),
+        returnedAt.toISOString().slice(0, 10),
         refundProfitImpact({
           restock: ret.restock !== false,
           lines: returnedLines.map((r) => ({

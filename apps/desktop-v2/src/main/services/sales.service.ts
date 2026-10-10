@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto'
-import { PaymentMethod, DEFAULT_RECEIPT_SETTINGS } from '@biztrack/types'
+import { PaymentMethod, DEFAULT_RECEIPT_SETTINGS, type SaleStatus } from '@biztrack/types'
 import {
   checkSaleCredit,
   decideSaleRefund,
+  decideSaleVoid,
   effectivePaymentLines,
   evaluateDiscountAuthorization,
   isBelowCost,
+  netSalesByProduct,
   netSalesProfit,
   priceSale,
   PROFIT_SALE_STATUSES,
@@ -805,7 +807,40 @@ export class SalesService {
       [saleId, businessId],
     )
     if (!sale) throw new Error('Sale not found.')
-    if (sale.status === 'VOIDED') throw new Error(`Sale ${sale.sale_number} is already voided.`)
+
+    // A void cancels what is still sold (@biztrack/domain, same decision as the server): a
+    // partly refunded sale is voided only for the balance left after its refunds, and a
+    // fully refunded sale cannot be voided at all.
+    const soldItems = this.db.query<{
+      id: string
+      product_id: string
+      variant_id: string | null
+      serial_unit_id: string | null
+      quantity: number
+      line_total: number
+      cost_price: number | null
+    }>(
+      `SELECT id, product_id, variant_id, serial_unit_id, quantity, line_total, cost_price
+         FROM sale_items WHERE sale_id = ? AND is_deleted = 0`,
+      [saleId],
+    )
+    const returnedBefore = this.returnedQuantityByItem(saleId)
+    const voidDecision = decideSaleVoid({
+      status: sale.status as SaleStatus,
+      items: soldItems.map((si) => ({
+        id: si.id,
+        quantity: si.quantity,
+        lineTotal: si.line_total,
+        costPrice: si.cost_price,
+        returnedQuantity: returnedBefore.get(si.id) ?? 0,
+      })),
+    })
+    if (!voidDecision.ok)
+      throw new Error(
+        voidDecision.code === 'FULLY_REFUNDED'
+          ? `Sale ${sale.sale_number} is fully refunded and cannot be voided.`
+          : `Sale ${sale.sale_number} is already voided.`,
+      )
 
     const now = new Date().toISOString()
 
@@ -815,16 +850,12 @@ export class SalesService {
       [now, actorId, trimmed, now, saleId],
     )
 
-    // 2) Restock + reversing movement per (product, variant); release serial units.
-    const items = this.db.query<{
-      product_id: string
-      variant_id: string | null
-      serial_unit_id: string | null
-      quantity: number
-    }>(
-      `SELECT product_id, variant_id, serial_unit_id, quantity FROM sale_items WHERE sale_id = ? AND is_deleted = 0`,
-      [saleId],
-    )
+    // 2) Restock + reversing movement per (product, variant); release serial units. Only
+    //    what is still sold comes back: quantities already returned are left alone.
+    const items = voidDecision.lines.map((line) => {
+      const item = soldItems.find((si) => si.id === line.saleItemId)!
+      return { ...item, quantity: line.quantity }
+    })
     const byKey = new Map<string, { productId: string; variantId: string | null; qty: number }>()
     const soldSerialIds: string[] = []
     for (const it of items) {
@@ -1090,18 +1121,7 @@ export class SalesService {
     // on sync matches this one.
     // Earlier returns count (ruling R5): a line only returns what is left of it, and the sale
     // is REFUNDED once every line's total returned quantity equals the quantity sold.
-    const returnedBefore = new Map(
-      this.db
-        .query<{ sale_item_id: string; quantity: number }>(
-          `SELECT ri.sale_item_id, SUM(ri.quantity) AS quantity
-             FROM sale_return_items ri
-             JOIN sale_returns r ON r.id = ri.sale_return_id
-            WHERE r.sale_id = ?
-            GROUP BY ri.sale_item_id`,
-          [saleId],
-        )
-        .map((row) => [row.sale_item_id, row.quantity]),
-    )
+    const returnedBefore = this.returnedQuantityByItem(saleId)
     const decision = decideSaleRefund({
       items: saleItems.map((si) => ({
         id: si.id,
@@ -1137,9 +1157,20 @@ export class SalesService {
     // 1) Return records.
     const returnId = randomUUID()
     this.db.run(
-      `INSERT INTO sale_returns (id, sale_id, business_id, reason, restock, refund_amount, created_by_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [returnId, saleId, businessId, reason, restock ? 1 : 0, moneyRefund, actorId, now],
+      `INSERT INTO sale_returns (id, sale_id, business_id, reason, restock, refund_amount, created_by_id, created_at, business_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      // business_date: the refund is booked on the trading day it is made, not the sale's.
+      [
+        returnId,
+        saleId,
+        businessId,
+        reason,
+        restock ? 1 : 0,
+        moneyRefund,
+        actorId,
+        now,
+        localBusinessDate(now),
+      ],
     )
     const returnItems = returnedLines.map((r) => ({
       id: randomUUID(),
@@ -1260,6 +1291,8 @@ export class SalesService {
       this.buildRefundPayload(saleId, businessId, {
         status,
         returnId,
+        createdAt: now,
+        businessDate: localBusinessDate(now),
         reason,
         restock,
         refundAmount: moneyRefund,
@@ -1290,6 +1323,8 @@ export class SalesService {
     ret: {
       status: string
       returnId: string
+      createdAt: string
+      businessDate: string
       reason: string | null
       restock: boolean
       refundAmount: number
@@ -1303,12 +1338,66 @@ export class SalesService {
     },
   ): Record<string, unknown> {
     const base = this.buildSalePayload(saleId, businessId)
+    // Every return of the sale rides along, not only this one: the outbox keeps one row per
+    // sale, so a second return made before the first has synced would otherwise replace it
+    // and the first would never reach the server. The server applies each return once (by
+    // id), so resending one that already landed is harmless.
+    const earlier = this.db
+      .query<{
+        id: string
+        reason: string | null
+        restock: number
+        refund_amount: number
+        created_at: string
+        business_date: string | null
+      }>(
+        `SELECT id, reason, restock, refund_amount, created_at, business_date
+           FROM sale_returns WHERE sale_id = ? AND id <> ? ORDER BY created_at`,
+        [saleId, ret.returnId],
+      )
+      .map((row) => {
+        // The REFUND payment a return created is written in the same instant as the return.
+        const payment = this.db.get<{ id: string; method: string; amount: number }>(
+          `SELECT id, method, amount FROM sale_payments
+            WHERE sale_id = ? AND kind = 'REFUND' AND created_at = ?`,
+          [saleId, row.created_at],
+        )
+        return {
+          id: row.id,
+          createdAt: row.created_at,
+          businessDate: row.business_date ?? undefined,
+          reason: row.reason,
+          restock: Boolean(row.restock),
+          refundAmount: row.refund_amount,
+          items: this.db
+            .query<{
+              id: string
+              sale_item_id: string
+              quantity: number
+              serial_unit_id: string | null
+            }>(
+              `SELECT id, sale_item_id, quantity, serial_unit_id
+                 FROM sale_return_items WHERE sale_return_id = ?`,
+              [row.id],
+            )
+            .map((i) => ({
+              id: i.id,
+              saleItemId: i.sale_item_id,
+              quantity: i.quantity,
+              serialUnitId: i.serial_unit_id,
+            })),
+          refundPayment: payment ?? null,
+        }
+      })
     return {
       ...base,
       status: ret.status,
       returns: [
+        ...earlier,
         {
           id: ret.returnId,
+          createdAt: ret.createdAt,
+          businessDate: ret.businessDate,
           reason: ret.reason,
           restock: ret.restock,
           refundAmount: ret.refundAmount,
@@ -1551,8 +1640,11 @@ export class SalesService {
   byProduct(query: SalesListQuery = {}): SalesByProductRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    // Net of the period's refunds (ruling R4): the netting is @biztrack/domain's, shared
+    // with the server.
     const { where, params } = this.reportWhere(businessId, query)
-    const rows = this.db.query<{
+    const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+    const sold = this.db.query<{
       productId: string
       name: string
       category: string | null
@@ -1568,19 +1660,38 @@ export class SalesService {
          JOIN sales s ON s.id = si.sale_id
          LEFT JOIN products p ON p.id = si.product_id
          LEFT JOIN product_categories c ON c.id = p.category_id
-       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0
-       GROUP BY si.product_id, si.product_name, c.name
-       ORDER BY revenue DESC`,
+       WHERE ${where} AND s.status IN (${statuses}) AND si.is_deleted = 0
+       GROUP BY si.product_id, si.product_name, c.name`,
       params,
     )
-    return rows.map((r) => ({
-      productId: r.productId,
-      name: r.name,
-      category: r.category ?? null,
-      quantity: Number(r.quantity ?? 0),
-      revenue: toWholeXaf(Number(r.revenue ?? 0)),
-      cogs: toWholeXaf(Number(r.cogs ?? 0)),
-    }))
+    const returns = this.returnsWhere(businessId, query)
+    const returned = this.db.query<{
+      returnId: string
+      restock: number
+      returnedQuantity: number
+      soldQuantity: number
+      lineTotal: number
+      costPrice: number | null
+      productId: string
+      name: string
+      category: string | null
+    }>(
+      `SELECT r.id AS returnId, r.restock AS restock, ri.quantity AS returnedQuantity,
+              si.quantity AS soldQuantity, si.line_total AS lineTotal, si.cost_price AS costPrice,
+              si.product_id AS productId, si.product_name AS name, c.name AS category
+       FROM sale_return_items ri
+         JOIN sale_returns r ON r.id = ri.sale_return_id
+         JOIN sale_items si ON si.id = ri.sale_item_id
+         JOIN sales s ON s.id = r.sale_id
+         LEFT JOIN products p ON p.id = si.product_id
+         LEFT JOIN product_categories c ON c.id = p.category_id
+       WHERE ${returns.where}`,
+      returns.params,
+    )
+    return netSalesByProduct(
+      sold.map((r) => ({ ...r, category: r.category ?? null })),
+      returned.map((r) => ({ ...r, restock: Boolean(r.restock), category: r.category ?? null })),
+    )
   }
 
   // ── Discount reports (BIZ-1.7) ────────────────────────────────────────────
@@ -1784,14 +1895,37 @@ export class SalesService {
   byPaymentMethod(query: SalesListQuery = {}): SalesByPaymentRow[] {
     const businessId = this.getBusinessId()
     if (!businessId) return []
+    // Money in by method, net of money handed back (ruling R4). Payments count on the day of
+    // their sale; a refund comes off the day it was paid out. A refunded or partly refunded
+    // sale still counts; a voided one never does.
     const { where, params } = this.reportWhere(businessId, query)
+    const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+    const refundDay = 'substr(sp.created_at, 1, 10)'
+    const refundConds = ['s.business_id = ?', 's.is_deleted = 0', "s.status <> 'VOIDED'"]
+    const refundParams: unknown[] = [businessId]
+    if (query.dateFrom) {
+      refundConds.push(`${refundDay} >= ?`)
+      refundParams.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      refundConds.push(`${refundDay} <= ?`)
+      refundParams.push(query.dateTo)
+    }
     const rows = this.db.query<{ method: string; transactions: number; amount: number }>(
-      `SELECT sp.method AS method, COUNT(DISTINCT sp.sale_id) AS transactions, COALESCE(SUM(sp.amount), 0) AS amount
-       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED'
-       GROUP BY sp.method
+      `SELECT x.method AS method, COUNT(DISTINCT x.paid_sale_id) AS transactions,
+              COALESCE(SUM(x.amount), 0) AS amount
+       FROM (
+         SELECT sp.method AS method, sp.sale_id AS paid_sale_id, sp.amount AS amount
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+         WHERE ${where} AND s.status IN (${statuses}) AND sp.kind <> 'REFUND'
+         UNION ALL
+         SELECT sp.method AS method, NULL AS paid_sale_id, -sp.amount AS amount
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+         WHERE ${refundConds.join(' AND ')} AND sp.kind = 'REFUND'
+       ) x
+       GROUP BY x.method
        ORDER BY amount DESC`,
-      params,
+      [...params, ...refundParams],
     )
     return rows.map((r) => ({
       method: r.method,
@@ -1852,6 +1986,41 @@ export class SalesService {
   }
 
   /** Product revenue (Σ line totals) + COGS for completed sales — feeds the Income Statement. */
+  /** Quantity already returned per sale item, across every return recorded for the sale. */
+  private returnedQuantityByItem(saleId: string): Map<string, number> {
+    return new Map(
+      this.db
+        .query<{ sale_item_id: string; quantity: number }>(
+          `SELECT ri.sale_item_id, SUM(ri.quantity) AS quantity
+             FROM sale_return_items ri
+             JOIN sale_returns r ON r.id = ri.sale_return_id
+            WHERE r.sale_id = ?
+            GROUP BY ri.sale_item_id`,
+          [saleId],
+        )
+        .map((row) => [row.sale_item_id, row.quantity]),
+    )
+  }
+
+  /** WHERE for the returns made in a report's range: a refund is booked on its own day. */
+  private returnsWhere(
+    businessId: string,
+    query: SalesListQuery,
+  ): { where: string; params: unknown[] } {
+    const day = 'COALESCE(r.business_date, substr(r.created_at, 1, 10))'
+    const conds = ['r.business_id = ?', 's.is_deleted = 0', "s.status <> 'VOIDED'"]
+    const params: unknown[] = [businessId]
+    if (query.dateFrom) {
+      conds.push(`${day} >= ?`)
+      params.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      conds.push(`${day} <= ?`)
+      params.push(query.dateTo)
+    }
+    return { where: conds.join(' AND '), params }
+  }
+
   grossProfit(query: SalesListQuery = {}): { revenue: number; cogs: number } {
     const businessId = this.getBusinessId()
     if (!businessId) return { revenue: 0, cogs: 0 }
@@ -1868,17 +2037,7 @@ export class SalesService {
       params,
     )
 
-    const returnDay = 'COALESCE(r.business_date, substr(r.created_at, 1, 10))'
-    const returnConds = ['r.business_id = ?', 's.is_deleted = 0', "s.status <> 'VOIDED'"]
-    const returnParams: unknown[] = [businessId]
-    if (query.dateFrom) {
-      returnConds.push(`${returnDay} >= ?`)
-      returnParams.push(query.dateFrom)
-    }
-    if (query.dateTo) {
-      returnConds.push(`${returnDay} <= ?`)
-      returnParams.push(query.dateTo)
-    }
+    const returns = this.returnsWhere(businessId, query)
     const returnedRows = this.db.query<{
       return_id: string
       restock: number
@@ -1893,8 +2052,8 @@ export class SalesService {
          JOIN sale_returns r ON r.id = ri.sale_return_id
          JOIN sale_items si ON si.id = ri.sale_item_id
          JOIN sales s ON s.id = r.sale_id
-        WHERE ${returnConds.join(' AND ')}`,
-      returnParams,
+        WHERE ${returns.where}`,
+      returns.params,
     )
     const byReturn = new Map<string, typeof returnedRows>()
     for (const row of returnedRows) {

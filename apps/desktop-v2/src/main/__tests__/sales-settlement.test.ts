@@ -178,6 +178,21 @@ describe('SalesService — settlement', () => {
       db.get<{ v: number }>(`SELECT stock_quantity AS v FROM products WHERE id = 'p-1'`)?.v,
     ).toBe(100)
 
+    // Both returns ride in the one outbox row, so the first is not lost when the second is
+    // made before a sync.
+    const payload = JSON.parse(
+      db.get<{ payload: string }>(
+        `SELECT payload FROM sync_outbox WHERE entity = 'sales' AND record_id = ?`,
+        [sale.id],
+      )!.payload,
+    ) as {
+      status: string
+      returns: Array<{ refundAmount: number; refundPayment: { amount: number } | null }>
+    }
+    expect(payload.status).toBe('REFUNDED')
+    expect(payload.returns.map((r) => r.refundAmount)).toEqual([1000, 1000])
+    expect(payload.returns.map((r) => r.refundPayment?.amount)).toEqual([1000, 1000])
+
     expect(() => service.refundSale(sale.id, {})).toThrow('Select at least one item to return.')
   })
 })
