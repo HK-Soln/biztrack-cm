@@ -11,6 +11,9 @@ import {
   hasPriceDrift,
   isBelowCost,
   priceSale,
+  reviewSerialAlreadySold,
+  reviewStockAfterSyncedSale,
+  reviewSyncedRefund,
   roundQuantity,
   saleReturnStatus,
   settleSale,
@@ -38,11 +41,13 @@ import {
   type SaleSyncPayload,
   type SalesByPaymentRow,
   type SalesByProductRow,
+  type ReviewFlagDraft,
   type SalesQuery,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
+import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
 import {
   AppBadRequestException,
   AppForbiddenException,
@@ -171,6 +176,7 @@ export class SalesService {
     private readonly i18n: I18nService<I18nTranslations>,
     private readonly config: ConfigService,
     @Inject(LOGGER) private readonly logger: Logger,
+    private readonly reviewFlags: ReviewFlagsService,
   ) {
     this.logger.setContext('SalesService')
   }
@@ -603,8 +609,15 @@ export class SalesService {
   async createFromSync(businessId: string, payload: SaleSyncPayload) {
     try {
       let saleId: string | null = null
+      // A sale from an offline till already happened: it is recorded as it happened, and
+      // anything the server disagrees with becomes a review flag for the owner instead of a
+      // rejection (rulings R1 and R3). Online orders are posted by the server, so they keep
+      // the strict checks.
+      const fromOfflineTill = !payload.onlineOrderId && payload.source !== SaleSource.ONLINE
+      const flagDrafts: ReviewFlagDraft[] = []
+      let raisedFlags: ReviewFlagDraft[] = []
 
-      await this.dataSource.transaction(async (manager) => {
+      const apply = async (manager: EntityManager): Promise<void> => {
         const saleRepo = manager.getRepository(Sale)
         const targetStatus = this.normalizeSyncSaleStatus(payload.status)
         const existingInTransaction = await saleRepo.findOne({
@@ -627,7 +640,13 @@ export class SalesService {
               targetStatus === SaleStatus.PARTIALLY_REFUNDED) &&
             (payload.returns?.length ?? 0) > 0
           ) {
-            await this.applyRefundFromSync(manager, businessId, existingInTransaction.id, payload)
+            await this.applyRefundFromSync(
+              manager,
+              businessId,
+              existingInTransaction.id,
+              payload,
+              flagDrafts,
+            )
           }
 
           return
@@ -639,6 +658,7 @@ export class SalesService {
           manager,
           businessId,
           payload,
+          { allowUnavailableSerials: fromOfflineTill },
         )
         const computed = this.computeSale(products, variantsById, serialUnitsById, payload)
         const { amountPaid, changeGiven } = settleSale({
@@ -834,7 +854,7 @@ export class SalesService {
           }
         }
 
-        await this.inventoryService.deductForSale(
+        const shortfalls = await this.inventoryService.deductForSale(
           businessId,
           sale.id,
           sale.saleNumber,
@@ -851,18 +871,42 @@ export class SalesService {
             })),
           ),
           manager,
+          { allowNegative: fromOfflineTill },
         )
+        for (const shortfall of shortfalls) {
+          const flag = reviewStockAfterSyncedSale({
+            saleId: sale.id,
+            ...shortfall,
+          })
+          if (flag) flagDrafts.push(flag)
+        }
 
         // Online orders post the sale at confirm but keep serials RESERVED until handover
         // (deferSerialSold); they flip to SOLD when the order is delivered/picked up.
         if (!payload.deferSerialSold) {
-          await this.markSerialUnitsSold(
+          const serialConflicts = await this.markSerialUnitsSold(
             manager,
             businessId,
             sale.id,
             customerId ?? null,
             saleItems,
+            { tolerateUnavailable: fromOfflineTill },
           )
+          // The unit stays with the sale that already holds it; this sale stands too, and
+          // the owner is told one physical unit is on two sales.
+          for (const serialUnitId of serialConflicts) {
+            const unit = await manager
+              .getRepository(ProductSerialUnit)
+              .findOne({ where: { id: serialUnitId, businessId } })
+            flagDrafts.push(
+              reviewSerialAlreadySold({
+                saleId: sale.id,
+                serialUnitId,
+                serialNumber: unit?.serialNumber ?? null,
+                soldOnSaleId: unit?.saleId ?? null,
+              }),
+            )
+          }
         }
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
@@ -890,10 +934,17 @@ export class SalesService {
           (payload.returns?.length ?? 0) > 0
         ) {
           // A sale rung + returned offline before its first sync — apply the return after insert.
-          await this.applyRefundFromSync(manager, businessId, sale.id, payload)
+          await this.applyRefundFromSync(manager, businessId, sale.id, payload, flagDrafts)
         }
         saleId = sale.id
+      }
+
+      await this.dataSource.transaction(async (manager) => {
+        await apply(manager)
+        raisedFlags = await this.reviewFlags.raise(manager, businessId, flagDrafts)
       })
+      // Tell the owner only once the sale and its flags are committed.
+      void this.reviewFlags.notify(businessId, raisedFlags, payload.saleNumber)
 
       if (!saleId) {
         throw new AppInternalServerException(
@@ -2113,6 +2164,12 @@ export class SalesService {
     manager: EntityManager,
     businessId: string,
     dto: Pick<SaleComputationInput, 'items'>,
+    /**
+     * `allowUnavailableSerials`: accept a serial unit that is no longer available (already
+     * sold elsewhere). Used for sales synced from an offline till (ruling R3); the conflict
+     * is flagged when the unit is marked.
+     */
+    options?: { allowUnavailableSerials?: boolean },
   ) {
     const ids = [...new Set(dto.items.map((item) => item.productId))]
     const products = await manager.getRepository(Product).find({
@@ -2216,10 +2273,12 @@ export class SalesService {
         )
       }
       const unit = serialUnitsById.get(item.serialUnitId)
+      const available =
+        unit?.status === SerialUnitStatus.IN_STOCK || unit?.status === SerialUnitStatus.RESERVED
       if (
         !unit ||
         unit.productId !== product.id ||
-        (unit.status !== SerialUnitStatus.IN_STOCK && unit.status !== SerialUnitStatus.RESERVED)
+        (!available && !options?.allowUnavailableSerials)
       ) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.serial_unit_unavailable'),
@@ -2321,8 +2380,11 @@ export class SalesService {
     saleId: string,
     customerId: string | null,
     items: Array<{ id: string; serialUnitId?: string | null }>,
-  ): Promise<void> {
+    /** `tolerateUnavailable`: do not reject when a unit is already taken; return its id. */
+    options?: { tolerateUnavailable?: boolean },
+  ): Promise<string[]> {
     const repo = manager.getRepository(ProductSerialUnit)
+    const unavailable: string[] = []
     for (const item of items) {
       if (!item.serialUnitId) continue
       const result = await repo.update(
@@ -2342,12 +2404,16 @@ export class SalesService {
         },
       )
       if (!result.affected) {
-        throw new AppBadRequestException(
-          await this.i18n.translate('errors.serial_unit_unavailable'),
-          'SERIAL_UNIT_UNAVAILABLE',
-        )
+        if (!options?.tolerateUnavailable) {
+          throw new AppBadRequestException(
+            await this.i18n.translate('errors.serial_unit_unavailable'),
+            'SERIAL_UNIT_UNAVAILABLE',
+          )
+        }
+        unavailable.push(item.serialUnitId)
       }
     }
+    return unavailable
   }
 
   /** Return a voided sale's serialised units to IN_STOCK (Phase 3G). */
@@ -2579,6 +2645,8 @@ export class SalesService {
     businessId: string,
     saleId: string,
     payload: SaleSyncPayload,
+    /** Collects the review flags this refund raises (ruling R1); the caller stores them. */
+    flagDrafts: ReviewFlagDraft[],
   ) {
     const returns = payload.returns ?? []
     if (returns.length === 0) return
@@ -2595,20 +2663,59 @@ export class SalesService {
       // Idempotent: this return already landed (a prior sync, or it pulled back down).
       if (await returnRepo.findOne({ where: { id: ret.id } })) continue
 
-      const returnedLines = (ret.items ?? [])
-        .map((r) => {
-          const item = saleItems.find((si) => si.id === r.saleItemId)
-          if (!item) return null
-          return {
-            item,
-            quantity: Math.min(roundQuantity(r.quantity), item.quantity),
-            serialUnitId: r.serialUnitId ?? item.serialUnitId ?? null,
-          }
-        })
-        .filter((r): r is { item: SaleItem; quantity: number; serialUnitId: string | null } => {
-          return !!r && r.quantity > 0
-        })
-      if (returnedLines.length === 0) continue
+      // Ruling R1: the refund already happened at the till. Which lines the server can
+      // apply is decided by the same rule as an online refund (what is left of each line);
+      // the money is recorded as the till handed it back, and any disagreement is flagged.
+      const requestedLines = ret.items ?? []
+      const knownLines = requestedLines.filter((r) =>
+        saleItems.some((si) => si.id === r.saleItemId),
+      )
+      const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
+      const paidBefore = (await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount))
+        .amountPaid
+      const tillRefundAmount = toWholeXaf(ret.refundAmount ?? 0)
+      const decision =
+        knownLines.length > 0
+          ? decideSaleRefund({
+              items: saleItems.map((item) => ({
+                id: item.id,
+                quantity: item.quantity,
+                lineTotal: item.lineTotal,
+                returnedQuantity: returnedBefore.get(item.id) ?? 0,
+              })),
+              returns: knownLines,
+              requestedAmount: tillRefundAmount,
+              amountPaid: paidBefore,
+            })
+          : null
+      const returnedLines =
+        decision && decision.ok
+          ? decision.lines.map((line) => {
+              const item = saleItems.find((si) => si.id === line.saleItemId)!
+              const requested = knownLines[line.requestIndex ?? -1]
+              return {
+                id: requested?.id ?? randomUUID(),
+                item,
+                quantity: line.quantity,
+                serialUnitId: requested?.serialUnitId ?? item.serialUnitId ?? null,
+              }
+            })
+          : []
+      // Nothing came back and no money moved: there is nothing to record.
+      if (returnedLines.length === 0 && tillRefundAmount <= 0) continue
+
+      flagDrafts.push(
+        ...reviewSyncedRefund({
+          saleId: sale.id,
+          returnId: ret.id,
+          tillRefundAmount,
+          amountPaid: paidBefore,
+          goodsValue: decision && decision.ok ? decision.goodsValue : 0,
+          tillQuantity: requestedLines.reduce((sum, r) => sum + roundQuantity(r.quantity), 0),
+          appliedQuantity: returnedLines.reduce((sum, r) => sum + r.quantity, 0),
+          unknownLineCount: requestedLines.length - knownLines.length,
+        }),
+      )
 
       await returnRepo.save(
         returnRepo.create({
@@ -2618,24 +2725,24 @@ export class SalesService {
           onlineOrderId: sale.onlineOrderId ?? null,
           reason: this.normalizeOptionalString(ret.reason) ?? null,
           restock: ret.restock !== false,
-          refundAmount: toWholeXaf(ret.refundAmount ?? 0),
+          refundAmount: tillRefundAmount,
           createdById: sale.cashierId,
         }),
       )
-      await returnItemRepo.save(
-        (ret.items ?? [])
-          .filter((r) => returnedLines.some((rl) => rl.item.id === r.saleItemId))
-          .map((r) =>
+      if (returnedLines.length > 0) {
+        await returnItemRepo.save(
+          returnedLines.map((r) =>
             returnItemRepo.create({
-              id: r.id ?? randomUUID(),
+              id: r.id,
               saleReturnId: ret.id,
               businessId,
-              saleItemId: r.saleItemId,
-              quantity: roundQuantity(r.quantity),
+              saleItemId: r.item.id,
+              quantity: r.quantity,
               serialUnitId: r.serialUnitId ?? null,
             }),
           ),
-      )
+        )
+      }
 
       if (ret.refundPayment && ret.refundPayment.amount > 0) {
         if (!(await paymentRepo.findOne({ where: { id: ret.refundPayment.id } }))) {
@@ -2655,7 +2762,7 @@ export class SalesService {
         }
       }
 
-      if (ret.restock !== false) {
+      if (ret.restock !== false && returnedLines.length > 0) {
         await this.inventoryService.reverseForVoidedSale(
           businessId,
           sale.id,

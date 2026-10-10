@@ -205,6 +205,17 @@ type InventoryMovementReferenceInfo = {
   sourceName: string | null
 }
 
+/** Stock a synced sale took that the server did not have (ruling R3). */
+export interface SaleStockShortfall {
+  productId: string
+  variantId: string | null
+  productName: string
+  /** On hand before the sale. */
+  available: number
+  /** What the sale took from it. */
+  requested: number
+}
+
 @Injectable()
 export class InventoryService {
   constructor(
@@ -808,11 +819,18 @@ export class InventoryService {
     userId: string,
     items: SaleInventoryItemInput[],
     manager?: EntityManager,
-  ): Promise<void> {
+    /**
+     * `allowNegative`: a sale synced from an offline till already happened, so it is
+     * deducted even when the level goes below zero (ruling R3). The shortfalls come back
+     * so the caller can raise a review flag. Online sales keep the rejection.
+     */
+    options?: { allowNegative?: boolean },
+  ): Promise<SaleStockShortfall[]> {
     try {
       const inventoryRepo = this.getInventoryRepo(manager)
       const movementRepo = this.getMovementRepo(manager)
       const productRepo = this.getProductRepo(manager)
+      const shortfalls = new Map<string, SaleStockShortfall>()
 
       const productIds = [...new Set(items.map((item) => item.productId))]
 
@@ -859,7 +877,18 @@ export class InventoryService {
           : Number(level?.quantity ?? 0)
         const quantityAfter = quantityBefore - item.quantity
 
-        if (quantityAfter < 0) {
+        if (quantityAfter < 0 && options?.allowNegative) {
+          // One shortfall per product/variant: what was on hand before this sale, and
+          // everything the sale has taken from it so far.
+          const available = Number(level?.quantity ?? 0)
+          shortfalls.set(key, {
+            productId: item.productId,
+            variantId: item.variantId ?? null,
+            productName: item.productName,
+            available,
+            requested: available - quantityAfter,
+          })
+        } else if (quantityAfter < 0) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.insufficient_stock', {
               args: {
@@ -920,6 +949,7 @@ export class InventoryService {
       if (movementsToInsert.length > 0) {
         await movementRepo.save(movementsToInsert)
       }
+      return [...shortfalls.values()]
     } catch (error) {
       return this.handleServiceError('deductForSale', error, {
         businessId,

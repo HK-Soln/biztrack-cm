@@ -61,6 +61,7 @@ function makeService() {
     i18n as any,
     { get: () => undefined } as any, // config
     logger as any,
+    {} as any, // reviewFlags
   )
   return service as any
 }

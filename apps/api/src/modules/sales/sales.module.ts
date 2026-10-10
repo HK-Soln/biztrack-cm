@@ -13,6 +13,7 @@ import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { DepositsModule } from '@/modules/savings/savings.module'
 import { DocumentsModule } from '@/modules/documents/documents.module'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { ReviewFlagsModule } from '@/modules/review-flags/review-flags.module'
 import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
 import { FiscalModule } from '@/modules/fiscal/fiscal.module'
 import { SalesController } from './controllers/sales.controller'
@@ -29,6 +30,7 @@ import { SalesService } from './services/sales.service'
     DepositsModule,
     DocumentsModule,
     AuditModule,
+    ReviewFlagsModule,
     BusinessCalendarModule,
     FiscalModule,
     TypeOrmModule.forFeature([

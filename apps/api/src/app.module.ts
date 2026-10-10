@@ -8,6 +8,7 @@ import { BusinessModule } from '@/modules/business/business.module'
 import { ProductsModule } from '@/modules/products/products.module'
 import { BrandsModule } from '@/modules/brands/brands.module'
 import { AuditModule } from '@/modules/audit/audit.module'
+import { ReviewFlagsModule } from '@/modules/review-flags/review-flags.module'
 import { ChargesModule } from '@/modules/charges/charges.module'
 import { OnlineModule } from '@/modules/online/online.module'
 import { PaymentsModule } from '@/modules/payments/payments.module'
@@ -129,6 +130,7 @@ function resolveI18nPath() {
     PermissionsModule,
     PlansModule,
     AuditModule,
+    ReviewFlagsModule,
     ChargesModule,
     OnlineModule,
     PaymentsModule,
