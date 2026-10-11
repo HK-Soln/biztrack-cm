@@ -12,6 +12,10 @@ overrides:
   # by the Trivy image scan). undici via @biztrack/http-client; ws via socket.io.
   undici: '^8.5.0'
   ws: '^8.21.0'
+  # CRITICAL CVEs flagged by the Trivy gate (2026-10): handlebars JavaScript injection
+  # (CVE-2026-106445/106446), proxy-addr IP spoofing (CVE-2026-90711, via express).
+  handlebars: '^4.7.10'
+  proxy-addr: '^2.0.8'
 
 # pnpm v11 requires explicitly approving packages that run install scripts.
 allowBuilds:
