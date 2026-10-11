@@ -64,7 +64,7 @@ packages/domain/src
 | 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                               |
 | 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1 to R7; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: `decideSale` / `decideVoid` use cases |
 | 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                    |
-| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                                                                                                    |
+| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | In progress. Done: `debtStanding` replaces the seven copies of debt status. Open: the SQLite debt triggers, waiting on the questions under "Debts: open questions"                                                                 |
 | 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                    |
 | 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                    |
 
@@ -297,6 +297,35 @@ Release blockers for this branch (owner, 2026-10-11):
 4. R2, with the role-limit versions table and the version sent by the till. Done: see
    "R2 as built" above. Migration `1790500000000-role_limit_versions` has to run on
    deploy, and tills need the new build to send the version.
+
+### Debts: open questions
+
+On the till, SQLite triggers create and update a sale's receivable and a restock's payable
+(`0001_initial_schema`). The server does it in code. What each does, read from the code and
+confirmed on the till by `sales-debt-characterization.test.ts`:
+
+| Path                               | Till (triggers)                                          | Server                                     |
+| ---------------------------------- | -------------------------------------------------------- | ------------------------------------------ |
+| Sale with a balance on credit      | Creates the receivable for the balance                   | Same                                       |
+| Sale voided                        | Writes the receivable off, even one already paid in full | Writes it off unless it is already settled |
+| Everything returned                | Written off (in code, not by the trigger)                | Same                                       |
+| Part returned, sale had a balance  | Receivable is set to the sale's new balance              | Receivable is left as it was               |
+| Part returned, sale was fully paid | Creates a receivable for the cash handed back            | No receivable                              |
+| Restock with a balance on credit   | Creates the payable                                      | Same                                       |
+| Sale or restock arriving by sync   | Trigger creates or updates the debt from the pulled row  | n/a: the debt is pulled as its own record  |
+| Debt payment added or removed      | Trigger recomputes status; the code now does it too      | In code                                    |
+
+Two of these are wrong on the till today and need a ruling before the triggers are replaced:
+
+1. After a partial return, a sale's balance is worked out as total minus what is still paid,
+   without taking off the goods that came back (`settleSaleFromLedger`, on both sides). A
+   10,000 sale paid in full, with 2,000 of goods returned for cash, shows a balance of 2,000.
+   On the till the trigger turns that balance into a 2,000 receivable for the customer who
+   was just refunded. On a part-paid sale the receivable grows by the cash handed back.
+2. Voiding a sale whose receivable was already paid in full: the till writes the debt off,
+   the server leaves it settled.
+
+Until ruled, nothing here is changed and the triggers stay.
 
 ### Integration tests
 
