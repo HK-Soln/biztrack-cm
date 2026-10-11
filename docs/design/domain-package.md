@@ -67,7 +67,12 @@ packages/domain/src
 | 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                                                                                                    |
 | 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                    |
 | 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                    |
-| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |                                                                                                                                                                                                                                    |
+
+Out of scope (owner, 2026-10-11): anything built for mobile. The mobile app will be written
+from scratch in its own phase. This initiative makes the API, sync and the desktop run the
+same domain functions, and keeps those functions usable by mobile exactly as the others use
+them: pure, no SQLite, Electron or NestJS inside. The `DatabaseService` interface that was
+slice 9 moves to the mobile phase.
 
 ## Divergences found
 
@@ -87,7 +92,7 @@ Each was read in the code. "Fixed" means both runtimes now run one function.
 | Serial unit already sold elsewhere                        | Checked against local stock only                                                   | Rejected with `SERIAL_UNIT_UNAVAILABLE`                                                                       | Fixed (R3) for sales synced from a till: accepted and flagged `SERIAL_ALREADY_SOLD`; the unit stays with the sale that holds it  |
 | Discount authorization on a synced sale                   | Evaluated on the device                                                            | Not re-evaluated; flags trusted from the payload                                                              | Fixed (R2): re-checked against the limits in force when the sale was made; a disagreement is a review flag                       |
 | Refunds in profit                                         | Refunded and partially refunded sales dropped out of the Income Statement entirely | Same, while the daily summary kept their full revenue                                                         | Fixed (R4): one rule in `sale-profit.ts`, used by the Income Statement queries on both sides and by the daily summary            |
-| Savings on refund                                         | Not reversed                                                                       | Not reversed                                                                                                  | Open, slice 4 (decide the rule)                                                                                                  |
+| Savings on refund                                         | Not reversed                                                                       | Not reversed                                                                                                  | Decided (R8): not reversed. Giving savings back goes through the savings flow                                                    |
 | Cart preview in the renderer (`Sell.tsx`)                 | Rounds to 2 decimals                                                               | n/a                                                                                                           | Fixed: the sell screen totals come from `priceSale`                                                                              |
 | Money rounding outside sales                              | `round2` in debts, expenses, income, inventory, savings                            | `roundMoney` / `round` in the same modules                                                                    | Open, slice 8                                                                                                                    |
 
@@ -169,6 +174,12 @@ A refund is booked on the trading day it is made, not the day of the sale and no
 it reaches the server. The return carries its own `business_date`; a till sends it with the
 time of the return, and the server uses the till's time for the refund payment and the
 daily summary.
+
+### R8. Savings used on a refunded sale (2026-10-11)
+
+A refund does not give back customer savings that were used to pay for the sale. Returning
+savings to a customer is its own action in the savings flow, with its own record; a refund
+only decides the goods and the money handed back at the till.
 
 ### How the rulings are implemented
 
