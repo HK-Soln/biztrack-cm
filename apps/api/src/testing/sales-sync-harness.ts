@@ -12,10 +12,16 @@ import { InventoryMovement } from '@/entities/inventory-movement.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { Product } from '@/entities/product.entity'
 import { ReviewFlagRecord } from '@/entities/review-flag.entity'
+import { RoleLimitVersion } from '@/entities/role-limit-version.entity'
+import { Role } from '@/entities/role.entity'
 import { Sale } from '@/entities/sale.entity'
 import { DebtsService } from '@/modules/debts/services/debts.service'
 import { InventoryService } from '@/modules/inventory/services/inventory.service'
 import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
+import {
+  recordFirstRoleLimitVersion,
+  recordRoleLimitChange,
+} from '@/modules/roles/role-limit-versions'
 import { DailySalesSummaryService } from '@/modules/sales/services/daily-sales-summary.service'
 import { SaleNumberService } from '@/modules/sales/services/sale-number.service'
 import { SalesService } from '@/modules/sales/services/sales.service'
@@ -35,6 +41,13 @@ const never = <T>(value: Loose): T => value as unknown as T
 
 const utcDay = (instant: Date | string | number) => new Date(instant).toISOString().slice(0, 10)
 
+export interface RoleLimits {
+  maxDiscountPercent?: number | null
+  maxCartDiscountPercent?: number | null
+  maxDiscountAmountXaf?: number | null
+  allowBelowCost?: boolean
+}
+
 export interface SalesSyncHarness {
   dataSource: DataSource
   sales: SalesService
@@ -48,6 +61,12 @@ export interface SalesSyncHarness {
   seedSerialUnit(productId: string, serialNumber: string): Promise<string>
   /** Another member of the business, with a built-in role and no assigned role. */
   seedMember(role: 'MANAGER' | 'CASHIER'): Promise<string>
+  /** A role with discount limits, in force from a given moment. */
+  seedRole(input: RoleLimits & { effectiveFrom: string }): Promise<string>
+  /** Edit a role's limits the way the roles screen does; returns the version now in force. */
+  changeRoleLimits(roleId: string, limits: RoleLimits, effectiveFrom: string): Promise<number>
+  assignRole(userId: string, roleId: string): Promise<void>
+  roleVersions(roleId: string): Promise<RoleLimitVersion[]>
   /** A sale payload as a till sends it: one line per item, paid in cash unless told otherwise. */
   salePayload(input: {
     items: Array<{ productId: string; quantity: number; unitPrice: number; serialUnitId?: string }>
@@ -239,6 +258,46 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
         [businessId, id, role],
       )
       return id
+    },
+
+    async seedRole({ effectiveFrom, ...limits }) {
+      const roles = dataSource.getRepository(Role)
+      const role = await roles.save(
+        roles.create({
+          businessId,
+          name: `Role ${randomUUID().slice(0, 8)}`,
+          description: null,
+          maxDiscountPercent: limits.maxDiscountPercent ?? null,
+          maxCartDiscountPercent: limits.maxCartDiscountPercent ?? null,
+          maxDiscountAmountXaf: limits.maxDiscountAmountXaf ?? null,
+          allowBelowCost: limits.allowBelowCost ?? false,
+          colour: null,
+          createdBy: null,
+        }),
+      )
+      await recordFirstRoleLimitVersion(dataSource.manager, role, new Date(effectiveFrom))
+      return role.id
+    },
+
+    changeRoleLimits(roleId, limits, effectiveFrom) {
+      return dataSource.transaction(async (manager) => {
+        const before = await manager.getRepository(Role).findOneOrFail({ where: { id: roleId } })
+        await manager.getRepository(Role).update(roleId, limits)
+        return recordRoleLimitChange(manager, before, new Date(effectiveFrom))
+      })
+    },
+
+    async assignRole(memberUserId, roleId) {
+      await dataSource.query(
+        `UPDATE business_members SET role_id = $3 WHERE business_id = $1 AND user_id = $2`,
+        [businessId, memberUserId, roleId],
+      )
+    },
+
+    roleVersions(roleId) {
+      return dataSource
+        .getRepository(RoleLimitVersion)
+        .find({ where: { roleId }, order: { version: 'ASC' } })
     },
 
     salePayload({ items, paid, soldAt, overrides }) {

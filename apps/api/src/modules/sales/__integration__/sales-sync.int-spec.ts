@@ -1,10 +1,21 @@
+import { randomUUID } from 'crypto'
 import type { DataSource } from 'typeorm'
-import { ReviewFlagCode, ReviewFlagSeverity, ReviewFlagStatus, SaleStatus } from '@biztrack/types'
+import {
+  ReviewFlagCode,
+  ReviewFlagSeverity,
+  ReviewFlagStatus,
+  SaleStatus,
+  type SaleSyncPayload,
+} from '@biztrack/types'
 import {
   closeIntegrationDataSource,
   getIntegrationDataSource,
 } from '@/testing/integration-database'
-import { createSalesSyncHarness, type SalesSyncHarness } from '@/testing/sales-sync-harness'
+import {
+  createSalesSyncHarness,
+  type RoleLimits,
+  type SalesSyncHarness,
+} from '@/testing/sales-sync-harness'
 
 // What the server does with sales, refunds and voids that sync up from a till — against a
 // real Postgres, with the real sales, inventory, debts and daily-summary services. These are
@@ -484,6 +495,154 @@ describe('sales synced from a till', () => {
       })
       const manager = await h.seedMember('MANAGER')
       await expect(h.reviewFlags.assertCanReview(h.businessId, manager)).resolves.toBeUndefined()
+    })
+  })
+
+  describe('a discount (R2)', () => {
+    const BEFORE_SALE = '2026-08-01T00:00:00.000Z'
+    const LATER_BEFORE_SALE = '2026-08-20T00:00:00.000Z'
+    const AFTER_SALE = '2026-09-02T00:00:00.000Z'
+
+    // 2,000 off a 10,000 sale: 20%. The till says the discount needed nobody, unless told.
+    const discounted = async (
+      over: {
+        unauthorized?: boolean
+        authorizedBy?: string | null
+        discountPolicy?: SaleSyncPayload['discountPolicy']
+      } = {},
+    ) => {
+      const product = await h.seedProduct({ price: 10000, cost: 4000, stock: 10 })
+      const payload = h.salePayload({
+        items: [{ productId: product, quantity: 1, unitPrice: 10000 }],
+        paid: 8000,
+        soldAt: SOLD_AT,
+        overrides: {
+          discountAmount: 2000,
+          discounts: [
+            {
+              id: randomUUID(),
+              description: 'Remise',
+              discountType: 'FIXED_AMOUNT' as never,
+              amount: 2000,
+              unauthorized: over.unauthorized ?? false,
+              authorizedBy: over.authorizedBy ?? null,
+            },
+          ],
+          discountPolicy: over.discountPolicy,
+        },
+      })
+      const sale = await h.sales.createFromSync(h.businessId, payload)
+      expect(sale.totalAmount).toBe(8000)
+      return h.flagsOf(payload.saleId)
+    }
+    const cashierRole = async (limits: RoleLimits, effectiveFrom = BEFORE_SALE) => {
+      const roleId = await h.seedRole({ ...limits, effectiveFrom })
+      await h.assignRole(h.userId, roleId)
+      return roleId
+    }
+
+    it('is flagged when it was over the limit in force and nobody approved it', async () => {
+      const roleId = await cashierRole({ maxCartDiscountPercent: 10 })
+
+      const flags = await discounted({ discountPolicy: { roleId, limitsVersion: 1 } })
+      expect(flags).toHaveLength(1)
+      expect(flags[0]).toMatchObject({
+        code: ReviewFlagCode.DISCOUNT_UNAUTHORIZED,
+        severity: ReviewFlagSeverity.MEDIUM,
+        details: {
+          reason: 'OVER_LIMIT',
+          exceeded: ['CART_PERCENT'],
+          discountTotal: 2000,
+          subtotal: 10000,
+          maxCartDiscountPercent: 10,
+          limitsVersion: 1,
+        },
+      })
+    })
+
+    it('raises nothing when it was within the limit, or the till already marked it', async () => {
+      await cashierRole({ maxCartDiscountPercent: 20 })
+      expect(await discounted()).toHaveLength(0)
+
+      h = await createSalesSyncHarness(dataSource)
+      await cashierRole({ maxCartDiscountPercent: 10 })
+      expect(await discounted({ unauthorized: true })).toHaveLength(0)
+    })
+
+    it('is checked against the limits at the time of the sale, not those of today', async () => {
+      const roleId = await cashierRole({ maxCartDiscountPercent: 25 })
+      // Tightened the day after the sale: the sale was valid when it was made.
+      expect(await h.changeRoleLimits(roleId, { maxCartDiscountPercent: 10 }, AFTER_SALE)).toBe(2)
+
+      expect(await discounted({ discountPolicy: { roleId, limitsVersion: 1 } })).toHaveLength(0)
+    })
+
+    it('is low when the till still had the limits from before a change', async () => {
+      const roleId = await cashierRole({ maxCartDiscountPercent: 25 })
+      await h.changeRoleLimits(roleId, { maxCartDiscountPercent: 10 }, LATER_BEFORE_SALE)
+
+      const flags = await discounted({ discountPolicy: { roleId, limitsVersion: 1 } })
+      expect(flags).toHaveLength(1)
+      expect(flags[0]).toMatchObject({
+        severity: ReviewFlagSeverity.LOW,
+        details: { reason: 'TILL_OLD_LIMITS', limitsVersion: 2, tillLimitsVersion: 1 },
+      })
+      expect(h.notifications.at(-1)).toMatchObject({ urgent: false })
+
+      // A till that names no version is taken to have had the version before.
+      const unnamed = await discounted()
+      expect(unnamed[0]).toMatchObject({
+        severity: ReviewFlagSeverity.LOW,
+        details: { reason: 'TILL_OLD_LIMITS', tillLimitsVersion: 1 },
+      })
+    })
+
+    it('is the real flag when the till says it had the limits in force', async () => {
+      const roleId = await cashierRole({ maxCartDiscountPercent: 25 })
+      await h.changeRoleLimits(roleId, { maxCartDiscountPercent: 10 }, LATER_BEFORE_SALE)
+
+      const flags = await discounted({ discountPolicy: { roleId, limitsVersion: 2 } })
+      expect(flags[0]).toMatchObject({
+        severity: ReviewFlagSeverity.MEDIUM,
+        details: { reason: 'OVER_LIMIT' },
+      })
+    })
+
+    it('accepts a manager approval only when the manager limit covered it', async () => {
+      await cashierRole({ maxCartDiscountPercent: 10 })
+      const manager = await h.seedMember('MANAGER')
+      const managerRole = await h.seedRole({
+        maxCartDiscountPercent: 15,
+        effectiveFrom: BEFORE_SALE,
+      })
+      await h.assignRole(manager, managerRole)
+
+      const flags = await discounted({ authorizedBy: manager })
+      expect(flags).toHaveLength(1)
+      expect(flags[0]).toMatchObject({
+        severity: ReviewFlagSeverity.MEDIUM,
+        details: { reason: 'APPROVER_LIMIT', maxCartDiscountPercent: 15, authorizedBy: manager },
+      })
+
+      const senior = await h.seedMember('MANAGER')
+      await h.assignRole(senior, await h.seedRole({ effectiveFrom: BEFORE_SALE }))
+      expect(await discounted({ authorizedBy: senior })).toHaveLength(0)
+    })
+
+    it('keeps the till verdict for a sale older than the recorded limits', async () => {
+      await cashierRole({ maxCartDiscountPercent: 10 }, AFTER_SALE)
+      expect(await discounted()).toHaveLength(0)
+    })
+
+    it('starts a new version only when the limits really change', async () => {
+      const roleId = await h.seedRole({ maxCartDiscountPercent: 10, effectiveFrom: BEFORE_SALE })
+      expect(await h.changeRoleLimits(roleId, { maxCartDiscountPercent: 10 }, AFTER_SALE)).toBe(1)
+      expect(await h.changeRoleLimits(roleId, { allowBelowCost: true }, AFTER_SALE)).toBe(2)
+
+      expect(await h.roleVersions(roleId)).toMatchObject([
+        { version: 1, maxCartDiscountPercent: 10, allowBelowCost: false },
+        { version: 2, maxCartDiscountPercent: 10, allowBelowCost: true },
+      ])
     })
   })
 })

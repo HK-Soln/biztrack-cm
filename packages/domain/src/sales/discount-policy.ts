@@ -80,3 +80,61 @@ export function evaluateDiscountAuthorization(
 
   return { overLimit: reasons.length > 0, reasons }
 }
+
+/** Everything on a role that decides whether a discount needs a manager. */
+export interface RoleDiscountPolicy extends RoleDiscountLimits {
+  /** The role may sell below cost without a manager. */
+  allowBelowCost: boolean
+}
+
+/** A role's discount policy as it stood at some moment (ruling R2). */
+export interface RoleDiscountPolicyVersion extends RoleDiscountPolicy {
+  /** Counts up from 1 each time the role's policy changes. */
+  version: number
+}
+
+export const NO_DISCOUNT_POLICY: RoleDiscountPolicy = {
+  maxDiscountPercent: null,
+  maxCartDiscountPercent: null,
+  maxDiscountAmountXaf: null,
+  allowBelowCost: false,
+}
+
+export interface DiscountAuthorizationNeed extends DiscountEvaluation {
+  /** A manager has to authorize: a limit is exceeded, or a line is below cost and the role
+   * may not sell below cost. */
+  needsAuthorization: boolean
+  /** The below-cost rule is what (or part of what) requires the manager. */
+  belowCostBlocked: boolean
+}
+
+/**
+ * Whether a sale's discounts need a manager under a role's policy. The one rule the API
+ * (REST and the re-check of synced sales) and the till both apply.
+ */
+export function discountNeedsAuthorization(
+  policy: RoleDiscountPolicy,
+  input: DiscountEvaluationInput,
+  belowCost: boolean,
+): DiscountAuthorizationNeed {
+  const evaluation = evaluateDiscountAuthorization(policy, input)
+  const belowCostBlocked = belowCost && !policy.allowBelowCost
+  return {
+    ...evaluation,
+    belowCostBlocked,
+    needsAuthorization: evaluation.overLimit || belowCostBlocked,
+  }
+}
+
+/** True when two policies would decide every discount the same way. A change that leaves
+ * this true does not start a new version of the role's policy. */
+export function sameDiscountPolicy(a: RoleDiscountPolicy, b: RoleDiscountPolicy): boolean {
+  const same = (x: number | null, y: number | null): boolean =>
+    x == null || y == null ? x == null && y == null : Number(x) === Number(y)
+  return (
+    same(a.maxDiscountPercent, b.maxDiscountPercent) &&
+    same(a.maxCartDiscountPercent, b.maxCartDiscountPercent) &&
+    same(a.maxDiscountAmountXaf, b.maxDiscountAmountXaf) &&
+    !!a.allowBelowCost === !!b.allowBelowCost
+  )
+}

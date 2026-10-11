@@ -57,17 +57,17 @@ packages/domain/src
 
 ## Roadmap and status
 
-| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                                                                                                                                                      |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                                                                                                                                                        |
-| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                                                                                                                                                        |
-| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                                                                        |
-| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1, R3, R4 and R5; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: R2, the release blockers below, `decideSale` / `decideVoid` use cases |
-| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                                                             |
-| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                                                                                                                                             |
-| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                                                             |
-| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                                                             |
-| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |                                                                                                                                                                                                                                                                             |
+| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                                                                                                             |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                                                                                                               |
+| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                                                                                                               |
+| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                               |
+| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1 to R7; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: `decideSale` / `decideVoid` use cases |
+| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                    |
+| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                                                                                                    |
+| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                    |
+| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                    |
+| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |                                                                                                                                                                                                                                    |
 
 ## Divergences found
 
@@ -200,7 +200,50 @@ opens the screen.
   unaffected.
 - The wording for each kind of flag is in the renderer
   (`components/activity/review-flag-format.ts`). A new flag code needs a title, a sentence
-  and a next step there, in both languages. `DISCOUNT_UNAUTHORIZED` already has them for R2.
+  and a next step there, in both languages. `DISCOUNT_UNAUTHORIZED` has one of each per
+  reason (`OVER_LIMIT`, `APPROVER_LIMIT`, `TILL_OLD_LIMITS`).
+
+#### R2 as built
+
+`reviewSyncedDiscount` (`packages/domain/src/review/sync-review.ts`) decides the flag;
+`discountNeedsAuthorization` (`sales/discount-policy.ts`) is the one rule for "this discount
+needs a manager", used by REST create, the till and the re-check.
+
+- History: `role_limit_versions` holds every version of a role's four discount fields;
+  `roles.limits_version` is the current one. `RolesService` writes a version when a role is
+  created and when an edit really changes the policy (`sameDiscountPolicy`), in the same
+  transaction. The migration seeds one version per role, effective from the moment it runs.
+- The till: the role arrives with `limitsVersion`. Each sale stores the role and version it
+  was checked against (`sales.discount_role_id`, `sales.discount_limits_version`) and sends
+  them as `discountPolicy`. A sale pushed again for a refund or void sends the same values
+  and the same discount rows; before, that payload dropped the till's verdict.
+- The server, for a sale synced from a till that has discount rows
+  (`sales-discount-review.query.ts` loads, the domain decides):
+
+  | What the server finds                                                         | Result                                                   |
+  | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
+  | Within the cashier's limits in force when the sale was made                   | Nothing                                                  |
+  | The till already recorded the discount as unauthorized                        | Nothing: both agree                                      |
+  | No version of the role reaches back to the sale                               | Nothing: the till's verdict stands                       |
+  | Over the limits, a manager approved, within that manager's limits at the time | Nothing                                                  |
+  | Over the limits, a manager approved, over that manager's limits too           | `DISCOUNT_UNAUTHORIZED`, medium, reason `APPROVER_LIMIT` |
+  | Over the limits, nobody approved, within the limits the till still had        | `DISCOUNT_UNAUTHORIZED`, low, reason `TILL_OLD_LIMITS`   |
+  | Over the limits, nobody approved, otherwise                                   | `DISCOUNT_UNAUTHORIZED`, medium, reason `OVER_LIMIT`     |
+
+Choices made while building it:
+
+- The till's discount rows are stored as sent. The server's disagreement is the flag; it
+  does not rewrite `unauthorized` on the rows.
+- A till that names no version (an older build, or a role it pulled before versions
+  existed) is taken to have had the version before the one in force.
+- The cashier's role is the one the till names when it belongs to the business, otherwise
+  the role the cashier holds now. The approving manager's role is the one held now; only
+  the limits are taken as at the sale. Role assignments have no history.
+- A manager's approval covers a below-cost sale whatever the manager's own below-cost
+  setting; only the percentage and amount limits are checked against the manager.
+- A sale with no discount rows is not re-checked, so a line sold at its listed price below
+  cost is not covered.
+- REST and online sales are decided by the server at the time, so nothing is re-checked.
 
 R4 is one rule, `packages/domain/src/sales/sale-profit.ts` (`refundProfitImpact`,
 `netSalesProfit`, `PROFIT_SALE_STATUSES`):
@@ -240,7 +283,9 @@ Release blockers for this branch (owner, 2026-10-11):
 2. A test harness for sync writes. Done: see "Integration tests" below.
 3. Both new migrations run against a real Postgres. Done: the owner ran them, and the
    integration tests apply every migration to a fresh database on each run.
-4. R2, with the role-limit versions table and the version sent by the till. Open.
+4. R2, with the role-limit versions table and the version sent by the till. Done: see
+   "R2 as built" above. Migration `1790500000000-role_limit_versions` has to run on
+   deploy, and tills need the new build to send the version.
 
 ### Integration tests
 

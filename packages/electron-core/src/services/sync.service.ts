@@ -343,6 +343,7 @@ const ROLE_MAP: Record<string, string> = {
   max_cart_discount_percent: 'maxCartDiscountPercent',
   max_discount_amount_xaf: 'maxDiscountAmountXaf',
   allow_below_cost: 'allowBelowCost',
+  limits_version: 'limitsVersion',
   colour: 'colour',
   created_at: 'createdAt',
   updated_at: 'updatedAt',

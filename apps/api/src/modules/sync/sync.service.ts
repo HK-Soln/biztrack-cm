@@ -1171,9 +1171,7 @@ export class SyncService {
         saleReturnItems: saleReturnItems.map((record) => this.toSaleReturnItemSyncRecord(record)),
         debts: debts.map((record) => this.toDebtSyncRecord(record)),
         expenses: expenses.map((record) => this.toExpenseSyncRecord(record)),
-        incomeCategories: incomeCategories.map((record) =>
-          this.toIncomeCategorySyncRecord(record),
-        ),
+        incomeCategories: incomeCategories.map((record) => this.toIncomeCategorySyncRecord(record)),
         otherIncomes: otherIncomes.map((record) => this.toOtherIncomeSyncRecord(record)),
         teamMembers: teamMembers.map((record) => this.toTeamMemberSyncRecord(record)),
         memberAuthCredentials: memberAuthCredentials.map((record) =>
@@ -5006,7 +5004,8 @@ export class SyncService {
   }
 
   private toOtherIncomeSyncRecord(record: OtherIncome): OtherIncomeSyncRecord {
-    const date = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : String(record.date)
+    const date =
+      record.date instanceof Date ? record.date.toISOString().slice(0, 10) : String(record.date)
     return {
       id: record.id,
       businessId: record.businessId,
@@ -5085,6 +5084,7 @@ export class SyncService {
       maxCartDiscountPercent: record.maxCartDiscountPercent ?? null,
       maxDiscountAmountXaf: record.maxDiscountAmountXaf ?? null,
       allowBelowCost: record.allowBelowCost ?? false,
+      limitsVersion: record.limitsVersion ?? 1,
       colour: record.colour ?? null,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),

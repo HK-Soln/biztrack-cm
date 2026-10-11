@@ -8,7 +8,7 @@ import {
   checkSaleCredit,
   decideSaleRefund,
   decideSaleVoid,
-  evaluateDiscountAuthorization,
+  discountNeedsAuthorization,
   hasPriceDrift,
   isBelowCost,
   netSalesByProduct,
@@ -16,6 +16,7 @@ import {
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
   reviewSerialAlreadySold,
+  reviewSyncedDiscount,
   reviewStockAfterSyncedSale,
   reviewSyncedRefund,
   roundQuantity,
@@ -52,6 +53,7 @@ import { I18nService } from 'nestjs-i18n'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
+import { loadSyncedDiscountContext } from './sales-discount-review.query'
 import { loadNetSalesProfit, loadSaleRefundImpact } from './sales-profit.query'
 import {
   AppBadRequestException,
@@ -374,32 +376,20 @@ export class SalesService {
           ? await manager.getRepository(Role).findOne({ where: { id: user.roleId } })
           : null
         const authorizedBy = dto.authorizedByUserId ?? null
-        const { overLimit } = evaluateDiscountAuthorization(
+        // BIZ-1.5: a line sold below cost needs the same manager authorization, unless
+        // the role may sell below cost. Cost is the per-line snapshot; a null cost is
+        // skipped silently.
+        const belowCost = this.saleIsBelowCost(computed)
+        const { needsAuthorization } = discountNeedsAuthorization(
           {
             maxDiscountPercent: role?.maxDiscountPercent ?? null,
             maxCartDiscountPercent: role?.maxCartDiscountPercent ?? null,
             maxDiscountAmountXaf: role?.maxDiscountAmountXaf ?? null,
+            allowBelowCost: role?.allowBelowCost ?? false,
           },
-          {
-            lines: computed.items.map((it) => ({
-              discountAmount: it.discountAmount,
-              listedLineValue: toWholeXaf((it.unitPriceListed ?? it.unitPrice) * it.quantity),
-            })),
-            cartDiscount: computed.saleDiscountAmount,
-            subtotal: computed.subtotal,
-          },
+          this.saleDiscountInput(computed),
+          belowCost,
         )
-        // BIZ-1.5: a line sold below cost needs the same manager authorization, unless
-        // the role may sell below cost. Cost is the per-line snapshot; a null cost is
-        // skipped silently. The effective charged unit price nets the line discount.
-        const belowCost = isBelowCost(
-          computed.items.map((it) => ({
-            chargedUnitPrice:
-              it.quantity > 0 ? (it.unitPrice * it.quantity - it.discountAmount) / it.quantity : 0,
-            cost: it.costPrice,
-          })),
-        )
-        const needsAuthorization = overLimit || (belowCost && !(role?.allowBelowCost ?? false))
         const discountUnauthorized = needsAuthorization && !authorizedBy
         auditDiscountUnauthorized = discountUnauthorized
         auditDiscountBelowCost = belowCost
@@ -857,6 +847,31 @@ export class SalesService {
               )
             }
           }
+        }
+
+        // R2: decide again whether the discount needed a manager, with the limits in force
+        // when the sale was made. The till's rows above are kept as sent; a disagreement
+        // becomes a flag.
+        if (fromOfflineTill) {
+          const context = await loadSyncedDiscountContext(
+            manager,
+            businessId,
+            payload,
+            cashierId,
+            soldAt,
+          )
+          const flag = context.till
+            ? reviewSyncedDiscount({
+                saleId: sale.id,
+                discount: this.saleDiscountInput(computed),
+                belowCost: this.saleIsBelowCost(computed),
+                till: context.till,
+                cashierPolicy: context.cashierPolicy,
+                tillPolicy: context.tillPolicy,
+                approverPolicy: context.approverPolicy,
+              })
+            : null
+          if (flag) flagDrafts.push(flag)
         }
 
         const shortfalls = await this.inventoryService.deductForSale(
@@ -3078,6 +3093,30 @@ export class SalesService {
     if (value === SaleStatus.REFUNDED) return SaleStatus.REFUNDED
     if (value === SaleStatus.PARTIALLY_REFUNDED) return SaleStatus.PARTIALLY_REFUNDED
     return SaleStatus.COMPLETED
+  }
+
+  /** A priced sale in the shape the discount rules take. */
+  private saleDiscountInput(computed: ReturnType<SalesService['computeSale']>) {
+    return {
+      lines: computed.items.map((it) => ({
+        discountAmount: it.discountAmount,
+        listedLineValue: toWholeXaf((it.unitPriceListed ?? it.unitPrice) * it.quantity),
+      })),
+      cartDiscount: computed.saleDiscountAmount,
+      subtotal: computed.subtotal,
+    }
+  }
+
+  /** Whether any line of a priced sale went below its cost; the charged unit price nets
+   * the line discount. */
+  private saleIsBelowCost(computed: ReturnType<SalesService['computeSale']>): boolean {
+    return isBelowCost(
+      computed.items.map((it) => ({
+        chargedUnitPrice:
+          it.quantity > 0 ? (it.unitPrice * it.quantity - it.discountAmount) / it.quantity : 0,
+        cost: it.costPrice,
+      })),
+    )
   }
 
   private resolveSyncCashierId(payload: SaleSyncPayload) {

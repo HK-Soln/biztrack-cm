@@ -3,11 +3,17 @@
 // happened: the goods and the cash moved. The server records it as it happened and
 // raises a flag for the owner where its own view disagrees; it never rejects or
 // rewrites the fact. These functions decide which flags to raise and how serious
-// each one is (rulings R1 and R3 in docs/design/domain-package.md).
+// each one is (rulings R1, R2 and R3 in docs/design/domain-package.md).
 // ---------------------------------------------------------------------------
 
 import { ReviewFlagCode, ReviewFlagSeverity, type ReviewFlagDraft } from '@biztrack/types'
 import { toWholeXaf } from '../money/whole-xaf'
+import {
+  discountNeedsAuthorization,
+  evaluateDiscountAuthorization,
+  type DiscountEvaluationInput,
+  type RoleDiscountPolicyVersion,
+} from '../sales/discount-policy'
 
 /**
  * Ruling R1 — a refund synced from a till. The till's amount is recorded as it is; this
@@ -146,6 +152,93 @@ export function reviewSerialAlreadySold(input: {
       serialUnitId: input.serialUnitId,
       serialNumber: input.serialNumber ?? null,
       soldOnSaleId: input.soldOnSaleId ?? null,
+    },
+  }
+}
+
+/** Why a synced sale's discount is flagged. */
+export type SyncedDiscountFinding =
+  /** Over the cashier's limits in force at the time, with no manager approval. */
+  | 'OVER_LIMIT'
+  /** A manager approved it, but it was over that manager's own limits too. */
+  | 'APPROVER_LIMIT'
+  /** Within the limits the till still had; the limits had changed and not reached it. */
+  | 'TILL_OLD_LIMITS'
+
+/**
+ * Ruling R2 — the discount on a sale synced from a till. The till decided offline whether
+ * the discount needed a manager; the server decides again with the limits in force when the
+ * sale was made, and flags the sale where it disagrees. The sale itself always stands.
+ *
+ *  - No history of the cashier's limits at the time of the sale → the till's verdict stands.
+ *  - The till itself recorded the discount as unauthorized → nothing to add.
+ *  - A manager approved it → flagged (MEDIUM) only when it was over that manager's own
+ *    limits; with no history for the manager, the approval stands.
+ *  - Nobody approved it and it was over the limits → MEDIUM, unless it was within the
+ *    limits the till still had, which is LOW: nobody did anything wrong, the till was
+ *    behind.
+ */
+export function reviewSyncedDiscount(input: {
+  saleId: string
+  discount: DiscountEvaluationInput
+  /** A line was sold below its cost. */
+  belowCost: boolean
+  /** What the till recorded on the sale's discount rows. */
+  till: { unauthorized: boolean; authorizedBy: string | null }
+  /** The cashier's policy in force when the sale was made; null when there is no history. */
+  cashierPolicy: RoleDiscountPolicyVersion | null
+  /** The policy the till used, when it is known and is not the one in force. */
+  tillPolicy?: RoleDiscountPolicyVersion | null
+  /** The approving manager's policy in force when the sale was made. */
+  approverPolicy?: RoleDiscountPolicyVersion | null
+  outletId?: string | null
+}): ReviewFlagDraft | null {
+  const { cashierPolicy, tillPolicy, approverPolicy } = input
+  if (!cashierPolicy) return null
+  const need = discountNeedsAuthorization(cashierPolicy, input.discount, input.belowCost)
+  if (!need.needsAuthorization) return null
+  if (input.till.unauthorized) return null
+
+  let finding: SyncedDiscountFinding
+  let failed: RoleDiscountPolicyVersion = cashierPolicy
+  let reasons: string[] = [...need.reasons, ...(need.belowCostBlocked ? ['BELOW_COST'] : [])]
+
+  if (input.till.authorizedBy) {
+    if (!approverPolicy) return null
+    const approver = evaluateDiscountAuthorization(approverPolicy, input.discount)
+    if (!approver.overLimit) return null
+    finding = 'APPROVER_LIMIT'
+    failed = approverPolicy
+    reasons = [...approver.reasons]
+  } else if (
+    tillPolicy &&
+    tillPolicy.version !== cashierPolicy.version &&
+    !discountNeedsAuthorization(tillPolicy, input.discount, input.belowCost).needsAuthorization
+  ) {
+    finding = 'TILL_OLD_LIMITS'
+  } else {
+    finding = 'OVER_LIMIT'
+  }
+
+  const lineDiscounts = input.discount.lines.reduce((sum, line) => sum + line.discountAmount, 0)
+  return {
+    code: ReviewFlagCode.DISCOUNT_UNAUTHORIZED,
+    severity: finding === 'TILL_OLD_LIMITS' ? ReviewFlagSeverity.LOW : ReviewFlagSeverity.MEDIUM,
+    entityType: 'sale',
+    entityId: input.saleId,
+    dedupeKey: `${input.saleId}:discount`,
+    outletId: input.outletId ?? null,
+    details: {
+      reason: finding,
+      exceeded: reasons,
+      discountTotal: toWholeXaf(input.discount.cartDiscount + lineDiscounts),
+      subtotal: toWholeXaf(input.discount.subtotal),
+      maxDiscountPercent: failed.maxDiscountPercent,
+      maxCartDiscountPercent: failed.maxCartDiscountPercent,
+      maxDiscountAmountXaf: failed.maxDiscountAmountXaf,
+      limitsVersion: cashierPolicy.version,
+      tillLimitsVersion: tillPolicy?.version ?? null,
+      authorizedBy: input.till.authorizedBy,
     },
   }
 }

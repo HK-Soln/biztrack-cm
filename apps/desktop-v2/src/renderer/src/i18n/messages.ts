@@ -136,7 +136,12 @@ export const en = {
     '{product}: {requested} sold with {available} in stock. Stock is now {shortfall} below zero.',
   'review.why.SERIAL_ALREADY_SOLD':
     'Serial {serial} was already sold on another sale. Both sales were kept.',
-  'review.why.DISCOUNT_UNAUTHORIZED': 'The discount on this sale was above the allowed limit.',
+  'review.why.DISCOUNT_UNAUTHORIZED.OVER_LIMIT':
+    'A discount of {discount} on {subtotal} was above the cashier’s limit, and no manager approved it.',
+  'review.why.DISCOUNT_UNAUTHORIZED.APPROVER_LIMIT':
+    'A manager approved a discount of {discount} on {subtotal}, but it was above that manager’s own limit.',
+  'review.why.DISCOUNT_UNAUTHORIZED.TILL_OLD_LIMITS':
+    'A discount of {discount} on {subtotal} was within the limits the till still had. The limits had changed and had not reached that till yet.',
   'review.do.REFUND_EXCEEDS_PAID':
     'Check the refund with the cashier and count the drawer for that day.',
   'review.do.REFUND_AMOUNT_MISMATCH': 'Check why more was handed back than the goods are worth.',
@@ -145,7 +150,12 @@ export const en = {
   'review.do.NEGATIVE_STOCK': 'Count this product and adjust the stock.',
   'review.do.SERIAL_ALREADY_SOLD':
     'Find which of the two sales really has the unit and correct the other one.',
-  'review.do.DISCOUNT_UNAUTHORIZED': 'Check who approved this discount.',
+  'review.do.DISCOUNT_UNAUTHORIZED.OVER_LIMIT':
+    'Ask the cashier why this discount was given without a manager.',
+  'review.do.DISCOUNT_UNAUTHORIZED.APPROVER_LIMIT':
+    'Check the discount with the manager who approved it.',
+  'review.do.DISCOUNT_UNAUTHORIZED.TILL_OLD_LIMITS':
+    'Nothing to correct on the sale. Sync that till so it gets the new limits.',
   'review.unknownProduct': 'A product',
   'review.unknownSerial': '(unknown)',
   'review.drawer.whatToDo': 'What to do',
@@ -174,6 +184,13 @@ export const en = {
   'review.detail.requested': 'Quantity sold',
   'review.detail.shortfall': 'Below zero by',
   'review.detail.serialNumber': 'Serial number',
+  'review.detail.discountTotal': 'Discount given',
+  'review.detail.subtotal': 'Sale before discount',
+  'review.detail.maxDiscountPercent': 'Limit per line',
+  'review.detail.maxCartDiscountPercent': 'Limit on the whole sale',
+  'review.detail.maxDiscountAmountXaf': 'Limit in amount',
+  'review.detail.limitsVersion': 'Limits in force (version)',
+  'review.detail.tillLimitsVersion': 'Limits the till had (version)',
   'review.banner.one': '1 item needs your review',
   'review.banner.many': '{n} items need your review',
   'review.banner.urgent': '{n} urgent',
@@ -4127,7 +4144,12 @@ export const fr: Record<MessageKey, string> = {
     '{product} : {requested} vendus avec {available} en stock. Le stock est maintenant à {shortfall} sous zéro.',
   'review.why.SERIAL_ALREADY_SOLD':
     'Le numéro de série {serial} était déjà vendu sur une autre vente. Les deux ventes ont été conservées.',
-  'review.why.DISCOUNT_UNAUTHORIZED': 'La remise de cette vente dépassait la limite autorisée.',
+  'review.why.DISCOUNT_UNAUTHORIZED.OVER_LIMIT':
+    'Une remise de {discount} sur {subtotal} dépassait la limite du caissier, et aucun responsable ne l’a approuvée.',
+  'review.why.DISCOUNT_UNAUTHORIZED.APPROVER_LIMIT':
+    'Un responsable a approuvé une remise de {discount} sur {subtotal}, mais elle dépassait sa propre limite.',
+  'review.why.DISCOUNT_UNAUTHORIZED.TILL_OLD_LIMITS':
+    'Une remise de {discount} sur {subtotal} respectait les limites que la caisse avait encore. Les limites avaient changé et n’étaient pas encore arrivées sur cette caisse.',
   'review.do.REFUND_EXCEEDS_PAID':
     'Vérifiez le remboursement avec le caissier et comptez la caisse de ce jour.',
   'review.do.REFUND_AMOUNT_MISMATCH':
@@ -4137,7 +4159,12 @@ export const fr: Record<MessageKey, string> = {
   'review.do.NEGATIVE_STOCK': 'Comptez ce produit et ajustez le stock.',
   'review.do.SERIAL_ALREADY_SOLD':
     'Trouvez laquelle des deux ventes a réellement l’unité et corrigez l’autre.',
-  'review.do.DISCOUNT_UNAUTHORIZED': 'Vérifiez qui a approuvé cette remise.',
+  'review.do.DISCOUNT_UNAUTHORIZED.OVER_LIMIT':
+    'Demandez au caissier pourquoi cette remise a été accordée sans responsable.',
+  'review.do.DISCOUNT_UNAUTHORIZED.APPROVER_LIMIT':
+    'Vérifiez la remise avec le responsable qui l’a approuvée.',
+  'review.do.DISCOUNT_UNAUTHORIZED.TILL_OLD_LIMITS':
+    'Rien à corriger sur la vente. Synchronisez cette caisse pour qu’elle reçoive les nouvelles limites.',
   'review.unknownProduct': 'Un produit',
   'review.unknownSerial': '(inconnu)',
   'review.drawer.whatToDo': 'Que faire',
@@ -4166,6 +4193,13 @@ export const fr: Record<MessageKey, string> = {
   'review.detail.requested': 'Quantité vendue',
   'review.detail.shortfall': 'Sous zéro de',
   'review.detail.serialNumber': 'Numéro de série',
+  'review.detail.discountTotal': 'Remise accordée',
+  'review.detail.subtotal': 'Vente avant remise',
+  'review.detail.maxDiscountPercent': 'Limite par ligne',
+  'review.detail.maxCartDiscountPercent': 'Limite sur la vente',
+  'review.detail.maxDiscountAmountXaf': 'Limite en montant',
+  'review.detail.limitsVersion': 'Limites en vigueur (version)',
+  'review.detail.tillLimitsVersion': 'Limites de la caisse (version)',
   'review.banner.one': '1 élément à vérifier',
   'review.banner.many': '{n} éléments à vérifier',
   'review.banner.urgent': '{n} urgents',

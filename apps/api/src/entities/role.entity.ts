@@ -91,6 +91,11 @@ export class Role extends TypeOrmBaseEntity {
   @Column({ name: 'allow_below_cost', default: false })
   allowBelowCost!: boolean
 
+  // The current version of the four discount fields above (ruling R2). Every version is
+  // kept in role_limit_versions; tills send this back on each sale.
+  @Column({ name: 'limits_version', type: 'int', default: 1 })
+  limitsVersion!: number
+
   @Column({ type: 'varchar', length: 7, nullable: true })
   colour!: string | null
 

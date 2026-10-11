@@ -17,8 +17,19 @@ export function flagTitle(t: T, code: ReviewFlagCode): string {
   return t(`review.code.${code}` as MessageKey)
 }
 
-export function flagNextStep(t: T, code: ReviewFlagCode): string {
-  return t(`review.do.${code}` as MessageKey)
+export function flagNextStep(t: T, flag: ReviewFlag): string {
+  if (flag.code === ReviewFlagCode.DISCOUNT_UNAUTHORIZED) {
+    return t(`review.do.DISCOUNT_UNAUTHORIZED.${discountReason(flag)}` as MessageKey)
+  }
+  return t(`review.do.${flag.code}` as MessageKey)
+}
+
+// Why a discount was flagged (`SyncedDiscountFinding` in @biztrack/domain). A flag with a
+// reason this build does not know reads as the plain over-the-limit case.
+const DISCOUNT_REASONS = ['OVER_LIMIT', 'APPROVER_LIMIT', 'TILL_OLD_LIMITS'] as const
+function discountReason(flag: ReviewFlag): (typeof DISCOUNT_REASONS)[number] {
+  const reason = text(flag.details?.reason)
+  return DISCOUNT_REASONS.find((known) => known === reason) ?? 'OVER_LIMIT'
 }
 
 export function severityLabel(t: T, severity: ReviewFlagSeverity): string {
@@ -77,13 +88,16 @@ export function flagReason(t: T, money: Money, flag: ReviewFlag): string {
         serial: text(d.serialNumber) || t('review.unknownSerial'),
       })
     case ReviewFlagCode.DISCOUNT_UNAUTHORIZED:
-      return t('review.why.DISCOUNT_UNAUTHORIZED')
+      return fill(t(`review.why.DISCOUNT_UNAUTHORIZED.${discountReason(flag)}` as MessageKey), {
+        discount: money(num(d.discountTotal)),
+        subtotal: money(num(d.subtotal)),
+      })
   }
 }
 
 // The stored numbers the drawer lists, in reading order. Ids are left out: they mean
 // nothing to the owner.
-const DETAIL_ROWS: Array<{ key: string; money?: boolean }> = [
+const DETAIL_ROWS: Array<{ key: string; money?: boolean; suffix?: string }> = [
   { key: 'productName' },
   { key: 'serialNumber' },
   { key: 'refundAmount', money: true },
@@ -96,6 +110,13 @@ const DETAIL_ROWS: Array<{ key: string; money?: boolean }> = [
   { key: 'available' },
   { key: 'requested' },
   { key: 'shortfall' },
+  { key: 'discountTotal', money: true },
+  { key: 'subtotal', money: true },
+  { key: 'maxDiscountPercent', suffix: ' %' },
+  { key: 'maxCartDiscountPercent', suffix: ' %' },
+  { key: 'maxDiscountAmountXaf', money: true },
+  { key: 'limitsVersion' },
+  { key: 'tillLimitsVersion' },
 ]
 
 export function flagDetailRows(
@@ -110,7 +131,7 @@ export function flagDetailRows(
     return [
       {
         label: t(`review.detail.${row.key}` as MessageKey),
-        value: row.money ? money(num(value)) : String(value),
+        value: row.money ? money(num(value)) : `${String(value)}${row.suffix ?? ''}`,
       },
     ]
   })

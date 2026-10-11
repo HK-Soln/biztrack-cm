@@ -5,7 +5,8 @@ import {
   decideSaleRefund,
   decideSaleVoid,
   effectivePaymentLines,
-  evaluateDiscountAuthorization,
+  discountNeedsAuthorization,
+  NO_DISCOUNT_POLICY,
   isBelowCost,
   netSalesByProduct,
   netSalesProfit,
@@ -13,6 +14,7 @@ import {
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
   type RoleDiscountLimits,
+  type RoleDiscountPolicy,
   settleSale,
   settleSaleFromLedger,
   storedPaymentMethod,
@@ -356,14 +358,9 @@ export class SalesService {
     // unauthorized unless a manager authorized them via step-up. Same shared evaluator
     // as the API, so both runtimes agree.
     const authorizedBy = input.authorizedByUserId ?? null
-    const { overLimit } = evaluateDiscountAuthorization(this.roleLimits(businessId, cashierId), {
-      lines: emits.map((e) => ({
-        discountAmount: e.discountAmount,
-        listedLineValue: toWholeXaf(e.unitPriceListed * e.quantity),
-      })),
-      cartDiscount: discountAmount,
-      subtotal,
-    })
+    // R2: the sale remembers which role and which version of its limits it was checked
+    // against, and sends them with the sale.
+    const cashierPolicy = this.cashierDiscountPolicy(businessId, cashierId)
     // BIZ-1.5: a line sold below its cost needs the same authorization unless the role
     // may sell below cost. The effective charged unit price nets the line discount; a
     // null cost is skipped. Cost stays in main — it never reaches the renderer.
@@ -374,9 +371,19 @@ export class SalesService {
         cost: e.costPrice,
       })),
     )
-    const discountUnauthorized =
-      (overLimit || (belowCost && !this.roleAllowsBelowCost(businessId, cashierId))) &&
-      !authorizedBy
+    const { needsAuthorization } = discountNeedsAuthorization(
+      cashierPolicy.policy,
+      {
+        lines: emits.map((e) => ({
+          discountAmount: e.discountAmount,
+          listedLineValue: toWholeXaf(e.unitPriceListed * e.quantity),
+        })),
+        cartDiscount: discountAmount,
+        subtotal,
+      },
+      belowCost,
+    )
+    const discountUnauthorized = needsAuthorization && !authorizedBy
 
     // Settlement is @biztrack/domain's — the same paid / credit / change the server computes.
     const paymentLines = effectivePaymentLines(input.payments ?? [])
@@ -435,8 +442,9 @@ export class SalesService {
         (id, business_id, client_id, cashier_id, cashier_name, sale_number, receipt_number, subtotal, total_amount,
          discount_amount, charges_amount, tax_amount, net_amount, amount_paid, credit_amount, change_given,
          payment_method, momo_reference, customer_id, customer_name, customer_phone, notes, currency, sale_date,
-         sold_at, cash_session_id, business_date, status, is_deleted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
+         sold_at, cash_session_id, business_date, discount_role_id, discount_limits_version, status,
+         is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 0, ?, ?)`,
       [
         saleId,
         businessId,
@@ -464,6 +472,8 @@ export class SalesService {
         soldAt,
         cashSessionId,
         businessDate,
+        cashierPolicy.roleId,
+        cashierPolicy.limitsVersion,
         now,
         now,
       ],
@@ -688,6 +698,10 @@ export class SalesService {
           rateValue: c.rateValue,
           amount: c.amount,
         })),
+        discountPolicy: {
+          roleId: cashierPolicy.roleId,
+          limitsVersion: cashierPolicy.limitsVersion,
+        },
         discounts: [
           ...discountLines.map((d) => ({
             id: d.id,
@@ -965,9 +979,12 @@ export class SalesService {
       discount_amount: number
       charges_amount: number
       credit_amount: number
+      discount_role_id: string | null
+      discount_limits_version: number | null
     }>(
       `SELECT client_id, sale_number, sold_at, cashier_id, cashier_name, customer_id, customer_name,
-              customer_phone, notes, discount_amount, charges_amount, credit_amount
+              customer_phone, notes, discount_amount, charges_amount, credit_amount,
+              discount_role_id, discount_limits_version
        FROM sales WHERE id = ? AND business_id = ?`,
       [saleId, businessId],
     )!
@@ -1012,8 +1029,17 @@ export class SalesService {
       discount_type: string
       rate: number | null
       amount: number
+      sale_item_id: string | null
+      reason_code: string | null
+      reason_note: string | null
+      applied_by: string | null
+      authorized_by: string | null
+      unauthorized: number
+      below_cost: number
     }>(
-      `SELECT id, description, discount_type, rate, amount FROM sale_discounts WHERE sale_id = ?`,
+      `SELECT id, description, discount_type, rate, amount, sale_item_id, reason_code, reason_note,
+              applied_by, authorized_by, unauthorized, below_cost
+         FROM sale_discounts WHERE sale_id = ?`,
       [saleId],
     )
     return {
@@ -1057,12 +1083,25 @@ export class SalesService {
         rateValue: c.rate_value,
         amount: c.amount,
       })),
+      // The same rows and policy as the first push: a sale rung and refunded before its
+      // first sync reaches the server through this payload.
+      discountPolicy: {
+        roleId: s.discount_role_id,
+        limitsVersion: s.discount_limits_version,
+      },
       discounts: discounts.map((d) => ({
         id: d.id,
         description: d.description,
         discountType: d.discount_type,
         rate: d.rate,
         amount: d.amount,
+        saleItemId: d.sale_item_id,
+        reasonCode: d.reason_code,
+        reasonNote: d.reason_note,
+        appliedBy: d.applied_by,
+        authorizedBy: d.authorized_by,
+        unauthorized: !!d.unauthorized,
+        belowCost: !!d.below_cost,
       })),
     }
   }
@@ -2358,7 +2397,12 @@ export class SalesService {
   /** The current cashier's role discount limits — for the renderer to detect an
    * over-limit discount at checkout and prompt manager step-up before submitting. */
   myDiscountLimits(): RoleDiscountLimits {
-    return this.roleLimits(this.requireBusinessId(), this.getActorId())
+    const { policy } = this.cashierDiscountPolicy(this.requireBusinessId(), this.getActorId())
+    return {
+      maxDiscountPercent: policy.maxDiscountPercent,
+      maxCartDiscountPercent: policy.maxCartDiscountPercent,
+      maxDiscountAmountXaf: policy.maxDiscountAmountXaf,
+    }
   }
 
   /**
@@ -2371,7 +2415,8 @@ export class SalesService {
     lines: Array<{ productId: string; variantId?: string | null; unitPrice: number }>,
   ): boolean {
     const businessId = this.requireBusinessId()
-    if (this.roleAllowsBelowCost(businessId, this.getActorId())) return false
+    if (this.cashierDiscountPolicy(businessId, this.getActorId()).policy.allowBelowCost)
+      return false
     const withCost = lines.map((l) => {
       const product = this.db.get<{ cost_price: number | null }>(
         `SELECT cost_price FROM products WHERE id = ? AND business_id = ? AND is_deleted = 0`,
@@ -2390,36 +2435,27 @@ export class SalesService {
     return isBelowCost(withCost)
   }
 
-  /** Whether the cashier's role may sell below cost without a manager PIN (BIZ-1.5).
-   * Resolved in main from the synced roles table; cost never reaches the renderer. */
-  private roleAllowsBelowCost(businessId: string, userId: string | null): boolean {
-    if (!userId) return false
-    const row = this.db.get<{ allow_below_cost: number }>(
-      `SELECT r.allow_below_cost
-         FROM business_members m
-         JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
-        WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0
-        LIMIT 1`,
-      [businessId, userId],
-    )
-    return !!row?.allow_below_cost
-  }
-
-  /** The cashier's role discount limits from the synced roles table (null = no limit,
-   * so a role-less member or a member on a limitless role is unrestricted). */
-  private roleLimits(businessId: string, userId: string | null): RoleDiscountLimits {
-    const none: RoleDiscountLimits = {
-      maxDiscountPercent: null,
-      maxCartDiscountPercent: null,
-      maxDiscountAmountXaf: null,
-    }
+  /**
+   * The cashier's role, the version of its discount limits this till has, and the policy
+   * itself, from the synced roles table. A member with no role is unrestricted on amounts
+   * but may not sell below cost.
+   */
+  private cashierDiscountPolicy(
+    businessId: string,
+    userId: string | null,
+  ): { roleId: string | null; limitsVersion: number | null; policy: RoleDiscountPolicy } {
+    const none = { roleId: null, limitsVersion: null, policy: NO_DISCOUNT_POLICY }
     if (!userId) return none
     const row = this.db.get<{
+      id: string
+      limits_version: number | null
       max_discount_percent: number | null
       max_cart_discount_percent: number | null
       max_discount_amount_xaf: number | null
+      allow_below_cost: number
     }>(
-      `SELECT r.max_discount_percent, r.max_cart_discount_percent, r.max_discount_amount_xaf
+      `SELECT r.id, r.limits_version, r.max_discount_percent, r.max_cart_discount_percent,
+              r.max_discount_amount_xaf, r.allow_below_cost
          FROM business_members m
          JOIN roles r ON r.id = m.role_id AND r.is_deleted = 0
         WHERE m.business_id = ? AND m.user_id = ? AND m.is_deleted = 0
@@ -2428,9 +2464,14 @@ export class SalesService {
     )
     if (!row) return none
     return {
-      maxDiscountPercent: row.max_discount_percent,
-      maxCartDiscountPercent: row.max_cart_discount_percent,
-      maxDiscountAmountXaf: row.max_discount_amount_xaf,
+      roleId: row.id,
+      limitsVersion: row.limits_version ?? null,
+      policy: {
+        maxDiscountPercent: row.max_discount_percent,
+        maxCartDiscountPercent: row.max_cart_discount_percent,
+        maxDiscountAmountXaf: row.max_discount_amount_xaf,
+        allowBelowCost: !!row.allow_below_cost,
+      },
     }
   }
 

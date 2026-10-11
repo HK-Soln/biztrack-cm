@@ -333,7 +333,7 @@ function FlagDrawer({
 
           <div className="dd-block">
             <div className="bl">{t('review.drawer.whatToDo')}</div>
-            <div style={{ fontSize: 13 }}>{flagNextStep(t, flag.code)}</div>
+            <div style={{ fontSize: 13 }}>{flagNextStep(t, flag)}</div>
           </div>
 
           {details.length ? (
