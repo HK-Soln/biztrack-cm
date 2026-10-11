@@ -139,6 +139,10 @@ import type {
   ListMyInvitationsResponse,
   AcceptInvitationResponse,
   RejectInvitationResponse,
+  ReviewFlag,
+  ReviewFlagsCount,
+  ReviewFlagsListResponse,
+  ReviewFlagsQuery,
   OnlineOrdersQuery,
   OnlineSlugCheck,
   CountryView,
@@ -653,6 +657,12 @@ export interface DataClient {
     connect: () => Promise<void>
     onEvent: (cb: (payload: NotificationEventPayload) => void) => () => void
   }
+  /** Review flags — server-owned and online-only on both builds. */
+  reviewFlags: {
+    list: (query?: ReviewFlagsQuery) => Promise<ReviewFlagsListResponse>
+    count: () => Promise<ReviewFlagsCount>
+    resolve: (id: string, note?: string) => Promise<ReviewFlag>
+  }
   /** OS deep links (biztrack:// → native-app handoff). No-op in the browser build. */
   deeplink: {
     onNavigate: (cb: (path: string) => void) => () => void
@@ -708,6 +718,7 @@ import {
   cloudRoles,
   cloudTeam,
   cloudNotificationsRest,
+  cloudReviewFlags,
   cloudInvitations,
   cloudBusiness,
   cloudNotificationSettings,
@@ -1081,6 +1092,11 @@ function electronAdapter(): DataClient {
       connect: () => window.api.notifications.connect(),
       onEvent: (cb) => window.api.notifications.onEvent(cb),
     },
+    reviewFlags: {
+      list: (query) => window.api.reviewFlags.list(query),
+      count: () => window.api.reviewFlags.count(),
+      resolve: (id, note) => window.api.reviewFlags.resolve(id, note),
+    },
     deeplink: {
       onNavigate: (cb) => window.api.deeplink.onNavigate(cb),
     },
@@ -1187,6 +1203,7 @@ function cloudAdapter(): DataClient {
       connect: cloudRealtimeConnect,
       onEvent: cloudRealtimeOnEvent,
     },
+    reviewFlags: cloudReviewFlags,
     // The browser build IS the deeplink target (no native protocol); nothing to subscribe to.
     deeplink: { onNavigate: () => () => {} },
     invitations: cloudInvitations,

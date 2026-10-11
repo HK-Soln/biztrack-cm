@@ -1,19 +1,27 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { EntityManager, Repository } from 'typeorm'
+import { EntityManager, In, Repository } from 'typeorm'
 import {
   NotificationType,
   ReviewFlagCode,
   ReviewFlagSeverity,
   ReviewFlagStatus,
+  BusinessMemberStatus,
+  type ReviewFlag,
   type ReviewFlagDraft,
+  type ReviewFlagsCount,
+  type ReviewFlagsListResponse,
   type ReviewFlagsQuery,
 } from '@biztrack/types'
+import { canReviewFlags } from '@biztrack/domain'
 import { APP_ROUTES } from '@biztrack/utils'
-import { AppNotFoundException } from '@/common/exceptions/app-exceptions'
+import { AppForbiddenException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { Locale } from '@/common/enums/locale.enum'
+import { BusinessMember } from '@/entities/business-member.entity'
 import { Business } from '@/entities/business.entity'
 import { ReviewFlagRecord } from '@/entities/review-flag.entity'
+import { Sale } from '@/entities/sale.entity'
+import { User } from '@/entities/user.entity'
 import { NotificationDispatcher } from '@/modules/notifications/services/notification-dispatcher.service'
 
 const SEVERITY_ORDER: Record<ReviewFlagSeverity, number> = {
@@ -34,6 +42,8 @@ export class ReviewFlagsService {
     private readonly flagsRepo: Repository<ReviewFlagRecord>,
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
+    @InjectRepository(BusinessMember)
+    private readonly membersRepo: Repository<BusinessMember>,
     private readonly dispatcher: NotificationDispatcher,
   ) {}
 
@@ -93,7 +103,7 @@ export class ReviewFlagsService {
         event: NotificationType.TEAM_ACTIVITY,
         title,
         body: flags.length > 1 ? `${body} (+${flags.length - 1})` : body,
-        deeplink: APP_ROUTES.activity(),
+        deeplink: APP_ROUTES.reviewFlags(),
         metadata: {
           reviewFlags: flags.map((flag) => ({ code: flag.code, severity: flag.severity })),
           entityType: top.entityType,
@@ -106,7 +116,32 @@ export class ReviewFlagsService {
     }
   }
 
-  async list(businessId: string, query: ReviewFlagsQuery) {
+  /**
+   * Flags are for the people who supervise the tills. Who that is, is decided by
+   * `canReviewFlags` in @biztrack/domain; this only loads the membership.
+   */
+  async assertCanReview(businessId: string, userId: string): Promise<void> {
+    const member = await this.membersRepo.findOne({
+      where: { businessId, userId },
+      relations: ['roleRecord'],
+    })
+    const allowed = canReviewFlags(
+      member && {
+        active: member.status === BusinessMemberStatus.ACTIVE,
+        memberRole: member.role,
+        hasAssignedRole: !!member.roleId,
+        roleCanAuthorize: !!member.roleRecord?.canAuthorize,
+      },
+    )
+    if (!allowed) {
+      throw new AppForbiddenException(
+        'Only the owner or a manager can review flags.',
+        'REVIEW_FLAGS_FORBIDDEN',
+      )
+    }
+  }
+
+  async list(businessId: string, query: ReviewFlagsQuery): Promise<ReviewFlagsListResponse> {
     const page = Math.max(query.page ?? 1, 1)
     const limit = Math.min(Math.max(query.limit ?? 20, 1), 200)
     const builder = this.flagsRepo
@@ -126,11 +161,12 @@ export class ReviewFlagsService {
       .addOrderBy('flag.createdAt', 'DESC')
       .take(limit)
       .skip((page - 1) * limit)
-    const [data, total] = await builder.getManyAndCount()
+    const [rows, total] = await builder.getManyAndCount()
+    const data = await this.present(businessId, rows)
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
-  async countOpen(businessId: string): Promise<{ open: number; high: number }> {
+  async countOpen(businessId: string): Promise<ReviewFlagsCount> {
     const rows = await this.flagsRepo
       .createQueryBuilder('flag')
       .select('flag.severity', 'severity')
@@ -144,15 +180,62 @@ export class ReviewFlagsService {
     return { open, high }
   }
 
-  async resolve(businessId: string, id: string, userId: string, note?: string) {
+  async resolve(
+    businessId: string,
+    id: string,
+    userId: string,
+    note?: string,
+  ): Promise<ReviewFlag> {
     const flag = await this.flagsRepo.findOne({ where: { id, businessId } })
     if (!flag) throw new AppNotFoundException('Review flag not found.', 'REVIEW_FLAG_NOT_FOUND')
-    if (flag.status === ReviewFlagStatus.RESOLVED) return flag
-    flag.status = ReviewFlagStatus.RESOLVED
-    flag.resolvedAt = new Date()
-    flag.resolvedById = userId
-    flag.resolutionNote = note?.trim() || null
-    return this.flagsRepo.save(flag)
+    if (flag.status !== ReviewFlagStatus.RESOLVED) {
+      flag.status = ReviewFlagStatus.RESOLVED
+      flag.resolvedAt = new Date()
+      flag.resolvedById = userId
+      flag.resolutionNote = note?.trim() || null
+      await this.flagsRepo.save(flag)
+    }
+    return (await this.present(businessId, [flag]))[0]!
+  }
+
+  /** The stored flags as the screen shows them: with the sale number and who resolved. */
+  private async present(businessId: string, rows: ReviewFlagRecord[]): Promise<ReviewFlag[]> {
+    const saleIds = [...new Set(rows.filter((r) => r.entityType === 'sale').map((r) => r.entityId))]
+    const userIds = [...new Set(rows.map((r) => r.resolvedById).filter((id): id is string => !!id))]
+    const manager = this.flagsRepo.manager
+    const [sales, users] = await Promise.all([
+      saleIds.length
+        ? manager.find(Sale, {
+            where: { businessId, id: In(saleIds) },
+            select: { id: true, saleNumber: true },
+          })
+        : [],
+      userIds.length
+        ? manager.find(User, { where: { id: In(userIds) }, select: { id: true, name: true } })
+        : [],
+    ])
+    const saleNumbers = new Map(sales.map((sale) => [sale.id, sale.saleNumber]))
+    const names = new Map(users.map((user) => [user.id, user.name]))
+    const iso = (value: Date | string | null | undefined): string | null =>
+      value ? new Date(value).toISOString() : null
+    return rows.map((row) => ({
+      id: row.id,
+      businessId: row.businessId,
+      outletId: row.outletId ?? null,
+      code: row.code,
+      severity: row.severity,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      dedupeKey: row.dedupeKey,
+      details: row.details ?? {},
+      status: row.status,
+      createdAt: iso(row.createdAt)!,
+      resolvedAt: iso(row.resolvedAt),
+      resolvedById: row.resolvedById ?? null,
+      resolutionNote: row.resolutionNote ?? null,
+      entityLabel: saleNumbers.get(row.entityId) ?? null,
+      resolvedByName: row.resolvedById ? (names.get(row.resolvedById) ?? null) : null,
+    }))
   }
 
   private copy(code: ReviewFlagCode, en: boolean, label: string): { title: string; body: string } {

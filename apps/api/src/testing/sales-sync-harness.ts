@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DataSource } from 'typeorm'
 import { PaymentMethod, type SaleReturnPayload, type SaleSyncPayload } from '@biztrack/types'
+import { BusinessMember } from '@/entities/business-member.entity'
 import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
@@ -45,6 +46,8 @@ export interface SalesSyncHarness {
   notifications: Loose[]
   seedProduct(input: { price: number; cost?: number; stock?: number }): Promise<string>
   seedSerialUnit(productId: string, serialNumber: string): Promise<string>
+  /** Another member of the business, with a built-in role and no assigned role. */
+  seedMember(role: 'MANAGER' | 'CASHIER'): Promise<string>
   /** A sale payload as a till sends it: one line per item, paid in cash unless told otherwise. */
   salePayload(input: {
     items: Array<{ productId: string; quantity: number; unitPrice: number; serialUnitId?: string }>
@@ -138,6 +141,7 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
   const reviewFlags = new ReviewFlagsService(
     dataSource.getRepository(ReviewFlagRecord),
     dataSource.getRepository(Business),
+    dataSource.getRepository(BusinessMember),
     dispatcher,
   )
   const sales = new SalesService(
@@ -173,10 +177,10 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
     `INSERT INTO businesses (id, name, slug, owner_id) VALUES ($1, $2, $3, $4)`,
     [businessId, `Shop ${tag}`, `shop-${tag}`, userId],
   )
-  await dataSource.query(`INSERT INTO business_members (business_id, user_id) VALUES ($1, $2)`, [
-    businessId,
-    userId,
-  ])
+  await dataSource.query(
+    `INSERT INTO business_members (business_id, user_id, role) VALUES ($1, $2, 'OWNER')`,
+    [businessId, userId],
+  )
   // Any unit will do: system units are seeded by the migrations.
   let [unit] = (await dataSource.query(`SELECT id FROM unit_of_measures LIMIT 1`)) as Array<{
     id: string
@@ -219,6 +223,20 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
         `INSERT INTO product_serial_units (id, business_id, product_id, serial_number, serial_type)
          VALUES ($1, $2, $3, $4, 'IMEI')`,
         [id, businessId, productId, serialNumber],
+      )
+      return id
+    },
+
+    async seedMember(role) {
+      const id = randomUUID()
+      await dataSource.query(`INSERT INTO users (id, phone, name) VALUES ($1, $2, $3)`, [
+        id,
+        `+2376${Math.floor(10000000 + Math.random() * 89999999)}`,
+        `${role} ${id.slice(0, 6)}`,
+      ])
+      await dataSource.query(
+        `INSERT INTO business_members (business_id, user_id, role) VALUES ($1, $2, $3)`,
+        [businessId, id, role],
       )
       return id
     },

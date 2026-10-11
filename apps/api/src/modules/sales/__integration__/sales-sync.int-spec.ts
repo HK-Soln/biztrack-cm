@@ -1,5 +1,5 @@
 import type { DataSource } from 'typeorm'
-import { ReviewFlagCode, ReviewFlagSeverity, SaleStatus } from '@biztrack/types'
+import { ReviewFlagCode, ReviewFlagSeverity, ReviewFlagStatus, SaleStatus } from '@biztrack/types'
 import {
   closeIntegrationDataSource,
   getIntegrationDataSource,
@@ -425,6 +425,65 @@ describe('sales synced from a till', () => {
       ).rejects.toMatchObject({ code: 'SALE_FULLY_REFUNDED' })
       expect((await h.saleRow(payload.saleId)).status).toBe(SaleStatus.REFUNDED)
       expect(await h.stockOf(product)).toBe(10)
+    })
+  })
+
+  describe('review flags for the owner', () => {
+    const oversold = async () => {
+      const product = await h.seedProduct({ price: 1000, cost: 600, stock: 1 })
+      const payload = h.salePayload({
+        items: [{ productId: product, quantity: 3, unitPrice: 1000 }],
+        soldAt: SOLD_AT,
+      })
+      await h.sales.createFromSync(h.businessId, payload)
+      return payload
+    }
+
+    it('lists a flag with the sale number, and counts it as open', async () => {
+      const payload = await oversold()
+
+      const page = await h.reviewFlags.list(h.businessId, {})
+      expect(page.total).toBe(1)
+      expect(page.data[0]).toMatchObject({
+        code: ReviewFlagCode.NEGATIVE_STOCK,
+        status: ReviewFlagStatus.OPEN,
+        entityId: payload.saleId,
+        entityLabel: payload.saleNumber,
+        resolvedByName: null,
+      })
+      expect(await h.reviewFlags.countOpen(h.businessId)).toEqual({ open: 1, high: 0 })
+    })
+
+    it('is resolved once, with a note and the name of who resolved it', async () => {
+      await oversold()
+      const [flag] = (await h.reviewFlags.list(h.businessId, {})).data
+
+      const resolved = await h.reviewFlags.resolve(h.businessId, flag!.id, h.userId, ' Counted ')
+      expect(resolved).toMatchObject({
+        status: ReviewFlagStatus.RESOLVED,
+        resolutionNote: 'Counted',
+        resolvedById: h.userId,
+      })
+      expect(resolved.resolvedByName).toMatch(/^Owner /)
+
+      // Resolving again keeps the first note.
+      const again = await h.reviewFlags.resolve(h.businessId, flag!.id, h.userId, 'Other')
+      expect(again.resolutionNote).toBe('Counted')
+      expect(await h.reviewFlags.countOpen(h.businessId)).toEqual({ open: 0, high: 0 })
+      expect(
+        (await h.reviewFlags.list(h.businessId, { status: ReviewFlagStatus.OPEN })).total,
+      ).toBe(0)
+    })
+
+    it('is for the owner and managers, not for a cashier', async () => {
+      await expect(h.reviewFlags.assertCanReview(h.businessId, h.userId)).resolves.toBeUndefined()
+
+      const cashier = await h.seedMember('CASHIER')
+      await expect(h.reviewFlags.assertCanReview(h.businessId, cashier)).rejects.toMatchObject({
+        code: 'REVIEW_FLAGS_FORBIDDEN',
+      })
+      const manager = await h.seedMember('MANAGER')
+      await expect(h.reviewFlags.assertCanReview(h.businessId, manager)).resolves.toBeUndefined()
     })
   })
 })

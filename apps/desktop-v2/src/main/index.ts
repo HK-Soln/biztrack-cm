@@ -71,6 +71,8 @@ import { TeamService } from './services/team.service'
 import { registerTeamIpc } from './ipc/team.ipc'
 import { NotificationsService } from './services/notifications.service'
 import { registerNotificationsIpc } from './ipc/notifications.ipc'
+import { ReviewFlagsService } from './services/review-flags.service'
+import { registerReviewFlagsIpc } from './ipc/review-flags.ipc'
 import { NotificationSettingsService } from './services/notification-settings.service'
 import { registerNotificationSettingsIpc } from './ipc/notification-settings.ipc'
 import { FiscalService } from './services/fiscal.service'
@@ -303,6 +305,7 @@ app.whenReady().then(() => {
 
   const notifications = new NotificationsService(authHttp)
   registerNotificationsIpc(notifications, realtime)
+  registerReviewFlagsIpc(new ReviewFlagsService(authHttp))
   registerNotificationSettingsIpc(new NotificationSettingsService(authHttp))
   registerFiscalIpc(new FiscalService(authHttp))
 

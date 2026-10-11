@@ -252,6 +252,10 @@ export const IPC = {
   notificationsConnect: 'notifications:connect',
   notificationEvent: 'notifications:event',
   deeplinkNavigate: 'deeplink:navigate',
+  // Review flags (server-owned, online-only)
+  reviewFlagsList: 'review-flags:list',
+  reviewFlagsCount: 'review-flags:count',
+  reviewFlagsResolve: 'review-flags:resolve',
   // Invitee-side invitations (existing-user pending memberships)
   invitationsList: 'invitations:list',
   invitationsAccept: 'invitations:accept',
@@ -1810,6 +1814,20 @@ export interface RolesListQuery {
   search?: string
 }
 
+// --- Review flags: what the server accepted from a till but the owner should look at ---
+export type {
+  ReviewFlag,
+  ReviewFlagsCount,
+  ReviewFlagsListResponse,
+  ReviewFlagsQuery,
+} from '@biztrack/types'
+import type {
+  ReviewFlag as ReviewFlagT,
+  ReviewFlagsCount as ReviewFlagsCountT,
+  ReviewFlagsListResponse as ReviewFlagsListResponseT,
+  ReviewFlagsQuery as ReviewFlagsQueryT,
+} from '@biztrack/types'
+
 // --- In-app notifications + invitee-side invitations ---
 export type {
   NotificationItem,
@@ -2640,6 +2658,12 @@ export interface BridgeApi {
     list: () => Promise<ListMyInvitationsResponseT>
     accept: (businessId: string) => Promise<AcceptInvitationResponseT>
     reject: (businessId: string) => Promise<RejectInvitationResponseT>
+  }
+  /** Review flags — server-owned, online-only, proxied through main. */
+  reviewFlags: {
+    list: (query?: ReviewFlagsQueryT) => Promise<ReviewFlagsListResponseT>
+    count: () => Promise<ReviewFlagsCountT>
+    resolve: (id: string, note?: string) => Promise<ReviewFlagT>
   }
   /** Deep links from the OS (biztrack:// custom protocol → a native-app handoff, N7). */
   deeplink: {

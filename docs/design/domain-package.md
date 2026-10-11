@@ -57,17 +57,17 @@ packages/domain/src
 
 ## Roadmap and status
 
-| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                                                                                                                                                       |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                                                                                                                                                         |
-| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                                                                                                                                                         |
-| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                                                                         |
-| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1, R3, R4 and R5; review flags (`review_flags` table, `GET /review-flags`, owner notification). Open: R2, the review-flags screen, the release blockers below, `decideSale` / `decideVoid` use cases |
-| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                                                              |
-| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                                                                                                                                              |
-| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                                                              |
-| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                                                              |
-| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |                                                                                                                                                                                                                                                                              |
+| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                                                                                                                                                        |
+| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                                                                                                                                                        |
+| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                                                                        |
+| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1, R3, R4 and R5; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: R2, the release blockers below, `decideSale` / `decideVoid` use cases |
+| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                                                             |
+| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     |                                                                                                                                                                                                                                                                             |
+| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                                                             |
+| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                                                             |
+| 9   | `DatabaseService` interface so `electron-core` stops importing `better-sqlite3` and Electron directly (unblocks mobile and the shared sync engine)                                                                                                                |                                                                                                                                                                                                                                                                             |
 
 ## Divergences found
 
@@ -180,6 +180,28 @@ owner once it commits; a HIGH flag is sent as urgent. `GET /review-flags` lists 
 serious first, `GET /review-flags/count` gives the open count, and
 `POST /review-flags/:id/resolve` closes one.
 
+#### The review screen
+
+"To review" (`/activity/review`, under Organization in the sidebar) lists the flags, open
+or resolved, filtered by level and kind. A row opens a drawer with what happened in a
+sentence, what to do about it, the numbers, a link to the sale (and to the other sale for a
+serial sold twice) and a note to resolve it with. The sidebar entry carries the open count,
+the activity page shows a line when something is waiting, and the owner's notification
+opens the screen.
+
+- Who may see it is one rule, `canReviewFlags` in `packages/domain/src/review`: the owner,
+  an active member whose assigned role can authorize, or a built-in manager with no role
+  assigned. The API enforces it on all three endpoints (`REVIEW_FLAGS_FORBIDDEN`); the
+  screen only hides itself for everyone else.
+- The list returns each flag with the sale number and the name of who resolved it.
+- Flags stay on the server. The desktop reads them through the main process
+  (`review-flags.service.ts`) and the browser build through `cloudReviewFlags`, so the
+  screen needs a connection on both; offline it says so and the rest of the app is
+  unaffected.
+- The wording for each kind of flag is in the renderer
+  (`components/activity/review-flag-format.ts`). A new flag code needs a title, a sentence
+  and a next step there, in both languages. `DISCOUNT_UNAUTHORIZED` already has them for R2.
+
 R4 is one rule, `packages/domain/src/sales/sale-profit.ts` (`refundProfitImpact`,
 `netSalesProfit`, `PROFIT_SALE_STATUSES`):
 
@@ -213,8 +235,8 @@ Limits, as built:
 
 Release blockers for this branch (owner, 2026-10-11):
 
-1. A screen for the review flags. Open. The owner only gets the notification today; the
-   list endpoint has no client. It must land before release.
+1. A screen for the review flags. Done: see "The review screen" below. Not yet looked at
+   on a running app.
 2. A test harness for sync writes. Done: see "Integration tests" below.
 3. Both new migrations run against a real Postgres. Done: the owner ran them, and the
    integration tests apply every migration to a fresh database on each run.
@@ -241,7 +263,8 @@ queue, documents, the calendar, posting periods and customer deposits are stand-
 Add a case here whenever a rule changes what the server writes for a synced sale.
 
 Accepted for now: `review_flags.outlet_id` stays empty until the branch work in Phase B
-fills it. The desktop does not pull review flags; they are server-side only.
+fills it. The desktop does not store review flags; it reads them from the server when
+the screen is open.
 
 ### Earlier rulings (slice 3, 2026-10-10)
 

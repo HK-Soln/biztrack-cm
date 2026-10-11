@@ -16,12 +16,14 @@ export class ReviewFlagsController {
   @Get()
   @ApiOperation({ summary: 'List review flags, most serious first' })
   async list(@CurrentUser() user: JwtPayload, @Query() query: QueryReviewFlagsDto) {
+    await this.reviewFlags.assertCanReview(user.businessId as string, user.sub)
     return this.reviewFlags.list(user.businessId as string, query)
   }
 
   @Get('count')
   @ApiOperation({ summary: 'Open review flags, and how many are high severity' })
   async count(@CurrentUser() user: JwtPayload) {
+    await this.reviewFlags.assertCanReview(user.businessId as string, user.sub)
     return this.reviewFlags.countOpen(user.businessId as string)
   }
 
@@ -32,6 +34,7 @@ export class ReviewFlagsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: ResolveReviewFlagDto,
   ) {
+    await this.reviewFlags.assertCanReview(user.businessId as string, user.sub)
     return this.reviewFlags.resolve(user.businessId as string, id, user.sub, body.note)
   }
 }

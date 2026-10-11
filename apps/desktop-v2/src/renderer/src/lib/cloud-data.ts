@@ -67,7 +67,13 @@ import type {
   UploadFileInput,
   UploadedFile,
 } from '@shared/ipc'
-import type { BusinessMembershipSummary } from '@biztrack/types'
+import type {
+  BusinessMembershipSummary,
+  ReviewFlag,
+  ReviewFlagsCount,
+  ReviewFlagsListResponse,
+  ReviewFlagsQuery,
+} from '@biztrack/types'
 import { cget, cpost, cpatch, cput, cdelete } from './cloud-http'
 import { fetchCloudSession } from './cloud-auth'
 
@@ -126,6 +132,23 @@ export const cloudNotificationsRest = {
   unreadCount: () => cget<UnreadCountResponse>('/notifications/unread-count'),
   markRead: (id: string) => cpatch<MarkNotificationReadResponse>(`/notifications/${id}/read`, {}),
   markAllRead: () => cpatch<MarkAllNotificationsReadResponse>('/notifications/read-all', {}),
+}
+
+export const cloudReviewFlags = {
+  list: (query: ReviewFlagsQuery = {}) => {
+    const params = new URLSearchParams()
+    if (query.page) params.set('page', String(query.page))
+    if (query.limit) params.set('limit', String(query.limit))
+    if (query.status) params.set('status', query.status)
+    if (query.severity) params.set('severity', query.severity)
+    if (query.code) params.set('code', query.code)
+    if (query.entityId) params.set('entityId', query.entityId)
+    const qs = params.toString()
+    return cget<ReviewFlagsListResponse>(`/review-flags${qs ? `?${qs}` : ''}`)
+  },
+  count: () => cget<ReviewFlagsCount>('/review-flags/count'),
+  resolve: (id: string, note?: string) =>
+    cpost<ReviewFlag>(`/review-flags/${id}/resolve`, note?.trim() ? { note: note.trim() } : {}),
 }
 
 export const cloudInvitations = {

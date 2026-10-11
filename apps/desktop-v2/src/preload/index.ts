@@ -440,6 +440,11 @@ const api: BridgeApi = {
     accept: (businessId) => ipcRenderer.invoke(IPC.invitationsAccept, businessId),
     reject: (businessId) => ipcRenderer.invoke(IPC.invitationsReject, businessId),
   },
+  reviewFlags: {
+    list: (query) => ipcRenderer.invoke(IPC.reviewFlagsList, query),
+    count: () => ipcRenderer.invoke(IPC.reviewFlagsCount),
+    resolve: (id, note) => ipcRenderer.invoke(IPC.reviewFlagsResolve, id, note),
+  },
   deeplink: {
     onNavigate: (cb) => {
       const listener = (_e: unknown, path: string) => cb(path)

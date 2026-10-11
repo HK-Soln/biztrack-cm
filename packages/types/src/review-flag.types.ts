@@ -1,4 +1,4 @@
-import type { ListQuery } from './http.types'
+import type { ListQuery, PaginatedResult } from './http.types'
 
 // Review flags: things the server accepted but the owner should look at. A sale or refund
 // made at an offline till already happened, so the server records it and raises a flag
@@ -55,6 +55,30 @@ export interface ReviewFlag extends ReviewFlagDraft {
   resolvedAt: string | null
   resolvedById: string | null
   resolutionNote: string | null
+  /** What the owner calls the flagged thing: the sale number. Filled when listing. */
+  entityLabel?: string | null
+  /** Who resolved it. Filled when listing. */
+  resolvedByName?: string | null
+}
+
+export type ReviewFlagsListResponse = PaginatedResult<ReviewFlag>
+
+/** Open flags, and how many of them are high severity. */
+export interface ReviewFlagsCount {
+  open: number
+  high: number
+}
+
+/** The part of a business membership that decides who may see and resolve review flags. */
+export interface ReviewFlagReviewer {
+  /** The membership is active. */
+  active: boolean
+  /** The built-in member role (OWNER, MANAGER, CASHIER…). */
+  memberRole: string
+  /** A role is assigned to the member. */
+  hasAssignedRole: boolean
+  /** The assigned role may authorize (`can_authorize`). */
+  roleCanAuthorize: boolean
 }
 
 export interface ReviewFlagsQuery extends ListQuery {
