@@ -27,7 +27,7 @@ export function hasPriceDrift(chargedUnitPrice: number, currentSellingPrice: num
 }
 
 export interface SaleLinePricingInput {
-  /** Units sold. The caller normalises it first (`roundQuantity`); it is used as given. */
+  /** Units sold. Priced at three decimals (`roundQuantity`), whatever the caller sends. */
   quantity: number
   /** The unit price the cashier actually charged. */
   unitPrice: number
@@ -91,7 +91,7 @@ export interface SalePricing {
  * A charged price at or above listed keeps that price (a markup) — never a negative discount.
  */
 export function priceSaleLine(input: SaleLinePricingInput): PricedSaleLine {
-  const quantity = input.quantity
+  const quantity = roundQuantity(input.quantity)
   const chargedUnitPrice = toWholeXaf(input.unitPrice)
   const unitPriceListed = toWholeXaf(input.unitPriceListed ?? input.unitPrice)
   const explicitDiscount = toWholeXaf(Math.max(0, input.discountAmount ?? 0))

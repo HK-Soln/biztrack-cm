@@ -11,6 +11,7 @@ import {
   netSalesByProduct,
   netSalesProfit,
   priceSale,
+  roundQuantity,
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
   type RoleDiscountLimits,
@@ -259,7 +260,9 @@ export class SalesService {
           trackInventory: meta.trackInventory,
         })
       } else {
-        const qty = line.quantity
+        // Three decimals, as the server stores it: the stock moved and the line priced
+        // are the same quantity on both sides.
+        const qty = roundQuantity(line.quantity)
         if (!Number.isFinite(qty) || qty <= 0)
           throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
         const lineDiscount = toWholeXaf(Math.max(0, line.discountAmount ?? 0))
