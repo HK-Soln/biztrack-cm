@@ -54,6 +54,7 @@ import type {
   MemberAuthCredentialSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
+import { debtStanding } from '@biztrack/domain'
 import {
   AttributeDisplayType,
   ContactType,
@@ -3666,15 +3667,13 @@ export class SyncService {
         ),
       )
       const normalizedOriginalAmount = this.normalizeMoney(payload.originalAmount)
-      const isWrittenOff =
-        payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
-      const status = isWrittenOff
-        ? DebtStatus.WRITTEN_OFF
-        : totalPaid >= normalizedOriginalAmount
-          ? DebtStatus.SETTLED
-          : totalPaid > 0
-            ? DebtStatus.PARTIALLY_PAID
-            : DebtStatus.OUTSTANDING
+      // The server works out where the debt stands from its payments (@biztrack/domain);
+      // only "written off" is taken from the till.
+      const { status } = debtStanding({
+        originalAmount: normalizedOriginalAmount,
+        paidAmount: totalPaid,
+        writtenOff: payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt),
+      })
       const settledAt =
         status === DebtStatus.SETTLED
           ? (this.parseOptionalDate(payload.settledAt) ?? operation.recordUpdatedAt)

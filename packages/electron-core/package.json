@@ -30,6 +30,7 @@
     "test": "cross-env ELECTRON_RUN_AS_NODE=1 NODE_OPTIONS=--experimental-require-module electron node_modules/vitest/vitest.mjs run"
   },
   "dependencies": {
+    "@biztrack/domain": "workspace:*",
     "@biztrack/http-client": "workspace:*",
     "@biztrack/types": "workspace:*",
     "better-sqlite3": "^11.7.0",

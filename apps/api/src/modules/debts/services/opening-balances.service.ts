@@ -14,7 +14,7 @@ import {
   type JwtPayload,
   type UpsertOpeningBalanceRequest,
 } from '@biztrack/types'
-import { daysPastDue, effectiveDueDate } from '@biztrack/domain'
+import { daysPastDue, debtSettledAt, debtStanding, effectiveDueDate } from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
 import { In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -177,19 +177,15 @@ export class OpeningBalancesService {
     })
 
     if (existing) {
-      const paid = this.roundMoney((existing.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-      const settled = paid >= amount - 1e-6
+      const standing = debtStanding({
+        originalAmount: amount,
+        paidAmount: (existing.payments ?? []).reduce((sum, p) => sum + p.amount, 0),
+        writtenOff: existing.status === DebtStatus.WRITTEN_OFF,
+      })
       existing.originalAmount = amount
       existing.sourceReference = OPENING_BALANCE_DEBT_REFERENCE
-      existing.status =
-        existing.status === DebtStatus.WRITTEN_OFF
-          ? DebtStatus.WRITTEN_OFF
-          : settled
-            ? DebtStatus.SETTLED
-            : paid > 0
-              ? DebtStatus.PARTIALLY_PAID
-              : DebtStatus.OUTSTANDING
-      existing.settledAt = settled ? (existing.settledAt ?? new Date()) : null
+      existing.status = standing.status
+      existing.settledAt = debtSettledAt(standing, existing.settledAt, new Date())
       await this.debtsRepo.save(existing)
       return
     }

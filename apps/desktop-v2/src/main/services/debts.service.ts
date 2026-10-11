@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
-import { daysPastDue, effectiveDueDate } from '@biztrack/domain'
+import { daysPastDue, debtSettledAt, debtStanding, effectiveDueDate } from '@biztrack/domain'
 import type {
   AgeingEntry,
   AgeingReport,
@@ -154,8 +154,8 @@ export class DebtsService {
   }): string {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
-    const existing = this.db.get<{ id: string; status: string }>(
-      `SELECT id, status FROM debts WHERE business_id = ? AND source_type = 'OPENING_BALANCE' AND source_id = ? AND direction = ?`,
+    const existing = this.db.get<{ id: string; status: string; settled_at: string | null }>(
+      `SELECT id, status, settled_at FROM debts WHERE business_id = ? AND source_type = 'OPENING_BALANCE' AND source_id = ? AND direction = ?`,
       [businessId, input.contactId, input.direction],
     )
 
@@ -166,11 +166,16 @@ export class DebtsService {
           `SELECT COALESCE(SUM(amount), 0) AS p FROM debt_payments WHERE debt_id = ?`,
           [existing.id],
         )?.p ?? 0
-      const settled = paid >= input.amount - 1e-6
-      const status = settled ? 'SETTLED' : paid > 0 ? 'PARTIALLY_PAID' : 'OUTSTANDING'
+      const standing = debtStanding({ originalAmount: input.amount, paidAmount: paid })
       this.db.run(
         `UPDATE debts SET original_amount = ?, status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
-        [input.amount, status, settled ? now : null, existing.id, businessId],
+        [
+          input.amount,
+          standing.status,
+          debtSettledAt(standing, existing.settled_at, now),
+          existing.id,
+          businessId,
+        ],
       )
       this.enqueue(existing.id, businessId, now)
       this.onMutated()
@@ -262,12 +267,15 @@ export class DebtsService {
       ],
     )
 
-    const paid = debt.paid_amount + amount
-    const settled = paid >= debt.original_amount - 1e-6
-    const status = settled ? 'SETTLED' : 'PARTIALLY_PAID'
+    // Where the debt now stands is @biztrack/domain's rule, the one the server applies.
+    const standing = debtStanding({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid_amount + amount,
+    })
+    const { status, paidAmount: paid } = standing
     this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
       status,
-      settled ? now : null,
+      debtSettledAt(standing, debt.settled_at, now),
       debtId,
       businessId,
     ])
@@ -384,12 +392,15 @@ export class DebtsService {
         now,
       ],
     )
-    const paid = debt.paid_amount + amount
-    const settled = paid >= debt.original_amount - 1e-6
-    const status = settled ? 'SETTLED' : 'PARTIALLY_PAID'
+    // Where the debt now stands is @biztrack/domain's rule, the one the server applies.
+    const standing = debtStanding({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid_amount + amount,
+    })
+    const { status, paidAmount: paid } = standing
     this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
       status,
-      settled ? now : null,
+      debtSettledAt(standing, debt.settled_at, now),
       debtId,
       businessId,
     ])

@@ -19,7 +19,7 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
-import { effectiveDueDate } from '@biztrack/domain'
+import { debtSettledAt, debtStanding, effectiveDueDate } from '@biztrack/domain'
 import { APP_ROUTES } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
@@ -1217,23 +1217,21 @@ export class DebtsService {
 
     if (!debt || debt.status === DebtStatus.WRITTEN_OFF) return
 
-    const outstandingAmount = await this.computeOutstandingAmount(
-      debtId,
-      manager,
-      debt.originalAmount,
-    )
-    const totalPaid = this.roundMoney(debt.originalAmount - outstandingAmount)
-    let status = DebtStatus.OUTSTANDING
-
-    if (outstandingAmount <= 0) {
-      status = DebtStatus.SETTLED
-    } else if (totalPaid > 0) {
-      status = DebtStatus.PARTIALLY_PAID
-    }
+    const paidRow = await manager
+      .getRepository(DebtPayment)
+      .createQueryBuilder('payment')
+      .select('COALESCE(SUM(payment.amount), 0)', 'paidAmount')
+      .where('payment.debt_id = :debtId', { debtId })
+      .getRawOne<{ paidAmount: string | number | null }>()
+    // Where the debt stands is @biztrack/domain's rule, the same one the till applies.
+    const standing = debtStanding({
+      originalAmount: debt.originalAmount,
+      paidAmount: Number(paidRow?.paidAmount ?? 0),
+    })
 
     await debtRepo.update(debtId, {
-      status,
-      settledAt: status === DebtStatus.SETTLED ? new Date() : null,
+      status: standing.status,
+      settledAt: debtSettledAt(standing, debt.settledAt, new Date()),
       updatedAt: new Date(),
     })
   }

@@ -858,6 +858,9 @@ importers:
 
   packages/electron-core:
     dependencies:
+      '@biztrack/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@biztrack/http-client':
         specifier: workspace:*
         version: link:../http-client

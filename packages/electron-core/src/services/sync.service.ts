@@ -9,6 +9,7 @@ import {
   type SyncPushResponse,
   type SyncRecord,
 } from '@biztrack/types'
+import { debtSettledAt, debtStanding } from '@biztrack/domain'
 import type { DatabaseService } from './database.service'
 
 /**
@@ -989,20 +990,29 @@ export class SyncService {
     }
   }
 
-  /** Recompute a debt's status + settled_at from its current payment sum (mirrors recordPayment). */
+  /** Recompute a debt's status + settled_at from its current payment sum (@biztrack/domain). */
   private recomputeDebtStatus(debtId: string, businessId: string): void {
-    const row = this.opts.db.get<{ original_amount: number; paid: number; status: string }>(
-      `SELECT d.original_amount, d.status,
+    const row = this.opts.db.get<{
+      original_amount: number
+      paid: number
+      status: string
+      settled_at: string | null
+    }>(
+      `SELECT d.original_amount, d.status, d.settled_at,
          COALESCE((SELECT SUM(amount) FROM debt_payments WHERE debt_id = d.id), 0) AS paid
        FROM debts d WHERE d.id = ? AND d.business_id = ?`,
       [debtId, businessId],
     )
     if (!row || row.status === 'WRITTEN_OFF') return
-    const settled = row.paid >= row.original_amount - 1e-6
-    const status = settled ? 'SETTLED' : row.paid > 0 ? 'PARTIALLY_PAID' : 'OUTSTANDING'
+    const standing = debtStanding({ originalAmount: row.original_amount, paidAmount: row.paid })
     this.opts.db.run(
       `UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
-      [status, settled ? new Date().toISOString() : null, debtId, businessId],
+      [
+        standing.status,
+        debtSettledAt(standing, row.settled_at, new Date().toISOString()),
+        debtId,
+        businessId,
+      ],
     )
   }
 
