@@ -12,6 +12,12 @@
 #   runner    → minimal runtime: built output + node_modules, non-root
 
 FROM node:22-slim AS base
+# Take Debian's security updates on top of the base image: its packages (perl-base, …) lag
+# behind the fixes between node:22-slim rebuilds, and the image scan gates on fixable
+# CRITICAL CVEs.
+RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
 
 # ---- Prune the workspace down to the API ----------------------------------
