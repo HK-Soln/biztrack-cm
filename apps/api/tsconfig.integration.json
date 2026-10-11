@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.spec.json",
+  "compilerOptions": {
+    // Integration tests load the real entities. With isolatedModules, ts-jest compiles each
+    // file alone and cannot see that a column typed with an imported enum is a string, so
+    // TypeORM gets "Object" as the column type and refuses to start.
+    "isolatedModules": false
+  }
+}

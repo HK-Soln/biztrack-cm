@@ -8,6 +8,7 @@
     "start": "node dist/main",
     "lint": "eslint . --max-warnings 0",
     "test": "jest -c jest.config.ts --runInBand",
+    "test:integration": "jest -c jest.integration.config.ts --runInBand",
     "test:coverage": "jest -c jest.config.ts --runInBand --coverage",
     "type-check": "tsc --noEmit",
     "typeorm": "node -r tsconfig-paths/register ./node_modules/typeorm/cli-ts-node-commonjs.js",

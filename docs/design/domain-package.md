@@ -213,14 +213,32 @@ Limits, as built:
 
 Release blockers for this branch (owner, 2026-10-11):
 
-1. A screen for the review flags. The owner only gets the notification today; the list
-   endpoint has no client. It can follow R4, but must land before release.
-2. A test harness for sync writes, covering at least the synced refund
-   (`applyRefundFromSync`). It is the riskiest path here and is only type-checked.
-3. Both new migrations (`1790300000000-review_flags`,
-   `1790400000000-daily_summary_refunds_rebuild`) run against a real Postgres. The CI
-   migration job does this once the branch is pushed.
-4. R2, with the role-limit versions table and the version sent by the till.
+1. A screen for the review flags. Open. The owner only gets the notification today; the
+   list endpoint has no client. It must land before release.
+2. A test harness for sync writes. Done: see "Integration tests" below.
+3. Both new migrations run against a real Postgres. Done: the owner ran them, and the
+   integration tests apply every migration to a fresh database on each run.
+4. R2, with the role-limit versions table and the version sent by the till. Open.
+
+### Integration tests
+
+`pnpm --filter @biztrack/api run test:integration` runs the real sales write path against a
+real Postgres: `SalesService` with the real inventory, debts, daily-summary and review-flag
+services (`apps/api/src/testing/sales-sync-harness.ts`). Only notifications, the audit
+queue, documents, the calendar, posting periods and customer deposits are stand-ins.
+
+- The database is `TEST_DATABASE_URL`, or the `DATABASE_URL` server with
+  `_integration_test` added to the database name. It is created on first use and every
+  migration is applied. The name must end in `_test`, so the tests cannot touch real data.
+- Each test seeds its own business, so tests do not see each other's rows.
+- Tests live in `__integration__` folders as `*.int-spec.ts`; the unit run does not pick
+  them up. CI runs them in the migrations job, which already has a Postgres.
+- `sales-sync.int-spec.ts` covers a synced sale, a repeated push, negative stock, an
+  already-sold serial, synced refunds (the day booked, cost kept when not restocked, a
+  refund above the amount paid, above the goods value, with an unknown line, a second
+  return completing the sale) and voids after refunds, on REST and through sync.
+
+Add a case here whenever a rule changes what the server writes for a synced sale.
 
 Accepted for now: `review_flags.outlet_id` stays empty until the branch work in Phase B
 fills it. The desktop does not pull review flags; they are server-side only.
