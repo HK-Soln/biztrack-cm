@@ -1,3 +1,4 @@
+import { checkPurchaseOrder, priceOrderLines, type PurchaseOrderRejection } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, IsNull, Repository } from 'typeorm'
@@ -43,6 +44,12 @@ interface PoLineInput {
  * scratch or from a chosen RFQ quote. Send marks the PO sent; the PDF + WhatsApp/email
  * dispatch is handled by the procurement send pipeline.
  */
+const PO_MESSAGES: Record<PurchaseOrderRejection, string> = {
+  PO_ITEMS_REQUIRED: 'Add at least one item to the order.',
+  PO_ITEM_QTY_INVALID: 'Each item needs a quantity greater than 0.',
+  PO_TOTAL_ZERO: 'The order total must be greater than 0.',
+}
+
 @Injectable()
 export class PurchaseOrdersService {
   constructor(
@@ -112,11 +119,6 @@ export class PurchaseOrdersService {
         throw new AppBadRequestException('Add at least one item.', 'PO_ITEMS_REQUIRED')
       const lines: PoLineInput[] = []
       for (const it of dto.items) {
-        if (!Number.isFinite(it.quantity) || it.quantity <= 0)
-          throw new AppBadRequestException(
-            'Each item needs a quantity greater than 0.',
-            'PO_ITEM_QTY_INVALID',
-          )
         lines.push({
           productId: it.productId,
           variantId: it.variantId ?? null,
@@ -125,8 +127,9 @@ export class PurchaseOrdersService {
           unitPrice: it.unitPrice ?? 0,
         })
       }
-      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
-        throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
+      // Lines with a quantity, worth something: @biztrack/domain's rule, as on the till.
+      const problem = checkPurchaseOrder(lines)
+      if (problem) throw new AppBadRequestException(PO_MESSAGES[problem], problem)
       const id = await this.insert(businessId, {
         rfqId: dto.rfqId ?? null,
         supplierId: dto.supplierId,
@@ -169,11 +172,6 @@ export class PurchaseOrdersService {
 
       const lines: PoLineInput[] = []
       for (const it of dto.items) {
-        if (!Number.isFinite(it.quantity) || it.quantity <= 0)
-          throw new AppBadRequestException(
-            'Each item needs a quantity greater than 0.',
-            'PO_ITEM_QTY_INVALID',
-          )
         lines.push({
           productId: it.productId,
           variantId: it.variantId ?? null,
@@ -182,8 +180,9 @@ export class PurchaseOrdersService {
           unitPrice: it.unitPrice ?? 0,
         })
       }
-      if (lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) <= 0)
-        throw new AppBadRequestException('The order total must be greater than 0.', 'PO_TOTAL_ZERO')
+      // Lines with a quantity, worth something: @biztrack/domain's rule, as on the till.
+      const problem = checkPurchaseOrder(lines)
+      if (problem) throw new AppBadRequestException(PO_MESSAGES[problem], problem)
       const id = await this.insert(businessId, {
         rfqId,
         supplierId: supplier.supplierId,
@@ -296,7 +295,7 @@ export class PurchaseOrdersService {
     },
   ): Promise<string> {
     const number = await this.nextNumber(businessId)
-    const total = data.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
+    const total = priceOrderLines(data.lines).total
     const supplierName = await this.contactName(data.supplierId)
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
@@ -362,14 +361,16 @@ export class PurchaseOrdersService {
   ): Promise<PurchaseOrderDocument> {
     const biz = await this.businessRepo.findOne({ where: { id: businessId } })
     const supplier = await this.contactsRepo.findOne({ where: { id: po.supplierId, businessId } })
-    const items = (po.items ?? []).map((i) => ({
-      description: i.description,
-      sku: null,
-      quantity: Number(i.quantity),
-      unitPrice: Number(i.unitPrice),
-      lineTotal: Number(i.quantity) * Number(i.unitPrice),
-    }))
-    const subtotal = items.reduce((s, i) => s + i.lineTotal, 0)
+    const priced = priceOrderLines(
+      (po.items ?? []).map((i) => ({
+        description: i.description,
+        sku: null,
+        quantity: Number(i.quantity),
+        unitPrice: Number(i.unitPrice),
+      })),
+    )
+    const items = priced.lines
+    const subtotal = priced.total
     return {
       number: po.number,
       title: po.title ?? null,
