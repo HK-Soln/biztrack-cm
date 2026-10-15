@@ -1,7 +1,14 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
-import { daysPastDue, debtSettledAt, debtStanding, effectiveDueDate } from '@biztrack/domain'
+import {
+  daysPastDue,
+  debtCanBeWrittenOff,
+  debtSettledAt,
+  debtStanding,
+  effectiveDueDate,
+  reduceDebt,
+} from '@biztrack/domain'
 import type {
   AgeingEntry,
   AgeingReport,
@@ -79,8 +86,15 @@ export class DebtsService {
     }) => void = () => {},
   ) {}
 
-  /** Create a debt from a source transaction (e.g. a credit restock → supplier payable).
-   * Idempotent per source: returns the existing debt id if one already exists. */
+  /**
+   * Create a debt from a source transaction (a credit sale → receivable, a credit restock →
+   * supplier payable). Idempotent per source: returns the existing debt id if there is one.
+   *
+   * The debt of a sale or a restock is derived from that record: the server creates its own
+   * when the sale or restock syncs, so this one is not pushed, and its id is the fixed
+   * `debt:<source>:<id>` the server's record pulls back onto. (SQLite triggers used to
+   * create these rows; the rule now lives here.)
+   */
   createSourceDebt(input: CreateSourceDebtInput): string {
     const businessId = this.requireBusinessId()
     const existing = this.db.get<{ id: string }>(
@@ -88,16 +102,16 @@ export class DebtsService {
       [businessId, input.sourceType, input.sourceId, input.direction],
     )
     if (existing) {
-      // The row may already exist from a DB trigger (sale/restock receivable). If the caller
-      // supplied an explicit due date (e.g. credit terms chosen at checkout), apply it — the
-      // trigger inserts due_date NULL, so the effective due falls back to the default until set.
+      // Apply an explicit due date (e.g. credit terms chosen at checkout) to a row that
+      // already exists.
       if (input.dueDate) {
         this.db.run(`UPDATE debts SET due_date = ? WHERE id = ?`, [input.dueDate, existing.id])
       }
       return existing.id
     }
 
-    const id = randomUUID()
+    const derived = input.sourceType === 'SALE' || input.sourceType === 'RESTOCK'
+    const id = derived ? `debt:${input.sourceType.toLowerCase()}:${input.sourceId}` : randomUUID()
     const now = input.createdAt ?? new Date().toISOString()
     // Local trading day (BIZ-5.1) from the debt's creation timestamp.
     const businessDate = localBusinessDate(now)
@@ -119,6 +133,7 @@ export class DebtsService {
         now,
       ],
     )
+    if (derived) return id
     this.enqueue(id, businessId, now)
     this.onMutated()
     this.audit?.log({
@@ -137,6 +152,83 @@ export class DebtsService {
       },
     })
     return id
+  }
+
+  /**
+   * What is still owed and what has been paid on the debt of a source (a sale's receivable),
+   * for deciding a return. Zeros when there is no debt; a written-off debt owes nothing.
+   */
+  sourceDebtBalance(
+    sourceType: 'SALE' | 'RESTOCK',
+    sourceId: string,
+  ): { outstanding: number; paid: number } {
+    const debt = this.sourceDebt(sourceType, sourceId)
+    if (!debt) return { outstanding: 0, paid: 0 }
+    const standing = debtStanding({ originalAmount: debt.original_amount, paidAmount: debt.paid })
+    return {
+      outstanding: debt.status === 'WRITTEN_OFF' ? 0 : standing.outstandingAmount,
+      paid: standing.paidAmount,
+    }
+  }
+
+  /**
+   * Take returned goods off the debt of a source (ruling R10). How far the debt comes down
+   * and where it then stands is `reduceDebt` in @biztrack/domain, as on the server. Not
+   * pushed: the server reduces its own record when the return syncs.
+   */
+  reduceSourceDebt(sourceType: 'SALE' | 'RESTOCK', sourceId: string, amount: number): void {
+    if (!(amount > 0)) return
+    const debt = this.sourceDebt(sourceType, sourceId)
+    if (!debt || !debtCanBeWrittenOff(debt.status as never)) return
+    const reduced = reduceDebt({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid,
+      reduction: amount,
+    })
+    this.db.run(`UPDATE debts SET original_amount = ?, status = ?, settled_at = ? WHERE id = ?`, [
+      reduced.originalAmount,
+      reduced.standing.status,
+      debtSettledAt(reduced.standing, debt.settled_at, new Date().toISOString()),
+      debt.id,
+    ])
+  }
+
+  /**
+   * Write off the debt of a source that was cancelled (a voided sale, everything returned).
+   * A debt already paid in full stays settled (ruling R11). Not pushed: the server writes
+   * its own record off when the void or return syncs.
+   */
+  writeOffSourceDebt(input: {
+    sourceType: 'SALE' | 'RESTOCK'
+    sourceId: string
+    reason: string
+    at: string
+    by: string | null
+  }): void {
+    const debt = this.sourceDebt(input.sourceType, input.sourceId)
+    if (!debt || !debtCanBeWrittenOff(debt.status as never)) return
+    this.db.run(
+      `UPDATE debts SET status = 'WRITTEN_OFF', settled_at = NULL, written_off_at = ?,
+              written_off_by = ?, written_off_reason = ?
+        WHERE id = ?`,
+      [input.at, input.by, input.reason.trim() || 'Written off', debt.id],
+    )
+  }
+
+  private sourceDebt(sourceType: string, sourceId: string) {
+    return this.db.get<{
+      id: string
+      original_amount: number
+      status: string
+      settled_at: string | null
+      paid: number
+    }>(
+      `SELECT d.id, d.original_amount, d.status, d.settled_at,
+              COALESCE((SELECT SUM(amount) FROM debt_payments WHERE debt_id = d.id), 0) AS paid
+         FROM debts d
+        WHERE d.business_id = ? AND d.source_type = ? AND d.source_id = ?`,
+      [this.requireBusinessId(), sourceType, sourceId],
+    )
   }
 
   /**

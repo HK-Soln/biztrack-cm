@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DebtStatus } from '@biztrack/types'
-import { debtSettledAt, debtStanding } from './debt-status'
+import { debtCanBeWrittenOff, debtSettledAt, debtStanding, reduceDebt } from './debt-status'
 
 describe('debtStanding', () => {
   it('is outstanding with nothing paid', () => {
@@ -65,5 +65,37 @@ describe('debtSettledAt', () => {
       null,
     )
     expect(debtSettledAt({ status: DebtStatus.WRITTEN_OFF }, '2026-01-01', '2026-02-02')).toBe(null)
+  })
+})
+
+describe('debtCanBeWrittenOff (R11)', () => {
+  it('leaves a settled debt settled and a written-off debt alone', () => {
+    expect(debtCanBeWrittenOff(DebtStatus.OUTSTANDING)).toBe(true)
+    expect(debtCanBeWrittenOff(DebtStatus.PARTIALLY_PAID)).toBe(true)
+    expect(debtCanBeWrittenOff(DebtStatus.SETTLED)).toBe(false)
+    expect(debtCanBeWrittenOff(DebtStatus.WRITTEN_OFF)).toBe(false)
+  })
+})
+
+describe('reduceDebt (R10)', () => {
+  it('takes the returned goods off what is owed for', () => {
+    expect(reduceDebt({ originalAmount: 6000, paidAmount: 0, reduction: 2000 })).toMatchObject({
+      originalAmount: 4000,
+      standing: { status: DebtStatus.OUTSTANDING, outstandingAmount: 4000 },
+    })
+  })
+
+  it('settles the debt when the reduction covers what was left', () => {
+    expect(reduceDebt({ originalAmount: 6000, paidAmount: 3000, reduction: 3000 })).toMatchObject({
+      originalAmount: 3000,
+      standing: { status: DebtStatus.SETTLED, outstandingAmount: 0 },
+    })
+  })
+
+  it('never reduces a debt below what was already paid against it', () => {
+    expect(reduceDebt({ originalAmount: 6000, paidAmount: 5000, reduction: 4000 })).toMatchObject({
+      originalAmount: 5000,
+      standing: { status: DebtStatus.SETTLED },
+    })
   })
 })

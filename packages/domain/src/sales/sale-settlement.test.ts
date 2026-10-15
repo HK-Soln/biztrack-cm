@@ -5,6 +5,7 @@ import {
   decideSaleRefund,
   decideSaleVoid,
   effectivePaymentLines,
+  returnDebtReduction,
   saleReturnStatus,
   settleSale,
   settleSaleFromLedger,
@@ -134,6 +135,32 @@ describe('settleSaleFromLedger', () => {
     ).toEqual({ amountPaid: 2500, creditAmount: 1500 })
   })
 
+  it('does not count returned goods as owed (R9)', () => {
+    // Paid in full, 1,500 of goods returned for cash: nothing is owed.
+    expect(
+      settleSaleFromLedger({
+        totalAmount: 4000,
+        returnedGoodsValue: 1500,
+        entries: [
+          { kind: PAYMENT, amount: 4000 },
+          { kind: REFUND, amount: 1500 },
+        ],
+      }),
+    ).toEqual({ amountPaid: 2500, creditAmount: 0 })
+    // 10,000 with 4,000 paid, 2,000 of goods returned against the debt: 4,000 still owed.
+    expect(
+      settleSaleFromLedger({
+        totalAmount: 10000,
+        returnedGoodsValue: 2000,
+        entries: [{ kind: PAYMENT, amount: 4000 }],
+      }),
+    ).toEqual({ amountPaid: 4000, creditAmount: 4000 })
+    // Everything returned: nothing owed, whatever was paid.
+    expect(
+      settleSaleFromLedger({ totalAmount: 10000, returnedGoodsValue: 10000, entries: [] }),
+    ).toEqual({ amountPaid: 0, creditAmount: 0 })
+  })
+
   it('never lets the paid amount go below zero', () => {
     expect(
       settleSaleFromLedger({
@@ -164,7 +191,73 @@ describe('decideSaleRefund', () => {
       isFullReturn: true,
       goodsValue: 5500,
       refundAmount: 5500,
+      debtReduction: 0,
       status: SaleStatus.REFUNDED,
+    })
+  })
+
+  describe('when the customer still owes on the sale (R10)', () => {
+    // 10 units at 1,000. Paid 4,000 at the till, 6,000 on credit.
+    const credit = [{ id: 'si-1', quantity: 10, lineTotal: 10000 }]
+    const returning = (quantity: number, over: Record<string, unknown> = {}) => {
+      const decision = decideSaleRefund({
+        items: credit,
+        returns: [{ saleItemId: 'si-1', quantity }],
+        amountPaid: 4000,
+        outstandingBalance: 6000,
+        ...over,
+      })
+      if (!decision.ok) throw new Error(decision.code)
+      return decision
+    }
+
+    it('takes the goods off the debt and hands back nothing while a balance is left', () => {
+      expect(returning(2)).toMatchObject({ goodsValue: 2000, refundAmount: 0, debtReduction: 2000 })
+    })
+
+    it('refunds only what is beyond the debt', () => {
+      expect(returning(8)).toMatchObject({
+        goodsValue: 8000,
+        refundAmount: 2000,
+        debtReduction: 6000,
+      })
+    })
+
+    it('does not let the cashier hand back more than that', () => {
+      expect(returning(2, { requestedAmount: 2000 })).toMatchObject({
+        refundAmount: 0,
+        debtReduction: 2000,
+      })
+      expect(returning(8, { requestedAmount: 4000 })).toMatchObject({ refundAmount: 2000 })
+    })
+
+    it('lets the cashier hand back less', () => {
+      expect(returning(8, { requestedAmount: 500 })).toMatchObject({
+        refundAmount: 500,
+        debtReduction: 6000,
+      })
+    })
+
+    it('counts what was paid on the debt as money received', () => {
+      // 3,000 of the 6,000 was paid off since: 7,000 received, 3,000 still owed.
+      expect(returning(10, { amountPaid: 7000, outstandingBalance: 3000 })).toMatchObject({
+        goodsValue: 10000,
+        refundAmount: 7000,
+        debtReduction: 3000,
+      })
+    })
+  })
+
+  describe('returnDebtReduction', () => {
+    it('is the goods value not handed back, up to what is owed', () => {
+      const reduce = (goodsValue: number, cashRefunded: number, outstandingBalance: number) =>
+        returnDebtReduction({ goodsValue, cashRefunded, outstandingBalance })
+      expect(reduce(2000, 0, 6000)).toBe(2000)
+      expect(reduce(8000, 2000, 6000)).toBe(6000)
+      // A till that handed the money back anyway: the debt is not reduced as well.
+      expect(reduce(2000, 2000, 6000)).toBe(0)
+      expect(reduce(2000, 5000, 6000)).toBe(0)
+      expect(reduce(2000, 0, 0)).toBe(0)
     })
   })
 

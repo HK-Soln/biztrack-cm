@@ -64,7 +64,7 @@ packages/domain/src
 | 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                               |
 | 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1 to R7; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: `decideSale` / `decideVoid` use cases |
 | 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                    |
-| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | In progress. Done: `debtStanding` replaces the seven copies of debt status. Open: the SQLite debt triggers, waiting on the questions under "Debts: open questions"                                                                 |
+| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | Done: `debtStanding` replaces the seven copies of debt status; the SQLite debt triggers are dropped and the till decides debts in code with the same domain rules as the server (R9 to R11)                                        |
 | 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                    |
 | 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                    |
 
@@ -180,6 +180,24 @@ daily summary.
 A refund does not give back customer savings that were used to pay for the sale. Returning
 savings to a customer is its own action in the savings flow, with its own record; a refund
 only decides the goods and the money handed back at the till.
+
+### R9. What a customer owes after a partial return (2026-10-11)
+
+Goods that came back are no longer owed for. A sale's balance is (total less the value of the
+goods returned) less (what was paid less what was refunded), never below zero. Before, the
+goods were not taken off, so a sale paid in full and partly refunded showed a balance, and on
+the till that balance became a debt for the customer who had just been refunded.
+
+### R10. Returning goods on a sale that still has a balance (2026-10-11)
+
+The returned goods reduce the debt first. Money is handed back only for the value beyond
+what is still owed. A customer who owes 6,000 and returns 2,000 of goods gets no cash and
+owes 4,000.
+
+### R11. Voiding a sale whose debt was paid in full (2026-10-11)
+
+The debt stays settled: the money was received. Only a debt with something still owed is
+written off by a void. The till used to write off a settled debt; the server did not.
 
 ### How the rulings are implemented
 
@@ -298,34 +316,55 @@ Release blockers for this branch (owner, 2026-10-11):
    "R2 as built" above. Migration `1790500000000-role_limit_versions` has to run on
    deploy, and tills need the new build to send the version.
 
-### Debts: open questions
+### Debts as built (slice 6)
 
-On the till, SQLite triggers create and update a sale's receivable and a restock's payable
-(`0001_initial_schema`). The server does it in code. What each does, read from the code and
-confirmed on the till by `sales-debt-characterization.test.ts`:
+One set of rules in `packages/domain`, called by the API and the till:
 
-| Path                               | Till (triggers)                                          | Server                                     |
-| ---------------------------------- | -------------------------------------------------------- | ------------------------------------------ |
-| Sale with a balance on credit      | Creates the receivable for the balance                   | Same                                       |
-| Sale voided                        | Writes the receivable off, even one already paid in full | Writes it off unless it is already settled |
-| Everything returned                | Written off (in code, not by the trigger)                | Same                                       |
-| Part returned, sale had a balance  | Receivable is set to the sale's new balance              | Receivable is left as it was               |
-| Part returned, sale was fully paid | Creates a receivable for the cash handed back            | No receivable                              |
-| Restock with a balance on credit   | Creates the payable                                      | Same                                       |
-| Sale or restock arriving by sync   | Trigger creates or updates the debt from the pulled row  | n/a: the debt is pulled as its own record  |
-| Debt payment added or removed      | Trigger recomputes status; the code now does it too      | In code                                    |
+- `debtStanding` / `debtSettledAt` (`credit/debt-status.ts`): where a debt stands from what
+  was owed and what was paid, in whole francs; the date it was first settled is kept.
+- `settleSaleFromLedger` takes the value of the goods returned (R9).
+- `decideSaleRefund` takes what is still owed and returns `debtReduction` with the money to
+  hand back; `returnDebtReduction` is the same sum for a refund a till already made (R10).
+- `reduceDebt` brings a debt down, never below what was paid against it (R10).
+- `debtCanBeWrittenOff`: a settled debt stays settled (R11).
 
-Two of these are wrong on the till today and need a ruling before the triggers are replaced:
+On the till, SQLite triggers used to create and update a sale's receivable and a restock's
+payable, and recompute a debt when a payment row changed. Desktop migration `0085` drops
+them. What each path does now:
 
-1. After a partial return, a sale's balance is worked out as total minus what is still paid,
-   without taking off the goods that came back (`settleSaleFromLedger`, on both sides). A
-   10,000 sale paid in full, with 2,000 of goods returned for cash, shows a balance of 2,000.
-   On the till the trigger turns that balance into a 2,000 receivable for the customer who
-   was just refunded. On a part-paid sale the receivable grows by the cash handed back.
-2. Voiding a sale whose receivable was already paid in full: the till writes the debt off,
-   the server leaves it settled.
+| Path                             | Now                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Sale with a balance on credit    | `DebtsService.createSourceDebt`, id `debt:sale:<sale id>`, with the due date and trading day    |
+| Restock with a balance on credit | The same, id `debt:restock:<restock id>`                                                        |
+| Sale voided                      | `writeOffSourceDebt`, unless the debt is settled (R11)                                          |
+| Everything returned              | `writeOffSourceDebt`                                                                            |
+| Part returned                    | `reduceSourceDebt` by the decision's `debtReduction` (R10)                                      |
+| Debt payment added or removed    | `debtStanding` in the payment, offset and sync-pull code                                        |
+| Sale or restock arriving by sync | No debt is derived from the pulled row; the debt arrives as its own record and lands on that id |
 
-Until ruled, nothing here is changed and the triggers stay.
+The debt of a sale or restock is still not pushed by the till: the server creates its own
+when the sale or restock syncs, as before.
+
+Repairs for what the old behaviour left behind:
+
+- Desktop migration `0085` works out the balance of every partly returned sale again and
+  sets its receivable to it, or removes the receivable when nothing was ever owed and nothing
+  was paid against it.
+- API migration `1790600000000-sale_balance_after_returns` recomputes `credit_amount` of
+  sales with returns. Server debts are not touched: the server never changed a receivable on
+  a partial return. `updated_at` is left alone so the sales are not re-sent to every till.
+
+Limits, as built:
+
+- Money paid on a sale's debt counts as received when a return is decided, so it can be
+  refunded. The refund is recorded on the sale's payments; when it is more than was paid at
+  the till, the sale's own "paid" figure stops at zero and its balance can differ from the
+  debt by that amount. The debt is the figure to trust.
+- A till on an older build still hands the money back on a partial return of a credit sale.
+  The server keeps that amount and leaves the debt as it was; no flag is raised for it.
+- The API migration's value of returned goods is rounded once per sale; the domain rounds
+  per return, so a balance can differ by a franc on sales with several returns of weighed
+  goods.
 
 ### Integration tests
 

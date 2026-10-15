@@ -59,6 +59,10 @@ export interface SalesSyncHarness {
   notifications: Loose[]
   seedProduct(input: { price: number; cost?: number; stock?: number }): Promise<string>
   seedSerialUnit(productId: string, serialNumber: string): Promise<string>
+  /** A customer who can buy on credit. */
+  seedCustomer(): Promise<string>
+  /** The receivable of a sale, when it has one. */
+  debtOf(saleId: string): Promise<{ originalAmount: number; status: string } | null>
   /** Another member of the business, with a built-in role and no assigned role. */
   seedMember(role: 'MANAGER' | 'CASHIER'): Promise<string>
   /** A role with discount limits, in force from a given moment. */
@@ -244,6 +248,28 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
         [id, businessId, productId, serialNumber],
       )
       return id
+    },
+
+    async seedCustomer() {
+      const contacts = dataSource.getRepository(Contact)
+      const contact = await contacts.save(
+        contacts.create({
+          businessId,
+          type: 'CUSTOMER',
+          name: `Customer ${randomUUID().slice(0, 6)}`,
+          createdById: userId,
+        } as never),
+      )
+      return (contact as unknown as Contact).id
+    },
+
+    async debtOf(saleId) {
+      const [row] = (await dataSource.query(
+        `SELECT original_amount, status FROM debts
+          WHERE business_id = $1 AND source_type = 'SALE' AND source_id = $2`,
+        [businessId, saleId],
+      )) as Array<{ original_amount: string; status: string }>
+      return row ? { originalAmount: Number(row.original_amount), status: row.status } : null
     },
 
     async seedMember(role) {

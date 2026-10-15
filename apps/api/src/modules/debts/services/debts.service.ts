@@ -19,7 +19,13 @@ import {
   type DebtsQuery,
   type JwtPayload,
 } from '@biztrack/types'
-import { debtSettledAt, debtStanding, effectiveDueDate } from '@biztrack/domain'
+import {
+  debtCanBeWrittenOff,
+  debtSettledAt,
+  debtStanding,
+  effectiveDueDate,
+  reduceDebt,
+} from '@biztrack/domain'
 import { APP_ROUTES } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm'
@@ -943,7 +949,8 @@ export class DebtsService {
     const writtenOffReason = this.normalizeOptionalString(params.reason) ?? 'Written off'
 
     for (const debt of debts) {
-      if ([DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) {
+      // A debt already paid in full stays settled (ruling R11).
+      if (!debtCanBeWrittenOff(debt.status)) {
         continue
       }
 
@@ -956,6 +963,70 @@ export class DebtsService {
         updatedAt: writtenOffAt,
       })
     }
+  }
+
+  /**
+   * What is still owed and what has been paid on the debt of a source (a sale's receivable),
+   * for deciding a return. Zeros when there is no debt; a written-off debt owes nothing.
+   */
+  async sourceDebtBalance(
+    manager: EntityManager,
+    params: { businessId: string; sourceType: DebtSource; sourceId: string },
+  ): Promise<{ outstanding: number; paid: number }> {
+    const debt = await manager.getRepository(DebtEntity).findOne({ where: params })
+    if (!debt) return { outstanding: 0, paid: 0 }
+    const standing = debtStanding({
+      originalAmount: debt.originalAmount,
+      paidAmount: await this.sumDebtPayments(debt.id, manager),
+      writtenOff: debt.status === DebtStatus.WRITTEN_OFF,
+    })
+    return {
+      outstanding: debt.status === DebtStatus.WRITTEN_OFF ? 0 : standing.outstandingAmount,
+      paid: standing.paidAmount,
+    }
+  }
+
+  /**
+   * Take returned goods off the debt of a source (ruling R10). How far the debt comes down
+   * and where it then stands is `reduceDebt` in @biztrack/domain. No-op when there is no
+   * open debt.
+   */
+  async reduceSourceDebt(
+    manager: EntityManager,
+    params: { businessId: string; sourceType: DebtSource; sourceId: string; amount: number },
+  ): Promise<void> {
+    if (!(params.amount > 0)) return
+    const debtRepo = manager.getRepository(DebtEntity)
+    const debt = await debtRepo.findOne({
+      where: {
+        businessId: params.businessId,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+      },
+    })
+    if (!debt || !debtCanBeWrittenOff(debt.status)) return
+    const reduced = reduceDebt({
+      originalAmount: debt.originalAmount,
+      paidAmount: await this.sumDebtPayments(debt.id, manager),
+      reduction: params.amount,
+    })
+    const now = new Date()
+    await debtRepo.update(debt.id, {
+      originalAmount: reduced.originalAmount,
+      status: reduced.standing.status,
+      settledAt: debtSettledAt(reduced.standing, debt.settledAt, now),
+      updatedAt: now,
+    })
+  }
+
+  private async sumDebtPayments(debtId: string, manager: EntityManager): Promise<number> {
+    const row = await manager
+      .getRepository(DebtPayment)
+      .createQueryBuilder('payment')
+      .select('COALESCE(SUM(payment.amount), 0)', 'paidAmount')
+      .where('payment.debt_id = :debtId', { debtId })
+      .getRawOne<{ paidAmount: string | number | null }>()
+    return Number(row?.paidAmount ?? 0)
   }
 
   /**

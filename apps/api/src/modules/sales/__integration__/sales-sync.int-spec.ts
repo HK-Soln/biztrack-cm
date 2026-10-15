@@ -645,4 +645,141 @@ describe('sales synced from a till', () => {
       ])
     })
   })
+
+  describe('a return when the customer owes on the sale (R9 to R11)', () => {
+    // Ten units at 1,000 to a customer.
+    const sold = async (paid: number) => {
+      const product = await h.seedProduct({ price: 1000, cost: 600, stock: 20 })
+      const customerId = await h.seedCustomer()
+      const payload = h.salePayload({
+        items: [{ productId: product, quantity: 10, unitPrice: 1000 }],
+        paid,
+        soldAt: SOLD_AT,
+        overrides: { customerId, creditAmount: 10000 - paid },
+      })
+      await h.sales.createFromSync(h.businessId, payload)
+      return payload
+    }
+    const refundedCash = (saleId: string) =>
+      count(
+        `SELECT COALESCE(SUM(amount), 0) AS n FROM sale_payments WHERE sale_id = $1 AND kind = 'REFUND'`,
+        [saleId],
+      )
+    const refund = (payload: SaleSyncPayload, quantity: number) =>
+      h.sales.refund(
+        payload.saleId,
+        h.businessId,
+        h.actor() as never,
+        {
+          items: [{ saleItemId: payload.items[0]!.id, quantity }],
+          reason: 'Customer brought it back',
+        } as never,
+      )
+
+    it('a sale paid in full owes nothing after part of it is returned (R9)', async () => {
+      const payload = await sold(10000)
+      const sale = await refund(payload, 2)
+
+      expect(await refundedCash(payload.saleId)).toBe(2000)
+      expect(sale).toMatchObject({ amountPaid: 8000, creditAmount: 0 })
+      expect(await h.debtOf(payload.saleId)).toBeNull()
+    })
+
+    it('takes the goods off the debt first, with no money handed back (R10)', async () => {
+      const payload = await sold(4000)
+      expect(await h.debtOf(payload.saleId)).toEqual({
+        originalAmount: 6000,
+        status: 'OUTSTANDING',
+      })
+
+      const sale = await refund(payload, 2)
+
+      expect(await refundedCash(payload.saleId)).toBe(0)
+      expect(sale).toMatchObject({ amountPaid: 4000, creditAmount: 4000 })
+      expect(await h.debtOf(payload.saleId)).toEqual({
+        originalAmount: 4000,
+        status: 'OUTSTANDING',
+      })
+    })
+
+    it('refunds only what is beyond the debt (R10)', async () => {
+      const payload = await sold(4000)
+      const sale = await refund(payload, 8)
+
+      expect(await refundedCash(payload.saleId)).toBe(2000)
+      expect(sale).toMatchObject({ amountPaid: 2000, creditAmount: 0 })
+      expect(await h.debtOf(payload.saleId)).toEqual({ originalAmount: 0, status: 'SETTLED' })
+    })
+
+    it('applies the same rule to a return synced from a till', async () => {
+      const payload = await sold(4000)
+      await h.sales.createFromSync(
+        h.businessId,
+        h.withReturn(payload, {
+          items: [{ saleItemId: payload.items[0]!.id, quantity: 2 }],
+          refundAmount: 0,
+          createdAt: REFUNDED_AT,
+        }),
+      )
+
+      expect(await refundedCash(payload.saleId)).toBe(0)
+      expect(await h.debtOf(payload.saleId)).toEqual({
+        originalAmount: 4000,
+        status: 'OUTSTANDING',
+      })
+      expect(await h.saleRow(payload.saleId)).toMatchObject({
+        amountPaid: 4000,
+        creditAmount: 4000,
+      })
+      expect(await h.flagsOf(payload.saleId)).toHaveLength(0)
+    })
+
+    it('keeps the money an older till handed back, and leaves the debt as it was', async () => {
+      const payload = await sold(4000)
+      await h.sales.createFromSync(
+        h.businessId,
+        h.withReturn(payload, {
+          items: [{ saleItemId: payload.items[0]!.id, quantity: 2 }],
+          refundAmount: 2000,
+          createdAt: REFUNDED_AT,
+        }),
+      )
+
+      // The customer got 2,000 back and still owes the 6,000: 8,000 of goods, 2,000 paid.
+      expect(await refundedCash(payload.saleId)).toBe(2000)
+      expect(await h.debtOf(payload.saleId)).toEqual({
+        originalAmount: 6000,
+        status: 'OUTSTANDING',
+      })
+      expect(await h.saleRow(payload.saleId)).toMatchObject({
+        amountPaid: 2000,
+        creditAmount: 6000,
+      })
+    })
+
+    it('leaves a debt that was paid in full settled when the sale is voided (R11)', async () => {
+      const payload = await sold(4000)
+      await dataSource.query(
+        `UPDATE debts SET status = 'SETTLED', settled_at = now() WHERE source_id = $1`,
+        [payload.saleId],
+      )
+
+      await h.sales.void(payload.saleId, h.businessId, h.actor() as never, {
+        reason: 'Rang up by mistake at the till',
+      })
+
+      expect(await h.debtOf(payload.saleId)).toEqual({ originalAmount: 6000, status: 'SETTLED' })
+    })
+
+    it('still writes off an unpaid debt when the sale is voided', async () => {
+      const payload = await sold(4000)
+      await h.sales.void(payload.saleId, h.businessId, h.actor() as never, {
+        reason: 'Rang up by mistake at the till',
+      })
+      expect(await h.debtOf(payload.saleId)).toEqual({
+        originalAmount: 6000,
+        status: 'WRITTEN_OFF',
+      })
+    })
+  })
 })

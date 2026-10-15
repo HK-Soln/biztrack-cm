@@ -739,8 +739,7 @@ export class SalesService {
       now,
     )
 
-    // Credit → receivable. The trg_sales_source_debt trigger already created it; this
-    // no-ops on the existing row (idempotent per source), mirroring restock.
+    // Credit → the sale's receivable (idempotent per source), mirroring restock.
     if (creditAmount > 0 && customerId) {
       this.debts.createSourceDebt({
         contactId: customerId,
@@ -861,11 +860,19 @@ export class SalesService {
 
     const now = new Date().toISOString()
 
-    // 1) Flip to VOIDED. The trg_sales_source_debt trigger writes off any linked receivable.
+    // 1) Flip to VOIDED and write off the sale's receivable. A receivable already paid in
+    //    full stays settled (ruling R11).
     this.db.run(
       `UPDATE sales SET status = 'VOIDED', voided_at = ?, voided_by = ?, void_reason = ?, updated_at = ? WHERE id = ?`,
       [now, actorId, trimmed, now, saleId],
     )
+    this.debts.writeOffSourceDebt({
+      sourceType: 'SALE',
+      sourceId: saleId,
+      reason: trimmed || 'Sale voided',
+      at: now,
+      by: actorId,
+    })
 
     // 2) Restock + reversing movement per (product, variant); release serial units. Only
     //    what is still sold comes back: quantities already returned are left alone.
@@ -1164,6 +1171,9 @@ export class SalesService {
     // Earlier returns count (ruling R5): a line only returns what is left of it, and the sale
     // is REFUNDED once every line's total returned quantity equals the quantity sold.
     const returnedBefore = this.returnedQuantityByItem(saleId)
+    // What the customer still owes on the sale: returned goods reduce it before any money is
+    // handed back (ruling R10).
+    const owed = this.debts.sourceDebtBalance('SALE', saleId)
     const decision = decideSaleRefund({
       items: saleItems.map((si) => ({
         id: si.id,
@@ -1173,7 +1183,8 @@ export class SalesService {
       })),
       returns: input.items,
       requestedAmount: input.amount,
-      amountPaid: sale.amount_paid,
+      amountPaid: sale.amount_paid + owed.paid,
+      outstandingBalance: owed.outstanding,
     })
     if (!decision.ok)
       throw new Error(
@@ -1298,8 +1309,8 @@ export class SalesService {
       }
     }
 
-    // 4) Recompute settlement from the signed payment ledger + set status. The
-    //    trg_sales_source_debt trigger recomputes the receivable off the new credit_amount.
+    // 4) Recompute settlement from the signed payment ledger + set status. Goods that came
+    //    back are no longer owed for (ruling R9).
     const entries = this.db.query<{ kind: 'PAYMENT' | 'REFUND'; amount: number }>(
       `SELECT kind, amount FROM sale_payments WHERE sale_id = ?`,
       [saleId],
@@ -1307,6 +1318,7 @@ export class SalesService {
     const { amountPaid, creditAmount } = settleSaleFromLedger({
       totalAmount: sale.total_amount,
       entries,
+      returnedGoodsValue: this.returnedGoodsValue(saleId),
     })
     const status = decision.status
     this.db.run(
@@ -1314,15 +1326,19 @@ export class SalesService {
       [amountPaid, creditAmount, status, now, saleId],
     )
 
-    // 5) A full return cancels any receivable — the goods came back (mirrors the API; the trigger
-    //    would otherwise leave it OUTSTANDING at the recomputed credit).
+    // 5) The receivable follows, by the same rules as the server: a full return cancels it
+    //    (the goods came back); a partial return takes the goods off what is still owed
+    //    (ruling R10).
     if (isFullReturn) {
-      this.db.run(
-        `UPDATE debts SET status = 'WRITTEN_OFF', written_off_at = ?, written_off_by = ?, written_off_reason = ?
-         WHERE business_id = ? AND source_type = 'SALE' AND source_id = ? AND direction = 'RECEIVABLE'
-           AND status <> 'WRITTEN_OFF'`,
-        [now, actorId, `Sale ${sale.sale_number} returned`, businessId, saleId],
-      )
+      this.debts.writeOffSourceDebt({
+        sourceType: 'SALE',
+        sourceId: saleId,
+        reason: `Sale ${sale.sale_number} returned`,
+        at: now,
+        by: actorId,
+      })
+    } else {
+      this.debts.reduceSourceDebt('SALE', saleId, decision.debtReduction)
     }
 
     // 6) Re-enqueue the sale with the return embedded so the API applies its own authoritative
@@ -1359,6 +1375,26 @@ export class SalesService {
   }
 
   /** Rebuild the SaleSyncPayload stamped REFUNDED/PARTIALLY_REFUNDED, with the return embedded. */
+  /** Value of everything returned on a sale so far, at the price it was charged. */
+  private returnedGoodsValue(saleId: string): number {
+    const lines = this.db.query<{
+      returnedQuantity: number
+      soldQuantity: number
+      lineTotal: number
+    }>(
+      `SELECT ri.quantity AS returnedQuantity, si.quantity AS soldQuantity, si.line_total AS lineTotal
+         FROM sale_return_items ri
+         JOIN sale_returns r ON r.id = ri.sale_return_id
+         JOIN sale_items si ON si.id = ri.sale_item_id
+        WHERE r.sale_id = ?`,
+      [saleId],
+    )
+    return refundProfitImpact({
+      restock: false,
+      lines: lines.map((line) => ({ ...line, costPrice: null })),
+    }).revenue
+  }
+
   private buildRefundPayload(
     saleId: string,
     businessId: string,

@@ -414,7 +414,11 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
 describe('SalesService.recomputeSaleSettlement (signed ledger)', () => {
   // amountPaid = Σ(PAYMENT) − Σ(REFUND), clamped ≥ 0; creditAmount = max(0, total − amountPaid).
   const mgrWith = (rows: Array<{ kind?: string; amount: number }>) =>
-    ({ getRepository: () => ({ find: jest.fn(async () => rows) }) }) as any
+    ({
+      getRepository: () => ({ find: jest.fn(async () => rows) }),
+      // No returns on these sales: the refund-impact query finds nothing.
+      query: jest.fn(async () => []),
+    }) as any
 
   it('sums PAYMENT rows into amountPaid, leaving the balance as credit', async () => {
     const service = makeService()

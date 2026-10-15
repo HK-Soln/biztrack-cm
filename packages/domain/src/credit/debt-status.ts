@@ -53,3 +53,30 @@ export function debtSettledAt<T>(
 ): T | null {
   return standing.status === DebtStatus.SETTLED ? (current ?? at) : null
 }
+
+/**
+ * Whether cancelling a debt's source (a voided sale, everything returned) writes the debt
+ * off. A debt already paid in full stays settled: the money was received (ruling R11).
+ * One already written off is left alone.
+ */
+export function debtCanBeWrittenOff(status: DebtStatus | `${DebtStatus}`): boolean {
+  return status !== DebtStatus.SETTLED && status !== DebtStatus.WRITTEN_OFF
+}
+
+/**
+ * A debt after part of what it was for came back (ruling R10): the amount owed for is
+ * reduced, never below what has already been paid against it, and the standing follows.
+ */
+export function reduceDebt(input: {
+  originalAmount: number
+  paidAmount: number
+  /** Value taken off the debt. */
+  reduction: number
+}): { originalAmount: number; standing: DebtStanding } {
+  const paid = toWholeXaf(Math.max(0, input.paidAmount))
+  const originalAmount = Math.max(
+    paid,
+    toWholeXaf(Math.max(0, input.originalAmount) - Math.max(0, input.reduction)),
+  )
+  return { originalAmount, standing: debtStanding({ originalAmount, paidAmount: paid }) }
+}

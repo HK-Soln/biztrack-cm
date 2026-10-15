@@ -16,6 +16,7 @@ import {
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
   reviewSerialAlreadySold,
+  returnDebtReduction,
   reviewSyncedDiscount,
   reviewStockAfterSyncedSale,
   reviewSyncedRefund,
@@ -1819,6 +1820,13 @@ export class SalesService {
         // What comes back, what it is worth and what money is returned is decided by
         // @biztrack/domain (the same decision desktop makes offline).
         const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
+        // What the customer still owes on the sale: returned goods reduce it before any
+        // money is handed back (ruling R10).
+        const owed = await this.debtsService.sourceDebtBalance(manager, {
+          businessId,
+          sourceType: DebtSource.SALE,
+          sourceId: sale.id,
+        })
         const decision = decideSaleRefund({
           items: saleItems.map((item) => ({
             id: item.id,
@@ -1828,7 +1836,8 @@ export class SalesService {
           })),
           returns: input.items,
           requestedAmount: input.amount,
-          amountPaid: sale.amountPaid,
+          amountPaid: sale.amountPaid + owed.paid,
+          outstandingBalance: owed.outstanding,
         })
         if (!decision.ok) {
           throw decision.code === 'RETURN_ITEM_NOT_FOUND'
@@ -1949,6 +1958,16 @@ export class SalesService {
           status: decision.status,
         })
 
+        // A partial return takes the goods off what is still owed (ruling R10).
+        if (!isFullReturn) {
+          await this.debtsService.reduceSourceDebt(manager, {
+            businessId,
+            sourceType: DebtSource.SALE,
+            sourceId: sale.id,
+            amount: decision.debtReduction,
+          })
+        }
+
         // A full return cancels any outstanding receivable — the goods came back.
         if (isFullReturn) {
           await this.debtsService.writeOffSourceDebt(manager, {
@@ -2016,7 +2035,9 @@ export class SalesService {
     totalAmount: number,
   ): Promise<{ amountPaid: number; creditAmount: number }> {
     const entries = await manager.getRepository(SalePayment).find({ where: { saleId } })
-    return settleSaleFromLedger({ totalAmount, entries })
+    // Goods that came back are no longer owed for (ruling R9).
+    const returned = await loadSaleRefundImpact(manager, saleId)
+    return settleSaleFromLedger({ totalAmount, entries, returnedGoodsValue: returned.revenue })
   }
 
   async getDailySummary(businessId: string, date?: string): Promise<DailySalesSummary> {
@@ -2820,8 +2841,15 @@ export class SalesService {
         saleItems.some((si) => si.id === r.saleItemId),
       )
       const returnedBefore = await this.returnedQuantityByItem(manager, sale.id)
-      const paidBefore = (await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount))
-        .amountPaid
+      const owed = await this.debtsService.sourceDebtBalance(manager, {
+        businessId,
+        sourceType: DebtSource.SALE,
+        sourceId: sale.id,
+      })
+      // Everything received for the sale: at the till and on its debt.
+      const paidBefore =
+        (await this.recomputeSaleSettlement(manager, sale.id, sale.totalAmount)).amountPaid +
+        owed.paid
       const tillRefundAmount = toWholeXaf(ret.refundAmount ?? 0)
       const decision =
         knownLines.length > 0
@@ -2835,6 +2863,7 @@ export class SalesService {
               returns: knownLines,
               requestedAmount: tillRefundAmount,
               amountPaid: paidBefore,
+              outstandingBalance: owed.outstanding,
             })
           : null
       const returnedLines =
@@ -2865,6 +2894,21 @@ export class SalesService {
           unknownLineCount: requestedLines.length - knownLines.length,
         }),
       )
+
+      // The money the till handed back is a fact; the goods it did not pay back for come
+      // off what the customer still owes (ruling R10).
+      if (decision && decision.ok) {
+        await this.debtsService.reduceSourceDebt(manager, {
+          businessId,
+          sourceType: DebtSource.SALE,
+          sourceId: sale.id,
+          amount: returnDebtReduction({
+            goodsValue: decision.goodsValue,
+            cashRefunded: tillRefundAmount,
+            outstandingBalance: owed.outstanding,
+          }),
+        })
+      }
 
       // The refund is booked on the day it happened at the till, not the day it synced.
       const returnedAt = this.parseOptionalDate(ret.createdAt) ?? now

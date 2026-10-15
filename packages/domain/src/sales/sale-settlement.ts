@@ -78,12 +78,18 @@ export function checkSaleCredit(input: {
 }
 
 /**
- * Re-settle a sale from its signed payment ledger: Σ(PAYMENT) − Σ(REFUND), never below 0,
- * against the sale total. Used after a later payment or a refund.
+ * Re-settle a sale from its signed payment ledger: Σ(PAYMENT) − Σ(REFUND), never below 0.
+ * Used after a later payment or a refund.
+ *
+ * Ruling R9: goods that came back are no longer owed for. The balance is what is still
+ * sold (the total less the value of everything returned) less what is still paid, so a
+ * sale paid in full does not show a balance because part of it was refunded.
  */
 export function settleSaleFromLedger(input: {
   totalAmount: number
   entries: ReadonlyArray<{ kind: SalePaymentKind | `${SalePaymentKind}`; amount: number }>
+  /** Value of the goods returned so far, over all of the sale's returns. */
+  returnedGoodsValue?: number | null
 }): { amountPaid: number; creditAmount: number } {
   const net = input.entries.reduce(
     (sum, entry) =>
@@ -91,7 +97,8 @@ export function settleSaleFromLedger(input: {
     0,
   )
   const amountPaid = toWholeXaf(Math.max(0, net))
-  return { amountPaid, creditAmount: toWholeXaf(Math.max(0, input.totalAmount - amountPaid)) }
+  const stillSold = Math.max(0, input.totalAmount - Math.max(0, input.returnedGoodsValue ?? 0))
+  return { amountPaid, creditAmount: toWholeXaf(Math.max(0, stillSold - amountPaid)) }
 }
 
 export interface RefundableSaleLine {
@@ -145,8 +152,13 @@ export type SaleRefundDecision =
       isFullReturn: boolean
       /** Value of the returned goods at their discounted per-unit price. */
       goodsValue: number
-      /** Money to hand back: the requested amount (default the goods value), capped at what was paid. */
+      /**
+       * Money to hand back. The goods first reduce what the customer still owes on the
+       * sale (ruling R10); only what is beyond that is refunded, capped at what was paid.
+       */
       refundAmount: number
+      /** How much of the goods value comes off the sale's receivable instead of being refunded. */
+      debtReduction: number
       status: SaleStatus.REFUNDED | SaleStatus.PARTIALLY_REFUNDED
     }
   | { ok: false; code: SaleRefundRejection }
@@ -155,17 +167,23 @@ export type SaleRefundDecision =
  * Decide a return of a sale. With no requested lines, everything not yet returned comes
  * back. Earlier returns count: a line can only return what is left of it, and the sale is
  * REFUNDED once every line's total returned quantity equals the quantity sold (ruling R5).
- * Money returned defaults to the goods value of the returned lines and is capped at what
- * was actually paid, so charges stay and an unpaid credit sale refunds nothing.
+ * Money returned is capped at what was actually paid, so charges stay and an unpaid credit
+ * sale refunds nothing.
+ *
+ * Ruling R10: when the customer still owes on the sale, the returned goods reduce that
+ * debt first and only the value beyond it is handed back. While any of the debt is left
+ * the cashier cannot hand back more than that.
  */
 export function decideSaleRefund(input: {
   items: ReadonlyArray<RefundableSaleLine>
   /** Lines to return; omitted or empty means a full return. */
   returns?: ReadonlyArray<SaleReturnRequestLine> | null
-  /** Money the cashier chose to return; defaults to the goods value. */
+  /** Money the cashier chose to return; defaults to the goods value beyond what is owed. */
   requestedAmount?: number | null
-  /** What the sale has been paid so far (net of earlier refunds). */
+  /** Everything received for the sale so far: paid at the till and on its debt, net of earlier refunds. */
   amountPaid: number
+  /** What the customer still owes on the sale's receivable. Defaults to nothing. */
+  outstandingBalance?: number | null
 }): SaleRefundDecision {
   const itemsById = new Map(input.items.map((item) => [item.id, item]))
   const requested = input.returns && input.returns.length > 0 ? input.returns : null
@@ -215,9 +233,13 @@ export function decideSaleRefund(input: {
       return sum + perUnit * line.quantity
     }, 0),
   )
+  const balance = toWholeXaf(Math.max(0, input.outstandingBalance ?? 0))
+  const beyondDebt = toWholeXaf(goodsValue - Math.min(goodsValue, balance))
   const requestedAmount =
-    input.requestedAmount != null ? toWholeXaf(input.requestedAmount) : goodsValue
-  const refundAmount = toWholeXaf(Math.min(Math.max(0, requestedAmount), input.amountPaid))
+    input.requestedAmount != null ? toWholeXaf(input.requestedAmount) : beyondDebt
+  // With nothing owed the cashier may refund up to what was paid, as before.
+  const ceiling = balance > 0 ? Math.min(beyondDebt, input.amountPaid) : input.amountPaid
+  const refundAmount = toWholeXaf(Math.min(Math.max(0, requestedAmount), Math.max(0, ceiling)))
 
   return {
     ok: true,
@@ -225,8 +247,27 @@ export function decideSaleRefund(input: {
     isFullReturn,
     goodsValue,
     refundAmount,
+    debtReduction: returnDebtReduction({
+      goodsValue,
+      cashRefunded: refundAmount,
+      outstandingBalance: balance,
+    }),
     status,
   }
+}
+
+/**
+ * How much a return takes off the sale's receivable (ruling R10): the value of the goods
+ * that was not handed back as money, up to what is still owed. Also used for a refund that
+ * already happened at a till, where the money handed back is a fact.
+ */
+export function returnDebtReduction(input: {
+  goodsValue: number
+  cashRefunded: number
+  outstandingBalance: number
+}): number {
+  const notRefunded = Math.max(0, input.goodsValue - Math.max(0, input.cashRefunded))
+  return toWholeXaf(Math.min(Math.max(0, input.outstandingBalance), notRefunded))
 }
 
 export type SaleVoidRejection = 'ALREADY_VOIDED' | 'FULLY_REFUNDED'
