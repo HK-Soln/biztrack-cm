@@ -199,6 +199,57 @@ owes 4,000.
 The debt stays settled: the money was received. Only a debt with something still owed is
 written off by a void. The till used to write off a settled debt; the server did not.
 
+### R12. A catalog record that breaks a rule (2026-10-16)
+
+The till enforces the same catalog rules as the server before it saves, and the server's
+sync path enforces them too and refuses what fails. Unlike a sale at the counter, a catalog
+record (product, variant, category, unit, contact) is not a fact that already happened, so
+refusing it loses nothing; checking on the till first means a current till never produces
+one the server will refuse.
+
+### R13. Stock tracking by product type (2026-10-16)
+
+The server's rule: a service or a bundle (composite) holds no stock, a product sold by
+quantity (variable quantity) is always tracked, and a simple product follows its own
+"track stock" setting, which may be off.
+
+### R14. Variant products (2026-10-16)
+
+A variant product needs at least one variant. More can be added later.
+
+### R15. Prices (2026-10-16)
+
+A selling price can never be negative, on every path: the form, the till, the server and
+the sync. Zero is allowed.
+
+### R16. Contacts (2026-10-16)
+
+- Only the name is required. A phone number is optional; when given it must be a valid
+  number from any country.
+- The name is unique in the business, compared by its slug (so "Kemi Stores" and
+  "kemi-stores" are the same name). A database constraint holds it on both sides.
+- A new contact whose phone number or email is already on another contact is refused by
+  default with `CONTACT_DUPLICATE`, on the server and the till alike. The screen then asks:
+  merge into the existing contact (and take the new name if it differs), create it anyway
+  as a separate contact, or cancel.
+
+### R17. SKUs and barcodes (2026-10-16)
+
+- A product created on the till gets its SKU on the till, by the same rule the server uses.
+- A barcode is optional. When given it is any non-empty text, unique in the business; it
+  does not have to follow a barcode standard or carry a check digit.
+
+### R18. Deletions arriving by sync (2026-10-16)
+
+A product, variant or serial unit deleted on a till is deleted on the server exactly as the
+server's own delete does it, including writing off its remaining stock.
+
+### R19. Partly refunded sales in the sales reports (2026-10-16)
+
+Every sales report counts a partly refunded sale, net of its refunds, as the income
+statement does (R4): the period summary, the cashier figures and the discount reports, not
+only profit.
+
 ### How the rulings are implemented
 
 Which flag to raise and how serious it is, is decided in `packages/domain/src/review`
