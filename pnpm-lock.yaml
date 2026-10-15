@@ -841,6 +841,9 @@ importers:
       '@biztrack/types':
         specifier: workspace:*
         version: link:../types
+      libphonenumber-js:
+        specifier: ^1.12.10
+        version: 1.12.40
     devDependencies:
       '@biztrack/eslint-config':
         specifier: workspace:*

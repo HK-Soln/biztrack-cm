@@ -60,7 +60,15 @@ import type {
   MemberAuthCredentialSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
-import { checkProductSku, debtStanding, toWholeXaf, validateSerialNumber } from '@biztrack/domain'
+import {
+  checkProductSku,
+  contactNameKey,
+  debtStanding,
+  findContactClashes,
+  normalizePhone,
+  toWholeXaf,
+  validateSerialNumber,
+} from '@biztrack/domain'
 import {
   AttributeDisplayType,
   ContactType,
@@ -91,6 +99,7 @@ import { DataSource, In, IsNull, QueryFailedError, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
+  AppConflictException,
   AppInternalServerException,
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
@@ -2727,6 +2736,12 @@ export class SyncService {
 
     if (operation.action === 'DELETE') {
       if (existing) {
+        if (existing.isActive && (await this.contactHasOpenDebts(businessId, existing.id))) {
+          throw new AppBadRequestException(
+            'This contact has open balances and cannot be archived.',
+            'CONTACT_HAS_OPEN_DEBTS',
+          )
+        }
         await this.contactsRepo.update(operation.recordId, {
           isActive: false,
           updatedAt: operation.recordUpdatedAt,
@@ -2741,6 +2756,24 @@ export class SyncService {
     if (!normalizedName) {
       throw new AppBadRequestException('Contact name is required.', 'CONTACT_NAME_REQUIRED')
     }
+    // The name is unique in the business, as on the server's own path and the till (R12,
+    // R16). A phone or email shared with another contact is accepted: the till already asked
+    // the person and they chose to create it anyway.
+    const others = await this.contactsRepo.find({ where: { businessId } })
+    const { nameTaken } = findContactClashes(
+      { name: normalizedName, selfId: operation.recordId },
+      others,
+    )
+    if (nameTaken) {
+      throw new AppConflictException(
+        `Another contact is already named "${nameTaken.name}".`,
+        'CONTACT_NAME_TAKEN',
+        { contactId: nameTaken.id, name: nameTaken.name },
+      )
+    }
+    // Phones in international form; one an older till sent in another form is kept as sent.
+    const contactPhone = (value?: string | null) =>
+      normalizePhone(value) ?? this.normalizeOptionalString(value)
 
     const createdById = await this.resolveContactCreatedById(businessId, payload.createdById)
 
@@ -2754,12 +2787,24 @@ export class SyncService {
       if (reactivatesQuotaConsumer) {
         await this.quotaService.assertWithinQuota(businessId, 'contacts')
       }
+      // A contact who still owes or is owed cannot be archived, as on the server's own path.
+      if (
+        existing.isActive &&
+        !nextIsActive &&
+        (await this.contactHasOpenDebts(businessId, existing.id))
+      ) {
+        throw new AppBadRequestException(
+          'This contact has open balances and cannot be archived.',
+          'CONTACT_HAS_OPEN_DEBTS',
+        )
+      }
 
       await this.contactsRepo.update(operation.recordId, {
         type: payload.type ?? existing.type,
         name: normalizedName,
-        phone: this.normalizeOptionalString(payload.phone),
-        phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        nameKey: contactNameKey(normalizedName),
+        phone: contactPhone(payload.phone),
+        phoneAlt: contactPhone(payload.phoneAlt),
         email: this.normalizeOptionalString(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
@@ -2786,8 +2831,8 @@ export class SyncService {
         businessId,
         type: payload.type ?? ContactType.CUSTOMER,
         name: normalizedName,
-        phone: this.normalizeOptionalString(payload.phone),
-        phoneAlt: this.normalizeOptionalString(payload.phoneAlt),
+        phone: contactPhone(payload.phone),
+        phoneAlt: contactPhone(payload.phoneAlt),
         email: this.normalizeOptionalString(payload.email),
         address: this.normalizeOptionalString(payload.address),
         notes: this.normalizeOptionalString(payload.notes),
@@ -2805,6 +2850,15 @@ export class SyncService {
     )
 
     return { status: 'applied' }
+  }
+
+  private async contactHasOpenDebts(businessId: string, contactId: string): Promise<boolean> {
+    const [row] = (await this.dataSource.query(
+      `SELECT 1 FROM debts WHERE business_id = $1 AND contact_id = $2
+          AND status IN ('OUTSTANDING', 'PARTIALLY_PAID') LIMIT 1`,
+      [businessId, contactId],
+    )) as unknown[]
+    return !!row
   }
 
   private async applyRfqOperation(

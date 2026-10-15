@@ -1,3 +1,4 @@
+import { findContactClashes, normalizePhone } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { ConfigService } from '@nestjs/config'
@@ -141,11 +142,7 @@ export class OnlineOrdersService {
 
   // ---- Cart ---------------------------------------------------------------
 
-  async getCart(
-    slug: string,
-    sessionToken: string,
-    preview = false,
-  ): Promise<OnlineCartShape> {
+  async getCart(slug: string, sessionToken: string, preview = false): Promise<OnlineCartShape> {
     const { store } = await this.requireStore(slug, preview)
     const cart = await this.cartsRepo.findOne({
       where: { onlineStoreId: store.id, sessionToken },
@@ -415,12 +412,21 @@ export class OnlineOrdersService {
             { payableType: PayableType.ONLINE_ORDER, payableId: order.id },
             deposit != null ? { allowPartial: true } : undefined,
           )
-          payment = { mode: 'link', token: link.token, method, ...(deposit != null ? { amount: deposit } : {}) }
+          payment = {
+            mode: 'link',
+            token: link.token,
+            method,
+            ...(deposit != null ? { amount: deposit } : {}),
+          }
         } catch (error) {
-          this.logger.warn('Checkout: could not create a payment link for the order', 'OnlineOrdersService', {
-            orderId: order.id,
-            error: error instanceof Error ? error.message : String(error),
-          })
+          this.logger.warn(
+            'Checkout: could not create a payment link for the order',
+            'OnlineOrdersService',
+            {
+              orderId: order.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          )
           payment = { mode: 'none' }
         }
       }
@@ -1115,12 +1121,21 @@ export class OnlineOrdersService {
       }
       return existing.id
     }
+    // Contact names are unique in a business (ruling R16). A first-time buyer whose name is
+    // already on another contact is told apart by their phone or email, so the order never
+    // fails on it. (Interim: see the online-customers question in the design doc.)
+    const others = await this.contactsRepo.find({ where: { businessId: order.businessId } })
+    let name = order.customerName.trim() || 'Online customer'
+    if (findContactClashes({ name }, others).nameTaken) name = `${name} (${phone ?? email})`
+    for (let n = 2; findContactClashes({ name }, others).nameTaken; n += 1) {
+      name = `${order.customerName.trim()} (${phone ?? email}) ${n}`
+    }
     const created = await this.contactsRepo.save(
       this.contactsRepo.create({
         businessId: order.businessId,
         type: ContactType.CUSTOMER,
-        name: order.customerName,
-        phone,
+        name,
+        phone: normalizePhone(phone) ?? phone,
         email,
         isActive: true,
       }),

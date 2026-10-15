@@ -18,7 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@biztrack/types": "workspace:*"
+    "@biztrack/types": "workspace:*",
+    "libphonenumber-js": "^1.12.10"
   },
   "devDependencies": {
     "@biztrack/eslint-config": "workspace:*",

@@ -1,4 +1,12 @@
-import { toWholeXaf } from '@biztrack/domain'
+import {
+  checkContactInput,
+  contactNameKey,
+  findContactClashes,
+  mergeContact,
+  normalizeEmail,
+  normalizePhone,
+  toWholeXaf,
+} from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -15,10 +23,11 @@ import {
   type JwtPayload,
 } from '@biztrack/types'
 import { I18nService } from 'nestjs-i18n'
-import { Brackets, In, IsNull, Not, Repository } from 'typeorm'
+import { Brackets, In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import {
   AppBadRequestException,
+  AppConflictException,
   AppInternalServerException,
   AppNotFoundException,
 } from '@/common/exceptions/app-exceptions'
@@ -191,13 +200,16 @@ export class ContactsService {
       idExpiryDate?: string | null
       idDocuments?: string[] | null
       selfieUrl?: string | null
+      onDuplicate?: 'MERGE' | 'CREATE'
     },
   ) {
     try {
+      // Only a name is required; phones are optional and valid when given (R16).
+      await this.assertContactInput(dto)
       const name = dto.name.trim()
-      const phone = await this.normalizeRequiredPhone(dto.phone)
-      const phoneAlt = await this.normalizeOptionalPhone(dto.phoneAlt)
-      const email = this.normalizeOptionalString(dto.email)
+      const phone = normalizePhone(dto.phone)
+      const phoneAlt = normalizePhone(dto.phoneAlt)
+      const email = normalizeEmail(dto.email)
       const address = this.normalizeOptionalString(dto.address)
       const notes = this.normalizeOptionalString(dto.notes)
       const kyc = {
@@ -209,39 +221,46 @@ export class ContactsService {
         selfieUrl: this.normalizeOptionalString(dto.selfieUrl),
       }
 
-      const existing = await this.findByPrimaryPhone(businessId, phone)
-      if (existing) {
-        if (!existing.isActive) {
-          // Reactivating an archived contact consumes a slot again because the
-          // quota counts only active contacts.
-          await this.quotaService.assertWithinQuota(businessId, 'contacts')
-        }
-
-        if (existing.type === ContactType.BOTH) {
-          return this.reuseExistingContact(existing, businessId, {
-            type: ContactType.BOTH,
-            phoneAlt,
-            email,
-            address,
-            notes,
-          })
-        }
-
-        if (existing.type === dto.type) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.contact_already_exists' as never),
-            'CONTACT_ALREADY_EXISTS',
+      // A phone or email already on another contact is refused unless the person chose to
+      // merge or to create anyway; a name already taken is always refused (R16).
+      const others = await this.contactsRepo.find({ where: { businessId } })
+      const clashes = findContactClashes({ name, phone, email }, others)
+      const duplicate = clashes.duplicates[0]
+      if (duplicate && dto.onDuplicate !== 'CREATE') {
+        if (dto.onDuplicate !== 'MERGE') {
+          throw new AppConflictException(
+            await this.i18n.translate('errors.contact_duplicate' as never),
+            'CONTACT_DUPLICATE',
+            duplicate,
           )
         }
-
-        return this.reuseExistingContact(existing, businessId, {
-          type: ContactType.BOTH,
+        const target = others.find((other) => other.id === duplicate.contactId)!
+        const merged = mergeContact(target, {
+          type: dto.type,
+          name,
+          phone,
           phoneAlt,
           email,
           address,
           notes,
         })
+        await this.assertNameFree(businessId, merged.name, target.id, others)
+        if (!target.isActive) await this.quotaService.assertWithinQuota(businessId, 'contacts')
+        await this.contactsRepo.update(target.id, {
+          type: merged.type as ContactType,
+          name: merged.name,
+          nameKey: contactNameKey(merged.name),
+          phone: merged.phone ?? null,
+          phoneAlt: merged.phoneAlt ?? null,
+          email: merged.email ?? null,
+          address: merged.address ?? null,
+          notes: merged.notes ?? null,
+          isActive: true,
+          updatedAt: new Date(),
+        })
+        return this.findById(target.id, businessId)
       }
+      await this.assertNameFree(businessId, name, null, others)
 
       await this.quotaService.assertWithinQuota(businessId, 'contacts')
 
@@ -296,21 +315,24 @@ export class ContactsService {
         )
       }
 
+      const nextName = dto.name?.trim() ?? contact.name
+      await this.assertContactInput({
+        name: nextName,
+        phone: dto.phone,
+        phoneAlt: dto.phoneAlt,
+      })
+      if (contactNameKey(nextName) !== contact.nameKey) {
+        await this.assertNameFree(businessId, nextName, contact.id)
+      }
+
       await this.contactsRepo.update(id, {
         type: dto.type ?? contact.type,
-        name: dto.name?.trim() ?? contact.name,
-        phone:
-          dto.phone === undefined
-            ? (contact.phone ?? null)
-            : await this.normalizeOptionalPhone(dto.phone),
+        name: nextName,
+        nameKey: contactNameKey(nextName),
+        phone: dto.phone === undefined ? (contact.phone ?? null) : normalizePhone(dto.phone),
         phoneAlt:
-          dto.phoneAlt === undefined
-            ? (contact.phoneAlt ?? null)
-            : await this.normalizeOptionalPhone(dto.phoneAlt),
-        email:
-          dto.email === undefined
-            ? (contact.email ?? null)
-            : this.normalizeOptionalString(dto.email),
+          dto.phoneAlt === undefined ? (contact.phoneAlt ?? null) : normalizePhone(dto.phoneAlt),
+        email: dto.email === undefined ? (contact.email ?? null) : normalizeEmail(dto.email),
         address:
           dto.address === undefined
             ? (contact.address ?? null)
@@ -545,106 +567,43 @@ export class ContactsService {
     return trimmed ? trimmed : null
   }
 
-  private async findByPrimaryPhone(businessId: string, phone: string, excludeId?: string) {
-    const rows = await this.contactsRepo.find({
-      where: excludeId
-        ? {
-            businessId,
-            phone: Not(IsNull()),
-            id: Not(excludeId),
-          }
-        : {
-            businessId,
-            phone: Not(IsNull()),
-          },
-      order: {
-        updatedAt: 'DESC',
-        createdAt: 'DESC',
-      },
-    })
-
-    const normalizedPhone = this.normalizePhoneForLookup(phone)
-    return rows.find((row) => this.normalizePhoneForLookup(row.phone) === normalizedPhone) ?? null
+  /** A name, and valid phones when given (@biztrack/domain checkContactInput). */
+  private async assertContactInput(input: {
+    name?: string | null
+    phone?: string | null
+    phoneAlt?: string | null
+  }): Promise<void> {
+    const problem = checkContactInput(input)
+    if (problem === 'CONTACT_NAME_REQUIRED') {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.contact_name_required' as never),
+        'CONTACT_NAME_REQUIRED',
+      )
+    }
+    if (problem === 'CONTACT_PHONE_INVALID') {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.contact_phone_invalid' as never),
+        'CONTACT_PHONE_INVALID',
+      )
+    }
   }
 
-  private async reuseExistingContact(
-    contact: Contact,
+  /** The name is free in the business (R16); `selfId` is the contact being saved, if any. */
+  private async assertNameFree(
     businessId: string,
-    input: {
-      type: ContactType
-      phoneAlt: string | null
-      email: string | null
-      address: string | null
-      notes: string | null
-    },
-  ) {
-    const nextPhoneAlt = contact.phoneAlt ?? input.phoneAlt
-    const nextEmail = contact.email ?? input.email
-    const nextAddress = contact.address ?? input.address
-    const nextNotes = contact.notes ?? input.notes
-    const shouldUpdate =
-      contact.type !== input.type ||
-      !contact.isActive ||
-      nextPhoneAlt !== (contact.phoneAlt ?? null) ||
-      nextEmail !== (contact.email ?? null) ||
-      nextAddress !== (contact.address ?? null) ||
-      nextNotes !== (contact.notes ?? null)
-
-    if (shouldUpdate) {
-      await this.contactsRepo.update(contact.id, {
-        type: input.type,
-        phoneAlt: nextPhoneAlt,
-        email: nextEmail,
-        address: nextAddress,
-        notes: nextNotes,
-        isActive: true,
-        updatedAt: new Date(),
-      })
-    }
-
-    return this.findById(contact.id, businessId)
-  }
-
-  private normalizePhoneForLookup(value: string | null | undefined) {
-    const trimmed = value?.trim() || ''
-    if (!trimmed) {
-      return null
-    }
-
-    const digits = trimmed.replace(/\D/g, '')
-    if (!digits) {
-      return null
-    }
-
-    return trimmed.startsWith('+') ? `+${digits}` : digits
-  }
-
-  private async normalizeOptionalPhone(value?: string | null) {
-    const normalized = this.normalizePhoneForLookup(value)
-    if (!normalized) {
-      return null
-    }
-
-    if (normalized.length < 5 || normalized.length > 30) {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.contact_phone_invalid' as never),
-        'CONTACT_PHONE_INVALID',
+    name: string,
+    selfId: string | null,
+    loaded?: Contact[],
+  ): Promise<void> {
+    const others = loaded ?? (await this.contactsRepo.find({ where: { businessId } }))
+    const { nameTaken } = findContactClashes({ name, selfId }, others)
+    if (nameTaken) {
+      throw new AppConflictException(
+        await this.i18n.translate('errors.contact_name_taken' as never),
+        'CONTACT_NAME_TAKEN',
+        { contactId: nameTaken.id, name: nameTaken.name },
       )
     }
-
-    return normalized
-  }
-
-  private async normalizeRequiredPhone(value?: string | null) {
-    const normalized = await this.normalizeOptionalPhone(value)
-    if (!normalized) {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.contact_phone_invalid' as never),
-        'CONTACT_PHONE_INVALID',
-      )
-    }
-
-    return normalized
   }
 
   private async handleServiceError(

@@ -15,7 +15,14 @@ export default [
       'no-restricted-imports': [
         'warn',
         {
-          patterns: [{ regex: '^(?![.]{1,2}/|@biztrack/types$)', message: PURITY_MESSAGE }],
+          // libphonenumber-js is the one outside import: pure and deterministic, it is how a
+          // phone number is validated and normalised the same way everywhere (ruling R16).
+          patterns: [
+            {
+              regex: '^(?![.]{1,2}/|@biztrack/types$|libphonenumber-js$)',
+              message: PURITY_MESSAGE,
+            },
+          ],
         },
       ],
       'no-restricted-globals': [

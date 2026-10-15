@@ -269,9 +269,22 @@ export interface CreateContactRequest {
   idExpiryDate?: string | null
   idDocuments?: string[] | null
   selfieUrl?: string | null
+  /**
+   * What to do when the phone or email is already on another contact (ruling R16): merge
+   * into it, or create this one anyway. Without it such a contact is refused with
+   * CONTACT_DUPLICATE and the details below.
+   */
+  onDuplicate?: 'MERGE' | 'CREATE'
 }
 
-export type UpdateContactRequest = Partial<CreateContactRequest>
+/** The contact a new one matches by phone or email (CONTACT_DUPLICATE). */
+export interface ContactDuplicateDetails {
+  contactId: string
+  name: string
+  matchedOn: Array<'phone' | 'email'>
+}
+
+export type UpdateContactRequest = Partial<Omit<CreateContactRequest, 'onDuplicate'>>
 
 export interface RecordDebtPaymentRequest {
   amount: number
