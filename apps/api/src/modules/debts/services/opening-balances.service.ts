@@ -14,7 +14,13 @@ import {
   type JwtPayload,
   type UpsertOpeningBalanceRequest,
 } from '@biztrack/types'
-import { daysPastDue, debtSettledAt, debtStanding, effectiveDueDate } from '@biztrack/domain'
+import {
+  daysPastDue,
+  debtSettledAt,
+  debtStanding,
+  effectiveDueDate,
+  toWholeXaf,
+} from '@biztrack/domain'
 import { I18nService } from 'nestjs-i18n'
 import { In, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
@@ -72,7 +78,7 @@ export class OpeningBalancesService {
       this.assertDirectionCompatibleWithType(contact.type as ContactType, dto.direction)
       this.assertDateOnly(dto.asOfDate)
 
-      const amount = this.roundMoney(dto.amount)
+      const amount = toWholeXaf(dto.amount)
       if (amount <= 0) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.opening_balance_amount_invalid' as never),
@@ -229,23 +235,23 @@ export class OpeningBalancesService {
 
       for (const debt of debts) {
         if (debt.status === DebtStatus.WRITTEN_OFF) continue
-        const paid = this.roundMoney((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-        const outstanding = this.roundMoney(Math.max(0, debt.originalAmount - paid))
+        const paid = toWholeXaf((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
+        const outstanding = toWholeXaf(Math.max(0, debt.originalAmount - paid))
         const isOpening = debt.sourceType === DebtSource.OPENING_BALANCE
 
         if (debt.direction === DebtDirection.RECEIVABLE) {
-          if (isOpening) receivableOb = this.roundMoney(receivableOb + outstanding)
-          else receivableDebts = this.roundMoney(receivableDebts + outstanding)
-          receivablePaid = this.roundMoney(receivablePaid + paid)
+          if (isOpening) receivableOb = toWholeXaf(receivableOb + outstanding)
+          else receivableDebts = toWholeXaf(receivableDebts + outstanding)
+          receivablePaid = toWholeXaf(receivablePaid + paid)
         } else {
-          if (isOpening) payableOb = this.roundMoney(payableOb + outstanding)
-          else payableDebts = this.roundMoney(payableDebts + outstanding)
-          payablePaid = this.roundMoney(payablePaid + paid)
+          if (isOpening) payableOb = toWholeXaf(payableOb + outstanding)
+          else payableDebts = toWholeXaf(payableDebts + outstanding)
+          payablePaid = toWholeXaf(payablePaid + paid)
         }
       }
 
-      const receivableNet = this.roundMoney(receivableOb + receivableDebts)
-      const payableNet = this.roundMoney(payableOb + payableDebts)
+      const receivableNet = toWholeXaf(receivableOb + receivableDebts)
+      const payableNet = toWholeXaf(payableOb + payableDebts)
 
       return {
         contact: {
@@ -265,7 +271,7 @@ export class OpeningBalancesService {
           totalPaid: payablePaid,
           netBalance: payableNet,
         },
-        net: this.roundMoney(receivableNet - payableNet),
+        net: toWholeXaf(receivableNet - payableNet),
       }
     } catch (error) {
       return this.handleServiceError('getNetPosition', error, { contactId, businessId })
@@ -310,8 +316,8 @@ export class OpeningBalancesService {
 
       for (const debt of debts) {
         if (!debt.contact) continue
-        const paid = this.roundMoney((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
-        const outstanding = this.roundMoney(Math.max(0, debt.originalAmount - paid))
+        const paid = toWholeXaf((debt.payments ?? []).reduce((sum, p) => sum + p.amount, 0))
+        const outstanding = toWholeXaf(Math.max(0, debt.originalAmount - paid))
         if (outstanding <= 0) continue
 
         const entry = contactMap.get(debt.contactId) ?? {
@@ -328,23 +334,23 @@ export class OpeningBalancesService {
         // The opening balance keeps its own column (not aged); every other debt is
         // bucketed by how far past its effective due date it is (7/15/30 boundaries).
         if (debt.sourceType === DebtSource.OPENING_BALANCE) {
-          entry.openingBalance = this.roundMoney(entry.openingBalance + outstanding)
+          entry.openingBalance = toWholeXaf(entry.openingBalance + outstanding)
         } else {
           const due = effectiveDueDate(debt, creditDays)
           const overdueDays = daysPastDue(due, now)
           if (overdueDays <= 7) {
-            entry.current = this.roundMoney(entry.current + outstanding)
+            entry.current = toWholeXaf(entry.current + outstanding)
           } else if (overdueDays <= 15) {
-            entry.moderate = this.roundMoney(entry.moderate + outstanding)
+            entry.moderate = toWholeXaf(entry.moderate + outstanding)
           } else if (overdueDays <= 30) {
-            entry.aged = this.roundMoney(entry.aged + outstanding)
+            entry.aged = toWholeXaf(entry.aged + outstanding)
           } else {
-            entry.overdue = this.roundMoney(entry.overdue + outstanding)
+            entry.overdue = toWholeXaf(entry.overdue + outstanding)
           }
           if (overdueDays > 0) {
-            entry.pastDue = this.roundMoney(entry.pastDue + outstanding)
+            entry.pastDue = toWholeXaf(entry.pastDue + outstanding)
           }
-          entry.total = this.roundMoney(entry.total + outstanding)
+          entry.total = toWholeXaf(entry.total + outstanding)
         }
         contactMap.set(debt.contactId, entry)
       }
@@ -359,20 +365,20 @@ export class OpeningBalancesService {
         aged: e.aged,
         overdue: e.overdue,
         pastDue: e.pastDue,
-        totalOutstanding: this.roundMoney(e.openingBalance + e.total),
+        totalOutstanding: toWholeXaf(e.openingBalance + e.total),
       }))
 
       entries.sort((a, b) => b.totalOutstanding - a.totalOutstanding)
 
       const totals = entries.reduce(
         (acc, e) => ({
-          openingBalance: this.roundMoney(acc.openingBalance + e.openingBalance),
-          current: this.roundMoney(acc.current + e.current),
-          moderate: this.roundMoney(acc.moderate + e.moderate),
-          aged: this.roundMoney(acc.aged + e.aged),
-          overdue: this.roundMoney(acc.overdue + e.overdue),
-          pastDue: this.roundMoney(acc.pastDue + e.pastDue),
-          totalOutstanding: this.roundMoney(acc.totalOutstanding + e.totalOutstanding),
+          openingBalance: toWholeXaf(acc.openingBalance + e.openingBalance),
+          current: toWholeXaf(acc.current + e.current),
+          moderate: toWholeXaf(acc.moderate + e.moderate),
+          aged: toWholeXaf(acc.aged + e.aged),
+          overdue: toWholeXaf(acc.overdue + e.overdue),
+          pastDue: toWholeXaf(acc.pastDue + e.pastDue),
+          totalOutstanding: toWholeXaf(acc.totalOutstanding + e.totalOutstanding),
         }),
         {
           openingBalance: 0,
@@ -415,9 +421,9 @@ export class OpeningBalancesService {
     for (const row of rows) {
       const entry = result.get(row.contactId) ?? { receivable: 0, payable: 0 }
       if (row.direction === DebtDirection.RECEIVABLE) {
-        entry.receivable = this.roundMoney(row.amount)
+        entry.receivable = toWholeXaf(row.amount)
       } else {
-        entry.payable = this.roundMoney(row.amount)
+        entry.payable = toWholeXaf(row.amount)
       }
       result.set(row.contactId, entry)
     }
@@ -478,10 +484,6 @@ export class OpeningBalancesService {
   private daysBetween(createdAt: Date, now: Date): number {
     const msPerDay = 1000 * 60 * 60 * 24
     return Math.floor((now.getTime() - createdAt.getTime()) / msPerDay)
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private async handleServiceError(

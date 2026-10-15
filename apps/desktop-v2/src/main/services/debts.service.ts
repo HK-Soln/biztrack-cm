@@ -2,12 +2,15 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
 import {
+  checkDebtPayment,
   daysPastDue,
   debtCanBeWrittenOff,
   debtSettledAt,
   debtStanding,
   effectiveDueDate,
+  planDebtOffset,
   reduceDebt,
+  toWholeXaf,
 } from '@biztrack/domain'
 import type {
   AgeingEntry,
@@ -25,8 +28,6 @@ import type {
 import { paginateRows, toPaginated } from './pagination'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 interface DebtRow {
   id: string
@@ -332,11 +333,21 @@ export class DebtsService {
     const debt = this.getRow(debtId, businessId)
     if (!debt) throw new Error('Debt not found.')
     if (debt.status === 'WRITTEN_OFF') throw new Error('This debt has been written off.')
-    const amount = Number(input.amount)
-    if (!Number.isFinite(amount) || amount <= 0)
-      throw new Error('Payment amount must be greater than 0.')
-    const outstanding = debt.original_amount - debt.paid_amount
-    if (amount > outstanding + 1e-6) throw new Error('Payment exceeds the outstanding balance.')
+    // Above zero and no more than is owed: @biztrack/domain's rule, as on the server.
+    const payment = checkDebtPayment({
+      amount: Number(input.amount),
+      outstanding: debtStanding({
+        originalAmount: debt.original_amount,
+        paidAmount: debt.paid_amount,
+      }).outstandingAmount,
+    })
+    if (!payment.ok)
+      throw new Error(
+        payment.code === 'DEBT_PAYMENT_AMOUNT_INVALID'
+          ? 'Payment amount must be greater than 0.'
+          : 'Payment exceeds the outstanding balance.',
+      )
+    const { amount } = payment
 
     const now = new Date().toISOString()
     // Local trading day (BIZ-5.1) from the payment date.
@@ -419,29 +430,21 @@ export class DebtsService {
         .map(toLocalDebt)
         .filter((d) => d.outstandingAmount > 0)
 
-    const recv = openDebts('RECEIVABLE')
-    const pay = openDebts('PAYABLE')
-    const totalR = round2(recv.reduce((s, d) => s + d.outstandingAmount, 0))
-    const totalP = round2(pay.reduce((s, d) => s + d.outstandingAmount, 0))
-    const offsetAmount = round2(Math.min(totalR, totalP))
-    if (offsetAmount <= 0) throw new Error('Nothing to offset — both sides need an open balance.')
+    // How much is netted, and against which debts, is @biztrack/domain's, as on the server.
+    const plan = planDebtOffset({
+      receivables: openDebts('RECEIVABLE').map((d) => ({ ...d, outstanding: d.outstandingAmount })),
+      payables: openDebts('PAYABLE').map((d) => ({ ...d, outstanding: d.outstandingAmount })),
+    })
+    if (!plan.ok) throw new Error('Nothing to offset — both sides need an open balance.')
+    const { offsetAmount, receivableTotal: totalR, payableTotal: totalP } = plan
 
     const now = new Date().toISOString()
     const ref = `OFFSET-${now.slice(0, 10).replace(/-/g, '')}`
     let affected = 0
-    const allocate = (debts: LocalDebt[]) => {
-      let remaining = offsetAmount
-      for (const d of debts) {
-        if (remaining <= 1e-6) break
-        const applied = round2(Math.min(remaining, d.outstandingAmount))
-        if (applied <= 0) continue
-        this.applyContra(d.id, businessId, applied, ref, now)
-        remaining = round2(remaining - applied)
-        affected++
-      }
+    for (const { debt, amount } of plan.allocations) {
+      this.applyContra(debt.id, businessId, amount, ref, now)
+      affected++
     }
-    allocate(recv)
-    allocate(pay)
 
     this.onMutated()
     this.audit?.log({
@@ -617,7 +620,7 @@ export class DebtsService {
     for (const e of events) {
       if (e.kind === 'debt') {
         const isOpening = e.debt.source_type === 'OPENING_BALANCE'
-        balance = round2(balance + e.debt.original_amount)
+        balance = toWholeXaf(balance + e.debt.original_amount)
         entries.push({
           date: e.debt.created_at,
           type: isOpening
@@ -631,7 +634,7 @@ export class DebtsService {
           balance,
         })
       } else if (e.kind === 'pay') {
-        balance = round2(balance - e.pay.amount)
+        balance = toWholeXaf(balance - e.pay.amount)
         entries.push({
           date: e.date,
           type: ContactStatementEntryType.PAYMENT,
@@ -643,7 +646,7 @@ export class DebtsService {
           balance,
         })
       } else {
-        balance = round2(balance - e.amount)
+        balance = toWholeXaf(balance - e.amount)
         entries.push({
           date: e.date,
           type: ContactStatementEntryType.WRITE_OFF,
@@ -714,8 +717,8 @@ export class DebtsService {
     const buckets = new Map<string, Bucket>()
 
     for (const d of debts) {
-      const paid = round2(d.paid_amount ?? 0)
-      const outstanding = round2(Math.max(0, d.original_amount - paid))
+      const paid = toWholeXaf(d.paid_amount ?? 0)
+      const outstanding = toWholeXaf(Math.max(0, d.original_amount - paid))
       if (outstanding <= 0) continue
       const b = buckets.get(d.contact_id) ?? {
         openingBalance: 0,
@@ -727,19 +730,19 @@ export class DebtsService {
         total: 0,
       }
       if (d.source_type === 'OPENING_BALANCE') {
-        b.openingBalance = round2(b.openingBalance + outstanding)
+        b.openingBalance = toWholeXaf(b.openingBalance + outstanding)
       } else {
         const due = effectiveDueDate(
           { dueDate: d.due_date, createdAt: d.created_at },
           DEFAULT_CREDIT_DAYS,
         )
         const overdueDays = daysPastDue(due, now)
-        if (overdueDays <= 7) b.current = round2(b.current + outstanding)
-        else if (overdueDays <= 15) b.moderate = round2(b.moderate + outstanding)
-        else if (overdueDays <= 30) b.aged = round2(b.aged + outstanding)
-        else b.overdue = round2(b.overdue + outstanding)
-        if (overdueDays > 0) b.pastDue = round2(b.pastDue + outstanding)
-        b.total = round2(b.total + outstanding)
+        if (overdueDays <= 7) b.current = toWholeXaf(b.current + outstanding)
+        else if (overdueDays <= 15) b.moderate = toWholeXaf(b.moderate + outstanding)
+        else if (overdueDays <= 30) b.aged = toWholeXaf(b.aged + outstanding)
+        else b.overdue = toWholeXaf(b.overdue + outstanding)
+        if (overdueDays > 0) b.pastDue = toWholeXaf(b.pastDue + outstanding)
+        b.total = toWholeXaf(b.total + outstanding)
       }
       buckets.set(d.contact_id, b)
     }
@@ -770,7 +773,7 @@ export class DebtsService {
           aged: b.aged,
           overdue: b.overdue,
           pastDue: b.pastDue,
-          totalOutstanding: round2(b.openingBalance + b.total),
+          totalOutstanding: toWholeXaf(b.openingBalance + b.total),
         }
       })
 
@@ -778,13 +781,13 @@ export class DebtsService {
 
     const totals = entries.reduce(
       (acc, e) => ({
-        openingBalance: round2(acc.openingBalance + e.openingBalance),
-        current: round2(acc.current + e.current),
-        moderate: round2(acc.moderate + e.moderate),
-        aged: round2(acc.aged + e.aged),
-        overdue: round2(acc.overdue + e.overdue),
-        pastDue: round2(acc.pastDue + e.pastDue),
-        totalOutstanding: round2(acc.totalOutstanding + e.totalOutstanding),
+        openingBalance: toWholeXaf(acc.openingBalance + e.openingBalance),
+        current: toWholeXaf(acc.current + e.current),
+        moderate: toWholeXaf(acc.moderate + e.moderate),
+        aged: toWholeXaf(acc.aged + e.aged),
+        overdue: toWholeXaf(acc.overdue + e.overdue),
+        pastDue: toWholeXaf(acc.pastDue + e.pastDue),
+        totalOutstanding: toWholeXaf(acc.totalOutstanding + e.totalOutstanding),
       }),
       { ...emptyTotals },
     )

@@ -1,3 +1,4 @@
+import { toWholeXaf } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -139,8 +140,8 @@ export class ContactsService {
         if (c.type === ContactType.SUPPLIER || c.type === ContactType.BOTH) supplierCount += 1
       }
       return {
-        totalReceivable: this.roundMoney(totalReceivable),
-        totalPayable: this.roundMoney(totalPayable),
+        totalReceivable: toWholeXaf(totalReceivable),
+        totalPayable: toWholeXaf(totalPayable),
         allCount: contacts.length,
         customerCount,
         supplierCount,
@@ -442,16 +443,16 @@ export class ContactsService {
       const summary = result.get(debt.contactId)
       if (!summary) continue
 
-      const totalPaid = this.roundMoney(
+      const totalPaid = toWholeXaf(
         (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
       )
-      const rawOutstanding = this.roundMoney(Math.max(0, debt.originalAmount - totalPaid))
+      const rawOutstanding = toWholeXaf(Math.max(0, debt.originalAmount - totalPaid))
 
       if (debt.status !== DebtStatus.WRITTEN_OFF) {
         if (debt.direction === DebtDirection.RECEIVABLE) {
-          summary.totalReceivable = this.roundMoney(summary.totalReceivable + rawOutstanding)
+          summary.totalReceivable = toWholeXaf(summary.totalReceivable + rawOutstanding)
         } else {
-          summary.totalPayable = this.roundMoney(summary.totalPayable + rawOutstanding)
+          summary.totalPayable = toWholeXaf(summary.totalPayable + rawOutstanding)
         }
       }
 
@@ -644,10 +645,6 @@ export class ContactsService {
     }
 
     return normalized
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private async handleServiceError(

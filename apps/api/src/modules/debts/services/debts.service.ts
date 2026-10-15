@@ -20,11 +20,14 @@ import {
   type JwtPayload,
 } from '@biztrack/types'
 import {
+  checkDebtPayment,
   debtCanBeWrittenOff,
   debtSettledAt,
   debtStanding,
   effectiveDueDate,
+  planDebtOffset,
   reduceDebt,
+  toWholeXaf,
 } from '@biztrack/domain'
 import { APP_ROUTES } from '@biztrack/utils'
 import { I18nService } from 'nestjs-i18n'
@@ -187,13 +190,13 @@ export class DebtsService {
           [DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status) &&
           rawOutstanding > 0
         ) {
-          totalOutstanding = this.roundMoney(totalOutstanding + rawOutstanding)
+          totalOutstanding = toWholeXaf(totalOutstanding + rawOutstanding)
           outstandingDebtCount += 1
         }
 
         if (debt.status === DebtStatus.PARTIALLY_PAID && rawOutstanding > 0) {
           partiallyPaidDebtCount += 1
-          partiallyPaidOutstanding = this.roundMoney(partiallyPaidOutstanding + rawOutstanding)
+          partiallyPaidOutstanding = toWholeXaf(partiallyPaidOutstanding + rawOutstanding)
         }
 
         if (
@@ -203,7 +206,7 @@ export class DebtsService {
           debt.settledAt < monthEnd
         ) {
           settledThisMonthCount += 1
-          settledThisMonthAmount = this.roundMoney(settledThisMonthAmount + debt.originalAmount)
+          settledThisMonthAmount = toWholeXaf(settledThisMonthAmount + debt.originalAmount)
         }
       }
 
@@ -302,15 +305,16 @@ export class DebtsService {
           manager,
           debt.originalAmount,
         )
-        const amount = this.roundMoney(dto.amount)
-
-        if (amount <= 0 || amount > outstandingAmount) {
+        // Above zero and no more than is owed: @biztrack/domain's rule, as on the till.
+        const payment = checkDebtPayment({ amount: dto.amount, outstanding: outstandingAmount })
+        if (!payment.ok) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.debt_payment_amount_exceeds_outstanding' as never),
             'DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING',
-            { amount, outstandingAmount },
+            { amount: toWholeXaf(dto.amount), outstandingAmount },
           )
         }
+        const { amount } = payment
 
         const debtCreatedDate = this.toDateOnly(debt.createdAt)
         if (dto.paymentDate < debtCreatedDate) {
@@ -344,7 +348,7 @@ export class DebtsService {
       // Money in: notify the owner when a customer settles a receivable (BIZ-4 payment
       // producer). Fire-and-forget — a notification hiccup must not fail the payment.
       if (direction === DebtDirection.RECEIVABLE) {
-        void this.notifyPaymentReceived(businessId, result, this.roundMoney(dto.amount))
+        void this.notifyPaymentReceived(businessId, result, toWholeXaf(dto.amount))
       }
       return result
     } catch (error) {
@@ -434,49 +438,44 @@ export class DebtsService {
           return rows
         }
 
-        const recv = await openFor(DebtDirection.RECEIVABLE)
-        const pay = await openFor(DebtDirection.PAYABLE)
-        const sum = (rows: { outstanding: number }[]) =>
-          this.roundMoney(rows.reduce((s, r) => s + r.outstanding, 0))
-        const offsetAmount = this.roundMoney(Math.min(sum(recv), sum(pay)))
-        if (offsetAmount <= 0) {
+        // How much is netted, and against which debts, is @biztrack/domain's, as on the till.
+        const plan = planDebtOffset({
+          receivables: await openFor(DebtDirection.RECEIVABLE),
+          payables: await openFor(DebtDirection.PAYABLE),
+        })
+        if (!plan.ok) {
           throw new AppBadRequestException(
             await this.i18n.translate('errors.debt_offset_nothing' as never),
             'DEBT_OFFSET_NOTHING',
           )
         }
+        const { offsetAmount } = plan
 
         const today = this.toDateOnly(new Date())
         const ref = `OFFSET-${today.replace(/-/g, '')}`
         // Local trading day these contra payments land on (BIZ-5.1).
         const businessDate = await this.calendar.computeForBusiness(businessId, today)
         let affected = 0
-        const allocate = async (rows: { debt: DebtEntity; outstanding: number }[]) => {
-          let remaining = offsetAmount
-          for (const { debt, outstanding } of rows) {
-            if (remaining <= 0.0001) break
-            const applied = this.roundMoney(Math.min(remaining, outstanding))
-            if (applied <= 0) continue
-            await paymentRepo.save(
-              paymentRepo.create({
-                businessId,
-                debtId: debt.id,
-                amount: applied,
-                method: 'OFFSET' as PaymentMethod,
-                mobileMoneyReference: null,
-                paymentDate: today,
-                notes: ref,
-                recordedById: user.sub,
-                businessDate,
-              }),
-            )
-            await this.recalculateStatus(debt.id, manager)
-            remaining = this.roundMoney(remaining - applied)
-            affected++
-          }
+        for (const {
+          debt: { debt },
+          amount,
+        } of plan.allocations) {
+          await paymentRepo.save(
+            paymentRepo.create({
+              businessId,
+              debtId: debt.id,
+              amount,
+              method: 'OFFSET' as PaymentMethod,
+              mobileMoneyReference: null,
+              paymentDate: today,
+              notes: ref,
+              recordedById: user.sub,
+              businessDate,
+            }),
+          )
+          await this.recalculateStatus(debt.id, manager)
+          affected++
         }
-        await allocate(recv)
-        await allocate(pay)
 
         return { offsetAmount, affected }
       })
@@ -740,7 +739,7 @@ export class DebtsService {
         }
 
         if (debt.status === DebtStatus.WRITTEN_OFF && debt.writtenOffAt) {
-          const totalPaid = this.roundMoney(
+          const totalPaid = toWholeXaf(
             (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
           )
           const remaining = this.computeRawOutstanding(debt.originalAmount, totalPaid)
@@ -762,7 +761,7 @@ export class DebtsService {
 
       let balance = 0
       const entries = events.map((event) => {
-        balance = this.roundMoney(balance + event.debit - event.credit)
+        balance = toWholeXaf(balance + event.debit - event.credit)
         return {
           date: event.date,
           type: event.type,
@@ -861,7 +860,7 @@ export class DebtsService {
     manager: EntityManager,
     params: CreateSourceDebtParams,
   ): Promise<DebtEntity | null> {
-    const originalAmount = this.roundMoney(params.originalAmount)
+    const originalAmount = toWholeXaf(params.originalAmount)
     const sourceReference = this.normalizeOptionalString(params.sourceReference) ?? params.sourceId
     if (originalAmount <= 0) {
       return null
@@ -1050,7 +1049,7 @@ export class DebtsService {
       notes?: string | null
     },
   ): Promise<void> {
-    const amount = this.roundMoney(params.amount)
+    const amount = toWholeXaf(params.amount)
     if (amount <= 0) return
 
     const debtRepo = manager.getRepository(DebtEntity)
@@ -1204,7 +1203,7 @@ export class DebtsService {
       .groupBy('payment.debt_id')
       .getRawMany<{ debtId: string; paidAmount: string | number }>()
 
-    return new Map(rows.map((row) => [row.debtId, this.roundMoney(Number(row.paidAmount ?? 0))]))
+    return new Map(rows.map((row) => [row.debtId, toWholeXaf(Number(row.paidAmount ?? 0))]))
   }
 
   private toDebtModel(entity: DebtDetailEntity | DebtEntity, paidAmountOverride?: number): Debt {
@@ -1214,8 +1213,7 @@ export class DebtsService {
       return left.createdAt.getTime() - right.createdAt.getTime()
     })
     const paidAmount =
-      paidAmountOverride ??
-      this.roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0))
+      paidAmountOverride ?? toWholeXaf(payments.reduce((sum, payment) => sum + payment.amount, 0))
     const rawOutstanding = this.computeRawOutstanding(entity.originalAmount, paidAmount)
     const outstandingAmount = entity.status === DebtStatus.WRITTEN_OFF ? 0 : rawOutstanding
 
@@ -1308,7 +1306,7 @@ export class DebtsService {
   }
 
   private computeRawOutstanding(originalAmount: number, paidAmount: number) {
-    return this.roundMoney(Math.max(0, originalAmount - paidAmount))
+    return toWholeXaf(Math.max(0, originalAmount - paidAmount))
   }
 
   private resolveRequiredContactType({ direction, contact }: ContactTypeRequirement) {
@@ -1334,10 +1332,6 @@ export class DebtsService {
   private normalizeOptionalString(value?: string | null) {
     const trimmed = value?.trim()
     return trimmed ? trimmed : null
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private assertDateOnly(value: string) {

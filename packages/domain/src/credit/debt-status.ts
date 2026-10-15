@@ -80,3 +80,65 @@ export function reduceDebt(input: {
   )
   return { originalAmount, standing: debtStanding({ originalAmount, paidAmount: paid }) }
 }
+
+export type DebtPaymentRejection =
+  /** The payment is nothing, negative or not a number. */
+  | 'DEBT_PAYMENT_AMOUNT_INVALID'
+  /** The payment is more than what is still owed. */
+  | 'DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING'
+
+/** A payment on a debt: in whole francs, above zero, and no more than what is still owed. */
+export function checkDebtPayment(input: {
+  amount: number
+  outstanding: number
+}): { ok: true; amount: number } | { ok: false; code: DebtPaymentRejection } {
+  const amount = Number.isFinite(input.amount) ? toWholeXaf(input.amount) : 0
+  if (amount <= 0) return { ok: false, code: 'DEBT_PAYMENT_AMOUNT_INVALID' }
+  if (amount > toWholeXaf(input.outstanding)) {
+    return { ok: false, code: 'DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING' }
+  }
+  return { ok: true, amount }
+}
+
+/**
+ * Netting what a contact owes against what is owed to them. The smaller of the two open
+ * totals is paid off on both sides, oldest debt first, as cash-neutral contra payments.
+ * Debts must be given oldest first; only those with something still owed take part.
+ */
+export function planDebtOffset<D extends { outstanding: number }>(input: {
+  receivables: ReadonlyArray<D>
+  payables: ReadonlyArray<D>
+}):
+  | {
+      ok: true
+      offsetAmount: number
+      receivableTotal: number
+      payableTotal: number
+      allocations: Array<{ debt: D; amount: number }>
+    }
+  | { ok: false; code: 'DEBT_OFFSET_NOTHING' } {
+  const open = (debts: ReadonlyArray<D>) => debts.filter((d) => toWholeXaf(d.outstanding) > 0)
+  const total = (debts: ReadonlyArray<D>) =>
+    toWholeXaf(debts.reduce((sum, d) => sum + toWholeXaf(d.outstanding), 0))
+  const receivables = open(input.receivables)
+  const payables = open(input.payables)
+  const receivableTotal = total(receivables)
+  const payableTotal = total(payables)
+  const offsetAmount = Math.min(receivableTotal, payableTotal)
+  if (offsetAmount <= 0) return { ok: false, code: 'DEBT_OFFSET_NOTHING' }
+
+  const allocations: Array<{ debt: D; amount: number }> = []
+  const allocate = (debts: D[]) => {
+    let remaining = offsetAmount
+    for (const debt of debts) {
+      if (remaining <= 0) break
+      const amount = Math.min(remaining, toWholeXaf(debt.outstanding))
+      if (amount <= 0) continue
+      allocations.push({ debt, amount })
+      remaining = toWholeXaf(remaining - amount)
+    }
+  }
+  allocate(receivables)
+  allocate(payables)
+  return { ok: true, offsetAmount, receivableTotal, payableTotal, allocations }
+}

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { DebtStatus } from '@biztrack/types'
-import { debtCanBeWrittenOff, debtSettledAt, debtStanding, reduceDebt } from './debt-status'
+import {
+  checkDebtPayment,
+  debtCanBeWrittenOff,
+  debtSettledAt,
+  debtStanding,
+  planDebtOffset,
+  reduceDebt,
+} from './debt-status'
 
 describe('debtStanding', () => {
   it('is outstanding with nothing paid', () => {
@@ -97,5 +104,63 @@ describe('reduceDebt (R10)', () => {
       originalAmount: 5000,
       standing: { status: DebtStatus.SETTLED },
     })
+  })
+})
+
+describe('checkDebtPayment', () => {
+  it('takes a payment up to what is owed, in whole francs', () => {
+    expect(checkDebtPayment({ amount: 2500.4, outstanding: 6000 })).toEqual({
+      ok: true,
+      amount: 2500,
+    })
+    expect(checkDebtPayment({ amount: 6000, outstanding: 6000 })).toEqual({
+      ok: true,
+      amount: 6000,
+    })
+  })
+  it('refuses nothing, a non-number, or more than is owed', () => {
+    expect(checkDebtPayment({ amount: 0, outstanding: 6000 })).toEqual({
+      ok: false,
+      code: 'DEBT_PAYMENT_AMOUNT_INVALID',
+    })
+    expect(checkDebtPayment({ amount: Number.NaN, outstanding: 6000 })).toEqual({
+      ok: false,
+      code: 'DEBT_PAYMENT_AMOUNT_INVALID',
+    })
+    expect(checkDebtPayment({ amount: 6001, outstanding: 6000 })).toEqual({
+      ok: false,
+      code: 'DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING',
+    })
+  })
+})
+
+describe('planDebtOffset', () => {
+  it('nets the smaller side off both, oldest debt first', () => {
+    const plan = planDebtOffset({
+      receivables: [
+        { id: 'r1', outstanding: 3000 },
+        { id: 'r2', outstanding: 5000 },
+      ],
+      payables: [
+        { id: 'p1', outstanding: 0 },
+        { id: 'p2', outstanding: 4000 },
+      ],
+    })
+    expect(plan).toEqual({
+      ok: true,
+      offsetAmount: 4000,
+      receivableTotal: 8000,
+      payableTotal: 4000,
+      allocations: [
+        { debt: { id: 'r1', outstanding: 3000 }, amount: 3000 },
+        { debt: { id: 'r2', outstanding: 5000 }, amount: 1000 },
+        { debt: { id: 'p2', outstanding: 4000 }, amount: 4000 },
+      ],
+    })
+  })
+  it('refuses when either side has nothing open', () => {
+    expect(
+      planDebtOffset({ receivables: [{ outstanding: 3000 }], payables: [{ outstanding: 0 }] }),
+    ).toEqual({ ok: false, code: 'DEBT_OFFSET_NOTHING' })
   })
 })
