@@ -327,7 +327,9 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
         { productId: 'p1', variantId: 'v2', quantity: 1, unitPrice: 1000 },
       ],
     })
-    expect(result.items.map((item) => item.costPrice)).toEqual([750, 600])
+    expect(result.items.map((item: { costPrice: number | null }) => item.costPrice)).toEqual([
+      750, 600,
+    ])
   })
 
   it('preserves a fractional quantity and computes the line total', () => {
