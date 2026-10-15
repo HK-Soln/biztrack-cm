@@ -1,3 +1,4 @@
+import { savingsRefundable, toWholeXaf } from '@biztrack/domain'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -985,10 +986,13 @@ function CloseModal({
   const [error, setError] = useState<string | null>(null)
 
   const parseAmt = (s: string) => Math.max(0, Number(s.replace(/\s/g, '').replace(',', '.')) || 0)
-  const chargeAmt = Math.min(leftover, Math.round(parseAmt(charge)))
-  const refundable = Math.round((leftover - chargeAmt) * 100) / 100
-  const refundTotal = refunds.reduce((sum, r) => sum + parseAmt(r.amount), 0)
-  const refundRemaining = Math.round((refundable - refundTotal) * 100) / 100
+  // The refundable amount is @biztrack/domain's, the rule closing the session applies.
+  const { charge: chargeAmt, refundTotal: refundable } = savingsRefundable({
+    balance: leftover,
+    cancellationCharge: Math.min(leftover, parseAmt(charge)),
+  })
+  const refundTotal = toWholeXaf(refunds.reduce((sum, r) => sum + parseAmt(r.amount), 0))
+  const refundRemaining = refundable - refundTotal
 
   const outcomeLabel = !hasSales
     ? t('dep.outcomeRefunded')
@@ -1091,8 +1095,10 @@ function CloseModal({
                       setCharge(next)
                       // Keep a single refund line in step with the new refundable amount so the
                       // owner doesn't have to rebalance by hand; split lines are left untouched.
-                      const nextCharge = Math.min(leftover, Math.round(parseAmt(next)))
-                      const nextRefundable = Math.round((leftover - nextCharge) * 100) / 100
+                      const nextRefundable = savingsRefundable({
+                        balance: leftover,
+                        cancellationCharge: Math.min(leftover, parseAmt(next)),
+                      }).refundTotal
                       setRefunds((rs) =>
                         rs.length === 1 && rs[0]
                           ? [{ method: rs[0].method, amount: String(nextRefundable) }]

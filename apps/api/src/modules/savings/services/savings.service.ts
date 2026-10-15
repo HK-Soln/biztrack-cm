@@ -1,3 +1,12 @@
+import {
+  decideSavingsClose,
+  savingsDeposit,
+  savingsPurchase,
+  savingsPurchaseReversal,
+  savingsRunningBalances,
+  toWholeXaf,
+  type SavingsCloseRejection,
+} from '@biztrack/domain'
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type {
@@ -30,7 +39,6 @@ import type {
   ListDepositsQueryDto,
 } from '../dto/deposit.dto'
 
-const round = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
 const newId = (): string => crypto.randomUUID()
 const accountNumberFor = (id: string): string =>
   `DEP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`
@@ -43,6 +51,17 @@ export interface DepositSummary {
   refundedTransferredCount: number
   refundedTransferredAmount: number
   currency: string
+}
+
+const SAVINGS_CLOSE_MESSAGES: Record<SavingsCloseRejection, string> = {
+  DEPOSIT_LEFTOVER: 'There is a leftover balance — refund it or transfer it.',
+  DEPOSIT_NOTHING_TO_REFUND: 'Nothing to refund.',
+  DEPOSIT_CHARGE_TOO_HIGH: 'The cancellation charge cannot exceed the balance.',
+  DEPOSIT_REFUND_LINE_INVALID: 'Each refund line must be greater than 0.',
+  DEPOSIT_REFUND_MISMATCH: 'The refund must add up to the balance minus the charge.',
+  DEPOSIT_TRANSFER_NO_SALES:
+    'A session with no goods collected cannot be transferred — refund it instead.',
+  DEPOSIT_NOTHING_TO_TRANSFER: 'Nothing to transfer.',
 }
 
 @Injectable()
@@ -75,11 +94,8 @@ export class DepositsService {
       where: { savingsId: tx.savingsId, businessId },
       order: { occurredAt: 'ASC', createdAt: 'ASC' },
     })
-    let balanceAfter = 0
-    for (const t of txns) {
-      balanceAfter = round(balanceAfter + (t.direction === 'inbound' ? t.amount : -t.amount))
-      if (t.id === tx.id) break
-    }
+    const through = txns.slice(0, txns.findIndex((t) => t.id === tx.id) + 1 || txns.length)
+    const balanceAfter = savingsRunningBalances(through).at(-1) ?? 0
     return {
       businessName: business?.name ?? 'BizTrack',
       businessPhone: business?.phone ?? null,
@@ -90,10 +106,10 @@ export class DepositsService {
       customerName: acc.customerName ?? null,
       customerPhone: acc.customerPhone ?? null,
       kind: tx.type === 'refund' ? 'refund' : 'deposit',
-      amount: round(tx.amount),
+      amount: toWholeXaf(tx.amount),
       method: tx.method ?? null,
-      balanceAfter: round(balanceAfter),
-      totalDeposited: round(acc.totalDeposited),
+      balanceAfter: toWholeXaf(balanceAfter),
+      totalDeposited: toWholeXaf(acc.totalDeposited),
       currency: business?.currency ?? null,
     }
   }
@@ -107,14 +123,14 @@ export class DepositsService {
       where: { savingsId: id, businessId },
       order: { occurredAt: 'ASC', createdAt: 'ASC' },
     })
-    let running = 0
-    const entries: DepositReportEntry[] = txns.map((t) => {
-      running = round(running + (t.direction === 'inbound' ? t.amount : -t.amount))
+    const balances = savingsRunningBalances(txns)
+    const entries: DepositReportEntry[] = txns.map((t, i) => {
+      const running = balances[i]!
       return {
         occurredAt: t.occurredAt.toISOString(),
         type: t.type as DepositReportEntry['type'],
         direction: t.direction as DepositReportEntry['direction'],
-        amount: round(t.amount),
+        amount: toWholeXaf(t.amount),
         method: t.method ?? null,
         notes: t.notes ?? null,
         runningBalance: running,
@@ -131,11 +147,11 @@ export class DepositsService {
       closedAt: acc.closedAt ? acc.closedAt.toISOString() : null,
       customerName: acc.customerName ?? null,
       customerPhone: acc.customerPhone ?? null,
-      totalDeposited: round(acc.totalDeposited),
-      totalUsed: round(acc.totalUsed),
-      totalRefunded: round(acc.totalRefunded),
-      totalTransferred: round(acc.totalTransferred),
-      balance: round(acc.balance),
+      totalDeposited: toWholeXaf(acc.totalDeposited),
+      totalUsed: toWholeXaf(acc.totalUsed),
+      totalRefunded: toWholeXaf(acc.totalRefunded),
+      totalTransferred: toWholeXaf(acc.totalTransferred),
+      balance: toWholeXaf(acc.balance),
       currency: business?.currency ?? null,
       taggedProducts: acc.taggedProducts ?? [],
       entries,
@@ -171,11 +187,11 @@ export class DepositsService {
     }>
     return {
       openCount: Number(open?.n ?? 0),
-      depositsHeld: round(Number(open?.held ?? 0)),
+      depositsHeld: toWholeXaf(Number(open?.held ?? 0)),
       collectedCount: Number(collected?.n ?? 0),
-      collectedAmount: round(Number(collected?.amt ?? 0)),
+      collectedAmount: toWholeXaf(Number(collected?.amt ?? 0)),
       refundedTransferredCount: Number(refTr?.n ?? 0),
-      refundedTransferredAmount: round(Number(refTr?.amt ?? 0)),
+      refundedTransferredAmount: toWholeXaf(Number(refTr?.amt ?? 0)),
       currency: biz?.currency ?? 'XAF',
     }
   }
@@ -204,7 +220,7 @@ export class DepositsService {
       )
     const now = new Date()
     const id = newId()
-    const initial = round(dto.initialDeposit?.amount ?? 0)
+    const initial = toWholeXaf(dto.initialDeposit?.amount ?? 0)
     // Local trading day (BIZ-5.1) from the business timezone + cutover.
     const businessDate = await this.calendar.computeForBusiness(businessId, now)
     await this.savingsAccountsRepo.save(
@@ -297,9 +313,9 @@ export class DepositsService {
       where: { savingsId: id, businessId },
       order: { occurredAt: 'ASC', createdAt: 'ASC' },
     })
-    let running = 0
-    const entries: DepositStatementEntry[] = txns.map((t) => {
-      running = round(running + (t.direction === 'inbound' ? t.amount : -t.amount))
+    const balances = savingsRunningBalances(txns)
+    const entries: DepositStatementEntry[] = txns.map((t, i) => {
+      const running = balances[i]!
       return {
         id: t.id,
         type: t.type as DepositStatementEntry['type'],
@@ -324,17 +340,18 @@ export class DepositsService {
     dto: AddDepositPaymentDto,
   ): Promise<CustomerDeposit> {
     const acc = await this.requireOpen(id, businessId)
-    const amount = round(dto.amount)
-    if (amount <= 0)
+    const deposit = savingsDeposit(acc, dto.amount)
+    if (!deposit.ok)
       throw new AppBadRequestException(
         'Deposit amount must be greater than 0.',
         'DEPOSIT_AMOUNT_INVALID',
       )
+    const { amount } = deposit
     const now = new Date()
     await this.dataSource.transaction(async (m) => {
       await m.getRepository(CustomerDeposit).update(acc.id, {
-        balance: round(acc.balance + amount),
-        totalDeposited: round(acc.totalDeposited + amount),
+        balance: deposit.balance,
+        totalDeposited: deposit.totalDeposited,
         updatedAt: now,
       })
       await this.insertTxn(
@@ -375,9 +392,11 @@ export class DepositsService {
         from: query.dateFrom,
       })
     if (query.dateTo)
-      qb.andWhere('COALESCE(oi.posting_date, oi.business_date, oi.date) <= :to', { to: query.dateTo })
+      qb.andWhere('COALESCE(oi.posting_date, oi.business_date, oi.date) <= :to', {
+        to: query.dateTo,
+      })
     const row = await qb.getRawOne<{ total: string | number | null }>()
-    return { total: round(Number(row?.total ?? 0)) }
+    return { total: toWholeXaf(Number(row?.total ?? 0)) }
   }
 
   async close(
@@ -387,65 +406,34 @@ export class DepositsService {
     dto: CloseDepositDto,
   ): Promise<CustomerDeposit> {
     const acc = await this.requireOpen(id, businessId)
-    const leftover = round(acc.balance)
+    const leftover = toWholeXaf(acc.balance)
     const salesCount = await this.savingsTransactionsRepo.count({
       where: { savingsId: id, businessId, type: 'sale' },
     })
     const hasSales = salesCount > 0
     const now = new Date()
+    // What closing does to the session is @biztrack/domain's, the rule the till applies.
+    const decision = decideSavingsClose({
+      account: acc,
+      hasSales,
+      settlement: dto.settlement,
+      cancellationCharge: dto.cancellationCharge,
+      refunds: dto.refunds,
+      method: dto.method,
+      mobileMoneyReference: dto.mobileMoneyReference,
+    })
+    if (!decision.ok) {
+      throw new AppBadRequestException(SAVINGS_CLOSE_MESSAGES[decision.code], decision.code)
+    }
 
     await this.dataSource.transaction(async (m) => {
       const repo = m.getRepository(CustomerDeposit)
-      if (dto.settlement === 'NONE') {
-        if (leftover > 0)
-          throw new AppBadRequestException(
-            'There is a leftover balance — refund it or transfer it.',
-            'DEPOSIT_LEFTOVER',
-          )
-      } else if (dto.settlement === 'REFUND') {
-        if (leftover <= 0)
-          throw new AppBadRequestException('Nothing to refund.', 'DEPOSIT_NOTHING_TO_REFUND')
-
+      if (decision.settlement === 'NONE') {
+        // Nothing left to settle.
+      } else if (decision.settlement === 'REFUND') {
         // SCRUM-46: a cancellation charge is kept by the business (booked as other income). The
-        // refund lines then settle (leftover − charge); the charge stays in the drawer, no cash out.
-        const charge = round(Math.max(0, dto.cancellationCharge ?? 0))
-        if (charge > leftover)
-          throw new AppBadRequestException(
-            'The cancellation charge cannot exceed the balance.',
-            'DEPOSIT_CHARGE_TOO_HIGH',
-          )
-        const refundTotal = round(leftover - charge)
-
-        // Split refund: one txn per method (part cash, part MoMo…). No lines → settle the whole
-        // refundable amount as a single line (back-compat with the deprecated method field).
-        const lines =
-          refundTotal <= 0
-            ? []
-            : dto.refunds && dto.refunds.length > 0
-              ? dto.refunds.map((r) => ({
-                  method: r.method || 'CASH',
-                  amount: round(r.amount),
-                  mobileMoneyReference: r.mobileMoneyReference,
-                }))
-              : [
-                  {
-                    method: dto.method ?? 'CASH',
-                    amount: refundTotal,
-                    mobileMoneyReference: dto.mobileMoneyReference,
-                  },
-                ]
-
-        if (lines.some((l) => !(l.amount > 0)))
-          throw new AppBadRequestException(
-            'Each refund line must be greater than 0.',
-            'DEPOSIT_REFUND_LINE_INVALID',
-          )
-        if (round(lines.reduce((s, l) => s + l.amount, 0)) !== refundTotal)
-          throw new AppBadRequestException(
-            'The refund must add up to the balance minus the charge.',
-            'DEPOSIT_REFUND_MISMATCH',
-          )
-
+        // refund lines settle (leftover − charge); the charge stays in the drawer, no cash out.
+        const { charge, refundLines: lines } = decision
         for (const line of lines) {
           await this.insertTxn(
             m,
@@ -505,17 +493,10 @@ export class DepositsService {
         }
         await repo.update(id, {
           balance: 0,
-          totalRefunded: round(acc.totalRefunded + refundTotal),
+          totalRefunded: decision.totalRefunded,
           updatedAt: now,
         })
       } else {
-        if (!hasSales)
-          throw new AppBadRequestException(
-            'A session with no goods collected cannot be transferred — refund it instead.',
-            'DEPOSIT_TRANSFER_NO_SALES',
-          )
-        if (leftover <= 0)
-          throw new AppBadRequestException('Nothing to transfer.', 'DEPOSIT_NOTHING_TO_TRANSFER')
         await this.insertTxn(
           m,
           id,
@@ -531,7 +512,7 @@ export class DepositsService {
         )
         await repo.update(id, {
           balance: 0,
-          totalTransferred: round(acc.totalTransferred + leftover),
+          totalTransferred: decision.totalTransferred,
           updatedAt: now,
         })
         const nid = newId()
@@ -618,22 +599,24 @@ export class DepositsService {
     input: { savingsId: string; saleId: string; amount: number; recordedById?: string | null },
     now: Date,
   ): Promise<void> {
-    const amount = round(input.amount)
-    if (amount <= 0) return
+    if (!(toWholeXaf(input.amount) > 0)) return
     const repo = m.getRepository(CustomerDeposit)
     const acc = await repo.findOne({ where: { id: input.savingsId, businessId, isDeleted: false } })
     if (!acc) throw new AppBadRequestException('Deposit account not found.', 'DEPOSIT_NOT_FOUND')
-    if (acc.status !== 'OPEN')
-      throw new AppBadRequestException('This deposit session is closed.', 'DEPOSIT_CLOSED')
-    if (acc.balance < amount) {
+    // Only an open session, and only up to its balance (@biztrack/domain, as on the till).
+    const purchase = savingsPurchase({ ...acc, open: acc.status === 'OPEN' }, input.amount)
+    if (!purchase.ok) {
       throw new AppBadRequestException(
-        'Insufficient deposit balance.',
-        'DEPOSIT_INSUFFICIENT_BALANCE',
+        purchase.code === 'DEPOSIT_CLOSED'
+          ? 'This deposit session is closed.'
+          : 'Insufficient deposit balance.',
+        purchase.code,
       )
     }
+    const { amount } = purchase
     await repo.update(acc.id, {
-      balance: round(acc.balance - amount),
-      totalUsed: round(acc.totalUsed + amount),
+      balance: purchase.balance,
+      totalUsed: purchase.totalUsed,
       updatedAt: now,
     })
     await this.insertTxn(
@@ -679,7 +662,7 @@ export class DepositsService {
         businessId,
         type: tx.type,
         direction: tx.direction,
-        amount: round(tx.amount),
+        amount: toWholeXaf(tx.amount),
         method: tx.method ?? null,
         mobileMoneyReference: tx.mobileMoneyReference ?? null,
         saleId: tx.saleId ?? null,
@@ -861,17 +844,17 @@ export class DepositsService {
       }),
     )
 
-    // Credit money back to the account
-    await this.savingsAccountsRepo
-      .createQueryBuilder()
-      .update()
-      .set({
-        balance: () => `balance + ${amount}`,
-        totalUsed: () => `GREATEST(total_used - ${amount}, 0)`,
-        updatedAt: voidedAt,
-      })
-      .where('id = :id AND business_id = :businessId', { id: savingsAccountId, businessId })
-      .execute()
+    // Credit money back to the account (@biztrack/domain, as on the till).
+    const acc = await this.savingsAccountsRepo.findOne({
+      where: { id: savingsAccountId, businessId },
+    })
+    if (!acc) return
+    const reversal = savingsPurchaseReversal(acc, amount)
+    await this.savingsAccountsRepo.update(acc.id, {
+      balance: reversal.balance,
+      totalUsed: reversal.totalUsed,
+      updatedAt: voidedAt,
+    })
   }
 
   async findByBusiness(

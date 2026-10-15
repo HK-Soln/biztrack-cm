@@ -1,3 +1,12 @@
+import {
+  decideSavingsClose,
+  savingsDeposit,
+  savingsPurchase,
+  savingsPurchaseReversal,
+  savingsRunningBalances,
+  toWholeXaf,
+  type SavingsCloseRejection,
+} from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type {
   AddDepositPaymentInput,
@@ -19,8 +28,6 @@ import type { DepositsListQuery, PaginatedResult } from '../../shared/ipc'
 import { paginateRows, toPaginated } from './pagination'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
-
-const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
 
 interface AccountRow {
   id: string
@@ -55,6 +62,17 @@ const COLS = `s.id, s.account_number, s.customer_id, s.customer_name, s.customer
   s.total_deposited, s.total_refunded, s.total_used, s.total_transferred, s.status, s.outcome,
   s.closed_at, s.closed_by_id, s.transferred_to_id, s.tagged_products, s.created_at, s.updated_at,
   (SELECT COUNT(*) FROM savings_transactions t WHERE t.savings_id = s.id AND t.type = 'sale') AS sales_count`
+
+const SAVINGS_CLOSE_MESSAGES: Record<SavingsCloseRejection, string> = {
+  DEPOSIT_LEFTOVER: 'There is a leftover balance — refund it or transfer it to a new session.',
+  DEPOSIT_NOTHING_TO_REFUND: 'Nothing to refund.',
+  DEPOSIT_CHARGE_TOO_HIGH: 'The cancellation charge cannot exceed the balance.',
+  DEPOSIT_REFUND_LINE_INVALID: 'Each refund line must be greater than 0.',
+  DEPOSIT_REFUND_MISMATCH: 'The refund must add up to the balance minus the charge.',
+  DEPOSIT_TRANSFER_NO_SALES:
+    'A session with no goods collected cannot be transferred — refund it instead.',
+  DEPOSIT_NOTHING_TO_TRANSFER: 'Nothing to transfer.',
+}
 
 /**
  * Offline-first deposit *sessions* (frontend "Deposits", backend "savings"). A customer has
@@ -148,9 +166,10 @@ export class SavingsService {
       [id, businessId],
     )
     if (!row) return null
-    let running = 0
-    const entries: DepositStatementEntry[] = this.txnsFor(id).map((t) => {
-      running = round2(running + (t.direction === 'inbound' ? t.amount : -t.amount))
+    const txns = this.txnsFor(id)
+    const balances = savingsRunningBalances(txns)
+    const entries: DepositStatementEntry[] = txns.map((t, i) => {
+      const running = balances[i]!
       return {
         id: t.id,
         type: t.type,
@@ -207,11 +226,11 @@ export class SavingsService {
     )
     return {
       openCount: open?.n ?? 0,
-      depositsHeld: round2(open?.held ?? 0),
+      depositsHeld: toWholeXaf(open?.held ?? 0),
       collectedCount: collected?.n ?? 0,
-      collectedAmount: round2(collected?.amt ?? 0),
+      collectedAmount: toWholeXaf(collected?.amt ?? 0),
       refundedTransferredCount: refTr?.n ?? 0,
-      refundedTransferredAmount: round2(refTr?.amt ?? 0),
+      refundedTransferredAmount: toWholeXaf(refTr?.amt ?? 0),
       currency,
     }
   }
@@ -234,7 +253,7 @@ export class SavingsService {
       `SELECT COALESCE(SUM(amount), 0) AS total FROM savings_transactions WHERE ${conds.join(' AND ')}`,
       params,
     )
-    return { total: round2(row?.total ?? 0) }
+    return { total: toWholeXaf(row?.total ?? 0) }
   }
 
   private businessCurrency(): string {
@@ -269,7 +288,7 @@ export class SavingsService {
       input.taggedProducts && input.taggedProducts.length
         ? JSON.stringify(input.taggedProducts)
         : null
-    const initial = round2(Number(input.initialDeposit?.amount ?? 0))
+    const initial = toWholeXaf(Number(input.initialDeposit?.amount ?? 0))
     const balance = initial > 0 ? initial : 0
 
     // Local trading day (BIZ-5.1) from the session's open timestamp.
@@ -332,13 +351,17 @@ export class SavingsService {
   addPayment(id: string, input: AddDepositPaymentInput): CustomerDeposit {
     const businessId = this.requireBusinessId()
     const acc = this.requireOpen(id, businessId)
-    const amount = round2(Number(input.amount))
-    if (!Number.isFinite(amount) || amount <= 0)
-      throw new Error('Deposit amount must be greater than 0.')
+    // What a payment in does to the account is @biztrack/domain's, as on the server.
+    const deposit = savingsDeposit(
+      { balance: acc.balance, totalDeposited: acc.total_deposited },
+      Number(input.amount),
+    )
+    if (!deposit.ok) throw new Error('Deposit amount must be greater than 0.')
+    const { amount } = deposit
     const now = new Date().toISOString()
     this.db.run(
       `UPDATE savings_accounts SET balance = ?, total_deposited = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-      [round2(acc.balance + amount), round2(acc.total_deposited + amount), now, id, businessId],
+      [deposit.balance, deposit.totalDeposited, now, id, businessId],
     )
     this.insertTxn(
       id,
@@ -365,7 +388,7 @@ export class SavingsService {
       entityLabel: acc.account_number,
       changes: {
         before: { balance: acc.balance },
-        after: { deposit: amount, balance: round2(acc.balance + amount) },
+        after: { deposit: amount, balance: deposit.balance },
       },
     })
     return this.get(id)!
@@ -379,46 +402,31 @@ export class SavingsService {
   close(id: string, input: CloseDepositInput): CustomerDeposit {
     const businessId = this.requireBusinessId()
     const acc = this.requireOpen(id, businessId)
-    const leftover = round2(acc.balance)
     const hasSales = acc.sales_count > 0
     const now = new Date().toISOString()
+    // What closing does to the session is @biztrack/domain's, the rule the server applies.
+    const decision = decideSavingsClose({
+      account: {
+        balance: acc.balance,
+        totalRefunded: acc.total_refunded,
+        totalTransferred: acc.total_transferred,
+      },
+      hasSales,
+      settlement: input.settlement,
+      cancellationCharge: input.cancellationCharge,
+      refunds: input.refunds,
+      method: input.method,
+      mobileMoneyReference: input.mobileMoneyReference,
+    })
+    if (!decision.ok) throw new Error(SAVINGS_CLOSE_MESSAGES[decision.code])
+    const leftover = decision.leftover
 
-    if (input.settlement === 'NONE') {
-      if (leftover > 0)
-        throw new Error('There is a leftover balance — refund it or transfer it to a new session.')
-    } else if (input.settlement === 'REFUND') {
-      if (leftover <= 0) throw new Error('Nothing to refund.')
-
+    if (decision.settlement === 'NONE') {
+      // Nothing left to settle.
+    } else if (decision.settlement === 'REFUND') {
       // SCRUM-46: a cancellation charge is kept by the business (booked as other income). The
-      // refund lines then settle (leftover − charge); the charge stays in the drawer, no cash out.
-      const charge = round2(Math.max(0, input.cancellationCharge ?? 0))
-      if (charge > leftover) throw new Error('The cancellation charge cannot exceed the balance.')
-      const refundTotal = round2(leftover - charge)
-
-      // A split refund pays the refundable amount back across several methods (part cash, part
-      // MoMo…). When no explicit lines are given, settle the whole refundable amount as one line.
-      const lines =
-        refundTotal <= 0
-          ? []
-          : input.refunds && input.refunds.length > 0
-            ? input.refunds.map((r) => ({
-                method: r.method || 'CASH',
-                amount: round2(r.amount),
-                mobileMoneyReference: r.mobileMoneyReference ?? null,
-              }))
-            : [
-                {
-                  method: input.method ?? 'CASH',
-                  amount: refundTotal,
-                  mobileMoneyReference: input.mobileMoneyReference ?? null,
-                },
-              ]
-
-      if (lines.some((l) => !(l.amount > 0)))
-        throw new Error('Each refund line must be greater than 0.')
-      if (round2(lines.reduce((s, l) => s + l.amount, 0)) !== refundTotal)
-        throw new Error('The refund must add up to the balance minus the charge.')
-
+      // refund lines settle (leftover − charge); the charge stays in the drawer, no cash out.
+      const { charge, refundLines: lines, cashRefunded } = decision
       for (const line of lines) {
         this.insertTxn(
           id,
@@ -444,12 +452,9 @@ export class SavingsService {
       }
       this.db.run(
         `UPDATE savings_accounts SET balance = 0, total_refunded = ?, updated_at = ? WHERE id = ?`,
-        [round2(acc.total_refunded + refundTotal), now, id],
+        [decision.totalRefunded, now, id],
       )
       // Only the cash portion leaves the till.
-      const cashRefunded = round2(
-        lines.filter((l) => l.method === 'CASH').reduce((s, l) => s + l.amount, 0),
-      )
       if (cashRefunded > 0) {
         this.recordCashMovement({
           kind: CashMovementKind.DEPOSIT_REFUND,
@@ -457,12 +462,7 @@ export class SavingsService {
           referenceId: id,
         })
       }
-    } else if (input.settlement === 'TRANSFER') {
-      if (!hasSales)
-        throw new Error(
-          'A session with no goods collected cannot be transferred — refund it instead.',
-        )
-      if (leftover <= 0) throw new Error('Nothing to transfer.')
+    } else {
       // Out of this session, into a fresh open session for the same customer.
       this.insertTxn(
         id,
@@ -479,7 +479,7 @@ export class SavingsService {
       )
       this.db.run(
         `UPDATE savings_accounts SET balance = 0, total_transferred = ?, updated_at = ? WHERE id = ?`,
-        [round2(acc.total_transferred + leftover), now, id],
+        [decision.totalTransferred, now, id],
       )
       const newId = randomUUID()
       const accountNumber = `DEP-${now.slice(0, 10).replace(/-/g, '')}-${newId.slice(0, 4).toUpperCase()}`
@@ -559,23 +559,30 @@ export class SavingsService {
   }): boolean {
     const businessId = this.getBusinessId()
     if (!businessId) return false
-    const amount = round2(input.amount)
-    if (amount <= 0) return false
+    if (!(toWholeXaf(input.amount) > 0)) return false
     const acc = this.db.get<AccountRow>(
       `SELECT ${COLS} FROM savings_accounts s WHERE s.id = ? AND s.business_id = ? AND s.is_deleted = 0`,
       [input.accountId, businessId],
     )
-    if (!acc || acc.status !== 'OPEN' || acc.balance < amount) return false
+    if (!acc) throw new Error('Deposit account not found.')
+    // Only an open session, and only up to its balance (@biztrack/domain, as on the server).
+    // A sale paid from savings the customer does not have is refused, not saved without
+    // the draw-down.
+    const purchase = savingsPurchase(
+      { balance: acc.balance, totalUsed: acc.total_used, open: acc.status === 'OPEN' },
+      input.amount,
+    )
+    if (!purchase.ok)
+      throw new Error(
+        purchase.code === 'DEPOSIT_CLOSED'
+          ? 'This deposit session is closed.'
+          : 'Insufficient deposit balance.',
+      )
+    const { amount } = purchase
 
     this.db.run(
       `UPDATE savings_accounts SET balance = ?, total_used = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-      [
-        round2(acc.balance - amount),
-        round2(acc.total_used + amount),
-        input.now,
-        acc.id,
-        businessId,
-      ],
+      [purchase.balance, purchase.totalUsed, input.now, acc.id, businessId],
     )
     this.insertTxn(
       acc.id,
@@ -615,17 +622,15 @@ export class SavingsService {
         [u.savings_id, businessId],
       )
       if (!acc) continue
-      const amount = round2(u.amount)
+      const reversal = savingsPurchaseReversal(
+        { balance: acc.balance, totalUsed: acc.total_used },
+        u.amount,
+      )
+      const amount = reversal.amount
       if (amount <= 0) continue
       this.db.run(
         `UPDATE savings_accounts SET balance = ?, total_used = ?, updated_at = ? WHERE id = ? AND business_id = ?`,
-        [
-          round2(acc.balance + amount),
-          round2(Math.max(0, acc.total_used - amount)),
-          now,
-          acc.id,
-          businessId,
-        ],
+        [reversal.balance, reversal.totalUsed, now, acc.id, businessId],
       )
       this.insertTxn(
         acc.id,
@@ -702,9 +707,9 @@ export class SavingsService {
       customerName: acc.customer_name,
       customerPhone: acc.customer_phone,
       kind: tx.type === 'refund' ? 'refund' : 'deposit',
-      amount: round2(tx.amount),
+      amount: toWholeXaf(tx.amount),
       method: tx.method,
-      balanceAfter: round2(balanceAfter),
+      balanceAfter: toWholeXaf(balanceAfter),
       totalDeposited: acc.total_deposited,
       currency: this.businessCurrency(),
     }
@@ -731,9 +736,10 @@ export class SavingsService {
         acc.customer_id,
       ])?.email ?? null
 
-    let running = 0
-    const entries: DepositReportEntry[] = this.txnsFor(id).map((t) => {
-      running = round2(running + (t.direction === 'inbound' ? t.amount : -t.amount))
+    const txns = this.txnsFor(id)
+    const balances = savingsRunningBalances(txns)
+    const entries: DepositReportEntry[] = txns.map((t, i) => {
+      const running = balances[i]!
       return {
         occurredAt: t.occurredAt,
         type: t.type,
@@ -835,7 +841,7 @@ export class SavingsService {
         businessId,
         tx.type,
         tx.direction,
-        round2(tx.amount),
+        toWholeXaf(tx.amount),
         tx.method ?? null,
         tx.mobileMoneyReference ?? null,
         tx.saleId ?? null,
@@ -855,7 +861,7 @@ export class SavingsService {
         businessId,
         type: tx.type,
         direction: tx.direction,
-        amount: round2(tx.amount),
+        amount: toWholeXaf(tx.amount),
         method: tx.method ?? null,
         mobileMoneyReference: tx.mobileMoneyReference ?? null,
         saleId: tx.saleId ?? null,
