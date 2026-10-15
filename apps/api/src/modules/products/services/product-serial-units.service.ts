@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { retireSerialUnit } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, ILike, Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -308,37 +309,16 @@ export class ProductSerialUnitsService {
       }
       const reason = dto.reason.trim()
 
-      await this.dataSource.transaction(async (manager) => {
-        const serialRepo = manager.getRepository(ProductSerialUnit)
-        const movementRepo = manager.getRepository(InventoryMovement)
-        const quantityBefore = await serialRepo.count({
-          where: { businessId, productId, status: SerialUnitStatus.IN_STOCK },
-        })
-
-        await serialRepo.update(
-          { id: unit.id },
-          { status: SerialUnitStatus.DAMAGED, notes: reason },
-        )
-        await serialRepo.softDelete({ id: unit.id })
-
-        // Local trading day (BIZ-5.1) from the business timezone + cutover.
-        const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
-        await movementRepo.save(
-          movementRepo.create({
-            businessId,
-            productId,
-            type: MovementType.MANUAL_ADJUSTMENT,
-            quantityChange: -1,
-            quantityBefore,
-            quantityAfter: quantityBefore - 1,
-            referenceType: 'serial_unit',
-            referenceId: unit.id,
-            notes: reason,
-            performedById: context.actorId ?? null,
-            businessDate,
-          }),
-        )
-      })
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
+      await this.dataSource.transaction((manager) =>
+        retireSerialUnit(
+          manager,
+          { businessId, actorId: context.actorId ?? null, businessDate, at: new Date() },
+          unit,
+          reason,
+        ),
+      )
 
       this.auditService.log(context, {
         action: 'DELETE',

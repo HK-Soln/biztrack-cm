@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { removeProduct, removeVariant, retireSerialUnit } from '@/modules/products/catalog-removal'
 import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
 import { plainToInstance } from 'class-transformer'
@@ -2374,12 +2375,20 @@ export class SyncService {
     }
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
-      if (existing) {
-        await this.productVariantsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
+      // Removed on a till: its stock is written off as the server's own removal does (R18).
+      if (existing && !existing.deletedAt) {
+        const product = await this.productsRepo.findOne({
+          where: { id: existing.productId, businessId },
+          withDeleted: true,
         })
+        const ctx = await this.syncRemovalContext(businessId, operation.recordUpdatedAt)
+        await this.dataSource.transaction((manager) =>
+          removeVariant(manager, ctx, {
+            product: { id: existing.productId, isSerialized: !!product?.isSerialized },
+            variantId: existing.id,
+            reason: 'Removed at the till',
+          }),
+        )
         await this.refreshHasVariants(businessId, existing.productId)
       }
       return { status: 'applied' }
@@ -2563,25 +2572,18 @@ export class SyncService {
     }
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
-      if (existing) {
-        const wasInStock = !existing.deletedAt && existing.status === SerialUnitStatus.IN_STOCK
-        await this.productSerialUnitsRepo.update(operation.recordId, {
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
-        // Retiring an in-stock unit is a stock-out — mirror the desktop ledger entry.
-        if (wasInStock) {
-          await this.recordSyncStockMovement(
-            businessId,
-            existing.productId,
-            -1,
-            await this.countInStockSerials(businessId, existing.productId),
-            'serial_unit',
-            operation.recordId,
-            'Retired serial unit',
-            operation.recordUpdatedAt,
-            existing.variantId ?? null,
+      if (existing && !existing.deletedAt) {
+        if (existing.status === SerialUnitStatus.IN_STOCK) {
+          // Retiring an in-stock unit on a till is retired here the same way (R18).
+          const ctx = await this.syncRemovalContext(businessId, operation.recordUpdatedAt)
+          await this.dataSource.transaction((manager) =>
+            retireSerialUnit(manager, ctx, existing, 'Retired at the till'),
           )
+        } else {
+          await this.productSerialUnitsRepo.update(operation.recordId, {
+            deletedAt: operation.recordUpdatedAt,
+            updatedAt: operation.recordUpdatedAt,
+          })
         }
       }
       return { status: 'applied' }
@@ -3207,12 +3209,11 @@ export class SyncService {
     }
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
-      if (existing) {
-        await this.productsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
+      // Deleted on a till: removed exactly as the server's own delete does it, stock
+      // written off included (ruling R18).
+      if (existing && !existing.deletedAt) {
+        const ctx = await this.syncRemovalContext(businessId, operation.recordUpdatedAt)
+        await this.dataSource.transaction((manager) => removeProduct(manager, ctx, existing))
       }
 
       return { status: 'applied' }
@@ -5658,6 +5659,16 @@ export class SyncService {
     const url = this.normalizeOptionalString(value)
     if (!url) return null
     return this.storage.keyFromUrl(url) ? url : null
+  }
+
+  /** Who and when for a removal that arrived by sync: no user, booked on the till's day. */
+  private async syncRemovalContext(businessId: string, at: Date) {
+    return {
+      businessId,
+      actorId: null,
+      businessDate: await this.calendar.computeForBusiness(businessId, at),
+      at,
+    }
   }
 
   private normalizeMoney(value: number | string | null | undefined) {

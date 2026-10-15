@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { removeVariant } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -329,54 +330,15 @@ export class ProductVariantManagementService {
       const variant = await this.requireVariant(productId, variantId, businessId)
       const reason = dto.reason.trim()
 
-      await this.dataSource.transaction(async (manager) => {
-        const before = await this.productStockTotal(
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
+      await this.dataSource.transaction((manager) =>
+        removeVariant(
           manager,
-          businessId,
-          productId,
-          product.isSerialized,
-        )
-        let writeOff = 0
-
-        if (product.isSerialized) {
-          const serialRepo = manager.getRepository(ProductSerialUnit)
-          const units = await serialRepo.find({
-            where: { businessId, productId, variantId, status: SerialUnitStatus.IN_STOCK },
-          })
-          writeOff = units.length
-          for (const unit of units) {
-            await serialRepo.update(
-              { id: unit.id },
-              { status: SerialUnitStatus.DAMAGED, notes: reason },
-            )
-            await serialRepo.softDelete({ id: unit.id })
-          }
-        } else {
-          const invRepo = manager.getRepository(InventoryLevel)
-          const level = await invRepo.findOne({ where: { businessId, productId, variantId } })
-          writeOff = level?.quantity ?? 0
-          if (level) await invRepo.update({ id: level.id }, { quantity: 0 })
-        }
-
-        // Soft-delete the variant and its option links.
-        await manager.getRepository(ProductVariantOption).softDelete({ variantId, businessId })
-        await manager.getRepository(ProductVariant).softDelete({ id: variantId })
-
-        if (writeOff > 0) {
-          await this.writeMovement(manager, businessId, productId, -writeOff, before, {
-            referenceId: variantId,
-            notes: reason,
-            performedById: context.actorId ?? null,
-          })
-        }
-
-        const remaining = await manager
-          .getRepository(ProductVariant)
-          .count({ where: { productId, businessId, deletedAt: IsNull() } })
-        if (remaining === 0) {
-          await manager.getRepository(Product).update({ id: productId }, { hasVariants: false })
-        }
-      })
+          { businessId, actorId: context.actorId ?? null, businessDate, at: new Date() },
+          { product, variantId, reason },
+        ),
+      )
 
       this.auditService.log(context, {
         action: 'DELETE',

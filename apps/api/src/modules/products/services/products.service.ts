@@ -1,4 +1,5 @@
 import { checkProductSku, productAverageCost, productDisplayPrice } from '@biztrack/domain'
+import { removeProduct } from '../catalog-removal'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -32,7 +33,6 @@ import { Product } from '@/entities/product.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
-import { ProductVariantOption } from '@/entities/product-variant-option.entity'
 import { ProductImage } from '@/entities/product-image.entity'
 import { UnitOfMeasure } from '@/entities/unit-of-measure.entity'
 import type { I18nTranslations } from '@/i18n/i18n.types'
@@ -968,76 +968,15 @@ export class ProductsService {
       const product = await this.findById(id, businessId)
       const now = new Date()
 
-      await this.dataSource.transaction(async (manager) => {
-        const variantRepo = manager.getRepository(ProductVariant)
-        const optionRepo = manager.getRepository(ProductVariantOption)
-        const serialRepo = manager.getRepository(ProductSerialUnit)
-        const imageRepo = manager.getRepository(ProductImage)
-        const levelRepo = manager.getRepository(InventoryLevel)
-        const movementRepo = manager.getRepository(InventoryMovement)
-
-        // Remaining stock = serial count / sum of variant+product levels.
-        let stockBefore = 0
-        if (product.isSerialized) {
-          stockBefore = await serialRepo.count({
-            where: { businessId, productId: id, status: SerialUnitStatus.IN_STOCK },
-          })
-          await serialRepo
-            .createQueryBuilder()
-            .update()
-            .set({ status: SerialUnitStatus.DAMAGED, deletedAt: now })
-            .where('business_id = :businessId AND product_id = :id AND deleted_at IS NULL', {
-              businessId,
-              id,
-            })
-            .execute()
-        } else {
-          const row = await levelRepo
-            .createQueryBuilder('l')
-            .select('COALESCE(SUM(l.quantity), 0)', 's')
-            .where('l.business_id = :businessId AND l.product_id = :id', { businessId, id })
-            .getRawOne<{ s: string }>()
-          stockBefore = Number(row?.s ?? 0)
-        }
-
-        // Cascade soft-delete children.
-        const variants = await variantRepo.find({
-          where: { productId: id, businessId, deletedAt: IsNull() },
-        })
-        if (variants.length) {
-          await optionRepo.softDelete({ variantId: In(variants.map((v) => v.id)), businessId })
-          await variantRepo.update(
-            { productId: id, businessId, deletedAt: IsNull() },
-            { isActive: false, deletedAt: now },
-          )
-        }
-        await levelRepo.update({ productId: id, businessId }, { quantity: 0, updatedAt: now })
-        await imageRepo.delete({ productId: id })
-
-        if (stockBefore > 0) {
-          // Local trading day (BIZ-5.1) from the business timezone + cutover.
-          const businessDate = await this.calendar.computeForBusiness(businessId, new Date())
-          await movementRepo.save(
-            movementRepo.create({
-              businessId,
-              productId: id,
-              type: MovementType.MANUAL_ADJUSTMENT,
-              quantityChange: -stockBefore,
-              quantityBefore: stockBefore,
-              quantityAfter: 0,
-              referenceType: 'product',
-              referenceId: id,
-              notes: 'Product deleted',
-              performedById: context?.actorId ?? null,
-              businessDate,
-            }),
-          )
-        }
-
-        await manager
-          .getRepository(Product)
-          .update(id, { isActive: false, deletedAt: now, updatedAt: now })
-      })
+      // Local trading day (BIZ-5.1) from the business timezone + cutover.
+      const businessDate = await this.calendar.computeForBusiness(businessId, now)
+      await this.dataSource.transaction((manager) =>
+        removeProduct(
+          manager,
+          { businessId, actorId: context?.actorId ?? null, businessDate, at: now },
+          product,
+        ),
+      )
 
       if (context) {
         this.auditService.log(context, {
