@@ -1,5 +1,11 @@
 import type { HttpClient } from '@biztrack/http-client'
 import type {
+  AddOnlineCustomerToContactsRequest,
+  OnlineCustomer,
+  OnlineCustomerListResult,
+  OnlineCustomersQuery,
+} from '@biztrack/types'
+import type {
   CityView,
   CountryView,
   CreateOnlineStoreRequest,
@@ -49,6 +55,16 @@ export class OnlineService {
       const code = err?.response?.data?.error?.code
       if (status === 403 || code === 'PLAN_UPGRADE_REQUIRED')
         throw new Error('PLAN_UPGRADE_REQUIRED')
+      // CONTACT_DUPLICATE crosses IPC as its code and details in the message, as the till's
+      // own contact service sends it (renderer lib/contact-duplicate.ts reads it back).
+      const error = (e as { response?: { data?: { error?: { details?: unknown } } } })?.response
+        ?.data?.error
+      if (code === 'CONTACT_DUPLICATE' && error?.details) {
+        throw new Error(`CONTACT_DUPLICATE ${JSON.stringify(error.details)}`)
+      }
+      const message = (e as { response?: { data?: { message?: unknown } } })?.response?.data
+        ?.message
+      if (code && typeof message === 'string' && message.trim()) throw new Error(message)
       throw e
     }
   }
@@ -138,6 +154,37 @@ export class OnlineService {
     )
   }
 
+  listCustomers(query: OnlineCustomersQuery = {}): Promise<OnlineCustomerListResult> {
+    const params = new URLSearchParams()
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+    })
+    const qs = params.toString()
+    return this.run(
+      async () =>
+        (
+          await this.http.get<ApiEnvelope<OnlineCustomerListResult>>(
+            `/online-store/customers${qs ? `?${qs}` : ''}`,
+          )
+        ).data.data,
+    )
+  }
+
+  addCustomerToContacts(
+    id: string,
+    input: AddOnlineCustomerToContactsRequest,
+  ): Promise<OnlineCustomer> {
+    return this.run(
+      async () =>
+        (
+          await this.http.post<ApiEnvelope<OnlineCustomer>>(
+            `/online-store/customers/${id}/contact`,
+            input,
+          )
+        ).data.data,
+    )
+  }
+
   getOrder(id: string): Promise<OnlineOrderDetail> {
     return this.run(
       async () =>
@@ -202,7 +249,9 @@ export class OnlineService {
 
   // ---- geography reference (public, unauthenticated — used by the delivery-zone editor) ----
   async getCountries(): Promise<CountryView[]> {
-    return (await this.http.get<ApiEnvelope<CountryView[]>>('/public/geo/countries')).data.data ?? []
+    return (
+      (await this.http.get<ApiEnvelope<CountryView[]>>('/public/geo/countries')).data.data ?? []
+    )
   }
 
   async getRegions(country: string): Promise<RegionView[]> {

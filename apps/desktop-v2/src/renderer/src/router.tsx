@@ -45,6 +45,7 @@ import { Expenses } from '@/routes/Expenses'
 import { OtherIncome } from '@/routes/OtherIncome'
 import { Deposits } from '@/routes/Deposits'
 import { OnlineOrders } from '@/routes/OnlineOrders'
+import { OnlineCustomers } from '@/routes/OnlineCustomers'
 import { OnlineProducts } from '@/routes/OnlineProducts'
 import { OnlineStore } from '@/routes/OnlineStore'
 import { Settings } from '@/routes/Settings'
@@ -117,6 +118,14 @@ export const router = createHashRouter([
             element: (
               <RequireResource resource={Resource.ONLINE_STORE}>
                 <OnlineOrders />
+              </RequireResource>
+            ),
+          },
+          {
+            path: '/online/customers',
+            element: (
+              <RequireResource resource={Resource.ONLINE_STORE}>
+                <OnlineCustomers />
               </RequireResource>
             ),
           },

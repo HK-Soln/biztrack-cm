@@ -482,8 +482,18 @@ export function resolveDeliveryFee(
   address: DeliveryAddressInput,
   subtotal: number,
 ): DeliveryFeeResult {
-  if (cfg.freeDeliveryOverAmount != null && cfg.freeDeliveryOverAmount > 0 && subtotal >= cfg.freeDeliveryOverAmount)
-    return { deliverable: true, fee: 0, matchedZoneName: null, arrangeSeparately: false, freeApplied: true }
+  if (
+    cfg.freeDeliveryOverAmount != null &&
+    cfg.freeDeliveryOverAmount > 0 &&
+    subtotal >= cfg.freeDeliveryOverAmount
+  )
+    return {
+      deliverable: true,
+      fee: 0,
+      matchedZoneName: null,
+      arrangeSeparately: false,
+      freeApplied: true,
+    }
 
   const zone = matchDeliveryZone(cfg.deliveryZones ?? [], address)
   if (zone)
@@ -507,9 +517,21 @@ export function resolveDeliveryFee(
 
   switch (cfg.unlistedAreaBehavior) {
     case 'BLOCK':
-      return { deliverable: false, fee: 0, matchedZoneName: null, arrangeSeparately: false, freeApplied: false }
+      return {
+        deliverable: false,
+        fee: 0,
+        matchedZoneName: null,
+        arrangeSeparately: false,
+        freeApplied: false,
+      }
     case 'ARRANGE':
-      return { deliverable: true, fee: 0, matchedZoneName: null, arrangeSeparately: true, freeApplied: false }
+      return {
+        deliverable: true,
+        fee: 0,
+        matchedZoneName: null,
+        arrangeSeparately: true,
+        freeApplied: false,
+      }
     case 'DEFAULT_FEE':
     default:
       return {
@@ -866,6 +888,7 @@ export interface OnlineOrderEvent {
 export interface OnlineOrder {
   id: string
   onlineStoreId: string
+  onlineCustomerId?: string | null
   saleId?: string | null
   orderNumber: string
   trackingToken: string
@@ -943,6 +966,39 @@ export interface OnlineOrderFinancials {
 export interface OnlineOrderDetail extends OnlineOrder {
   events: OnlineOrderEvent[]
   financials?: OnlineOrderFinancials | null
+  /** Who placed it, as the shop knows them (ruling R20). */
+  onlineCustomer?: OnlineCustomer | null
+}
+
+/**
+ * Someone who has ordered from the storefront (ruling R20). Not a contact: recognised by
+ * phone or email on later orders; linked to a contact once the shop adds them.
+ */
+export interface OnlineCustomer {
+  id: string
+  name: string
+  phone: string | null
+  email: string | null
+  orderCount: number
+  /** Value of their orders that were not cancelled. */
+  totalSpent: number
+  firstOrderAt: string
+  lastOrderAt: string
+  contactId: string | null
+  contactName: string | null
+}
+
+export interface OnlineCustomersQuery {
+  search?: string
+  page?: number
+  limit?: number
+}
+
+export type OnlineCustomerListResult = PaginatedResult<OnlineCustomer>
+
+/** Add an online customer to the contacts; `onDuplicate` as for a new contact (R16). */
+export interface AddOnlineCustomerToContactsRequest {
+  onDuplicate?: 'MERGE' | 'CREATE'
 }
 
 /** Paginated owner order list. */

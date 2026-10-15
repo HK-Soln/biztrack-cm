@@ -204,6 +204,8 @@ export const IPC = {
   onlineProductsList: 'online:products-list',
   onlineProductSetPublished: 'online:product-set-published',
   onlineOrderUpdatePayment: 'online:order-update-payment',
+  onlineCustomersList: 'online:customers-list',
+  onlineCustomerAddContact: 'online:customer-add-contact',
   onlinePublicationsList: 'online:publications-list',
   onlinePublicationRestore: 'online:publication-restore',
   onlineGeoCountries: 'online:geo-countries',
@@ -1702,6 +1704,10 @@ import type {
   UpdateOnlineStoreRequest as UpdateOnlineStoreT,
   OnlineOrder as OnlineOrderT,
   OnlineOrderDetail as OnlineOrderDetailT,
+  OnlineCustomer as OnlineCustomerT,
+  OnlineCustomerListResult as OnlineCustomerListResultT,
+  OnlineCustomersQuery as OnlineCustomersQueryT,
+  AddOnlineCustomerToContactsRequest as AddOnlineCustomerToContactsT,
   OnlineOrderListResult as OnlineOrderListResultT,
   OnlineOrderStatus as OnlineOrderStatusT,
   UpdateOrderStatusRequest as UpdateOrderStatusT,
@@ -2580,6 +2586,12 @@ export interface BridgeApi {
     getOrder: (id: string) => Promise<OnlineOrderDetailT>
     updateOrderStatus: (id: string, input: UpdateOrderStatusT) => Promise<OnlineOrderT>
     updateOrderPayment: (id: string, input: UpdateOrderPaymentT) => Promise<OnlineOrderDetailT>
+    /** People who ordered online (ruling R20), and adding one to the contacts. */
+    listCustomers: (query?: OnlineCustomersQueryT) => Promise<OnlineCustomerListResultT>
+    addCustomerToContacts: (
+      id: string,
+      input: AddOnlineCustomerToContactsT,
+    ) => Promise<OnlineCustomerT>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQueryT) => Promise<PaginatedT<OnlineAdminProductT>>
     setProductPublished: (id: string, published: boolean) => Promise<void>

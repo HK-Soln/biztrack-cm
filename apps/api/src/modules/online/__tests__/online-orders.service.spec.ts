@@ -40,11 +40,9 @@ const makeService = (opts: {
   }
   const variantsRepo = { findOne: jest.fn() }
   const serialUnitsRepo = { find: jest.fn().mockResolvedValue([]), update: jest.fn() }
-  const contactsRepo = {
-    find: jest.fn().mockResolvedValue([]),
-    create: jest.fn((i: any) => i),
-    save: jest.fn(async (i: any) => ({ id: 'contact-1', ...i })),
-    update: jest.fn(),
+  const onlineCustomers = {
+    recordOrder: jest.fn(async () => ({ id: 'buyer-1' })),
+    get: jest.fn(async () => ({ id: 'buyer-1', contactId: null })),
   }
   const salesService = {
     createFromSync: jest.fn(async () => ({ id: 'sale-1', saleNumber: 'V-1' })),
@@ -100,7 +98,7 @@ const makeService = (opts: {
     productsRepo as any,
     variantsRepo as any,
     serialUnitsRepo as any,
-    contactsRepo as any,
+    onlineCustomers as any,
     salesService as any,
     i18n as any,
     logger as any,
@@ -119,7 +117,7 @@ const makeService = (opts: {
     } as any,
     { create: jest.fn(async () => ({ token: 'tok', url: 'https://pay/tok' })) } as any,
   )
-  return { service, cartsRepo, ordersRepo, eventsRepo, contactsRepo, salesService, storeService }
+  return { service, cartsRepo, ordersRepo, eventsRepo, onlineCustomers, salesService, storeService }
 }
 
 describe('OnlineOrdersService.addItem', () => {
@@ -217,8 +215,8 @@ describe('OnlineOrdersService.updateStatus (deferred sale)', () => {
 })
 
 describe('OnlineOrdersService.updateStatus (post-at-confirm, default on)', () => {
-  it('posts a COD credit sale at confirm with fees as charge lines + a guest contact', async () => {
-    const { service, ordersRepo, salesService, contactsRepo } = makeService({ store })
+  it('posts the sale at confirm with fees as charge lines, and makes no contact (R20)', async () => {
+    const { service, ordersRepo, salesService } = makeService({ store })
     salesService.createFromSync = jest.fn(async () => ({
       id: 'sale-1',
       saleNumber: 'V-1',
@@ -253,8 +251,8 @@ describe('OnlineOrdersService.updateStatus (post-at-confirm, default on)', () =>
       { id: 'user-1', name: 'Paul', role: 'OWNER' },
     )
 
-    // A guest customer is created (no existing match) so the COD receivable can attach.
-    expect(contactsRepo.save).toHaveBeenCalled()
+    // The buyer is an online customer, not a contact: the sale carries no customer.
+    expect((salesService.createFromSync as jest.Mock).mock.calls[0][1].customerId).toBeUndefined()
     expect(salesService.createFromSync).toHaveBeenCalledWith(
       'biz-1',
       expect.objectContaining({

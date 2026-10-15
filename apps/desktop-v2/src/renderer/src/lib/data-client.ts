@@ -1,4 +1,10 @@
 import type {
+  AddOnlineCustomerToContactsRequest,
+  OnlineCustomer,
+  OnlineCustomerListResult,
+  OnlineCustomersQuery,
+} from '@biztrack/types'
+import type {
   AttributeGroupInput,
   AttributeGroupListQuery,
   AttributeOptionInput,
@@ -570,6 +576,11 @@ export interface DataClient {
     getOrder: (id: string) => Promise<OnlineOrderDetail>
     updateOrderStatus: (id: string, input: UpdateOrderStatusRequest) => Promise<OnlineOrder>
     updateOrderPayment: (id: string, input: UpdateOrderPaymentRequest) => Promise<OnlineOrderDetail>
+    listCustomers: (query?: OnlineCustomersQuery) => Promise<OnlineCustomerListResult>
+    addCustomerToContacts: (
+      id: string,
+      input: AddOnlineCustomerToContactsRequest,
+    ) => Promise<OnlineCustomer>
     checkSlug: (slug: string) => Promise<OnlineSlugCheck>
     listProducts: (query?: OnlineAdminProductsQuery) => Promise<PaginatedResult<OnlineAdminProduct>>
     setProductPublished: (id: string, published: boolean) => Promise<void>
@@ -1028,6 +1039,8 @@ function electronAdapter(): DataClient {
       getOrder: (id) => window.api.online.getOrder(id),
       updateOrderStatus: (id, input) => window.api.online.updateOrderStatus(id, input),
       updateOrderPayment: (id, input) => window.api.online.updateOrderPayment(id, input),
+      listCustomers: (query) => window.api.online.listCustomers(query),
+      addCustomerToContacts: (id, input) => window.api.online.addCustomerToContacts(id, input),
       checkSlug: (slug) => window.api.online.checkSlug(slug),
       listProducts: (query) => window.api.online.listProducts(query),
       setProductPublished: (id, published) => window.api.online.setProductPublished(id, published),

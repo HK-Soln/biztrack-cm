@@ -27,6 +27,10 @@ export class OnlineOrder {
   @Column({ name: 'business_id' })
   businessId!: string
 
+  /** The buyer as the shop knows them (ruling R20); set when the order is placed. */
+  @Column({ name: 'online_customer_id', type: 'uuid', nullable: true })
+  onlineCustomerId?: string | null
+
   // Set when the merchant confirms and the financial sale is created (part 3).
   @Column({ name: 'sale_id', type: 'uuid', nullable: true })
   saleId?: string | null

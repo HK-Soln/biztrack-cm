@@ -8,6 +8,7 @@ import { useLangStore, useT } from '@/i18n'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { errorMessage } from '@/lib/error'
 import { OnlineError, OnlineUpsell, isPlanUpgrade } from '@/components/online/OnlineStates'
+import { AddToContactsButton } from '@/components/online/AddToContactsButton'
 import { PaymentLinkDialog } from '@/components/payments/PaymentLinkDialog'
 import { PayableType } from '@biztrack/types'
 import {
@@ -201,8 +202,7 @@ export function OnlineOrders() {
 
   const list = useQuery({
     queryKey: ['online', 'orders', status, page],
-    queryFn: () =>
-      dataClient.online.listOrders({ status: status || undefined, page, limit: 20 }),
+    queryFn: () => dataClient.online.listOrders({ status: status || undefined, page, limit: 20 }),
     enabled: true,
     retry: false,
   })
@@ -269,7 +269,9 @@ export function OnlineOrders() {
           {t('common.prev')}
         </button>
         <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
-          {t('online.pageOf').replace('{page}', String(page)).replace('{total}', String(totalPages))}
+          {t('online.pageOf')
+            .replace('{page}', String(page))
+            .replace('{total}', String(totalPages))}
         </span>
         <button
           type="button"
@@ -718,10 +720,19 @@ function OrderDrawer({
                 <div className="bl">{t('online.customer')}</div>
                 <div className="od-customer">
                   <div className="a">{initials(o.customerName)}</div>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div className="nm">{o.customerName}</div>
                     <div className="s">{o.customerPhone ?? o.customerEmail ?? '—'}</div>
+                    {o.onlineCustomer && o.onlineCustomer.orderCount > 1 ? (
+                      <div className="s">
+                        {t('online.returningCustomer').replace(
+                          '{n}',
+                          String(o.onlineCustomer.orderCount),
+                        )}
+                      </div>
+                    ) : null}
                   </div>
+                  {o.onlineCustomer ? <AddToContactsButton customer={o.onlineCustomer} /> : null}
                 </div>
               </div>
 

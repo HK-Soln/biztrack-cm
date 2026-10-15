@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, Input, Modal, PhoneInput, Select, toast } from '@biztrack/ui/biztrack'
+import { BackButton, Button, Input, PhoneInput, Select, toast } from '@biztrack/ui/biztrack'
 import {
   ContactType,
   DebtDirection,
@@ -12,6 +12,7 @@ import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
 import { readContactDuplicate } from '@/lib/contact-duplicate'
+import { ContactDuplicateModal } from '@/components/contacts/ContactDuplicateModal'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { contactSchema } from '@/lib/schemas'
@@ -447,47 +448,12 @@ export function ContactForm() {
         </div>
       </form>
 
-      <Modal
-        open={!!duplicate}
-        onClose={() => setDuplicate(null)}
-        title={t('ct.duplicateTitle')}
-        footer={
-          <>
-            <Button variant="soft" onClick={() => setDuplicate(null)} disabled={save.isPending}>
-              {t('ct.cancel')}
-            </Button>
-            <Button
-              variant="soft"
-              loading={save.isPending && save.variables === 'CREATE'}
-              disabled={save.isPending}
-              onClick={() => save.mutate('CREATE')}
-            >
-              {t('ct.duplicateCreate')}
-            </Button>
-            <Button
-              variant="primary"
-              loading={save.isPending && save.variables === 'MERGE'}
-              disabled={save.isPending}
-              onClick={() => save.mutate('MERGE')}
-            >
-              {t('ct.duplicateMerge')}
-            </Button>
-          </>
-        }
-      >
-        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          {t(
-            duplicate?.matchedOn.includes('phone') && duplicate.matchedOn.includes('email')
-              ? 'ct.duplicateBodyBoth'
-              : duplicate?.matchedOn.includes('email')
-                ? 'ct.duplicateBodyEmail'
-                : 'ct.duplicateBodyPhone',
-          ).replace('{name}', duplicate?.name ?? '')}
-        </p>
-        <p style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.6, marginTop: 8 }}>
-          {t('ct.duplicateHint').replace('{name}', duplicate?.name ?? '')}
-        </p>
-      </Modal>
+      <ContactDuplicateModal
+        duplicate={duplicate}
+        pending={save.isPending ? (save.variables ?? null) : null}
+        onChoose={(choice) => save.mutate(choice)}
+        onCancel={() => setDuplicate(null)}
+      />
     </div>
   )
 }

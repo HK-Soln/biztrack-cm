@@ -59,10 +59,16 @@ export type SaleCreditRejection = 'SALE_CREDIT_AMOUNT_MISMATCH' | 'CUSTOMER_REQU
  * Whether a sale's credit portion is acceptable: a credit sale must be linked to a
  * customer, and a credit amount claimed by a device must equal the computed unpaid
  * balance. Returns the rejection code, or null when the sale may proceed.
+ *
+ * Ruling R20: the unpaid part of an online order paid on delivery is money with the
+ * courier, not credit. It is collected on the order, so it needs no customer and opens
+ * no debt (see `saleOpensDebt`).
  */
 export function checkSaleCredit(input: {
   creditAmount: number
   hasCustomer: boolean
+  /** The balance is an online order's cash on delivery, collected on the order. */
+  collectedOnDelivery?: boolean
   /** The credit amount a device computed, when the sale arrives through sync. */
   expectedCreditAmount?: number | null
 }): SaleCreditRejection | null {
@@ -73,8 +79,22 @@ export function checkSaleCredit(input: {
   ) {
     return 'SALE_CREDIT_AMOUNT_MISMATCH'
   }
-  if (input.creditAmount > 0 && !input.hasCustomer) return 'CUSTOMER_REQUIRED_FOR_CREDIT'
+  if (input.creditAmount > 0 && !input.hasCustomer && !input.collectedOnDelivery) {
+    return 'CUSTOMER_REQUIRED_FOR_CREDIT'
+  }
   return null
+}
+
+/**
+ * Whether a sale's unpaid balance becomes a receivable debt: only real credit, owed by a
+ * customer. An online order's cash on delivery never does (ruling R20).
+ */
+export function saleOpensDebt(input: {
+  creditAmount: number
+  hasCustomer: boolean
+  collectedOnDelivery?: boolean
+}): boolean {
+  return input.creditAmount > 0 && input.hasCustomer && !input.collectedOnDelivery
 }
 
 /**

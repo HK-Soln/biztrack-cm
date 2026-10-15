@@ -21,6 +21,7 @@ import {
   reviewSyncedDiscount,
   reviewSyncedRefund,
   roundQuantity,
+  saleOpensDebt,
   saleReturnStatus,
   settleSale,
   settleSaleFromLedger,
@@ -662,6 +663,12 @@ export class SalesService {
           totalAmount: computed.totalAmount,
           payments: payload.payments,
         })
+        // An online order's balance is cash on delivery, collected on the order (R20). Only a
+        // sale for a real order of this business counts, so a till cannot claim it.
+        const collectedOnDelivery =
+          payload.source === SaleSource.ONLINE &&
+          !!payload.onlineOrderId &&
+          (await this.isOnlineOrder(manager, businessId, payload.onlineOrderId))
         const { customerId, creditAmount } = await this.resolveSaleCreditContext(
           manager,
           businessId,
@@ -669,6 +676,7 @@ export class SalesService {
           computed.totalAmount,
           amountPaid,
           payload.creditAmount,
+          collectedOnDelivery,
         )
         const paymentMethod = storedPaymentMethod(payload.payments)
         const momoReference = this.firstMobileMoneyReference(payload.payments)
@@ -933,10 +941,10 @@ export class SalesService {
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
-        if (creditAmount > 0 && customerId) {
+        if (saleOpensDebt({ creditAmount, hasCustomer: !!customerId, collectedOnDelivery })) {
           await this.debtsService.createSourceDebt(manager, {
             businessId,
-            contactId: customerId,
+            contactId: customerId!,
             direction: DebtDirection.RECEIVABLE,
             sourceType: DebtSource.SALE,
             sourceId: sale.id,
@@ -3084,6 +3092,18 @@ export class SalesService {
     return trimmed ? trimmed : null
   }
 
+  private async isOnlineOrder(
+    manager: EntityManager,
+    businessId: string,
+    orderId: string,
+  ): Promise<boolean> {
+    const [row] = (await manager.query(
+      `SELECT 1 FROM online_orders WHERE id = $1 AND business_id = $2 LIMIT 1`,
+      [orderId, businessId],
+    )) as unknown[]
+    return !!row
+  }
+
   private async resolveSaleCreditContext(
     manager: EntityManager,
     businessId: string,
@@ -3091,6 +3111,7 @@ export class SalesService {
     totalAmount: number,
     amountPaid: number,
     expectedCreditAmount?: number | null,
+    collectedOnDelivery = false,
   ) {
     const customerId = this.normalizeOptionalUuid(rawCustomerId)
     const { creditAmount } = settleSale({ totalAmount, payments: [{ amount: amountPaid }] })
@@ -3098,6 +3119,7 @@ export class SalesService {
       creditAmount,
       hasCustomer: !!customerId,
       expectedCreditAmount,
+      collectedOnDelivery,
     })
 
     if (rejection === 'SALE_CREDIT_AMOUNT_MISMATCH') {

@@ -266,6 +266,16 @@ order until it is collected at delivery or pickup, so a sale from an online orde
 an unpaid balance with no contact, and receivables remain for real credit customers. Login
 is not required to check out.
 
+As built: `packages/domain/src/online/online-customers.ts` (onlineBuyerKeys,
+findOnlineCustomer) and, in sale-settlement, `checkSaleCredit` with `collectedOnDelivery`
+plus `saleOpensDebt`. The server grants `collectedOnDelivery` only to a sale for a real
+online order of the business, so a till cannot use it. API: `online_customers`,
+`online_orders.online_customer_id` (migration 1790800000000 files existing orders under
+their buyers and keeps any contact an old order’s sale was charged to),
+`GET /online-store/customers`, `POST /online-store/customers/:id/contact`. Desktop and
+browser: Online → Customers screen and an Add to contacts action on the order drawer.
+Contacts and debts that earlier orders created are left as they are.
+
 ### How the rulings are implemented
 
 Which flag to raise and how serious it is, is decided in `packages/domain/src/review`

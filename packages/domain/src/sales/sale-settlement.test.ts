@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PaymentMethod, SalePaymentKind, SaleStatus } from '@biztrack/types'
 import {
   checkSaleCredit,
+  saleOpensDebt,
   decideSaleRefund,
   decideSaleVoid,
   effectivePaymentLines,
@@ -101,6 +102,12 @@ describe('checkSaleCredit', () => {
       'CUSTOMER_REQUIRED_FOR_CREDIT',
     )
     expect(checkSaleCredit({ creditAmount: 500, hasCustomer: true })).toBeNull()
+  })
+
+  it('lets an online order paid on delivery carry a balance with no customer (R20)', () => {
+    expect(
+      checkSaleCredit({ creditAmount: 500, hasCustomer: false, collectedOnDelivery: true }),
+    ).toBeNull()
   })
 
   it('rejects a device credit amount that differs from the computed balance', () => {
@@ -504,5 +511,19 @@ describe('decideSaleVoid', () => {
       ok: false,
       code: 'ALREADY_VOIDED',
     })
+  })
+})
+
+describe('saleOpensDebt', () => {
+  it('opens a debt only for credit owed by a customer', () => {
+    expect(saleOpensDebt({ creditAmount: 500, hasCustomer: true })).toBe(true)
+    expect(saleOpensDebt({ creditAmount: 0, hasCustomer: true })).toBe(false)
+    expect(saleOpensDebt({ creditAmount: 500, hasCustomer: false })).toBe(false)
+  })
+
+  it('never for an online order paid on delivery (R20)', () => {
+    expect(saleOpensDebt({ creditAmount: 500, hasCustomer: true, collectedOnDelivery: true })).toBe(
+      false,
+    )
   })
 })

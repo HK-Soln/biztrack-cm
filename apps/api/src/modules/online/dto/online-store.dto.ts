@@ -256,7 +256,9 @@ export class UpdateOnlineStoreDto implements UpdateOnlineStoreRequest {
   @Min(0)
   codMinOrderAmount?: number
 
-  @ApiPropertyOptional({ description: 'No cash-on-delivery above this order amount (null = no cap).' })
+  @ApiPropertyOptional({
+    description: 'No cash-on-delivery above this order amount (null = no cap).',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

@@ -209,6 +209,12 @@ export const NAV: NavEntry[] = [
         resource: Resource.ONLINE_STORE,
       },
       {
+        to: '/online/customers',
+        label: 'nav.onlineCustomers',
+        icon: 'contacts',
+        resource: Resource.ONLINE_STORE,
+      },
+      {
         to: '/online/products',
         label: 'nav.onlineProducts',
         icon: 'products',

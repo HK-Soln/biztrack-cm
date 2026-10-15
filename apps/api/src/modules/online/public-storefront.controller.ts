@@ -133,7 +133,10 @@ export class PublicStorefrontController {
     // Draft preview is render-only — never let it create a real order (the storefront also disables
     // the action, this is the server-side backstop).
     if (preview === '1') {
-      throw new AppBadRequestException('Ordering is disabled in preview mode.', 'ONLINE_PREVIEW_READONLY')
+      throw new AppBadRequestException(
+        'Ordering is disabled in preview mode.',
+        'ONLINE_PREVIEW_READONLY',
+      )
     }
     return this.orders.checkout(slug, sessionToken, dto)
   }

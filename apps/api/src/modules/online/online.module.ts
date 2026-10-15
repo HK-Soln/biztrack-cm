@@ -7,6 +7,7 @@ import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { Business } from '@/entities/business.entity'
 import { Contact } from '@/entities/contact.entity'
+import { OnlineCustomer } from '@/entities/online-customer.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
@@ -14,6 +15,7 @@ import { ProductImage } from '@/entities/product-image.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { ProductsModule } from '@/modules/products/products.module'
 import { SalesModule } from '@/modules/sales/sales.module'
+import { DebtsModule } from '@/modules/debts/debts.module'
 import { PermissionsModule } from '@/modules/permissions/permissions.module'
 import { NotificationsModule } from '@/modules/notifications/notifications.module'
 import { BusinessCalendarModule } from '@/modules/business-calendar/business-calendar.module'
@@ -26,6 +28,8 @@ import { PublicStorefrontService } from './public-storefront.service'
 import { OnlineOrdersController } from './online-orders.controller'
 import { OnlineOrdersService } from './online-orders.service'
 import { OrderEmailService } from './order-email.service'
+import { OnlineCustomersController } from './online-customers.controller'
+import { OnlineCustomersService } from './online-customers.service'
 
 @Module({
   imports: [
@@ -36,6 +40,7 @@ import { OrderEmailService } from './order-email.service'
       OnlineCart,
       OnlineOrder,
       OnlineOrderEvent,
+      OnlineCustomer,
       Contact,
       Product,
       ProductVariant,
@@ -45,14 +50,26 @@ import { OrderEmailService } from './order-email.service'
     ]),
     ProductsModule,
     SalesModule,
+    DebtsModule,
     PermissionsModule,
     NotificationsModule,
     BusinessCalendarModule,
     PaymentsModule,
     PaymentLinksModule,
   ],
-  controllers: [OnlineStoreController, PublicStorefrontController, OnlineOrdersController],
-  providers: [OnlineStoreService, PublicStorefrontService, OnlineOrdersService, OrderEmailService],
+  controllers: [
+    OnlineStoreController,
+    PublicStorefrontController,
+    OnlineOrdersController,
+    OnlineCustomersController,
+  ],
+  providers: [
+    OnlineStoreService,
+    PublicStorefrontService,
+    OnlineOrdersService,
+    OnlineCustomersService,
+    OrderEmailService,
+  ],
   exports: [OnlineStoreService, OnlineOrdersService],
 })
 export class OnlineModule {}

@@ -1,4 +1,3 @@
-import { findContactClashes, normalizePhone } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { ConfigService } from '@nestjs/config'
@@ -6,7 +5,6 @@ import { In, IsNull, Repository } from 'typeorm'
 import { I18nService } from 'nestjs-i18n'
 import type { AppConfig } from '@/config/configuration'
 import {
-  ContactType,
   NotificationType,
   PaymentMethod,
   ONLINE_ORDER_COMPLETION_STATUSES,
@@ -42,7 +40,6 @@ import { OnlineCart } from '@/entities/online-cart.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
 import { OnlineStore } from '@/entities/online-store.entity'
-import { Contact } from '@/entities/contact.entity'
 import { Business } from '@/entities/business.entity'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
@@ -55,6 +52,7 @@ import { NotificationDispatcher } from '@/modules/notifications/services/notific
 import { SalesService } from '@/modules/sales/services/sales.service'
 import { BusinessCalendarService } from '@/modules/business-calendar/business-calendar.service'
 import { OnlineStoreService } from './online-store.service'
+import { OnlineCustomersService } from './online-customers.service'
 import { OrderEmailService } from './order-email.service'
 import { PaymentInitiationService } from '@/modules/payments/services/payment-initiation.service'
 import { PaymentLinkService } from '@/modules/payment-links/payment-link.service'
@@ -124,8 +122,7 @@ export class OnlineOrdersService {
     private readonly variantsRepo: Repository<ProductVariant>,
     @InjectRepository(ProductSerialUnit)
     private readonly serialUnitsRepo: Repository<ProductSerialUnit>,
-    @InjectRepository(Contact)
-    private readonly contactsRepo: Repository<Contact>,
+    private readonly onlineCustomers: OnlineCustomersService,
     private readonly salesService: SalesService,
     private readonly i18n: I18nService<I18nTranslations>,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -343,6 +340,14 @@ export class OnlineOrdersService {
           businessDate,
         }),
       )
+      // The buyer is an online customer, not a contact (ruling R20).
+      const buyer = await this.onlineCustomers.recordOrder(
+        null,
+        order,
+        order.createdAt ?? new Date(),
+      )
+      order.onlineCustomerId = buyer.id
+      await this.ordersRepo.update(order.id, { onlineCustomerId: buyer.id })
       await this.eventsRepo.save(
         this.eventsRepo.create({
           onlineOrderId: order.id,
@@ -576,7 +581,10 @@ export class OnlineOrdersService {
       order: { createdAt: 'ASC' },
     })
     const financials = await this.buildOrderFinancials(order)
-    return { ...order, events, financials }
+    const onlineCustomer = order.onlineCustomerId
+      ? await this.onlineCustomers.get(businessId, order.onlineCustomerId)
+      : null
+    return { ...order, events, financials, onlineCustomer }
   }
 
   /** Summarise the posted sale's money ledger (paid, balance due, refunds, payment timeline). */
@@ -1035,7 +1043,13 @@ export class OnlineOrdersService {
    * RESERVED until handover. Idempotent by order id (createFromSync keys on clientId).
    */
   private async postSaleForOrder(order: OnlineOrder, actor: OrderActor) {
-    const customerId = await this.resolveGuestContact(order)
+    // Ruling R20: no contact is made for the buyer. The sale is linked to a contact only if
+    // the shop added this buyer to its contacts; the unpaid part is cash on delivery,
+    // collected on the order, never a debt.
+    const buyer = order.onlineCustomerId
+      ? await this.onlineCustomers.get(order.businessId, order.onlineCustomerId)
+      : null
+    const customerId = buyer?.contactId ?? undefined
     const goods = (order.items ?? []).reduce((sum, i) => sum + i.unitPrice * i.quantity, 0)
     const charges = this.buildOrderCharges(order, goods)
     const chargesAmount = charges.reduce((sum, c) => sum + c.amount, 0)
@@ -1100,50 +1114,6 @@ export class OnlineOrdersService {
     return charges
   }
 
-  /**
-   * Resolve the customer for the sale's receivable: reuse an existing contact matched by email
-   * or phone (returning customer), else create a lightweight guest customer.
-   */
-  private async resolveGuestContact(order: OnlineOrder): Promise<string | undefined> {
-    const phone = order.customerPhone?.trim() || null
-    const email = order.customerEmail?.trim()?.toLowerCase() || null
-    if (!phone && !email) return undefined
-
-    const where: Array<Record<string, unknown>> = []
-    if (phone) where.push({ businessId: order.businessId, phone })
-    if (email) where.push({ businessId: order.businessId, email })
-    const matches = await this.contactsRepo.find({ where })
-    const existing = matches[0]
-    if (existing) {
-      // A supplier-only contact can't hold a receivable — promote it to BOTH.
-      if (existing.type === ContactType.SUPPLIER) {
-        await this.contactsRepo.update(existing.id, { type: ContactType.BOTH })
-      }
-      return existing.id
-    }
-    // Contact names are unique in a business (ruling R16). A first-time buyer whose name is
-    // already on another contact is told apart by their phone or email, so the order never
-    // fails on it. (Interim: see the online-customers question in the design doc.)
-    const others = await this.contactsRepo.find({ where: { businessId: order.businessId } })
-    let name = order.customerName.trim() || 'Online customer'
-    if (findContactClashes({ name }, others).nameTaken) name = `${name} (${phone ?? email})`
-    for (let n = 2; findContactClashes({ name }, others).nameTaken; n += 1) {
-      name = `${order.customerName.trim()} (${phone ?? email}) ${n}`
-    }
-    const created = await this.contactsRepo.save(
-      this.contactsRepo.create({
-        businessId: order.businessId,
-        type: ContactType.CUSTOMER,
-        name,
-        phone: normalizePhone(phone) ?? phone,
-        email,
-        isActive: true,
-      }),
-    )
-    return created.id
-  }
-
-  /** Collect any outstanding COD balance on completion via a real payment against the sale. */
   private async collectOnCompletion(
     order: OnlineOrder,
     actor: OrderActor,
