@@ -1,3 +1,4 @@
+import { comparisonPeriod, summarizeAmounts, toWholeXaf } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -14,8 +15,6 @@ import type {
 import { paginateRows, toPaginated } from './pagination'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
 interface IncomeRow {
   id: string
@@ -53,7 +52,9 @@ export class IncomeService {
     private readonly audit?: AuditLogger,
   ) {}
 
-  list(query: OtherIncomeListQuery = {}): PaginatedResult<LocalOtherIncome> & { totalAmount: number } {
+  list(
+    query: OtherIncomeListQuery = {},
+  ): PaginatedResult<LocalOtherIncome> & { totalAmount: number } {
     const businessId = this.getBusinessId()
     if (!businessId)
       return {
@@ -81,7 +82,7 @@ export class IncomeService {
       totalSql += ' AND (oi.description LIKE ? OR oi.reference LIKE ?)'
       totalArgs.push(`%${search}%`, `%${search}%`)
     }
-    const totalAmount = round2(this.db.get<{ t: number }>(totalSql, totalArgs)?.t ?? 0)
+    const totalAmount = toWholeXaf(this.db.get<{ t: number }>(totalSql, totalArgs)?.t ?? 0)
     return { ...toPaginated(rows.map(toLocalIncome), meta), totalAmount }
   }
 
@@ -117,7 +118,6 @@ export class IncomeService {
       `SELECT COALESCE(SUM(oi.amount), 0) AS total, COUNT(*) AS n FROM other_incomes oi WHERE ${where}`,
       params,
     )
-    const total = round2(agg?.total ?? 0)
     const count = agg?.n ?? 0
 
     const cats = this.db.query<{
@@ -133,41 +133,46 @@ export class IncomeService {
        FROM other_incomes oi WHERE ${where} GROUP BY oi.category_id ORDER BY amount DESC`,
       params,
     )
-    const byCategory: IncomeCategorySlice[] = cats.map((c) => ({
-      categoryId: c.category_id ?? '',
-      name: c.name ?? 'Uncategorized',
-      color: c.color ?? 'var(--text-muted)',
-      amount: round2(c.amount),
-      percentage: total > 0 ? Math.round((c.amount / total) * 100) : 0,
-    }))
 
-    const fromLinks = round2(
+    const fromLinks = toWholeXaf(
       this.db.get<{ t: number }>(
         `SELECT COALESCE(SUM(oi.amount), 0) AS t FROM other_incomes oi WHERE ${where} AND oi.source = 'PAYMENT_LINK'`,
         params,
       )?.t ?? 0,
     )
 
-    let previousTotal = 0
-    if (query.dateFrom && query.dateTo) {
-      const len = dayCount(query.dateFrom, query.dateTo)
-      const prevTo = addDays(query.dateFrom, -1)
-      const prevFrom = addDays(prevTo, -(len - 1))
-      previousTotal = round2(
-        this.db.get<{ t: number }>(
+    // Previous equal-length period (for the % change badge).
+    const period =
+      query.dateFrom && query.dateTo ? comparisonPeriod(query.dateFrom, query.dateTo) : null
+    const previousTotal = period
+      ? (this.db.get<{ t: number }>(
           `SELECT COALESCE(SUM(oi.amount), 0) AS t FROM other_incomes oi WHERE oi.business_id = ? AND oi.is_deleted = 0 AND oi.date >= ? AND oi.date <= ?`,
-          [businessId, prevFrom, prevTo],
-        )?.t ?? 0,
-      )
-    }
-    const days = query.dateFrom && query.dateTo ? dayCount(query.dateFrom, query.dateTo) : 30
+          [businessId, period.previousFrom, period.previousTo],
+        )?.t ?? 0)
+      : 0
+    // Totals, change, average and shares are @biztrack/domain's, as on the server.
+    const summary = summarizeAmounts({
+      categories: cats.map((cat) => ({ key: cat, amount: cat.amount })),
+      total: agg?.total ?? 0,
+      previousTotal,
+      days: period?.days,
+    })
+    const byCategory: IncomeCategorySlice[] = summary.categories.map(
+      ({ key, amount, percentage }) => ({
+        categoryId: key.category_id ?? '',
+        name: key.name ?? 'Uncategorized',
+        color: key.color ?? 'var(--text-muted)',
+        amount,
+        percentage,
+      }),
+    )
 
     return {
-      total,
+      total: summary.total,
       count,
-      previousTotal,
-      changePct: previousTotal > 0 ? round2(((total - previousTotal) / previousTotal) * 100) : 0,
-      avgPerDay: days > 0 ? round2(total / days) : 0,
+      previousTotal: summary.previousTotal,
+      changePct: summary.changePct,
+      avgPerDay: summary.avgPerDay,
       fromLinks,
       largest: byCategory[0] ?? null,
       byCategory,
@@ -186,7 +191,7 @@ export class IncomeService {
        GROUP BY ym`,
       [businessId, `${months[0]!.year}-${String(months[0]!.month).padStart(2, '0')}-01`],
     )
-    const byYm = new Map(rows.map((r) => [r.ym, round2(r.total)]))
+    const byYm = new Map(rows.map((r) => [r.ym, toWholeXaf(r.total)]))
     return months.map((m) => ({
       ...m,
       total: byYm.get(`${m.year}-${String(m.month).padStart(2, '0')}`) ?? 0,
@@ -199,7 +204,7 @@ export class IncomeService {
     if (!recordedById) throw new Error('No active session.')
     if (!input.categoryId?.trim()) throw new Error('Pick a category.')
     if (!input.description?.trim()) throw new Error('Add a description.')
-    const amount = round2(Number(input.amount))
+    const amount = toWholeXaf(Number(input.amount))
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be greater than 0.')
 
     const id = randomUUID()
@@ -250,7 +255,7 @@ export class IncomeService {
     if (!existing) throw new Error('Income entry not found.')
     if (existing.source !== 'MANUAL')
       throw new Error('This income was recorded automatically and cannot be edited.')
-    const amount = round2(Number(input.amount))
+    const amount = toWholeXaf(Number(input.amount))
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be greater than 0.')
     const now = new Date().toISOString()
     const incomeDate = input.date?.trim() || now.slice(0, 10)
@@ -299,7 +304,13 @@ export class IncomeService {
       `UPDATE other_incomes SET is_deleted = 1, updated_at = ? WHERE id = ? AND business_id = ?`,
       [now, id, businessId],
     )
-    this.enqueue(id, businessId, 'DELETE', { ...this.payloadFor(id, businessId), isDeleted: true }, now)
+    this.enqueue(
+      id,
+      businessId,
+      'DELETE',
+      { ...this.payloadFor(id, businessId), isDeleted: true },
+      now,
+    )
     this.onMutated()
     this.audit?.log({
       action: 'DELETE',
@@ -447,12 +458,29 @@ export class IncomeCategoriesService {
     this.db.run(
       `INSERT INTO income_categories (id, business_id, name, slug, color, icon, sort_order, is_active, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
-      [id, businessId, input.name.trim(), slug, input.color, input.icon ?? null, nextOrder, now, now],
+      [
+        id,
+        businessId,
+        input.name.trim(),
+        slug,
+        input.color,
+        input.icon ?? null,
+        nextOrder,
+        now,
+        now,
+      ],
     )
     this.enqueue(
       id,
       businessId,
-      { name: input.name.trim(), color: input.color, icon: input.icon ?? null, sortOrder: nextOrder, createdAt: now, updatedAt: now },
+      {
+        name: input.name.trim(),
+        color: input.color,
+        icon: input.icon ?? null,
+        sortOrder: nextOrder,
+        createdAt: now,
+        updatedAt: now,
+      },
       now,
     )
     this.onMutated()
@@ -520,18 +548,6 @@ function slugify(name: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 100) || 'income'
   )
-}
-
-function dayCount(from: string, to: string): number {
-  const a = new Date(`${from}T00:00:00Z`).getTime()
-  const b = new Date(`${to}T00:00:00Z`).getTime()
-  return Math.max(1, Math.round((b - a) / 86_400_000) + 1)
-}
-
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
 }
 
 function lastSixMonths(): IncomeTrendItem[] {

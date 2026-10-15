@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { PaymentMethod } from '@biztrack/types'
 import { Repository, EntityManager } from 'typeorm'
-import type { RefundProfitImpact } from '@biztrack/domain'
+import { toWholeXaf, type RefundProfitImpact } from '@biztrack/domain'
 import { DailySaleSummary } from '@/entities/daily-sale-summary.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleItem } from '@/entities/sale-item.entity'
@@ -215,11 +215,11 @@ export class DailySalesSummaryService {
   private computeTotals(sale: Sale, items: SaleItem[], payments: SalePayment[]) {
     // D7 canonical revenue = Σ line_total (net of line + allocated cart discounts, EXCLUDING
     // sale-level charges) — the same basis as SalesService.getGrossProfit and the owner digest.
-    const revenue = this.roundMoney(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0))
-    const totalCost = this.roundMoney(
+    const revenue = toWholeXaf(items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0))
+    const totalCost = toWholeXaf(
       items.reduce((sum, item) => sum + (item.costPrice ?? 0) * item.quantity, 0),
     )
-    const lineDiscounts = this.roundMoney(
+    const lineDiscounts = toWholeXaf(
       items.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0),
     )
     const breakdown = this.computePaymentBreakdown(payments)
@@ -227,8 +227,8 @@ export class DailySalesSummaryService {
     return {
       revenue,
       totalCost,
-      grossProfit: this.roundMoney(revenue - totalCost),
-      totalDiscounts: this.roundMoney(sale.discountAmount + lineDiscounts),
+      grossProfit: toWholeXaf(revenue - totalCost),
+      totalDiscounts: toWholeXaf(sale.discountAmount + lineDiscounts),
       ...breakdown,
     }
   }
@@ -243,20 +243,16 @@ export class DailySalesSummaryService {
 
     for (const payment of payments) {
       if (payment.method === PaymentMethod.CASH) {
-        totals.cashCollected = this.roundMoney(totals.cashCollected + payment.amount)
+        totals.cashCollected = toWholeXaf(totals.cashCollected + payment.amount)
       } else if (payment.method === PaymentMethod.MTN_MOMO) {
-        totals.mtnMomoCollected = this.roundMoney(totals.mtnMomoCollected + payment.amount)
+        totals.mtnMomoCollected = toWholeXaf(totals.mtnMomoCollected + payment.amount)
       } else if (payment.method === PaymentMethod.ORANGE_MONEY) {
-        totals.orangeMoneyCollected = this.roundMoney(totals.orangeMoneyCollected + payment.amount)
+        totals.orangeMoneyCollected = toWholeXaf(totals.orangeMoneyCollected + payment.amount)
       } else if (payment.method === PaymentMethod.CARD) {
-        totals.cardCollected = this.roundMoney(totals.cardCollected + payment.amount)
+        totals.cardCollected = toWholeXaf(totals.cardCollected + payment.amount)
       }
     }
 
     return totals
-  }
-
-  private roundMoney(value: number) {
-    return Math.round(value * 100) / 100
   }
 }

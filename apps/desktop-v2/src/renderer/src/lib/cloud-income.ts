@@ -1,6 +1,6 @@
+import { toWholeXaf } from '@biztrack/domain'
 import type {
   IncomeCategoryInput,
-  IncomeCategorySlice,
   IncomeTrendItem,
   LocalIncomeCategory,
   LocalOtherIncome,
@@ -10,8 +10,6 @@ import type {
   PaginatedResult,
 } from '@shared/ipc'
 import { cget, cpost, cpatch, cdelete } from './cloud-http'
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
 function clean<T extends Record<string, unknown>>(o: T): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -130,39 +128,11 @@ export const cloudIncome = {
       return null
     }
   },
+  // The server works out the totals, change and shares (@biztrack/domain's summarizeAmounts),
+  // the same figures the till shows.
   summary: async (query?: OtherIncomeListQuery): Promise<LocalOtherIncomeSummary> => {
-    const res = await cget<ApiListResult>(`/income${qs({ ...incomeQuery(query), limit: 1000 })}`)
-    const rows = res.items.map(toLocalIncome)
-    const total = round2(rows.reduce((s, r) => s + r.amount, 0))
-    const byCat = new Map<string, IncomeCategorySlice>()
-    for (const r of rows) {
-      const key = r.categoryId ?? ''
-      const slice = byCat.get(key) ?? {
-        categoryId: key,
-        name: r.categoryName ?? 'Uncategorized',
-        color: r.categoryColor ?? 'var(--text-muted)',
-        amount: 0,
-        percentage: 0,
-      }
-      slice.amount = round2(slice.amount + r.amount)
-      byCat.set(key, slice)
-    }
-    const byCategory = [...byCat.values()].sort((a, b) => b.amount - a.amount)
-    for (const s of byCategory) s.percentage = total > 0 ? Math.round((s.amount / total) * 100) : 0
-    const fromLinks = round2(
-      rows.filter((r) => r.source === 'PAYMENT_LINK').reduce((s, r) => s + r.amount, 0),
-    )
-    return {
-      total,
-      count: rows.length,
-      previousTotal: 0,
-      changePct: 0,
-      avgPerDay: 0,
-      fromLinks,
-      largest: byCategory[0] ?? null,
-      byCategory,
-      currency: rows[0]?.currency ?? 'XAF',
-    }
+    const { page: _page, limit: _limit, ...filters } = incomeQuery(query)
+    return cget<LocalOtherIncomeSummary>(`/income/summary${qs(filters)}`)
   },
   trend: async (): Promise<IncomeTrendItem[]> => {
     const now = new Date()
@@ -181,7 +151,7 @@ export const cloudIncome = {
     for (const r of res.items) {
       const ym = r.date.slice(0, 7)
       const m = months.find((x) => `${x.year}-${String(x.month).padStart(2, '0')}` === ym)
-      if (m) m.total = round2(m.total + r.amount)
+      if (m) m.total = toWholeXaf(m.total + r.amount)
     }
     return months
   },
@@ -201,7 +171,12 @@ export const cloudIncome = {
     ),
   update: async (id: string, input: OtherIncomeInput): Promise<LocalOtherIncome> =>
     // No PATCH endpoint yet — the manual-entry edit path lands with the Other Income page work.
-    toLocalIncome(await cpatch<ApiOtherIncome>(`/income/${id}`, clean(input as unknown as Record<string, unknown>))),
+    toLocalIncome(
+      await cpatch<ApiOtherIncome>(
+        `/income/${id}`,
+        clean(input as unknown as Record<string, unknown>),
+      ),
+    ),
   remove: (id: string): Promise<void> => cdelete<void>(`/income/${id}`),
 }
 

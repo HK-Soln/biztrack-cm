@@ -1,6 +1,11 @@
+import { toWholeXaf } from '@biztrack/domain'
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import type { ExpenseCategoryRangeItem, ExpenseMonthlyRangeItem, ExpenseMonthlySummary } from '@biztrack/types'
+import type {
+  ExpenseCategoryRangeItem,
+  ExpenseMonthlyRangeItem,
+  ExpenseMonthlySummary,
+} from '@biztrack/types'
 import { EntityManager, Repository } from 'typeorm'
 import { Expense } from '@/entities/expense.entity'
 import { MonthlyExpenseSummary } from '@/entities/monthly-expense-summary.entity'
@@ -17,7 +22,7 @@ export class MonthlyExpenseSummaryService {
     private readonly expensesRepo: Repository<Expense>,
     @InjectRepository(MonthlyExpenseSummary)
     private readonly summariesRepo: Repository<MonthlyExpenseSummary>,
-  ) { }
+  ) {}
 
   async rebuildMonth(businessId: string, year: number, month: number, manager?: EntityManager) {
     const expenseRepo = manager?.getRepository(Expense) ?? this.expensesRepo
@@ -57,7 +62,7 @@ export class MonthlyExpenseSummaryService {
       const count = Number(row.count ?? 0)
       const recurring = Number(row.recurringAmount ?? 0)
 
-      categoryBreakdown[row.slug] = this.roundMoney(amount)
+      categoryBreakdown[row.slug] = toWholeXaf(amount)
       totalAmount += amount
       expenseCount += count
       recurringAmount += recurring
@@ -68,16 +73,20 @@ export class MonthlyExpenseSummaryService {
         businessId,
         summaryYear: year,
         summaryMonth: month,
-        totalAmount: this.roundMoney(totalAmount),
+        totalAmount: toWholeXaf(totalAmount),
         categoryBreakdown,
         expenseCount,
-        recurringAmount: this.roundMoney(recurringAmount),
+        recurringAmount: toWholeXaf(recurringAmount),
       },
       ['businessId', 'summaryYear', 'summaryMonth'],
     )
   }
 
-  async getMonthly(businessId: string, year: number, month: number): Promise<ExpenseMonthlySummary> {
+  async getMonthly(
+    businessId: string,
+    year: number,
+    month: number,
+  ): Promise<ExpenseMonthlySummary> {
     const summary = await this.summariesRepo.findOne({
       where: {
         businessId,
@@ -104,7 +113,7 @@ export class MonthlyExpenseSummaryService {
       totalAmount: summary.totalAmount,
       expenseCount: summary.expenseCount,
       recurringAmount: summary.recurringAmount,
-      oneOffAmount: this.roundMoney(summary.totalAmount - summary.recurringAmount),
+      oneOffAmount: toWholeXaf(summary.totalAmount - summary.recurringAmount),
       categoryBreakdown: summary.categoryBreakdown ?? {},
     }
   }
@@ -144,7 +153,7 @@ export class MonthlyExpenseSummaryService {
     return months.map((month) => ({
       year: month.year,
       month: month.month,
-      totalAmount: this.roundMoney(byMonth.get(`${month.year}-${month.month}`) ?? 0),
+      totalAmount: toWholeXaf(byMonth.get(`${month.year}-${month.month}`) ?? 0),
     }))
   }
 
@@ -183,7 +192,7 @@ export class MonthlyExpenseSummaryService {
     const grandTotal = rows.reduce((sum, row) => sum + Number(row.totalAmount ?? 0), 0)
 
     return rows.map((row) => {
-      const totalAmount = this.roundMoney(Number(row.totalAmount ?? 0))
+      const totalAmount = toWholeXaf(Number(row.totalAmount ?? 0))
 
       return {
         categoryId: row.categoryId,
@@ -191,8 +200,7 @@ export class MonthlyExpenseSummaryService {
         slug: row.slug,
         color: row.color,
         totalAmount,
-        percentage:
-          grandTotal > 0 ? Math.round((totalAmount / grandTotal) * 1000) / 10 : 0,
+        percentage: grandTotal > 0 ? Math.round((totalAmount / grandTotal) * 1000) / 10 : 0,
       }
     })
   }
@@ -230,9 +238,5 @@ export class MonthlyExpenseSummaryService {
 
   private parseDateOnly(value: string) {
     return new Date(`${value}T00:00:00.000Z`)
-  }
-
-  private roundMoney(value: number) {
-    return Math.round(value * 100) / 100
   }
 }

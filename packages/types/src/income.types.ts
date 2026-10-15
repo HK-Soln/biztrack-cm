@@ -61,6 +61,31 @@ export interface OtherIncomeListResult {
   totalAmount: number
 }
 
+/** One category's share of a period's other income. */
+export interface OtherIncomeCategorySlice {
+  categoryId: string
+  name: string
+  color: string
+  amount: number
+  /** Share of the period's total, in percent to one decimal. */
+  percentage: number
+}
+
+/** The Other Income dashboard's KPI strip and chart over a period (GET /income/summary). */
+export interface OtherIncomeSummaryCard {
+  total: number
+  count: number
+  /** The same number of days just before the period. */
+  previousTotal: number
+  changePct: number
+  avgPerDay: number
+  /** Income that came in through payment links. */
+  fromLinks: number
+  largest: OtherIncomeCategorySlice | null
+  byCategory: OtherIncomeCategorySlice[]
+  currency: string
+}
+
 /** Total other income over a date range — the income statement's "other income" line. */
 export interface OtherIncomeSummary {
   total: number

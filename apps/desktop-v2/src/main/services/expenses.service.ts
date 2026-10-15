@@ -1,3 +1,4 @@
+import { comparisonPeriod, summarizeAmounts, toWholeXaf } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -14,8 +15,6 @@ import type {
 import { paginateRows, toPaginated } from './pagination'
 import { localBusinessDate } from './business-calendar'
 import type { AuditLogger } from './audit.service'
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
 interface ExpenseRow {
   id: string
@@ -90,7 +89,7 @@ export class ExpensesService {
       totalSql += ' AND (e.description LIKE ? OR e.vendor LIKE ?)'
       totalArgs.push(`%${search}%`, `%${search}%`)
     }
-    const totalAmount = round2(this.db.get<{ t: number }>(totalSql, totalArgs)?.t ?? 0)
+    const totalAmount = toWholeXaf(this.db.get<{ t: number }>(totalSql, totalArgs)?.t ?? 0)
     return { ...toPaginated(rows.map(toLocalExpense), meta), totalAmount }
   }
 
@@ -127,7 +126,6 @@ export class ExpensesService {
       `SELECT COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS n FROM expenses e WHERE ${where}`,
       params,
     )
-    const total = round2(agg?.total ?? 0)
     const count = agg?.n ?? 0
 
     const cats = this.db.query<{
@@ -143,13 +141,6 @@ export class ExpensesService {
        FROM expenses e WHERE ${where} GROUP BY e.category_id ORDER BY amount DESC`,
       params,
     )
-    const byCategory: ExpenseCategorySlice[] = cats.map((c) => ({
-      categoryId: c.category_id ?? '',
-      name: c.name ?? 'Uncategorized',
-      color: c.color ?? 'var(--text-muted)',
-      amount: round2(c.amount),
-      percentage: total > 0 ? Math.round((c.amount / total) * 100) : 0,
-    }))
 
     const pending = this.db.get<{ n: number; amt: number }>(
       `SELECT COUNT(*) AS n, COALESCE(SUM(e.amount), 0) AS amt FROM expenses e WHERE ${where} AND e.status = 'PENDING'`,
@@ -157,28 +148,39 @@ export class ExpensesService {
     )
 
     // Previous equal-length period (for the % change badge).
-    let previousTotal = 0
-    if (query.dateFrom && query.dateTo) {
-      const len = dayCount(query.dateFrom, query.dateTo)
-      const prevTo = addDays(query.dateFrom, -1)
-      const prevFrom = addDays(prevTo, -(len - 1))
-      previousTotal = round2(
-        this.db.get<{ t: number }>(
+    const period =
+      query.dateFrom && query.dateTo ? comparisonPeriod(query.dateFrom, query.dateTo) : null
+    const previousTotal = period
+      ? (this.db.get<{ t: number }>(
           `SELECT COALESCE(SUM(e.amount), 0) AS t FROM expenses e WHERE e.business_id = ? AND e.is_deleted = 0 AND e.date >= ? AND e.date <= ?`,
-          [businessId, prevFrom, prevTo],
-        )?.t ?? 0,
-      )
-    }
-    const days = query.dateFrom && query.dateTo ? dayCount(query.dateFrom, query.dateTo) : 30
+          [businessId, period.previousFrom, period.previousTo],
+        )?.t ?? 0)
+      : 0
+    // Totals, change, average and shares are @biztrack/domain's, as on the server.
+    const summary = summarizeAmounts({
+      categories: cats.map((cat) => ({ key: cat, amount: cat.amount })),
+      total: agg?.total ?? 0,
+      previousTotal,
+      days: period?.days,
+    })
+    const byCategory: ExpenseCategorySlice[] = summary.categories.map(
+      ({ key, amount, percentage }) => ({
+        categoryId: key.category_id ?? '',
+        name: key.name ?? 'Uncategorized',
+        color: key.color ?? 'var(--text-muted)',
+        amount,
+        percentage,
+      }),
+    )
 
     return {
-      total,
+      total: summary.total,
       count,
-      previousTotal,
-      changePct: previousTotal > 0 ? round2(((total - previousTotal) / previousTotal) * 100) : 0,
-      avgPerDay: days > 0 ? round2(total / days) : 0,
+      previousTotal: summary.previousTotal,
+      changePct: summary.changePct,
+      avgPerDay: summary.avgPerDay,
       pendingCount: pending?.n ?? 0,
-      pendingAmount: round2(pending?.amt ?? 0),
+      pendingAmount: toWholeXaf(pending?.amt ?? 0),
       largest: byCategory[0] ?? null,
       byCategory,
       currency,
@@ -196,7 +198,7 @@ export class ExpensesService {
        GROUP BY ym`,
       [businessId, `${months[0]!.year}-${String(months[0]!.month).padStart(2, '0')}-01`],
     )
-    const byYm = new Map(rows.map((r) => [r.ym, round2(r.total)]))
+    const byYm = new Map(rows.map((r) => [r.ym, toWholeXaf(r.total)]))
     return months.map((m) => ({
       ...m,
       total: byYm.get(`${m.year}-${String(m.month).padStart(2, '0')}`) ?? 0,
@@ -209,7 +211,7 @@ export class ExpensesService {
     if (!recordedById) throw new Error('No active session.')
     if (!input.categoryId?.trim()) throw new Error('Pick a category.')
     if (!input.description?.trim()) throw new Error('Add a description.')
-    const amount = round2(Number(input.amount))
+    const amount = toWholeXaf(Number(input.amount))
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be greater than 0.')
 
     const id = randomUUID()
@@ -279,7 +281,7 @@ export class ExpensesService {
       [id, businessId],
     )
     if (!existing) throw new Error('Expense not found.')
-    const amount = round2(Number(input.amount))
+    const amount = toWholeXaf(Number(input.amount))
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be greater than 0.')
     const now = new Date().toISOString()
     const expenseDate = input.expenseDate?.trim() || now.slice(0, 10)
@@ -616,7 +618,17 @@ export class ExpenseCategoriesService {
     this.db.run(
       `INSERT INTO expense_categories (id, business_id, name, slug, color, icon, sort_order, is_recurring, is_active, is_deleted, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, 0, ?, ?)`,
-      [id, businessId, input.name.trim(), slug, input.color, input.icon ?? null, isRecurring ? 1 : 0, now, now],
+      [
+        id,
+        businessId,
+        input.name.trim(),
+        slug,
+        input.color,
+        input.icon ?? null,
+        isRecurring ? 1 : 0,
+        now,
+        now,
+      ],
     )
     this.enqueue(
       id,
@@ -732,14 +744,4 @@ function lastSixMonths(): ExpenseTrendItem[] {
     })
   }
   return out
-}
-function dayCount(from: string, to: string): number {
-  const a = new Date(from + 'T00:00:00')
-  const b = new Date(to + 'T00:00:00')
-  return Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1)
-}
-function addDays(date: string, days: number): string {
-  const d = new Date(date + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toLocaleDateString('en-CA')
 }
