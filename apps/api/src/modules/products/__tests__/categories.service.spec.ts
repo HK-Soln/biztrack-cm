@@ -25,9 +25,19 @@ const makeService = () => {
     createQueryBuilder: jest.fn(() => categoryQb),
   }
   const productsRepo = { createQueryBuilder: jest.fn(() => productQb) }
-  const categoryAttributeGroupsRepo = {
+  const categoryAttributeGroupsRepo: Record<string, unknown> = {
     count: jest.fn().mockResolvedValue(0),
     find: jest.fn().mockResolvedValue([]),
+  }
+  // The placement and removal rules load through a manager (category-placement.ts); route its
+  // repositories to the same mocks and counts the tests drive.
+  categoryAttributeGroupsRepo.manager = {
+    getRepository: (entity: { name: string }) =>
+      entity.name === 'ProductCategory'
+        ? { findOne: categoriesRepo.findOne, count: () => categoryQb.getCount() }
+        : entity.name === 'Product'
+          ? { count: () => productQb.getCount() }
+          : categoryAttributeGroupsRepo,
   }
   const brandCategoriesRepo = { find: jest.fn().mockResolvedValue([]) }
   const slugService = { generateCategorySlug: jest.fn().mockResolvedValue('slug') }
@@ -48,7 +58,15 @@ const makeService = () => {
     logger as any,
   )
 
-  return { service, categoriesRepo, productsRepo, categoryAttributeGroupsRepo, brandCategoriesRepo, categoryQb, productQb }
+  return {
+    service,
+    categoriesRepo,
+    productsRepo,
+    categoryAttributeGroupsRepo,
+    brandCategoriesRepo,
+    categoryQb,
+    productQb,
+  }
 }
 
 describe('CategoriesService — hierarchy', () => {

@@ -1,8 +1,11 @@
 import {
   SKU_RANDOM_ALPHABET,
   buildProductSku,
+  checkProductPrices,
   checkProductSku,
   normalizeBarcode,
+  productStockFlags,
+  validateSerialNumber,
 } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -469,8 +472,9 @@ export class ProductsService {
     const id = randomUUID()
     const now = new Date().toISOString()
     const type = productType(input)
-    const isService = type === 'SERVICE'
-    const tracks = !isService
+    this.assertPrices(input)
+    // Stock tracking by product type is @biztrack/domain's rule (R13), the server's.
+    const { isService, trackInventory: tracks } = productStockFlags(type, input.trackInventory)
     const currency = this.businessCurrency(businessId)
     const sku = this.resolveSku(businessId, null, input.sku, null, input.categoryId ?? null)
     const barcode = this.resolveBarcode(businessId, input.barcode, null)
@@ -520,7 +524,13 @@ export class ProductsService {
         now,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type, { sku, barcode }), now)
+    this.enqueue(
+      id,
+      'UPSERT',
+      businessId,
+      this.payload(input, type, { sku, barcode, trackInventory: tracks }),
+      now,
+    )
     this.syncOpeningStock(id, businessId, now)
     this.onMutated()
     const created = this.getOne(id)!
@@ -540,8 +550,12 @@ export class ProductsService {
     if (input.categoryId) this.assertCategorySelectable(input.categoryId, businessId)
     const now = new Date().toISOString()
     const type = productType(input)
-    const isService = type === 'SERVICE'
+    this.assertPrices(input)
     const before = this.getOne(id)
+    const { isService, trackInventory: tracks } = productStockFlags(
+      type,
+      input.trackInventory ?? before?.trackInventory,
+    )
     const sku = this.resolveSku(businessId, before?.sku ?? null, input.sku, id, null)
     const barcode = this.resolveBarcode(businessId, input.barcode, id)
     this.db.run(
@@ -564,7 +578,7 @@ export class ProductsService {
         input.taxRate ?? 0,
         type,
         isService ? 1 : 0,
-        isService ? 0 : 1,
+        tracks ? 1 : 0,
         input.categoryId ?? null,
         input.brandId ?? null,
         input.modelId ?? null,
@@ -588,7 +602,13 @@ export class ProductsService {
         businessId,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type, { sku, barcode }), now)
+    this.enqueue(
+      id,
+      'UPSERT',
+      businessId,
+      this.payload(input, type, { sku, barcode, trackInventory: tracks }),
+      now,
+    )
     this.onMutated()
     const after = this.getOne(id)!
     this.audit?.log({
@@ -1510,6 +1530,7 @@ export class ProductsService {
     for (const u of units) {
       const serial = u.serialNumber.trim()
       if (!serial) continue
+      this.assertSerialNumber(serial, u.serialType)
       const prior = existingBySerial.get(serial)
       const id = prior?.id ?? randomUUID()
       keepIds.add(id)
@@ -1587,6 +1608,7 @@ export class ProductsService {
     for (const u of units) {
       const serial = u.serialNumber.trim()
       if (!serial || seen.has(serial)) continue
+      this.assertSerialNumber(serial, u.serialType ?? product.serialType ?? 'SERIAL_NUMBER')
       seen.add(serial)
       const variantId = u.variantId ?? null
       const existing = this.db.get<SerialUnitRow & { is_deleted: number }>(
@@ -2026,6 +2048,28 @@ export class ProductsService {
    * business). Enforced here so an empty or stale unit can never be persisted, whatever
    * the caller — the form's "required" hint is a convenience, this is the guarantee.
    */
+  /** Prices are never negative (ruling R15), as on the server. */
+  private assertPrices(input: ProductInput): void {
+    const problem = checkProductPrices({
+      sellingPrice: Number(input.sellingPrice),
+      costPrice: input.costPrice,
+    })
+    if (problem === 'PRODUCT_PRICE_INVALID')
+      throw new Error('The selling price cannot be negative.')
+    if (problem === 'PRODUCT_COST_INVALID') throw new Error('The cost cannot be negative.')
+  }
+
+  /** A serial number has the shape its type needs (@biztrack/domain), as on the server. */
+  private assertSerialNumber(serial: string, serialType: string): void {
+    if (!validateSerialNumber(serial, serialType)) {
+      throw new Error(
+        serialType === 'IMEI'
+          ? `“${serial}” is not a valid IMEI.`
+          : `“${serial}” is not a valid serial number.`,
+      )
+    }
+  }
+
   /**
    * The SKU to store: the shape and "cannot change once set" are @biztrack/domain's
    * (`checkProductSku`), the rules the server applies when the product syncs; and no other
@@ -2131,7 +2175,7 @@ export class ProductsService {
   private payload(
     input: ProductInput,
     type: ProductType,
-    codes: { sku: string | null; barcode: string | null },
+    codes: { sku: string | null; barcode: string | null; trackInventory?: boolean },
   ): Record<string, unknown> {
     return {
       name: input.name.trim(),
@@ -2139,6 +2183,7 @@ export class ProductsService {
       // The SKU and barcode as stored here, generated or normalised, not as typed.
       sku: codes.sku,
       barcode: codes.barcode,
+      trackInventory: productStockFlags(type, codes.trackInventory).trackInventory,
       sellingPrice: input.sellingPrice,
       costPrice: input.costPrice ?? null,
       taxRate: input.taxRate ?? 0,

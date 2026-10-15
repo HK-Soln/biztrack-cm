@@ -46,7 +46,7 @@
   "attribute_group_already_linked": "This attribute group is already linked to the category.",
   "category_attribute_group_not_found": "This attribute group is not linked to the category.",
   "variants_not_supported": "Variants are not supported for this product type.",
-  "variant_min_two": "A product with variants must have at least 2 variants.",
+  "variant_min_two": "A product with variants must have at least one variant.",
   "variant_required": "Select a variant for \"{name}\".",
   "variant_not_found": "The selected variant is not available.",
   "variant_options_required": "Select at least one option for the variant.",

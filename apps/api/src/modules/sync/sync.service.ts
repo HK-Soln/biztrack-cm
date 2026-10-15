@@ -1,4 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common'
+import {
+  categoryTakesProducts,
+  decideCategoryPlacement,
+  decideCategoryRemoval,
+} from '@/modules/products/category-placement'
 import { removeProduct, removeVariant, retireSerialUnit } from '@/modules/products/catalog-removal'
 import { InjectQueue } from '@nestjs/bullmq'
 import { InjectRepository } from '@nestjs/typeorm'
@@ -55,7 +60,7 @@ import type {
   MemberAuthCredentialSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
-import { checkProductSku, debtStanding, toWholeXaf } from '@biztrack/domain'
+import { checkProductSku, debtStanding, toWholeXaf, validateSerialNumber } from '@biztrack/domain'
 import {
   AttributeDisplayType,
   ContactType,
@@ -1776,6 +1781,20 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        // Only an empty category is deleted, as on the server's own path and the till (R12).
+        const problem = await decideCategoryRemoval(
+          this.dataSource.manager,
+          businessId,
+          existing.id,
+        )
+        if (problem) {
+          throw new AppBadRequestException(
+            problem === 'CATEGORY_HAS_CHILDREN'
+              ? 'This category has sub-categories and cannot be deleted.'
+              : 'This category is still used by one or more products and cannot be deleted.',
+            problem,
+          )
+        }
         await this.categoriesRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -1805,15 +1824,23 @@ export class SyncService {
       existing?.id,
     )
 
-    // Resolve hierarchy: prefer the authoritative depth from the parent when it's
-    // present; otherwise trust the client's computed depth (the parent FK will defer
-    // the op if the parent genuinely hasn't synced yet).
-    const parentId = this.normalizeOptionalString(payload.parentId)
-    let depth = payload.depth ?? 1
-    if (parentId) {
-      const parent = await this.categoriesRepo.findOne({ where: { id: parentId, businessId } })
-      if (parent) depth = parent.depth + 1
+    // Where it sits follows the same rule as the server's own path and the till (R12): at
+    // most three levels, never under a category holding products or variant options, and
+    // only a category without sub-categories moves. The depth is the server's, not the till's.
+    const placement = await decideCategoryPlacement(this.dataSource.manager, {
+      businessId,
+      selfId: existing?.id ?? null,
+      currentParentId: existing ? (existing.parentId ?? null) : null,
+      nextParentId: this.normalizeOptionalString(payload.parentId),
+    })
+    if (!placement.ok) {
+      throw new AppBadRequestException(
+        `This category cannot be placed there (${placement.code}).`,
+        placement.code,
+      )
     }
+    const parentId = placement.parentId
+    const depth = existing && !placement.moved ? existing.depth : placement.depth
 
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
@@ -2597,6 +2624,13 @@ export class SyncService {
       throw new AppBadRequestException(
         'Serial unit requires productId, serialNumber and serialType.',
         'SYNC_SERIAL_UNIT_INVALID',
+      )
+    }
+    // The number has the shape its type needs, as on the server's own path and the till (R12).
+    if (!validateSerialNumber(serialNumber, serialType)) {
+      throw new AppBadRequestException(
+        `Serial number "${serialNumber}" is not a valid ${serialType}.`,
+        'SERIAL_NUMBER_INVALID',
       )
     }
 
@@ -4128,6 +4162,14 @@ export class SyncService {
       throw new AppNotFoundException(
         await this.i18n.translate('errors.category_not_found'),
         'CATEGORY_NOT_FOUND',
+      )
+    }
+    // Products go only in a category with no active sub-categories, as on the server's own
+    // path and the till (R12).
+    if (!(await categoryTakesProducts(this.dataSource.manager, businessId, category.id))) {
+      throw new AppBadRequestException(
+        await this.i18n.translate('errors.category_not_leaf'),
+        'CATEGORY_NOT_LEAF',
       )
     }
 

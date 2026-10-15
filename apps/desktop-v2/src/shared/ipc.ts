@@ -1953,6 +1953,8 @@ export interface ProductInput {
   imageUrl?: string | null
   productType?: ProductType
   isService?: boolean
+  /** A simple product may have stock tracking off (ruling R13); default on. */
+  trackInventory?: boolean
   isActive?: boolean
   isFeatured?: boolean
   isPublishedOnline?: boolean

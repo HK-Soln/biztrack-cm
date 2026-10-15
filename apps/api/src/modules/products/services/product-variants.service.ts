@@ -1,3 +1,4 @@
+import { checkVariantCount } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { EntityManager, ILike, In, IsNull, Repository } from 'typeorm'
@@ -320,10 +321,11 @@ export class ProductVariantsService {
       created.push(variant)
     }
 
-    if (created.length < 2) {
+    // A variant product needs at least one variant; more can be added later (ruling R14).
+    if (checkVariantCount(created.length)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.variant_min_two'),
-        'VARIANT_MIN_TWO',
+        'PRODUCT_VARIANTS_REQUIRED',
       )
     }
 

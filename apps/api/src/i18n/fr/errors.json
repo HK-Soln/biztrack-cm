@@ -46,7 +46,7 @@
   "attribute_group_already_linked": "Ce groupe d'attributs est deja lie a la categorie.",
   "category_attribute_group_not_found": "Ce groupe d'attributs n'est pas lie a la categorie.",
   "variants_not_supported": "Les variantes ne sont pas prises en charge pour ce type de produit.",
-  "variant_min_two": "Un produit avec variantes doit avoir au moins 2 variantes.",
+  "variant_min_two": "Un produit avec variantes doit avoir au moins une variante.",
   "variant_required": "Selectionnez une variante pour \"{name}\".",
   "variant_not_found": "La variante selectionnee n'est pas disponible.",
   "variant_options_required": "Selectionnez au moins une option pour la variante.",
