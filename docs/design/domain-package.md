@@ -250,6 +250,17 @@ Every sales report counts a partly refunded sale, net of its refunds, as the inc
 statement does (R4): the period summary, the cashier figures and the discount reports, not
 only profit.
 
+### R20. Online buyers are not contacts (2026-10-16)
+
+An online order no longer creates a contact. The order keeps the buyer’s details, and a
+per-business list of online customers, matched by phone or email, remembers returning
+buyers (orders, addresses, amount spent) with no rule on unique names. A buyer becomes a
+contact only when the shop adds them, through the normal contact rules (R16). The unpaid
+part of a cash-on-delivery order is money with the courier, not credit: it stays on the
+order until it is collected at delivery or pickup, so a sale from an online order may carry
+an unpaid balance with no contact, and receivables remain for real credit customers. Login
+is not required to check out.
+
 ### How the rulings are implemented
 
 Which flag to raise and how serious it is, is decided in `packages/domain/src/review`
