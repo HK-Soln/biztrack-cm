@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BackButton, Button, Input, PhoneInput, Select, toast } from '@biztrack/ui/biztrack'
-import { ContactType, DebtDirection, IdDocumentType } from '@biztrack/types'
+import { BackButton, Button, Input, Modal, PhoneInput, Select, toast } from '@biztrack/ui/biztrack'
+import {
+  ContactType,
+  DebtDirection,
+  IdDocumentType,
+  type ContactDuplicateDetails,
+} from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { errorMessage } from '@/lib/error'
+import { readContactDuplicate } from '@/lib/contact-duplicate'
 import { useT } from '@/i18n'
 import type { MessageKey } from '@/i18n/messages'
 import { contactSchema } from '@/lib/schemas'
@@ -93,13 +99,16 @@ export function ContactForm() {
     selfieUrl: showKyc ? selfieUrl : null,
   })
 
+  // A phone or email already on another contact: the person merges, creates anyway or cancels.
+  const [duplicate, setDuplicate] = useState<ContactDuplicateDetails | null>(null)
+
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (onDuplicate?: 'MERGE' | 'CREATE') => {
       const c = editing
         ? await dataClient.contacts.update(id!, payload())
-        : await dataClient.contacts.create(payload())
-      // Optional opening balance — only on create.
-      if (!editing) {
+        : await dataClient.contacts.create({ ...payload(), onDuplicate })
+      // Optional opening balance — only for a new contact (a merge keeps the existing one's).
+      if (!editing && onDuplicate !== 'MERGE') {
         const amt = Number(obAmount.replace(/\s/g, '').replace(',', '.'))
         if (Number.isFinite(amt) && amt > 0) {
           const direction =
@@ -119,10 +128,19 @@ export function ContactForm() {
       return c
     },
     onSuccess: (c) => {
+      setDuplicate(null)
       void qc.invalidateQueries({ queryKey: queryKeys.contacts })
       navigate(editing ? `/contacts/${id}` : `/contacts/${c.id}`)
     },
-    onError: (e) => toast.error(errorMessage(e, t('ct.saveError'))),
+    onError: (e) => {
+      const match = readContactDuplicate(e)
+      if (match) {
+        setDuplicate(match)
+        return
+      }
+      setDuplicate(null)
+      toast.error(errorMessage(e, t('ct.saveError')))
+    },
   })
 
   const submit = () => {
@@ -138,7 +156,7 @@ export function ContactForm() {
       return
     }
     setErrors({})
-    save.mutate()
+    save.mutate(undefined)
   }
 
   return (
@@ -428,6 +446,48 @@ export function ContactForm() {
           </Button>
         </div>
       </form>
+
+      <Modal
+        open={!!duplicate}
+        onClose={() => setDuplicate(null)}
+        title={t('ct.duplicateTitle')}
+        footer={
+          <>
+            <Button variant="soft" onClick={() => setDuplicate(null)} disabled={save.isPending}>
+              {t('ct.cancel')}
+            </Button>
+            <Button
+              variant="soft"
+              loading={save.isPending && save.variables === 'CREATE'}
+              disabled={save.isPending}
+              onClick={() => save.mutate('CREATE')}
+            >
+              {t('ct.duplicateCreate')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={save.isPending && save.variables === 'MERGE'}
+              disabled={save.isPending}
+              onClick={() => save.mutate('MERGE')}
+            >
+              {t('ct.duplicateMerge')}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+          {t(
+            duplicate?.matchedOn.includes('phone') && duplicate.matchedOn.includes('email')
+              ? 'ct.duplicateBodyBoth'
+              : duplicate?.matchedOn.includes('email')
+                ? 'ct.duplicateBodyEmail'
+                : 'ct.duplicateBodyPhone',
+          ).replace('{name}', duplicate?.name ?? '')}
+        </p>
+        <p style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.6, marginTop: 8 }}>
+          {t('ct.duplicateHint').replace('{name}', duplicate?.name ?? '')}
+        </p>
+      </Modal>
     </div>
   )
 }

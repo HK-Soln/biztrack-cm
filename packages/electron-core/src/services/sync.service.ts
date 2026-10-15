@@ -9,7 +9,7 @@ import {
   type SyncPushResponse,
   type SyncRecord,
 } from '@biztrack/types'
-import { debtSettledAt, debtStanding } from '@biztrack/domain'
+import { contactNameKey, debtSettledAt, debtStanding } from '@biztrack/domain'
 import type { DatabaseService } from './database.service'
 
 /**
@@ -1096,19 +1096,23 @@ export class SyncService {
     const now = new Date().toISOString()
     return {
       sql: `INSERT INTO contacts
-        (id, business_id, type, name, phone, phone_alt, address, notes, is_active, created_by_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, business_id, type, name, name_key, phone, phone_alt, email, address, notes, is_active, created_by_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          type = excluded.type, name = excluded.name, phone = excluded.phone,
-          phone_alt = excluded.phone_alt, address = excluded.address, notes = excluded.notes,
+          type = excluded.type, name = excluded.name, name_key = excluded.name_key,
+          phone = excluded.phone, phone_alt = excluded.phone_alt, email = excluded.email,
+          address = excluded.address, notes = excluded.notes,
           is_active = excluded.is_active, updated_at = excluded.updated_at`,
       params: [
         asStr(r.id),
         asStr(c.businessId),
         asStr(c.type),
         asStr(c.name),
+        // The name's slug, unique in the business (ruling R16, @biztrack/domain).
+        contactNameKey(asStr(c.name) ?? ''),
         asStr(c.phone),
         asStr(c.phoneAlt),
+        asStr(c.email),
         asStr(c.address),
         asStr(c.notes),
         r.isDeleted ? 0 : c.isActive === false ? 0 : 1,

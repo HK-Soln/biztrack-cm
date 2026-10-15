@@ -232,6 +232,11 @@ the sync. Zero is allowed.
   default with `CONTACT_DUPLICATE`, on the server and the till alike. The screen then asks:
   merge into the existing contact (and take the new name if it differs), create it anyway
   as a separate contact, or cancel.
+- As built: `packages/domain/src/contacts/contact-rules.ts`; `contacts.name_key` with
+  index `unq_contacts_business_name_key` (API migration 1790700000000, device 0086; names
+  already shared get a numbered key). Sync refuses a name already taken but accepts a shared
+  phone or email (the till already asked). A merge keeps the existing contact’s opening
+  balance; one typed on the form applies only to a new contact.
 
 ### R17. SKUs and barcodes (2026-10-16)
 
