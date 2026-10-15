@@ -31,8 +31,11 @@ import {
 } from '@biztrack/types'
 import {
   REORDER_WINDOW_DAYS,
+  checkRestockCredit,
   computeReorderVelocity,
   computeStockoutMs,
+  settleRestock,
+  toWholeXaf,
   type StockPoint,
   type VelocityResult,
 } from '@biztrack/domain'
@@ -1412,14 +1415,11 @@ export class InventoryService {
     const normalizedItems = input.items.map((item) => ({
       ...item,
       quantity: this.roundQuantity(item.quantity),
-      unitCost:
-        item.unitCost === undefined || item.unitCost === null
-          ? null
-          : this.roundMoney(item.unitCost),
+      unitCost: item.unitCost === undefined || item.unitCost === null ? null : item.unitCost,
     }))
     const normalizedPayments = (input.payments ?? []).map((payment) => ({
       method: payment.method,
-      amount: this.roundMoney(payment.amount),
+      amount: toWholeXaf(payment.amount),
       mobileMoneyReference: payment.mobileMoneyReference?.trim() || null,
     }))
     const normalizedCharges = (input.charges ?? []).map((c) => ({
@@ -1428,46 +1428,40 @@ export class InventoryService {
       name: c.name,
       rateType: c.rateType,
       rateValue: c.rateValue,
-      amount: this.roundMoney(Math.max(0, c.amount)),
+      amount: toWholeXaf(Math.max(0, c.amount)),
     }))
     const normalizedDiscounts = (input.discounts ?? []).map((d) => ({
       id: d.id,
       description: d.description,
       discountType: d.discountType,
       rate: d.rate ?? null,
-      amount: this.roundMoney(Math.max(0, d.amount)),
+      amount: toWholeXaf(Math.max(0, d.amount)),
     }))
 
-    // Settlement: goods subtotal − discounts + charges = invoice total. The subtotal
-    // basis prefers an explicit subtotal/cost; falls back to totalAmount for legacy
-    // callers that sent only a single total with no charges/discounts.
-    const goods = await this.resolveRestockTotal({
-      explicitTotalAmount: input.subtotalAmount ?? input.totalCost ?? input.totalAmount,
-      explicitTotalCost: input.totalCost,
-      items: normalizedItems,
+    // Settlement is @biztrack/domain's (`settleRestock`): the same goods value, invoice
+    // total, amount paid and credit the till and the receive screen work out.
+    const settlement = settleRestock({
+      lines: normalizedItems,
+      subtotal: input.subtotalAmount ?? input.totalCost ?? input.totalAmount,
+      discounts: normalizedDiscounts.map((d) => d.amount),
+      charges: normalizedCharges.map((c) => c.amount),
+      payments: input.payments != null ? normalizedPayments.map((p) => p.amount) : null,
+      amountPaid: input.amountPaid,
     })
-    const subtotal = this.roundMoney(goods.totalAmount)
-    const discountAmount = this.roundMoney(normalizedDiscounts.reduce((s, d) => s + d.amount, 0))
-    const chargesAmount = this.roundMoney(normalizedCharges.reduce((s, c) => s + c.amount, 0))
-    const totalAmount = this.roundMoney(Math.max(0, subtotal - discountAmount + chargesAmount))
-
-    const amountPaid =
-      input.payments != null
-        ? this.roundMoney(normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0))
-        : input.amountPaid != null
-          ? this.roundMoney(Math.max(0, Math.min(input.amountPaid, totalAmount)))
-          : totalAmount
-
-    if (amountPaid > totalAmount) {
+    if (!settlement.ok) {
+      const key = {
+        RESTOCK_TOTAL_AMOUNT_REQUIRED: 'errors.restock_total_amount_required',
+        RESTOCK_TOTAL_AMOUNT_MISMATCH: 'errors.restock_total_amount_mismatch',
+        RESTOCK_PAYMENT_EXCEEDS_TOTAL: 'errors.restock_payment_exceeds_total',
+      }[settlement.code]
       throw new AppBadRequestException(
-        await this.i18n.translate('errors.restock_payment_exceeds_total' as never),
-        'RESTOCK_PAYMENT_EXCEEDS_TOTAL',
-        {
-          amountPaid,
-          totalAmount,
-        },
+        await this.i18n.translate(key as never),
+        settlement.code,
+        settlement.details,
       )
     }
+    const { subtotal, discountAmount, chargesAmount, totalAmount, amountPaid, creditAmount } =
+      settlement
 
     // Local trading day (BIZ-5.1): trust a syncing device's hint, else compute authoritatively
     // from the business calendar. The restock record and every movement it writes share it.
@@ -1477,16 +1471,24 @@ export class InventoryService {
       input.businessDate,
     )
 
-    const creditAmount = this.roundMoney(totalAmount - amountPaid)
-    if (creditAmount > 0 && !input.supplierId) {
+    // A receipt on credit needs a supplier, and the invoice as proof. A receipt synced from
+    // a till already happened, so only the supplier is required of it.
+    const creditProblem = checkRestockCredit({
+      creditAmount,
+      hasSupplier: !!input.supplierId,
+      hasInvoiceFile: !!input.invoiceFileUrl?.trim() || input.recordId != null,
+    })
+    if (creditProblem) {
       throw new AppBadRequestException(
-        await this.i18n.translate('errors.supplier_contact_required_for_credit' as never),
-        'SUPPLIER_CONTACT_REQUIRED_FOR_CREDIT',
-        {
-          totalAmount,
-          amountPaid,
-          creditAmount,
-        },
+        await this.i18n.translate(
+          (creditProblem === 'SUPPLIER_REQUIRED_FOR_CREDIT'
+            ? 'errors.supplier_contact_required_for_credit'
+            : 'errors.restock_invoice_required_for_credit') as never,
+        ),
+        creditProblem === 'SUPPLIER_REQUIRED_FOR_CREDIT'
+          ? 'SUPPLIER_CONTACT_REQUIRED_FOR_CREDIT'
+          : 'RESTOCK_INVOICE_REQUIRED_FOR_CREDIT',
+        { totalAmount, amountPaid, creditAmount },
       )
     }
 
@@ -1909,50 +1911,6 @@ export class InventoryService {
     return result
   }
 
-  private async resolveRestockTotal(input: {
-    explicitTotalAmount?: number | null
-    explicitTotalCost?: number | null
-    items: Array<{ quantity: number; unitCost?: number | null }>
-  }) {
-    const explicitTotal = input.explicitTotalAmount ?? input.explicitTotalCost ?? null
-    const normalizedExplicitTotal =
-      explicitTotal === null || explicitTotal === undefined ? null : this.roundMoney(explicitTotal)
-    const allUnitCostsPresent = input.items.every(
-      (item) => item.unitCost !== null && item.unitCost !== undefined,
-    )
-    const computedTotal = allUnitCostsPresent
-      ? this.roundMoney(
-          input.items.reduce((sum, item) => sum + item.quantity * (item.unitCost ?? 0), 0),
-        )
-      : null
-
-    if (computedTotal === null && normalizedExplicitTotal === null) {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.restock_total_amount_required' as never),
-        'RESTOCK_TOTAL_AMOUNT_REQUIRED',
-      )
-    }
-
-    if (
-      computedTotal !== null &&
-      normalizedExplicitTotal !== null &&
-      computedTotal !== normalizedExplicitTotal
-    ) {
-      throw new AppBadRequestException(
-        await this.i18n.translate('errors.restock_total_amount_mismatch' as never),
-        'RESTOCK_TOTAL_AMOUNT_MISMATCH',
-        {
-          computedTotal,
-          explicitTotal: normalizedExplicitTotal,
-        },
-      )
-    }
-
-    return {
-      totalAmount: normalizedExplicitTotal ?? computedTotal ?? 0,
-    }
-  }
-
   private async findInventoryLevelForUpdate(
     inventoryRepo: Repository<InventoryLevel>,
     businessId: string,
@@ -2170,10 +2128,6 @@ export class InventoryService {
 
     const parsed = new Date(value)
     return Number.isNaN(parsed.getTime()) ? null : parsed
-  }
-
-  private roundMoney(value: number) {
-    return Math.round((Number(value) + Number.EPSILON) * 100) / 100
   }
 
   private roundQuantity(value: number) {

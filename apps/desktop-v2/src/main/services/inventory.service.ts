@@ -2,8 +2,11 @@ import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import {
   REORDER_WINDOW_DAYS,
+  checkRestockCredit,
   computeReorderVelocity,
   computeStockoutMs,
+  settleRestock,
+  toWholeXaf,
   type StockPoint,
   type VelocityResult,
 } from '@biztrack/domain'
@@ -568,36 +571,46 @@ export class InventoryService {
       return { kind: 'direct', productId: item.productId, name: meta.name, quantity: qty, unitCost }
     })
 
-    // Settlement: goods subtotal − discounts + charges = invoice total, settled by payments.
-    const subtotal = round2(lines.reduce((sum, l) => sum + l.quantity * (l.unitCost ?? 0), 0))
+    // Settlement is @biztrack/domain's (`settleRestock`): the same goods value, invoice total,
+    // amount paid and credit the server records when this receipt syncs.
     const discountLines = (input.discounts ?? []).map((d) => ({
       ...d,
       id: d.id ?? randomUUID(),
-      amount: round2(Math.max(0, d.amount)),
+      amount: toWholeXaf(Math.max(0, d.amount)),
     }))
     const chargeLines = (input.charges ?? []).map((c) => ({
       ...c,
       id: c.id ?? randomUUID(),
-      amount: round2(Math.max(0, c.amount)),
+      amount: toWholeXaf(Math.max(0, c.amount)),
     }))
-    const discountAmount = round2(discountLines.reduce((s, d) => s + d.amount, 0))
-    const chargesAmount = round2(chargeLines.reduce((s, c) => s + c.amount, 0))
-    const totalAmount = round2(Math.max(0, subtotal - discountAmount + chargesAmount))
-
     const paymentLines = (input.payments ?? []).filter(
       (p) => Number.isFinite(p.amount) && p.amount > 0,
     )
-    const amountPaid =
-      input.payments != null
-        ? round2(paymentLines.reduce((s, p) => s + p.amount, 0))
-        : input.amountPaid != null && Number.isFinite(input.amountPaid)
-          ? Math.max(0, Math.min(input.amountPaid, totalAmount))
-          : totalAmount
-    const creditAmount = round2(Math.max(0, totalAmount - amountPaid))
-    if (creditAmount > 0 && !input.supplierId)
-      throw new Error('Select a supplier for a restock on credit.')
+    const settlement = settleRestock({
+      lines,
+      discounts: discountLines.map((d) => d.amount),
+      charges: chargeLines.map((c) => c.amount),
+      payments: input.payments != null ? paymentLines.map((p) => p.amount) : null,
+      amountPaid: input.amountPaid,
+    })
+    if (!settlement.ok) {
+      throw new Error(
+        settlement.code === 'RESTOCK_PAYMENT_EXCEEDS_TOTAL'
+          ? 'The payments are more than the invoice total.'
+          : 'Enter a unit cost for every item received.',
+      )
+    }
+    const { subtotal, discountAmount, chargesAmount, totalAmount, amountPaid, creditAmount } =
+      settlement
     const invoiceFileUrl = input.invoiceFileUrl?.trim() || null
-    if (creditAmount > 0 && !invoiceFileUrl)
+    const creditProblem = checkRestockCredit({
+      creditAmount,
+      hasSupplier: !!input.supplierId,
+      hasInvoiceFile: !!invoiceFileUrl,
+    })
+    if (creditProblem === 'SUPPLIER_REQUIRED_FOR_CREDIT')
+      throw new Error('Select a supplier for a restock on credit.')
+    if (creditProblem === 'INVOICE_REQUIRED_FOR_CREDIT')
       throw new Error('Attach the supplier invoice for a receipt on credit.')
 
     const reference = input.reference?.trim() || null
@@ -671,7 +684,7 @@ export class InventoryService {
           restockId,
           businessId,
           p.method,
-          round2(p.amount),
+          toWholeXaf(p.amount),
           p.mobileMoneyReference ?? null,
           now,
         ],
@@ -793,7 +806,7 @@ export class InventoryService {
         createdAt: now,
         payments: paymentLines.map((p) => ({
           method: p.method,
-          amount: round2(p.amount),
+          amount: toWholeXaf(p.amount),
           ...(p.mobileMoneyReference ? { mobileMoneyReference: p.mobileMoneyReference } : {}),
         })),
         charges: chargeLines.map((c) => ({

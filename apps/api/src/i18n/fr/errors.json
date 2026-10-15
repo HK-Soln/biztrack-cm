@@ -113,6 +113,7 @@
   "restock_total_amount_required": "Fournissez un montant total d'achat lorsqu'un ou plusieurs articles restock n'ont pas de prix unitaire.",
   "restock_total_amount_mismatch": "Le montant total d'achat fourni ne correspond pas a la somme des couts des articles restock.",
   "restock_payment_exceeds_total": "Les paiements enregistres pour le restock ne peuvent pas depasser le montant total d'achat.",
+  "restock_invoice_required_for_credit": "Joignez la facture du fournisseur pour une réception à crédit.",
   "already_voided": "La vente {saleNumber} a deja ete annulee.",
   "sales_void_forbidden": "Seuls les proprietaires et managers peuvent annuler une vente.",
   "deposit_account_not_found": "Compte de dépôt introuvable.",

@@ -219,6 +219,7 @@ describe('InventoryService', () => {
       totalAmount: 100,
       payments: [{ method: PaymentMethod.CASH, amount: 40 }],
       items: [{ productId: 'product-1', quantity: 2 }],
+      invoiceFileUrl: 'https://example.test/invoice.pdf',
     })
 
     expect(debtsService.createSourceDebt).toHaveBeenCalledWith(
@@ -230,6 +231,25 @@ describe('InventoryService', () => {
         originalAmount: 60,
       }),
     )
+  })
+
+  it('refuses a receipt on credit without the supplier invoice', async () => {
+    const { service, transactionProductRepo, transactionInventoryRepo } = makeService()
+    transactionProductRepo.findOne.mockResolvedValue({
+      id: 'product-1',
+      businessId: 'business-1',
+      trackInventory: true,
+    })
+    transactionInventoryRepo.findOne.mockResolvedValue(null)
+
+    await expect(
+      service.restock('business-1', 'user-1', {
+        supplierId: '5d6eb154-b738-4cc9-9cd6-b65f1743874b',
+        totalAmount: 100,
+        payments: [{ method: PaymentMethod.CASH, amount: 40 }],
+        items: [{ productId: 'product-1', quantity: 2 }],
+      }),
+    ).rejects.toMatchObject({ code: 'RESTOCK_INVOICE_REQUIRED_FOR_CREDIT' })
   })
 
   it('paginates and filters cross-product movement history', async () => {

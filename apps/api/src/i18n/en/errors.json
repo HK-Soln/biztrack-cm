@@ -113,6 +113,7 @@
   "restock_total_amount_required": "Provide a total purchase amount when one or more restock items do not include a unit cost.",
   "restock_total_amount_mismatch": "The provided total purchase amount does not match the sum of the restock item costs.",
   "restock_payment_exceeds_total": "Recorded restock payments cannot exceed the total purchase amount.",
+  "restock_invoice_required_for_credit": "Attach the supplier invoice for a receipt on credit.",
   "already_voided": "Sale {saleNumber} has already been voided.",
   "sales_void_forbidden": "Only owners and managers can void sales.",
   "deposit_account_not_found": "Deposit account not found.",

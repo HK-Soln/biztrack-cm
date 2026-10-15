@@ -90,6 +90,29 @@ describe('a restock and its supplier payable on the till', () => {
     expect(debtOutbox()).toBe(0)
   })
 
+  it('refuses payments above the invoice total, as the server does', () => {
+    expect(() =>
+      inventory.restock({
+        supplierId,
+        items: [{ productId, quantity: 10, unitCost: 600 }],
+        payments: [{ method: 'CASH' as never, amount: 7000 }],
+        reference: 'GRN-3',
+      }),
+    ).toThrow('more than the invoice total')
+    expect(payables()).toEqual([])
+  })
+
+  it('needs the supplier invoice for a receipt on credit', () => {
+    expect(() =>
+      inventory.restock({
+        supplierId,
+        items: [{ productId, quantity: 10, unitCost: 600 }],
+        amountPaid: 2000,
+        reference: 'GRN-4',
+      }),
+    ).toThrow('Attach the supplier invoice')
+  })
+
   it('leaves no payable when the restock is paid in full', () => {
     inventory.restock({
       supplierId,
