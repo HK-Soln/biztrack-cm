@@ -1,4 +1,9 @@
-import { normalizeProductSku, PRODUCT_SKU_PATTERN } from '@biztrack/domain'
+import {
+  buildProductSku,
+  normalizeProductSku,
+  PRODUCT_SKU_PATTERN,
+  SKU_RANDOM_ALPHABET,
+} from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { Not } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
@@ -19,11 +24,10 @@ export class SkuService {
   }
 
   async generate(businessId: string, categorySlug?: string): Promise<string> {
-    const prefix = this.getCategoryPrefix(categorySlug)
-    const timestamp = Date.now().toString(36).toUpperCase().slice(-6)
-
+    // The shape is @biztrack/domain's, the one the till uses for products made offline.
+    const now = Date.now()
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const sku = `${prefix}-${timestamp}-${this.randomAlphanumeric(4)}`
+      const sku = buildProductSku({ categorySlug, now, random: this.randomAlphanumeric(4) })
       const exists = await this.productsRepo.findOne({ where: { businessId, sku } })
       if (!exists) return sku
     }
@@ -61,14 +65,8 @@ export class SkuService {
     return normalized
   }
 
-  private getCategoryPrefix(categorySlug?: string) {
-    if (!categorySlug) return 'GEN'
-
-    return categorySlug.replace(/-/g, '').toUpperCase().slice(0, 3).padEnd(3, 'X')
-  }
-
   private randomAlphanumeric(length: number) {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const alphabet = SKU_RANDOM_ALPHABET
     return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join(
       '',
     )

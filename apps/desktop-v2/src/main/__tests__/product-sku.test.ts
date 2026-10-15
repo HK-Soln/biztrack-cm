@@ -51,11 +51,27 @@ describe('product SKU on the till', () => {
     expect(() =>
       products.update(withSku.id, { ...(input as object), sku: 'XY-1' } as never),
     ).toThrow('cannot be changed')
+  })
 
-    const without = create(undefined, 'Plain')
-    expect(
-      products.update(without.id, { ...(input as object), name: 'Plain', sku: 'pl-1' } as never)
-        .sku,
-    ).toBe('PL-1')
+  it('gives a product created without a SKU one, made the way the server makes it', () => {
+    expect(create(undefined, 'Plain').sku).toMatch(/^GEN-[A-Z0-9]{1,6}-[A-Z0-9]{4}$/)
+  })
+
+  it('takes any text as a barcode, and refuses one another product uses', () => {
+    const first = products.create({
+      name: 'Shelf item',
+      sellingPrice: 1000,
+      unitOfMeasureId: 'u1',
+      barcode: '  SHELF 12  ',
+    } as never)
+    expect(first.barcode).toBe('SHELF 12')
+    expect(() =>
+      products.create({
+        name: 'Other',
+        sellingPrice: 1000,
+        unitOfMeasureId: 'u1',
+        barcode: 'SHELF 12',
+      } as never),
+    ).toThrow('already uses this barcode')
   })
 })

@@ -1,3 +1,4 @@
+import { barcodeKind, internalBarcodeFromSku, normalizeBarcode } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { Not } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
@@ -27,38 +28,27 @@ export class BarcodeService {
   }
 
   generateFromSKU(sku: string) {
-    const hash = this.hashToNineDigits(sku)
-    const base = `200${hash.toString().padStart(9, '0')}`
-    const checkDigit = this.ean13CheckDigit(base)
-
     return {
-      value: `${base}${checkDigit}`,
+      value: internalBarcodeFromSku(sku),
       type: BarcodeType.INTERNAL,
       isGenerated: true,
     }
   }
 
   detectType(value: string): BarcodeType {
-    if (/^\d{13}$/.test(value)) return value.startsWith('200') ? BarcodeType.INTERNAL : BarcodeType.EAN13
-    if (/^\d{8}$/.test(value)) return BarcodeType.EAN8
-    if (/^\d{12}$/.test(value)) return BarcodeType.UPCA
-    if (/^https?:\/\//.test(value) || /\s/.test(value)) return BarcodeType.QR
-    return BarcodeType.CODE128
+    return barcodeKind(value) as BarcodeType
   }
 
   async validateAndNormalize(businessId: string, barcode: string, excludeProductId?: string) {
-    const normalized = barcode.trim()
-    const type = this.detectType(normalized)
-
-    if (
-      [BarcodeType.EAN13, BarcodeType.EAN8, BarcodeType.UPCA, BarcodeType.INTERNAL].includes(type) &&
-      !this.validateCheckDigit(normalized, type)
-    ) {
+    // Any text the shop wants; no barcode standard or check digit is required (ruling R17).
+    const normalized = normalizeBarcode(barcode) ?? ''
+    if (!normalized) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.invalid_barcode_check_digit'),
-        'INVALID_BARCODE_CHECK_DIGIT',
+        'INVALID_BARCODE',
       )
     }
+    const type = this.detectType(normalized)
 
     const existing = await this.productsRepo.findOne({
       where: {
@@ -81,44 +71,5 @@ export class BarcodeService {
       type,
       isGenerated: false,
     }
-  }
-
-  private validateCheckDigit(value: string, type: BarcodeType) {
-    if (type === BarcodeType.EAN8) {
-      const base = value.slice(0, 7)
-      return this.ean8CheckDigit(base) === Number.parseInt(value.at(-1) ?? '0', 10)
-    }
-
-    if ([BarcodeType.EAN13, BarcodeType.UPCA, BarcodeType.INTERNAL].includes(type)) {
-      const base = value.slice(0, 12)
-      return this.ean13CheckDigit(base) === Number.parseInt(value.at(-1) ?? '0', 10)
-    }
-
-    return true
-  }
-
-  private hashToNineDigits(input: string) {
-    let hash = 0
-    for (let index = 0; index < input.length; index += 1) {
-      hash = (hash << 5) - hash + input.charCodeAt(index)
-      hash |= 0
-    }
-    return Math.abs(hash) % 1_000_000_000
-  }
-
-  private ean13CheckDigit(twelveDigits: string) {
-    let sum = 0
-    for (let index = 0; index < 12; index += 1) {
-      sum += Number.parseInt(twelveDigits[index] ?? '0', 10) * (index % 2 === 0 ? 1 : 3)
-    }
-    return (10 - (sum % 10)) % 10
-  }
-
-  private ean8CheckDigit(sevenDigits: string) {
-    let sum = 0
-    for (let index = 0; index < 7; index += 1) {
-      sum += Number.parseInt(sevenDigits[index] ?? '0', 10) * (index % 2 === 0 ? 3 : 1)
-    }
-    return (10 - (sum % 10)) % 10
   }
 }

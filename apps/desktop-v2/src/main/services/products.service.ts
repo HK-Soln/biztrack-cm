@@ -1,4 +1,9 @@
-import { checkProductSku } from '@biztrack/domain'
+import {
+  SKU_RANDOM_ALPHABET,
+  buildProductSku,
+  checkProductSku,
+  normalizeBarcode,
+} from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -467,7 +472,8 @@ export class ProductsService {
     const isService = type === 'SERVICE'
     const tracks = !isService
     const currency = this.businessCurrency(businessId)
-    const sku = this.resolveSku(businessId, null, input.sku, null)
+    const sku = this.resolveSku(businessId, null, input.sku, null, input.categoryId ?? null)
+    const barcode = this.resolveBarcode(businessId, input.barcode, null)
     this.db.run(
       `INSERT INTO products
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
@@ -483,7 +489,7 @@ export class ProductsService {
         slugify(input.name),
         input.description?.trim() || null,
         sku,
-        input.barcode?.trim() || null,
+        barcode,
         input.sellingPrice,
         input.costPrice ?? null,
         currency,
@@ -514,7 +520,7 @@ export class ProductsService {
         now,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
+    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type, { sku, barcode }), now)
     this.syncOpeningStock(id, businessId, now)
     this.onMutated()
     const created = this.getOne(id)!
@@ -536,7 +542,8 @@ export class ProductsService {
     const type = productType(input)
     const isService = type === 'SERVICE'
     const before = this.getOne(id)
-    const sku = this.resolveSku(businessId, before?.sku ?? null, input.sku, id)
+    const sku = this.resolveSku(businessId, before?.sku ?? null, input.sku, id, null)
+    const barcode = this.resolveBarcode(businessId, input.barcode, id)
     this.db.run(
       `UPDATE products SET
         name = ?, slug = ?, description = ?, sku = ?, barcode = ?, price = ?, cost_price = ?, tax_rate = ?,
@@ -551,7 +558,7 @@ export class ProductsService {
         slugify(input.name),
         input.description?.trim() || null,
         sku,
-        input.barcode?.trim() || null,
+        barcode,
         input.sellingPrice,
         input.costPrice ?? null,
         input.taxRate ?? 0,
@@ -581,7 +588,7 @@ export class ProductsService {
         businessId,
       ],
     )
-    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type), now)
+    this.enqueue(id, 'UPSERT', businessId, this.payload(input, type, { sku, barcode }), now)
     this.onMutated()
     const after = this.getOne(id)!
     this.audit?.log({
@@ -2029,6 +2036,8 @@ export class ProductsService {
     existing: string | null,
     incoming: string | null | undefined,
     productId: string | null,
+    /** Set when creating: a product created without a SKU gets one here (ruling R17). */
+    categoryId: string | null,
   ): string | null {
     const result = checkProductSku({ existing, incoming })
     if (!result.ok) {
@@ -2045,7 +2054,48 @@ export class ProductsService {
       )
       if (taken) throw new Error('Another product already uses this SKU.')
     }
-    return result.sku
+    if (result.sku || existing || productId) return result.sku
+    return this.generateSku(businessId, categoryId)
+  }
+
+  /** A new SKU, made the way the server makes one (@biztrack/domain buildProductSku). */
+  private generateSku(businessId: string, categoryId: string | null): string {
+    const categorySlug = categoryId
+      ? (this.db.get<{ slug: string | null }>(
+          `SELECT slug FROM product_categories WHERE id = ? AND business_id = ?`,
+          [categoryId, businessId],
+        )?.slug ?? null)
+      : null
+    const now = Date.now()
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const random = Array.from(
+        { length: 4 },
+        () => SKU_RANDOM_ALPHABET[Math.floor(Math.random() * SKU_RANDOM_ALPHABET.length)],
+      ).join('')
+      const sku = buildProductSku({ categorySlug, now, random })
+      const taken = this.db.get<{ id: string }>(
+        `SELECT id FROM products WHERE business_id = ? AND sku = ?`,
+        [businessId, sku],
+      )
+      if (!taken) return sku
+    }
+    throw new Error('Could not make a SKU for this product. Try again.')
+  }
+
+  /** A barcode is any text, trimmed, and no other product of the business may have it (R17). */
+  private resolveBarcode(
+    businessId: string,
+    incoming: string | null | undefined,
+    productId: string | null,
+  ): string | null {
+    const barcode = normalizeBarcode(incoming)
+    if (!barcode) return null
+    const taken = this.db.get<{ id: string }>(
+      `SELECT id FROM products WHERE business_id = ? AND barcode = ? AND id != ?`,
+      [businessId, barcode, productId ?? ''],
+    )
+    if (taken) throw new Error('Another product already uses this barcode.')
+    return barcode
   }
 
   private assertUnit(unitId: string | null | undefined, businessId: string): void {
@@ -2078,12 +2128,17 @@ export class ProductsService {
     }
   }
 
-  private payload(input: ProductInput, type: ProductType): Record<string, unknown> {
+  private payload(
+    input: ProductInput,
+    type: ProductType,
+    codes: { sku: string | null; barcode: string | null },
+  ): Record<string, unknown> {
     return {
       name: input.name.trim(),
       description: input.description?.trim() || null,
-      sku: input.sku?.trim() || null,
-      barcode: input.barcode?.trim() || null,
+      // The SKU and barcode as stored here, generated or normalised, not as typed.
+      sku: codes.sku,
+      barcode: codes.barcode,
       sellingPrice: input.sellingPrice,
       costPrice: input.costPrice ?? null,
       taxRate: input.taxRate ?? 0,
