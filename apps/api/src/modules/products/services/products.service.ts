@@ -1,3 +1,4 @@
+import { checkProductSku, productAverageCost, productDisplayPrice } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
@@ -607,12 +608,8 @@ export class ProductsService {
       // the SUM of variant stock, the displayed price is the LOWEST variant price ("from"), and
       // the cost is the AVERAGE variant cost.
       const activeVariants = variants ?? []
-      const variantPrices = activeVariants.map((v) => v.priceOverride ?? product.sellingPrice)
-      const variantCosts = activeVariants.map((v) => v.costPriceOverride ?? product.costPrice ?? 0)
-      const displayPrice = variantPrices.length ? Math.min(...variantPrices) : product.sellingPrice
-      const avgCost = variantCosts.length
-        ? Math.round(variantCosts.reduce((sum, c) => sum + c, 0) / variantCosts.length)
-        : (product.costPrice ?? null)
+      const displayPrice = productDisplayPrice(product, activeVariants)
+      const avgCost = productAverageCost(product, activeVariants)
 
       const currentStock = product.isSerialized
         ? inStockSerialCount
@@ -822,7 +819,7 @@ export class ProductsService {
         isActive: product.isActive,
       })
 
-      if (dto.sku && dto.sku.trim().toUpperCase() !== product.sku) {
+      if (!checkProductSku({ existing: product.sku, incoming: dto.sku }).ok) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.product_sku_immutable'),
           'PRODUCT_SKU_IMMUTABLE',

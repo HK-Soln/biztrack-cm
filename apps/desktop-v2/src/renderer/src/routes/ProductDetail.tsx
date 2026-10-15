@@ -1,3 +1,4 @@
+import { marginPercent, stockStatus } from '@biztrack/domain'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,10 +22,12 @@ const MOVE_PREVIEW = 5
 
 function stockState(p: LocalProduct): 'in' | 'low' | 'out' | 'none' {
   if (!p.trackInventory) return 'none'
-  const threshold = p.reorderPoint ?? p.lowStockThreshold ?? 0
-  if (p.currentStock <= 0) return 'out'
-  if (threshold > 0 && p.currentStock <= threshold) return 'low'
-  return 'in'
+  // @biztrack/domain's rule, the one the stock filters use.
+  return stockStatus({
+    stock: p.currentStock,
+    reorderPoint: p.reorderPoint,
+    lowStockThreshold: p.lowStockThreshold,
+  }).toLowerCase() as 'in' | 'low' | 'out'
 }
 
 export function ProductDetail() {
@@ -91,7 +94,7 @@ export function ProductDetail() {
   const effPrice = p.effectiveSellingPrice
   const stockValue = (effCost ?? 0) * p.currentStock
   const unitMargin = effCost != null && effCost > 0 && effPrice > 0 ? effPrice - effCost : null
-  const marginPct = unitMargin != null && effPrice > 0 ? (unitMargin / effPrice) * 100 : null
+  const marginPct = marginPercent(effPrice, effCost)
   const onHandClass = ss === 'low' ? ' warn' : ss === 'out' ? ' bad' : ''
 
   const statusPill = () => {

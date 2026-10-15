@@ -1,3 +1,4 @@
+import { normalizeProductSku, PRODUCT_SKU_PATTERN } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { Not } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
@@ -34,9 +35,10 @@ export class SkuService {
   }
 
   async validateAndNormalize(businessId: string, sku: string, excludeProductId?: string) {
-    const normalized = sku.trim().toUpperCase()
+    // Shape and normalisation are @biztrack/domain's, as on the till.
+    const normalized = normalizeProductSku(sku) ?? ''
 
-    if (!/^[A-Z0-9\-_]{1,100}$/.test(normalized)) {
+    if (!PRODUCT_SKU_PATTERN.test(normalized)) {
       throw new AppBadRequestException(
         await this.i18n.translate('errors.invalid_sku_format'),
         'INVALID_SKU_FORMAT',
@@ -53,10 +55,7 @@ export class SkuService {
     })
 
     if (existing) {
-      throw new AppConflictException(
-        await this.i18n.translate('errors.sku_in_use'),
-        'SKU_IN_USE',
-      )
+      throw new AppConflictException(await this.i18n.translate('errors.sku_in_use'), 'SKU_IN_USE')
     }
 
     return normalized
@@ -65,15 +64,13 @@ export class SkuService {
   private getCategoryPrefix(categorySlug?: string) {
     if (!categorySlug) return 'GEN'
 
-    return categorySlug
-      .replace(/-/g, '')
-      .toUpperCase()
-      .slice(0, 3)
-      .padEnd(3, 'X')
+    return categorySlug.replace(/-/g, '').toUpperCase().slice(0, 3).padEnd(3, 'X')
   }
 
   private randomAlphanumeric(length: number) {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+    return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join(
+      '',
+    )
   }
 }

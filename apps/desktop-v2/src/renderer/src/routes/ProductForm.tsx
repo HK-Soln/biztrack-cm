@@ -1,3 +1,4 @@
+import { marginPercent } from '@biztrack/domain'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -297,7 +298,7 @@ export function ProductForm() {
   // --- derived --------------------------------------------------------------
   const costN = Number(d.cost.replace(/\s/g, '')) || 0
   const priceN = Number(d.price.replace(/\s/g, '')) || 0
-  const marginPct = priceN > 0 && costN > 0 ? ((priceN - costN) / priceN) * 100 : null
+  const marginPct = marginPercent(priceN, costN)
   const isSimple = d.productType === 'SIMPLE'
   const tracksInventory = isSimple
   const hasVariants = isSimple && d.hasVariants
@@ -664,6 +665,8 @@ export function ProductForm() {
             value={d.sku}
             placeholder={t('prodf.skuPh')}
             onChange={(e) => patch({ sku: e.target.value })}
+            // A product's SKU cannot change once it is set (@biztrack/domain checkProductSku).
+            disabled={editing && !!existing?.sku}
           />
         </div>
         <div className="ff">

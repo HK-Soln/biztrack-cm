@@ -1,3 +1,4 @@
+import { marginPercent, variantCost, variantPrice } from '@biztrack/domain'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -97,13 +98,13 @@ export function VariantDetail() {
 
   const p = product
   const v = variant
-  const effPrice = v.priceOverride ?? p.sellingPrice
-  const effCost = v.costPriceOverride ?? p.costPrice ?? null
+  const effPrice = variantPrice(p, v)
+  const effCost = variantCost(p, v)
   const stock = v.stockQuantity
   const threshold = v.reorderPoint ?? v.lowStockThreshold ?? 0
   const stockValue = (effCost ?? 0) * stock
   const unitMargin = effCost != null && effCost > 0 && effPrice > 0 ? effPrice - effCost : null
-  const marginPct = unitMargin != null && effPrice > 0 ? (unitMargin / effPrice) * 100 : null
+  const marginPct = marginPercent(effPrice, effCost)
   // Non-serialized variants hold a plain quantity that can be adjusted; serialized variants
   // change stock only by adding/retiring serial units below.
   const canAdjust = p.trackInventory && !p.isSerialized

@@ -309,6 +309,27 @@ describe('SalesService.computeSale (totals + variant/serial fields)', () => {
     expect(result.totalAmount).toBe(1000)
   })
 
+  it('costs a variant line at the variant’s own cost, else the product’s', () => {
+    const service = makeService()
+    const p = product({
+      id: 'p1',
+      hasVariants: true,
+      sellingPrice: 1000,
+      costPrice: 600,
+    }) as Product
+    const variants = new Map([
+      ['v1', { id: 'v1', name: 'Large', productId: 'p1', costPriceOverride: 750 } as any],
+      ['v2', { id: 'v2', name: 'Small', productId: 'p1', costPriceOverride: null } as any],
+    ])
+    const result = service.computeSale([p], variants, new Map(), {
+      items: [
+        { productId: 'p1', variantId: 'v1', quantity: 1, unitPrice: 1000 },
+        { productId: 'p1', variantId: 'v2', quantity: 1, unitPrice: 1000 },
+      ],
+    })
+    expect(result.items.map((item) => item.costPrice)).toEqual([750, 600])
+  })
+
   it('preserves a fractional quantity and computes the line total', () => {
     const service = makeService()
     const p = product({

@@ -1,3 +1,4 @@
+import { checkProductSku } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -466,6 +467,7 @@ export class ProductsService {
     const isService = type === 'SERVICE'
     const tracks = !isService
     const currency = this.businessCurrency(businessId)
+    const sku = this.resolveSku(businessId, null, input.sku, null)
     this.db.run(
       `INSERT INTO products
         (id, business_id, name, slug, description, sku, barcode, price, cost_price, currency, tax_rate,
@@ -480,7 +482,7 @@ export class ProductsService {
         input.name.trim(),
         slugify(input.name),
         input.description?.trim() || null,
-        input.sku?.trim() || null,
+        sku,
         input.barcode?.trim() || null,
         input.sellingPrice,
         input.costPrice ?? null,
@@ -534,6 +536,7 @@ export class ProductsService {
     const type = productType(input)
     const isService = type === 'SERVICE'
     const before = this.getOne(id)
+    const sku = this.resolveSku(businessId, before?.sku ?? null, input.sku, id)
     this.db.run(
       `UPDATE products SET
         name = ?, slug = ?, description = ?, sku = ?, barcode = ?, price = ?, cost_price = ?, tax_rate = ?,
@@ -547,7 +550,7 @@ export class ProductsService {
         input.name.trim(),
         slugify(input.name),
         input.description?.trim() || null,
-        input.sku?.trim() || null,
+        sku,
         input.barcode?.trim() || null,
         input.sellingPrice,
         input.costPrice ?? null,
@@ -2016,6 +2019,35 @@ export class ProductsService {
    * business). Enforced here so an empty or stale unit can never be persisted, whatever
    * the caller — the form's "required" hint is a convenience, this is the guarantee.
    */
+  /**
+   * The SKU to store: the shape and "cannot change once set" are @biztrack/domain's
+   * (`checkProductSku`), the rules the server applies when the product syncs; and no other
+   * product of the business may have it, deleted ones included, as on the server.
+   */
+  private resolveSku(
+    businessId: string,
+    existing: string | null,
+    incoming: string | null | undefined,
+    productId: string | null,
+  ): string | null {
+    const result = checkProductSku({ existing, incoming })
+    if (!result.ok) {
+      throw new Error(
+        result.code === 'PRODUCT_SKU_IMMUTABLE'
+          ? 'A product’s SKU cannot be changed once it is set.'
+          : 'A SKU can only use letters, digits, - and _.',
+      )
+    }
+    if (result.sku && result.sku !== existing) {
+      const taken = this.db.get<{ id: string }>(
+        `SELECT id FROM products WHERE business_id = ? AND sku = ? AND id != ?`,
+        [businessId, result.sku, productId ?? ''],
+      )
+      if (taken) throw new Error('Another product already uses this SKU.')
+    }
+    return result.sku
+  }
+
   private assertUnit(unitId: string | null | undefined, businessId: string): void {
     const id = (unitId ?? '').trim()
     if (!id) throw new Error('A unit of measure is required.')

@@ -54,7 +54,7 @@ import type {
   MemberAuthCredentialSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
-import { debtStanding, toWholeXaf } from '@biztrack/domain'
+import { checkProductSku, debtStanding, toWholeXaf } from '@biztrack/domain'
 import {
   AttributeDisplayType,
   ContactType,
@@ -4067,8 +4067,7 @@ export class SyncService {
     existingSku?: string | null,
   ) {
     if (existingSku) {
-      const incomingSku = payload.sku?.trim().toUpperCase()
-      if (incomingSku && incomingSku !== existingSku) {
+      if (!checkProductSku({ existing: existingSku, incoming: payload.sku }).ok) {
         throw new AppBadRequestException(
           await this.i18n.translate('errors.product_sku_immutable'),
           'PRODUCT_SKU_IMMUTABLE',

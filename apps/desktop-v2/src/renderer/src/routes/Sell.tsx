@@ -9,6 +9,7 @@ import {
   majorToMinor,
   priceSale,
   toWholeXaf,
+  variantPrice,
 } from '@biztrack/domain'
 import { dataClient } from '@/lib/data-client'
 import { toSaleApiBody } from '@/lib/cloud-sales'
@@ -424,7 +425,7 @@ export function Sell() {
   }
   const addVariant = (p: LocalProduct, v: LocalVariant) => {
     const key = `${p.id}:${v.id}`
-    const unitPrice = v.priceOverride ?? p.sellingPrice
+    const unitPrice = variantPrice(p, v)
     setCart((prev) => {
       const found = prev.find((l) => l.key === key)
       if (found) return prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l))
@@ -542,7 +543,7 @@ export function Sell() {
       setSerialPick({
         productId: product.id,
         productName: product.name,
-        unitPrice: variant.priceOverride ?? product.sellingPrice,
+        unitPrice: variantPrice(product, variant),
         variantId: variant.id,
         variantName: variant.name,
       })
@@ -556,7 +557,7 @@ export function Sell() {
           key: `${e.product.id}:${e.variant.id}`,
           name: `${e.product.name} · ${e.variant.name}`,
           imageUrl: e.product.imageUrl,
-          price: e.variant.priceOverride ?? e.product.sellingPrice,
+          price: variantPrice(e.product, e.variant),
           stock: e.variant.stockQuantity,
           trackInventory: e.product.trackInventory,
         }
@@ -1835,9 +1836,7 @@ function VariantPicker({
                         {out ? t('sell.outOfStock') : `${v.stockQuantity} ${t('sell.inStock')}`}
                       </div>
                     </div>
-                    <div className="ch">
-                      {money.format(v.priceOverride ?? product.sellingPrice)}
-                    </div>
+                    <div className="ch">{money.format(variantPrice(product, v))}</div>
                   </button>
                 )
               })}

@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config'
 import { InjectRepository } from '@nestjs/typeorm'
 import type { Logger, LogMetadata } from '@biztrack/logger'
 import {
+  PROFIT_SALE_STATUSES,
   checkSaleCredit,
   decideSaleRefund,
   decideSaleVoid,
@@ -13,12 +14,11 @@ import {
   isBelowCost,
   netSalesByProduct,
   priceSale,
-  PROFIT_SALE_STATUSES,
   refundProfitImpact,
-  reviewSerialAlreadySold,
   returnDebtReduction,
-  reviewSyncedDiscount,
+  reviewSerialAlreadySold,
   reviewStockAfterSyncedSale,
+  reviewSyncedDiscount,
   reviewSyncedRefund,
   roundQuantity,
   saleReturnStatus,
@@ -26,6 +26,7 @@ import {
   settleSaleFromLedger,
   storedPaymentMethod,
   toWholeXaf,
+  variantCost,
 } from '@biztrack/domain'
 import {
   BusinessMemberRole,
@@ -2663,15 +2664,16 @@ export class SalesService {
       }
 
       const priced = pricing.lines[index]!
+      const variant = input.variantId ? variantsById.get(input.variantId) : undefined
+      // A variant costs its own cost when it has one (@biztrack/domain), as on the till.
       const costPrice =
-        input.costPrice !== undefined ? toWholeXaf(input.costPrice) : (product.costPrice ?? null)
+        input.costPrice !== undefined ? toWholeXaf(input.costPrice) : variantCost(product, variant)
 
       // Drift reflects what the cashier actually charged, not the rung listed price.
       if (hasPriceDrift(priced.chargedUnitPrice, product.sellingPrice)) {
         priceDriftWarning = true
       }
 
-      const variant = input.variantId ? variantsById.get(input.variantId) : undefined
       const serialUnit = input.serialUnitId ? serialUnitsById.get(input.serialUnitId) : undefined
       items.push({
         product,
