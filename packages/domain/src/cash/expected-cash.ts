@@ -58,3 +58,23 @@ export function computeExpectedCash(input: ExpectedCashInput): number {
 export function computeCashVariance(counted: number, expected: number): number {
   return toWholeXaf(counted - expected)
 }
+
+/**
+ * What a drawer holds from a count by denomination: each note or coin value times how many
+ * were counted, in whole francs. Lines counted as none are dropped.
+ */
+export function countDrawer(counts: ReadonlyArray<{ denomination: number; quantity: number }>): {
+  lines: Array<{ denomination: number; quantity: number }>
+  counted: number
+} {
+  const lines = counts
+    .map((c) => ({
+      denomination: Math.round(c.denomination),
+      quantity: Math.max(0, Math.round(c.quantity)),
+    }))
+    .filter((c) => c.quantity > 0)
+  return {
+    lines,
+    counted: toWholeXaf(lines.reduce((sum, c) => sum + c.denomination * c.quantity, 0)),
+  }
+}

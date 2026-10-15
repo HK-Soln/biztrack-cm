@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeCashVariance, computeExpectedCash } from './expected-cash'
+import { computeCashVariance, computeExpectedCash, countDrawer } from './expected-cash'
 
 describe('computeExpectedCash', () => {
   it('is just the float when nothing was sold', () => {
@@ -62,5 +62,24 @@ describe('computeCashVariance', () => {
   it('is positive when the drawer is over and negative when short', () => {
     expect(computeCashVariance(17600, 17500)).toBe(100)
     expect(computeCashVariance(17300, 17500)).toBe(-200)
+  })
+})
+
+describe('countDrawer', () => {
+  it('adds up each denomination counted, dropping lines counted as none', () => {
+    expect(
+      countDrawer([
+        { denomination: 10000, quantity: 3 },
+        { denomination: 500, quantity: 4.4 },
+        { denomination: 100, quantity: 0 },
+        { denomination: 50, quantity: -2 },
+      ]),
+    ).toEqual({
+      lines: [
+        { denomination: 10000, quantity: 3 },
+        { denomination: 500, quantity: 4 },
+      ],
+      counted: 32000,
+    })
   })
 })

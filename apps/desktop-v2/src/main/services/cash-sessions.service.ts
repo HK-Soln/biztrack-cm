@@ -23,7 +23,7 @@ import {
   type RecordCashMovementInput,
   type SetCashVarianceReasonInput,
 } from '@biztrack/types'
-import { computeExpectedCash } from '@biztrack/domain'
+import { computeCashVariance, computeExpectedCash, countDrawer } from '@biztrack/domain'
 import type { DatabaseService } from '@biztrack/electron-core'
 import { localBusinessDate } from './business-calendar'
 import type {
@@ -620,11 +620,10 @@ export class CashSessionsService {
     }
 
     const expectedCashTotal = this.expectedCash(sessionId)?.expectedCash ?? session.openingFloat
-    const counted = input.counts.reduce(
-      (sum, c) => sum + Math.round(c.denomination) * Math.max(0, Math.round(c.quantity)),
-      0,
-    )
-    const variance = counted - expectedCashTotal
+    // The count and the variance are @biztrack/domain's, as on the server.
+    const drawer = countDrawer(input.counts)
+    const counted = drawer.counted
+    const variance = computeCashVariance(counted, expectedCashTotal)
 
     // Expected MoMo/Orange for the shift (reconciled per tender, never blended with cash).
     const tender = this.db.get<{ momo: number; orange: number }>(
@@ -637,15 +636,13 @@ export class CashSessionsService {
     )
 
     const now = new Date().toISOString()
-    for (const c of input.counts) {
-      const qty = Math.max(0, Math.round(c.quantity))
-      if (qty <= 0) continue
+    for (const { denomination, quantity: qty } of drawer.lines) {
       const lineId = randomUUID()
       this.db.run(
         `INSERT INTO cash_count_lines
           (id, cash_session_id, denomination, quantity, is_deleted, created_at, updated_at)
          VALUES (?, ?, ?, ?, 0, ?, ?)`,
-        [lineId, sessionId, Math.round(c.denomination), qty, now, now],
+        [lineId, sessionId, denomination, qty, now, now],
       )
       this.pushCountLine(lineId)
     }

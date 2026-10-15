@@ -1,3 +1,4 @@
+import { toWholeXaf } from '@biztrack/domain'
 import type {
   Expense,
   ExpenseCategory,
@@ -147,7 +148,7 @@ export class ExpenseMonthlySummaryDto implements ExpenseMonthlySummary {
     dto.oneOffAmount =
       'oneOffAmount' in entity
         ? entity.oneOffAmount
-        : Math.max(0, Math.round((entity.totalAmount - entity.recurringAmount) * 100) / 100)
+        : Math.max(0, toWholeXaf(entity.totalAmount - entity.recurringAmount))
     dto.categoryBreakdown = entity.categoryBreakdown ?? {}
     return dto
   }

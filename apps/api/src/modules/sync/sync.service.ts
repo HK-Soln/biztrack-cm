@@ -54,7 +54,7 @@ import type {
   MemberAuthCredentialSyncRecord,
   JwtPayload,
 } from '@biztrack/types'
-import { debtStanding } from '@biztrack/domain'
+import { debtStanding, toWholeXaf } from '@biztrack/domain'
 import {
   AttributeDisplayType,
   ContactType,
@@ -5667,7 +5667,8 @@ export class SyncService {
       return 0
     }
 
-    return Math.round((numeric + Number.EPSILON) * 100) / 100
+    // Money a till sends is taken in whole francs, as every rule in @biztrack/domain works.
+    return toWholeXaf(numeric)
   }
 
   private async resolveContactCreatedById(businessId: string, createdById?: string | null) {

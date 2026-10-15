@@ -1,3 +1,4 @@
+import { toWholeXaf } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, IsNull, Repository } from 'typeorm'
@@ -178,7 +179,7 @@ export class RfqsService {
 
       await this.suppliersRepo.update(supplier.id, {
         status: RfqSupplierStatus.QUOTED,
-        quotedTotal: dto.quotedTotal,
+        quotedTotal: toWholeXaf(dto.quotedTotal),
         quoteNotes: dto.quoteNotes?.trim() || null,
         ...(dto.quoteFileUrl !== undefined ? { quoteFileUrl: dto.quoteFileUrl } : {}),
         respondedAt: new Date(),

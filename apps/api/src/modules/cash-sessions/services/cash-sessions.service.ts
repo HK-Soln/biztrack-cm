@@ -32,7 +32,7 @@ import {
   type RecordCashMovementInput,
   type SetCashVarianceReasonInput,
 } from '@biztrack/types'
-import { computeExpectedCash } from '@biztrack/domain'
+import { computeCashVariance, computeExpectedCash, countDrawer } from '@biztrack/domain'
 import { AppBadRequestException, AppNotFoundException } from '@/common/exceptions/app-exceptions'
 import { CashSession } from '@/entities/cash-session.entity'
 import { CashCountLine } from '@/entities/cash-count-line.entity'
@@ -177,10 +177,9 @@ export class CashSessionsService {
     }
 
     const expected = (await this.expectedCash(businessId, sessionId)).expectedCash
-    const counted = input.counts.reduce(
-      (sum, c) => sum + Math.round(c.denomination) * Math.max(0, Math.round(c.quantity)),
-      0,
-    )
+    // The count and the variance are @biztrack/domain's, as on the till.
+    const drawer = countDrawer(input.counts)
+    const counted = drawer.counted
 
     const tender = await this.sessionsRepo.manager
       .createQueryBuilder()
@@ -200,14 +199,12 @@ export class CashSessionsService {
       .andWhere('s.deleted_at IS NULL')
       .getRawOne<{ momo: string; orange: string }>()
 
-    for (const c of input.counts) {
-      const qty = Math.max(0, Math.round(c.quantity))
-      if (qty <= 0) continue
+    for (const line of drawer.lines) {
       await this.countLinesRepo.save(
         this.countLinesRepo.create({
           cashSessionId: sessionId,
-          denomination: Math.round(c.denomination),
-          quantity: qty,
+          denomination: line.denomination,
+          quantity: line.quantity,
         }),
       )
     }
@@ -217,7 +214,7 @@ export class CashSessionsService {
     session.closedReason = CashSessionClosedReason.NORMAL
     session.expectedCash = expected
     session.countedCash = counted
-    session.varianceCash = counted - expected
+    session.varianceCash = computeCashVariance(counted, expected)
     session.expectedMtnMomo = Number(tender?.momo ?? 0)
     session.confirmedMtnMomo = input.confirmedMtnMomo ?? null
     session.expectedOrangeMoney = Number(tender?.orange ?? 0)

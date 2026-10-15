@@ -66,7 +66,7 @@ packages/domain/src
 | 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                    |
 | 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | Done: `debtStanding` replaces the seven copies of debt status; the SQLite debt triggers are dropped and the till decides debts in code with the same domain rules as the server (R9 to R11)                                        |
 | 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                    |
-| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               |                                                                                                                                                                                                                                    |
+| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               | Done, see "Slice 8 as built". The stock report rounding moves to slice 5                                                                                                                                                           |
 
 Out of scope (owner, 2026-10-11): anything built for mobile. The mobile app will be written
 from scratch in its own phase. This initiative makes the API, sync and the desktop run the
@@ -94,7 +94,7 @@ Each was read in the code. "Fixed" means both runtimes now run one function.
 | Refunds in profit                                         | Refunded and partially refunded sales dropped out of the Income Statement entirely | Same, while the daily summary kept their full revenue                                                         | Fixed (R4): one rule in `sale-profit.ts`, used by the Income Statement queries on both sides and by the daily summary            |
 | Savings on refund                                         | Not reversed                                                                       | Not reversed                                                                                                  | Decided (R8): not reversed. Giving savings back goes through the savings flow                                                    |
 | Cart preview in the renderer (`Sell.tsx`)                 | Rounds to 2 decimals                                                               | n/a                                                                                                           | Fixed: the sell screen totals come from `priceSale`                                                                              |
-| Money rounding outside sales                              | `round2` in debts, expenses, income, inventory, savings                            | `roundMoney` / `round` in the same modules                                                                    | Open, slice 8                                                                                                                    |
+| Money rounding outside sales                              | `round2` in debts, expenses, income, inventory, savings                            | `roundMoney` / `round` in the same modules                                                                    | Fixed in slice 8: whole francs through `toWholeXaf`, except the stock reports (slice 5)                                          |
 
 ## Rulings
 
@@ -365,6 +365,40 @@ Limits, as built:
 - The API migration's value of returned goods is rounded once per sale; the domain rounds
   per return, so a balance can differ by a franc on sales with several returns of weighed
   goods.
+
+### Slice 8 as built
+
+Each rule below used to be written separately on the API, the till and, in places, the
+screen. Each is now one function in `packages/domain`, in whole francs:
+
+| Area                         | Domain                                                                                                                              | Called by                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Receiving stock              | `settleRestock`, `restockTotals`, `restockAdjustmentAmount`, `checkRestockCredit`                                                   | API receive (REST and sync), till receive, receive screen totals                  |
+| Purchase orders              | `priceOrderLines`, `checkPurchaseOrder`                                                                                             | API and till create/convert, order documents on both sides, order form            |
+| Expense and income summaries | `summarizeAmounts`, `comparisonPeriod`, `roundPercent`                                                                              | API expense summary, new `GET /income/summary`, till expense and income summaries |
+| Income statement             | `incomeStatement`                                                                                                                   | API P&L, the report builder in `@biztrack/templates`                              |
+| Customer savings             | `savingsDeposit`, `savingsPurchase`, `savingsPurchaseReversal`, `decideSavingsClose`, `savingsRefundable`, `savingsRunningBalances` | API and till savings services, the deposit-close screen                           |
+| Debt payments and offsets    | `checkDebtPayment`, `planDebtOffset`                                                                                                | API and till debt services                                                        |
+| Cash drawer                  | `countDrawer`, `computeCashVariance`                                                                                                | API and till close of a cash session                                              |
+
+What changed for a user:
+
+- The till refuses a receipt whose payments are more than the invoice total. Before, it
+  saved it and the server rejected it on sync, leaving it stuck.
+- A receipt on credit made through the API needs the supplier invoice, as the screen and the
+  till already required. Receipts synced from a till only need a supplier, as before.
+- The till refuses a sale paid from more savings than the customer has, or from a closed
+  session. Before, it saved the sale as paid from savings without taking anything off.
+- Category shares show one decimal on the till (they were whole percents) and the change
+  against the previous period one decimal (it was two), as the server showed them.
+- The browser build's income summary comes from the server: it now has the change against
+  the previous period and the average per day, and is no longer limited to 1,000 entries.
+- Quote totals, expense and income amounts, and money arriving through sync are stored in
+  whole francs.
+
+Not done here: the stock reports (stock value, supplier price history) still round to two
+decimals; they move with slice 5. Unit costs keep their decimals: a cost per unit can be a
+fraction of a franc, the totals built from it cannot.
 
 ### Integration tests
 

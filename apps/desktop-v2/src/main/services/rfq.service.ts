@@ -1,3 +1,4 @@
+import { toWholeXaf } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
 import type {
@@ -181,8 +182,9 @@ export class RfqService {
       [input.rfqSupplierId, rfqId],
     )
     if (!supplier) throw new Error('Supplier is not on this request.')
-    const total = Number(input.quotedTotal)
-    if (!Number.isFinite(total) || total < 0) throw new Error('Enter a valid quote amount.')
+    const quoted = Number(input.quotedTotal)
+    if (!Number.isFinite(quoted) || quoted < 0) throw new Error('Enter a valid quote amount.')
+    const total = toWholeXaf(quoted)
 
     const now = new Date().toISOString()
     this.db.run(
@@ -333,7 +335,10 @@ export class RfqService {
         variant_id: string | null
         description: string
         quantity: number
-      }>(`SELECT id, product_id, variant_id, description, quantity FROM rfq_items WHERE rfq_id = ? ORDER BY created_at ASC`, [rfqId])
+      }>(
+        `SELECT id, product_id, variant_id, description, quantity FROM rfq_items WHERE rfq_id = ? ORDER BY created_at ASC`,
+        [rfqId],
+      )
       .map((r) => ({
         id: r.id,
         productId: r.product_id,
@@ -354,7 +359,10 @@ export class RfqService {
         quote_notes: string | null
         quote_file_url: string | null
         responded_at: string | null
-      }>(`SELECT id, supplier_id, supplier_name, status, quoted_total, quote_notes, quote_file_url, responded_at FROM rfq_suppliers WHERE rfq_id = ? ORDER BY created_at ASC`, [rfqId])
+      }>(
+        `SELECT id, supplier_id, supplier_name, status, quoted_total, quote_notes, quote_file_url, responded_at FROM rfq_suppliers WHERE rfq_id = ? ORDER BY created_at ASC`,
+        [rfqId],
+      )
       .map((r) => ({
         id: r.id,
         supplierId: r.supplier_id,
