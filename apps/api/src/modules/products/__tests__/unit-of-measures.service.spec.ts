@@ -15,6 +15,7 @@ const makeService = () => {
   }
   const unitsRepo = {
     createQueryBuilder: jest.fn(() => qb),
+    find: jest.fn().mockResolvedValue([]),
     create: jest.fn((input) => input),
     save: jest.fn(async (input) => ({ id: 'uom-1', ...input })),
   }
@@ -29,7 +30,12 @@ const makeService = () => {
     error: jest.fn(),
   }
 
-  const service = new UnitOfMeasuresService(unitsRepo as any, productsRepo as any, i18n as any, logger as any)
+  const service = new UnitOfMeasuresService(
+    unitsRepo as any,
+    productsRepo as any,
+    i18n as any,
+    logger as any,
+  )
 
   return {
     service,
@@ -42,7 +48,10 @@ describe('UnitOfMeasuresService', () => {
   it('lists system and business units with default-first ordering', async () => {
     const { service, qb } = makeService()
     qb.getManyAndCount.mockResolvedValue([
-      [{ id: 'system-piece', name: 'Piece' }, { id: 'custom-cuv', name: 'Cuvette' }],
+      [
+        { id: 'system-piece', name: 'Piece' },
+        { id: 'custom-cuv', name: 'Cuvette' },
+      ],
       2,
     ])
 
@@ -51,7 +60,10 @@ describe('UnitOfMeasuresService', () => {
     expect(qb.orderBy).toHaveBeenCalledWith('uom.is_default', 'DESC')
     expect(qb.addOrderBy).toHaveBeenCalledWith('uom.name', 'ASC')
     expect(result).toEqual({
-      data: [{ id: 'system-piece', name: 'Piece' }, { id: 'custom-cuv', name: 'Cuvette' }],
+      data: [
+        { id: 'system-piece', name: 'Piece' },
+        { id: 'custom-cuv', name: 'Cuvette' },
+      ],
       total: 2,
       page: 1,
       limit: 20,
@@ -60,8 +72,7 @@ describe('UnitOfMeasuresService', () => {
   })
 
   it('checks uniqueness only within the current business when creating a custom unit', async () => {
-    const { service, qb, unitsRepo } = makeService()
-    qb.getOne.mockResolvedValue(null)
+    const { service, unitsRepo } = makeService()
 
     await service.create('business-1', {
       name: 'Piece',
@@ -69,17 +80,31 @@ describe('UnitOfMeasuresService', () => {
       type: UnitOfMeasureType.CUSTOM,
     })
 
-    expect(qb.where).toHaveBeenCalledWith('uom.business_id = :businessId', {
-      businessId: 'business-1',
-    })
+    expect(unitsRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { businessId: 'business-1' }, withDeleted: true }),
+    )
     expect(unitsRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: 'business-1',
-        name: 'Piece',
+        name: 'PIECE',
         abbreviation: 'pc',
         type: UnitOfMeasureType.CUSTOM,
         isDefault: false,
       }),
     )
+  })
+
+  it('refuses a name the business already has, deleted units included', async () => {
+    const { service, unitsRepo } = makeService()
+    unitsRepo.find.mockResolvedValue([{ id: 'uom-old', name: 'CUVETTE' }])
+
+    await expect(
+      service.create('business-1', {
+        name: 'cuvette',
+        abbreviation: 'cuv',
+        type: UnitOfMeasureType.CUSTOM,
+      }),
+    ).rejects.toMatchObject({ code: 'UNIT_OF_MEASURE_EXISTS' })
+    expect(unitsRepo.save).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,4 @@
-import { marginPercent } from '@biztrack/domain'
+import { checkProductPrices, marginPercent } from '@biztrack/domain'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -298,6 +298,12 @@ export function ProductForm() {
   // --- derived --------------------------------------------------------------
   const costN = Number(d.cost.replace(/\s/g, '')) || 0
   const priceN = Number(d.price.replace(/\s/g, '')) || 0
+  // A price must be entered; zero is allowed, a negative one is not (ruling R15).
+  const priceProblem: 'priceRequired' | 'priceNegative' | null = !d.price.trim()
+    ? 'priceRequired'
+    : checkProductPrices({ sellingPrice: Number(d.price.replace(/\s/g, '')) })
+      ? 'priceNegative'
+      : null
   const marginPct = marginPercent(priceN, costN)
   const isSimple = d.productType === 'SIMPLE'
   const tracksInventory = isSimple
@@ -823,7 +829,7 @@ export function ProductForm() {
               patch({ price: e.target.value })
               setError(null)
             }}
-            error={!!error && d.productType !== 'SERVICE' && priceN <= 0}
+            error={!!error && d.productType !== 'SERVICE' && !!priceProblem}
           />
         </div>
       </div>
@@ -1033,8 +1039,8 @@ export function ProductForm() {
       return null
     }
     const validatePricing = () => {
-      if (!hasVariants && d.productType !== 'SERVICE' && priceN <= 0)
-        return t('prodf.priceRequired')
+      if (!hasVariants && d.productType !== 'SERVICE' && priceProblem)
+        return t(`prodf.${priceProblem}`)
       return null
     }
     if (d.productType === 'SERVICE') {
@@ -1108,7 +1114,19 @@ export function ProductForm() {
     })
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d, error, hasVariants, serialized, priceN, costN, marginPct, avgPrice, avgCost, uploading])
+  }, [
+    d,
+    error,
+    hasVariants,
+    serialized,
+    priceN,
+    priceProblem,
+    costN,
+    marginPct,
+    avgPrice,
+    avgCost,
+    uploading,
+  ])
 
   const clampedStep = Math.min(step, steps.length - 1)
   const current = steps[clampedStep]!

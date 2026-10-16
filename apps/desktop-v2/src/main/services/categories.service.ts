@@ -1,7 +1,9 @@
 import {
   checkCategoryRemoval,
   placeCategory,
+  slugify,
   type CategoryPlacementRejection,
+  uniqueSlug,
 } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
@@ -34,16 +36,6 @@ interface CategoryRow {
 
 const SELECT_COLS =
   'id, name, slug, description, color, icon, image_url, sort_order, default_unit_of_measure_id, parent_id, depth, is_active, show_online'
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // strip combining accents
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 100)
-}
 
 /**
  * Offline-first product categories. Reads come from local SQLite (synced by the sync
@@ -187,7 +179,7 @@ export class CategoriesService {
         id,
         businessId,
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name),
         input.description?.trim() || null,
         input.color ?? null,
         input.icon ?? null,
@@ -225,7 +217,7 @@ export class CategoriesService {
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name, id),
         input.description?.trim() || null,
         input.color ?? null,
         input.icon ?? null,
@@ -290,6 +282,23 @@ export class CategoriesService {
   }
 
   // ---- internals -----------------------------------------------------------
+
+  /**
+   * The slug the server would give this name (@biztrack/domain uniqueSlug, R12): numbered
+   * from -2 when another category of the business, deleted ones included, already has it.
+   */
+  private uniqueSlugFor(businessId: string, name: string, selfId?: string): string {
+    const base = slugify(name) || 'item'
+    const taken = this.db.query<{ slug: string }>(
+      `SELECT slug FROM product_categories
+        WHERE business_id = ? AND id <> ? AND slug IS NOT NULL AND (slug = ? OR slug LIKE ?)`,
+      [businessId, selfId ?? '', base, `${base}-%`],
+    )
+    return uniqueSlug(
+      name,
+      taken.map((r) => r.slug),
+    )
+  }
 
   private getOne(id: string): LocalCategory | null {
     const row = this.db.get<CategoryRow>(

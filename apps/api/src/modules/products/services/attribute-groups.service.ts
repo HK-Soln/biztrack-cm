@@ -23,6 +23,11 @@ import {
 import { AttributeGroup } from '@/entities/attribute-group.entity'
 import { AttributeOption } from '@/entities/attribute-option.entity'
 import { CategoryAttributeGroup } from '@/entities/category-attribute-group.entity'
+import {
+  decideAttributeGroupRemoval,
+  decideAttributeOptionRemoval,
+  removeAttributeGroup,
+} from '@/modules/products/catalog-usage'
 import type { I18nTranslations } from '@/i18n/i18n.types'
 import { LOGGER } from '@/logger/logger.module'
 import { CategoriesService } from './categories.service'
@@ -161,37 +166,22 @@ export class AttributeGroupsService {
   async removeGroup(id: string, businessId: string): Promise<void> {
     try {
       await this.requireGroup(id, businessId)
-      const linkCount = await this.linksRepo.count({
-        where: { attributeGroupId: id, businessId, deletedAt: IsNull() },
-      })
-      if (linkCount > 0) {
+      const problem = await decideAttributeGroupRemoval(this.groupsRepo.manager, businessId, id)
+      if (problem?.cause === 'CATEGORIES') {
         throw new AppConflictException(
           await this.i18n.translate('errors.attribute_group_in_use'),
-          'ATTRIBUTE_GROUP_IN_USE',
-          { linkCount },
+          problem.code,
         )
       }
-      const [variantUse] = await this.groupsRepo.manager.query(
-        `SELECT 1 FROM product_variant_options pvo
-           JOIN product_variants pv ON pv.id = pvo.variant_id
-           JOIN products p ON p.id = pv.product_id
-         WHERE pvo.attribute_group_id = $1 AND pvo.business_id = $2
-           AND pvo.deleted_at IS NULL AND pv.deleted_at IS NULL AND p.deleted_at IS NULL
-         LIMIT 1`,
-        [id, businessId],
-      )
-      if (variantUse) {
+      if (problem) {
         throw new AppConflictException(
           'This attribute is still used by one or more product variants and cannot be deleted.',
-          'ATTRIBUTE_GROUP_IN_USE',
+          problem.code,
         )
       }
       // Soft-delete the group and its options.
-      const now = new Date()
-      await this.groupsRepo.update(id, { isActive: false, deletedAt: now })
-      await this.optionsRepo.update(
-        { groupId: id, businessId, deletedAt: IsNull() },
-        { isActive: false, deletedAt: now },
+      await this.groupsRepo.manager.transaction((manager) =>
+        removeAttributeGroup(manager, businessId, id, new Date()),
       )
     } catch (error) {
       return this.handleServiceError('removeGroup', error, { id, businessId })
@@ -263,16 +253,7 @@ export class AttributeGroupsService {
   async removeOption(groupId: string, optionId: string, businessId: string): Promise<void> {
     try {
       await this.requireOption(groupId, optionId, businessId)
-      const [inUse] = await this.optionsRepo.manager.query(
-        `SELECT 1 FROM product_variant_options pvo
-           JOIN product_variants pv ON pv.id = pvo.variant_id
-           JOIN products p ON p.id = pv.product_id
-         WHERE pvo.attribute_option_id = $1 AND pvo.business_id = $2
-           AND pvo.deleted_at IS NULL AND pv.deleted_at IS NULL AND p.deleted_at IS NULL
-         LIMIT 1`,
-        [optionId, businessId],
-      )
-      if (inUse) {
+      if (await decideAttributeOptionRemoval(this.optionsRepo.manager, businessId, optionId)) {
         throw new AppConflictException(
           'This option is still used by one or more product variants and cannot be deleted.',
           'ATTRIBUTE_OPTION_IN_USE',

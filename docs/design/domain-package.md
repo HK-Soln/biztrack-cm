@@ -215,6 +215,26 @@ one the server will refuse.
   units cannot be changed or deleted; a business's own unit is never a default one (the sync
   path used to take `isDefault` from the till). A unit is deleted only once no product uses
   it, now on the sync path too.
+- Brands, models and attributes, as built: `checkBrandRemoval`, `checkModelRemoval`,
+  `checkAttributeGroupRemoval` and `checkAttributeOptionRemoval` in `catalog-rules.ts`,
+  loaded on the server by `apps/api/src/modules/products/catalog-usage.ts` for the REST
+  endpoints and the sync path alike. A brand or model is deleted only once no live product
+  uses it; an attribute only once no live variant uses it and no category is linked to it;
+  an option only once no live variant uses it. A brand takes its models and category links
+  with it, an attribute its options. Before, a delete arriving by sync skipped the checks and
+  left the models and options live, and the till's own delete did not cascade.
+- Slugs, as built: `uniqueSlug` in `packages/domain/src/text/slug.ts`, the slug of the name
+  numbered from `-2` when the business already has it (deleted records included), for
+  products, categories and brands on the server (REST and sync) and the till. Before, the
+  server, the sync path and the till each had their own slug function ("Café/Bar" gave
+  `cafebar` on the server and `cafe-bar` on the till), and the till never numbered a
+  clashing slug. The server still sets the slug of a product or category that syncs.
+- Variant SKUs, as built: `normalizeVariantSku` (trimmed, none when blank) on the server's
+  REST and sync paths and the till; unique among the business's live variants, now checked
+  on the sync path too (`VARIANT_DUPLICATE_SKU`). The till used to store the SKU untrimmed
+  and the server's REST path stored a blank one as an empty string.
+- Prices on the product form (R15): a price has to be entered, but zero is accepted; only a
+  negative price is refused. The form used to refuse zero.
 
 ### R13. Stock tracking by product type (2026-10-16)
 

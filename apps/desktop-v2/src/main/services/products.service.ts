@@ -4,7 +4,10 @@ import {
   checkProductPrices,
   checkProductSku,
   normalizeBarcode,
+  normalizeVariantSku,
   productStockFlags,
+  slugify,
+  uniqueSlug,
   validateSerialNumber,
 } from '@biztrack/domain'
 import { randomUUID } from 'crypto'
@@ -167,16 +170,6 @@ const FROM = `products p
    LEFT JOIN product_categories c ON c.id = p.category_id
    LEFT JOIN brands b ON b.id = p.brand_id
    LEFT JOIN unit_of_measures u ON u.id = p.unit_of_measure_id`
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 140)
-}
 
 function productType(input: ProductInput): ProductType {
   if (input.isService) return 'SERVICE'
@@ -490,7 +483,7 @@ export class ProductsService {
         id,
         businessId,
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name),
         input.description?.trim() || null,
         sku,
         barcode,
@@ -569,7 +562,7 @@ export class ProductsService {
        WHERE id = ? AND business_id = ?`,
       [
         input.name.trim(),
-        slugify(input.name),
+        this.uniqueSlugFor(businessId, input.name, id),
         input.description?.trim() || null,
         sku,
         barcode,
@@ -1006,7 +999,7 @@ export class ProductsService {
     this.assertVariantSkusFree(
       businessId,
       variants.map((v) => ({
-        sku: v.sku ?? null,
+        sku: normalizeVariantSku(v.sku),
         keepId: existingBySig.get(variantSignature(v.options.map((o) => o.attributeOptionId)))?.id,
       })),
     )
@@ -1026,7 +1019,7 @@ export class ProductsService {
             v.name,
             v.priceOverride ?? null,
             v.costPriceOverride ?? null,
-            v.sku ?? null,
+            normalizeVariantSku(v.sku),
             v.isActive === false ? 0 : 1,
             index,
             v.lowStockThreshold ?? null,
@@ -1068,7 +1061,7 @@ export class ProductsService {
             v.name,
             v.priceOverride ?? null,
             v.costPriceOverride ?? null,
-            v.sku ?? null,
+            normalizeVariantSku(v.sku),
             v.isActive === false ? 0 : 1,
             index,
             Math.max(v.openingStock ?? 0, 0),
@@ -1110,7 +1103,7 @@ export class ProductsService {
           name: v.name,
           priceOverride: v.priceOverride ?? null,
           costPriceOverride: v.costPriceOverride ?? null,
-          sku: v.sku ?? null,
+          sku: normalizeVariantSku(v.sku),
           isActive: v.isActive !== false,
           sortOrder: index,
           openingStock: prior ? undefined : (v.openingStock ?? 0),
@@ -1175,7 +1168,7 @@ export class ProductsService {
         throw new Error('A variant with this combination already exists.')
       }
     }
-    this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null }])
+    this.assertVariantSkusFree(businessId, [{ sku: normalizeVariantSku(input.sku) }])
     const id = randomUUID()
     const sortOrder = this.listVariants(productId).length
     const stock = product.isSerialized ? 0 : Math.max(input.openingStock ?? 0, 0)
@@ -1189,7 +1182,7 @@ export class ProductsService {
         input.name,
         input.priceOverride ?? null,
         input.costPriceOverride ?? null,
-        input.sku ?? null,
+        normalizeVariantSku(input.sku),
         input.isActive === false ? 0 : 1,
         sortOrder,
         stock,
@@ -1229,7 +1222,7 @@ export class ProductsService {
         name: input.name,
         priceOverride: input.priceOverride ?? null,
         costPriceOverride: input.costPriceOverride ?? null,
-        sku: input.sku ?? null,
+        sku: normalizeVariantSku(input.sku),
         isActive: input.isActive !== false,
         sortOrder,
         openingStock: stock,
@@ -1268,7 +1261,9 @@ export class ProductsService {
     const businessId = this.requireBusinessId()
     const prior = this.listVariants(productId).find((v) => v.id === variantId)
     if (!prior) throw new Error('Variant not found.')
-    this.assertVariantSkusFree(businessId, [{ sku: input.sku ?? null, keepId: variantId }])
+    this.assertVariantSkusFree(businessId, [
+      { sku: normalizeVariantSku(input.sku), keepId: variantId },
+    ])
     const now = new Date().toISOString()
     // Descriptive/SEO fields: an explicit value (incl. null) sets it; undefined keeps the prior.
     const keep = (v: string | null | undefined, p: string | null) =>
@@ -1292,7 +1287,7 @@ export class ProductsService {
         input.name,
         input.priceOverride ?? null,
         input.costPriceOverride ?? null,
-        input.sku ?? null,
+        normalizeVariantSku(input.sku),
         input.isActive === false ? 0 : 1,
         lowStockThreshold,
         reorderPoint,
@@ -1316,7 +1311,7 @@ export class ProductsService {
         name: input.name,
         priceOverride: input.priceOverride ?? null,
         costPriceOverride: input.costPriceOverride ?? null,
-        sku: input.sku ?? null,
+        sku: normalizeVariantSku(input.sku),
         isActive: input.isActive !== false,
         sortOrder: prior.sortOrder,
         lowStockThreshold,
@@ -1346,7 +1341,7 @@ export class ProductsService {
           name: input.name,
           priceOverride: input.priceOverride ?? null,
           costPriceOverride: input.costPriceOverride ?? null,
-          sku: input.sku ?? null,
+          sku: normalizeVariantSku(input.sku),
           isActive: input.isActive !== false,
         },
       },
@@ -2031,6 +2026,23 @@ export class ProductsService {
   }
 
   // ---- internals -----------------------------------------------------------
+
+  /**
+   * The slug the server would give this name (@biztrack/domain uniqueSlug, R12): numbered
+   * from -2 when another product of the business, deleted ones included, already has it.
+   */
+  private uniqueSlugFor(businessId: string, name: string, selfId?: string): string {
+    const base = slugify(name) || 'item'
+    const taken = this.db.query<{ slug: string }>(
+      `SELECT slug FROM products
+        WHERE business_id = ? AND id <> ? AND slug IS NOT NULL AND (slug = ? OR slug LIKE ?)`,
+      [businessId, selfId ?? '', base, `${base}-%`],
+    )
+    return uniqueSlug(
+      name,
+      taken.map((r) => r.slug),
+    )
+  }
 
   private getOne(id: string): LocalProduct | null {
     const row = this.db.get<ProductRow>(`SELECT ${COLS} FROM ${FROM} WHERE p.id = ?`, [id])

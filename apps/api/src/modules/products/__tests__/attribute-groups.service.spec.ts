@@ -22,6 +22,12 @@ const makeService = () => {
     update: jest.fn(),
     count: jest.fn().mockResolvedValue(0),
     createQueryBuilder: jest.fn(() => makeQb(false)),
+    // The removal checks in catalog-usage read through the manager.
+    manager: {
+      query: jest.fn().mockResolvedValue([{ n: 0 }]),
+      getRepository: jest.fn(() => linksRepo),
+      transaction: jest.fn(),
+    },
   }
   const optionsRepo = {
     find: jest.fn().mockResolvedValue([]),

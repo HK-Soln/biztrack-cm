@@ -43,3 +43,12 @@ export function barcodeKind(value: string): BarcodeKind {
   if (/^https?:\/\//.test(value) || /\s/.test(value)) return 'QR'
   return 'CODE128'
 }
+
+/**
+ * A variant's SKU as stored: trimmed, and none when blank. It is unique among the
+ * business's live variants (ruling R12), checked by the caller against what it loads.
+ */
+export function normalizeVariantSku(raw: string | null | undefined): string | null {
+  const sku = (raw ?? '').trim()
+  return sku ? sku : null
+}

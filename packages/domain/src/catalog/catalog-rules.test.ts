@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { ProductType } from '@biztrack/types'
 import {
   categoryAcceptsProducts,
+  checkAttributeGroupRemoval,
+  checkAttributeOptionRemoval,
+  checkBrandRemoval,
+  checkModelRemoval,
   checkCategoryRemoval,
   checkProductPrices,
   checkVariantCount,
@@ -132,5 +136,28 @@ describe('validateSerialNumber', () => {
     expect(validateSerialNumber('SN 001', 'SERIAL_NUMBER')).toBe(false)
     expect(validateSerialNumber('any thing', 'BARCODE')).toBe(true)
     expect(validateSerialNumber('x', 'OTHER')).toBe(false)
+  })
+})
+
+describe('brand, model and attribute removal', () => {
+  it('refuses while products or variants use them', () => {
+    expect(checkBrandRemoval(1)).toBe('BRAND_IN_USE')
+    expect(checkBrandRemoval(0)).toBeNull()
+    expect(checkModelRemoval(3)).toBe('MODEL_IN_USE')
+    expect(checkModelRemoval(0)).toBeNull()
+    expect(checkAttributeOptionRemoval(1)).toBe('ATTRIBUTE_OPTION_IN_USE')
+    expect(checkAttributeOptionRemoval(0)).toBeNull()
+  })
+
+  it('says whether variants or category links hold an attribute', () => {
+    expect(checkAttributeGroupRemoval({ variantUses: 1, categoryLinks: 1 })).toEqual({
+      code: 'ATTRIBUTE_GROUP_IN_USE',
+      cause: 'VARIANTS',
+    })
+    expect(checkAttributeGroupRemoval({ variantUses: 0, categoryLinks: 2 })).toEqual({
+      code: 'ATTRIBUTE_GROUP_IN_USE',
+      cause: 'CATEGORIES',
+    })
+    expect(checkAttributeGroupRemoval({ variantUses: 0, categoryLinks: 0 })).toBeNull()
   })
 })

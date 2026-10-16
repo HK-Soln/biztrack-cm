@@ -33,7 +33,17 @@ function makeService(
     }),
     update: jest.fn(async () => ({ affected: 1 })),
     find: jest.fn(async () => [brand]),
-    createQueryBuilder: jest.fn(),
+    // uniqueSlug reads the slugs already taken: none here.
+    createQueryBuilder: jest.fn(() => {
+      const qb: any = {
+        withDeleted: () => qb,
+        select: () => qb,
+        where: () => qb,
+        andWhere: () => qb,
+        getRawMany: async () => [],
+      }
+      return qb
+    }),
     manager: { query: jest.fn().mockResolvedValue(opts.brandInUse ? [{ n: 1 }] : []) },
   }
   const modelsRepo = {
@@ -55,6 +65,7 @@ function makeService(
     save: jest.fn(async (x: any) => x),
     create: jest.fn((x: any) => x),
     softDelete: jest.fn(async () => ({})),
+    update: jest.fn(async () => ({})),
   }
   const manager = {
     getRepository: jest.fn((e: unknown) => {
@@ -124,7 +135,10 @@ describe('BrandsService', () => {
     const { service, mBrandRepo, mModelRepo, mLinkRepo, auditService } = makeService()
     await service.remove('b1', 'biz-1', ctxArg)
     expect(mModelRepo.update).toHaveBeenCalled()
-    expect(mLinkRepo.softDelete).toHaveBeenCalled()
+    expect(mLinkRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({ brandId: 'b1', businessId: 'biz-1' }),
+      expect.objectContaining({ deletedAt: expect.any(Date) }),
+    )
     expect(mBrandRepo.update).toHaveBeenCalledWith(
       { id: 'b1', businessId: 'biz-1' },
       expect.objectContaining({ isActive: false }),

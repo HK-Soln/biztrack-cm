@@ -71,6 +71,8 @@ import {
   checkUnitEditable,
   checkUnitRemoval,
   decideUnit,
+  normalizeVariantSku,
+  slugify,
 } from '@biztrack/domain'
 import {
   AttributeDisplayType,
@@ -122,6 +124,14 @@ import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductCategory } from '@/entities/product-category.entity'
 import { Product } from '@/entities/product.entity'
+import {
+  decideAttributeGroupRemoval,
+  decideAttributeOptionRemoval,
+  decideBrandRemoval,
+  decideModelRemoval,
+  removeAttributeGroup,
+  removeBrand,
+} from '@/modules/products/catalog-usage'
 import { RestockItem } from '@/entities/restock-item.entity'
 import { RestockRecord } from '@/entities/restock-record.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
@@ -1927,11 +1937,24 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
-        await this.attributeGroupsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
+        // As on the server's own path and the till: only an unused attribute goes, with its
+        // options (R12).
+        const problem = await decideAttributeGroupRemoval(
+          this.dataSource.manager,
+          businessId,
+          existing.id,
+        )
+        if (problem) {
+          throw new AppBadRequestException(
+            problem.cause === 'CATEGORIES'
+              ? 'This attribute is linked to one or more categories and cannot be deleted.'
+              : 'This attribute is still used by one or more product variants and cannot be deleted.',
+            problem.code,
+          )
+        }
+        await this.dataSource.transaction((manager) =>
+          removeAttributeGroup(manager, businessId, existing.id, operation.recordUpdatedAt),
+        )
       }
       return { status: 'applied' }
     }
@@ -1981,6 +2004,12 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        if (await decideAttributeOptionRemoval(this.dataSource.manager, businessId, existing.id)) {
+          throw new AppBadRequestException(
+            'This option is still used by one or more product variants and cannot be deleted.',
+            'ATTRIBUTE_OPTION_IN_USE',
+          )
+        }
         await this.attributeOptionsRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -2106,17 +2135,23 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
-        await this.brandsRepo.update(operation.recordId, {
-          isActive: false,
-          deletedAt: operation.recordUpdatedAt,
-          updatedAt: operation.recordUpdatedAt,
-        })
+        // As on the server's own path: only an unused brand goes, with its models and
+        // category links (R12).
+        if (await decideBrandRemoval(this.dataSource.manager, businessId, existing.id)) {
+          throw new AppBadRequestException(
+            'This brand is still used by one or more products and cannot be deleted.',
+            'BRAND_IN_USE',
+          )
+        }
+        await this.dataSource.transaction((manager) =>
+          removeBrand(manager, businessId, existing.id, operation.recordUpdatedAt),
+        )
       }
       return { status: 'applied' }
     }
 
     const payload = this.readBrandPayload(operation.payload)
-    const slug = payload.slug?.trim() || this.slugify(payload.name!)
+    const slug = payload.slug?.trim() || slugify(payload.name!, 140)
 
     if (existing) {
       await this.brandsRepo.update(operation.recordId, {
@@ -2164,6 +2199,12 @@ export class SyncService {
 
     if (operation.action === 'DELETE' || Boolean(operation.payload?.isDeleted)) {
       if (existing) {
+        if (await decideModelRemoval(this.dataSource.manager, businessId, existing.id)) {
+          throw new AppBadRequestException(
+            'This model is still used by one or more products and cannot be deleted.',
+            'MODEL_IN_USE',
+          )
+        }
         await this.modelsRepo.update(operation.recordId, {
           isActive: false,
           deletedAt: operation.recordUpdatedAt,
@@ -2446,7 +2487,7 @@ export class SyncService {
       displayNameOverride: this.normalizeOptionalString(payload.displayNameOverride),
       priceOverride: payload.priceOverride ?? null,
       costPriceOverride: payload.costPriceOverride ?? null,
-      sku: this.normalizeOptionalString(payload.sku),
+      sku: normalizeVariantSku(payload.sku),
       barcode: this.normalizeOptionalString(payload.barcode),
       isActive: payload.isActive ?? existing?.isActive ?? true,
       sortOrder: payload.sortOrder ?? existing?.sortOrder ?? 0,
@@ -2455,6 +2496,20 @@ export class SyncService {
       metaDescription: this.normalizeOptionalString(payload.metaDescription),
       onlineDescription: this.normalizeOptionalString(payload.onlineDescription),
       isPublishedOnline: payload.isPublishedOnline ?? existing?.isPublishedOnline ?? false,
+    }
+
+    // A variant SKU is unique among the business's live variants, as on the server's own
+    // path and the till (R12).
+    if (fields.sku) {
+      const holder = await this.productVariantsRepo.findOne({
+        where: { businessId, sku: fields.sku, deletedAt: IsNull() },
+      })
+      if (holder && holder.id !== operation.recordId) {
+        throw new AppBadRequestException(
+          `The code "${fields.sku}" is already used by another variant.`,
+          'VARIANT_DUPLICATE_SKU',
+        )
+      }
     }
 
     if (existing) {
@@ -5550,18 +5605,6 @@ export class SyncService {
       )
     }
     return payload as ProductSerialUnitPayload
-  }
-
-  /** Fallback slug from a name (the client normally sends its own). */
-  private slugify(value: string): string {
-    return value
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 140)
   }
 
   /** Coerce a synced display type to a valid enum value (defends the DB CHECK constraint). */

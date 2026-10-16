@@ -74,4 +74,37 @@ describe('product SKU on the till', () => {
       } as never),
     ).toThrow('already uses this barcode')
   })
+
+  // Ruling R12: the slug is the one the server gives (@biztrack/domain uniqueSlug).
+  it('makes the slug the server would: punctuation dropped, numbered when taken', () => {
+    const slug = (id: string) =>
+      db.get<{ slug: string }>(`SELECT slug FROM products WHERE id = ?`, [id])!.slug
+    const first = create(undefined, 'Café/Bar')
+    const second = create(undefined, 'cafébar')
+    expect(slug(first.id)).toBe('cafebar')
+    expect(slug(second.id)).toBe('cafebar-2')
+    products.update(first.id, {
+      name: 'Café/Bar',
+      sellingPrice: 1000,
+      unitOfMeasureId: 'u1',
+    } as never)
+    expect(slug(first.id)).toBe('cafebar')
+  })
+
+  it('stores a variant SKU trimmed, a blank one as none, and refuses a taken one', () => {
+    const shirt = create(undefined, 'Shirt')
+    const red = products.addVariant(shirt.id, {
+      name: 'Red',
+      sku: ' TS-RED ',
+      options: [],
+    } as never)
+    const blue = products.addVariant(shirt.id, { name: 'Blue', sku: '  ', options: [] } as never)
+    const skuOf = (id: string) =>
+      db.get<{ sku: string | null }>(`SELECT sku FROM product_variants WHERE id = ?`, [id])!.sku
+    expect(skuOf(red.id)).toBe('TS-RED')
+    expect(skuOf(blue.id)).toBeNull()
+    expect(() =>
+      products.addVariant(shirt.id, { name: 'Green', sku: 'TS-RED', options: [] } as never),
+    ).toThrow('already used by another variant')
+  })
 })

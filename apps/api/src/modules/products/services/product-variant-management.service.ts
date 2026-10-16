@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { normalizeVariantSku } from '@biztrack/domain'
 import { removeVariant } from '../catalog-removal'
 import { InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
@@ -118,7 +119,7 @@ export class ProductVariantManagementService {
         }
       }
 
-      await this.assertSkuUnique(businessId, dto.sku?.trim() || null, null)
+      await this.assertSkuUnique(businessId, normalizeVariantSku(dto.sku), null)
 
       let name = dto.name?.trim()
       if (!name && hasOptions) {
@@ -142,7 +143,7 @@ export class ProductVariantManagementService {
             displayNameOverride: dto.name?.trim() ?? null,
             priceOverride: dto.priceOverride ?? null,
             costPriceOverride: dto.costPriceOverride ?? null,
-            sku: dto.sku?.trim() ?? null,
+            sku: normalizeVariantSku(dto.sku),
             isActive: dto.isActive ?? true,
             sortOrder: existing.length,
             description: dto.description?.trim() ?? null,
@@ -220,7 +221,7 @@ export class ProductVariantManagementService {
       const variant = await this.requireVariant(productId, variantId, businessId)
 
       if (dto.sku !== undefined) {
-        await this.assertSkuUnique(businessId, dto.sku?.trim() || null, variantId)
+        await this.assertSkuUnique(businessId, normalizeVariantSku(dto.sku), variantId)
       }
 
       const before = {
@@ -242,7 +243,7 @@ export class ProductVariantManagementService {
             dto.costPriceOverride === undefined
               ? variant.costPriceOverride
               : (dto.costPriceOverride ?? null),
-          sku: dto.sku === undefined ? variant.sku : (dto.sku?.trim() ?? null),
+          sku: dto.sku === undefined ? variant.sku : normalizeVariantSku(dto.sku),
           isActive: dto.isActive ?? variant.isActive,
           description:
             dto.description === undefined ? variant.description : (dto.description?.trim() ?? null),

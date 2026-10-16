@@ -16,3 +16,23 @@ export function slugify(text: string, maxLength = 200): string {
     .replace(/^-|-$/g, '')
     .slice(0, maxLength)
 }
+
+/**
+ * A slug for `name` that is not among `taken`: the plain slug, or the first of `-2`, `-3`,
+ * ... that is free. `taken` holds every slug already used in the business, deleted records
+ * included, since the unique index counts them. An empty slug becomes `fallback`.
+ */
+export function uniqueSlug(
+  name: string,
+  taken: Iterable<string>,
+  fallback = 'item',
+  maxLength = 200,
+): string {
+  const base = slugify(name, maxLength) || fallback
+  const used = new Set(taken)
+  if (!used.has(base)) return base
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`
+    if (!used.has(candidate)) return candidate
+  }
+}

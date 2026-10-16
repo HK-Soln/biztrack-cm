@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { barcodeKind, buildProductSku, normalizeBarcode, productSkuPrefix } from './product-codes'
+import {
+  barcodeKind,
+  buildProductSku,
+  normalizeBarcode,
+  normalizeVariantSku,
+  productSkuPrefix,
+} from './product-codes'
 
 describe('product SKU generation', () => {
   it('takes three letters from the category, GEN without one', () => {
@@ -30,5 +36,13 @@ describe('barcodes', () => {
     expect(barcodeKind('036000291452')).toBe('UPCA')
     expect(barcodeKind('https://x.test/p')).toBe('QR')
     expect(barcodeKind('SHELF-12')).toBe('CODE128')
+  })
+})
+
+describe('normalizeVariantSku', () => {
+  it('trims, and stores none for a blank SKU', () => {
+    expect(normalizeVariantSku(' TS-RED-M ')).toBe('TS-RED-M')
+    expect(normalizeVariantSku('   ')).toBeNull()
+    expect(normalizeVariantSku(undefined)).toBeNull()
   })
 })

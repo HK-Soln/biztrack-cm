@@ -139,3 +139,34 @@ export function validateSerialNumber(serial: string, type: SerialType | string):
       return false
   }
 }
+
+/**
+ * A brand is deleted only once no product uses it; its models and its category links go
+ * with it.
+ */
+export function checkBrandRemoval(productCount: number): 'BRAND_IN_USE' | null {
+  return productCount > 0 ? 'BRAND_IN_USE' : null
+}
+
+/** A model is deleted only once no product uses it. */
+export function checkModelRemoval(productCount: number): 'MODEL_IN_USE' | null {
+  return productCount > 0 ? 'MODEL_IN_USE' : null
+}
+
+/**
+ * An attribute (group) is deleted only once no live product variant uses it and no category
+ * is linked to it; its options go with it. `cause` says which one holds it.
+ */
+export function checkAttributeGroupRemoval(input: {
+  variantUses: number
+  categoryLinks: number
+}): { code: 'ATTRIBUTE_GROUP_IN_USE'; cause: 'VARIANTS' | 'CATEGORIES' } | null {
+  if (input.variantUses > 0) return { code: 'ATTRIBUTE_GROUP_IN_USE', cause: 'VARIANTS' }
+  if (input.categoryLinks > 0) return { code: 'ATTRIBUTE_GROUP_IN_USE', cause: 'CATEGORIES' }
+  return null
+}
+
+/** An attribute option is deleted only once no live product variant uses it. */
+export function checkAttributeOptionRemoval(variantUses: number): 'ATTRIBUTE_OPTION_IN_USE' | null {
+  return variantUses > 0 ? 'ATTRIBUTE_OPTION_IN_USE' : null
+}
