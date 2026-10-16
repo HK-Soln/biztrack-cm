@@ -129,7 +129,7 @@ export class ProductsService {
         : await this.skuService.generate(businessId, category?.slug)
       const barcode = dto.barcode
         ? await this.barcodeService.validateAndNormalize(businessId, dto.barcode)
-        : this.barcodeService.generateFromSKU(sku)
+        : this.barcodeService.none()
 
       // productType is authoritative; isService/trackInventory are derived from it.
       // Legacy clients that send only isService get a best-effort classification.

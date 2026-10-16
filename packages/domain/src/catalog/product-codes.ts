@@ -43,22 +43,3 @@ export function barcodeKind(value: string): BarcodeKind {
   if (/^https?:\/\//.test(value) || /\s/.test(value)) return 'QR'
   return 'CODE128'
 }
-
-function ean13CheckDigit(twelveDigits: string): number {
-  let sum = 0
-  for (let index = 0; index < 12; index += 1) {
-    sum += Number.parseInt(twelveDigits[index] ?? '0', 10) * (index % 2 === 0 ? 1 : 3)
-  }
-  return (10 - (sum % 10)) % 10
-}
-
-/** An internal barcode for a product with none: 200, nine digits from the SKU, a check digit. */
-export function internalBarcodeFromSku(sku: string): string {
-  let hash = 0
-  for (let index = 0; index < sku.length; index += 1) {
-    hash = (hash << 5) - hash + sku.charCodeAt(index)
-    hash |= 0
-  }
-  const base = `200${(Math.abs(hash) % 1_000_000_000).toString().padStart(9, '0')}`
-  return `${base}${ean13CheckDigit(base)}`
-}

@@ -243,6 +243,8 @@ the sync. Zero is allowed.
 - A product created on the till gets its SKU on the till, by the same rule the server uses.
 - A barcode is optional. When given it is any non-empty text, unique in the business; it
   does not have to follow a barcode standard or carry a check digit.
+- No barcode is made up: a product created without one, on the server or the till, has
+  none (owner, 2026-10-16). Barcodes the server generated earlier are kept.
 
 ### R18. Deletions arriving by sync (2026-10-16)
 

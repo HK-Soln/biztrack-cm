@@ -1,4 +1,4 @@
-import { barcodeKind, internalBarcodeFromSku, normalizeBarcode } from '@biztrack/domain'
+import { barcodeKind, normalizeBarcode } from '@biztrack/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { Not } from 'typeorm'
 import type { Logger } from '@biztrack/logger'
@@ -27,12 +27,9 @@ export class BarcodeService {
     this.logger.setContext('BarcodeService')
   }
 
-  generateFromSKU(sku: string) {
-    return {
-      value: internalBarcodeFromSku(sku),
-      type: BarcodeType.INTERNAL,
-      isGenerated: true,
-    }
+  /** A product given no barcode keeps none: barcodes are optional and never made up (R17). */
+  none(): { value: string | null; type: BarcodeType | null; isGenerated: boolean } {
+    return { value: null, type: null, isGenerated: false }
   }
 
   detectType(value: string): BarcodeType {

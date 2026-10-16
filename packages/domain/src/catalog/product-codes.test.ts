@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  barcodeKind,
-  buildProductSku,
-  internalBarcodeFromSku,
-  normalizeBarcode,
-  productSkuPrefix,
-} from './product-codes'
+import { barcodeKind, buildProductSku, normalizeBarcode, productSkuPrefix } from './product-codes'
 
 describe('product SKU generation', () => {
   it('takes three letters from the category, GEN without one', () => {
@@ -36,11 +30,5 @@ describe('barcodes', () => {
     expect(barcodeKind('036000291452')).toBe('UPCA')
     expect(barcodeKind('https://x.test/p')).toBe('QR')
     expect(barcodeKind('SHELF-12')).toBe('CODE128')
-  })
-
-  it('makes an internal 13-digit code from a SKU, the same every time', () => {
-    const code = internalBarcodeFromSku('SOF-K3Z9QX-AB7C')
-    expect(code).toMatch(/^200\d{10}$/)
-    expect(internalBarcodeFromSku('SOF-K3Z9QX-AB7C')).toBe(code)
   })
 })

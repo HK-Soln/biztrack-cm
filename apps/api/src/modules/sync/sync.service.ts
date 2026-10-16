@@ -3347,7 +3347,7 @@ export class SyncService {
       existing?.id,
       existing?.sku ?? null,
     )
-    const barcode = await this.resolveProductBarcode(businessId, payload, existing, sku)
+    const barcode = await this.resolveProductBarcode(businessId, payload, existing)
     // productType is authoritative; isService/trackInventory are derived from it.
     // Fall back to the payload's/existing productType, then to a classification
     // inferred from the legacy isService flag (older clients send no productType).
@@ -4177,7 +4177,6 @@ export class SyncService {
     businessId: string,
     payload: ProductSyncPayload,
     existing: Product | null,
-    sku: string,
   ) {
     if (payload.barcode) {
       return this.barcodeService.validateAndNormalize(businessId, payload.barcode, existing?.id)
@@ -4191,7 +4190,7 @@ export class SyncService {
       }
     }
 
-    return this.barcodeService.generateFromSKU(sku)
+    return this.barcodeService.none()
   }
 
   private async findBusiness(businessId: string) {
