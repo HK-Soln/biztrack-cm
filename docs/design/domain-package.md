@@ -57,22 +57,163 @@ packages/domain/src
 
 ## Roadmap and status
 
-| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                                                                                                             |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                                                                                                               |
-| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                                                                                                               |
-| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                               |
-| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1 to R7; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: `decideSale` / `decideVoid` use cases |
-| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                    |
-| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | Done: `debtStanding` replaces the seven copies of debt status; the SQLite debt triggers are dropped and the till decides debts in code with the same domain rules as the server (R9 to R11)                                        |
-| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            | Done: R12 to R18 and R20 (see "R12. A catalog record that breaks a rule" and the rulings after it)                                                                                                                                 |
-| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               | Done, see "Slice 8 as built". The stock report rounding moves to slice 5                                                                                                                                                           |
+| #   | Slice                                                                                                                                                                                                                                                             | Status                                                                                                                                                                                                                                                              |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Scaffold the package, purity guard rails, move the rules already shared in `packages/utils`, repoint API and desktop imports                                                                                                                                      | Done                                                                                                                                                                                                                                                                |
+| 2   | Sale pricing: `priceSale` (OVERRIDE model, cart-discount allocation, totals) used by API `computeSale` (REST and sync) and desktop `createSale`                                                                                                                   | Done                                                                                                                                                                                                                                                                |
+| 3   | Sale settlement: `settleSale`, `storedPaymentMethod`, `checkSaleCredit`, `settleSaleFromLedger`, `decideSaleRefund`; used by create, record-payment and refund on REST, sync create and desktop                                                                   | Done                                                                                                                                                                                                                                                                |
+| 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1 to R7; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: `decideSale` / `decideVoid` use cases; the open items move to slice 12 |
+| 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    | Folded into slice 9 (audit of 2026-10-16)                                                                                                                                                                                                                           |
+| 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | Done: `debtStanding` replaces the seven copies of debt status; the SQLite debt triggers are dropped and the till decides debts in code with the same domain rules as the server (R9 to R11)                                                                         |
+| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            | Done: R12 to R18 and R20 (see "R12. A catalog record that breaks a rule" and the rulings after it)                                                                                                                                                                  |
+| 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               | Done, see "Slice 8 as built". The stock report rounding moves to slice 5                                                                                                                                                                                            |
 
 Out of scope (owner, 2026-10-11): anything built for mobile. The mobile app will be written
 from scratch in its own phase. This initiative makes the API, sync and the desktop run the
 same domain functions, and keeps those functions usable by mobile exactly as the others use
 them: pure, no SQLite, Electron or NestJS inside. The `DatabaseService` interface that was
 slice 9 moves to the mobile phase.
+
+## Audit of 2026-10-16: rules still decided outside the domain
+
+The owner asked whether every entry point now only loads, calls the domain and saves. A
+sweep of the API services, the sync path (server applier and the till's pull applier), the
+till's main process and its screens found about 120 places that still decide a business
+rule themselves. Slices 1 to 8 moved the rules they named; these are the rest. Several are
+already divergences, marked **(drift)**. The slices below replace the old slice 5 and the
+slice-4 leftovers; each ends with no copy of its rules outside `packages/domain`.
+
+### 9. Stock (was slice 5)
+
+- Stock arithmetic for ADD / REMOVE / SET adjustments and its validation (no negative
+  stock, quantity > 0, reason length): API `inventory.service.ts` calculateAdjustedQuantity
+  and validateAdjustment, the sync replay (`applyInventoryOperation`, which also skips the
+  validation and turns a negative result into a conflict), the till `inventory.service.ts`
+  adjust, and the adjust-stock dialog. **(drift)**
+- Stock deltas for a sale, a void, a refund, a restock and a serial unit: API
+  `inventory.service.ts`, the till `sales.service.ts` and `inventory.service.ts`, the sync
+  serial applier.
+- Which movement a change is ("the first positive change is OPENING_STOCK, later ones are
+  MANUAL_ADJUSTMENT"): four copies (sync, REST variants, REST serial units, till
+  `stock-ledger.ts`).
+- Whether a new product or variant gets an inventory level and opening stock: the server's
+  create skips serialized products, the sync path does not **(drift: a serialized product
+  made on a till gets a stock level)**; a variant's opening stock is clamped on sync only.
+  Turning stock tracking off on sync deletes the level with no movement.
+- Effective stock (serial count, sum of variants, own level) and the variant average price
+  and cost: SQL fragments in API `common/stats/stock-stats.ts`, `products.service.ts`
+  (which trusts the `hasVariants` flag the fragment says not to trust), online sellable
+  stock (two copies), the till `stock-ledger.ts`.
+- Low-stock and out-of-stock: three different definitions in API `inventory.service.ts`,
+  others in the till inventory and products services and the cloud screens; `stockStatus`
+  exists and is unused there. Reorder suggestions.
+- Serial units: duplicate-in-stock check (the server counts IN_STOCK and RESERVED, the till
+  IN_STOCK only, sync none) **(drift)**, which status changes are allowed, retire and edit
+  only when in stock, the till's edit skipping the serial format check.
+- Removal plans for a product and a variant (serials written off, variants, options,
+  images, stock zeroed) on the till, as the server's `catalog-removal.ts` does; a variant
+  removal never checks `checkVariantCount`.
+- Variant combination uniqueness (`variantSignature`), on the server and the till.
+- Stock reports: turnover, dead stock (60 days), annualising, supplier price buckets
+  (90/180 days), kept "verbatim in sync" between the API and the till; they count
+  COMPLETED sales only. Warranty expiry; the inventory bin summary.
+- Stock report rounding (from slice 8).
+
+### 10. Debts and contacts
+
+- Outstanding = original − paid, recomputed in about seven API places and on the till,
+  instead of `debtStanding`; a written-off debt shown as owing nothing done inline.
+- Ageing buckets (7 / 15 / 30 days) and past due, on the API and the till; the contacts
+  list uses different buckets (30 / 60). The debt summary (open, partly paid, settled this
+  month), the account statement's running balance, the net position, a contact's balance
+  summary.
+- Paying a debt: a sale payment caps silently at what is owed while a direct payment is
+  refused; on sync, `totalPaid` is summed with no `checkDebtPayment` (an overpayment is
+  accepted) and `settledAt` is decided inline although `debtSettledAt` exists.
+- A contact with open debts cannot be archived (API, till, sync); "open debt" is SQL in
+  each.
+- Opening balances by sync: no mirrored debt and no removal of it **(drift)**; the amount
+  check is inline; the till does not round the amount.
+- Contact sync: the name and email checks and the phone check are inline; an invalid phone
+  is kept as typed, where the server's path refuses it **(drift)**.
+- A payment on a contact balance is spread oldest first inline (payment links).
+
+### 11. Cash
+
+- Expected cash: the X/Z report and the daily close count cash on COMPLETED sales with no
+  refunds, while the close itself (`expectedCash`) counts refunded sales and takes refunds
+  off; on the server and the till alike **(drift: the report and the stored close
+  disagree)**. Expected mobile money at close has the same gap.
+- A cash session or a cash movement arriving by sync is stored with the expected cash,
+  variance, credit, discount and sale count the till sent; the server never recomputes
+  them (needs a ruling, below).
+- Variance history (out of tolerance, mean, worst shift), the reconciliation tolerance,
+  the daily window in UTC instead of the trading day.
+- The cash-session state machine, movement direction and lock rule live in
+  `@biztrack/types`, not the domain.
+
+### 12. Sales leftovers (with slice 4's `decideSale` and `decideVoid`)
+
+- The daily summary: a sale's contribution (revenue, cost, discounts, money by method) is
+  computed inline, keyed by the UTC sale date; a refund's impact lands on the UTC day; a
+  void clamps at zero where a refund does not.
+- Refund payments bucketed by the UTC day in the API and the till reports, while returns
+  use the trading day.
+- The cashier shift summary counts COMPLETED sales only and mixes payment and refund rows.
+- Receipt numbers use the UTC date.
+- Recording a payment on a sale: no cap at what is owed, allowed on a refunded sale.
+- On the till's sell screen: the PERCENT / FIXED charge and discount amounts, the deposit
+  applied, the change and the walk-in credit rule are computed in the screen; the price
+  override sheet works out its own discount; the refund preview in the sale drawer does
+  not follow `decideSaleRefund`.
+- Void reason length, "a voided sale cannot be refunded", the refund going back by the
+  sale's method; the variant cost fallback written twice.
+
+### 13. Permissions, limits and plans
+
+- The till's main process never checks the role for a void, a refund, a stock adjustment
+  or a delete; only the screen hides the button **(security)**. Owner-only screens are
+  gated in the renderer only.
+- Quotas (what counts, used + n > limit), trials, team and role rules (who can remove whom,
+  role escalation), the PIN-needs-a-card rule, the PIN authorizer rule and lockout.
+
+### 14. Procurement, savings, expenses, income, fiscal, online
+
+- Purchase orders: status after a receipt, cancel only before receipt, DRAFT → SENT, on
+  the API and the till; on sync the device's total, prices, received quantities and status
+  are stored unchecked although `priceOrderLines` and `checkPurchaseOrder` exist.
+- RFQ and supplier-quote status changes (API and till).
+- Savings: by sync the device's balance and totals are stored as sent (the domain has
+  `savingsDeposit`, `savingsPurchase`, `savingsRunningBalances`); the close outcome; one
+  open deposit per customer; the till's first deposit sets the balance directly.
+- Expenses: PENDING has no method, PAID defaults to cash, and marking a cash expense paid
+  later records no drawer movement on the till; the future-date check uses UTC.
+- Income: only manual income is editable. Fiscal periods: close and lock rules, late
+  arrivals, and a period snapshot counting COMPLETED sales only. A period status sent by a
+  till is accepted as is, including reopening a closed period.
+- Online orders: cart subtotal, minimum order, deposit, charges, paid status (twice),
+  payment-link status (three places).
+
+### 15. Reports and screens
+
+- The owner and accountant home screens show "operating" or "net" as revenue − spending,
+  without the cost of goods, unlike the income statement **(drift)**; margins worked out
+  in the screens; sales by category rolled up in the screen; online-order totals.
+- Sale statuses: several queries count COMPLETED only instead of `PROFIT_SALE_STATUSES`
+  (cash, shift, turnover, velocity, fiscal snapshot).
+- The trading day: refunds, the cash day, savings months and expense dates use UTC or the
+  machine's time instead of `computeBusinessDate`.
+- Rules held in `@biztrack/types` or `@biztrack/validators` (delivery fee, checkout
+  payment, online-order and cash-session transitions, publishability, a second
+  `validateSerialNumber`) move into the domain.
+
+### Questions for the owner
+
+- A cash session, a savings account or a purchase order arriving from a till: should the
+  server recompute its figures from the sales and movements it holds and flag a difference
+  (as R1 does for refunds), or keep the till's figures?
+- A product made on a till with opening stock but serialized: keep the server's rule (no
+  stock level; stock comes from serial units)?
 
 ## Divergences found
 
