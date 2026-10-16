@@ -12,9 +12,16 @@ import {
   discountNeedsAuthorization,
   hasPriceDrift,
   isBelowCost,
+  netCashierRoster,
+  netDailySales,
   netSalesByProduct,
+  netSalesSummary,
   priceSale,
   refundProfitImpact,
+  refundsReport,
+  returnsByCashier,
+  returnTotals,
+  returnTotalsBy,
   returnDebtReduction,
   reviewSerialAlreadySold,
   reviewStockAfterSyncedSale,
@@ -57,7 +64,11 @@ import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm'
 import { AppException } from '@/common/exceptions/app.exception'
 import { ReviewFlagsService } from '@/modules/review-flags/review-flags.service'
 import { loadSyncedDiscountContext } from './sales-discount-review.query'
-import { loadNetSalesProfit, loadSaleRefundImpact } from './sales-profit.query'
+import {
+  loadNetSalesProfit,
+  loadPeriodReturnLines,
+  loadSaleRefundImpact,
+} from './sales-profit.query'
 import {
   AppBadRequestException,
   AppForbiddenException,
@@ -1177,15 +1188,17 @@ export class SalesService {
       }
       const where = conds.join(' AND ')
       const mgr = this.salesRepo.manager
+      // Net of the period's returns (ruling R19); voids and returns are the "refunds".
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
       const [tot] = (await mgr.query(
         `SELECT COALESCE(SUM(s.total_amount), 0) AS revenue, COUNT(*)::int AS txns
-         FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+         FROM sales s WHERE ${where} AND s.status IN (${statuses})`,
         params,
       )) as Array<{ revenue: string; txns: number }>
       const [units] = (await mgr.query(
         `SELECT COALESCE(SUM(si.quantity), 0) AS units
          FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED' AND si.deleted_at IS NULL`,
+         WHERE ${where} AND s.status IN (${statuses}) AND si.deleted_at IS NULL`,
         params,
       )) as Array<{ units: string }>
       const [ref] = (await mgr.query(
@@ -1198,16 +1211,16 @@ export class SalesService {
       ])) as Array<{
         currency: string | null
       }>
+      const returned = await loadPeriodReturnLines(mgr, businessId, query)
 
-      const revenue = toWholeXaf(Number(tot?.revenue ?? 0))
-      const transactions = Number(tot?.txns ?? 0)
       return {
-        revenue,
-        transactions,
-        averageBasket: transactions > 0 ? toWholeXaf(revenue / transactions) : 0,
-        itemsSold: Number(units?.units ?? 0),
-        refundCount: Number(ref?.n ?? 0),
-        refundAmount: toWholeXaf(Number(ref?.amt ?? 0)),
+        ...netSalesSummary({
+          soldRevenue: Number(tot?.revenue ?? 0),
+          transactions: Number(tot?.txns ?? 0),
+          soldUnits: Number(units?.units ?? 0),
+          returns: returnTotals(returned),
+          voids: { count: Number(ref?.n ?? 0), amount: Number(ref?.amt ?? 0) },
+        }),
         currency: biz?.currency ?? 'XAF',
       }
     } catch (error) {
@@ -1241,14 +1254,16 @@ export class SalesService {
         conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
+      const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
+      // Refund payments are left out here and taken off the day they were paid (ruling R19).
       const rows = (await this.salesRepo.manager.query(
-        `SELECT d.bday AS date, d.txns, d.total, d.credit,
+        `SELECT d.bday::text AS date, d.txns, d.total, d.credit,
                 COALESCE(p.cash, 0) AS cash, COALESCE(p.momo, 0) AS momo, COALESCE(p.card, 0) AS card
          FROM (
            SELECT ${day} AS bday, COUNT(*)::int AS txns,
                   COALESCE(SUM(s.total_amount), 0) AS total,
                   COALESCE(SUM(s.credit_amount), 0) AS credit
-           FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+           FROM sales s WHERE ${where} AND s.status IN (${statuses})
            GROUP BY ${day}
          ) d
          LEFT JOIN (
@@ -1257,13 +1272,13 @@ export class SalesService {
                   SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
                   SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
            FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-           WHERE ${where} AND s.status = 'COMPLETED'
+           WHERE ${where} AND s.status IN (${statuses}) AND sp.kind <> 'REFUND'
            GROUP BY ${day}
          ) p ON p.bday = d.bday
          ORDER BY d.bday ASC`,
         params,
       )) as Array<{
-        date: string | Date
+        date: string
         txns: number
         total: string
         credit: string
@@ -1271,18 +1286,49 @@ export class SalesService {
         momo: string
         card: string
       }>
-      return rows.map((r) => ({
-        date:
-          typeof r.date === 'string'
-            ? r.date.slice(0, 10)
-            : new Date(r.date).toISOString().slice(0, 10),
-        transactions: Number(r.txns ?? 0),
-        total: toWholeXaf(Number(r.total ?? 0)),
-        cash: toWholeXaf(Number(r.cash ?? 0)),
-        momo: toWholeXaf(Number(r.momo ?? 0)),
-        card: toWholeXaf(Number(r.card ?? 0)),
-        credit: toWholeXaf(Number(r.credit ?? 0)),
-      }))
+
+      const refundDay = `(COALESCE(sp.recorded_at, sp.created_at) AT TIME ZONE 'UTC')::date`
+      const refundParams: unknown[] = [businessId]
+      const refundConds: string[] = []
+      if (query.dateFrom) {
+        refundParams.push(query.dateFrom)
+        refundConds.push(`${refundDay} >= $${refundParams.length}`)
+      }
+      if (query.dateTo) {
+        refundParams.push(query.dateTo)
+        refundConds.push(`${refundDay} <= $${refundParams.length}`)
+      }
+      const refundPayments = (await this.salesRepo.manager.query(
+        `SELECT (${refundDay})::text AS date,
+                SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
+                SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
+                SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+         WHERE s.business_id = $1 AND s.deleted_at IS NULL AND s.status <> 'VOIDED'
+           AND sp.kind = 'REFUND'${refundConds.length ? ` AND ${refundConds.join(' AND ')}` : ''}
+         GROUP BY ${refundDay}`,
+        refundParams,
+      )) as Array<{ date: string; cash: string; momo: string; card: string }>
+      const returned = await loadPeriodReturnLines(this.salesRepo.manager, businessId, query)
+
+      return netDailySales({
+        sold: rows.map((r) => ({
+          date: String(r.date).slice(0, 10),
+          transactions: Number(r.txns ?? 0),
+          total: Number(r.total ?? 0),
+          cash: Number(r.cash ?? 0),
+          momo: Number(r.momo ?? 0),
+          card: Number(r.card ?? 0),
+          credit: Number(r.credit ?? 0),
+        })),
+        returns: returnTotalsBy(returned, (line) => line.day),
+        refundPayments: refundPayments.map((r) => ({
+          date: String(r.date).slice(0, 10),
+          cash: Number(r.cash ?? 0),
+          momo: Number(r.momo ?? 0),
+          card: Number(r.card ?? 0),
+        })),
+      })
     } catch (error) {
       return this.handleServiceError('getDailySeries', error, { businessId })
     }
@@ -1312,17 +1358,19 @@ export class SalesService {
         conds.push(`${day} <= $${params.length}`)
       }
       const where = conds.join(' AND ')
+      // Sold = the profit statuses; returns come off the selling cashier on the day of the
+      // return (ruling R19). Discounts count as given, whatever was returned later.
+      const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
       const rows = (await this.salesRepo.manager.query(
         `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
-                COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN ${day} END)::int AS shifts,
-                COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END)::int AS transactions,
-                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
+                COUNT(DISTINCT CASE WHEN ${sold} THEN ${day} END)::int AS shifts,
+                COUNT(CASE WHEN ${sold} THEN 1 END)::int AS transactions,
+                COALESCE(SUM(CASE WHEN ${sold} THEN s.total_amount ELSE 0 END), 0) AS sales,
                 COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
-                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.discount_amount ELSE 0 END), 0) AS discounts
+                COALESCE(SUM(CASE WHEN ${sold} THEN s.discount_amount ELSE 0 END), 0) AS discounts
          FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
          WHERE ${where}
-         GROUP BY s.cashier_id, u.name
-         ORDER BY sales DESC`,
+         GROUP BY s.cashier_id, u.name`,
         params,
       )) as Array<{
         cashierId: string
@@ -1333,15 +1381,19 @@ export class SalesService {
         refunds: string
         discounts: string
       }>
-      return rows.map((r) => ({
-        cashierId: r.cashierId,
-        name: r.name || '—',
-        shifts: Number(r.shifts ?? 0),
-        transactions: Number(r.transactions ?? 0),
-        sales: toWholeXaf(Number(r.sales ?? 0)),
-        refunds: toWholeXaf(Number(r.refunds ?? 0)),
-        discounts: toWholeXaf(Number(r.discounts ?? 0)),
-      }))
+      const returned = await loadPeriodReturnLines(this.salesRepo.manager, businessId, query)
+      return netCashierRoster(
+        rows.map((r) => ({
+          cashierId: r.cashierId,
+          name: r.name || '—',
+          shifts: Number(r.shifts ?? 0),
+          transactions: Number(r.transactions ?? 0),
+          sales: Number(r.sales ?? 0),
+          refunds: Number(r.refunds ?? 0),
+          discounts: Number(r.discounts ?? 0),
+        })),
+        returnsByCashier(returned),
+      )
     } catch (error) {
       return this.handleServiceError('getCashierRoster', error, { businessId })
     }
@@ -1530,41 +1582,44 @@ export class SalesService {
     try {
       const { where, params } = this.rangeWhere(query)
       params[0] = businessId
+      // Voids and the period's returns together (ruling R19).
+      const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
       const byReason = (await this.salesRepo.manager.query(
         `SELECT s.void_reason AS reason, COUNT(*)::int AS count, COALESCE(SUM(s.total_amount), 0) AS amount
          FROM sales s WHERE ${where} AND s.status = 'VOIDED'
-         GROUP BY s.void_reason ORDER BY amount DESC`,
+         GROUP BY s.void_reason`,
         params,
       )) as Array<{ reason: string | null; count: number; amount: string }>
       const byCashier = (await this.salesRepo.manager.query(
         `SELECT s.cashier_id AS "cashierId", COALESCE(u.name, '') AS name,
                 COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
-                COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales
+                COALESCE(SUM(CASE WHEN ${sold} THEN s.total_amount ELSE 0 END), 0) AS sales
          FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
-         WHERE ${where} AND s.status IN ('VOIDED', 'COMPLETED')
-         GROUP BY s.cashier_id, u.name
-         HAVING SUM(CASE WHEN s.status = 'VOIDED' THEN 1 ELSE 0 END) > 0
-         ORDER BY refunds DESC`,
+         WHERE ${where}
+         GROUP BY s.cashier_id, u.name`,
         params,
       )) as Array<{ cashierId: string; name: string; refunds: string; sales: string }>
       const [gross] = (await this.salesRepo.manager.query(
-        `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+        `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND ${sold}`,
         params,
       )) as Array<{ gross: string }>
-      return {
-        byReason: byReason.map((r) => ({
+      const returned = await loadPeriodReturnLines(this.salesRepo.manager, businessId, query)
+      return refundsReport({
+        voidsByReason: byReason.map((r) => ({
           reason: r.reason ?? null,
           count: Number(r.count ?? 0),
-          amount: toWholeXaf(Number(r.amount ?? 0)),
+          amount: Number(r.amount ?? 0),
         })),
-        byCashier: byCashier.map((r) => ({
+        returnsByReason: returnTotalsBy(returned, (line) => line.reason),
+        voidsByCashier: byCashier.map((r) => ({
           cashierId: r.cashierId,
           name: r.name || '—',
-          refunds: toWholeXaf(Number(r.refunds ?? 0)),
-          sales: toWholeXaf(Number(r.sales ?? 0)),
+          refunds: Number(r.refunds ?? 0),
+          sales: Number(r.sales ?? 0),
         })),
-        grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
-      }
+        returnsByCashier: returnsByCashier(returned),
+        grossSales: Number(gross?.gross ?? 0),
+      })
     } catch (error) {
       return this.handleServiceError('getRefundsSummary', error, { businessId })
     }

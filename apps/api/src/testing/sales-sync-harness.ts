@@ -87,6 +87,7 @@ export interface SalesSyncHarness {
       restock?: boolean
       createdAt?: string
       businessDate?: string
+      reason?: string
     },
     status?: 'REFUNDED' | 'PARTIALLY_REFUNDED',
   ): SaleSyncPayload
@@ -356,6 +357,7 @@ export async function createSalesSyncHarness(dataSource: DataSource): Promise<Sa
         createdAt: ret.createdAt,
         businessDate: ret.businessDate,
         restock: ret.restock ?? true,
+        reason: ret.reason,
         refundAmount: ret.refundAmount,
         items: ret.items.map((item) => ({ id: randomUUID(), ...item })),
         refundPayment:

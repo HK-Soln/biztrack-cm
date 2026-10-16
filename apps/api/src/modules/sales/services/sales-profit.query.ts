@@ -5,6 +5,7 @@ import {
   refundProfitImpact,
   sumRefundProfitImpacts,
   type RefundProfitImpact,
+  type ReportReturnLine,
 } from '@biztrack/domain'
 
 interface ReturnedLineRow {
@@ -100,6 +101,71 @@ export async function loadNetSalesProfit(
     refunds,
   })
   return { revenue: net.revenue, cogs: net.cogs, refundedRevenue: refunds.revenue }
+}
+
+export interface PeriodReturnLine extends ReportReturnLine {
+  day: string
+  cashierId: string
+  cashierName: string | null
+  reason: string | null
+}
+
+/**
+ * The returned lines of the returns made in a period, with what the sales reports group them
+ * by (ruling R19). `customerId` narrows them to one customer's sales.
+ */
+export async function loadPeriodReturnLines(
+  manager: EntityManager,
+  businessId: string,
+  range: { dateFrom?: string; dateTo?: string; customerId?: string | null },
+): Promise<PeriodReturnLine[]> {
+  const returnDay = `COALESCE(r.business_date, (r.created_at AT TIME ZONE 'UTC')::date)`
+  const params: unknown[] = [businessId]
+  const conds = ['r.business_id = $1', 's.deleted_at IS NULL', "s.status <> 'VOIDED'"]
+  if (range.dateFrom) {
+    params.push(range.dateFrom)
+    conds.push(`${returnDay} >= $${params.length}`)
+  }
+  if (range.dateTo) {
+    params.push(range.dateTo)
+    conds.push(`${returnDay} <= $${params.length}`)
+  }
+  if (range.customerId) {
+    params.push(range.customerId)
+    conds.push(`s.customer_id = $${params.length}`)
+  }
+  const rows = (await manager.query(
+    `SELECT r.id AS return_id, r.restock AS restock, ri.quantity AS returned_quantity,
+            si.quantity AS sold_quantity, si.line_total AS line_total, si.cost_price AS cost_price,
+            (${returnDay})::text AS day, s.cashier_id AS cashier_id, u.name AS cashier_name,
+            r.reason AS reason
+       FROM sale_return_items ri
+       JOIN sale_returns r ON r.id = ri.sale_return_id
+       JOIN sale_items si ON si.id = ri.sale_item_id
+       JOIN sales s ON s.id = r.sale_id
+       LEFT JOIN users u ON u.id = s.cashier_id
+      WHERE ${conds.join(' AND ')}`,
+    params,
+  )) as Array<
+    ReturnedLineRow & {
+      day: string
+      cashier_id: string
+      cashier_name: string | null
+      reason: string | null
+    }
+  >
+  return rows.map((row) => ({
+    returnId: row.return_id,
+    restock: Boolean(row.restock),
+    returnedQuantity: Number(row.returned_quantity),
+    soldQuantity: Number(row.sold_quantity),
+    lineTotal: Number(row.line_total),
+    costPrice: row.cost_price === null ? null : Number(row.cost_price),
+    day: String(row.day).slice(0, 10),
+    cashierId: row.cashier_id,
+    cashierName: row.cashier_name,
+    reason: row.reason?.trim() || null,
+  }))
 }
 
 /** What the refunds already recorded on one sale have taken off its revenue and cost. */

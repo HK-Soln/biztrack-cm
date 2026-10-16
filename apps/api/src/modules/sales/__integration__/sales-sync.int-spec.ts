@@ -362,6 +362,78 @@ describe('sales synced from a till', () => {
     })
   })
 
+  describe('sales reports net of refunds (R19)', () => {
+    const soldTwoReturnedOne = async () => {
+      const product = await h.seedProduct({ price: 1000, cost: 600, stock: 10 })
+      const payload = h.salePayload({
+        items: [{ productId: product, quantity: 2, unitPrice: 1000 }],
+        soldAt: SOLD_AT,
+      })
+      await h.sales.createFromSync(h.businessId, payload)
+      await h.sales.createFromSync(
+        h.businessId,
+        h.withReturn(payload, {
+          items: [{ saleItemId: payload.items[0]!.id, quantity: 1 }],
+          refundAmount: 1000,
+          createdAt: REFUNDED_AT,
+          businessDate: REFUND_DAY,
+          reason: 'Damaged',
+        }),
+      )
+      return payload
+    }
+
+    it('period summary: the sale still counts, less the goods returned', async () => {
+      await soldTwoReturnedOne()
+      expect(await h.sales.getRangeSummary(h.businessId, {})).toMatchObject({
+        revenue: 1000,
+        transactions: 1,
+        averageBasket: 1000,
+        itemsSold: 1,
+        refundCount: 1,
+        refundAmount: 1000,
+      })
+      expect(
+        await h.sales.getRangeSummary(h.businessId, { dateFrom: SALE_DAY, dateTo: SALE_DAY }),
+      ).toMatchObject({ revenue: 2000, itemsSold: 2, refundCount: 0 })
+    })
+
+    it('daily series: the return comes off the day of the refund', async () => {
+      await soldTwoReturnedOne()
+      const rows = await h.sales.getDailySeries(h.businessId, {})
+      expect(rows.find((r) => r.date === SALE_DAY)).toMatchObject({
+        transactions: 1,
+        total: 2000,
+        cash: 2000,
+      })
+      expect(rows.find((r) => r.date === REFUND_DAY)).toMatchObject({
+        transactions: 0,
+        total: -1000,
+      })
+      // The cash handed back comes off the day it was paid out.
+      expect(rows.reduce((sum, r) => sum + r.cash, 0)).toBe(1000)
+    })
+
+    it('cashier roster and refunds report: the return is the selling cashier’s', async () => {
+      const payload = await soldTwoReturnedOne()
+      expect(await h.sales.getCashierRoster(h.businessId, {})).toEqual([
+        expect.objectContaining({
+          cashierId: payload.cashierId,
+          transactions: 1,
+          sales: 1000,
+          refunds: 1000,
+        }),
+      ])
+      expect(await h.sales.getRefundsSummary(h.businessId, {})).toEqual({
+        byReason: [{ reason: 'Damaged', count: 1, amount: 1000 }],
+        byCashier: [
+          expect.objectContaining({ cashierId: payload.cashierId, refunds: 1000, sales: 2000 }),
+        ],
+        grossSales: 2000,
+      })
+    })
+  })
+
   describe('a void after refunds (R6)', () => {
     const soldTwoReturnedOne = async () => {
       const product = await h.seedProduct({ price: 1000, cost: 600, stock: 10 })

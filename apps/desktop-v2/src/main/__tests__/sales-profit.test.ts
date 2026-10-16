@@ -155,6 +155,65 @@ describe('SalesService — reports net of refunds (R4)', () => {
     service.refundSale(saleId, { items: [{ saleItemId: itemId, quantity: 1 }] })
     expect(service.byPaymentMethod()).toEqual([{ method: 'CASH', transactions: 1, amount: 850 }])
   })
+
+  // Ruling R19: the other sales reports net a partly refunded sale the same way.
+  const refundOne = () =>
+    service.refundSale(saleId, { items: [{ saleItemId: itemId, quantity: 1 }], reason: 'Damaged' })
+  const refundDay = () =>
+    db.get<{ d: string }>(`SELECT business_date AS d FROM sale_returns WHERE sale_id = ?`, [
+      saleId,
+    ])!.d
+
+  it('period summary: the sale still counts, less the goods returned', () => {
+    refundOne()
+    expect(service.summary()).toEqual(
+      expect.objectContaining({
+        revenue: 850,
+        transactions: 1,
+        averageBasket: 850,
+        itemsSold: 1,
+        refundCount: 1,
+        refundAmount: 850,
+      }),
+    )
+  })
+
+  it('daily series: the return and the cash handed back come off the day of the refund', () => {
+    refundOne()
+    const rows = service.dailySeries()
+    expect(rows.find((r) => r.date === '2026-08-28')).toEqual(
+      expect.objectContaining({ transactions: 1, total: 1700, cash: 1700 }),
+    )
+    expect(rows.find((r) => r.date === refundDay())).toEqual(
+      expect.objectContaining({ transactions: 0, total: -850, cash: -850 }),
+    )
+  })
+
+  it('cashier roster: the return comes off the selling cashier', () => {
+    refundOne()
+    expect(service.cashierRoster()).toEqual([
+      expect.objectContaining({ cashierId: 'u-1', transactions: 1, sales: 850, refunds: 850 }),
+    ])
+  })
+
+  it('refunds report: lists the return by its reason and cashier', () => {
+    refundOne()
+    expect(service.refunds()).toEqual({
+      byReason: [{ reason: 'Damaged', count: 1, amount: 850 }],
+      byCashier: [expect.objectContaining({ cashierId: 'u-1', refunds: 850, sales: 1700 })],
+      grossSales: 1700,
+    })
+  })
+
+  it('discount reports: the discount still counts, gross sales are net of the return', () => {
+    refundOne()
+    expect(service.discountSummary()).toEqual(
+      expect.objectContaining({ totalDiscount: 300, grossSales: 850, saleCount: 1 }),
+    )
+    expect(service.discountsByProduct()).toEqual([
+      expect.objectContaining({ productId: 'p-1', discountTotal: 300, revenue: 850, cogs: 500 }),
+    ])
+  })
 })
 
 describe('SalesService.voidSale — after refunds', () => {

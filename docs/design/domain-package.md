@@ -377,12 +377,31 @@ Limits, as built:
   back to the UTC day they were recorded.
 - The cash side of the daily summary (`total_transacted` and the tender columns) is
   unchanged; refund payments are netted in cash-session reconciliation, as before.
-- The other desktop sales reports (range summary, cashier roster, discount reports) still
-  count completed sales only.
+- The other sales reports follow R19, below.
 - By-product totals round per product and return, so they can differ from the Income
   Statement by a franc or two.
 - Voiding a partly refunded sale that was paid from a customer deposit still gives the
   whole deposit payment back. Not handled.
+
+R19 is `packages/domain/src/sales/sales-report-net.ts`, called by the desktop
+`sales.service` and the API `sales.service` (returned lines loaded by
+`loadPeriodReturnLines` in `sales-profit.query.ts`). Every sales report counts the sales in
+`PROFIT_SALE_STATUSES` and takes each return off on the day of the return, valued as R4 does:
+
+- Period summary: revenue and units sold net of the period's returns. A refunded sale is
+  still a transaction of its day. Refunds are the voids plus the period's returns (before,
+  only voids).
+- Daily series: a day's total loses the goods returned that day; each tender loses what was
+  paid back in it that day. Credit is each sale's credit as it now stands, already reduced
+  by its returns (R10), on the day of the sale. A day with only refunds is listed.
+- Cashier roster: a return comes off the sales of the cashier who made the sale and adds to
+  that cashier's refunds.
+- Refunds report: voids and returns together, by reason (the return's reason) and by the
+  selling cashier. Gross sales, the base of the refund rate, are before refunds.
+- Discount reports (desktop only; the cloud shows none yet): discounts count as given on
+  every refunded or partly refunded sale, so a refund never hides a flagged discount. Gross
+  sales are net of the period's returns; discounts by product take revenue and cost from
+  the by-product report.
 
 Release blockers for this branch (owner, 2026-10-11):
 

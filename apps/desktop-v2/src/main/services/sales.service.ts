@@ -8,12 +8,21 @@ import {
   discountNeedsAuthorization,
   NO_DISCOUNT_POLICY,
   isBelowCost,
+  netCashierRoster,
+  netDailySales,
+  netGrossSales,
   netSalesByProduct,
   netSalesProfit,
+  netSalesSummary,
   priceSale,
   roundQuantity,
   PROFIT_SALE_STATUSES,
   refundProfitImpact,
+  refundsReport,
+  returnsByCashier,
+  returnTotals,
+  returnTotalsBy,
+  type ReportReturnLine,
   type RoleDiscountLimits,
   type RoleDiscountPolicy,
   settleSale,
@@ -1546,29 +1555,35 @@ export class SalesService {
     }
     const businessId = this.getBusinessId()
     if (!businessId) return empty
-    // Completed sales drive revenue/basket/units; voided sales are the "refunds".
+    // Net of the period's returns (ruling R19); voids and returns are the "refunds".
     const { where, params } = this.buildWhere(businessId, { ...query, status: undefined })
+    const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
     const agg = this.db.get<{ revenue: number; txns: number; units: number }>(
       `SELECT COALESCE(SUM(s.total_amount), 0) AS revenue, COUNT(*) AS txns,
               COALESCE((SELECT SUM(si.quantity) FROM sale_items si
                         JOIN sales s2 ON s2.id = si.sale_id
-                        WHERE ${where.replace(/\bs\./g, 's2.')} AND s2.status = 'COMPLETED' AND si.is_deleted = 0), 0) AS units
-       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+                        WHERE ${where.replace(/\bs\./g, 's2.')} AND s2.status IN (${statuses}) AND si.is_deleted = 0), 0) AS units
+       FROM sales s WHERE ${where} AND s.status IN (${statuses})`,
       [...params, ...params],
     )
-    const refunds = this.db.get<{ n: number; amt: number }>(
+    const voids = this.db.get<{ n: number; amt: number }>(
       `SELECT COUNT(*) AS n, COALESCE(SUM(s.total_amount), 0) AS amt FROM sales s WHERE ${where} AND s.status = 'VOIDED'`,
       params,
     )
-    const transactions = agg?.txns ?? 0
-    const revenue = toWholeXaf(agg?.revenue ?? 0)
+    const saleFilter = this.buildWhere(businessId, {
+      ...query,
+      status: undefined,
+      dateFrom: undefined,
+      dateTo: undefined,
+    })
     return {
-      revenue,
-      transactions,
-      averageBasket: transactions > 0 ? toWholeXaf(revenue / transactions) : 0,
-      itemsSold: agg?.units ?? 0,
-      refundCount: refunds?.n ?? 0,
-      refundAmount: toWholeXaf(refunds?.amt ?? 0),
+      ...netSalesSummary({
+        soldRevenue: Number(agg?.revenue ?? 0),
+        transactions: Number(agg?.txns ?? 0),
+        soldUnits: Number(agg?.units ?? 0),
+        returns: returnTotals(this.periodReturnLines(businessId, query, saleFilter)),
+        voids: { count: Number(voids?.n ?? 0), amount: Number(voids?.amt ?? 0) },
+      }),
       currency,
     }
   }
@@ -1595,8 +1610,10 @@ export class SalesService {
       params.push(query.dateTo)
     }
     const where = conds.join(' AND ')
+    const statuses = PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')
     // Two grouped subqueries (sales-level totals + payment split) so a sale with multiple
     // payment rows doesn't multiply its total. `?` params are positional in SQLite → pass twice.
+    // Refund payments are left out here and taken off the day they were paid (ruling R19).
     const rows = this.db.query<{
       date: string
       txns: number
@@ -1612,7 +1629,7 @@ export class SalesService {
          SELECT ${day} AS bday, COUNT(*) AS txns,
                 COALESCE(SUM(s.total_amount), 0) AS total,
                 COALESCE(SUM(s.credit_amount), 0) AS credit
-         FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+         FROM sales s WHERE ${where} AND s.status IN (${statuses})
          GROUP BY ${day}
        ) d
        LEFT JOIN (
@@ -1621,21 +1638,57 @@ export class SalesService {
                 SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
                 SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
          FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-         WHERE ${where} AND s.status = 'COMPLETED'
+         WHERE ${where} AND s.status IN (${statuses}) AND sp.kind <> 'REFUND'
          GROUP BY ${day}
        ) p ON p.bday = d.bday
        ORDER BY d.bday ASC`,
       [...params, ...params],
     )
-    return rows.map((r) => ({
-      date: String(r.date).slice(0, 10),
-      transactions: Number(r.txns ?? 0),
-      total: toWholeXaf(Number(r.total ?? 0)),
-      cash: toWholeXaf(Number(r.cash ?? 0)),
-      momo: toWholeXaf(Number(r.momo ?? 0)),
-      card: toWholeXaf(Number(r.card ?? 0)),
-      credit: toWholeXaf(Number(r.credit ?? 0)),
-    }))
+
+    const refundDay = 'substr(sp.created_at, 1, 10)'
+    const refundConds = ['s.business_id = ?', 's.is_deleted = 0', "s.status <> 'VOIDED'"]
+    const refundParams: unknown[] = [businessId]
+    if (query.dateFrom) {
+      refundConds.push(`${refundDay} >= ?`)
+      refundParams.push(query.dateFrom)
+    }
+    if (query.dateTo) {
+      refundConds.push(`${refundDay} <= ?`)
+      refundParams.push(query.dateTo)
+    }
+    const refundPayments = this.db.query<{
+      date: string
+      cash: number
+      momo: number
+      card: number
+    }>(
+      `SELECT ${refundDay} AS date,
+              SUM(CASE WHEN sp.method = 'CASH' THEN sp.amount ELSE 0 END) AS cash,
+              SUM(CASE WHEN sp.method IN ('MTN_MOMO','ORANGE_MONEY') THEN sp.amount ELSE 0 END) AS momo,
+              SUM(CASE WHEN sp.method = 'CARD' THEN sp.amount ELSE 0 END) AS card
+       FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+       WHERE ${refundConds.join(' AND ')} AND sp.kind = 'REFUND'
+       GROUP BY ${refundDay}`,
+      refundParams,
+    )
+    return netDailySales({
+      sold: rows.map((r) => ({
+        date: String(r.date).slice(0, 10),
+        transactions: Number(r.txns ?? 0),
+        total: Number(r.total ?? 0),
+        cash: Number(r.cash ?? 0),
+        momo: Number(r.momo ?? 0),
+        card: Number(r.card ?? 0),
+        credit: Number(r.credit ?? 0),
+      })),
+      returns: returnTotalsBy(this.periodReturnLines(businessId, query), (line) => line.day),
+      refundPayments: refundPayments.map((r) => ({
+        date: String(r.date).slice(0, 10),
+        cash: Number(r.cash ?? 0),
+        momo: Number(r.momo ?? 0),
+        card: Number(r.card ?? 0),
+      })),
+    })
   }
 
   /**
@@ -1659,6 +1712,9 @@ export class SalesService {
       params.push(query.dateTo)
     }
     const where = conds.join(' AND ')
+    // Sold = the profit statuses; returns come off the selling cashier on the day of the
+    // return (ruling R19). Discounts count as given, whatever was returned later.
+    const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
     const rows = this.db.query<{
       cashier_id: string
       name: string | null
@@ -1668,27 +1724,29 @@ export class SalesService {
       refunds: number
       discounts: number
     }>(
-      `SELECT s.cashier_id AS cashier_id, s.cashier_name AS name,
-              COUNT(DISTINCT CASE WHEN s.status = 'COMPLETED' THEN ${day} END) AS shifts,
-              COUNT(CASE WHEN s.status = 'COMPLETED' THEN 1 END) AS transactions,
-              COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales,
+      `SELECT s.cashier_id AS cashier_id, MAX(s.cashier_name) AS name,
+              COUNT(DISTINCT CASE WHEN ${sold} THEN ${day} END) AS shifts,
+              COUNT(CASE WHEN ${sold} THEN 1 END) AS transactions,
+              COALESCE(SUM(CASE WHEN ${sold} THEN s.total_amount ELSE 0 END), 0) AS sales,
               COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
-              COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.discount_amount ELSE 0 END), 0) AS discounts
+              COALESCE(SUM(CASE WHEN ${sold} THEN s.discount_amount ELSE 0 END), 0) AS discounts
        FROM sales s
        WHERE ${where}
-       GROUP BY s.cashier_id, s.cashier_name
-       ORDER BY sales DESC`,
+       GROUP BY s.cashier_id`,
       params,
     )
-    return rows.map((r) => ({
-      cashierId: r.cashier_id,
-      name: r.name || '—',
-      shifts: Number(r.shifts ?? 0),
-      transactions: Number(r.transactions ?? 0),
-      sales: toWholeXaf(Number(r.sales ?? 0)),
-      refunds: toWholeXaf(Number(r.refunds ?? 0)),
-      discounts: toWholeXaf(Number(r.discounts ?? 0)),
-    }))
+    return netCashierRoster(
+      rows.map((r) => ({
+        cashierId: r.cashier_id,
+        name: r.name || '—',
+        shifts: Number(r.shifts ?? 0),
+        transactions: Number(r.transactions ?? 0),
+        sales: Number(r.sales ?? 0),
+        refunds: Number(r.refunds ?? 0),
+        discounts: Number(r.discounts ?? 0),
+      })),
+      returnsByCashier(this.periodReturnLines(businessId, query)),
+    )
   }
 
   /** Shared trading-day-range WHERE for the report aggregations (parity with the API):
@@ -1791,6 +1849,9 @@ export class SalesService {
     const businessId = this.getBusinessId()
     if (!businessId) return empty
     const { where, params } = this.reportWhere(businessId, query)
+    // Discounts count as given on every sale still standing, refunded or not (ruling R19), so
+    // a refund never hides one. Gross sales are net of the period's returns.
+    const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
 
     const disc = this.db.get<{
       total: number
@@ -1803,25 +1864,28 @@ export class SalesService {
               COALESCE(SUM(sd.unauthorized), 0) AS unauthorized,
               COALESCE(SUM(sd.below_cost), 0) AS belowCost
        FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED'`,
+       WHERE ${where} AND ${sold}`,
       params,
     )
     const gross = this.db.get<{ gross: number; saleCount: number }>(
       `SELECT COALESCE(SUM(s.total_amount), 0) AS gross, COUNT(*) AS saleCount
-       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+       FROM sales s WHERE ${where} AND ${sold}`,
       params,
     )
     const byReason = this.db.query<{ reasonCode: string | null; count: number; amount: number }>(
       `SELECT sd.reason_code AS reasonCode, COUNT(*) AS count, COALESCE(SUM(sd.amount), 0) AS amount
        FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED'
+       WHERE ${where} AND ${sold}
        GROUP BY sd.reason_code
        ORDER BY amount DESC`,
       params,
     )
     return {
       totalDiscount: toWholeXaf(Number(disc?.total ?? 0)),
-      grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
+      grossSales: netGrossSales(
+        Number(gross?.gross ?? 0),
+        returnTotals(this.periodReturnLines(businessId, query)),
+      ),
       saleCount: Number(gross?.saleCount ?? 0),
       discountedSaleCount: Number(disc?.discountedSales ?? 0),
       unauthorizedCount: Number(disc?.unauthorized ?? 0),
@@ -1839,8 +1903,10 @@ export class SalesService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const { where, params } = this.reportWhere(businessId, query)
+    const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
     // Discount and gross are aggregated separately to avoid a join fan-out (a sale
-    // with N discount rows would multiply its total_amount N times), then merged.
+    // with N discount rows would multiply its total_amount N times), then merged. Gross is
+    // net of the period's returns, booked to the selling cashier (ruling R19).
     const disc = this.db.query<{
       cashierId: string
       cashierName: string | null
@@ -1853,17 +1919,23 @@ export class SalesService {
               COALESCE(SUM(sd.unauthorized), 0) AS unauthorized,
               COUNT(*) AS discountCount
        FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED'
+       WHERE ${where} AND ${sold}
        GROUP BY s.cashier_id, s.cashier_name`,
       params,
     )
     const gross = this.db.query<{ cashierId: string; grossSales: number }>(
       `SELECT s.cashier_id AS cashierId, COALESCE(SUM(s.total_amount), 0) AS grossSales
-       FROM sales s WHERE ${where} AND s.status = 'COMPLETED'
+       FROM sales s WHERE ${where} AND ${sold}
        GROUP BY s.cashier_id`,
       params,
     )
-    const grossBy = new Map(gross.map((g) => [g.cashierId, toWholeXaf(Number(g.grossSales ?? 0))]))
+    const returned = returnTotalsBy(this.periodReturnLines(businessId, query), (l) => l.cashierId)
+    const grossBy = new Map(
+      gross.map((g) => [
+        g.cashierId,
+        netGrossSales(Number(g.grossSales ?? 0), returned.get(g.cashierId)),
+      ]),
+    )
     return disc.map((r) => ({
       cashierId: r.cashierId,
       cashierName: r.cashierName ?? '—',
@@ -1881,6 +1953,7 @@ export class SalesService {
     const businessId = this.getBusinessId()
     if (!businessId) return []
     const { where, params } = this.reportWhere(businessId, query)
+    const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
     // Discount per product from the line-scoped discount rows…
     const disc = this.db.query<{
       productId: string
@@ -1896,26 +1969,13 @@ export class SalesService {
          JOIN sales s ON s.id = sd.sale_id
          LEFT JOIN products p ON p.id = si.product_id
          LEFT JOIN product_categories c ON c.id = p.category_id
-       WHERE ${where} AND s.status = 'COMPLETED' AND sd.sale_item_id IS NOT NULL
+       WHERE ${where} AND ${sold} AND sd.sale_item_id IS NOT NULL
        GROUP BY si.product_id, si.product_name, c.name`,
       params,
     )
-    // …and revenue/COGS per product from the line totals, merged in for margin.
-    const rev = this.db.query<{ productId: string; revenue: number; cogs: number }>(
-      `SELECT si.product_id AS productId,
-              COALESCE(SUM(si.line_total), 0) AS revenue,
-              COALESCE(SUM(COALESCE(si.cost_price, 0) * si.quantity), 0) AS cogs
-       FROM sale_items si JOIN sales s ON s.id = si.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED' AND si.is_deleted = 0
-       GROUP BY si.product_id`,
-      params,
-    )
-    const revBy = new Map(
-      rev.map((r) => [
-        r.productId,
-        { revenue: toWholeXaf(Number(r.revenue ?? 0)), cogs: toWholeXaf(Number(r.cogs ?? 0)) },
-      ]),
-    )
+    // …and revenue/COGS per product net of the period's returns (the by-product report's
+    // figures, ruling R19), merged in for margin.
+    const revBy = new Map(this.byProduct(query).map((r) => [r.productId, r]))
     return disc.map((r) => ({
       productId: r.productId,
       name: r.name,
@@ -1950,7 +2010,8 @@ export class SalesService {
               sd.unauthorized AS unauthorized, sd.below_cost AS belowCost,
               sd.authorized_by AS authorizedBy
        FROM sale_discounts sd JOIN sales s ON s.id = sd.sale_id
-       WHERE ${where} AND s.status = 'COMPLETED' AND (sd.unauthorized = 1 OR sd.below_cost = 1)
+       WHERE ${where} AND s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})
+         AND (sd.unauthorized = 1 OR sd.below_cost = 1)
        ORDER BY s.sold_at DESC
        LIMIT 300`,
       params,
@@ -2012,7 +2073,8 @@ export class SalesService {
     }))
   }
 
-  /** Refunds & returns (VOIDED sales by reason + by cashier + gross sales) — mirrors the API. */
+  /** Refunds & returns (voids and the period's returns, by reason + by cashier + gross sales)
+   *  — mirrors the API. */
   refunds(query: SalesListQuery = {}): {
     byReason: RefundReasonRow[]
     byCashier: RefundCashierRow[]
@@ -2021,10 +2083,11 @@ export class SalesService {
     const businessId = this.getBusinessId()
     if (!businessId) return { byReason: [], byCashier: [], grossSales: 0 }
     const { where, params } = this.reportWhere(businessId, query)
+    const sold = `s.status IN (${PROFIT_SALE_STATUSES.map((status) => `'${status}'`).join(', ')})`
     const byReason = this.db.query<{ reason: string | null; count: number; amount: number }>(
       `SELECT s.void_reason AS reason, COUNT(*) AS count, COALESCE(SUM(s.total_amount), 0) AS amount
        FROM sales s WHERE ${where} AND s.status = 'VOIDED'
-       GROUP BY s.void_reason ORDER BY amount DESC`,
+       GROUP BY s.void_reason`,
       params,
     )
     const byCashier = this.db.query<{
@@ -2033,34 +2096,35 @@ export class SalesService {
       refunds: number
       sales: number
     }>(
-      `SELECT s.cashier_id AS cashierId, s.cashier_name AS name,
+      `SELECT s.cashier_id AS cashierId, MAX(s.cashier_name) AS name,
               COALESCE(SUM(CASE WHEN s.status = 'VOIDED' THEN s.total_amount ELSE 0 END), 0) AS refunds,
-              COALESCE(SUM(CASE WHEN s.status = 'COMPLETED' THEN s.total_amount ELSE 0 END), 0) AS sales
+              COALESCE(SUM(CASE WHEN ${sold} THEN s.total_amount ELSE 0 END), 0) AS sales
        FROM sales s
-       WHERE ${where} AND s.status IN ('VOIDED', 'COMPLETED')
-       GROUP BY s.cashier_id, s.cashier_name
-       HAVING SUM(CASE WHEN s.status = 'VOIDED' THEN 1 ELSE 0 END) > 0
-       ORDER BY refunds DESC`,
+       WHERE ${where}
+       GROUP BY s.cashier_id`,
       params,
     )
     const gross = this.db.get<{ gross: number }>(
-      `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND s.status = 'COMPLETED'`,
+      `SELECT COALESCE(SUM(s.total_amount), 0) AS gross FROM sales s WHERE ${where} AND ${sold}`,
       params,
     )
-    return {
-      byReason: byReason.map((r) => ({
+    const returned = this.periodReturnLines(businessId, query)
+    return refundsReport({
+      voidsByReason: byReason.map((r) => ({
         reason: r.reason ?? null,
         count: Number(r.count ?? 0),
-        amount: toWholeXaf(Number(r.amount ?? 0)),
+        amount: Number(r.amount ?? 0),
       })),
-      byCashier: byCashier.map((r) => ({
+      returnsByReason: returnTotalsBy(returned, (line) => line.reason),
+      voidsByCashier: byCashier.map((r) => ({
         cashierId: r.cashierId,
         name: r.name || '—',
-        refunds: toWholeXaf(Number(r.refunds ?? 0)),
-        sales: toWholeXaf(Number(r.sales ?? 0)),
+        refunds: Number(r.refunds ?? 0),
+        sales: Number(r.sales ?? 0),
       })),
-      grossSales: toWholeXaf(Number(gross?.gross ?? 0)),
-    }
+      returnsByCashier: returnsByCashier(returned),
+      grossSales: Number(gross?.gross ?? 0),
+    })
   }
 
   /** Product revenue (Σ line totals) + COGS for completed sales — feeds the Income Statement. */
@@ -2097,6 +2161,61 @@ export class SalesService {
       params.push(query.dateTo)
     }
     return { where: conds.join(' AND '), params }
+  }
+
+  /**
+   * The returned lines of the returns made in a report's range, with what the reports group
+   * them by (ruling R19). `saleFilter` narrows them to the sales a report is filtered to.
+   */
+  private periodReturnLines(
+    businessId: string,
+    query: SalesListQuery,
+    saleFilter?: { where: string; params: unknown[] },
+  ): Array<
+    ReportReturnLine & {
+      day: string
+      cashierId: string
+      cashierName: string | null
+      reason: string | null
+    }
+  > {
+    const returns = this.returnsWhere(businessId, query)
+    const where = saleFilter ? `${returns.where} AND ${saleFilter.where}` : returns.where
+    const rows = this.db.query<{
+      returnId: string
+      restock: number
+      returnedQuantity: number
+      soldQuantity: number
+      lineTotal: number
+      costPrice: number | null
+      day: string
+      cashierId: string
+      cashierName: string | null
+      reason: string | null
+    }>(
+      `SELECT r.id AS returnId, r.restock AS restock, ri.quantity AS returnedQuantity,
+              si.quantity AS soldQuantity, si.line_total AS lineTotal, si.cost_price AS costPrice,
+              COALESCE(r.business_date, substr(r.created_at, 1, 10)) AS day,
+              s.cashier_id AS cashierId, s.cashier_name AS cashierName, r.reason AS reason
+       FROM sale_return_items ri
+         JOIN sale_returns r ON r.id = ri.sale_return_id
+         JOIN sale_items si ON si.id = ri.sale_item_id
+         JOIN sales s ON s.id = r.sale_id
+       WHERE ${where}`,
+      [...returns.params, ...(saleFilter?.params ?? [])],
+    )
+    return rows.map((r) => ({
+      returnId: r.returnId,
+      restock: Boolean(r.restock),
+      returnedQuantity: Number(r.returnedQuantity),
+      soldQuantity: Number(r.soldQuantity),
+      lineTotal: Number(r.lineTotal),
+      costPrice: r.costPrice === null ? null : Number(r.costPrice),
+      day: String(r.day).slice(0, 10),
+      cashierId: r.cashierId,
+      cashierName: r.cashierName,
+      reason: r.reason?.trim() || null,
+    }))
   }
 
   grossProfit(query: SalesListQuery = {}): { revenue: number; cogs: number } {
