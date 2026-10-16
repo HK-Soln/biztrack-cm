@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { DebtStatus } from '@biztrack/types'
 import {
+  allocatePaymentOldestFirst,
   checkDebtPayment,
+  checkDebtWriteOff,
+  checkSyncedDebt,
+  debtAfterChange,
+  debtBalance,
   debtCanBeWrittenOff,
+  debtIsOpen,
+  debtOutstandingSql,
   debtSettledAt,
   debtStanding,
   planDebtOffset,
   reduceDebt,
+  sourceDebtPayment,
 } from './debt-status'
 
 describe('debtStanding', () => {
@@ -15,6 +23,7 @@ describe('debtStanding', () => {
       status: DebtStatus.OUTSTANDING,
       paidAmount: 0,
       outstandingAmount: 10000,
+      unpaidAmount: 10000,
       settled: false,
     })
   })
@@ -162,5 +171,134 @@ describe('planDebtOffset', () => {
     expect(
       planDebtOffset({ receivables: [{ outstanding: 3000 }], payables: [{ outstanding: 0 }] }),
     ).toEqual({ ok: false, code: 'DEBT_OFFSET_NOTHING' })
+  })
+})
+
+describe('debtBalance', () => {
+  it('owes nothing once written off, and keeps what was left unpaid', () => {
+    expect(
+      debtBalance({ originalAmount: 10000, paidAmount: 4000, status: DebtStatus.WRITTEN_OFF }),
+    ).toMatchObject({ status: DebtStatus.WRITTEN_OFF, outstandingAmount: 0, unpaidAmount: 6000 })
+    expect(
+      debtBalance({ originalAmount: 10000, paidAmount: 4000, status: DebtStatus.OUTSTANDING }),
+    ).toMatchObject({ status: DebtStatus.PARTIALLY_PAID, outstandingAmount: 6000 })
+  })
+  it('knows which debts are open', () => {
+    expect(debtIsOpen(DebtStatus.OUTSTANDING)).toBe(true)
+    expect(debtIsOpen(DebtStatus.PARTIALLY_PAID)).toBe(true)
+    expect(debtIsOpen(DebtStatus.SETTLED)).toBe(false)
+    expect(debtIsOpen(DebtStatus.WRITTEN_OFF)).toBe(false)
+    expect(debtOutstandingSql({ status: 'd.status', original: 'd.o', paid: 'p' })).toContain(
+      "d.status IN ('OUTSTANDING', 'PARTIALLY_PAID')",
+    )
+  })
+})
+
+describe('debtAfterChange', () => {
+  it('settles with the first date and keeps a written-off debt written off', () => {
+    expect(
+      debtAfterChange({
+        originalAmount: 100,
+        paidAmount: 100,
+        status: DebtStatus.PARTIALLY_PAID,
+        settledAt: null,
+        at: 't2',
+      }),
+    ).toMatchObject({ status: DebtStatus.SETTLED, settledAt: 't2' })
+    expect(
+      debtAfterChange({
+        originalAmount: 100,
+        paidAmount: 100,
+        status: DebtStatus.WRITTEN_OFF,
+        settledAt: 't1',
+        at: 't2',
+      }),
+    ).toMatchObject({ status: DebtStatus.WRITTEN_OFF, settledAt: null })
+  })
+})
+
+describe('checkDebtPayment with status and dates', () => {
+  it('refuses a settled or written-off debt and a payment dated before the debt', () => {
+    expect(checkDebtPayment({ amount: 10, outstanding: 0, status: DebtStatus.SETTLED })).toEqual({
+      ok: false,
+      code: 'DEBT_PAYMENT_LOCKED',
+    })
+    expect(
+      checkDebtPayment({
+        amount: 10,
+        outstanding: 100,
+        status: DebtStatus.OUTSTANDING,
+        paymentDate: '2026-01-01',
+        debtCreatedDate: '2026-01-02T08:00:00.000Z',
+      }),
+    ).toEqual({ ok: false, code: 'DEBT_PAYMENT_DATE_INVALID' })
+  })
+})
+
+describe('sourceDebtPayment', () => {
+  it('takes at most what is owed, and nothing on a closed debt', () => {
+    expect(
+      sourceDebtPayment({ amount: 700, outstanding: 500, status: DebtStatus.OUTSTANDING }),
+    ).toEqual({ applied: 500, excess: 200 })
+    expect(
+      sourceDebtPayment({ amount: 700, outstanding: 500, status: DebtStatus.WRITTEN_OFF }),
+    ).toEqual({ applied: 0, excess: 700 })
+  })
+})
+
+describe('checkSyncedDebt', () => {
+  it('takes payments and reversals that add up to no more than the debt', () => {
+    expect(checkSyncedDebt({ originalAmount: 1000, payments: [600, -200, 400.2] })).toEqual({
+      ok: true,
+      originalAmount: 1000,
+      payments: [600, -200, 400],
+      paidAmount: 800,
+    })
+  })
+  it('refuses overpayment, empty payments and a negative debt', () => {
+    expect(checkSyncedDebt({ originalAmount: 1000, payments: [600, 500] })).toEqual({
+      ok: false,
+      code: 'DEBT_PAYMENTS_EXCEED_ORIGINAL',
+    })
+    expect(checkSyncedDebt({ originalAmount: 1000, payments: [0] })).toMatchObject({
+      code: 'DEBT_PAYMENT_AMOUNT_INVALID',
+    })
+    expect(checkSyncedDebt({ originalAmount: -1, payments: [] })).toMatchObject({
+      code: 'DEBT_AMOUNT_INVALID',
+    })
+  })
+})
+
+describe('allocatePaymentOldestFirst', () => {
+  it('fills the oldest debts first and reports what is left', () => {
+    const result = allocatePaymentOldestFirst(
+      [
+        { id: 'a', outstanding: 300 },
+        { id: 'b', outstanding: 0 },
+        { id: 'c', outstanding: 500 },
+      ],
+      600,
+    )
+    expect(result.allocations.map((a) => [a.debt.id, a.amount])).toEqual([
+      ['a', 300],
+      ['c', 300],
+    ])
+    expect(result).toMatchObject({ applied: 600, remaining: 0 })
+    expect(allocatePaymentOldestFirst([{ outstanding: 100 }], 150).remaining).toBe(50)
+  })
+})
+
+describe('checkDebtWriteOff', () => {
+  it('writes off an open debt with a reason', () => {
+    expect(checkDebtWriteOff({ status: DebtStatus.OUTSTANDING, reason: ' lost ' })).toEqual({
+      ok: true,
+      reason: 'lost',
+    })
+    expect(checkDebtWriteOff({ status: DebtStatus.SETTLED, reason: 'x' })).toMatchObject({
+      code: 'DEBT_ALREADY_SETTLED',
+    })
+    expect(checkDebtWriteOff({ status: DebtStatus.OUTSTANDING, reason: ' ' })).toMatchObject({
+      code: 'DEBT_WRITE_OFF_REASON_REQUIRED',
+    })
   })
 })

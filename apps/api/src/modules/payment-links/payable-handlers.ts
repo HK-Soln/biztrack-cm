@@ -1,15 +1,20 @@
 import { Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Not, Repository } from 'typeorm'
+import { In, Repository } from 'typeorm'
 import {
   BusinessMemberRole,
   DebtDirection,
-  DebtStatus,
   PayableType,
   type JwtPayload,
   type PaymentMethod,
 } from '@biztrack/types'
-import { majorToMinor, minorToMajor } from '@biztrack/domain'
+import {
+  allocatePaymentOldestFirst,
+  debtBalance,
+  majorToMinor,
+  minorToMajor,
+  OPEN_DEBT_STATUSES,
+} from '@biztrack/domain'
 import { Sale } from '@/entities/sale.entity'
 import { OnlineOrder } from '@/entities/online-order.entity'
 import { OnlineOrderEvent } from '@/entities/online-order-event.entity'
@@ -150,7 +155,12 @@ export class DebtPayableHandler implements PayableHandler {
       .select('COALESCE(SUM(p.amount), 0)', 'paid')
       .where('p.debtId = :id', { id: debt.id })
       .getRawOne<{ paid: string }>()
-    return Math.max(0, Number(debt.originalAmount) - Number(row?.paid ?? 0))
+    // What is still owed (@biztrack/domain debtBalance): nothing on a written-off debt.
+    return debtBalance({
+      originalAmount: Number(debt.originalAmount),
+      paidAmount: Number(row?.paid ?? 0),
+      status: debt.status,
+    }).outstandingAmount
   }
 }
 
@@ -320,13 +330,15 @@ export class ContactReceivablePayableHandler implements PayableHandler {
     payableId: string,
     ctx: ApplyPaymentContext,
   ): Promise<void> {
-    let remaining = minorToMajor(ctx.amountMinor, CURRENCY)
     const outstanding = await this.outstandingDebts(businessId, payableId)
     const today = new Date().toISOString().slice(0, 10)
-    for (const { debt, outstanding: due } of outstanding) {
-      if (remaining <= 0) break
-      const apply = Math.min(remaining, due)
-      if (apply <= 0) continue
+    // Spread oldest first (@biztrack/domain allocatePaymentOldestFirst).
+    const { allocations } = allocatePaymentOldestFirst(
+      outstanding,
+      minorToMajor(ctx.amountMinor, CURRENCY),
+    )
+    for (const { debt: entry, amount: apply } of allocations) {
+      const { debt } = entry
       await this.debtsService.recordPayment(
         businessId,
         linkActor(businessId, ctx.actorUserId),
@@ -340,7 +352,6 @@ export class ContactReceivablePayableHandler implements PayableHandler {
           notes: 'Payment link',
         },
       )
-      remaining -= apply
     }
   }
 
@@ -354,7 +365,7 @@ export class ContactReceivablePayableHandler implements PayableHandler {
         businessId,
         contactId,
         direction: DebtDirection.RECEIVABLE,
-        status: Not(DebtStatus.SETTLED),
+        status: In([...OPEN_DEBT_STATUSES]),
       },
       order: { createdAt: 'ASC' },
     })
@@ -371,7 +382,11 @@ export class ContactReceivablePayableHandler implements PayableHandler {
     return debts
       .map((debt) => ({
         debt,
-        outstanding: Math.max(0, Number(debt.originalAmount) - (paidByDebt.get(debt.id) ?? 0)),
+        outstanding: debtBalance({
+          originalAmount: Number(debt.originalAmount),
+          paidAmount: paidByDebt.get(debt.id) ?? 0,
+          status: debt.status,
+        }).outstandingAmount,
       }))
       .filter((d) => d.outstanding > 0)
   }

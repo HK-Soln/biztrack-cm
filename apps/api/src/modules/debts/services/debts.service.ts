@@ -21,12 +21,16 @@ import {
 } from '@biztrack/types'
 import {
   checkDebtPayment,
+  checkDebtWriteOff,
+  debtAfterChange,
+  debtBalance,
   debtCanBeWrittenOff,
   debtSettledAt,
   debtStanding,
   effectiveDueDate,
   planDebtOffset,
   reduceDebt,
+  sourceDebtPayment,
   toWholeXaf,
 } from '@biztrack/domain'
 import { APP_ROUTES } from '@biztrack/utils'
@@ -184,7 +188,10 @@ export class DebtsService {
 
       for (const debt of debts) {
         const paidAmount = paidAmounts.get(debt.id) ?? 0
-        const rawOutstanding = this.computeRawOutstanding(debt.originalAmount, paidAmount)
+        const rawOutstanding = debtStanding({
+          originalAmount: debt.originalAmount,
+          paidAmount,
+        }).unpaidAmount
 
         if (
           [DebtStatus.OUTSTANDING, DebtStatus.PARTIALLY_PAID].includes(debt.status) &&
@@ -293,37 +300,36 @@ export class DebtsService {
           )
         }
 
-        if ([DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_payment_locked' as never),
-            'DEBT_PAYMENT_LOCKED',
-          )
-        }
-
         const outstandingAmount = await this.computeOutstandingAmount(
           debt.id,
           manager,
           debt.originalAmount,
         )
-        // Above zero and no more than is owed: @biztrack/domain's rule, as on the till.
-        const payment = checkDebtPayment({ amount: dto.amount, outstanding: outstandingAmount })
+        // An open debt, above zero, not before the debt, no more than is owed:
+        // @biztrack/domain's rule, as on the till.
+        const debtCreatedDate = this.toDateOnly(debt.createdAt)
+        const payment = checkDebtPayment({
+          amount: dto.amount,
+          outstanding: outstandingAmount,
+          status: debt.status,
+          paymentDate: dto.paymentDate,
+          debtCreatedDate,
+        })
         if (!payment.ok) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_payment_amount_exceeds_outstanding' as never),
-            'DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING',
-            { amount: toWholeXaf(dto.amount), outstandingAmount },
-          )
+          const key = {
+            DEBT_PAYMENT_LOCKED: 'errors.debt_payment_locked',
+            DEBT_PAYMENT_AMOUNT_INVALID: 'errors.debt_payment_amount_invalid',
+            DEBT_PAYMENT_DATE_INVALID: 'errors.debt_payment_date_invalid',
+            DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING:
+              'errors.debt_payment_amount_exceeds_outstanding',
+          }[payment.code]
+          throw new AppBadRequestException(await this.i18n.translate(key as never), payment.code, {
+            amount: toWholeXaf(dto.amount),
+            outstandingAmount,
+            debtCreatedDate,
+          })
         }
         const { amount } = payment
-
-        const debtCreatedDate = this.toDateOnly(debt.createdAt)
-        if (dto.paymentDate < debtCreatedDate) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_payment_date_invalid' as never),
-            'DEBT_PAYMENT_DATE_INVALID',
-            { debtCreatedDate },
-          )
-        }
 
         // Local trading day this collection lands on (BIZ-5.1).
         const businessDate = await this.calendar.computeForBusiness(businessId, dto.paymentDate)
@@ -566,13 +572,7 @@ export class DebtsService {
           }),
         )
 
-        if (debt.status !== DebtStatus.WRITTEN_OFF) {
-          await this.recalculateStatus(debt.id, manager)
-        } else {
-          await debtRepo.update(debt.id, {
-            updatedAt: new Date(),
-          })
-        }
+        await this.recalculateStatus(debt.id, manager)
       })
     } catch (error) {
       return this.handleServiceError('deletePayment', error, {
@@ -612,18 +612,15 @@ export class DebtsService {
           )
         }
 
-        if (debt.status === DebtStatus.WRITTEN_OFF) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_already_written_off' as never),
-            'DEBT_ALREADY_WRITTEN_OFF',
-          )
-        }
-
-        if (debt.status === DebtStatus.SETTLED) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.debt_already_settled' as never),
-            'DEBT_ALREADY_SETTLED',
-          )
+        // Only an open debt, with a reason (@biztrack/domain, as the till).
+        const writeOff = checkDebtWriteOff({ status: debt.status, reason: dto.reason })
+        if (!writeOff.ok) {
+          const key = {
+            DEBT_ALREADY_WRITTEN_OFF: 'errors.debt_already_written_off',
+            DEBT_ALREADY_SETTLED: 'errors.debt_already_settled',
+            DEBT_WRITE_OFF_REASON_REQUIRED: 'errors.debt_write_off_reason_required',
+          }[writeOff.code]
+          throw new AppBadRequestException(await this.i18n.translate(key as never), writeOff.code)
         }
 
         await debtRepo.update(debt.id, {
@@ -631,7 +628,7 @@ export class DebtsService {
           settledAt: null,
           writtenOffAt: new Date(),
           writtenOffById: user.sub,
-          writtenOffReason: dto.reason.trim(),
+          writtenOffReason: writeOff.reason,
           updatedAt: new Date(),
         })
       })
@@ -742,7 +739,11 @@ export class DebtsService {
           const totalPaid = toWholeXaf(
             (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0),
           )
-          const remaining = this.computeRawOutstanding(debt.originalAmount, totalPaid)
+          const remaining = debtBalance({
+            originalAmount: debt.originalAmount,
+            paidAmount: totalPaid,
+            status: debt.status,
+          }).unpaidAmount
           if (remaining > 0) {
             events.push({
               sortAt: debt.writtenOffAt.getTime(),
@@ -974,15 +975,13 @@ export class DebtsService {
   ): Promise<{ outstanding: number; paid: number }> {
     const debt = await manager.getRepository(DebtEntity).findOne({ where: params })
     if (!debt) return { outstanding: 0, paid: 0 }
-    const standing = debtStanding({
+    // A written-off debt owes nothing (@biztrack/domain debtBalance, as the till).
+    const standing = debtBalance({
       originalAmount: debt.originalAmount,
       paidAmount: await this.sumDebtPayments(debt.id, manager),
-      writtenOff: debt.status === DebtStatus.WRITTEN_OFF,
+      status: debt.status,
     })
-    return {
-      outstanding: debt.status === DebtStatus.WRITTEN_OFF ? 0 : standing.outstandingAmount,
-      paid: standing.paidAmount,
-    }
+    return { outstanding: standing.outstandingAmount, paid: standing.paidAmount }
   }
 
   /**
@@ -1061,10 +1060,15 @@ export class DebtsService {
         sourceId: params.sourceId,
       },
     })
-    if (!debt || [DebtStatus.SETTLED, DebtStatus.WRITTEN_OFF].includes(debt.status)) return
+    if (!debt) return
 
-    const outstanding = await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount)
-    const applied = Math.min(amount, outstanding)
+    // What the debt takes of the money collected is @biztrack/domain's: at most what is
+    // owed, nothing on a settled or written-off debt.
+    const { applied } = sourceDebtPayment({
+      amount,
+      outstanding: await this.computeOutstandingAmount(debt.id, manager, debt.originalAmount),
+      status: debt.status,
+    })
     if (applied <= 0) return
 
     const paymentRepo = manager.getRepository(DebtPayment)
@@ -1214,8 +1218,12 @@ export class DebtsService {
     })
     const paidAmount =
       paidAmountOverride ?? toWholeXaf(payments.reduce((sum, payment) => sum + payment.amount, 0))
-    const rawOutstanding = this.computeRawOutstanding(entity.originalAmount, paidAmount)
-    const outstandingAmount = entity.status === DebtStatus.WRITTEN_OFF ? 0 : rawOutstanding
+    // A written-off debt owes nothing (@biztrack/domain debtBalance, as the till).
+    const { outstandingAmount } = debtBalance({
+      originalAmount: entity.originalAmount,
+      paidAmount,
+      status: entity.status,
+    })
 
     return {
       id: entity.id,
@@ -1277,14 +1285,15 @@ export class DebtsService {
       .where('payment.debt_id = :debtId', { debtId })
       .getRawOne<{ paidAmount: string | number | null }>()
 
-    return this.computeRawOutstanding(originalAmount, Number(totalPaidRow?.paidAmount ?? 0))
+    return debtStanding({ originalAmount, paidAmount: Number(totalPaidRow?.paidAmount ?? 0) })
+      .unpaidAmount
   }
 
   private async recalculateStatus(debtId: string, manager: EntityManager) {
     const debtRepo = manager.getRepository(DebtEntity)
     const debt = await debtRepo.findOne({ where: { id: debtId } })
 
-    if (!debt || debt.status === DebtStatus.WRITTEN_OFF) return
+    if (!debt) return
 
     const paidRow = await manager
       .getRepository(DebtPayment)
@@ -1292,21 +1301,21 @@ export class DebtsService {
       .select('COALESCE(SUM(payment.amount), 0)', 'paidAmount')
       .where('payment.debt_id = :debtId', { debtId })
       .getRawOne<{ paidAmount: string | number | null }>()
-    // Where the debt stands is @biztrack/domain's rule, the same one the till applies.
-    const standing = debtStanding({
+    // Where the debt stands is @biztrack/domain's rule, the same one the till applies; a
+    // written-off debt stays written off.
+    const next = debtAfterChange({
       originalAmount: debt.originalAmount,
       paidAmount: Number(paidRow?.paidAmount ?? 0),
+      status: debt.status,
+      settledAt: debt.settledAt,
+      at: new Date(),
     })
 
     await debtRepo.update(debtId, {
-      status: standing.status,
-      settledAt: debtSettledAt(standing, debt.settledAt, new Date()),
+      status: next.status,
+      settledAt: next.settledAt,
       updatedAt: new Date(),
     })
-  }
-
-  private computeRawOutstanding(originalAmount: number, paidAmount: number) {
-    return toWholeXaf(Math.max(0, originalAmount - paidAmount))
   }
 
   private resolveRequiredContactType({ direction, contact }: ContactTypeRequirement) {

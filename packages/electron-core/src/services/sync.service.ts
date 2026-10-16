@@ -1,6 +1,7 @@
 import {
   compareSyncEntityByDependency,
   type ChangeSet,
+  type DebtStatus,
   type DebtSyncRecord,
   type SyncBatchStatus,
   type SyncBatchStatusResponse,
@@ -9,7 +10,7 @@ import {
   type SyncPushResponse,
   type SyncRecord,
 } from '@biztrack/types'
-import { contactNameKey, debtSettledAt, debtStanding } from '@biztrack/domain'
+import { contactNameKey, debtAfterChange } from '@biztrack/domain'
 import type { DatabaseService } from './database.service'
 
 /**
@@ -1003,16 +1004,18 @@ export class SyncService {
        FROM debts d WHERE d.id = ? AND d.business_id = ?`,
       [debtId, businessId],
     )
-    if (!row || row.status === 'WRITTEN_OFF') return
-    const standing = debtStanding({ originalAmount: row.original_amount, paidAmount: row.paid })
+    if (!row) return
+    // A written-off debt stays written off (@biztrack/domain debtAfterChange, as the server).
+    const next = debtAfterChange({
+      originalAmount: row.original_amount,
+      paidAmount: row.paid,
+      status: row.status as DebtStatus,
+      settledAt: row.settled_at,
+      at: new Date().toISOString(),
+    })
     this.opts.db.run(
       `UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`,
-      [
-        standing.status,
-        debtSettledAt(standing, row.settled_at, new Date().toISOString()),
-        debtId,
-        businessId,
-      ],
+      [next.status, next.settledAt, debtId, businessId],
     )
   }
 

@@ -1,13 +1,21 @@
 import { randomUUID } from 'crypto'
 import type { DatabaseService } from '@biztrack/electron-core'
-import { CashMovementKind, ContactStatementEntryType, DEFAULT_CREDIT_DAYS } from '@biztrack/types'
+import {
+  CashMovementKind,
+  ContactStatementEntryType,
+  DEFAULT_CREDIT_DAYS,
+  type DebtStatus,
+} from '@biztrack/types'
 import {
   checkDebtPayment,
   daysPastDue,
+  debtAfterChange,
+  debtBalance,
   debtCanBeWrittenOff,
   debtSettledAt,
   debtStanding,
   effectiveDueDate,
+  openDebtSql,
   planDebtOffset,
   reduceDebt,
   toWholeXaf,
@@ -165,11 +173,13 @@ export class DebtsService {
   ): { outstanding: number; paid: number } {
     const debt = this.sourceDebt(sourceType, sourceId)
     if (!debt) return { outstanding: 0, paid: 0 }
-    const standing = debtStanding({ originalAmount: debt.original_amount, paidAmount: debt.paid })
-    return {
-      outstanding: debt.status === 'WRITTEN_OFF' ? 0 : standing.outstandingAmount,
-      paid: standing.paidAmount,
-    }
+    // A written-off debt owes nothing (@biztrack/domain debtBalance, as the server).
+    const standing = debtBalance({
+      originalAmount: debt.original_amount,
+      paidAmount: debt.paid,
+      status: debt.status as DebtStatus,
+    })
+    return { outstanding: standing.outstandingAmount, paid: standing.paidAmount }
   }
 
   /**
@@ -332,24 +342,31 @@ export class DebtsService {
     const businessId = this.requireBusinessId()
     const debt = this.getRow(debtId, businessId)
     if (!debt) throw new Error('Debt not found.')
-    if (debt.status === 'WRITTEN_OFF') throw new Error('This debt has been written off.')
-    // Above zero and no more than is owed: @biztrack/domain's rule, as on the server.
+    const now = new Date().toISOString()
+    // An open debt, above zero, not before the debt, no more than is owed:
+    // @biztrack/domain's rule, as on the server.
     const payment = checkDebtPayment({
       amount: Number(input.amount),
-      outstanding: debtStanding({
+      outstanding: debtBalance({
         originalAmount: debt.original_amount,
         paidAmount: debt.paid_amount,
+        status: debt.status as DebtStatus,
       }).outstandingAmount,
+      status: debt.status as DebtStatus,
+      paymentDate: input.paymentDate || now,
+      debtCreatedDate: debt.created_at,
     })
     if (!payment.ok)
       throw new Error(
-        payment.code === 'DEBT_PAYMENT_AMOUNT_INVALID'
-          ? 'Payment amount must be greater than 0.'
-          : 'Payment exceeds the outstanding balance.',
+        {
+          DEBT_PAYMENT_LOCKED: 'This debt is settled or written off.',
+          DEBT_PAYMENT_AMOUNT_INVALID: 'Payment amount must be greater than 0.',
+          DEBT_PAYMENT_DATE_INVALID: 'The payment cannot be dated before the debt.',
+          DEBT_PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING: 'Payment exceeds the outstanding balance.',
+        }[payment.code],
       )
     const { amount } = payment
 
-    const now = new Date().toISOString()
     // Local trading day (BIZ-5.1) from the payment date.
     const businessDate = localBusinessDate(input.paymentDate || now)
     this.db.run(
@@ -371,14 +388,18 @@ export class DebtsService {
     )
 
     // Where the debt now stands is @biztrack/domain's rule, the one the server applies.
-    const standing = debtStanding({
+    const next = debtAfterChange({
       originalAmount: debt.original_amount,
       paidAmount: debt.paid_amount + amount,
+      status: debt.status as DebtStatus,
+      settledAt: debt.settled_at,
+      at: now,
     })
-    const { status, paidAmount: paid } = standing
+    const { status } = next
+    const paid = next.standing.paidAmount
     this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
       status,
-      debtSettledAt(standing, debt.settled_at, now),
+      next.settledAt,
       debtId,
       businessId,
     ])
@@ -424,7 +445,7 @@ export class DebtsService {
     const openDebts = (direction: 'RECEIVABLE' | 'PAYABLE'): LocalDebt[] =>
       this.db
         .query<DebtRow>(
-          `SELECT ${COLS} FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND d.direction = ? AND d.status != 'WRITTEN_OFF' ORDER BY d.created_at ASC`,
+          `SELECT ${COLS} FROM debts d WHERE d.business_id = ? AND d.contact_id = ? AND d.direction = ? AND ${openDebtSql('d.status')} ORDER BY d.created_at ASC`,
           [businessId, contactId, direction],
         )
         .map(toLocalDebt)
@@ -488,14 +509,18 @@ export class DebtsService {
       ],
     )
     // Where the debt now stands is @biztrack/domain's rule, the one the server applies.
-    const standing = debtStanding({
+    const next = debtAfterChange({
       originalAmount: debt.original_amount,
       paidAmount: debt.paid_amount + amount,
+      status: debt.status as DebtStatus,
+      settledAt: debt.settled_at,
+      at: now,
     })
-    const { status, paidAmount: paid } = standing
+    const { status } = next
+    const paid = next.standing.paidAmount
     this.db.run(`UPDATE debts SET status = ?, settled_at = ? WHERE id = ? AND business_id = ?`, [
       status,
-      debtSettledAt(standing, debt.settled_at, now),
+      next.settledAt,
       debtId,
       businessId,
     ])
@@ -884,7 +909,13 @@ export class DebtsService {
 }
 
 function toLocalDebt(row: DebtRow): LocalDebt {
-  const paid = row.paid_amount ?? 0
+  // What is paid and still owed (@biztrack/domain debtBalance, as the server): whole francs,
+  // nothing owed on a written-off debt.
+  const balance = debtBalance({
+    originalAmount: row.original_amount,
+    paidAmount: row.paid_amount ?? 0,
+    status: row.status as DebtStatus,
+  })
   return {
     id: row.id,
     contactId: row.contact_id,
@@ -892,8 +923,8 @@ function toLocalDebt(row: DebtRow): LocalDebt {
     sourceType: row.source_type as LocalDebt['sourceType'],
     sourceReference: row.source_reference,
     originalAmount: row.original_amount,
-    paidAmount: paid,
-    outstandingAmount: Math.max(0, row.original_amount - paid),
+    paidAmount: balance.paidAmount,
+    outstandingAmount: balance.outstandingAmount,
     status: row.status as LocalDebt['status'],
     dueDate: row.due_date,
     notes: row.notes,

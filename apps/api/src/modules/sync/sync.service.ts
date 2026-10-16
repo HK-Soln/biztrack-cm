@@ -64,10 +64,11 @@ import {
   checkProductKind,
   checkProductSku,
   checkStockAdjustmentTarget,
+  checkSyncedDebt,
   checkUnitEditable,
   checkUnitRemoval,
   contactNameKey,
-  debtStanding,
+  debtAfterChange,
   decideSerialAdd,
   decideStockAdjustment,
   decideUnit,
@@ -3930,24 +3931,34 @@ export class SyncService {
         }
       }
 
-      const totalPaid = this.normalizeMoney(
-        (payload.payments ?? []).reduce(
-          (sum, payment) => sum + this.normalizeMoney(payment.amount),
-          0,
-        ),
-      )
-      const normalizedOriginalAmount = this.normalizeMoney(payload.originalAmount)
-      // The server works out where the debt stands from its payments (@biztrack/domain);
-      // only "written off" is taken from the till.
-      const { status } = debtStanding({
-        originalAmount: normalizedOriginalAmount,
-        paidAmount: totalPaid,
-        writtenOff: payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt),
+      // The debt and its payments as the till sent them: payments (and reversals) that come
+      // to no more than is owed, as the till's own payment check allows (@biztrack/domain).
+      const checked = checkSyncedDebt({
+        originalAmount: Number(payload.originalAmount),
+        payments: (payload.payments ?? []).map((payment) => Number(payment.amount)),
       })
-      const settledAt =
-        status === DebtStatus.SETTLED
-          ? (this.parseOptionalDate(payload.settledAt) ?? operation.recordUpdatedAt)
-          : null
+      if (!checked.ok) {
+        return {
+          status: 'failed' as const,
+          errorMessage:
+            checked.code === 'DEBT_PAYMENTS_EXCEED_ORIGINAL'
+              ? 'The payments on this debt add up to more than is owed.'
+              : checked.code === 'DEBT_AMOUNT_INVALID'
+                ? 'The amount of this debt is not valid.'
+                : 'A payment on this debt is not a valid amount.',
+        }
+      }
+      const normalizedOriginalAmount = checked.originalAmount
+      // The server works out where the debt stands from its payments (@biztrack/domain);
+      // only "written off" is taken from the till. The first settlement date is kept.
+      const writtenOff = payload.status === DebtStatus.WRITTEN_OFF || Boolean(payload.writtenOffAt)
+      const { status, settledAt } = debtAfterChange({
+        originalAmount: normalizedOriginalAmount,
+        paidAmount: checked.paidAmount,
+        status: writtenOff ? DebtStatus.WRITTEN_OFF : DebtStatus.OUTSTANDING,
+        settledAt: existing?.settledAt ?? this.parseOptionalDate(payload.settledAt),
+        at: operation.recordUpdatedAt,
+      })
       const writtenOffAt =
         status === DebtStatus.WRITTEN_OFF
           ? (this.parseOptionalDate(payload.writtenOffAt) ?? operation.recordUpdatedAt)

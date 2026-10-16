@@ -132,6 +132,9 @@ export interface I18nTranslations {
     restock_serials_required: string
     restock_quantity_invalid: string
     restock_variant_required: string
+    debt_payments_exceed_original: string
+    debt_write_off_reason_required: string
+    debt_payment_amount_invalid: string
     stock_adjustment_quantity_invalid: string
     stock_adjustment_reason_required: string
     stock_serialized: string

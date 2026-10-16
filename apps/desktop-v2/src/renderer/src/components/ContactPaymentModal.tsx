@@ -1,8 +1,8 @@
-import { toWholeXaf } from '@biztrack/domain'
+import { checkDebtPayment, debtIsOpen, toWholeXaf } from '@biztrack/domain'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, CommandSelect, Input, Modal } from '@biztrack/ui/biztrack'
-import { DebtDirection, DebtStatus, PaymentMethod } from '@biztrack/types'
+import { DebtDirection, PaymentMethod } from '@biztrack/types'
 import { dataClient } from '@/lib/data-client'
 import { queryKeys } from '@/lib/query'
 import { useCurrency } from '@/lib/currency'
@@ -54,12 +54,8 @@ export function ContactPaymentModal({
   })
   const openDebts = useMemo(
     () =>
-      (data?.data ?? []).filter(
-        (d) =>
-          d.status !== DebtStatus.SETTLED &&
-          d.status !== DebtStatus.WRITTEN_OFF &&
-          d.outstandingAmount > 0,
-      ),
+      // Open debts with something owed (@biztrack/domain debtIsOpen).
+      (data?.data ?? []).filter((d) => debtIsOpen(d.status) && d.outstandingAmount > 0),
     [data],
   )
 
@@ -148,8 +144,17 @@ export function ContactPaymentModal({
 
   const submit = () => {
     if (!selected) return
-    if (paid <= 0) return setError(t('debt.amountInvalid'))
-    if (paid > outstanding + 1e-6) return setError(t('debt.amountTooHigh'))
+    // The payment check the till and the server apply (@biztrack/domain checkDebtPayment).
+    const check = checkDebtPayment({ amount: paid, outstanding })
+    if (!check.ok) {
+      return setError(
+        t(
+          check.code === 'DEBT_PAYMENT_AMOUNT_INVALID'
+            ? 'debt.amountInvalid'
+            : 'debt.amountTooHigh',
+        ),
+      )
+    }
     setError(null)
     save.mutate()
   }
