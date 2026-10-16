@@ -324,3 +324,55 @@ export function planVariantRemoval(input: { reason?: string | null; stock: numbe
     serialStatus: 'DAMAGED',
   }
 }
+
+export type RestockLineRejection =
+  | 'RESTOCK_NOT_TRACKED'
+  | 'RESTOCK_SERIALS_REQUIRED'
+  | 'RESTOCK_QUANTITY_INVALID'
+  | 'RESTOCK_VARIANT_REQUIRED'
+
+/**
+ * Where a restocked line's stock goes. A product that does not track stock is not restocked.
+ * A serialized product receives its serial numbers (trimmed, without blanks or repeats), one
+ * unit each (on one of its variants when it has them); a product with variants receives a
+ * quantity on one of its variants; any other product a quantity on its own level. A quantity
+ * is above zero, at most three decimals.
+ */
+export function classifyRestockLine(input: {
+  trackInventory: boolean
+  isSerialized: boolean
+  hasVariants: boolean
+  variantId?: string | null
+  quantity?: number | null
+  serialNumbers?: readonly string[] | null
+}):
+  | { ok: true; kind: 'SERIAL'; serialNumbers: string[]; quantity: number }
+  | { ok: true; kind: 'VARIANT' | 'DIRECT'; quantity: number }
+  | { ok: false; code: RestockLineRejection } {
+  if (!input.trackInventory) return { ok: false, code: 'RESTOCK_NOT_TRACKED' }
+  if (input.isSerialized) {
+    const seen = new Set<string>()
+    const serialNumbers: string[] = []
+    for (const raw of input.serialNumbers ?? []) {
+      const serial = raw.trim()
+      if (!serial || seen.has(serial)) continue
+      seen.add(serial)
+      serialNumbers.push(serial)
+    }
+    if (serialNumbers.length === 0) return { ok: false, code: 'RESTOCK_SERIALS_REQUIRED' }
+    // Each unit belongs to a variant when the product has them (checkSerialVariant).
+    if (input.hasVariants && !input.variantId)
+      return { ok: false, code: 'RESTOCK_VARIANT_REQUIRED' }
+    return { ok: true, kind: 'SERIAL', serialNumbers, quantity: serialNumbers.length }
+  }
+  const quantity = roundQuantity(Number(input.quantity ?? 0))
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { ok: false, code: 'RESTOCK_QUANTITY_INVALID' }
+  }
+  if (input.hasVariants) {
+    return input.variantId
+      ? { ok: true, kind: 'VARIANT', quantity }
+      : { ok: false, code: 'RESTOCK_VARIANT_REQUIRED' }
+  }
+  return { ok: true, kind: 'DIRECT', quantity }
+}

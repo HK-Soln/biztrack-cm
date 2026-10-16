@@ -118,4 +118,35 @@ describe('stock status on the server', () => {
     expect(await h.stockOf(rice)).toBe(6)
     expect(await h.stockOf(phone)).toBe(0)
   })
+
+  it("records a synced serialized sale and its void in the ledger, with the till's id", async () => {
+    const units = (await dataSource.query(
+      `SELECT id FROM product_serial_units WHERE product_id = $1 ORDER BY serial_number`,
+      [phone],
+    )) as Array<{ id: string }>
+    const payload = h.salePayload({
+      items: [{ productId: phone, quantity: 1, unitPrice: 1000, serialUnitId: units[0]!.id }],
+    })
+    const movementId = randomUUID()
+    payload.items[0]!.movementId = movementId
+
+    await h.sales.createFromSync(h.businessId, payload)
+    await h.sales.createFromSync(h.businessId, payload)
+    await h.sales.createFromSync(h.businessId, {
+      ...payload,
+      status: 'VOIDED' as never,
+      voidReason: 'Rang up by mistake at the till',
+    })
+
+    const moves = (await dataSource.query(
+      `SELECT id, type, quantity_change AS change, quantity_after AS after
+       FROM inventory_movements WHERE product_id = $1 ORDER BY created_at, type DESC`,
+      [phone],
+    )) as Array<{ id: string; type: string; change: string; after: string }>
+    expect(moves.map((m) => [m.type, Number(m.change), Number(m.after)])).toEqual([
+      ['SALE', -1, 1],
+      ['VOID_REVERSAL', 1, 2],
+    ])
+    expect(moves[0]!.id).toBe(movementId)
+  })
 })

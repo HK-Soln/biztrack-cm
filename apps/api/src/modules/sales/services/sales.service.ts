@@ -84,6 +84,7 @@ import type { AuditContext, RefundSaleInput } from '@biztrack/types'
 import { Product } from '@/entities/product.entity'
 import { ProductVariant } from '@/entities/product-variant.entity'
 import { ProductBundleComponent } from '@/entities/product-bundle-component.entity'
+import { MovementType } from '@/entities/inventory-movement.entity'
 import { ProductSerialUnit } from '@/entities/product-serial-unit.entity'
 import { Sale } from '@/entities/sale.entity'
 import { SaleCharge } from '@/entities/sale-charge.entity'
@@ -537,7 +538,17 @@ export class SalesService {
           manager,
         )
 
-        await this.markSerialUnitsSold(manager, businessId, sale.id, customerId ?? null, saleItems)
+        await this.markSerialUnitsSold(
+          manager,
+          businessId,
+          sale.id,
+          customerId ?? null,
+          saleItems,
+          {
+            saleNumber: sale.saleNumber,
+            userId: user.sub,
+          },
+        )
 
         await this.dailySummaryService.incrementForSale(sale, saleItems, salePayments, manager)
 
@@ -931,7 +942,14 @@ export class SalesService {
             businessId,
             sale.id,
             customerId ?? null,
-            saleItems,
+            saleItems.map((item, index) => ({
+              id: item.id,
+              productId: item.productId,
+              variantId: item.variantId ?? null,
+              serialUnitId: item.serialUnitId ?? null,
+              movementId: payload.items[index]?.movementId ?? null,
+            })),
+            { saleNumber: sale.saleNumber, userId: cashierId },
             { tolerateUnavailable: fromOfflineTill },
           )
           // The unit stays with the sale that already holds it; this sale stands too, and
@@ -1715,6 +1733,7 @@ export class SalesService {
           manager,
           businessId,
           voidLines.map(({ item }) => item),
+          { saleId: sale.id, saleNumber: sale.saleNumber, userId: user.sub },
         )
 
         await this.dailySummaryService.decrementForVoid(
@@ -1999,6 +2018,7 @@ export class SalesService {
             returnedLines
               .filter((r) => r.serialUnitId)
               .map((r) => ({ serialUnitId: r.serialUnitId })),
+            { saleId: sale.id, saleNumber: sale.saleNumber, userId: user.sub },
           )
         }
 
@@ -2589,12 +2609,23 @@ export class SalesService {
     businessId: string,
     saleId: string,
     customerId: string | null,
-    items: Array<{ id: string; serialUnitId?: string | null }>,
+    items: Array<{
+      id: string
+      productId: string
+      variantId?: string | null
+      serialUnitId?: string | null
+      movementId?: string | null
+    }>,
+    ledger: { saleNumber: string; userId: string | null },
     /** `tolerateUnavailable`: do not reject when a unit is already taken; return its id. */
     options?: { tolerateUnavailable?: boolean },
   ): Promise<string[]> {
     const repo = manager.getRepository(ProductSerialUnit)
     const unavailable: string[] = []
+    const sold = new Map<
+      string,
+      { productId: string; variantId: string | null; n: number; movementId?: string | null }
+    >()
     for (const item of items) {
       if (!item.serialUnitId) continue
       const result = await repo.update(
@@ -2621,7 +2652,31 @@ export class SalesService {
           )
         }
         unavailable.push(item.serialUnitId)
+        continue
       }
+      const key = `${item.productId}:${item.variantId ?? ''}`
+      const group = sold.get(key) ?? {
+        productId: item.productId,
+        variantId: item.variantId ?? null,
+        n: 0,
+        movementId: item.movementId,
+      }
+      group.n += 1
+      sold.set(key, group)
+    }
+    // The stock movement the till writes for the same sale (its units are its stock).
+    for (const group of sold.values()) {
+      await this.inventoryService.recordSerialMovement(manager, businessId, {
+        productId: group.productId,
+        variantId: group.variantId,
+        change: -group.n,
+        type: MovementType.SALE,
+        referenceType: 'sale',
+        referenceId: saleId,
+        notes: `Sale ${ledger.saleNumber}`,
+        performedById: ledger.userId,
+        movementId: group.movementId,
+      })
     }
     return unavailable
   }
@@ -2631,11 +2686,14 @@ export class SalesService {
     manager: EntityManager,
     businessId: string,
     items: Array<{ serialUnitId?: string | null }>,
+    ledger: { saleId: string; saleNumber: string; userId: string | null },
   ): Promise<void> {
     const repo = manager.getRepository(ProductSerialUnit)
+    const back = new Map<string, { productId: string; variantId: string | null; n: number }>()
     for (const item of items) {
       if (!item.serialUnitId) continue
-      await repo.update(
+      const unit = await repo.findOne({ where: { id: item.serialUnitId, businessId } })
+      const result = await repo.update(
         { id: item.serialUnitId, businessId, status: SerialUnitStatus.SOLD },
         {
           status: SerialUnitStatus.IN_STOCK,
@@ -2645,6 +2703,28 @@ export class SalesService {
           customerId: null,
         },
       )
+      if (!result.affected || !unit) continue
+      const key = `${unit.productId}:${unit.variantId ?? ''}`
+      const group = back.get(key) ?? {
+        productId: unit.productId,
+        variantId: unit.variantId ?? null,
+        n: 0,
+      }
+      group.n += 1
+      back.set(key, group)
+    }
+    // The stock movement the till writes for the same void or return.
+    for (const group of back.values()) {
+      await this.inventoryService.recordSerialMovement(manager, businessId, {
+        productId: group.productId,
+        variantId: group.variantId,
+        change: group.n,
+        type: MovementType.VOID_REVERSAL,
+        referenceType: 'sale_void',
+        referenceId: ledger.saleId,
+        notes: `Void ${ledger.saleNumber}`,
+        performedById: ledger.userId,
+      })
     }
   }
 
@@ -2828,6 +2908,7 @@ export class SalesService {
       manager,
       businessId,
       voidLines.map(({ item }) => item),
+      { saleId: sale.id, saleNumber: sale.saleNumber, userId: voidedById ?? sale.cashierId },
     )
 
     await this.dailySummaryService.decrementForVoid(
@@ -3056,6 +3137,7 @@ export class SalesService {
           returnedLines
             .filter((r) => r.serialUnitId)
             .map((r) => ({ serialUnitId: r.serialUnitId })),
+          { saleId: sale.id, saleNumber: sale.saleNumber, userId: sale.cashierId },
         )
       }
     }

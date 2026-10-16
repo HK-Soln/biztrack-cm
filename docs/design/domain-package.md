@@ -191,12 +191,27 @@ Done so far (`inventory/stock-rules.ts`):
   the till used, and the till did not round its stock and catalog stats at all; both now
   round the same way.
 
-Still to do in this slice: the restock deltas; the server writes no movement for a serialized product's
-sale or void (the till does);
-the variant check on a restock's serial units (neither the server's restock nor the
-till's add path checks it); which serial status changes a synced unit may make. The opening movements a variant product records still differ in
-shape (REST: one OPENING_STOCK per variant from 0; sync and the till: product-level
-running totals).
+- `classifyRestockLine`: where a restocked line goes (serial numbers trimmed and without
+  repeats, a variant, or the product's own level), on the server's restock (REST and
+  sync) and the till's. The server no longer puts a restock of a product with variants on
+  the product's own level when no variant is given; the till no longer counts a repeated
+  serial number twice in the line's quantity.
+
+- A serialized product's sale, void and return now write their movement on the server too,
+  counted on the units, with the till's own movement id when the sale came by sync (so the
+  pulled-back record is the same one). A restock of a serialized product with variants
+  names the variant (`classifyRestockLine`), as adding units does.
+
+Still to do in this slice:
+
+- Which serial status changes a synced unit may make (a till's unit upsert can set any
+  status).
+- The opening movements of a product with variants differ in shape (REST: one
+  OPENING_STOCK per variant from 0; sync and the till: product-level running totals).
+- The till pulls the server's movements back; the server's void and return movements have
+  their own ids, so after a sync the till's history shows a void twice (its own and the
+  server's). Stock levels are not affected. Fixing it means the till sends its movement ids
+  with a void, as it does with a sale.
 
 ### 10. Debts and contacts
 

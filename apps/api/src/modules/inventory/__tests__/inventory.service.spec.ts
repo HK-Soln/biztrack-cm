@@ -3,6 +3,7 @@ import { AppBadRequestException } from '@/common/exceptions/app-exceptions'
 import { InventoryLevel } from '@/entities/inventory-level.entity'
 import { InventoryMovement, MovementType } from '@/entities/inventory-movement.entity'
 import { ProductImage } from '@/entities/product-image.entity'
+import { ProductVariant } from '@/entities/product-variant.entity'
 import { Product } from '@/entities/product.entity'
 import { RestockCharge } from '@/entities/restock-charge.entity'
 import { RestockDiscount } from '@/entities/restock-discount.entity'
@@ -61,6 +62,8 @@ const makeService = () => {
       if (entity === RestockPayment) return transactionRestockPaymentRepo
       if (entity === RestockCharge) return transactionRestockChargeRepo
       if (entity === RestockDiscount) return transactionRestockDiscountRepo
+      // No variant rows: the restocked products are direct ones.
+      if (entity === ProductVariant) return { exists: jest.fn(async () => false) }
       throw new Error(`Unexpected repository request: ${entity}`)
     }),
   }

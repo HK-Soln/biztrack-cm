@@ -129,6 +129,9 @@ export interface I18nTranslations {
     online_min_order_not_met: string
     inventory_not_found: string
     inventory_insufficient_stock: string
+    restock_serials_required: string
+    restock_quantity_invalid: string
+    restock_variant_required: string
     stock_adjustment_quantity_invalid: string
     stock_adjustment_reason_required: string
     stock_serialized: string

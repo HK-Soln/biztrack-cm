@@ -27,6 +27,7 @@ import {
   checkRestockCredit,
   checkStockAdjustmentQuantity,
   checkStockAdjustmentTarget,
+  classifyRestockLine,
   computeReorderVelocity,
   computeStockoutMs,
   deadStock,
@@ -956,6 +957,54 @@ export class InventoryService {
     }
   }
 
+  /**
+   * The movement for serial units a sale sold or a void or return brought back: the stock of
+   * a serialized product is its IN_STOCK units, so `change` units moved and the counts are read
+   * after the units changed. Written as the till writes it, so both ledgers show the sale.
+   * `movementId` is the till's own id when the sale came by sync (pulled back, it is the same
+   * record, not a second one).
+   */
+  async recordSerialMovement(
+    manager: EntityManager,
+    businessId: string,
+    input: {
+      productId: string
+      variantId: string | null
+      change: number
+      type: MovementType.SALE | MovementType.VOID_REVERSAL
+      referenceType: string
+      referenceId: string
+      notes: string
+      performedById: string | null
+      movementId?: string | null
+    },
+  ): Promise<void> {
+    if (input.change === 0) return
+    const after = await manager.getRepository(ProductSerialUnit).count({
+      where: { businessId, productId: input.productId, status: SerialUnitStatus.IN_STOCK },
+    })
+    const movementRepo = this.getMovementRepo(manager)
+    if (input.movementId && (await movementRepo.exists({ where: { id: input.movementId } }))) return
+    await movementRepo.save(
+      movementRepo.create({
+        id: input.movementId ?? undefined,
+        businessId,
+        productId: input.productId,
+        variantId: input.variantId,
+        type: input.type,
+        quantityChange: input.change,
+        quantityBefore: after - input.change,
+        quantityAfter: after,
+        referenceType: input.referenceType,
+        referenceId: input.referenceId,
+        notes: input.notes,
+        performedById: input.performedById,
+        // Local trading day (BIZ-5.1) from the business timezone + cutover.
+        businessDate: await this.calendar.computeForBusiness(businessId, new Date()),
+      }),
+    )
+  }
+
   async reverseForVoidedSale(
     businessId: string,
     saleId: string,
@@ -1589,20 +1638,38 @@ export class InventoryService {
         )
       }
 
-      if (!product.trackInventory) {
+      // Where the line's stock goes (@biztrack/domain classifyRestockLine, as the till);
+      // variant rows decide, not the has_variants flag.
+      const line = classifyRestockLine({
+        trackInventory: product.trackInventory,
+        isSerialized: product.isSerialized,
+        hasVariants: await manager.getRepository(ProductVariant).exists({
+          where: { businessId: input.businessId, productId: product.id },
+        }),
+        variantId: item.variantId,
+        quantity: item.quantity,
+        serialNumbers: item.serialNumbers,
+      })
+      if (!line.ok) {
+        const key = {
+          RESTOCK_NOT_TRACKED: 'errors.product_inventory_tracking_required',
+          RESTOCK_SERIALS_REQUIRED: 'errors.restock_serials_required',
+          RESTOCK_QUANTITY_INVALID: 'errors.restock_quantity_invalid',
+          RESTOCK_VARIANT_REQUIRED: 'errors.restock_variant_required',
+        }[line.code]
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.product_inventory_tracking_required' as never),
-          'PRODUCT_INVENTORY_TRACKING_REQUIRED',
+          await this.i18n.translate(key as never),
+          line.code === 'RESTOCK_NOT_TRACKED' ? 'PRODUCT_INVENTORY_TRACKING_REQUIRED' : line.code,
           { productId: item.productId, productName: product.name },
         )
       }
 
       // Serialised products: create one IN_STOCK unit per serial number, and record a
       // RESTOCK_IN movement (stock = serial count) so the ledger matches the desktop.
-      if (product.isSerialized) {
+      if (line.kind === 'SERIAL') {
         const { created, errors } = await this.restockSerialUnits(
           manager,
-          item,
+          { ...item, serialNumbers: line.serialNumbers },
           product,
           input,
           record.id,

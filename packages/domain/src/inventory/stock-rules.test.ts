@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkStockAdjustmentTarget,
+  classifyRestockLine,
   decideStockAdjustment,
   newProductStockLevel,
   newVariantStockLevel,
@@ -252,5 +253,45 @@ describe('removal plans', () => {
       reason: 'discontinued',
       writeOff: 2,
     })
+  })
+})
+
+describe('classifyRestockLine', () => {
+  const base = { trackInventory: true, isSerialized: false, hasVariants: false }
+  it('sends a line to its units, a variant or the product', () => {
+    expect(
+      classifyRestockLine({ ...base, isSerialized: true, serialNumbers: [' A ', '', 'A', 'B'] }),
+    ).toEqual({ ok: true, kind: 'SERIAL', serialNumbers: ['A', 'B'], quantity: 2 })
+    expect(
+      classifyRestockLine({ ...base, hasVariants: true, variantId: 'v', quantity: 2 }),
+    ).toEqual({
+      ok: true,
+      kind: 'VARIANT',
+      quantity: 2,
+    })
+    expect(classifyRestockLine({ ...base, quantity: 1.2345 })).toEqual({
+      ok: true,
+      kind: 'DIRECT',
+      quantity: 1.235,
+    })
+  })
+  it('refuses what cannot be restocked', () => {
+    expect(classifyRestockLine({ ...base, trackInventory: false, quantity: 1 })).toMatchObject({
+      code: 'RESTOCK_NOT_TRACKED',
+    })
+    expect(
+      classifyRestockLine({ ...base, isSerialized: true, serialNumbers: [' '] }),
+    ).toMatchObject({
+      code: 'RESTOCK_SERIALS_REQUIRED',
+    })
+    expect(classifyRestockLine({ ...base, quantity: 0 })).toMatchObject({
+      code: 'RESTOCK_QUANTITY_INVALID',
+    })
+    expect(classifyRestockLine({ ...base, hasVariants: true, quantity: 1 })).toMatchObject({
+      code: 'RESTOCK_VARIANT_REQUIRED',
+    })
+    expect(
+      classifyRestockLine({ ...base, isSerialized: true, hasVariants: true, serialNumbers: ['A'] }),
+    ).toMatchObject({ code: 'RESTOCK_VARIANT_REQUIRED' })
   })
 })

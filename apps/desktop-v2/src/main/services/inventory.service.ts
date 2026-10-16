@@ -3,6 +3,7 @@ import type { DatabaseService } from '@biztrack/electron-core'
 import {
   checkRestockCredit,
   checkStockAdjustmentTarget,
+  classifyRestockLine,
   computeReorderVelocity,
   computeStockoutMs,
   deadStock,
@@ -536,15 +537,31 @@ export class InventoryService {
     // Validate + classify everything before writing.
     const lines: Line[] = input.items.map((item) => {
       const meta = this.requireProduct(item.productId, businessId)
-      if (!meta.trackInventory) throw new Error(`“${meta.name}” does not track stock.`)
+      // Where the line's stock goes (@biztrack/domain classifyRestockLine, as the server).
+      const line = classifyRestockLine({
+        trackInventory: meta.trackInventory,
+        isSerialized: meta.isSerialized,
+        hasVariants: meta.hasVariants,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        serialNumbers: item.serialNumbers,
+      })
+      if (!line.ok) {
+        throw new Error(
+          {
+            RESTOCK_NOT_TRACKED: `“${meta.name}” does not track stock.`,
+            RESTOCK_SERIALS_REQUIRED: `Add the serial numbers received for “${meta.name}”.`,
+            RESTOCK_QUANTITY_INVALID: `Quantity for “${meta.name}” must be greater than 0.`,
+            RESTOCK_VARIANT_REQUIRED: `Select a variant for “${meta.name}”.`,
+          }[line.code],
+        )
+      }
       const unitCost =
         item.unitCost != null && Number.isFinite(item.unitCost) && item.unitCost >= 0
           ? item.unitCost
           : null
-      if (meta.isSerialized) {
-        const serials = (item.serialNumbers ?? []).map((s) => s.trim()).filter(Boolean)
-        if (serials.length === 0)
-          throw new Error(`Add the serial numbers received for “${meta.name}”.`)
+      if (line.kind === 'SERIAL') {
+        const serials = line.serialNumbers
         return {
           kind: 'serial',
           productId: item.productId,
@@ -556,11 +573,8 @@ export class InventoryService {
           unitCost,
         }
       }
-      const qty = item.quantity ?? 0
-      if (!Number.isFinite(qty) || qty <= 0)
-        throw new Error(`Quantity for “${meta.name}” must be greater than 0.`)
-      if (meta.hasVariants) {
-        if (!item.variantId) throw new Error(`Select a variant for “${meta.name}”.`)
+      const qty = line.quantity
+      if (line.kind === 'VARIANT' && item.variantId) {
         const variant = this.db.get<{ id: string }>(
           `SELECT id FROM product_variants WHERE id = ? AND product_id = ? AND is_deleted = 0`,
           [item.variantId, item.productId],
