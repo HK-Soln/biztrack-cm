@@ -1,4 +1,11 @@
-import { checkProductSku, productAverageCost, productDisplayPrice } from '@biztrack/domain'
+import {
+  bundleCanMake,
+  checkBundleComponents,
+  checkProductKind,
+  checkProductSku,
+  productAverageCost,
+  productDisplayPrice,
+} from '@biztrack/domain'
 import { removeProduct } from '../catalog-removal'
 import { Inject, Injectable } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
@@ -141,61 +148,62 @@ export class ProductsService {
       const wantsVariants = (dto.attributeSelections ?? []).some(
         (selection) => (selection.selectedOptionIds?.length ?? 0) > 0,
       )
-      const variantsAllowed =
-        productType === ProductType.SIMPLE || productType === ProductType.VARIABLE_QUANTITY
-      if (wantsVariants && !variantsAllowed) {
+      // What a product of its type may carry is @biztrack/domain's checkProductKind (R12).
+      const kindProblem = checkProductKind({
+        productType,
+        hasVariants: wantsVariants,
+        isSerialized: dto.isSerialized === true,
+        serialType: dto.serialType,
+      })
+      if (kindProblem) {
         throw new AppBadRequestException(
-          await this.i18n.translate('errors.variants_not_supported'),
-          'VARIANTS_NOT_SUPPORTED',
+          await this.i18n.translate(
+            kindProblem === 'VARIANTS_NOT_SUPPORTED'
+              ? 'errors.variants_not_supported'
+              : kindProblem === 'SERIALIZED_ONLY_SIMPLE'
+                ? 'errors.serialized_only_simple'
+                : 'errors.serial_type_required',
+          ),
+          kindProblem,
         )
       }
-      const hasVariants = wantsVariants && variantsAllowed
+      const hasVariants = wantsVariants
 
       // Composite (bundle) products (Phase 3F) — validate components up front.
       const isComposite = productType === ProductType.COMPOSITE
       const bundleComponents = dto.bundleComponents ?? []
       if (isComposite) {
-        if (bundleComponents.length === 0) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.bundle_components_required'),
-            'BUNDLE_COMPONENTS_REQUIRED',
-          )
-        }
         const componentIds = [...new Set(bundleComponents.map((c) => c.componentProductId))]
-        const componentProducts = await this.productsRepo.find({
-          where: { id: In(componentIds), businessId, deletedAt: IsNull() },
+        const componentProducts = componentIds.length
+          ? await this.productsRepo.find({
+              where: { id: In(componentIds), businessId, deletedAt: IsNull() },
+            })
+          : []
+        // A bundle needs components, all found, none a bundle (@biztrack/domain).
+        const bundleProblem = checkBundleComponents({
+          requested: componentIds.length,
+          found: componentProducts,
         })
-        if (componentProducts.length !== componentIds.length) {
+        if (bundleProblem === 'PRODUCT_NOT_FOUND') {
           throw new AppNotFoundException(
             await this.i18n.translate('errors.product_not_found'),
-            'PRODUCT_NOT_FOUND',
+            bundleProblem,
           )
         }
-        // A bundle cannot contain another bundle.
-        if (componentProducts.some((c) => c.productType === ProductType.COMPOSITE)) {
+        if (bundleProblem) {
           throw new AppBadRequestException(
-            await this.i18n.translate('errors.bundle_component_nested'),
-            'BUNDLE_COMPONENT_NESTED',
+            await this.i18n.translate(
+              bundleProblem === 'BUNDLE_COMPONENTS_REQUIRED'
+                ? 'errors.bundle_components_required'
+                : 'errors.bundle_component_nested',
+            ),
+            bundleProblem,
           )
         }
       }
 
-      // Serialised inventory (Phase 3G) — only valid for SIMPLE products.
+      // Serialised inventory (Phase 3G), checked above with the product's kind.
       const isSerialized = dto.isSerialized === true
-      if (isSerialized) {
-        if (productType !== ProductType.SIMPLE) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.serialized_only_simple'),
-            'SERIALIZED_ONLY_SIMPLE',
-          )
-        }
-        if (!dto.serialType) {
-          throw new AppBadRequestException(
-            await this.i18n.translate('errors.serial_type_required'),
-            'SERIAL_TYPE_REQUIRED',
-          )
-        }
-      }
 
       const product = await this.dataSource.transaction(async (manager) => {
         const created = await manager.getRepository(Product).save(
@@ -671,30 +679,21 @@ export class ProductsService {
         levels.map((level) => [level.productId, Number(level.quantity)]),
       )
 
-      let minCanMake = Infinity
-      let limitedBy: string | null = null
-      const componentSummaries = components.map((component) => {
-        const inStock = stockByProduct.get(component.componentProductId) ?? 0
-        const canMakeFromThis = Math.floor(inStock / component.quantity)
-        if (canMakeFromThis < minCanMake) {
-          minCanMake = canMakeFromThis
-          limitedBy = component.componentProduct?.name ?? null
-        }
-        return {
-          productId: component.componentProductId,
-          productName: component.componentProduct?.name ?? '',
-          requiredPerBundle: component.quantity,
-          inStock,
-        }
-      })
-
-      const canMake = components.length === 0 || minCanMake === Infinity ? 0 : minCanMake
-      return {
-        productId,
-        canMake,
-        limitedBy: canMake === 0 ? limitedBy : null,
-        components: componentSummaries,
-      }
+      const componentSummaries = components.map((component) => ({
+        productId: component.componentProductId,
+        productName: component.componentProduct?.name ?? '',
+        requiredPerBundle: component.quantity,
+        inStock: stockByProduct.get(component.componentProductId) ?? 0,
+      }))
+      // How many can be made is @biztrack/domain's bundleCanMake.
+      const { canMake, limitedBy } = bundleCanMake(
+        componentSummaries.map((c) => ({
+          name: c.productName,
+          inStock: c.inStock,
+          requiredPerBundle: c.requiredPerBundle,
+        })),
+      )
+      return { productId, canMake, limitedBy, components: componentSummaries }
     } catch (error) {
       return this.handleServiceError('getBundleAvailability', error, { productId, businessId })
     }

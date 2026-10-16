@@ -170,3 +170,71 @@ export function checkAttributeGroupRemoval(input: {
 export function checkAttributeOptionRemoval(variantUses: number): 'ATTRIBUTE_OPTION_IN_USE' | null {
   return variantUses > 0 ? 'ATTRIBUTE_OPTION_IN_USE' : null
 }
+
+export const SERIAL_TYPES: readonly SerialType[] = ['IMEI', 'SERIAL_NUMBER', 'BARCODE']
+
+/** Variants go only on a simple product or one sold by quantity. */
+export function productTakesVariants(productType: ProductType | `${ProductType}`): boolean {
+  return productType === 'SIMPLE' || productType === 'VARIABLE_QUANTITY'
+}
+
+export type ProductKindRejection =
+  | 'VARIANTS_NOT_SUPPORTED'
+  | 'SERIALIZED_ONLY_SIMPLE'
+  | 'SERIAL_TYPE_REQUIRED'
+  | 'SERIAL_TYPE_INVALID'
+
+/**
+ * What a product of a type may carry: variants only on a simple product or one sold by
+ * quantity; serial numbers only on a simple product, and then with a serial type.
+ */
+export function checkProductKind(input: {
+  productType: ProductType | `${ProductType}`
+  hasVariants?: boolean
+  isSerialized?: boolean
+  serialType?: string | null
+}): ProductKindRejection | null {
+  if (input.hasVariants && !productTakesVariants(input.productType)) {
+    return 'VARIANTS_NOT_SUPPORTED'
+  }
+  if (input.isSerialized) {
+    if (input.productType !== 'SIMPLE') return 'SERIALIZED_ONLY_SIMPLE'
+    if (!input.serialType) return 'SERIAL_TYPE_REQUIRED'
+    if (!SERIAL_TYPES.includes(input.serialType as SerialType)) return 'SERIAL_TYPE_INVALID'
+  }
+  return null
+}
+
+/**
+ * A bundle's components: at least one, all found among the business's live products, and
+ * none of them a bundle itself.
+ */
+export function checkBundleComponents(input: {
+  requested: number
+  found: ReadonlyArray<{ productType: ProductType | `${ProductType}` }>
+}): 'BUNDLE_COMPONENTS_REQUIRED' | 'PRODUCT_NOT_FOUND' | 'BUNDLE_COMPONENT_NESTED' | null {
+  if (input.requested === 0) return 'BUNDLE_COMPONENTS_REQUIRED'
+  if (input.found.length !== input.requested) return 'PRODUCT_NOT_FOUND'
+  if (input.found.some((c) => c.productType === 'COMPOSITE')) return 'BUNDLE_COMPONENT_NESTED'
+  return null
+}
+
+/**
+ * How many bundles the components in stock can make: the fewest any one component allows.
+ * `limitedBy` names that component when none can be made.
+ */
+export function bundleCanMake(
+  components: ReadonlyArray<{ name: string; inStock: number; requiredPerBundle: number }>,
+): { canMake: number; limitedBy: string | null } {
+  let canMake = Infinity
+  let limitedBy: string | null = null
+  for (const c of components) {
+    const fromThis = Math.floor(c.inStock / c.requiredPerBundle)
+    if (fromThis < canMake) {
+      canMake = fromThis
+      limitedBy = c.name
+    }
+  }
+  if (components.length === 0 || canMake === Infinity) return { canMake: 0, limitedBy: null }
+  return { canMake, limitedBy: canMake === 0 ? limitedBy : null }
+}

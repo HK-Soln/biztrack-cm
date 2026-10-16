@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ProductType } from '@biztrack/types'
 import {
+  bundleCanMake,
   categoryAcceptsProducts,
+  checkBundleComponents,
+  checkProductKind,
   checkAttributeGroupRemoval,
   checkAttributeOptionRemoval,
   checkBrandRemoval,
@@ -159,5 +162,63 @@ describe('brand, model and attribute removal', () => {
       cause: 'CATEGORIES',
     })
     expect(checkAttributeGroupRemoval({ variantUses: 0, categoryLinks: 0 })).toBeNull()
+  })
+})
+
+describe('checkProductKind', () => {
+  it('allows variants only on simple and sold-by-quantity products', () => {
+    expect(checkProductKind({ productType: 'SIMPLE', hasVariants: true })).toBeNull()
+    expect(checkProductKind({ productType: 'VARIABLE_QUANTITY', hasVariants: true })).toBeNull()
+    expect(checkProductKind({ productType: 'SERVICE', hasVariants: true })).toBe(
+      'VARIANTS_NOT_SUPPORTED',
+    )
+    expect(checkProductKind({ productType: 'COMPOSITE', hasVariants: true })).toBe(
+      'VARIANTS_NOT_SUPPORTED',
+    )
+  })
+
+  it('allows serial numbers only on a simple product with a valid serial type', () => {
+    expect(
+      checkProductKind({ productType: 'SIMPLE', isSerialized: true, serialType: 'IMEI' }),
+    ).toBeNull()
+    expect(
+      checkProductKind({ productType: 'SERVICE', isSerialized: true, serialType: 'IMEI' }),
+    ).toBe('SERIALIZED_ONLY_SIMPLE')
+    expect(checkProductKind({ productType: 'SIMPLE', isSerialized: true })).toBe(
+      'SERIAL_TYPE_REQUIRED',
+    )
+    expect(
+      checkProductKind({ productType: 'SIMPLE', isSerialized: true, serialType: 'RFID' }),
+    ).toBe('SERIAL_TYPE_INVALID')
+  })
+})
+
+describe('bundles', () => {
+  it('needs components, all found, none a bundle', () => {
+    expect(checkBundleComponents({ requested: 0, found: [] })).toBe('BUNDLE_COMPONENTS_REQUIRED')
+    expect(checkBundleComponents({ requested: 2, found: [{ productType: 'SIMPLE' }] })).toBe(
+      'PRODUCT_NOT_FOUND',
+    )
+    expect(
+      checkBundleComponents({
+        requested: 2,
+        found: [{ productType: 'SIMPLE' }, { productType: 'COMPOSITE' }],
+      }),
+    ).toBe('BUNDLE_COMPONENT_NESTED')
+    expect(checkBundleComponents({ requested: 1, found: [{ productType: 'SIMPLE' }] })).toBeNull()
+  })
+
+  it('makes as many bundles as the scarcest component allows', () => {
+    expect(
+      bundleCanMake([
+        { name: 'Rice', inStock: 10, requiredPerBundle: 2 },
+        { name: 'Oil', inStock: 3, requiredPerBundle: 1 },
+      ]),
+    ).toEqual({ canMake: 3, limitedBy: null })
+    expect(bundleCanMake([{ name: 'Oil', inStock: 1, requiredPerBundle: 2 }])).toEqual({
+      canMake: 0,
+      limitedBy: 'Oil',
+    })
+    expect(bundleCanMake([])).toEqual({ canMake: 0, limitedBy: null })
   })
 })

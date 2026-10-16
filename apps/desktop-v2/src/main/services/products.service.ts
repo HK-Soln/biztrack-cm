@@ -1,11 +1,13 @@
 import {
   SKU_RANDOM_ALPHABET,
   buildProductSku,
+  checkProductKind,
   checkProductPrices,
   checkProductSku,
   normalizeBarcode,
   normalizeVariantSku,
   productStockFlags,
+  productTakesVariants,
   slugify,
   uniqueSlug,
   validateSerialNumber,
@@ -466,6 +468,7 @@ export class ProductsService {
     const now = new Date().toISOString()
     const type = productType(input)
     this.assertPrices(input)
+    this.assertKind(type, input)
     // Stock tracking by product type is @biztrack/domain's rule (R13), the server's.
     const { isService, trackInventory: tracks } = productStockFlags(type, input.trackInventory)
     const currency = this.businessCurrency(businessId)
@@ -537,14 +540,25 @@ export class ProductsService {
     return created
   }
 
-  update(id: string, input: ProductInput): LocalProduct {
+  update(id: string, changes: ProductInput): LocalProduct {
     const businessId = this.requireBusinessId()
-    this.assertUnit(input.unitOfMeasureId, businessId)
-    if (input.categoryId) this.assertCategorySelectable(input.categoryId, businessId)
+    this.assertUnit(changes.unitOfMeasureId, businessId)
+    if (changes.categoryId) this.assertCategorySelectable(changes.categoryId, businessId)
     const now = new Date().toISOString()
+    const before = this.getOne(id)
+    // A product's type and serial-number setting are fixed once it exists, as on the
+    // server, whose update leaves them alone (R12).
+    const input: ProductInput = before
+      ? {
+          ...changes,
+          productType: before.productType,
+          isService: before.productType === 'SERVICE',
+          isSerialized: before.isSerialized,
+          serialType: before.serialType,
+        }
+      : changes
     const type = productType(input)
     this.assertPrices(input)
-    const before = this.getOne(id)
     const { isService, trackInventory: tracks } = productStockFlags(
       type,
       input.trackInventory ?? before?.trackInventory,
@@ -992,6 +1006,11 @@ export class ProductsService {
   setVariants(productId: string, variants: VariantInput[]): void {
     const businessId = this.requireBusinessId()
     const now = new Date().toISOString()
+    if (variants.length > 0) {
+      const product = this.getOne(productId)
+      if (!product) throw new Error('Product not found.')
+      this.assertTakesVariants(product)
+    }
     const existing = this.listVariants(productId)
     const existingBySig = new Map(
       existing.map((v) => [variantSignature(v.options.map((o) => o.attributeOptionId)), v]),
@@ -1148,6 +1167,7 @@ export class ProductsService {
     const businessId = this.requireBusinessId()
     const product = this.getOne(productId)
     if (!product) throw new Error('Product not found.')
+    this.assertTakesVariants(product)
     const now = new Date().toISOString()
     // Variants are attribute-based (options) OR free-form (a manually named option).
     // Combination-dedupe only applies to attribute-based variants; a free-form variant
@@ -2060,6 +2080,26 @@ export class ProductsService {
    * business). Enforced here so an empty or stale unit can never be persisted, whatever
    * the caller — the form's "required" hint is a convenience, this is the guarantee.
    */
+  /** What a product of its type may carry (@biztrack/domain checkProductKind), as on the server. */
+  private assertKind(type: ProductType, input: ProductInput): void {
+    const problem = checkProductKind({
+      productType: type,
+      isSerialized: input.isSerialized === true,
+      serialType: input.serialType,
+    })
+    if (problem === 'SERIALIZED_ONLY_SIMPLE')
+      throw new Error('Only a simple product can track serial numbers.')
+    if (problem === 'SERIAL_TYPE_REQUIRED' || problem === 'SERIAL_TYPE_INVALID')
+      throw new Error('Choose how the serial numbers are written (IMEI, serial number or barcode).')
+  }
+
+  /** Variants go only on a simple product or one sold by quantity, as on the server. */
+  private assertTakesVariants(product: LocalProduct): void {
+    if (!productTakesVariants(product.productType)) {
+      throw new Error('This kind of product cannot have variants.')
+    }
+  }
+
   /** Prices are never negative (ruling R15), as on the server. */
   private assertPrices(input: ProductInput): void {
     const problem = checkProductPrices({

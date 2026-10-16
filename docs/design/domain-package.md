@@ -65,7 +65,7 @@ packages/domain/src
 | 4   | Sale use case: `decideSale`, `decideVoid`, `decideRefund` returning every write (items, payments, discounts, stock deltas, serial units, debt, audit, daily summary); server re-evaluates discount authorization on sync; desktop writes wrapped in a transaction | In progress. Done: desktop create, void and refund in one transaction; R1 to R7; review flags (`review_flags` table, `GET /review-flags`, owner notification, the "To review" screen). Open: `decideSale` / `decideVoid` use cases |
 | 5   | Stock ledger: one movement model; desktop stock moves off product rows into `inventory_levels`                                                                                                                                                                    |                                                                                                                                                                                                                                    |
 | 6   | Debts and payments: collapse the four copies of debt status; replace the SQLite debt triggers                                                                                                                                                                     | Done: `debtStanding` replaces the seven copies of debt status; the SQLite debt triggers are dropped and the till decides debts in code with the same domain rules as the server (R9 to R11)                                        |
-| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            |                                                                                                                                                                                                                                    |
+| 7   | Catalog: route sync product, variant, category and contact appliers through the domain                                                                                                                                                                            | Done: R12 to R18 and R20 (see "R12. A catalog record that breaks a rule" and the rulings after it)                                                                                                                                 |
 | 8   | Cash sessions, expenses, income, savings, periods, POs and RFQs; replace the leftover two-decimal `round2` / `roundMoney` helpers with `toWholeXaf`                                                                                                               | Done, see "Slice 8 as built". The stock report rounding moves to slice 5                                                                                                                                                           |
 
 Out of scope (owner, 2026-10-11): anything built for mobile. The mobile app will be written
@@ -233,6 +233,14 @@ one the server will refuse.
   REST and sync paths and the till; unique among the business's live variants, now checked
   on the sync path too (`VARIANT_DUPLICATE_SKU`). The till used to store the SKU untrimmed
   and the server's REST path stored a blank one as an empty string.
+- Product kinds, as built: `checkProductKind`, `checkBundleComponents` and
+  `bundleCanMake` in `catalog-rules.ts`. Variants only on a simple product or one sold by
+  quantity; serial numbers only on a simple product, with a serial type (IMEI, serial number
+  or barcode); a bundle needs components, all live products, none a bundle. A product's type
+  and serial-number setting are fixed once it exists: the server's update never changed
+  them, but the till's update and the sync path did. The till and the sync path now check a
+  new product's kind, and the till refuses variants on a product that cannot take them.
+  Bundles are made only on the server; the till mirrors them.
 - Prices on the product form (R15): a price has to be entered, but zero is accepted; only a
   negative price is refused. The form used to refuse zero.
 

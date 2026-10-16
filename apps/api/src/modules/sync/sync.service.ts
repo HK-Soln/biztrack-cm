@@ -70,6 +70,7 @@ import {
   validateSerialNumber,
   checkUnitEditable,
   checkUnitRemoval,
+  checkProductKind,
   decideUnit,
   normalizeVariantSku,
   slugify,
@@ -3435,17 +3436,31 @@ export class SyncService {
       existing?.sku ?? null,
     )
     const barcode = await this.resolveProductBarcode(businessId, payload, existing)
-    // productType is authoritative; isService/trackInventory are derived from it.
-    // Fall back to the payload's/existing productType, then to a classification
-    // inferred from the legacy isService flag (older clients send no productType).
+    // productType is authoritative; isService/trackInventory are derived from it. A
+    // product's type, like its serial-number setting, is fixed once it exists, as on the
+    // server's own update (R12). A new one takes the payload's type, or one inferred from
+    // the legacy isService flag (older clients send no productType).
     const productType =
-      payload.productType ??
-      existing?.productType ??
-      inferProductType(payload.isService ?? existing?.isService)
+      existing?.productType ?? payload.productType ?? inferProductType(payload.isService)
     const { isService, trackInventory } = deriveProductTypeFlags(
       productType,
       payload.trackInventory ?? existing?.trackInventory,
     )
+    if (!existing) {
+      const problem = checkProductKind({
+        productType,
+        isSerialized: payload.isSerialized ?? false,
+        serialType: this.normalizeOptionalString(payload.serialType),
+      })
+      if (problem) {
+        throw new AppBadRequestException(
+          problem === 'SERIALIZED_ONLY_SIMPLE'
+            ? 'Only a simple product can track serial numbers.'
+            : 'A serialized product needs a valid serial type.',
+          problem,
+        )
+      }
+    }
 
     if (existing) {
       const nextIsActive = payload.isActive ?? existing.isActive
@@ -3487,8 +3502,8 @@ export class SyncService {
           onlineStockReserve: payload.onlineStockReserve ?? existing.onlineStockReserve,
           metaTitle: this.normalizeOptionalString(payload.metaTitle),
           metaDescription: this.normalizeOptionalString(payload.metaDescription),
-          isSerialized: payload.isSerialized ?? existing.isSerialized,
-          serialType: this.normalizeOptionalString(payload.serialType),
+          isSerialized: existing.isSerialized,
+          serialType: existing.serialType,
           warrantyMonths: payload.warrantyMonths ?? existing.warrantyMonths ?? null,
           uniqueItems: payload.uniqueItems ?? existing.uniqueItems,
           imageUrl: this.normalizeOptionalString(payload.imageUrl),

@@ -107,4 +107,56 @@ describe('product SKU on the till', () => {
       products.addVariant(shirt.id, { name: 'Green', sku: 'TS-RED', options: [] } as never),
     ).toThrow('already used by another variant')
   })
+
+  // Ruling R12: what a product of a type may carry, and what stays fixed, as on the server.
+  it('allows serial numbers only on a simple product, with a serial type', () => {
+    const base = { sellingPrice: 1000, unitOfMeasureId: 'u1' }
+    expect(() =>
+      products.create({
+        ...base,
+        name: 'Repair',
+        productType: 'SERVICE',
+        isSerialized: true,
+        serialType: 'IMEI',
+      } as never),
+    ).toThrow('Only a simple product')
+    expect(() =>
+      products.create({ ...base, name: 'Phone', isSerialized: true, serialType: null } as never),
+    ).toThrow('Choose how the serial numbers are written')
+  })
+
+  it('keeps the type and the serial setting on edit', () => {
+    const phone = products.create({
+      name: 'Phone',
+      sellingPrice: 90000,
+      unitOfMeasureId: 'u1',
+      isSerialized: true,
+      serialType: 'IMEI',
+    } as never)
+    const edited = products.update(phone.id, {
+      name: 'Phone X',
+      sellingPrice: 95000,
+      unitOfMeasureId: 'u1',
+      productType: 'SERVICE',
+      isSerialized: false,
+    } as never)
+    expect(edited).toMatchObject({
+      name: 'Phone X',
+      productType: 'SIMPLE',
+      isSerialized: true,
+      serialType: 'IMEI',
+    })
+  })
+
+  it('refuses variants on a service', () => {
+    const repair = products.create({
+      name: 'Repair',
+      sellingPrice: 5000,
+      unitOfMeasureId: 'u1',
+      productType: 'SERVICE',
+    } as never)
+    expect(() => products.addVariant(repair.id, { name: 'Express', options: [] } as never)).toThrow(
+      'cannot have variants',
+    )
+  })
 })
